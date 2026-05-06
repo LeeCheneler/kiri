@@ -1,0 +1,58 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: 'Features'
+    labels: ['feature']
+  - title: 'Bug fixes'
+    labels: ['fix']
+  - title: 'Maintenance'
+    labels: ['chore']
+  - title: 'Documentation'
+    labels: ['docs']
+  - title: 'Refactors'
+    labels: ['refactor']
+  - title: 'Tests'
+    labels: ['test']
+
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels: ['breaking']
+  minor:
+    labels: ['feature']
+  patch:
+    labels: ['fix', 'chore', 'docs', 'refactor', 'test']
+  default: patch
+
+autolabeler:
+  - label: 'breaking'
+    title:
+      - '/^[a-z]+(\(.+\))?!:/'
+  - label: 'feature'
+    title:
+      - '/^feat(\(.+\))?:/'
+  - label: 'fix'
+    title:
+      - '/^fix(\(.+\))?:/'
+  - label: 'chore'
+    title:
+      - '/^chore(\(.+\))?:/'
+      - '/^ci(\(.+\))?:/'
+      - '/^cd(\(.+\))?:/'
+  - label: 'docs'
+    title:
+      - '/^docs(\(.+\))?:/'
+  - label: 'refactor'
+    title:
+      - '/^refactor(\(.+\))?:/'
+  - label: 'test'
+    title:
+      - '/^test(\(.+\))?:/'
+
+template: |
+  ## What's changed
+
+  $CHANGES
