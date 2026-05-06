@@ -21,7 +21,7 @@ These are constraints, not work items. They hold for every milestone below.
 
 - Hono process serving HTTP and the SPA bundle
 - Vite + React single-page UI, no router yet
-- Repo-scoped startup: assert cwd is a git repo containing `workflows/`; create `.kiri/` if missing; refuse to launch otherwise
+- Repo-scoped startup: scaffold `workflows/` and `.kiri/` at cwd if missing, then open and migrate the state DB
 - SQLite + Drizzle schema (in `.kiri/state.db`): `runs` (with definition snapshot), `run_nodes` (per-node envelope + materials snapshot). No `workflows` table
 - Workflow definition loader: TS files in `<cwd>/workflows/` hydrate an in-memory registry; `defineWorkflow({...})` shape
 - Script node executor: `child_process` spawn (argv + scoped env, never shell strings), stdout/stderr/exit captured, envelope assembled
