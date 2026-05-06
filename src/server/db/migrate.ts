@@ -8,6 +8,14 @@ interface Migration {
 
 const MIGRATIONS: Migration[] = [{ name: "0000_initial", sql: migration0000 }];
 
+/**
+ * Apply any unapplied migrations to `db`. Idempotent: applied migrations
+ * are tracked by name in `__kiri_migrations` and skipped on re-run.
+ *
+ * Migration SQL is bundled into the binary via Bun text imports (see the
+ * imports above) so this works inside `bun build --compile` artifacts
+ * where no filesystem `drizzle/` folder exists.
+ */
 export function migrate(db: KiriDb): void {
   const sqlite = db.$client;
   sqlite.run(
@@ -22,6 +30,8 @@ export function migrate(db: KiriDb): void {
 
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.name)) continue;
+    // drizzle-kit emits `--> statement-breakpoint` between statements;
+    // bun:sqlite's `.run()` is single-statement, so split and run each.
     const statements = migration.sql
       .split("--> statement-breakpoint")
       .map((s) => s.trim())

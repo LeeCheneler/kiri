@@ -62,7 +62,9 @@ If during implementation you discover the plan is wrong, **stop and revise the p
 - **Read before writing.** Explore relevant code before changing it.
 - **Don't abstract early.** Duplication is fine until the third occurrence in code (or fifth in tests).
 - **Let errors bubble.** No defensive try/catch at every call site.
-- **No comments unless the *why* is non-obvious.** Don't narrate what the code does — names should do that.
+- **Comments.**
+  - **Public APIs (exports) get a JSDoc.** Describe the contract: what it does, key params/returns, notable side effects. Keep it tight — usually one or two lines.
+  - **Non-obvious logic gets a brief comment.** The *why* — a workaround, subtle constraint, ordering requirement. Don't narrate *what* the code does; names should do that.
 - **Bun is the runtime.** Use `bun` (not `node`/`npm`/`pnpm`) for install, run, test, build. `bun:sqlite` for SQLite.
 - **Filenames are kebab-case.** Always. No PascalCase or camelCase filenames — even for React components (`app.tsx`, not `App.tsx`). The exported symbol can stay PascalCase; only the filename rule is fixed.
 - **No daemons, no overnight execution.** Everything is scoped to "while the app is active." Don't add features that violate this.

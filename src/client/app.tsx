@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 
+/**
+ * Root component for the kiri SPA. Currently a placeholder todo list
+ * while the spine is being built out.
+ */
 export function App() {
   const [todos, setTodos] = useState<string[]>([]);
 
