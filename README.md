@@ -45,6 +45,16 @@ bun test       # bun:test with 100% coverage threshold (enforced via bunfig)
 
 `bun lint` and `bun typecheck` also run on every commit via lefthook's pre-commit hook.
 
+### Database schema
+
+Schema lives in `src/server/db/schema.ts`. Migrations are generated via drizzle-kit and applied automatically on kiri startup — end users never run them.
+
+To evolve the schema:
+
+1. Edit `src/server/db/schema.ts`
+2. Run `bun db:generate` — produces a new SQL file in `drizzle/`
+3. Commit the new migration alongside the schema change
+
 ## Layout
 
 ```

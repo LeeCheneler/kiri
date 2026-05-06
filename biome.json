@@ -19,6 +19,6 @@
     }
   },
   "files": {
-    "ignore": ["dist", "node_modules", ".kiri"]
+    "ignore": ["dist", "node_modules", ".kiri", "drizzle"]
   }
 }

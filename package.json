@@ -14,9 +14,11 @@
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "db:generate": "drizzle-kit generate",
     "prepare": "lefthook install"
   },
   "dependencies": {
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -28,6 +30,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "concurrently": "^9.0.0",
+    "drizzle-kit": "^0.31.10",
     "lefthook": "^1.8.0",
     "typescript": "^5.6.0",
     "vite": "^6.0.0"
