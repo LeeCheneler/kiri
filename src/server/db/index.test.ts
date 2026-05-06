@@ -66,6 +66,9 @@ describe("db", () => {
   it("declares run_nodes.run_id → runs.id foreign key", () => {
     const fks = getTableConfig(runNodes).foreignKeys;
     expect(fks).toHaveLength(1);
+    // drizzle's inline FK is a builder with an opaque shape; this cast
+    // reaches the `.reference()` accessor that resolves the deferred
+    // `() => runs.id` callback into the column pair we care about.
     const fk = fks[0] as unknown as {
       reference: () => {
         columns: { name: string }[];

@@ -3,9 +3,13 @@ import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "./schema.ts";
 
 /**
- * Drizzle-wrapped SQLite handle for kiri's state DB. The `$client`
- * intersection exposes the underlying bun:sqlite `Database` for raw
- * operations like the migrator and `.close()`.
+ * Drizzle-wrapped SQLite handle for kiri's state DB.
+ *
+ * `$client` is drizzle's own runtime escape hatch for the underlying
+ * bun:sqlite `Database`. The intersection here re-establishes it on
+ * the type because `BunSQLiteDatabase<TSchema>` alone doesn't include
+ * it — `drizzle(...)`'s return type adds it, and we recover that when
+ * we widen via this alias. Used by the migrator and `.close()`.
  */
 export type KiriDb = BunSQLiteDatabase<typeof schema> & { $client: Database };
 

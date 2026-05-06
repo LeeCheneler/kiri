@@ -7,6 +7,13 @@ interface Migration {
   sql: string;
 }
 
+/**
+ * Append-only list of migrations applied at startup, in order. To add a
+ * new migration: edit the schema, run `bun db:generate` to produce the
+ * SQL file under `drizzle/`, then add a corresponding text import above
+ * and an entry here. Names are matched exactly against `__kiri_migrations`
+ * — don't rename existing entries after they've shipped.
+ */
 const MIGRATIONS: Migration[] = [
   { name: "0000_initial", sql: migration0000 },
   { name: "0001_index_run_nodes_run_id", sql: migration0001 },
@@ -36,6 +43,9 @@ export function migrate(db: KiriDb): void {
     if (applied.has(migration.name)) continue;
     // drizzle-kit emits `--> statement-breakpoint` between statements;
     // bun:sqlite's `.run()` is single-statement, so split and run each.
+    // Assumes the marker only appears as drizzle-kit's separator — if a
+    // future migration includes it as a string literal or comment, switch
+    // to a SQL-aware splitter.
     const statements = migration.sql
       .split("--> statement-breakpoint")
       .map((s) => s.trim())
