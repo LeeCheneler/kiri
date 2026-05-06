@@ -1,0 +1,28 @@
+{
+  "name": "kiri",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "kiri": "./bin/kiri.ts"
+  },
+  "scripts": {
+    "dev": "bun --watch bin/kiri.ts",
+    "build": "echo 'nothing to build yet'",
+    "start": "bun bin/kiri.ts",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepare": "lefthook install"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "latest",
+    "lefthook": "^1.8.0",
+    "typescript": "^5.6.0"
+  }
+}

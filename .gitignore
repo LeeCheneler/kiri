@@ -1,0 +1,7 @@
+node_modules/
+.kiri/
+dist/
+coverage/
+*.lcov
+*.log
+.DS_Store
