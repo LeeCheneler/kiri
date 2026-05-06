@@ -64,6 +64,7 @@ If during implementation you discover the plan is wrong, **stop and revise the p
 - **Let errors bubble.** No defensive try/catch at every call site.
 - **No comments unless the *why* is non-obvious.** Don't narrate what the code does — names should do that.
 - **Bun is the runtime.** Use `bun` (not `node`/`npm`/`pnpm`) for install, run, test, build. `bun:sqlite` for SQLite.
+- **Filenames are kebab-case.** Always. No PascalCase or camelCase filenames — even for React components (`app.tsx`, not `App.tsx`). The exported symbol can stay PascalCase; only the filename rule is fixed.
 - **No daemons, no overnight execution.** Everything is scoped to "while the app is active." Don't add features that violate this.
 - **Definitions are TS, not a DSL.** When in doubt about workflow shape, defer to `docs/design-notes.md` § Architecture.
 

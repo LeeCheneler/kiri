@@ -11,7 +11,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "types": ["bun"],
-    "lib": ["ESNext"]
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx"
   },
-  "include": ["src", "bin"]
+  "include": ["src", "bin", "vite.config.ts"]
 }
