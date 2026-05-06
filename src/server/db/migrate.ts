@@ -1,4 +1,5 @@
 import migration0000 from "../../../drizzle/0000_initial.sql" with { type: "text" };
+import migration0001 from "../../../drizzle/0001_index_run_nodes_run_id.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -6,7 +7,10 @@ interface Migration {
   sql: string;
 }
 
-const MIGRATIONS: Migration[] = [{ name: "0000_initial", sql: migration0000 }];
+const MIGRATIONS: Migration[] = [
+  { name: "0000_initial", sql: migration0000 },
+  { name: "0001_index_run_nodes_run_id", sql: migration0001 },
+];
 
 /**
  * Apply any unapplied migrations to `db`. Idempotent: applied migrations

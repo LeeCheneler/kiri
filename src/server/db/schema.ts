@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /**
  * One row per workflow invocation. `definition_snapshot` captures the
@@ -23,17 +23,21 @@ export const runs = sqliteTable("runs", {
  * source bytes that produced the node — script source for `script` nodes;
  * prompt and template settings for `agent` nodes from M1+.
  */
-export const runNodes = sqliteTable("run_nodes", {
-  id: text("id").primaryKey(),
-  runId: text("run_id")
-    .notNull()
-    .references(() => runs.id),
-  index: integer("index").notNull(),
-  kind: text("kind").notNull(),
-  status: text("status").notNull(),
-  output: text("output", { mode: "json" }),
-  error: text("error", { mode: "json" }),
-  traces: text("traces", { mode: "json" }),
-  usage: text("usage", { mode: "json" }),
-  materials: text("materials", { mode: "json" }).notNull(),
-});
+export const runNodes = sqliteTable(
+  "run_nodes",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    index: integer("index").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    output: text("output", { mode: "json" }),
+    error: text("error", { mode: "json" }),
+    traces: text("traces", { mode: "json" }),
+    usage: text("usage", { mode: "json" }),
+    materials: text("materials", { mode: "json" }).notNull(),
+  },
+  (t) => [index("run_nodes_run_id_idx").on(t.runId)],
+);
