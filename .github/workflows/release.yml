@@ -1,0 +1,33 @@
+name: release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-macos-arm64:
+    name: build macos arm64 binary
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Cache bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun build --compile --target=bun-darwin-arm64 bin/kiri.ts --outfile kiri
+
+      - name: Upload binary to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" kiri --clobber
