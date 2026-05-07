@@ -35,15 +35,22 @@ export interface LoadResult {
   sources: Map<string, string>;
 }
 
+// Monotonic cache-bust counter. Two `loadWorkflows` calls in the same
+// millisecond would otherwise share a `Date.now()` value and re-use the
+// dynamic-import cache; a counter is collision-free at zero cost.
+let cacheBustCounter = 0;
+
 /**
- * Scan `dir` for `*.ts` files, dynamically import each, and collect every
+ * Scan `dir` for `*.ts` files (top-level only — nested files are out of
+ * scope by design), dynamically import each, and collect every
  * `defineWorkflow` export. Throws `WorkflowLoadError` if a file fails to
  * import/validate (path included), or `DuplicateWorkflowError` if two
  * files export workflows with the same name. Files that export no
  * workflows are skipped silently.
  *
- * Imports are cache-busted via a query string so repeated calls (e.g.
- * after a file change in dev) see the latest source.
+ * Imports are cache-busted via a `?v=` query string. Bun's resolver keys
+ * the module cache by URL, so a unique query forces a fresh evaluation;
+ * this is Bun-specific and would be a no-op under Node.
  */
 export async function loadWorkflows(dir: string): Promise<LoadResult> {
   const files = readdirSync(dir)
@@ -53,7 +60,7 @@ export async function loadWorkflows(dir: string): Promise<LoadResult> {
 
   const workflows = new Map<string, BrandedWorkflowDefinition>();
   const sources = new Map<string, string>();
-  const cacheBust = Date.now();
+  const cacheBust = ++cacheBustCounter;
 
   for (const file of files) {
     let mod: Record<string, unknown>;
