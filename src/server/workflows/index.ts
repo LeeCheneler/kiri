@@ -8,9 +8,8 @@ export {
   type WorkflowNode,
 } from "./define-workflow.ts";
 export {
-  DuplicateWorkflowError,
   type LoadResult,
-  WorkflowLoadError,
+  type WorkflowLoadFailure,
   loadWorkflows,
 } from "./loader.ts";
 export { type Registry, createRegistry } from "./registry.ts";

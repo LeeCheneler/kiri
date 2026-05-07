@@ -3,8 +3,6 @@ import { type LoadResult, loadWorkflows } from "./loader.ts";
 import type { Registry } from "./registry.ts";
 
 export interface WatchOptions {
-  log?: (message: string) => void;
-  errorLog?: (message: string, err: unknown) => void;
   debounceMs?: number;
 }
 
@@ -16,22 +14,26 @@ const DEFAULT_DEBOUNCE_MS = 50;
 
 interface Snapshot {
   byName: Map<string, { path: string; mtimeMs: number }>;
+  failingPaths: Set<string>;
 }
 
-const buildSnapshot = (sources: Map<string, string>): Snapshot => {
+const buildSnapshot = (result: LoadResult): Snapshot => {
   const byName = new Map<string, { path: string; mtimeMs: number }>();
-  for (const [name, path] of sources) {
+  for (const [name, path] of result.sources) {
     byName.set(name, { path, mtimeMs: statSync(path).mtimeMs });
   }
-  return { byName };
+  return {
+    byName,
+    failingPaths: new Set(result.failures.map((f) => f.path)),
+  };
 };
 
 /**
  * Watch `dir` for workflow file changes and keep `registry` in sync.
  * Logs `added` / `changed` / `removed` workflow names on each rebuild.
- * Validation or duplicate-name failures are logged via `errorLog`; the
- * registry stays at its last successful state until a later rebuild
- * succeeds.
+ * Per-file load failures are logged the first time a path enters the
+ * failure set; recoveries are logged when a previously failing path drops
+ * out.
  *
  * `initial` seeds the watcher's view so the first rebuild only logs
  * actual deltas relative to what the caller already loaded — not every
@@ -46,33 +48,41 @@ export function watchWorkflows(
   initial: LoadResult,
   options: WatchOptions = {},
 ): WorkflowWatcher {
-  const log = options.log ?? ((message) => console.log(message));
-  const errorLog = options.errorLog ?? ((message, err) => console.error(message, err));
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
 
-  let snapshot = buildSnapshot(initial.sources);
+  let snapshot = buildSnapshot(initial);
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const rebuild = async () => {
     timer = null;
     try {
       const result = await loadWorkflows(dir);
-      const next = buildSnapshot(result.sources);
+      const next = buildSnapshot(result);
       for (const [name, info] of next.byName) {
         const prev = snapshot.byName.get(name);
         if (!prev) {
-          log(`workflows: added "${name}"`);
+          console.log(`workflows: added "${name}"`);
         } else if (prev.mtimeMs !== info.mtimeMs) {
-          log(`workflows: changed "${name}"`);
+          console.log(`workflows: changed "${name}"`);
         }
       }
       for (const name of snapshot.byName.keys()) {
-        if (!next.byName.has(name)) log(`workflows: removed "${name}"`);
+        if (!next.byName.has(name)) console.log(`workflows: removed "${name}"`);
+      }
+      for (const failure of result.failures) {
+        if (!snapshot.failingPaths.has(failure.path)) {
+          console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
+        }
+      }
+      for (const path of snapshot.failingPaths) {
+        if (!next.failingPaths.has(path)) {
+          console.log(`workflows: ${path} no longer failing`);
+        }
       }
       snapshot = next;
       registry.replace(result.workflows);
     } catch (err) {
-      errorLog("workflows: failed to reload", err);
+      console.error("workflows: failed to reload", err);
     }
   };
 

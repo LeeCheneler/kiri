@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { DuplicateWorkflowError, WorkflowLoadError, loadWorkflows } from "./loader.ts";
+import { loadWorkflows } from "./loader.ts";
 
 const DEFINE_PATH = resolve(import.meta.dir, "define-workflow.ts");
 // Fixtures import `zod` by package name; the node resolver walks up from
@@ -38,6 +38,7 @@ describe("loadWorkflows", () => {
     const result = await loadWorkflows(dir);
     expect(result.workflows.size).toBe(0);
     expect(result.sources.size).toBe(0);
+    expect(result.failures).toEqual([]);
   });
 
   it("loads a workflow from a single file with its source path", async () => {
@@ -47,6 +48,7 @@ describe("loadWorkflows", () => {
     expect(Array.from(result.workflows.keys())).toEqual(["foo"]);
     expect(result.workflows.get("foo")?.name).toBe("foo");
     expect(result.sources.get("foo")).toBe(join(dir, "foo.ts"));
+    expect(result.failures).toEqual([]);
   });
 
   it("collects workflows from multiple files", async () => {
@@ -57,6 +59,7 @@ describe("loadWorkflows", () => {
     expect(Array.from(result.workflows.keys()).sort()).toEqual(["a", "b"]);
     expect(result.sources.get("a")).toBe(join(dir, "a.ts"));
     expect(result.sources.get("b")).toBe(join(dir, "b.ts"));
+    expect(result.failures).toEqual([]);
   });
 
   it("ignores files that export no workflows", async () => {
@@ -64,6 +67,7 @@ describe("loadWorkflows", () => {
 
     const result = await loadWorkflows(dir);
     expect(result.workflows.size).toBe(0);
+    expect(result.failures).toEqual([]);
   });
 
   it("ignores non-.ts files", async () => {
@@ -74,27 +78,34 @@ describe("loadWorkflows", () => {
     expect(Array.from(result.workflows.keys())).toEqual(["foo"]);
   });
 
-  it("throws DuplicateWorkflowError when two files use the same name", async () => {
+  it("loads valid files alongside broken ones (per-file isolation)", async () => {
+    writeFileSync(join(dir, "good.ts"), validWorkflowSource("good"));
+    writeFileSync(join(dir, "bad.ts"), 'throw "boom";\n');
+
+    const result = await loadWorkflows(dir);
+
+    expect(Array.from(result.workflows.keys())).toEqual(["good"]);
+    expect(result.sources.get("good")).toBe(join(dir, "good.ts"));
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "bad.ts"));
+    expect(result.failures[0].reason).toContain("boom");
+  });
+
+  it("records the second file as a failure when two share a workflow name", async () => {
     writeFileSync(join(dir, "first.ts"), validWorkflowSource("dup"));
     writeFileSync(join(dir, "second.ts"), validWorkflowSource("dup"));
 
-    let err: unknown;
-    try {
-      await loadWorkflows(dir);
-    } catch (caught) {
-      err = caught;
-    }
+    const result = await loadWorkflows(dir);
 
-    expect(err).toBeInstanceOf(DuplicateWorkflowError);
-    const dupErr = err as DuplicateWorkflowError;
-    expect(dupErr.workflowName).toBe("dup");
-    expect(dupErr.paths).toEqual([join(dir, "first.ts"), join(dir, "second.ts")]);
-    expect(dupErr.message).toContain('"dup"');
-    expect(dupErr.message).toContain(join(dir, "first.ts"));
-    expect(dupErr.message).toContain(join(dir, "second.ts"));
+    expect(Array.from(result.workflows.keys())).toEqual(["dup"]);
+    expect(result.sources.get("dup")).toBe(join(dir, "first.ts"));
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "second.ts"));
+    expect(result.failures[0].reason).toContain('"dup"');
+    expect(result.failures[0].reason).toContain(join(dir, "first.ts"));
   });
 
-  it("throws WorkflowLoadError with path when a definition fails validation", async () => {
+  it("records a failure for a file whose definition fails validation", async () => {
     writeFileSync(
       join(dir, "bad.ts"),
       `
@@ -109,32 +120,23 @@ export const wf = defineWorkflow({
 `,
     );
 
-    let err: unknown;
-    try {
-      await loadWorkflows(dir);
-    } catch (caught) {
-      err = caught;
-    }
+    const result = await loadWorkflows(dir);
 
-    expect(err).toBeInstanceOf(WorkflowLoadError);
-    const loadErr = err as WorkflowLoadError;
-    expect(loadErr.path).toBe(join(dir, "bad.ts"));
-    expect(loadErr.message).toContain(join(dir, "bad.ts"));
-    expect(loadErr.cause).toBeDefined();
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "bad.ts"));
+    expect(result.failures[0].reason.length).toBeGreaterThan(0);
   });
 
-  it("throws WorkflowLoadError when a file has a non-Error throw", async () => {
+  it("records a failure for a file with a non-Error throw", async () => {
     writeFileSync(join(dir, "throws-string.ts"), `throw "boom";\n`);
 
-    let err: unknown;
-    try {
-      await loadWorkflows(dir);
-    } catch (caught) {
-      err = caught;
-    }
+    const result = await loadWorkflows(dir);
 
-    expect(err).toBeInstanceOf(WorkflowLoadError);
-    expect((err as WorkflowLoadError).message).toContain("boom");
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "throws-string.ts"));
+    expect(result.failures[0].reason).toContain("boom");
   });
 
   it("throws when the directory does not exist", () => {

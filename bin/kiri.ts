@@ -16,6 +16,9 @@ const registry = createRegistry();
 const workflowsDir = join(cwd, "workflows");
 const initial = await loadWorkflows(workflowsDir);
 registry.replace(initial.workflows);
+for (const failure of initial.failures) {
+  console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
+}
 
 let watcher: WorkflowWatcher | undefined;
 if (process.env.NODE_ENV !== "production") {

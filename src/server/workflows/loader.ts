@@ -2,30 +2,16 @@ import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { type BrandedWorkflowDefinition, isWorkflowDefinition } from "./define-workflow.ts";
 
-/** Thrown when two workflow files export definitions with the same `name`. */
-export class DuplicateWorkflowError extends Error {
-  readonly workflowName: string;
-  readonly paths: readonly [string, string];
-
-  constructor(workflowName: string, paths: [string, string]) {
-    super(`Duplicate workflow name "${workflowName}" defined in ${paths[0]} and ${paths[1]}`);
-    this.name = "DuplicateWorkflowError";
-    this.workflowName = workflowName;
-    this.paths = paths;
-  }
-}
-
-/** Thrown when a workflow file fails to import or its definition fails validation. */
-export class WorkflowLoadError extends Error {
-  readonly path: string;
-
-  constructor(path: string, cause: unknown) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
-    super(`Failed to load workflow from ${path}: ${reason}`);
-    this.name = "WorkflowLoadError";
-    this.path = path;
-    this.cause = cause;
-  }
+/**
+ * A workflow file that failed to load — either an import error (syntax,
+ * runtime throw, or `defineWorkflow` validation), or a duplicate-name
+ * conflict where another file already claimed the same workflow name.
+ */
+export interface WorkflowLoadFailure {
+  /** Absolute path of the file that failed. */
+  path: string;
+  /** Human-readable reason. For duplicates, includes the conflicting name and the path that already claimed it. */
+  reason: string;
 }
 
 export interface LoadResult {
@@ -33,6 +19,8 @@ export interface LoadResult {
   workflows: Map<string, BrandedWorkflowDefinition>;
   /** Maps each workflow's `name` to the file it was loaded from. */
   sources: Map<string, string>;
+  /** Per-file failures. The first occurrence of a duplicate name wins; the loser is recorded here. */
+  failures: WorkflowLoadFailure[];
 }
 
 // Monotonic cache-bust counter. Two `loadWorkflows` calls in the same
@@ -43,10 +31,9 @@ let cacheBustCounter = 0;
 /**
  * Scan `dir` for `*.ts` files (top-level only — nested files are out of
  * scope by design), dynamically import each, and collect every
- * `defineWorkflow` export. Throws `WorkflowLoadError` if a file fails to
- * import/validate (path included), or `DuplicateWorkflowError` if two
- * files export workflows with the same name. Files that export no
- * workflows are skipped silently.
+ * `defineWorkflow` export. Per-file failures (import errors, validation,
+ * duplicate names) are recorded in `result.failures` and the scan
+ * continues; only directory-level errors (e.g. `dir` doesn't exist) throw.
  *
  * Imports are cache-busted via a `?v=` query string. Bun's resolver keys
  * the module cache by URL, so a unique query forces a fresh evaluation;
@@ -60,6 +47,7 @@ export async function loadWorkflows(dir: string): Promise<LoadResult> {
 
   const workflows = new Map<string, BrandedWorkflowDefinition>();
   const sources = new Map<string, string>();
+  const failures: WorkflowLoadFailure[] = [];
   const cacheBust = ++cacheBustCounter;
 
   for (const file of files) {
@@ -67,19 +55,25 @@ export async function loadWorkflows(dir: string): Promise<LoadResult> {
     try {
       mod = (await import(`${file}?v=${cacheBust}`)) as Record<string, unknown>;
     } catch (cause) {
-      throw new WorkflowLoadError(file, cause);
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      failures.push({ path: file, reason });
+      continue;
     }
 
     for (const value of Object.values(mod)) {
       if (!isWorkflowDefinition(value)) continue;
       const existing = sources.get(value.name);
       if (existing !== undefined) {
-        throw new DuplicateWorkflowError(value.name, [existing, file]);
+        failures.push({
+          path: file,
+          reason: `duplicate workflow name "${value.name}" already defined in ${existing}`,
+        });
+        continue;
       }
       workflows.set(value.name, value);
       sources.set(value.name, file);
     }
   }
 
-  return { workflows, sources };
+  return { workflows, sources, failures };
 }

@@ -30,13 +30,29 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 2000): Promise<void
 
 describe("watchWorkflows", () => {
   let dir: string;
+  let logs: string[];
+  let errs: string[];
+  let origLog: typeof console.log;
+  let origErr: typeof console.error;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-watch-"));
     symlinkSync(NODE_MODULES, join(dir, "node_modules"));
+    logs = [];
+    errs = [];
+    origLog = console.log;
+    origErr = console.error;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    };
+    console.error = (...args: unknown[]) => {
+      errs.push(args.map(String).join(" "));
+    };
   });
 
   afterEach(() => {
+    console.log = origLog;
+    console.error = origErr;
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -44,18 +60,13 @@ describe("watchWorkflows", () => {
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
-    const messages: string[] = [];
 
-    const watcher = watchWorkflows(dir, registry, initial, {
-      log: (m) => messages.push(m),
-      errorLog: () => {},
-      debounceMs: 10,
-    });
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
 
     writeFileSync(join(dir, "new.ts"), wfSource("new"));
     await waitFor(() => registry.getWorkflow("new") !== undefined);
 
-    expect(messages.some((m) => m.includes('added "new"'))).toBe(true);
+    expect(logs.some((m) => m.includes('added "new"'))).toBe(true);
     watcher.stop();
   });
 
@@ -64,13 +75,8 @@ describe("watchWorkflows", () => {
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
-    const messages: string[] = [];
 
-    const watcher = watchWorkflows(dir, registry, initial, {
-      log: (m) => messages.push(m),
-      errorLog: () => {},
-      debounceMs: 10,
-    });
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
 
     // Ensure mtime ticks even on coarse-grained filesystems.
     await Bun.sleep(20);
@@ -81,7 +87,7 @@ describe("watchWorkflows", () => {
       return wf !== undefined && wf.nodes[0].kind === "script" && wf.nodes[0].path === "v2.sh";
     });
 
-    expect(messages.some((m) => m.includes('changed "foo"'))).toBe(true);
+    expect(logs.some((m) => m.includes('changed "foo"'))).toBe(true);
     watcher.stop();
   });
 
@@ -91,41 +97,59 @@ describe("watchWorkflows", () => {
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
-    const messages: string[] = [];
 
-    const watcher = watchWorkflows(dir, registry, initial, {
-      log: (m) => messages.push(m),
-      errorLog: () => {},
-      debounceMs: 10,
-    });
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
 
     unlinkSync(join(dir, "alpha.ts"));
     await waitFor(() => registry.getWorkflow("alpha") === undefined);
 
-    expect(messages.some((m) => m.includes('removed "alpha"'))).toBe(true);
-    expect(messages.some((m) => m.includes("beta"))).toBe(false);
+    expect(logs.some((m) => m.includes('removed "alpha"'))).toBe(true);
+    expect(logs.some((m) => m.includes("beta"))).toBe(false);
     expect(registry.getWorkflow("beta")).toBeDefined();
     watcher.stop();
   });
 
-  it("logs an error and keeps the registry intact when a rebuild fails", async () => {
+  it("logs a failure when a broken file appears, leaves healthy peers intact", async () => {
     writeFileSync(join(dir, "ok.ts"), wfSource("ok"));
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
-    const errors: Array<[string, unknown]> = [];
 
-    const watcher = watchWorkflows(dir, registry, initial, {
-      log: () => {},
-      errorLog: (m, err) => errors.push([m, err]),
-      debounceMs: 10,
-    });
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
 
     writeFileSync(join(dir, "bad.ts"), 'throw "boom";\n');
-    await waitFor(() => errors.length > 0);
+    await waitFor(() => errs.length > 0);
 
-    expect(errors[0][0]).toContain("failed to reload");
+    expect(errs[0]).toContain("failed to load");
+    expect(errs[0]).toContain("bad.ts");
+    expect(errs[0]).toContain("boom");
     expect(registry.getWorkflow("ok")).toBeDefined();
+    watcher.stop();
+  });
+
+  it("only logs each failing path once across rebuilds, and logs recovery when fixed", async () => {
+    writeFileSync(join(dir, "ok.ts"), wfSource("ok"));
+    writeFileSync(join(dir, "bad.ts"), 'throw "boom";\n');
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir);
+    registry.replace(initial.workflows);
+
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
+
+    // Touching an unrelated file forces a rebuild but should not re-log
+    // the still-failing bad.ts.
+    await Bun.sleep(20);
+    writeFileSync(join(dir, "ok.ts"), wfSource("ok", "v2.sh"));
+    await waitFor(() => logs.some((m) => m.includes('changed "ok"')));
+    expect(errs).toEqual([]);
+
+    // Fixing the broken file should log a recovery message and add the
+    // workflow to the registry.
+    writeFileSync(join(dir, "bad.ts"), wfSource("bad"));
+    await waitFor(() => registry.getWorkflow("bad") !== undefined);
+
+    expect(logs.some((m) => m.includes("no longer failing"))).toBe(true);
+    expect(logs.some((m) => m.includes("bad.ts"))).toBe(true);
     watcher.stop();
   });
 
@@ -133,54 +157,14 @@ describe("watchWorkflows", () => {
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
-    const messages: string[] = [];
 
-    const watcher = watchWorkflows(dir, registry, initial, {
-      log: (m) => messages.push(m),
-      errorLog: () => {},
-      debounceMs: 10,
-    });
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
     watcher.stop();
 
     writeFileSync(join(dir, "late.ts"), wfSource("late"));
     await Bun.sleep(80);
 
     expect(registry.getWorkflow("late")).toBeUndefined();
-    expect(messages).toEqual([]);
-  });
-
-  it("uses console.log/console.error and DEFAULT_DEBOUNCE_MS when no options are supplied", async () => {
-    const origLog = console.log;
-    const origErr = console.error;
-    const logs: string[] = [];
-    const errs: unknown[][] = [];
-    console.log = (...args: unknown[]) => {
-      logs.push(args.map(String).join(" "));
-    };
-    console.error = (...args: unknown[]) => {
-      errs.push(args);
-    };
-
-    try {
-      const registry = createRegistry();
-      const initial = await loadWorkflows(dir);
-      registry.replace(initial.workflows);
-
-      const watcher = watchWorkflows(dir, registry, initial);
-
-      writeFileSync(join(dir, "via-default.ts"), wfSource("via-default"));
-      await waitFor(() => registry.getWorkflow("via-default") !== undefined, 3000);
-
-      writeFileSync(join(dir, "broken.ts"), 'throw "kaboom";\n');
-      await waitFor(() => errs.length > 0, 3000);
-
-      watcher.stop();
-    } finally {
-      console.log = origLog;
-      console.error = origErr;
-    }
-
-    expect(logs.some((m) => m.includes('added "via-default"'))).toBe(true);
-    expect(errs.length).toBeGreaterThan(0);
+    expect(logs).toEqual([]);
   });
 });
