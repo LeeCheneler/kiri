@@ -49,7 +49,9 @@ export async function runScriptNode(args: RunScriptNodeArgs): Promise<ScriptNode
       stderr: "pipe",
     });
     proc.stdin.write(input);
-    proc.stdin.end();
+    // Awaiting `end()` waits for the buffer to drain to the OS pipe;
+    // `write()` only queues into Bun's FileSink and returns synchronously.
+    await proc.stdin.end();
     [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
