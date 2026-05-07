@@ -9,6 +9,11 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 export const runs = sqliteTable("runs", {
   id: text("id").primaryKey(),
   workflowName: text("workflow_name").notNull(),
+  /**
+   * Run lifecycle: `"running"` at insert → `"ok"` or `"failed"` when the
+   * runner finalizes. Feed-view consumers must handle all three states —
+   * in-flight rows render as live runs.
+   */
   status: text("status").notNull(),
   trigger: text("trigger").notNull(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
@@ -21,7 +26,7 @@ export const runs = sqliteTable("runs", {
  * Per-node state for a run. Carries the standard envelope (`status`,
  * `output`, `error`, `traces`, `usage`) plus a `materials` snapshot of the
  * source bytes that produced the node — script source for `script` nodes;
- * prompt and template settings for `agent` nodes from M1+.
+ * prompt and template settings for `agent` nodes once they land.
  */
 export const runNodes = sqliteTable(
   "run_nodes",
@@ -33,6 +38,12 @@ export const runNodes = sqliteTable(
     index: integer("index").notNull(),
     kind: text("kind").notNull(),
     status: text("status").notNull(),
+    /**
+     * Node output. Script nodes currently store stdout as a string; agent
+     * nodes will store structured output once they land. `mode: "json"`
+     * round-trips through `JSON.stringify`, so a string lands in the cell
+     * *quoted* (drizzle re-parses on read; matters only for raw SQL inspection).
+     */
     output: text("output", { mode: "json" }),
     error: text("error", { mode: "json" }),
     traces: text("traces", { mode: "json" }),

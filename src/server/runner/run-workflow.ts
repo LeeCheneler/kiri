@@ -9,7 +9,7 @@ import { runScriptNode } from "./run-script-node.ts";
 export interface RunWorkflowArgs {
   /** Repo root. Script paths in the definition resolve relative to this; the scratch dir lives at `<cwd>/.kiri/runs/<run-id>/`. */
   cwd: string;
-  /** Where the run was triggered from — recorded on the `runs` row. M0 only sets `"manual"`. */
+  /** Where the run was triggered from — recorded on the `runs` row. Currently `"manual"`; cron and MCP triggers will use distinct values. */
   trigger: string;
 }
 
