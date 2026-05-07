@@ -9,6 +9,11 @@ import type { BrandedWorkflowDefinition } from "./define-workflow.ts";
 export interface Registry {
   getWorkflow(name: string): BrandedWorkflowDefinition | undefined;
   listWorkflows(): BrandedWorkflowDefinition[];
+  /**
+   * Swap the registry's contents wholesale. The map is stored by reference
+   * to avoid copying on every dev-mode rebuild; the caller must treat the
+   * map as owned by the registry from this point on and not mutate it.
+   */
   replace(workflows: ReadonlyMap<string, BrandedWorkflowDefinition>): void;
 }
 

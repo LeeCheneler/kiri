@@ -4,6 +4,11 @@ import { z } from "zod";
  * Brand stamped onto values produced by `defineWorkflow` so the loader can
  * pick them out of a module's exports without guessing. `Symbol.for` keeps
  * the brand stable across dynamic imports of the same module URL.
+ *
+ * `as never` is the standard widening cast: `Symbol.for(...)` returns
+ * `symbol`, but we declare a `unique symbol` (needed to use the value as a
+ * computed property key type). `as unique symbol` is rejected by the
+ * compiler — `unique symbol` is not allowed in assertion positions.
  */
 export const WORKFLOW_BRAND: unique symbol = Symbol.for("kiri.workflow") as never;
 
