@@ -170,6 +170,29 @@ describe("runWorkflow", () => {
     expect(node?.error).not.toBeNull();
   });
 
+  it("finalizes the runs row even when execution throws mid-flight", async () => {
+    // Pre-create .kiri/runs as a *file* so mkdirSync(.../runs/<id>, {recursive: true})
+    // throws ENOTDIR mid-execution. Stand-in for any non-envelope throw inside
+    // the try block (db failures, future node-kind dispatch errors, etc.).
+    writeFileSync(join(cwd, ".kiri", "runs"), "blocker");
+    const wf = makeWorkflow("throwy", ["scripts/n.sh"]);
+
+    let caught: unknown;
+    try {
+      await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+
+    const allRuns = db.select().from(runs).all();
+    expect(allRuns).toHaveLength(1);
+    expect(allRuns[0].status).toBe("failed");
+    expect(allRuns[0].finishedAt).toBeInstanceOf(Date);
+    expect(allRuns[0].error).not.toBeNull();
+  });
+
   it("exposes KIRI_RUN_ID and KIRI_NODE_INDEX in the script's env", async () => {
     writeScript("scripts/dump.sh", '#!/bin/sh\necho "RUN=$KIRI_RUN_ID NODE=$KIRI_NODE_INDEX"\n');
     const wf = makeWorkflow("env-vars", ["scripts/dump.sh"]);

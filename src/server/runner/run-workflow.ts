@@ -72,12 +72,12 @@ export async function runWorkflow(
     })
     .run();
 
-  mkdirSync(scratchDir, { recursive: true });
-
   let status: "ok" | "failed" = "ok";
   let runError: { message: string; stack?: string } | undefined;
+  let caughtThrow: unknown;
 
   try {
+    mkdirSync(scratchDir, { recursive: true });
     let input = "";
     for (let i = 0; i < definition.nodes.length; i++) {
       const node = definition.nodes[i];
@@ -122,19 +122,30 @@ export async function runWorkflow(
 
       if (envelope.status === "failed") {
         status = "failed";
-        runError = envelope.error ?? { message: `node ${i} failed` };
+        // runScriptNode always populates error on a failed envelope.
+        runError = envelope.error;
         break;
       }
       input = envelope.output;
     }
-  } finally {
-    rmSync(scratchDir, { recursive: true, force: true });
+  } catch (cause) {
+    // mkdirSync, drizzle, or any future surface that throws lands here.
+    // Finalize state below before re-throwing so the runs row is never
+    // stranded in "running".
+    caughtThrow = cause;
+    status = "failed";
+    runError =
+      cause instanceof Error
+        ? { message: cause.message, stack: cause.stack }
+        : { message: String(cause) };
   }
 
   db.update(runs)
     .set({ status, finishedAt: new Date(), error: runError ?? null })
     .where(eq(runs.id, runId))
     .run();
+  rmSync(scratchDir, { recursive: true, force: true });
 
+  if (caughtThrow !== undefined) throw caughtThrow;
   return { runId, status };
 }
