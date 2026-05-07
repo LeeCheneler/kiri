@@ -28,24 +28,31 @@ export class WorkflowLoadError extends Error {
   }
 }
 
+export interface LoadResult {
+  /** Branded workflow definitions keyed by `name`. */
+  workflows: Map<string, BrandedWorkflowDefinition>;
+  /** Maps each workflow's `name` to the file it was loaded from. */
+  sources: Map<string, string>;
+}
+
 /**
  * Scan `dir` for `*.ts` files, dynamically import each, and collect every
- * `defineWorkflow` export into a name-keyed map. Throws `WorkflowLoadError`
- * if a file fails to import/validate (path included), or
- * `DuplicateWorkflowError` if two files export workflows with the same
- * name. Files that export no workflows are skipped silently.
+ * `defineWorkflow` export. Throws `WorkflowLoadError` if a file fails to
+ * import/validate (path included), or `DuplicateWorkflowError` if two
+ * files export workflows with the same name. Files that export no
+ * workflows are skipped silently.
  *
  * Imports are cache-busted via a query string so repeated calls (e.g.
  * after a file change in dev) see the latest source.
  */
-export async function loadWorkflows(dir: string): Promise<Map<string, BrandedWorkflowDefinition>> {
+export async function loadWorkflows(dir: string): Promise<LoadResult> {
   const files = readdirSync(dir)
     .filter((name) => name.endsWith(".ts"))
     .map((name) => resolve(dir, name))
     .sort();
 
-  const result = new Map<string, BrandedWorkflowDefinition>();
-  const sourcePaths = new Map<string, string>();
+  const workflows = new Map<string, BrandedWorkflowDefinition>();
+  const sources = new Map<string, string>();
   const cacheBust = Date.now();
 
   for (const file of files) {
@@ -58,14 +65,14 @@ export async function loadWorkflows(dir: string): Promise<Map<string, BrandedWor
 
     for (const value of Object.values(mod)) {
       if (!isWorkflowDefinition(value)) continue;
-      const existing = sourcePaths.get(value.name);
+      const existing = sources.get(value.name);
       if (existing !== undefined) {
         throw new DuplicateWorkflowError(value.name, [existing, file]);
       }
-      result.set(value.name, value);
-      sourcePaths.set(value.name, file);
+      workflows.set(value.name, value);
+      sources.set(value.name, file);
     }
   }
 
-  return result;
+  return { workflows, sources };
 }

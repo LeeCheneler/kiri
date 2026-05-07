@@ -34,40 +34,44 @@ describe("loadWorkflows", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("returns an empty map for an empty directory", async () => {
-    const map = await loadWorkflows(dir);
-    expect(map.size).toBe(0);
+  it("returns an empty result for an empty directory", async () => {
+    const result = await loadWorkflows(dir);
+    expect(result.workflows.size).toBe(0);
+    expect(result.sources.size).toBe(0);
   });
 
-  it("loads a workflow from a single file", async () => {
+  it("loads a workflow from a single file with its source path", async () => {
     writeFileSync(join(dir, "foo.ts"), validWorkflowSource("foo"));
 
-    const map = await loadWorkflows(dir);
-    expect(Array.from(map.keys())).toEqual(["foo"]);
-    expect(map.get("foo")?.name).toBe("foo");
+    const result = await loadWorkflows(dir);
+    expect(Array.from(result.workflows.keys())).toEqual(["foo"]);
+    expect(result.workflows.get("foo")?.name).toBe("foo");
+    expect(result.sources.get("foo")).toBe(join(dir, "foo.ts"));
   });
 
   it("collects workflows from multiple files", async () => {
     writeFileSync(join(dir, "a.ts"), validWorkflowSource("a"));
     writeFileSync(join(dir, "b.ts"), validWorkflowSource("b"));
 
-    const map = await loadWorkflows(dir);
-    expect(Array.from(map.keys()).sort()).toEqual(["a", "b"]);
+    const result = await loadWorkflows(dir);
+    expect(Array.from(result.workflows.keys()).sort()).toEqual(["a", "b"]);
+    expect(result.sources.get("a")).toBe(join(dir, "a.ts"));
+    expect(result.sources.get("b")).toBe(join(dir, "b.ts"));
   });
 
   it("ignores files that export no workflows", async () => {
     writeFileSync(join(dir, "junk.ts"), "export const x = 1;\n");
 
-    const map = await loadWorkflows(dir);
-    expect(map.size).toBe(0);
+    const result = await loadWorkflows(dir);
+    expect(result.workflows.size).toBe(0);
   });
 
   it("ignores non-.ts files", async () => {
     writeFileSync(join(dir, "readme.md"), "# hello");
     writeFileSync(join(dir, "foo.ts"), validWorkflowSource("foo"));
 
-    const map = await loadWorkflows(dir);
-    expect(Array.from(map.keys())).toEqual(["foo"]);
+    const result = await loadWorkflows(dir);
+    expect(Array.from(result.workflows.keys())).toEqual(["foo"]);
   });
 
   it("throws DuplicateWorkflowError when two files use the same name", async () => {
