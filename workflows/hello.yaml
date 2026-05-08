@@ -1,7 +1,0 @@
-name: hello
-steps:
-  - sh: |
-      echo "Lee"
-  - sh: |
-      read -r name
-      echo "Hello, ${name}!"

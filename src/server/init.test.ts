@@ -168,3 +168,21 @@ describe("initRepo", () => {
     expect(result.gitignoreUpdated).toBe(true);
   });
 });
+
+// Drift guard: this repo dogfoods the `claude-code` bundle for its
+// `kiri-self-review` workflow, so the bundle is checked in alongside
+// the init scaffold constants. If anyone edits one without the other,
+// fail fast — the constant is the source of truth.
+describe("checked-in claude-code bundle (dogfood drift guard)", () => {
+  const repoRoot = join(import.meta.dir, "..", "..");
+
+  it("scripts/claude-code/run.sh matches CLAUDE_CODE_RUN_SCRIPT", () => {
+    const tracked = readFileSync(join(repoRoot, "scripts", "claude-code", "run.sh"), "utf8");
+    expect(tracked).toBe(CLAUDE_CODE_RUN_SCRIPT);
+  });
+
+  it("scripts/claude-code/README.md matches CLAUDE_CODE_README", () => {
+    const tracked = readFileSync(join(repoRoot, "scripts", "claude-code", "README.md"), "utf8");
+    expect(tracked).toBe(CLAUDE_CODE_README);
+  });
+});

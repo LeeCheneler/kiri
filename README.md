@@ -9,7 +9,8 @@ A local-first, git-based workflow orchestrator for personal automation. MCP-firs
 ### Prerequisites
 
 - [mise](https://mise.jdx.dev) — manages the Bun version pinned in `mise.toml`. Activate it in your shell (`eval "$(mise activate zsh)"`) so `bun` resolves to the project-pinned version automatically when you `cd` into the repo.
-- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for the bundled `kiri-self-review` dogfood workflow. `claude` must be on your `PATH` and signed in.
+- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for any workflow using the `claude-code` bundle (including the bundled `kiri-self-review` dogfood). `claude` must be on your `PATH` and signed in.
+- [jq](https://jqlang.org/) — required by the `claude-code` bundle for permission-allowlist JSON synthesis.
 
 ### Install
 
@@ -43,18 +44,17 @@ Kiri is designed to live in dedicated repos — `git init` a new directory, `cd`
 kiri init
 ```
 
-This scaffolds `README.md` (DSL reference and IDE/LSP setup), `workflows/example.yaml`, `scripts/example/hello.sh`, and `.kiri/workflow.schema.json` for editor validation. Re-running is safe — existing files are never overwritten, and the schema file is also refreshed on every plain `kiri` launch so it stays in sync after a binary upgrade.
+This scaffolds `README.md` (DSL reference and IDE/LSP setup), a 2-step `workflows/example.yaml` paired with `prompts/example.tpl`, the `scripts/claude-code/` bundle starter (`run.sh` + `README.md`), and `.kiri/workflow.schema.json` for editor validation. Re-running is safe — existing files are never overwritten, and the schema file is also refreshed on every plain `kiri` launch so it stays in sync after a binary upgrade.
 
 ### Dogfood: `kiri-self-review`
 
-Kiri ships with a self-review workflow that pipes the working-tree `git diff` into `claude -p` and writes the response to the run feed. It's the simplest end-to-end demonstration of the pipeline.
+Kiri ships with a self-review workflow that runs `claude` against `prompts/self-review.tpl` with read-only tooling (`Read`, `Glob`, `Grep`) and writes the agent's final message to the run feed. It exercises the `claude-code` bundle end-to-end.
 
-1. Make some local changes in this repo (or any repo you launched kiri from).
-2. `bun dev` and open the local URL.
-3. Find **kiri-self-review** in the workflow list and click **Run**.
-4. Refresh the feed. Click the new entry to expand it — you'll see the snapshotted script source under *materials*, Claude's review under the node's *output*, and full envelope traces alongside.
+1. `bun dev` and open the local URL.
+2. Find **kiri-self-review** in the workflow list and click **Run**.
+3. Refresh the feed. Click the new entry to expand it — you'll see the snapshotted bundle under *materials*, the agent's final message under the step's *output*, and full envelope traces alongside.
 
-If the diff is empty, Claude will say so. If `claude` isn't installed or signed in, the run is marked failed and the underlying error is visible in the expanded entry.
+If `claude` or `jq` isn't on your `PATH`, the run is marked failed and the underlying error is visible in the expanded entry.
 
 ### Quality gates
 
