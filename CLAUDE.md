@@ -77,3 +77,4 @@ If during implementation you discover the plan is wrong, **stop and revise the p
 - Never reference Claude or AI tooling in commit messages, PR descriptions, or code comments.
 - Never force-push `main`. Never commit `.env`, secrets, or credentials.
 - Never commit without explicit user sign off (see *Working through the plan* above).
+- **Never commit directly to `main`** unless the user explicitly tells you to. Ticket work lands via a feature branch and PR. Branch naming: `feat/<issue>-<slug>`, `fix/<issue>-<slug>`, `chore/<slug>`. If you realise you've committed to `main`, stop and offer to move the commits to a branch (`git branch <name> && git reset --hard origin/main`) before pushing anything.
