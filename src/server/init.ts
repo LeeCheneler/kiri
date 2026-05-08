@@ -2,14 +2,20 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { workflowJsonSchema } from "./workflows/index.ts";
 
-/** Contents of the scaffolded `workflows/README.md`. */
-export const WORKFLOWS_README = `# Kiri workflows
+/** Contents of the scaffolded repo-root `README.md`. */
+export const KIRI_README = `# Kiri
 
-Workflow definitions live in this directory as \`*.yaml\` files. Each file
-defines a single workflow. Kiri loads them on startup, validates each against
+This is a kiri workflow repo. Kiri is a local-first, git-based workflow
+orchestrator — run \`kiri\` in this directory to start it and visit the local
+URL it prints.
+
+## Workflow definitions
+
+Workflow files live in \`workflows/\` as \`*.yaml\` files. Each file defines a
+single workflow. Kiri loads them on startup, validates each against
 \`.kiri/workflow.schema.json\`, and registers it by \`name\`.
 
-## Shape
+### Shape
 
 \`\`\`yaml
 name: my-workflow
@@ -21,9 +27,9 @@ nodes:
 Workflows are linear pipelines — each node's output feeds the next. No
 branches, conditionals, or fan-out/fan-in.
 
-## Node kinds
+### Node kinds
 
-### \`script\`
+#### \`script\`
 
 Runs an executable script. The script receives the prior node's output on
 stdin (or nothing for the first node) and writes its output to stdout. Exit
@@ -46,7 +52,7 @@ sync after you upgrade kiri.
 ### VS Code (Red Hat YAML extension)
 
 The simplest setup is the modeline at the top of each workflow file (the
-generated \`example.yaml\` has one):
+generated \`workflows/example.yaml\` has one):
 
 \`\`\`yaml
 # yaml-language-server: $schema=../.kiri/workflow.schema.json
@@ -88,7 +94,7 @@ echo "hello from kiri"
 
 /** Relative paths reported by `initRepo`. */
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
-const README_REL_PATH = "workflows/README.md";
+const README_REL_PATH = "README.md";
 const EXAMPLE_REL_PATH = "workflows/example.yaml";
 const EXAMPLE_SCRIPT_REL_PATH = "scripts/example/hello.sh";
 const GITIGNORE_REL_PATH = ".gitignore";
@@ -170,13 +176,7 @@ export function initRepo(cwd: string): InitResult {
   const created: string[] = [];
   const skipped: string[] = [];
 
-  writeIfMissing(
-    join(workflowsDir, "README.md"),
-    README_REL_PATH,
-    WORKFLOWS_README,
-    created,
-    skipped,
-  );
+  writeIfMissing(join(cwd, "README.md"), README_REL_PATH, KIRI_README, created, skipped);
   writeIfMissing(
     join(workflowsDir, "example.yaml"),
     EXAMPLE_REL_PATH,

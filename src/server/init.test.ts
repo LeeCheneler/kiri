@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   EXAMPLE_HELLO_SCRIPT,
   EXAMPLE_WORKFLOW_YAML,
-  WORKFLOWS_README,
+  KIRI_README,
   initRepo,
   writeSchemaFile,
 } from "./init.ts";
@@ -49,10 +49,10 @@ describe("initRepo", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("scaffolds README, example.yaml, the example script, and the schema file on a fresh repo", () => {
+  it("scaffolds README at the repo root, example.yaml, example script, and schema on a fresh repo", () => {
     const result = initRepo(cwd);
 
-    expect(readFileSync(join(cwd, "workflows", "README.md"), "utf8")).toBe(WORKFLOWS_README);
+    expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe(KIRI_README);
     expect(readFileSync(join(cwd, "workflows", "example.yaml"), "utf8")).toBe(
       EXAMPLE_WORKFLOW_YAML,
     );
@@ -64,7 +64,7 @@ describe("initRepo", () => {
     );
 
     expect(result.created).toEqual([
-      "workflows/README.md",
+      "README.md",
       "workflows/example.yaml",
       "scripts/example/hello.sh",
     ]);
@@ -80,13 +80,13 @@ describe("initRepo", () => {
 
   it("does not overwrite user-authored README, example workflow, or example script on re-run", () => {
     initRepo(cwd);
-    writeFileSync(join(cwd, "workflows", "README.md"), "user notes");
+    writeFileSync(join(cwd, "README.md"), "user notes");
     writeFileSync(join(cwd, "workflows", "example.yaml"), "name: mine\nnodes: []\n");
     writeFileSync(join(cwd, "scripts", "example", "hello.sh"), "#!/bin/sh\necho mine\n");
 
     const result = initRepo(cwd);
 
-    expect(readFileSync(join(cwd, "workflows", "README.md"), "utf8")).toBe("user notes");
+    expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe("user notes");
     expect(readFileSync(join(cwd, "workflows", "example.yaml"), "utf8")).toBe(
       "name: mine\nnodes: []\n",
     );
@@ -95,7 +95,7 @@ describe("initRepo", () => {
     );
     expect(result.created).toEqual([]);
     expect(result.skipped).toEqual([
-      "workflows/README.md",
+      "README.md",
       "workflows/example.yaml",
       "scripts/example/hello.sh",
     ]);
