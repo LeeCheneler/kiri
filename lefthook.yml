@@ -3,7 +3,7 @@ pre-commit:
   commands:
     lint:
       glob: "*.{ts,tsx,js,jsx,json}"
-      run: bun lint
+      run: mise exec -- bun lint
     typecheck:
       glob: "*.{ts,tsx}"
-      run: bun typecheck
+      run: mise exec -- bun typecheck
