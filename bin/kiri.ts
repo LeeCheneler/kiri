@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
 import { bootstrap } from "../src/server/bootstrap.ts";
-import { app } from "../src/server/index.ts";
+import { createApp } from "../src/server/index.ts";
 import {
   type WorkflowWatcher,
   createRegistry,
@@ -25,6 +25,7 @@ if (process.env.NODE_ENV !== "production") {
   watcher = watchWorkflows(workflowsDir, registry, initial);
 }
 
+const app = createApp({ db, registry, cwd });
 const server = Bun.serve({ port: 3000, fetch: app.fetch });
 console.log(`kiri listening on http://localhost:${server.port}`);
 
