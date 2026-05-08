@@ -10,5 +10,6 @@ export {
   type WorkflowLoadFailure,
   loadWorkflows,
 } from "./loader.ts";
+export { workflowJsonSchema } from "./json-schema.ts";
 export { type Registry, createRegistry } from "./registry.ts";
 export { type WatchOptions, type WorkflowWatcher, watchWorkflows } from "./watcher.ts";
