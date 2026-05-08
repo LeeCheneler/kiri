@@ -11,7 +11,7 @@ These are constraints, not work items. They hold for every milestone below.
 - No shell interpolation of inputs anywhere — argv arrays and env vars only
 - Kiri is a CLI launched per-repo; workflow definitions live in `<cwd>/workflows/` of whichever repo Kiri is running against. No global cross-repo store
 - Repo-scoped runtime state lives in `<cwd>/.kiri/` (gitignored)
-- Workflow definitions are loaded into an in-memory registry; there is no `workflows` table — TS files are the only source of truth
+- Workflow definitions are loaded into an in-memory registry; there is no `workflows` table — YAML files are the only source of truth
 - Every run snapshots the resolved workflow definition and per-node materials (script source, prompt + settings later) at start; feed entries always reflect the exact code that ran
 - Per-run scratch directory; scripts never run with cwd of repo or home
 - Per-template env scope; no leaking of orchestrator state into scripts
@@ -23,7 +23,7 @@ These are constraints, not work items. They hold for every milestone below.
 - Vite + React single-page UI, no router yet
 - Repo-scoped startup: scaffold `workflows/` and `.kiri/` at cwd if missing, then open and migrate the state DB
 - SQLite + Drizzle schema (in `.kiri/state.db`): `runs` (with definition snapshot), `run_nodes` (per-node envelope + materials snapshot). No `workflows` table
-- Workflow definition loader: TS files in `<cwd>/workflows/` hydrate an in-memory registry; `defineWorkflow({...})` shape
+- Workflow definition loader: YAML files in `<cwd>/workflows/` parsed and validated against a Zod schema, hydrated into an in-memory registry
 - Script node executor: `child_process` spawn (argv + scoped env, never shell strings), stdout/stderr/exit captured, envelope assembled
 - Per-run scratch directory under `.kiri/runs/<run-id>/`, created and cleaned up
 - Run-start snapshot: capture the resolved workflow definition onto the `runs` row and each node's script source onto its `run_nodes` row before execution

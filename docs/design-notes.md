@@ -23,23 +23,23 @@ Differentiation against Windmill, Kestra, n8n, Inngest et al. is two-fold:
 
 ### Workflow definition
 
-TypeScript files exporting typed workflow objects. Zod for I/O schemas. No custom DSL.
+YAML files validated against a Zod schema. No custom DSL.
 
-```ts
-defineWorkflow({
-  name: "pr-review",
-  schedule: "*/15 * * * *", // optional cron expression
-  inputSchema: z.object({ /* ... */ }),
-  nodes: [
-    { kind: "script", path: "..." },
-    { kind: "agent",  template: "claude-code-review", config: { /* ... */ } },
-    { kind: "script", path: "..." },
-  ],
-  gating: "auto", // or "propose"
-})
+```yaml
+name: pr-review
+schedule: "*/15 * * * *"   # optional cron expression
+nodes:
+  - kind: script
+    path: ...
+  - kind: agent
+    template: claude-code-review
+    config: { ... }
+  - kind: script
+    path: ...
+gating: auto               # or "propose"
 ```
 
-Rationale for TS over DSL: AI agents (configuring workflows via MCP) are fluent in TS-with-Zod from training data; a bespoke DSL means hallucinated syntax forever. The "DSL feel" comes from API shape, not language — see Drizzle, Vite config, etc.
+Rationale for YAML over TS: workflow files live in arbitrary user repos, but kiri ships as a single Bun-compiled binary. Resolving a TS `import { defineWorkflow } from "kiri"` from those repos would require both a Bun plugin baked into the binary to intercept the import *and* generated `.d.ts` files dropped into each repo for IDE support — both maintenance costs that compound forever. YAML is pure data, validated at load time, and a JSON schema can be published alongside the binary for editor LSP integration with no per-repo footprint.
 
 ### Standard node envelope
 
@@ -77,7 +77,7 @@ No file watches, webhooks, or inbox polling. Polling-via-cron-workflow handles e
 
 State lives in three tiers, by what kind of state it is:
 
-- **In git** — workflow definitions (`.ts` files), template scripts, per-template `.claude/settings.json`, Seatbelt profiles. Everything that benefits from review and version history.
+- **In git** — workflow definitions (`.yaml` files), template scripts, per-template `.claude/settings.json`, Seatbelt profiles. Everything that benefits from review and version history.
 - **In SQLite** — runtime state: runs, todos, schedules, app state (paused/running, in-flight counter), MCP audit log, run metadata + envelopes. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
 - **On disk (data dir)** — large blob payloads referenced by path from SQLite rows: full CC transcripts, big stdout dumps, anything that'd bloat the DB. Same pattern CI systems use to keep the DB lean.
 
@@ -85,7 +85,7 @@ Pragmatic v1 simplification: skip the disk-blob split initially. Put traces stra
 
 ### Workflow registry & run snapshots
 
-Workflow definitions are TS files in `workflows/` — the single source of truth, with no SQL representation. There is **no `workflows` table**. On startup (and on file change in dev) the loader scans the directory and hydrates an in-memory registry; runs reference workflows by name only.
+Workflow definitions are YAML files in `workflows/` — the single source of truth, with no SQL representation. There is **no `workflows` table**. On startup (and on file change in dev) the loader scans the directory, parses each file, validates it against the workflow Zod schema, and hydrates an in-memory registry; runs reference workflows by name only.
 
 When a run starts, the executor captures a **snapshot** of everything that produced it:
 
@@ -205,7 +205,7 @@ Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
 
 ```
 <repo-root>/
-  workflows/        # TS workflow definitions (in git)
+  workflows/        # YAML workflow definitions (in git)
   templates/        # per-template dirs, M1+ (in git)
   .kiri/            # gitignored — repo-scoped runtime state
     state.db        # SQLite
@@ -293,7 +293,7 @@ Non-goals to resist scope creep:
 
 Suggested ordering — cheapest viable spine first, layer up. Each phase a usable artifact.
 
-1. **Spine.** Workflow runner that executes a TS-defined linear pipeline of script nodes. Standard envelope. Traces captured. Run history persisted to SQLite via Drizzle.
+1. **Spine.** Workflow runner that executes a YAML-defined linear pipeline of script nodes. Standard envelope. Traces captured. Run history persisted to SQLite via Drizzle.
 2. **Feed UI.** Render run history as a feed. No live updates yet — reload-to-refresh. Expandable entry view.
 3. **MCP read surface.** `list_workflows`, `run_workflow`, `get_run`, `list_runs`. Agent can now drive the system end-to-end.
 4. **Cron triggers.** In-process tick loop, schedule field on workflows.

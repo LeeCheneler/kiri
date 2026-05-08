@@ -32,7 +32,7 @@ export function WorkflowList({ workflows, onRunComplete }: WorkflowListProps) {
       <section>
         <h2>Workflows</h2>
         <p>
-          No workflows defined. Add a TS file to <code>workflows/</code>.
+          No workflows defined. Add a YAML file to <code>workflows/</code>.
         </p>
       </section>
     );
