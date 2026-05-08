@@ -127,39 +127,27 @@ export const EXAMPLE_PROMPT_TPL = `Say a friendly one-sentence hello to {{KIRI_I
 
 /** Contents of the scaffolded `scripts/claude-code/run.sh`. */
 export const CLAUDE_CODE_RUN_SCRIPT = `#!/bin/sh
-# Spawns the Claude Code CLI with a per-run permission allowlist
-# synthesised from ALLOWED_TOOLS. The prompt is read from PROMPT_FILE
-# (resolved against KIRI_REPO_ROOT), rendered with {{VAR}} placeholders
-# substituted from the environment, and prepended with the allowlist
-# as positive framing so the agent doesn't burn turns on denied tools.
+# Spawns the Claude Code CLI with the prompt read from PROMPT_FILE
+# (resolved against KIRI_REPO_ROOT) and rendered with {{VAR}}
+# placeholders substituted from the environment. Tool permissions
+# are deferred to the user's own ~/.claude/settings.json — keeps
+# this bundle out of the credential-resolution path so claude's
+# normal login flow keeps working.
 set -eu
 
 : "\${PROMPT_FILE:?required env var}"
 : "\${KIRI_REPO_ROOT:?required (kiri injects this)}"
 
-# Defaults are exported so {{MAX_TURNS}} and {{ALLOWED_TOOLS}} can be
-# referenced inside prompt templates even when the workflow leaves
-# them unset.
+# Default exported so {{MAX_TURNS}} can be referenced inside prompt
+# templates even when the workflow leaves it unset.
 export MAX_TURNS="\${MAX_TURNS:-8}"
-export ALLOWED_TOOLS="\${ALLOWED_TOOLS:-Read,Glob,Grep}"
 
-for dep in claude jq awk; do
+for dep in claude awk; do
   command -v "$dep" >/dev/null 2>&1 || {
     echo "claude-code bundle requires '$dep' on PATH" >&2
     exit 1
   }
 done
-
-# CLAUDE_CONFIG_DIR points the CLI at a per-run settings.json so no
-# user-level ~/.claude state is consulted — the workflow's env: block
-# is the only source of permission truth.
-config_dir="$(pwd)/.claude"
-mkdir -p "$config_dir"
-
-printf '%s' "$ALLOWED_TOOLS" | jq -R '
-  split(",") | map(gsub("^\\\\s+|\\\\s+$"; "")) | {permissions: {allow: .}}
-' > "$config_dir/settings.json"
-export CLAUDE_CONFIG_DIR="$config_dir"
 
 # Slurp the previous step's stdout (piped here by kiri) into KIRI_INPUT
 # so prompts can reference {{KIRI_INPUT}}. $() trims one trailing
@@ -171,7 +159,7 @@ export KIRI_INPUT="$(cat)"
 # left-to-right pass. Substituted values are not re-scanned, so a
 # value containing "{{X}}" stays literal — no infinite loops on
 # self-referential content. Unknown vars resolve to empty.
-prompt_body=$(awk '
+prompt=$(awk '
   {
     out = ""
     rest = $0
@@ -184,10 +172,6 @@ prompt_body=$(awk '
   }
 ' "$KIRI_REPO_ROOT/$PROMPT_FILE")
 
-prompt="You have access to: $ALLOWED_TOOLS. If you need anything else, end the session with a final message describing what you needed and why.
-
-$prompt_body"
-
 if [ -n "\${MODEL:-}" ]; then
   exec claude -p "$prompt" --max-turns "$MAX_TURNS" --model "$MODEL"
 else
@@ -198,11 +182,10 @@ fi
 /** Contents of the scaffolded `scripts/claude-code/README.md`. */
 export const CLAUDE_CODE_README = `# claude-code bundle
 
-A workflow step that spawns the Claude Code CLI with a permission
-allowlist synthesised from the workflow's \`env:\` block.
+A workflow step that spawns the Claude Code CLI with a prompt rendered
+from a template under \`prompts/\`.
 
-Minimal usage — only \`PROMPT_FILE\` is required, everything else has
-sensible defaults:
+Minimal usage — only \`PROMPT_FILE\` is required:
 
 \`\`\`yaml
 - use: claude-code
@@ -217,7 +200,6 @@ Full reference, all knobs explicit:
   env:
     PROMPT_FILE: prompts/my-prompt.tpl   # required
     MAX_TURNS: "8"                       # optional, default "8"
-    ALLOWED_TOOLS: "Read,Glob,Grep"      # optional, default "Read,Glob,Grep"
     MODEL: opus                          # optional, no default — claude picks
 \`\`\`
 
@@ -227,26 +209,24 @@ Full reference, all knobs explicit:
 | --- | --- | --- | --- |
 | \`PROMPT_FILE\` | yes | — | Path to the prompt template, resolved against \`KIRI_REPO_ROOT\`. |
 | \`MAX_TURNS\` | no | \`8\` | Hard cap on the number of agent turns. |
-| \`ALLOWED_TOOLS\` | no | \`Read,Glob,Grep\` | Comma-separated tool names, e.g. \`Read,Glob,Grep\` or \`Bash(gh pr view:*)\`. Defaults to read-only tooling. |
 | \`MODEL\` | no | — | Override the model. If unset, \`claude\` picks its default. |
 
 \`KIRI_REPO_ROOT\` is supplied by kiri.
 
+## Tool permissions
+
+This bundle does not configure tool permissions — the agent runs with
+whatever your \`~/.claude/settings.json\` allows. Constrain a workflow
+by writing the prompt around the tools you want it to use, or set up
+your global claude settings to match the strictness you want.
+
 ## What \`run.sh\` does
 
-1. Synthesises \`<scratch>/.claude/settings.json\` with \`permissions.allow\`
-   from \`ALLOWED_TOOLS\` and points \`CLAUDE_CONFIG_DIR\` at it. No
-   user-level \`~/.claude/settings.json\` is consulted — the workflow
-   YAML is the only source of permission truth.
-2. Reads the previous step's stdout (piped here by kiri) into
+1. Reads the previous step's stdout (piped here by kiri) into
    \`KIRI_INPUT\` and renders \`$KIRI_REPO_ROOT/$PROMPT_FILE\` —
    substituting \`{{VAR}}\` placeholders from the environment (see
    *Prompt templates* below).
-3. Prepends "You have access to: …. If you need anything else, end
-   the session with a final message describing what you needed and
-   why." to the rendered prompt so the agent doesn't burn turns on
-   denied tools.
-4. Spawns \`claude -p "$PROMPT" --max-turns "$MAX_TURNS"\` (plus
+2. Spawns \`claude -p "$PROMPT" --max-turns "$MAX_TURNS"\` (plus
    \`--model "$MODEL"\` if set). The agent's final message lands on
    stdout and shows up in the run feed.
 
@@ -269,7 +249,7 @@ loops on self-referential content.
 | \`{{KIRI_REPO_ROOT}}\` | Absolute path of the workflow repo root. |
 | \`{{KIRI_BUNDLE_DIR}}\` | Absolute path of this bundle's directory. |
 | \`{{KIRI_META_FILE}}\` | Path the bundle writes step metadata to. |
-| \`{{PROMPT_FILE}}\`, \`{{MAX_TURNS}}\`, \`{{ALLOWED_TOOLS}}\`, \`{{MODEL}}\` | Bundle env-var contract values (defaulted as documented above). |
+| \`{{PROMPT_FILE}}\`, \`{{MAX_TURNS}}\`, \`{{MODEL}}\` | Bundle env-var contract values (defaulted as documented above). |
 | Any \`{{MY_VAR}}\` | Anything set in the workflow's \`env:\` block. |
 
 ### Example
@@ -291,9 +271,9 @@ Renders to: \`Say a cheerful one-sentence hello to Lee.\`
 
 ## Dependencies
 
-The \`claude\` CLI and \`jq\` must both be on \`PATH\` (\`awk\` and
-POSIX \`sh\` are assumed). The bundle fails with a clear error at the
-top of the run if either is missing.
+The \`claude\` CLI must be on \`PATH\` (\`awk\` and POSIX \`sh\` are
+assumed). The bundle fails with a clear error at the top of the run if
+either is missing.
 
 ## Cost capture (deferred)
 

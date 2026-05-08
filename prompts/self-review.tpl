@@ -1,6 +1,6 @@
 You are reviewing the kiri repo for quality and consistency issues the
-maintainer might want to know about. You have read-only access (Read,
-Glob, Grep). Use them to walk the repo.
+maintainer might want to know about. Walk the repo with Read, Glob,
+and Grep — keep it read-only.
 
 Read these first for context:
 

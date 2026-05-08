@@ -10,7 +10,6 @@ A local-first, git-based workflow orchestrator for personal automation. MCP-firs
 
 - [mise](https://mise.jdx.dev) — manages the Bun version pinned in `mise.toml`. Activate it in your shell (`eval "$(mise activate zsh)"`) so `bun` resolves to the project-pinned version automatically when you `cd` into the repo.
 - [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for any workflow using the `claude-code` bundle (including the bundled `kiri-self-review` dogfood). `claude` must be on your `PATH` and signed in.
-- [jq](https://jqlang.org/) — required by the `claude-code` bundle for permission-allowlist JSON synthesis.
 
 ### Install
 
@@ -48,13 +47,13 @@ This scaffolds `README.md` (DSL reference and IDE/LSP setup), a 2-step `workflow
 
 ### Dogfood: `kiri-self-review`
 
-Kiri ships with a self-review workflow that runs `claude` against `prompts/self-review.tpl` with read-only tooling (`Read`, `Glob`, `Grep`) and writes the agent's final message to the run feed. It exercises the `claude-code` bundle end-to-end.
+Kiri ships with a self-review workflow that runs `claude` against `prompts/self-review.tpl` and writes the agent's final message to the run feed. It exercises the `claude-code` bundle end-to-end. The bundle defers tool permissions to your `~/.claude/settings.json`; the prompt itself nudges the agent toward `Read`, `Glob`, and `Grep`.
 
 1. `bun dev` and open the local URL.
 2. Find **kiri-self-review** in the workflow list and click **Run**.
 3. Refresh the feed. Click the new entry to expand it — you'll see the snapshotted bundle under *materials*, the agent's final message under the step's *output*, and full envelope traces alongside.
 
-If `claude` or `jq` isn't on your `PATH`, the run is marked failed and the underlying error is visible in the expanded entry.
+If `claude` isn't on your `PATH` or you're not signed in, the run is marked failed and the underlying error is visible in the expanded entry.
 
 ### Quality gates
 
