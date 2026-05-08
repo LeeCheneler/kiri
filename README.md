@@ -35,6 +35,16 @@ bun start      # runs Hono; serves the built SPA + API at :3000
 
 In prod, visit **http://localhost:3000** — Hono serves both the SPA and `/api/*` from a single origin.
 
+### Bootstrap a workflow repo
+
+Kiri is designed to live in dedicated repos — `git init` a new directory, `cd` to it, then:
+
+```sh
+kiri init
+```
+
+This scaffolds `README.md` (DSL reference and IDE/LSP setup), `workflows/example.yaml`, `scripts/example/hello.sh`, and `.kiri/workflow.schema.json` for editor validation. Re-running is safe — existing files are never overwritten, and the schema file is also refreshed on every plain `kiri` launch so it stays in sync after a binary upgrade.
+
 ### Dogfood: `kiri-self-review`
 
 Kiri ships with a self-review workflow that pipes the working-tree `git diff` into `claude -p` and writes the response to the run feed. It's the simplest end-to-end demonstration of the pipeline.
