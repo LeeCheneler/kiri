@@ -9,6 +9,7 @@ A local-first, git-based workflow orchestrator for personal automation. MCP-firs
 ### Prerequisites
 
 - [mise](https://mise.jdx.dev) — manages the Bun version pinned in `mise.toml`. Activate it in your shell (`eval "$(mise activate zsh)"`) so `bun` resolves to the project-pinned version automatically when you `cd` into the repo.
+- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for the bundled `kiri-self-review` dogfood workflow. `claude` must be on your `PATH` and signed in.
 
 ### Install
 
@@ -33,6 +34,17 @@ bun start      # runs Hono; serves the built SPA + API at :3000
 ```
 
 In prod, visit **http://localhost:3000** — Hono serves both the SPA and `/api/*` from a single origin.
+
+### Dogfood: `kiri-self-review`
+
+Kiri ships with a self-review workflow that pipes the working-tree `git diff` into `claude -p` and writes the response to the run feed. It's the simplest end-to-end demonstration of the pipeline.
+
+1. Make some local changes in this repo (or any repo you launched kiri from).
+2. `bun dev` and open the local URL.
+3. Find **kiri-self-review** in the workflow list and click **Run**.
+4. Refresh the feed. Click the new entry to expand it — you'll see the snapshotted script source under *materials*, Claude's review under the node's *output*, and full envelope traces alongside.
+
+If the diff is empty, Claude will say so. If `claude` isn't installed or signed in, the run is marked failed and the underlying error is visible in the expanded entry.
 
 ### Quality gates
 
