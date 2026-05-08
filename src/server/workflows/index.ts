@@ -1,13 +1,17 @@
 export {
   type Gating,
-  type ScriptNode,
+  type ShStep,
+  type UseStep,
   type WorkflowDefinition,
-  type WorkflowNode,
+  type WorkflowStep,
+  isShStep,
+  isUseStep,
   workflowSchema,
 } from "./schema.ts";
 export {
   type LoadResult,
   type WorkflowLoadFailure,
+  bundleRunPath,
   loadWorkflows,
 } from "./loader.ts";
 export { workflowJsonSchema } from "./json-schema.ts";

@@ -1,6 +1,7 @@
 name: hello
-nodes:
-  - kind: script
-    path: scripts/hello/pick-name.sh
-  - kind: script
-    path: scripts/hello/greet.sh
+steps:
+  - sh: |
+      echo "Lee"
+  - sh: |
+      read -r name
+      echo "Hello, ${name}!"

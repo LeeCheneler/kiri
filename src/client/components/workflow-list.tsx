@@ -50,7 +50,7 @@ export function WorkflowList({ workflows, onRunComplete }: WorkflowListProps) {
             </button>
             <span className="workflow-name">{wf.name}</span>
             <span className="workflow-meta">
-              {wf.nodes.length} node{wf.nodes.length === 1 ? "" : "s"}
+              {wf.steps.length} step{wf.steps.length === 1 ? "" : "s"}
               {wf.gating ? ` · ${wf.gating}` : ""}
               {wf.schedule ? ` · ${wf.schedule}` : ""}
             </span>

@@ -37,6 +37,7 @@ const buildSnapshot = (result: LoadResult): Snapshot => {
  * failure set; recoveries are logged when a previously failing path drops
  * out.
  *
+ * `cwd` is the repo root used by the loader to resolve `use:` bundles.
  * `initial` seeds the watcher's view so the first rebuild only logs
  * actual deltas relative to what the caller already loaded — not every
  * workflow that's already there.
@@ -46,6 +47,7 @@ const buildSnapshot = (result: LoadResult): Snapshot => {
  */
 export function watchWorkflows(
   dir: string,
+  cwd: string,
   registry: Registry,
   initial: LoadResult,
   options: WatchOptions = {},
@@ -60,7 +62,7 @@ export function watchWorkflows(
     timer = null;
     let result: LoadResult;
     try {
-      result = await loadWorkflows(dir);
+      result = await loadWorkflows(dir, cwd);
     } catch (cause) {
       // Directory disappeared between an fs.watch event and the debounced
       // rebuild — usually a teardown race. Log and bail; if it's transient

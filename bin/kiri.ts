@@ -65,7 +65,7 @@ const db = bootstrap(cwd);
 const registry = createRegistry();
 
 const workflowsDir = join(cwd, "workflows");
-const initial = await loadWorkflows(workflowsDir);
+const initial = await loadWorkflows(workflowsDir, cwd);
 registry.replace(initial.workflows);
 for (const failure of initial.failures) {
   console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
@@ -73,7 +73,7 @@ for (const failure of initial.failures) {
 
 let watcher: WorkflowWatcher | undefined;
 if (process.env.NODE_ENV !== "production") {
-  watcher = watchWorkflows(workflowsDir, registry, initial);
+  watcher = watchWorkflows(workflowsDir, cwd, registry, initial);
 }
 
 const app = createApp({ db, registry, cwd });

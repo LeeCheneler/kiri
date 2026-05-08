@@ -4,7 +4,7 @@ import type { WorkflowDefinition } from "./schema.ts";
 
 const make = (name: string): WorkflowDefinition => ({
   name,
-  nodes: [{ kind: "script", path: `${name}.sh` }],
+  steps: [{ use: name }],
 });
 
 describe("registry", () => {

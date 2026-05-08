@@ -1,6 +1,2 @@
-export {
-  runScriptNode,
-  type RunScriptNodeArgs,
-  type ScriptNodeEnvelope,
-} from "./run-script-node.ts";
+export { runStep, type RunStepArgs, type StepEnvelope } from "./run-step.ts";
 export { runWorkflow, type RunWorkflowArgs, type RunWorkflowResult } from "./run-workflow.ts";

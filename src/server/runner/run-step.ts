@@ -1,39 +1,46 @@
+import { type WorkflowStep, isUseStep } from "../workflows/index.ts";
+
 /**
- * Standard envelope for a script node, matching the shape every node kind
- * returns. `output` is the captured stdout; for a multi-node pipeline the
- * runner pipes this into the next node's stdin.
+ * Standard envelope for a step, matching the shape every step variant
+ * returns. `output` is the captured stdout; for a multi-step pipeline the
+ * runner pipes this into the next step's stdin.
  */
-export interface ScriptNodeEnvelope {
+export interface StepEnvelope {
   status: "ok" | "failed";
   output: string;
   error?: { message: string; stack?: string };
   traces: { stdout: string; stderr: string; durationMs: number };
 }
 
-export interface RunScriptNodeArgs {
-  /** Absolute path to the script to execute. Must have execute permission and a shebang. */
-  scriptPath: string;
+export interface RunStepArgs {
+  /** The validated workflow step — either a `use:` bundle reference or an inline `sh:` snippet. */
+  step: WorkflowStep;
+  /** Absolute path to a `use:` step's bundle entry (`<cwd>/scripts/<name>/run.sh`). Ignored for `sh:` steps. */
+  bundleRunPath: string;
   /** Working directory for the spawned process — typically a per-run scratch dir. */
   scratchDir: string;
-  /** Bytes piped to the script's stdin. Pass `""` for the first node in a pipeline. */
+  /** Bytes piped to the step's stdin. Pass `""` for the first step in a pipeline. */
   input: string;
   /**
-   * Scoped env vars exposed to the script. No parent-process inheritance —
-   * pass exactly what the script should see. Empty object means an empty env.
+   * Scoped env vars exposed to the step. No parent-process inheritance —
+   * pass exactly what the step should see. Empty object means an empty env.
    */
   env: Record<string, string>;
 }
 
 /**
- * Spawn a script as a single workflow node and assemble the standard envelope.
+ * Spawn a workflow step and assemble the standard envelope.
  *
- * Spawned via an explicit `argv` array (`[scriptPath]`) — no shell, no
- * interpolation of any kind. Caller controls `cwd` and the env scope.
- * Spawn-time failure (missing script, not executable) and a non-zero exit
- * both yield `status: "failed"` with the cause in `error`.
+ * `use:` steps spawn `bundleRunPath` directly (`[runPath]`); `sh:` steps
+ * spawn `["sh", "-c", inline]`. Both use the explicit argv form — no
+ * shell interpolation of any input. Caller controls `cwd` (scratchDir)
+ * and the env scope. Spawn-time failure (missing script, not executable)
+ * and a non-zero exit both yield `status: "failed"` with the cause in
+ * `error`.
  */
-export async function runScriptNode(args: RunScriptNodeArgs): Promise<ScriptNodeEnvelope> {
-  const { scriptPath, scratchDir, input, env } = args;
+export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
+  const { step, bundleRunPath, scratchDir, input, env } = args;
+  const cmd = isUseStep(step) ? [bundleRunPath] : ["sh", "-c", step.sh];
   const startedAt = performance.now();
 
   let stdout: string;
@@ -41,7 +48,7 @@ export async function runScriptNode(args: RunScriptNodeArgs): Promise<ScriptNode
   let exitCode: number;
   try {
     const proc = Bun.spawn({
-      cmd: [scriptPath],
+      cmd,
       cwd: scratchDir,
       env,
       stdin: "pipe",
@@ -76,7 +83,7 @@ export async function runScriptNode(args: RunScriptNodeArgs): Promise<ScriptNode
   return {
     status: "failed",
     output: stdout,
-    error: { message: `script exited with code ${exitCode}` },
+    error: { message: `step exited with code ${exitCode}` },
     traces: { stdout, stderr, durationMs },
   };
 }

@@ -1,4 +1,3 @@
 name: kiri-self-review
-nodes:
-  - kind: script
-    path: scripts/kiri-self-review/review.sh
+steps:
+  - use: kiri-self-review

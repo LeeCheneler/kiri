@@ -1,7 +1,12 @@
+/** A single workflow step as seen by the client. */
+export type WorkflowStepSummary =
+  | { use: string; env?: Record<string, string> }
+  | { sh: string; env?: Record<string, string> };
+
 /** Workflow summary as returned by `GET /api/workflows`. */
 export interface WorkflowSummary {
   name: string;
-  nodes: Array<{ kind: "script"; path: string }>;
+  steps: WorkflowStepSummary[];
   gating?: "auto" | "propose";
   schedule?: string;
 }
@@ -27,7 +32,7 @@ export interface RunListEntry {
   error: { message: string; stack?: string } | null;
   definitionSnapshot: {
     name: string;
-    nodes: Array<{ kind: "script"; path: string }>;
+    steps: WorkflowStepSummary[];
     gating?: "auto" | "propose";
     schedule?: string;
   };
@@ -35,11 +40,22 @@ export interface RunListEntry {
 }
 
 /**
- * One per-node row inside a run detail. Carries the standard envelope
- * (`status`, `output`, `error`, `traces`, `usage`) and the `materials`
- * snapshot of the bytes that produced the node.
+ * Materials snapshot persisted with each step. `use:` steps record every
+ * file in the bundle directory; `sh:` steps record the inline source.
+ * Pre-rename rows can also surface as the legacy `{ source }` shape — UI
+ * code must accept either.
  */
-export interface RunNodeRow {
+export type StepMaterials =
+  | { kind: "use"; bundle: string; files: Record<string, string> }
+  | { kind: "sh"; source: string }
+  | { source: string };
+
+/**
+ * One per-step row inside a run detail. Carries the standard envelope
+ * (`status`, `output`, `error`, `traces`, `usage`) and the `materials`
+ * snapshot of the bytes that produced the step.
+ */
+export interface RunStepRow {
   id: string;
   runId: string;
   index: number;
@@ -49,13 +65,13 @@ export interface RunNodeRow {
   error: { message: string; stack?: string } | null;
   traces: { stdout: string; stderr: string; durationMs: number } | null;
   usage: unknown;
-  materials: { source: string };
+  materials: StepMaterials;
 }
 
-/** Full run as returned by `GET /api/runs/:id`: the run row plus its nodes ordered by index. */
+/** Full run as returned by `GET /api/runs/:id`: the run row plus its steps ordered by index. */
 export interface RunDetail {
   run: RunListEntry;
-  nodes: RunNodeRow[];
+  steps: RunStepRow[];
 }
 
 const json = async <T>(res: Response): Promise<T> => {
@@ -74,7 +90,7 @@ export const fetchWorkflows = async (): Promise<WorkflowSummary[]> =>
 export const fetchRuns = async (): Promise<RunListEntry[]> =>
   json<RunListEntry[]>(await fetch("/api/runs"));
 
-/** Fetch a single run with its per-node envelopes. Throws on non-2xx (including 404 for unknown ids). */
+/** Fetch a single run with its per-step envelopes. Throws on non-2xx (including 404 for unknown ids). */
 export const fetchRun = async (id: string): Promise<RunDetail> =>
   json<RunDetail>(await fetch(`/api/runs/${id}`));
 

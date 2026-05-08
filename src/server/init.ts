@@ -19,29 +19,56 @@ single workflow. Kiri loads them on startup, validates each against
 
 \`\`\`yaml
 name: my-workflow
-nodes:
-  - kind: script
-    path: scripts/my-workflow/step.sh
+steps:
+  - use: my-bundle
+    env:
+      GREETING: hello
+  - sh: |
+      echo "post-processing"
 \`\`\`
 
-Workflows are linear pipelines — each node's output feeds the next. No
+Workflows are linear pipelines — each step's output feeds the next. No
 branches, conditionals, or fan-out/fan-in.
 
-### Node kinds
+### Step variants
 
-#### \`script\`
+Each step is exactly one of:
 
-Runs an executable script. The script receives the prior node's output on
-stdin (or nothing for the first node) and writes its output to stdout. Exit
-code 0 = ok; non-zero halts the workflow.
+#### \`use: <name>\`
+
+References a **script bundle** at \`scripts/<name>/run.sh\`. A bundle is a
+folder containing at minimum \`run.sh\` plus any sidecar files it needs.
+Kiri spawns the bundle's \`run.sh\` directly (no shell interpolation).
 
 \`\`\`yaml
-- kind: script
-  path: scripts/example/hello.sh   # path relative to the repo root
+- use: greet
+  env:
+    NAME: lee
 \`\`\`
 
-Additional node kinds (e.g. \`agent\` for Claude Code invocations) will land
-in future kiri releases.
+#### \`sh: <inline>\`
+
+Runs an inline shell snippet via \`sh -c\`. Sugar for one-shots that don't
+deserve their own bundle. Multi-line via YAML's \`|\` block scalar.
+
+\`\`\`yaml
+- sh: |
+    echo "step done"
+    date
+\`\`\`
+
+### Environment variables
+
+\`env:\` is an optional flat string-to-string map passed to the step. Each
+bundle defines its own contract for the keys it expects; kiri doesn't
+validate values.
+
+Kiri injects its own scoped vars on every step — \`KIRI_RUN_ID\`,
+\`KIRI_STEP_INDEX\`, \`KIRI_META_FILE\`, \`KIRI_REPO_ROOT\` — plus OS
+essentials (\`PATH\`, \`HOME\`, \`USER\`, \`LOGNAME\`). These are applied
+*after* user \`env:\` and overwrite on collision, so a workflow can't
+shadow them. Workflow \`env:\` keys starting with \`KIRI_\` are rejected
+at load time.
 
 ## IDE / LSP integration
 
@@ -82,13 +109,12 @@ Safe — existing files are never overwritten; only the schema is refreshed.
 export const EXAMPLE_WORKFLOW_YAML = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
 
 name: example
-nodes:
-  - kind: script
-    path: scripts/example/hello.sh
+steps:
+  - use: example
 `;
 
-/** Contents of the scaffolded example script — paired with the example workflow. */
-export const EXAMPLE_HELLO_SCRIPT = `#!/bin/sh
+/** Contents of the scaffolded example bundle's `run.sh`. */
+export const EXAMPLE_RUN_SCRIPT = `#!/bin/sh
 echo "hello from kiri"
 `;
 
@@ -96,7 +122,7 @@ echo "hello from kiri"
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
 const README_REL_PATH = "README.md";
 const EXAMPLE_REL_PATH = "workflows/example.yaml";
-const EXAMPLE_SCRIPT_REL_PATH = "scripts/example/hello.sh";
+const EXAMPLE_SCRIPT_REL_PATH = "scripts/example/run.sh";
 const GITIGNORE_REL_PATH = ".gitignore";
 const GITIGNORE_KIRI_LINE = ".kiri/";
 
@@ -162,16 +188,16 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 
 /**
  * Bootstrap a kiri-ready repo at `cwd`: scaffold `workflows/` with a README
- * and example workflow, (re)write the JSON Schema file, and add `.kiri/` to
- * `.gitignore` if one exists. User-authored README/YAML files are never
- * overwritten — only missing files are created. The schema file is always
- * refreshed.
+ * and example workflow, drop in the example script bundle, (re)write the
+ * JSON Schema file, and add `.kiri/` to `.gitignore` if one exists.
+ * User-authored README/YAML/script files are never overwritten — only
+ * missing files are created. The schema file is always refreshed.
  */
 export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
-  const exampleScriptDir = join(cwd, "scripts", "example");
+  const exampleBundleDir = join(cwd, "scripts", "example");
   mkdirSync(workflowsDir, { recursive: true });
-  mkdirSync(exampleScriptDir, { recursive: true });
+  mkdirSync(exampleBundleDir, { recursive: true });
 
   const created: string[] = [];
   const skipped: string[] = [];
@@ -185,9 +211,9 @@ export function initRepo(cwd: string): InitResult {
     skipped,
   );
   writeIfMissing(
-    join(exampleScriptDir, "hello.sh"),
+    join(exampleBundleDir, "run.sh"),
     EXAMPLE_SCRIPT_REL_PATH,
-    EXAMPLE_HELLO_SCRIPT,
+    EXAMPLE_RUN_SCRIPT,
     created,
     skipped,
     0o755,

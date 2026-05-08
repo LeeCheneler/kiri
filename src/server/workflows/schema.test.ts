@@ -1,20 +1,39 @@
 import { describe, expect, it } from "bun:test";
-import { workflowSchema } from "./schema.ts";
+import { isShStep, isUseStep, workflowSchema } from "./schema.ts";
 
 describe("workflowSchema", () => {
-  it("parses a minimal valid workflow", () => {
+  it("parses a minimal valid workflow with a use: step", () => {
     const result = workflowSchema.parse({
       name: "noop",
-      nodes: [{ kind: "script", path: "scripts/noop.sh" }],
+      steps: [{ use: "noop" }],
     });
     expect(result.name).toBe("noop");
-    expect(result.nodes).toEqual([{ kind: "script", path: "scripts/noop.sh" }]);
+    expect(result.steps).toEqual([{ use: "noop" }]);
+  });
+
+  it("parses an inline sh: step", () => {
+    const result = workflowSchema.parse({
+      name: "shellish",
+      steps: [{ sh: "echo hi" }],
+    });
+    expect(result.steps).toEqual([{ sh: "echo hi" }]);
+  });
+
+  it("parses a mixed-variant pipeline with env maps", () => {
+    const result = workflowSchema.parse({
+      name: "mix",
+      steps: [{ use: "fetch", env: { FOO: "bar" } }, { sh: "cat" }],
+    });
+    expect(result.steps).toHaveLength(2);
+    const [first, second] = result.steps;
+    expect(isUseStep(first)).toBe(true);
+    expect(isShStep(second)).toBe(true);
   });
 
   it("preserves optional fields when present", () => {
     const result = workflowSchema.parse({
       name: "scheduled",
-      nodes: [{ kind: "script", path: "x.sh" }],
+      steps: [{ use: "x" }],
       gating: "propose",
       schedule: "*/15 * * * *",
     });
@@ -23,29 +42,53 @@ describe("workflowSchema", () => {
   });
 
   it("rejects empty name", () => {
-    expect(() =>
-      workflowSchema.parse({ name: "", nodes: [{ kind: "script", path: "x.sh" }] }),
-    ).toThrow();
+    expect(() => workflowSchema.parse({ name: "", steps: [{ use: "x" }] })).toThrow();
   });
 
-  it("rejects empty nodes array", () => {
-    expect(() => workflowSchema.parse({ name: "empty", nodes: [] })).toThrow();
+  it("rejects empty steps array", () => {
+    expect(() => workflowSchema.parse({ name: "empty", steps: [] })).toThrow();
   });
 
-  it("rejects unknown node kind", () => {
+  it("rejects a step with both use and sh keys", () => {
     expect(() =>
       workflowSchema.parse({
-        name: "bad-node",
-        nodes: [{ kind: "agent", template: "x" }],
+        name: "ambiguous",
+        steps: [{ use: "a", sh: "echo b" }],
       }),
     ).toThrow();
   });
 
-  it("rejects script node with empty path", () => {
+  it("rejects a step with neither use nor sh", () => {
     expect(() =>
       workflowSchema.parse({
-        name: "empty-path",
-        nodes: [{ kind: "script", path: "" }],
+        name: "neither",
+        steps: [{ env: { FOO: "bar" } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects use: with empty name", () => {
+    expect(() => workflowSchema.parse({ name: "empty-use", steps: [{ use: "" }] })).toThrow();
+  });
+
+  it("rejects sh: with empty body", () => {
+    expect(() => workflowSchema.parse({ name: "empty-sh", steps: [{ sh: "" }] })).toThrow();
+  });
+
+  it("rejects env: keys starting with KIRI_", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "reserved",
+        steps: [{ use: "x", env: { KIRI_RUN_ID: "spoofed" } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects unknown extra keys on a step", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "extras",
+        steps: [{ use: "x", path: "scripts/x/run.sh" }],
       }),
     ).toThrow();
   });
@@ -54,7 +97,7 @@ describe("workflowSchema", () => {
     expect(() =>
       workflowSchema.parse({
         name: "bad-gating",
-        nodes: [{ kind: "script", path: "x.sh" }],
+        steps: [{ use: "x" }],
         gating: "manual",
       }),
     ).toThrow();
@@ -64,7 +107,7 @@ describe("workflowSchema", () => {
     expect(() =>
       workflowSchema.parse({
         name: "bad-sched",
-        nodes: [{ kind: "script", path: "x.sh" }],
+        steps: [{ use: "x" }],
         schedule: "",
       }),
     ).toThrow();

@@ -11,31 +11,33 @@ describe("workflowJsonSchema", () => {
     };
     expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
     expect(schema.type).toBe("object");
-    expect(schema.required).toEqual(expect.arrayContaining(["name", "nodes"]));
+    expect(schema.required).toEqual(expect.arrayContaining(["name", "steps"]));
     expect(schema.properties).toMatchObject({
       name: { type: "string" },
-      nodes: { type: "array" },
+      steps: { type: "array" },
     });
   });
 
-  it("describes script nodes with a literal kind discriminator and required path", () => {
+  it("describes step variants for use: and sh:", () => {
     type Variant = {
-      properties: { kind: { const: string }; path: { type: string } };
-      required: string[];
+      properties: { use?: { type: string }; sh?: { type: string } };
+      required?: string[];
     };
     const schema = workflowJsonSchema() as {
       properties: {
-        nodes: {
+        steps: {
           items: Variant | { oneOf: Variant[] } | { anyOf: Variant[] };
         };
       };
     };
-    const items = schema.properties.nodes.items;
+    const items = schema.properties.steps.items;
     const variants = "oneOf" in items ? items.oneOf : "anyOf" in items ? items.anyOf : [items];
-    const script = variants.find((v) => v.properties.kind.const === "script");
-    expect(script).toBeDefined();
-    expect(script?.properties.path.type).toBe("string");
-    expect(script?.required).toEqual(expect.arrayContaining(["kind", "path"]));
+    const useVariant = variants.find((v) => v.properties.use !== undefined);
+    const shVariant = variants.find((v) => v.properties.sh !== undefined);
+    expect(useVariant).toBeDefined();
+    expect(shVariant).toBeDefined();
+    expect(useVariant?.properties.use?.type).toBe("string");
+    expect(shVariant?.properties.sh?.type).toBe("string");
   });
 
   it("optionally permits gating and schedule fields", () => {

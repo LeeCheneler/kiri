@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "./bootstrap.ts";
 import type { KiriDb } from "./db/index.ts";
@@ -25,12 +25,13 @@ describe("createApp", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  const writeScript = (relPath: string, body: string): string => {
-    const abs = join(cwd, relPath);
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, body);
-    chmodSync(abs, 0o755);
-    return abs;
+  const writeBundle = (name: string, body: string): string => {
+    const dir = join(cwd, "scripts", name);
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, "run.sh");
+    writeFileSync(path, body);
+    chmodSync(path, 0o755);
+    return path;
   };
 
   describe("GET /api/health", () => {
@@ -50,10 +51,10 @@ describe("createApp", () => {
       expect(await res.json()).toEqual([]);
     });
 
-    it("summarizes registry entries with name, nodes, gating, and schedule", async () => {
+    it("summarizes registry entries with name, steps, gating, and schedule", async () => {
       const wf: WorkflowDefinition = {
         name: "demo",
-        nodes: [{ kind: "script", path: "scripts/n.sh" }],
+        steps: [{ use: "demo" }],
         gating: "auto",
         schedule: "*/5 * * * *",
       };
@@ -66,7 +67,7 @@ describe("createApp", () => {
       expect(body).toHaveLength(1);
       expect(body[0]).toEqual({
         name: "demo",
-        nodes: [{ kind: "script", path: "scripts/n.sh" }],
+        steps: [{ use: "demo" }],
         gating: "auto",
         schedule: "*/5 * * * *",
       });
@@ -82,10 +83,10 @@ describe("createApp", () => {
     });
 
     it("triggers a run and returns runId + status", async () => {
-      writeScript("scripts/hi.sh", "#!/bin/sh\necho hello\n");
+      writeBundle("hi", "#!/bin/sh\necho hello\n");
       const wf: WorkflowDefinition = {
         name: "greeter",
-        nodes: [{ kind: "script", path: "scripts/hi.sh" }],
+        steps: [{ use: "hi" }],
       };
       registry.replace(new Map([[wf.name, wf]]));
 
@@ -111,15 +112,15 @@ describe("createApp", () => {
     };
 
     it("returns runs newest-first with isOrphan derived from the registry", async () => {
-      writeScript("scripts/a.sh", "#!/bin/sh\necho a\n");
-      writeScript("scripts/b.sh", "#!/bin/sh\necho b\n");
+      writeBundle("a", "#!/bin/sh\necho a\n");
+      writeBundle("b", "#!/bin/sh\necho b\n");
       const wfA: WorkflowDefinition = {
         name: "alpha",
-        nodes: [{ kind: "script", path: "scripts/a.sh" }],
+        steps: [{ use: "a" }],
       };
       const wfB: WorkflowDefinition = {
         name: "beta",
-        nodes: [{ kind: "script", path: "scripts/b.sh" }],
+        steps: [{ use: "b" }],
       };
       registry.replace(
         new Map([
@@ -148,10 +149,10 @@ describe("createApp", () => {
     });
 
     it("honours limit and offset", async () => {
-      writeScript("scripts/n.sh", "#!/bin/sh\necho n\n");
+      writeBundle("n", "#!/bin/sh\necho n\n");
       const wf: WorkflowDefinition = {
         name: "wf",
-        nodes: [{ kind: "script", path: "scripts/n.sh" }],
+        steps: [{ use: "n" }],
       };
       registry.replace(new Map([[wf.name, wf]]));
 
@@ -180,15 +181,11 @@ describe("createApp", () => {
       expect(await res.json()).toEqual({ error: 'run "missing" not found' });
     });
 
-    it("returns the run with nodes ordered by index", async () => {
-      writeScript("scripts/one.sh", "#!/bin/sh\necho one\n");
-      writeScript("scripts/two.sh", "#!/bin/sh\ncat\n");
+    it("returns the run with steps ordered by index", async () => {
+      writeBundle("one", "#!/bin/sh\necho one\n");
       const wf: WorkflowDefinition = {
         name: "two-step",
-        nodes: [
-          { kind: "script", path: "scripts/one.sh" },
-          { kind: "script", path: "scripts/two.sh" },
-        ],
+        steps: [{ use: "one" }, { sh: "cat" }],
       };
       registry.replace(new Map([[wf.name, wf]]));
 
@@ -200,19 +197,31 @@ describe("createApp", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         run: { id: string; workflowName: string; isOrphan: boolean };
-        nodes: Array<{ index: number; output: unknown; materials: { source: string } }>;
+        steps: Array<{
+          index: number;
+          kind: string;
+          output: unknown;
+          materials: Record<string, unknown>;
+        }>;
       };
       expect(body.run).toMatchObject({ id: runId, workflowName: "two-step", isOrphan: false });
-      expect(body.nodes.map((n) => n.index)).toEqual([0, 1]);
-      expect(body.nodes[0].output).toBe("one\n");
-      expect(body.nodes[0].materials.source).toBe("#!/bin/sh\necho one\n");
+      expect(body.steps.map((n) => n.index)).toEqual([0, 1]);
+      expect(body.steps[0].output).toBe("one\n");
+      expect(body.steps[0].kind).toBe("use");
+      expect(body.steps[0].materials).toEqual({
+        kind: "use",
+        bundle: "one",
+        files: { "run.sh": "#!/bin/sh\necho one\n" },
+      });
+      expect(body.steps[1].kind).toBe("sh");
+      expect(body.steps[1].materials).toEqual({ kind: "sh", source: "cat" });
     });
 
     it("flags isOrphan when the workflow no longer exists", async () => {
-      writeScript("scripts/x.sh", "#!/bin/sh\necho x\n");
+      writeBundle("x", "#!/bin/sh\necho x\n");
       const wf: WorkflowDefinition = {
         name: "ephemeral",
-        nodes: [{ kind: "script", path: "scripts/x.sh" }],
+        steps: [{ use: "x" }],
       };
       registry.replace(new Map([[wf.name, wf]]));
 

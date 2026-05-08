@@ -1,11 +1,11 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { type WorkflowDefinition, workflowSchema } from "./schema.ts";
+import { type WorkflowDefinition, isUseStep, workflowSchema } from "./schema.ts";
 
 /**
  * A workflow file that failed to load — either a YAML parse error, a
- * schema-validation failure, or a duplicate-name conflict where another
- * file already claimed the same workflow name.
+ * schema-validation failure, a missing `use:` bundle, or a duplicate-name
+ * conflict where another file already claimed the same workflow name.
  */
 export interface WorkflowLoadFailure {
   /** Absolute path of the file that failed. */
@@ -28,15 +28,30 @@ const isYamlFile = (name: string): boolean => name.endsWith(".yaml") || name.end
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+/** Absolute path of the bundle's entry script for a `use:` step. */
+export const bundleRunPath = (cwd: string, name: string): string =>
+  resolve(cwd, "scripts", name, "run.sh");
+
+const validateBundles = (def: WorkflowDefinition, cwd: string): string[] => {
+  const missing: string[] = [];
+  for (const step of def.steps) {
+    if (!isUseStep(step)) continue;
+    if (!existsSync(bundleRunPath(cwd, step.use))) missing.push(step.use);
+  }
+  return missing;
+};
+
 /**
  * Scan `dir` for `*.yaml`/`*.yml` files (top-level only — nested files are
  * out of scope by design), parse each as YAML, validate against the
- * workflow schema, and collect the results. Per-file failures (parse
- * errors, validation, duplicate names) are recorded in `result.failures`
- * and the scan continues; only directory-level errors (e.g. `dir`
- * doesn't exist) throw.
+ * workflow schema, and collect the results. `cwd` is the repo root used
+ * to resolve `use: <name>` bundles to `<cwd>/scripts/<name>/run.sh`;
+ * a workflow referencing a missing bundle is recorded as a per-file
+ * failure. Per-file failures (parse errors, validation, duplicates,
+ * missing bundles) populate `result.failures` and the scan continues;
+ * only directory-level errors (e.g. `dir` doesn't exist) throw.
  */
-export async function loadWorkflows(dir: string): Promise<LoadResult> {
+export async function loadWorkflows(dir: string, cwd: string): Promise<LoadResult> {
   const files = readdirSync(dir)
     .filter(isYamlFile)
     .map((name) => resolve(dir, name))
@@ -69,6 +84,17 @@ export async function loadWorkflows(dir: string): Promise<LoadResult> {
       continue;
     }
     const wf = result.data;
+
+    const missing = validateBundles(wf, cwd);
+    if (missing.length > 0) {
+      const list = missing.map((n) => `"${n}"`).join(", ");
+      const noun = missing.length === 1 ? "bundle" : "bundles";
+      failures.push({
+        path: file,
+        reason: `missing ${noun} ${list}: expected scripts/<name>/run.sh under ${cwd}`,
+      });
+      continue;
+    }
 
     const existing = sources.get(wf.name);
     if (existing !== undefined) {

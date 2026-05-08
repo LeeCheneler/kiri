@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import {
   type FSWatcher,
+  chmodSync,
+  mkdirSync,
   mkdtempSync,
   rmSync,
   unlinkSync,
@@ -14,12 +16,18 @@ import { loadWorkflows } from "./loader.ts";
 import { createRegistry } from "./registry.ts";
 import { watchWorkflows } from "./watcher.ts";
 
-const yamlSource = (name: string, scriptPath = `${name}.sh`) =>
+const yamlSource = (name: string, useName = name) =>
   `name: ${name}
-nodes:
-  - kind: script
-    path: ${scriptPath}
+steps:
+  - use: ${useName}
 `;
+
+const writeBundle = (cwd: string, name: string): void => {
+  const path = join(cwd, "scripts", name, "run.sh");
+  mkdirSync(join(cwd, "scripts", name), { recursive: true });
+  writeFileSync(path, "#!/bin/sh\necho hi\n");
+  chmodSync(path, 0o755);
+};
 
 const waitFor = async (predicate: () => boolean, timeoutMs = 2000): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
@@ -30,6 +38,7 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 2000): Promise<void
 };
 
 describe("watchWorkflows", () => {
+  let cwd: string;
   let dir: string;
   let logs: string[];
   let errs: string[];
@@ -37,7 +46,9 @@ describe("watchWorkflows", () => {
   let origErr: typeof console.error;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "kiri-watch-"));
+    cwd = mkdtempSync(join(tmpdir(), "kiri-watch-"));
+    dir = join(cwd, "workflows");
+    mkdirSync(dir);
     logs = [];
     errs = [];
     origLog = console.log;
@@ -53,15 +64,16 @@ describe("watchWorkflows", () => {
   afterEach(() => {
     console.log = origLog;
     console.error = origErr;
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
   });
 
   it("logs added when a new workflow file appears", async () => {
+    writeBundle(cwd, "new");
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
 
     writeFileSync(join(dir, "new.yaml"), yamlSource("new"));
     await waitFor(() => registry.getWorkflow("new") !== undefined);
@@ -71,20 +83,22 @@ describe("watchWorkflows", () => {
   });
 
   it("logs changed when an existing workflow file is edited", async () => {
-    writeFileSync(join(dir, "foo.yaml"), yamlSource("foo", "v1.sh"));
+    writeBundle(cwd, "v1");
+    writeBundle(cwd, "v2");
+    writeFileSync(join(dir, "foo.yaml"), yamlSource("foo", "v1"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
 
     // Ensure mtime ticks even on coarse-grained filesystems.
     await Bun.sleep(20);
-    writeFileSync(join(dir, "foo.yaml"), yamlSource("foo", "v2.sh"));
+    writeFileSync(join(dir, "foo.yaml"), yamlSource("foo", "v2"));
 
     await waitFor(() => {
       const wf = registry.getWorkflow("foo");
-      return wf !== undefined && wf.nodes[0].kind === "script" && wf.nodes[0].path === "v2.sh";
+      return wf !== undefined && "use" in wf.steps[0] && wf.steps[0].use === "v2";
     });
 
     expect(logs.some((m) => m.includes('changed "foo"'))).toBe(true);
@@ -92,13 +106,15 @@ describe("watchWorkflows", () => {
   });
 
   it("logs removed when a workflow file is deleted, and stays quiet for unchanged peers", async () => {
+    writeBundle(cwd, "alpha");
+    writeBundle(cwd, "beta");
     writeFileSync(join(dir, "alpha.yaml"), yamlSource("alpha"));
     writeFileSync(join(dir, "beta.yaml"), yamlSource("beta"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
 
     unlinkSync(join(dir, "alpha.yaml"));
     await waitFor(() => registry.getWorkflow("alpha") === undefined);
@@ -110,14 +126,15 @@ describe("watchWorkflows", () => {
   });
 
   it("logs a failure when a broken file appears, leaves healthy peers intact", async () => {
+    writeBundle(cwd, "ok");
     writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
 
-    writeFileSync(join(dir, "bad.yaml"), "name: foo\nnodes: [\n");
+    writeFileSync(join(dir, "bad.yaml"), "name: foo\nsteps: [\n");
     await waitFor(() => errs.length > 0);
 
     expect(errs[0]).toContain("failed to load");
@@ -127,18 +144,21 @@ describe("watchWorkflows", () => {
   });
 
   it("only logs each failing path once across rebuilds, and logs recovery when fixed", async () => {
+    writeBundle(cwd, "ok");
+    writeBundle(cwd, "bad");
+    writeBundle(cwd, "ok-v2");
     writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
-    writeFileSync(join(dir, "bad.yaml"), "name: foo\nnodes: [\n");
+    writeFileSync(join(dir, "bad.yaml"), "name: foo\nsteps: [\n");
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
 
     // Touching an unrelated file forces a rebuild but should not re-log
     // the still-failing bad.yaml.
     await Bun.sleep(20);
-    writeFileSync(join(dir, "ok.yaml"), yamlSource("ok", "v2.sh"));
+    writeFileSync(join(dir, "ok.yaml"), yamlSource("ok", "ok-v2"));
     await waitFor(() => logs.some((m) => m.includes('changed "ok"')));
     expect(errs).toEqual([]);
 
@@ -153,15 +173,17 @@ describe("watchWorkflows", () => {
   });
 
   it("logs and survives if the workflows dir disappears mid-watch", async () => {
+    writeBundle(cwd, "ok");
+    writeBundle(cwd, "trigger");
     writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
     // Long debounce so the event-driven timer is comfortably pending when
     // we delete the dir; the timer then fires rebuild() against a missing
     // directory and exercises the catch.
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 100 });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 100 });
 
     writeFileSync(join(dir, "trigger.yaml"), yamlSource("trigger"));
     await Bun.sleep(30);
@@ -174,9 +196,10 @@ describe("watchWorkflows", () => {
   });
 
   it("logs and schedules a rebuild when the underlying fs watcher emits an error", async () => {
+    writeBundle(cwd, "alpha");
     writeFileSync(join(dir, "alpha.yaml"), yamlSource("alpha"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
     const fakeWatcher = Object.assign(new EventEmitter(), {
@@ -184,7 +207,7 @@ describe("watchWorkflows", () => {
     }) as unknown as FSWatcher;
     const watchFn = (() => fakeWatcher) as unknown as typeof watch;
 
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     unlinkSync(join(dir, "alpha.yaml"));
     fakeWatcher.emit("error", new Error("simulated inotify hiccup"));
@@ -198,7 +221,7 @@ describe("watchWorkflows", () => {
 
   it("stringifies non-Error values from the fs watcher's error event", async () => {
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
     const fakeWatcher = Object.assign(new EventEmitter(), {
@@ -206,7 +229,7 @@ describe("watchWorkflows", () => {
     }) as unknown as FSWatcher;
     const watchFn = (() => fakeWatcher) as unknown as typeof watch;
 
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     fakeWatcher.emit("error", "raw string");
     await waitFor(() => errs.some((m) => m.includes("raw string")));
@@ -216,11 +239,12 @@ describe("watchWorkflows", () => {
   });
 
   it("stop() halts further rebuilds", async () => {
+    writeBundle(cwd, "late");
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir);
+    const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
     watcher.stop();
 
     writeFileSync(join(dir, "late.yaml"), yamlSource("late"));

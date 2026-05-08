@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { bootstrap } from "../bootstrap.ts";
 import type { KiriDb } from "../db/index.ts";
 import { runSteps, runs } from "../db/schema.ts";
-import type { WorkflowDefinition } from "../workflows/index.ts";
+import type { WorkflowDefinition, WorkflowStep } from "../workflows/index.ts";
 import { runWorkflow } from "./run-workflow.ts";
 
 describe("runWorkflow", () => {
@@ -23,22 +23,28 @@ describe("runWorkflow", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  const writeScript = (relPath: string, body: string): string => {
-    const abs = join(cwd, relPath);
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, body);
-    chmodSync(abs, 0o755);
-    return abs;
+  const writeBundle = (name: string, body: string, sidecars: Record<string, string> = {}) => {
+    const bundleDir = join(cwd, "scripts", name);
+    mkdirSync(bundleDir, { recursive: true });
+    const runPath = join(bundleDir, "run.sh");
+    writeFileSync(runPath, body);
+    chmodSync(runPath, 0o755);
+    for (const [filename, contents] of Object.entries(sidecars)) {
+      writeFileSync(join(bundleDir, filename), contents);
+    }
+    return runPath;
   };
 
-  const makeWorkflow = (name: string, nodePaths: string[]): WorkflowDefinition => ({
+  const useSteps = (...names: string[]): WorkflowStep[] => names.map((name) => ({ use: name }));
+
+  const makeWorkflow = (name: string, steps: WorkflowStep[]): WorkflowDefinition => ({
     name,
-    nodes: nodePaths.map((path) => ({ kind: "script" as const, path })),
+    steps,
   });
 
-  it("persists a single-node run + envelope and reports ok", async () => {
-    writeScript("scripts/hello.sh", "#!/bin/sh\necho hi from kiri\n");
-    const wf = makeWorkflow("greeter", ["scripts/hello.sh"]);
+  it("persists a single use: step run + envelope and reports ok", async () => {
+    writeBundle("hello", "#!/bin/sh\necho hi from kiri\n");
+    const wf = makeWorkflow("greeter", useSteps("hello"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
@@ -52,42 +58,94 @@ describe("runWorkflow", () => {
     expect(run?.finishedAt).toBeInstanceOf(Date);
     expect(run?.error).toBeNull();
 
-    const nodeRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
-    expect(nodeRows).toHaveLength(1);
-    const node = nodeRows[0];
-    expect(node.index).toBe(0);
-    expect(node.kind).toBe("script");
-    expect(node.status).toBe("ok");
-    expect(node.output).toBe("hi from kiri\n");
-    expect(node.materials).toEqual({ source: "#!/bin/sh\necho hi from kiri\n" });
-    expect(node.error).toBeNull();
-    expect(node.traces).toMatchObject({ stdout: "hi from kiri\n", stderr: "" });
+    const stepRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+    expect(stepRows).toHaveLength(1);
+    const step = stepRows[0];
+    expect(step.index).toBe(0);
+    expect(step.kind).toBe("use");
+    expect(step.status).toBe("ok");
+    expect(step.output).toBe("hi from kiri\n");
+    expect(step.materials).toEqual({
+      kind: "use",
+      bundle: "hello",
+      files: { "run.sh": "#!/bin/sh\necho hi from kiri\n" },
+    });
+    expect(step.error).toBeNull();
+    expect(step.traces).toMatchObject({ stdout: "hi from kiri\n", stderr: "" });
   });
 
-  it("pipes node output to the next node's stdin", async () => {
-    writeScript("scripts/emit.sh", "#!/bin/sh\necho first-output\n");
-    writeScript("scripts/cat.sh", "#!/bin/sh\ncat\n");
-    const wf = makeWorkflow("pipe", ["scripts/emit.sh", "scripts/cat.sh"]);
+  it("persists an inline sh: step with materials = { kind: 'sh', source }", async () => {
+    const wf = makeWorkflow("inline", [{ sh: "echo from-inline" }]);
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
     expect(result.status).toBe("ok");
-    const nodes = db
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.kind).toBe("sh");
+    expect(step?.output).toBe("from-inline\n");
+    expect(step?.materials).toEqual({ kind: "sh", source: "echo from-inline" });
+  });
+
+  it("captures bundle sidecar files in the use: materials snapshot", async () => {
+    writeBundle("with-sidecar", "#!/bin/sh\ncat sidecar.txt\n", {
+      "sidecar.txt": "sidecar-payload\n",
+    });
+    const wf = makeWorkflow("sidecar", useSteps("with-sidecar"));
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.materials).toEqual({
+      kind: "use",
+      bundle: "with-sidecar",
+      files: {
+        "run.sh": "#!/bin/sh\ncat sidecar.txt\n",
+        "sidecar.txt": "sidecar-payload\n",
+      },
+    });
+  });
+
+  it("skips sub-directories inside a bundle when snapshotting materials", async () => {
+    writeBundle("with-subdir", "#!/bin/sh\necho hi\n");
+    mkdirSync(join(cwd, "scripts", "with-subdir", "prompts"));
+    writeFileSync(
+      join(cwd, "scripts", "with-subdir", "prompts", "system.txt"),
+      "ignored payload\n",
+    );
+    const wf = makeWorkflow("subdir", useSteps("with-subdir"));
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.materials).toEqual({
+      kind: "use",
+      bundle: "with-subdir",
+      files: { "run.sh": "#!/bin/sh\necho hi\n" },
+    });
+  });
+
+  it("pipes step output to the next step's stdin (mixed use → sh)", async () => {
+    writeBundle("emit", "#!/bin/sh\necho first-output\n");
+    const wf = makeWorkflow("pipe", [{ use: "emit" }, { sh: "cat" }]);
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+
+    expect(result.status).toBe("ok");
+    const steps = db
       .select()
       .from(runSteps)
       .where(eq(runSteps.runId, result.runId))
       .orderBy(asc(runSteps.index))
       .all();
-    expect(nodes).toHaveLength(2);
-    expect(nodes[0].output).toBe("first-output\n");
-    // cat echoes node 0's stdout it received on stdin.
-    expect(nodes[1].output).toBe("first-output\n");
+    expect(steps).toHaveLength(2);
+    expect(steps[0].output).toBe("first-output\n");
+    expect(steps[1].output).toBe("first-output\n");
   });
 
-  it("halts on first failure and does not create rows for later nodes", async () => {
-    writeScript("scripts/boom.sh", "#!/bin/sh\necho before-fail\nexit 5\n");
-    writeScript("scripts/wont-run.sh", "#!/bin/sh\necho should-not-run\n");
-    const wf = makeWorkflow("halts", ["scripts/boom.sh", "scripts/wont-run.sh"]);
+  it("halts on first failure and does not create rows for later steps", async () => {
+    writeBundle("boom", "#!/bin/sh\necho before-fail\nexit 5\n");
+    writeBundle("wont-run", "#!/bin/sh\necho should-not-run\n");
+    const wf = makeWorkflow("halts", useSteps("boom", "wont-run"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
@@ -98,28 +156,32 @@ describe("runWorkflow", () => {
     expect(run?.error).not.toBeNull();
     expect(run?.finishedAt).toBeInstanceOf(Date);
 
-    const nodes = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
-    expect(nodes).toHaveLength(1);
-    expect(nodes[0].status).toBe("failed");
-    expect(nodes[0].error).not.toBeNull();
+    const steps = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+    expect(steps).toHaveLength(1);
+    expect(steps[0].status).toBe("failed");
+    expect(steps[0].error).not.toBeNull();
   });
 
-  it("captures script source at run start; later edits don't change the snapshot", async () => {
-    const scriptPath = writeScript("scripts/v.sh", "#!/bin/sh\necho v1\n");
-    const wf = makeWorkflow("snap", ["scripts/v.sh"]);
+  it("captures bundle source at run start; later edits don't change the snapshot", async () => {
+    const runPath = writeBundle("v", "#!/bin/sh\necho v1\n");
+    const wf = makeWorkflow("snap", useSteps("v"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
-    writeFileSync(scriptPath, "#!/bin/sh\necho v2\n");
+    writeFileSync(runPath, "#!/bin/sh\necho v2\n");
 
-    const node = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(node?.materials).toEqual({ source: "#!/bin/sh\necho v1\n" });
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.materials).toEqual({
+      kind: "use",
+      bundle: "v",
+      files: { "run.sh": "#!/bin/sh\necho v1\n" },
+    });
   });
 
   it("snapshots the resolved definition onto the run row", async () => {
-    writeScript("scripts/n.sh", "#!/bin/sh\necho hi\n");
+    writeBundle("n", "#!/bin/sh\necho hi\n");
     const wf: WorkflowDefinition = {
       name: "snapshot",
-      nodes: [{ kind: "script", path: "scripts/n.sh" }],
+      steps: [{ use: "n", env: { FOO: "bar" } }],
       gating: "auto",
       schedule: "*/5 * * * *",
     };
@@ -129,15 +191,15 @@ describe("runWorkflow", () => {
     const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
     expect(run?.definitionSnapshot).toEqual({
       name: "snapshot",
-      nodes: [{ kind: "script", path: "scripts/n.sh" }],
+      steps: [{ use: "n", env: { FOO: "bar" } }],
       gating: "auto",
       schedule: "*/5 * * * *",
     });
   });
 
   it("removes the scratch dir after a successful run", async () => {
-    writeScript("scripts/ok.sh", "#!/bin/sh\necho ok\n");
-    const wf = makeWorkflow("clean-ok", ["scripts/ok.sh"]);
+    writeBundle("ok", "#!/bin/sh\necho ok\n");
+    const wf = makeWorkflow("clean-ok", useSteps("ok"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
@@ -145,8 +207,8 @@ describe("runWorkflow", () => {
   });
 
   it("removes the scratch dir after a failed run", async () => {
-    writeScript("scripts/fail.sh", "#!/bin/sh\nexit 1\n");
-    const wf = makeWorkflow("clean-fail", ["scripts/fail.sh"]);
+    writeBundle("fail", "#!/bin/sh\nexit 1\n");
+    const wf = makeWorkflow("clean-fail", useSteps("fail"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
@@ -154,24 +216,25 @@ describe("runWorkflow", () => {
     expect(existsSync(join(cwd, ".kiri", "runs", result.runId))).toBe(false);
   });
 
-  it("fails the node when the script file is missing", async () => {
-    const wf = makeWorkflow("missing", ["scripts/does-not-exist.sh"]);
+  it("fails the step when the bundle directory is missing on disk", async () => {
+    const wf = makeWorkflow("missing", useSteps("ghost"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
     expect(result.status).toBe("failed");
-    const node = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(node?.status).toBe("failed");
-    expect(node?.materials).toEqual({ source: "" });
-    expect(node?.error).not.toBeNull();
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.status).toBe("failed");
+    expect(step?.materials).toEqual({ kind: "use", bundle: "ghost", files: {} });
+    expect(step?.error).not.toBeNull();
   });
 
   it("finalizes the runs row even when execution throws mid-flight", async () => {
+    writeBundle("n", "#!/bin/sh\necho hi\n");
     // Pre-create .kiri/runs as a *file* so mkdirSync(.../runs/<id>, {recursive: true})
     // throws ENOTDIR mid-execution. Stand-in for any non-envelope throw inside
-    // the try block (db failures, future node-kind dispatch errors, etc.).
+    // the try block (db failures, future step-kind dispatch errors, etc.).
     writeFileSync(join(cwd, ".kiri", "runs"), "blocker");
-    const wf = makeWorkflow("throwy", ["scripts/n.sh"]);
+    const wf = makeWorkflow("throwy", useSteps("n"));
 
     let caught: unknown;
     try {
@@ -189,24 +252,57 @@ describe("runWorkflow", () => {
     expect(allRuns[0].error).not.toBeNull();
   });
 
-  it("exposes KIRI_RUN_ID and KIRI_NODE_INDEX in the script's env", async () => {
-    writeScript("scripts/dump.sh", '#!/bin/sh\necho "RUN=$KIRI_RUN_ID NODE=$KIRI_NODE_INDEX"\n');
-    const wf = makeWorkflow("env-vars", ["scripts/dump.sh"]);
+  it("exposes KIRI_RUN_ID, KIRI_STEP_INDEX, KIRI_REPO_ROOT, and KIRI_META_FILE in the step's env", async () => {
+    writeBundle(
+      "dump",
+      '#!/bin/sh\necho "RUN=$KIRI_RUN_ID STEP=$KIRI_STEP_INDEX ROOT=$KIRI_REPO_ROOT META=$KIRI_META_FILE"\n',
+    );
+    const wf = makeWorkflow("env-vars", useSteps("dump"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
-    const node = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(node?.output).toBe(`RUN=${result.runId} NODE=0\n`);
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.output).toBe(
+      `RUN=${result.runId} STEP=0 ROOT=${cwd} META=${join(cwd, ".kiri", "runs", result.runId, "step-0.meta.json")}\n`,
+    );
+  });
+
+  it("kiri-injected vars overwrite user env keys on collision (PATH cannot be hijacked)", async () => {
+    // The schema rejects KIRI_*; PATH is the cleanest user-controllable
+    // collision target since it is also overlaid by the runner.
+    writeBundle("path", '#!/bin/sh\necho "PATH=$PATH"\n');
+    const wf: WorkflowDefinition = {
+      name: "collision",
+      steps: [{ use: "path", env: { PATH: "/sneaky/bin" } }],
+    };
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
+  });
+
+  it("forwards user env values for non-conflicting keys to the bundle", async () => {
+    writeBundle("greet", '#!/bin/sh\necho "name=$NAME"\n');
+    const wf: WorkflowDefinition = {
+      name: "with-env",
+      steps: [{ use: "greet", env: { NAME: "lee" } }],
+    };
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.output).toBe("name=lee\n");
   });
 
   it("forwards USER and LOGNAME so user-session auth (keychain, ssh-agent) works", async () => {
-    writeScript("scripts/who.sh", '#!/bin/sh\necho "USER=$USER LOGNAME=$LOGNAME"\n');
-    const wf = makeWorkflow("who", ["scripts/who.sh"]);
+    writeBundle("who", '#!/bin/sh\necho "USER=$USER LOGNAME=$LOGNAME"\n');
+    const wf = makeWorkflow("who", useSteps("who"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
-    const node = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(node?.output).toBe(
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.output).toBe(
       `USER=${process.env.USER ?? ""} LOGNAME=${process.env.LOGNAME ?? ""}\n`,
     );
   });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { type RunDetail, type RunListEntry, fetchRun } from "../api.ts";
+import { type RunDetail, type RunListEntry, type StepMaterials, fetchRun } from "../api.ts";
 
 interface RunFeedProps {
   runs: RunListEntry[];
@@ -8,7 +8,7 @@ interface RunFeedProps {
 /**
  * Reverse-chronological feed of runs. Each row collapses to a one-line
  * header and expands inline to show the run detail (definition snapshot,
- * per-node envelope, traces, materials).
+ * per-step envelope, traces, materials).
  */
 export function RunFeed({ runs }: RunFeedProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -98,36 +98,57 @@ function RunDetailView({ runId }: { runId: string }) {
       <Section title="Definition snapshot">
         <pre>{JSON.stringify(detail.run.definitionSnapshot, null, 2)}</pre>
       </Section>
-      {detail.nodes.map((node) => (
-        <Section key={node.id} title={`Node ${node.index} · ${node.kind} · ${node.status}`}>
-          {node.error && (
+      {detail.steps.map((step) => (
+        <Section key={step.id} title={`Step ${step.index} · ${step.kind} · ${step.status}`}>
+          {step.error && (
             <Field label="error">
-              <pre>{node.error.message}</pre>
+              <pre>{step.error.message}</pre>
             </Field>
           )}
           <Field label="output">
             <pre>
-              {typeof node.output === "string" ? node.output : JSON.stringify(node.output, null, 2)}
+              {typeof step.output === "string" ? step.output : JSON.stringify(step.output, null, 2)}
             </pre>
           </Field>
-          {node.traces && (
+          {step.traces && (
             <>
-              <Field label={`stdout (${node.traces.durationMs.toFixed(1)} ms)`}>
-                <pre>{node.traces.stdout}</pre>
+              <Field label={`stdout (${step.traces.durationMs.toFixed(1)} ms)`}>
+                <pre>{step.traces.stdout}</pre>
               </Field>
-              {node.traces.stderr && (
+              {step.traces.stderr && (
                 <Field label="stderr">
-                  <pre>{node.traces.stderr}</pre>
+                  <pre>{step.traces.stderr}</pre>
                 </Field>
               )}
             </>
           )}
-          <Field label="materials.source">
-            <pre>{node.materials.source}</pre>
-          </Field>
+          <MaterialsView materials={step.materials} />
         </Section>
       ))}
     </div>
+  );
+}
+
+function MaterialsView({ materials }: { materials: StepMaterials }) {
+  if ("kind" in materials && materials.kind === "use") {
+    return (
+      <>
+        <Field label={`bundle (${materials.bundle})`}>
+          <pre>{Object.keys(materials.files).join("\n") || "(empty)"}</pre>
+        </Field>
+        {Object.entries(materials.files).map(([name, source]) => (
+          <Field key={name} label={`materials.${name}`}>
+            <pre>{source}</pre>
+          </Field>
+        ))}
+      </>
+    );
+  }
+  // Both `{ kind: "sh", source }` and the legacy `{ source }` shape land here.
+  return (
+    <Field label="materials.source">
+      <pre>{materials.source}</pre>
+    </Field>
   );
 }
 
