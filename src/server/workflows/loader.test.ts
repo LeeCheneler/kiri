@@ -1,25 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { loadWorkflows } from "./loader.ts";
 
-const DEFINE_PATH = resolve(import.meta.dir, "define-workflow.ts");
-// Fixtures import `zod` by package name; the node resolver walks up from
-// the fixture file looking for `node_modules`. Symlinking the project's
-// `node_modules` into each tmp dir lets that lookup succeed without
-// pinning fixtures to absolute paths.
-const NODE_MODULES = resolve(import.meta.dir, "..", "..", "..", "node_modules");
-
-const validWorkflowSource = (name: string, scriptPath = `${name}.sh`) => `
-import { z } from "zod";
-import { defineWorkflow } from "${DEFINE_PATH}";
-
-export const wf = defineWorkflow({
-  name: "${name}",
-  inputSchema: z.object({}),
-  nodes: [{ kind: "script", path: "${scriptPath}" }],
-});
+const yamlSource = (name: string, scriptPath = `${name}.sh`) =>
+  `name: ${name}
+nodes:
+  - kind: script
+    path: ${scriptPath}
 `;
 
 describe("loadWorkflows", () => {
@@ -27,7 +16,6 @@ describe("loadWorkflows", () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-loader-"));
-    symlinkSync(NODE_MODULES, join(dir, "node_modules"));
   });
 
   afterEach(() => {
@@ -42,81 +30,70 @@ describe("loadWorkflows", () => {
   });
 
   it("loads a workflow from a single file with its source path", async () => {
-    writeFileSync(join(dir, "foo.ts"), validWorkflowSource("foo"));
+    writeFileSync(join(dir, "foo.yaml"), yamlSource("foo"));
 
     const result = await loadWorkflows(dir);
     expect(Array.from(result.workflows.keys())).toEqual(["foo"]);
     expect(result.workflows.get("foo")?.name).toBe("foo");
-    expect(result.sources.get("foo")).toBe(join(dir, "foo.ts"));
+    expect(result.sources.get("foo")).toBe(join(dir, "foo.yaml"));
     expect(result.failures).toEqual([]);
   });
 
-  it("collects workflows from multiple files", async () => {
-    writeFileSync(join(dir, "a.ts"), validWorkflowSource("a"));
-    writeFileSync(join(dir, "b.ts"), validWorkflowSource("b"));
+  it("collects workflows from multiple files, including .yml", async () => {
+    writeFileSync(join(dir, "a.yaml"), yamlSource("a"));
+    writeFileSync(join(dir, "b.yml"), yamlSource("b"));
 
     const result = await loadWorkflows(dir);
     expect(Array.from(result.workflows.keys()).sort()).toEqual(["a", "b"]);
-    expect(result.sources.get("a")).toBe(join(dir, "a.ts"));
-    expect(result.sources.get("b")).toBe(join(dir, "b.ts"));
+    expect(result.sources.get("a")).toBe(join(dir, "a.yaml"));
+    expect(result.sources.get("b")).toBe(join(dir, "b.yml"));
     expect(result.failures).toEqual([]);
   });
 
-  it("ignores files that export no workflows", async () => {
-    writeFileSync(join(dir, "junk.ts"), "export const x = 1;\n");
-
-    const result = await loadWorkflows(dir);
-    expect(result.workflows.size).toBe(0);
-    expect(result.failures).toEqual([]);
-  });
-
-  it("ignores non-.ts files", async () => {
+  it("ignores non-YAML files", async () => {
     writeFileSync(join(dir, "readme.md"), "# hello");
-    writeFileSync(join(dir, "foo.ts"), validWorkflowSource("foo"));
+    writeFileSync(join(dir, "stale.ts"), "export const x = 1;\n");
+    writeFileSync(join(dir, "foo.yaml"), yamlSource("foo"));
 
     const result = await loadWorkflows(dir);
     expect(Array.from(result.workflows.keys())).toEqual(["foo"]);
+    expect(result.failures).toEqual([]);
   });
 
   it("loads valid files alongside broken ones (per-file isolation)", async () => {
-    writeFileSync(join(dir, "good.ts"), validWorkflowSource("good"));
-    writeFileSync(join(dir, "bad.ts"), 'throw "boom";\n');
+    writeFileSync(join(dir, "good.yaml"), yamlSource("good"));
+    writeFileSync(join(dir, "bad.yaml"), "name: foo\nnodes: [\n");
 
     const result = await loadWorkflows(dir);
 
     expect(Array.from(result.workflows.keys())).toEqual(["good"]);
-    expect(result.sources.get("good")).toBe(join(dir, "good.ts"));
+    expect(result.sources.get("good")).toBe(join(dir, "good.yaml"));
     expect(result.failures.length).toBe(1);
-    expect(result.failures[0].path).toBe(join(dir, "bad.ts"));
-    expect(result.failures[0].reason).toContain("boom");
+    expect(result.failures[0].path).toBe(join(dir, "bad.yaml"));
+    expect(result.failures[0].reason.length).toBeGreaterThan(0);
   });
 
   it("records the second file as a failure when two share a workflow name", async () => {
-    writeFileSync(join(dir, "first.ts"), validWorkflowSource("dup"));
-    writeFileSync(join(dir, "second.ts"), validWorkflowSource("dup"));
+    writeFileSync(join(dir, "first.yaml"), yamlSource("dup"));
+    writeFileSync(join(dir, "second.yaml"), yamlSource("dup"));
 
     const result = await loadWorkflows(dir);
 
     expect(Array.from(result.workflows.keys())).toEqual(["dup"]);
-    expect(result.sources.get("dup")).toBe(join(dir, "first.ts"));
+    expect(result.sources.get("dup")).toBe(join(dir, "first.yaml"));
     expect(result.failures.length).toBe(1);
-    expect(result.failures[0].path).toBe(join(dir, "second.ts"));
+    expect(result.failures[0].path).toBe(join(dir, "second.yaml"));
     expect(result.failures[0].reason).toContain('"dup"');
-    expect(result.failures[0].reason).toContain(join(dir, "first.ts"));
+    expect(result.failures[0].reason).toContain(join(dir, "first.yaml"));
   });
 
-  it("records a failure for a file whose definition fails validation", async () => {
+  it("records a failure for a file whose definition fails schema validation", async () => {
     writeFileSync(
-      join(dir, "bad.ts"),
-      `
-import { z } from "zod";
-import { defineWorkflow } from "${DEFINE_PATH}";
-
-export const wf = defineWorkflow({
-  name: "",
-  inputSchema: z.object({}),
-  nodes: [{ kind: "script", path: "x.sh" }],
-});
+      join(dir, "bad.yaml"),
+      `name: ""
+nodes:
+  - kind: script
+    path: x.sh
 `,
     );
 
@@ -124,19 +101,18 @@ export const wf = defineWorkflow({
 
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
-    expect(result.failures[0].path).toBe(join(dir, "bad.ts"));
+    expect(result.failures[0].path).toBe(join(dir, "bad.yaml"));
     expect(result.failures[0].reason.length).toBeGreaterThan(0);
   });
 
-  it("records a failure for a file with a non-Error throw", async () => {
-    writeFileSync(join(dir, "throws-string.ts"), `throw "boom";\n`);
+  it("records a failure when YAML parses but isn't an object", async () => {
+    writeFileSync(join(dir, "scalar.yaml"), "just a string\n");
 
     const result = await loadWorkflows(dir);
 
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
-    expect(result.failures[0].path).toBe(join(dir, "throws-string.ts"));
-    expect(result.failures[0].reason).toContain("boom");
+    expect(result.failures[0].path).toBe(join(dir, "scalar.yaml"));
   });
 
   it("throws when the directory does not exist", () => {

@@ -1,11 +1,10 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { z } from "zod";
 import type { KiriDb } from "./db/index.ts";
 import { runNodes, runs } from "./db/schema.ts";
 import { runWorkflow } from "./runner/index.ts";
-import type { BrandedWorkflowDefinition, Registry } from "./workflows/index.ts";
+import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
@@ -17,12 +16,11 @@ export interface AppDeps {
   cwd: string;
 }
 
-const summarizeWorkflow = (def: BrandedWorkflowDefinition) => ({
+const summarizeWorkflow = (def: WorkflowDefinition) => ({
   name: def.name,
   nodes: def.nodes,
   gating: def.gating,
   schedule: def.schedule,
-  inputSchema: z.toJSONSchema(def.inputSchema),
 });
 
 const DEFAULT_RUN_LIMIT = 50;

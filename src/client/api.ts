@@ -1,13 +1,9 @@
-/**
- * Workflow summary as returned by `GET /api/workflows`. `inputSchema` is
- * the JSON-Schema rendering of the Zod schema declared on the workflow.
- */
+/** Workflow summary as returned by `GET /api/workflows`. */
 export interface WorkflowSummary {
   name: string;
   nodes: Array<{ kind: "script"; path: string }>;
   gating?: "auto" | "propose";
   schedule?: string;
-  inputSchema: unknown;
 }
 
 /** Result of a manual run trigger: the new run's id and its terminal status. */

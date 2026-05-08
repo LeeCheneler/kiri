@@ -1,14 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { z } from "zod";
-import { defineWorkflow } from "./define-workflow.ts";
 import { createRegistry } from "./registry.ts";
+import type { WorkflowDefinition } from "./schema.ts";
 
-const make = (name: string) =>
-  defineWorkflow({
-    name,
-    inputSchema: z.object({}),
-    nodes: [{ kind: "script", path: `${name}.sh` }],
-  });
+const make = (name: string): WorkflowDefinition => ({
+  name,
+  nodes: [{ kind: "script", path: `${name}.sh` }],
+});
 
 describe("registry", () => {
   it("starts empty", () => {

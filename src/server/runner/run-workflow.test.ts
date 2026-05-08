@@ -3,11 +3,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { asc, eq } from "drizzle-orm";
-import { z } from "zod";
 import { bootstrap } from "../bootstrap.ts";
 import type { KiriDb } from "../db/index.ts";
 import { runNodes, runs } from "../db/schema.ts";
-import { defineWorkflow } from "../workflows/index.ts";
+import type { WorkflowDefinition } from "../workflows/index.ts";
 import { runWorkflow } from "./run-workflow.ts";
 
 describe("runWorkflow", () => {
@@ -32,12 +31,10 @@ describe("runWorkflow", () => {
     return abs;
   };
 
-  const makeWorkflow = (name: string, nodePaths: string[]) =>
-    defineWorkflow({
-      name,
-      inputSchema: z.object({}),
-      nodes: nodePaths.map((path) => ({ kind: "script" as const, path })),
-    });
+  const makeWorkflow = (name: string, nodePaths: string[]): WorkflowDefinition => ({
+    name,
+    nodes: nodePaths.map((path) => ({ kind: "script" as const, path })),
+  });
 
   it("persists a single-node run + envelope and reports ok", async () => {
     writeScript("scripts/hello.sh", "#!/bin/sh\necho hi from kiri\n");
@@ -120,13 +117,12 @@ describe("runWorkflow", () => {
 
   it("snapshots the resolved definition onto the run row", async () => {
     writeScript("scripts/n.sh", "#!/bin/sh\necho hi\n");
-    const wf = defineWorkflow({
+    const wf: WorkflowDefinition = {
       name: "snapshot",
-      inputSchema: z.object({}),
       nodes: [{ kind: "script", path: "scripts/n.sh" }],
       gating: "auto",
       schedule: "*/5 * * * *",
-    });
+    };
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 

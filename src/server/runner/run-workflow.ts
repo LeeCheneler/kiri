@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { runNodes, runs } from "../db/schema.ts";
-import type { BrandedWorkflowDefinition, WorkflowNode } from "../workflows/index.ts";
+import type { WorkflowDefinition, WorkflowNode } from "../workflows/index.ts";
 import { runScriptNode } from "./run-script-node.ts";
 
 export interface RunWorkflowArgs {
@@ -18,7 +18,7 @@ export interface RunWorkflowResult {
   status: "ok" | "failed";
 }
 
-/** Persisted on the `runs` row. Strips the live `inputSchema` (a Zod object isn't safely JSON-serializable) and the brand symbol. */
+/** Persisted on the `runs` row. Shallow-cloned so the in-memory registry entry can mutate without affecting historical rows. */
 interface DefinitionSnapshot {
   name: string;
   nodes: WorkflowNode[];
@@ -26,7 +26,7 @@ interface DefinitionSnapshot {
   schedule?: string;
 }
 
-const snapshotDefinition = (def: BrandedWorkflowDefinition): DefinitionSnapshot => ({
+const snapshotDefinition = (def: WorkflowDefinition): DefinitionSnapshot => ({
   name: def.name,
   nodes: def.nodes.map((n) => ({ ...n })),
   gating: def.gating,
@@ -61,7 +61,7 @@ const scopedEnv = (runId: string, nodeIndex: number): Record<string, string> => 
  */
 export async function runWorkflow(
   db: KiriDb,
-  definition: BrandedWorkflowDefinition,
+  definition: WorkflowDefinition,
   args: RunWorkflowArgs,
 ): Promise<RunWorkflowResult> {
   const runId = crypto.randomUUID();

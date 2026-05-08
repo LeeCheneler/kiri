@@ -1,23 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { loadWorkflows } from "./loader.ts";
 import { createRegistry } from "./registry.ts";
 import { watchWorkflows } from "./watcher.ts";
 
-const DEFINE_PATH = resolve(import.meta.dir, "define-workflow.ts");
-const NODE_MODULES = resolve(import.meta.dir, "..", "..", "..", "node_modules");
-
-const wfSource = (name: string, scriptPath = `${name}.sh`) => `
-import { z } from "zod";
-import { defineWorkflow } from "${DEFINE_PATH}";
-
-export const wf = defineWorkflow({
-  name: "${name}",
-  inputSchema: z.object({}),
-  nodes: [{ kind: "script", path: "${scriptPath}" }],
-});
+const yamlSource = (name: string, scriptPath = `${name}.sh`) =>
+  `name: ${name}
+nodes:
+  - kind: script
+    path: ${scriptPath}
 `;
 
 const waitFor = async (predicate: () => boolean, timeoutMs = 2000): Promise<void> => {
@@ -37,7 +30,6 @@ describe("watchWorkflows", () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-watch-"));
-    symlinkSync(NODE_MODULES, join(dir, "node_modules"));
     logs = [];
     errs = [];
     origLog = console.log;
@@ -63,7 +55,7 @@ describe("watchWorkflows", () => {
 
     const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
 
-    writeFileSync(join(dir, "new.ts"), wfSource("new"));
+    writeFileSync(join(dir, "new.yaml"), yamlSource("new"));
     await waitFor(() => registry.getWorkflow("new") !== undefined);
 
     expect(logs.some((m) => m.includes('added "new"'))).toBe(true);
@@ -71,7 +63,7 @@ describe("watchWorkflows", () => {
   });
 
   it("logs changed when an existing workflow file is edited", async () => {
-    writeFileSync(join(dir, "foo.ts"), wfSource("foo", "v1.sh"));
+    writeFileSync(join(dir, "foo.yaml"), yamlSource("foo", "v1.sh"));
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
@@ -80,7 +72,7 @@ describe("watchWorkflows", () => {
 
     // Ensure mtime ticks even on coarse-grained filesystems.
     await Bun.sleep(20);
-    writeFileSync(join(dir, "foo.ts"), wfSource("foo", "v2.sh"));
+    writeFileSync(join(dir, "foo.yaml"), yamlSource("foo", "v2.sh"));
 
     await waitFor(() => {
       const wf = registry.getWorkflow("foo");
@@ -92,15 +84,15 @@ describe("watchWorkflows", () => {
   });
 
   it("logs removed when a workflow file is deleted, and stays quiet for unchanged peers", async () => {
-    writeFileSync(join(dir, "alpha.ts"), wfSource("alpha"));
-    writeFileSync(join(dir, "beta.ts"), wfSource("beta"));
+    writeFileSync(join(dir, "alpha.yaml"), yamlSource("alpha"));
+    writeFileSync(join(dir, "beta.yaml"), yamlSource("beta"));
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
 
     const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
 
-    unlinkSync(join(dir, "alpha.ts"));
+    unlinkSync(join(dir, "alpha.yaml"));
     await waitFor(() => registry.getWorkflow("alpha") === undefined);
 
     expect(logs.some((m) => m.includes('removed "alpha"'))).toBe(true);
@@ -110,26 +102,25 @@ describe("watchWorkflows", () => {
   });
 
   it("logs a failure when a broken file appears, leaves healthy peers intact", async () => {
-    writeFileSync(join(dir, "ok.ts"), wfSource("ok"));
+    writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
 
     const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
 
-    writeFileSync(join(dir, "bad.ts"), 'throw "boom";\n');
+    writeFileSync(join(dir, "bad.yaml"), "name: foo\nnodes: [\n");
     await waitFor(() => errs.length > 0);
 
     expect(errs[0]).toContain("failed to load");
-    expect(errs[0]).toContain("bad.ts");
-    expect(errs[0]).toContain("boom");
+    expect(errs[0]).toContain("bad.yaml");
     expect(registry.getWorkflow("ok")).toBeDefined();
     watcher.stop();
   });
 
   it("only logs each failing path once across rebuilds, and logs recovery when fixed", async () => {
-    writeFileSync(join(dir, "ok.ts"), wfSource("ok"));
-    writeFileSync(join(dir, "bad.ts"), 'throw "boom";\n');
+    writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
+    writeFileSync(join(dir, "bad.yaml"), "name: foo\nnodes: [\n");
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);
     registry.replace(initial.workflows);
@@ -137,19 +128,19 @@ describe("watchWorkflows", () => {
     const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
 
     // Touching an unrelated file forces a rebuild but should not re-log
-    // the still-failing bad.ts.
+    // the still-failing bad.yaml.
     await Bun.sleep(20);
-    writeFileSync(join(dir, "ok.ts"), wfSource("ok", "v2.sh"));
+    writeFileSync(join(dir, "ok.yaml"), yamlSource("ok", "v2.sh"));
     await waitFor(() => logs.some((m) => m.includes('changed "ok"')));
     expect(errs).toEqual([]);
 
     // Fixing the broken file should log a recovery message and add the
     // workflow to the registry.
-    writeFileSync(join(dir, "bad.ts"), wfSource("bad"));
+    writeFileSync(join(dir, "bad.yaml"), yamlSource("bad"));
     await waitFor(() => registry.getWorkflow("bad") !== undefined);
 
     expect(logs.some((m) => m.includes("no longer failing"))).toBe(true);
-    expect(logs.some((m) => m.includes("bad.ts"))).toBe(true);
+    expect(logs.some((m) => m.includes("bad.yaml"))).toBe(true);
     watcher.stop();
   });
 
@@ -161,7 +152,7 @@ describe("watchWorkflows", () => {
     const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10 });
     watcher.stop();
 
-    writeFileSync(join(dir, "late.ts"), wfSource("late"));
+    writeFileSync(join(dir, "late.yaml"), yamlSource("late"));
     await Bun.sleep(80);
 
     expect(registry.getWorkflow("late")).toBeUndefined();

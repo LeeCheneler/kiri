@@ -3,12 +3,11 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { eq } from "drizzle-orm";
-import { z } from "zod";
 import { bootstrap } from "./bootstrap.ts";
 import type { KiriDb } from "./db/index.ts";
 import { runs } from "./db/schema.ts";
 import { createApp } from "./index.ts";
-import { type Registry, createRegistry, defineWorkflow } from "./workflows/index.ts";
+import { type Registry, type WorkflowDefinition, createRegistry } from "./workflows/index.ts";
 
 describe("createApp", () => {
   let cwd: string;
@@ -51,14 +50,13 @@ describe("createApp", () => {
       expect(await res.json()).toEqual([]);
     });
 
-    it("summarizes registry entries with name, nodes, gating, schedule, and inputSchema", async () => {
-      const wf = defineWorkflow({
+    it("summarizes registry entries with name, nodes, gating, and schedule", async () => {
+      const wf: WorkflowDefinition = {
         name: "demo",
-        inputSchema: z.object({ topic: z.string() }),
         nodes: [{ kind: "script", path: "scripts/n.sh" }],
         gating: "auto",
         schedule: "*/5 * * * *",
-      });
+      };
       registry.replace(new Map([[wf.name, wf]]));
 
       const app = createApp({ db, registry, cwd });
@@ -66,16 +64,12 @@ describe("createApp", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body).toHaveLength(1);
-      expect(body[0]).toMatchObject({
+      expect(body[0]).toEqual({
         name: "demo",
         nodes: [{ kind: "script", path: "scripts/n.sh" }],
         gating: "auto",
         schedule: "*/5 * * * *",
       });
-      // z.toJSONSchema renders the input schema; assert its presence and
-      // that it carries the declared property, not the exact JSON shape.
-      const inputSchema = body[0].inputSchema as { properties?: Record<string, unknown> };
-      expect(inputSchema.properties).toHaveProperty("topic");
     });
   });
 
@@ -89,11 +83,10 @@ describe("createApp", () => {
 
     it("triggers a run and returns runId + status", async () => {
       writeScript("scripts/hi.sh", "#!/bin/sh\necho hello\n");
-      const wf = defineWorkflow({
+      const wf: WorkflowDefinition = {
         name: "greeter",
-        inputSchema: z.object({}),
         nodes: [{ kind: "script", path: "scripts/hi.sh" }],
-      });
+      };
       registry.replace(new Map([[wf.name, wf]]));
 
       const app = createApp({ db, registry, cwd });
@@ -120,16 +113,14 @@ describe("createApp", () => {
     it("returns runs newest-first with isOrphan derived from the registry", async () => {
       writeScript("scripts/a.sh", "#!/bin/sh\necho a\n");
       writeScript("scripts/b.sh", "#!/bin/sh\necho b\n");
-      const wfA = defineWorkflow({
+      const wfA: WorkflowDefinition = {
         name: "alpha",
-        inputSchema: z.object({}),
         nodes: [{ kind: "script", path: "scripts/a.sh" }],
-      });
-      const wfB = defineWorkflow({
+      };
+      const wfB: WorkflowDefinition = {
         name: "beta",
-        inputSchema: z.object({}),
         nodes: [{ kind: "script", path: "scripts/b.sh" }],
-      });
+      };
       registry.replace(
         new Map([
           [wfA.name, wfA],
@@ -158,11 +149,10 @@ describe("createApp", () => {
 
     it("honours limit and offset", async () => {
       writeScript("scripts/n.sh", "#!/bin/sh\necho n\n");
-      const wf = defineWorkflow({
+      const wf: WorkflowDefinition = {
         name: "wf",
-        inputSchema: z.object({}),
         nodes: [{ kind: "script", path: "scripts/n.sh" }],
-      });
+      };
       registry.replace(new Map([[wf.name, wf]]));
 
       const app = createApp({ db, registry, cwd });
@@ -193,14 +183,13 @@ describe("createApp", () => {
     it("returns the run with nodes ordered by index", async () => {
       writeScript("scripts/one.sh", "#!/bin/sh\necho one\n");
       writeScript("scripts/two.sh", "#!/bin/sh\ncat\n");
-      const wf = defineWorkflow({
+      const wf: WorkflowDefinition = {
         name: "two-step",
-        inputSchema: z.object({}),
         nodes: [
           { kind: "script", path: "scripts/one.sh" },
           { kind: "script", path: "scripts/two.sh" },
         ],
-      });
+      };
       registry.replace(new Map([[wf.name, wf]]));
 
       const app = createApp({ db, registry, cwd });
@@ -221,11 +210,10 @@ describe("createApp", () => {
 
     it("flags isOrphan when the workflow no longer exists", async () => {
       writeScript("scripts/x.sh", "#!/bin/sh\necho x\n");
-      const wf = defineWorkflow({
+      const wf: WorkflowDefinition = {
         name: "ephemeral",
-        inputSchema: z.object({}),
         nodes: [{ kind: "script", path: "scripts/x.sh" }],
-      });
+      };
       registry.replace(new Map([[wf.name, wf]]));
 
       const app = createApp({ db, registry, cwd });

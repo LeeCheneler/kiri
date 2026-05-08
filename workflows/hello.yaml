@@ -1,0 +1,6 @@
+name: hello
+nodes:
+  - kind: script
+    path: scripts/hello/pick-name.sh
+  - kind: script
+    path: scripts/hello/greet.sh

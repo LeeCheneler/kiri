@@ -1,4 +1,4 @@
-import type { BrandedWorkflowDefinition } from "./define-workflow.ts";
+import type { WorkflowDefinition } from "./schema.ts";
 
 /**
  * In-memory workflow registry. Holds the current set of workflow
@@ -7,19 +7,19 @@ import type { BrandedWorkflowDefinition } from "./define-workflow.ts";
  * and `listWorkflows`.
  */
 export interface Registry {
-  getWorkflow(name: string): BrandedWorkflowDefinition | undefined;
-  listWorkflows(): BrandedWorkflowDefinition[];
+  getWorkflow(name: string): WorkflowDefinition | undefined;
+  listWorkflows(): WorkflowDefinition[];
   /**
    * Swap the registry's contents wholesale. The map is stored by reference
    * to avoid copying on every dev-mode rebuild; the caller must treat the
    * map as owned by the registry from this point on and not mutate it.
    */
-  replace(workflows: ReadonlyMap<string, BrandedWorkflowDefinition>): void;
+  replace(workflows: ReadonlyMap<string, WorkflowDefinition>): void;
 }
 
 /** Create an empty registry. */
 export function createRegistry(): Registry {
-  let workflows: ReadonlyMap<string, BrandedWorkflowDefinition> = new Map();
+  let workflows: ReadonlyMap<string, WorkflowDefinition> = new Map();
   return {
     getWorkflow: (name) => workflows.get(name),
     listWorkflows: () => Array.from(workflows.values()),
