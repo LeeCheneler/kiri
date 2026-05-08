@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadWorkflows } from "./loader.ts";
@@ -102,6 +102,18 @@ nodes:
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "bad.yaml"));
+    expect(result.failures[0].reason.length).toBeGreaterThan(0);
+  });
+
+  it("records a failure when a YAML file can't be read", async () => {
+    // Dangling symlink: readdir lists the entry, readFileSync fails ENOENT.
+    symlinkSync("/nonexistent/kiri-loader-target", join(dir, "ghost.yaml"));
+
+    const result = await loadWorkflows(dir);
+
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "ghost.yaml"));
     expect(result.failures[0].reason.length).toBeGreaterThan(0);
   });
 
