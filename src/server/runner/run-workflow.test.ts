@@ -202,4 +202,16 @@ describe("runWorkflow", () => {
     const node = db.select().from(runNodes).where(eq(runNodes.runId, result.runId)).get();
     expect(node?.output).toBe(`RUN=${result.runId} NODE=0\n`);
   });
+
+  it("forwards USER and LOGNAME so user-session auth (keychain, ssh-agent) works", async () => {
+    writeScript("scripts/who.sh", '#!/bin/sh\necho "USER=$USER LOGNAME=$LOGNAME"\n');
+    const wf = makeWorkflow("who", ["scripts/who.sh"]);
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+
+    const node = db.select().from(runNodes).where(eq(runNodes.runId, result.runId)).get();
+    expect(node?.output).toBe(
+      `USER=${process.env.USER ?? ""} LOGNAME=${process.env.LOGNAME ?? ""}\n`,
+    );
+  });
 });

@@ -36,6 +36,12 @@ const snapshotDefinition = (def: BrandedWorkflowDefinition): DefinitionSnapshot 
 const scopedEnv = (runId: string, nodeIndex: number): Record<string, string> => ({
   PATH: process.env.PATH ?? "",
   HOME: process.env.HOME ?? "",
+  // USER/LOGNAME are POSIX user-identity vars; tools that authenticate as
+  // the user (macOS Keychain lookups, ssh-agent, gpg) rely on them to
+  // resolve the active user's session — same category as HOME, not
+  // orchestrator state.
+  USER: process.env.USER ?? "",
+  LOGNAME: process.env.LOGNAME ?? "",
   KIRI_RUN_ID: runId,
   KIRI_NODE_INDEX: String(nodeIndex),
 });
