@@ -123,11 +123,112 @@ export const EXAMPLE_RUN_SCRIPT = `#!/bin/sh
 echo "hello from kiri"
 `;
 
+/** Contents of the scaffolded `scripts/claude-code/run.sh`. */
+export const CLAUDE_CODE_RUN_SCRIPT = `#!/bin/sh
+# Spawns the Claude Code CLI with a per-run permission allowlist
+# synthesised from ALLOWED_TOOLS. The prompt is read from PROMPT_FILE
+# (resolved against KIRI_REPO_ROOT) with the allowlist prepended as
+# positive framing so the agent doesn't burn turns on denied tools.
+set -eu
+
+: "\${PROMPT_FILE:?required env var}"
+: "\${KIRI_REPO_ROOT:?required (kiri injects this)}"
+
+MAX_TURNS="\${MAX_TURNS:-8}"
+ALLOWED_TOOLS="\${ALLOWED_TOOLS:-Read,Glob,Grep}"
+
+for dep in claude jq; do
+  command -v "$dep" >/dev/null 2>&1 || {
+    echo "claude-code bundle requires '$dep' on PATH" >&2
+    exit 1
+  }
+done
+
+# CLAUDE_CONFIG_DIR points the CLI at a per-run settings.json so no
+# user-level ~/.claude state is consulted — the workflow's env: block
+# is the only source of permission truth.
+config_dir="$(pwd)/.claude"
+mkdir -p "$config_dir"
+
+printf '%s' "$ALLOWED_TOOLS" | jq -R '
+  split(",") | map(gsub("^\\\\s+|\\\\s+$"; "")) | {permissions: {allow: .}}
+' > "$config_dir/settings.json"
+export CLAUDE_CONFIG_DIR="$config_dir"
+
+prompt_body=$(cat "$KIRI_REPO_ROOT/$PROMPT_FILE")
+prompt="You have access to: $ALLOWED_TOOLS. If you need anything else, end the session with a final message describing what you needed and why.
+
+$prompt_body"
+
+if [ -n "\${MODEL:-}" ]; then
+  exec claude -p "$prompt" --max-turns "$MAX_TURNS" --model "$MODEL"
+else
+  exec claude -p "$prompt" --max-turns "$MAX_TURNS"
+fi
+`;
+
+/** Contents of the scaffolded `scripts/claude-code/README.md`. */
+export const CLAUDE_CODE_README = `# claude-code bundle
+
+A workflow step that spawns the Claude Code CLI with a permission
+allowlist synthesised from the workflow's \`env:\` block.
+
+Reference it from a workflow:
+
+\`\`\`yaml
+- use: claude-code
+  env:
+    PROMPT_FILE: prompts/my-prompt.tpl
+    MAX_TURNS: "8"
+    ALLOWED_TOOLS: "Read,Glob,Grep"
+    MODEL: opus               # optional
+\`\`\`
+
+## Env-var contract
+
+| Var | Required | Default | Description |
+| --- | --- | --- | --- |
+| \`PROMPT_FILE\` | yes | — | Path to the prompt template, resolved against \`KIRI_REPO_ROOT\`. |
+| \`MAX_TURNS\` | no | \`8\` | Hard cap on the number of agent turns. |
+| \`ALLOWED_TOOLS\` | no | \`Read,Glob,Grep\` | Comma-separated tool names, e.g. \`Read,Glob,Grep\` or \`Bash(gh pr view:*)\`. Defaults to read-only tooling. |
+| \`MODEL\` | no | — | Override the model. If unset, \`claude\` picks its default. |
+
+\`KIRI_REPO_ROOT\` is supplied by kiri.
+
+## What \`run.sh\` does
+
+1. Synthesises \`<scratch>/.claude/settings.json\` with \`permissions.allow\`
+   from \`ALLOWED_TOOLS\` and points \`CLAUDE_CONFIG_DIR\` at it. No
+   user-level \`~/.claude/settings.json\` is consulted — the workflow
+   YAML is the only source of permission truth.
+2. Builds the prompt from \`$KIRI_REPO_ROOT/$PROMPT_FILE\` and prepends
+   "You have access to: …. If you need anything else, end the session
+   with a final message describing what you needed and why." so the
+   agent doesn't burn turns on denied tools.
+3. Spawns \`claude -p "$PROMPT" --max-turns "$MAX_TURNS"\` (plus
+   \`--model "$MODEL"\` if set). The agent's final message lands on
+   stdout and shows up in the run feed.
+
+## Dependencies
+
+The \`claude\` CLI and \`jq\` must both be on \`PATH\`. The bundle
+fails with a clear error at the top of the run if either is missing.
+
+## Cost capture (deferred)
+
+A later iteration will switch the spawn to \`--output-format json\`,
+parse the transcript for \`cost_usd\`, \`tokens_in\`, \`tokens_out\`,
+and \`model\`, and write them to \`$KIRI_META_FILE\` so the feed entry
+shows cost in its header.
+`;
+
 /** Relative paths reported by `initRepo`. */
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
 const README_REL_PATH = "README.md";
 const EXAMPLE_REL_PATH = "workflows/example.yaml";
 const EXAMPLE_BUNDLE_RUN_REL_PATH = "scripts/example/run.sh";
+const CLAUDE_CODE_RUN_REL_PATH = "scripts/claude-code/run.sh";
+const CLAUDE_CODE_README_REL_PATH = "scripts/claude-code/README.md";
 const GITIGNORE_REL_PATH = ".gitignore";
 const GITIGNORE_KIRI_LINE = ".kiri/";
 
@@ -193,16 +294,18 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 
 /**
  * Bootstrap a kiri-ready repo at `cwd`: scaffold `workflows/` with a README
- * and example workflow, drop in the example script bundle, (re)write the
- * JSON Schema file, and add `.kiri/` to `.gitignore` if one exists.
- * User-authored README/YAML/script files are never overwritten — only
- * missing files are created. The schema file is always refreshed.
+ * and example workflow, drop in the example and `claude-code` script bundles,
+ * (re)write the JSON Schema file, and add `.kiri/` to `.gitignore` if one
+ * exists. User-authored README/YAML/script files are never overwritten —
+ * only missing files are created. The schema file is always refreshed.
  */
 export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
   const exampleBundleDir = join(cwd, "scripts", "example");
+  const claudeCodeBundleDir = join(cwd, "scripts", "claude-code");
   mkdirSync(workflowsDir, { recursive: true });
   mkdirSync(exampleBundleDir, { recursive: true });
+  mkdirSync(claudeCodeBundleDir, { recursive: true });
 
   const created: string[] = [];
   const skipped: string[] = [];
@@ -222,6 +325,21 @@ export function initRepo(cwd: string): InitResult {
     created,
     skipped,
     0o755,
+  );
+  writeIfMissing(
+    join(claudeCodeBundleDir, "run.sh"),
+    CLAUDE_CODE_RUN_REL_PATH,
+    CLAUDE_CODE_RUN_SCRIPT,
+    created,
+    skipped,
+    0o755,
+  );
+  writeIfMissing(
+    join(claudeCodeBundleDir, "README.md"),
+    CLAUDE_CODE_README_REL_PATH,
+    CLAUDE_CODE_README,
+    created,
+    skipped,
   );
 
   writeSchemaFile(cwd);

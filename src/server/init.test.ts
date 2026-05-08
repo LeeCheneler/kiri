@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CLAUDE_CODE_README,
+  CLAUDE_CODE_RUN_SCRIPT,
   EXAMPLE_RUN_SCRIPT,
   EXAMPLE_WORKFLOW_YAML,
   KIRI_README,
@@ -49,7 +51,7 @@ describe("initRepo", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("scaffolds README at the repo root, example.yaml, example bundle, and schema on a fresh repo", () => {
+  it("scaffolds README, example workflow, both bundles, and schema on a fresh repo", () => {
     const result = initRepo(cwd);
 
     expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe(KIRI_README);
@@ -59,6 +61,12 @@ describe("initRepo", () => {
     expect(readFileSync(join(cwd, "scripts", "example", "run.sh"), "utf8")).toBe(
       EXAMPLE_RUN_SCRIPT,
     );
+    expect(readFileSync(join(cwd, "scripts", "claude-code", "run.sh"), "utf8")).toBe(
+      CLAUDE_CODE_RUN_SCRIPT,
+    );
+    expect(readFileSync(join(cwd, "scripts", "claude-code", "README.md"), "utf8")).toBe(
+      CLAUDE_CODE_README,
+    );
     expect(JSON.parse(readFileSync(join(cwd, ".kiri", "workflow.schema.json"), "utf8"))).toEqual(
       workflowJsonSchema(),
     );
@@ -67,6 +75,8 @@ describe("initRepo", () => {
       "README.md",
       "workflows/example.yaml",
       "scripts/example/run.sh",
+      "scripts/claude-code/run.sh",
+      "scripts/claude-code/README.md",
     ]);
     expect(result.skipped).toEqual([]);
     expect(result.schemaPath).toBe(".kiri/workflow.schema.json");
@@ -78,11 +88,19 @@ describe("initRepo", () => {
     expect(mode & 0o111).not.toBe(0);
   });
 
-  it("does not overwrite user-authored README, example workflow, or example bundle on re-run", () => {
+  it("marks the scaffolded claude-code bundle's run.sh as executable", () => {
+    initRepo(cwd);
+    const mode = statSync(join(cwd, "scripts", "claude-code", "run.sh")).mode & 0o777;
+    expect(mode & 0o111).not.toBe(0);
+  });
+
+  it("does not overwrite user-authored README, example workflow, or either bundle on re-run", () => {
     initRepo(cwd);
     writeFileSync(join(cwd, "README.md"), "user notes");
     writeFileSync(join(cwd, "workflows", "example.yaml"), "name: mine\nsteps: []\n");
     writeFileSync(join(cwd, "scripts", "example", "run.sh"), "#!/bin/sh\necho mine\n");
+    writeFileSync(join(cwd, "scripts", "claude-code", "run.sh"), "#!/bin/sh\necho mine-cc\n");
+    writeFileSync(join(cwd, "scripts", "claude-code", "README.md"), "user cc notes");
 
     const result = initRepo(cwd);
 
@@ -93,11 +111,19 @@ describe("initRepo", () => {
     expect(readFileSync(join(cwd, "scripts", "example", "run.sh"), "utf8")).toBe(
       "#!/bin/sh\necho mine\n",
     );
+    expect(readFileSync(join(cwd, "scripts", "claude-code", "run.sh"), "utf8")).toBe(
+      "#!/bin/sh\necho mine-cc\n",
+    );
+    expect(readFileSync(join(cwd, "scripts", "claude-code", "README.md"), "utf8")).toBe(
+      "user cc notes",
+    );
     expect(result.created).toEqual([]);
     expect(result.skipped).toEqual([
       "README.md",
       "workflows/example.yaml",
       "scripts/example/run.sh",
+      "scripts/claude-code/run.sh",
+      "scripts/claude-code/README.md",
     ]);
   });
 
