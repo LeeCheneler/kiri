@@ -1,0 +1,154 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  EXAMPLE_HELLO_SCRIPT,
+  EXAMPLE_WORKFLOW_YAML,
+  WORKFLOWS_README,
+  initRepo,
+  writeSchemaFile,
+} from "./init.ts";
+import { workflowJsonSchema } from "./workflows/index.ts";
+
+describe("writeSchemaFile", () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "kiri-schema-"));
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("creates .kiri/ and writes the JSON schema with a trailing newline", () => {
+    const path = writeSchemaFile(cwd);
+    expect(path).toBe(join(cwd, ".kiri", "workflow.schema.json"));
+    const raw = readFileSync(path, "utf8");
+    expect(raw.endsWith("\n")).toBe(true);
+    expect(JSON.parse(raw)).toEqual(workflowJsonSchema());
+  });
+
+  it("overwrites an existing schema file (always refreshed)", () => {
+    const path = writeSchemaFile(cwd);
+    writeFileSync(path, '{ "stale": true }');
+    writeSchemaFile(cwd);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(workflowJsonSchema());
+  });
+});
+
+describe("initRepo", () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "kiri-init-"));
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("scaffolds README, example.yaml, the example script, and the schema file on a fresh repo", () => {
+    const result = initRepo(cwd);
+
+    expect(readFileSync(join(cwd, "workflows", "README.md"), "utf8")).toBe(WORKFLOWS_README);
+    expect(readFileSync(join(cwd, "workflows", "example.yaml"), "utf8")).toBe(
+      EXAMPLE_WORKFLOW_YAML,
+    );
+    expect(readFileSync(join(cwd, "scripts", "example", "hello.sh"), "utf8")).toBe(
+      EXAMPLE_HELLO_SCRIPT,
+    );
+    expect(JSON.parse(readFileSync(join(cwd, ".kiri", "workflow.schema.json"), "utf8"))).toEqual(
+      workflowJsonSchema(),
+    );
+
+    expect(result.created).toEqual([
+      "workflows/README.md",
+      "workflows/example.yaml",
+      "scripts/example/hello.sh",
+    ]);
+    expect(result.skipped).toEqual([]);
+    expect(result.schemaPath).toBe(".kiri/workflow.schema.json");
+  });
+
+  it("marks the scaffolded example script as executable so the workflow can run it", () => {
+    initRepo(cwd);
+    const mode = statSync(join(cwd, "scripts", "example", "hello.sh")).mode & 0o777;
+    expect(mode & 0o111).not.toBe(0);
+  });
+
+  it("does not overwrite user-authored README, example workflow, or example script on re-run", () => {
+    initRepo(cwd);
+    writeFileSync(join(cwd, "workflows", "README.md"), "user notes");
+    writeFileSync(join(cwd, "workflows", "example.yaml"), "name: mine\nnodes: []\n");
+    writeFileSync(join(cwd, "scripts", "example", "hello.sh"), "#!/bin/sh\necho mine\n");
+
+    const result = initRepo(cwd);
+
+    expect(readFileSync(join(cwd, "workflows", "README.md"), "utf8")).toBe("user notes");
+    expect(readFileSync(join(cwd, "workflows", "example.yaml"), "utf8")).toBe(
+      "name: mine\nnodes: []\n",
+    );
+    expect(readFileSync(join(cwd, "scripts", "example", "hello.sh"), "utf8")).toBe(
+      "#!/bin/sh\necho mine\n",
+    );
+    expect(result.created).toEqual([]);
+    expect(result.skipped).toEqual([
+      "workflows/README.md",
+      "workflows/example.yaml",
+      "scripts/example/hello.sh",
+    ]);
+  });
+
+  it("always refreshes the schema file even when scaffold files are skipped", () => {
+    initRepo(cwd);
+    const schemaPath = join(cwd, ".kiri", "workflow.schema.json");
+    writeFileSync(schemaPath, '{ "stale": true }');
+
+    initRepo(cwd);
+    expect(JSON.parse(readFileSync(schemaPath, "utf8"))).toEqual(workflowJsonSchema());
+  });
+
+  it("appends `.kiri/` to an existing .gitignore that doesn't list it", () => {
+    writeFileSync(join(cwd, ".gitignore"), "node_modules\n");
+
+    const result = initRepo(cwd);
+
+    expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe("node_modules\n.kiri/\n");
+    expect(result.gitignoreUpdated).toBe(true);
+  });
+
+  it("adds a trailing newline before appending if .gitignore lacks one", () => {
+    writeFileSync(join(cwd, ".gitignore"), "node_modules");
+
+    initRepo(cwd);
+
+    expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe("node_modules\n.kiri/\n");
+  });
+
+  it("leaves .gitignore alone when `.kiri/` is already listed", () => {
+    writeFileSync(join(cwd, ".gitignore"), "node_modules\n.kiri/\ndist\n");
+
+    const result = initRepo(cwd);
+
+    expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe("node_modules\n.kiri/\ndist\n");
+    expect(result.gitignoreUpdated).toBe(false);
+  });
+
+  it("treats `.kiri` (no trailing slash) as already-listed", () => {
+    writeFileSync(join(cwd, ".gitignore"), ".kiri\n");
+
+    const result = initRepo(cwd);
+
+    expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe(".kiri\n");
+    expect(result.gitignoreUpdated).toBe(false);
+  });
+
+  it("creates .gitignore with `.kiri/` when one doesn't exist", () => {
+    const result = initRepo(cwd);
+
+    expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe(".kiri/\n");
+    expect(result.gitignoreUpdated).toBe(true);
+  });
+});
