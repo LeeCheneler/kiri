@@ -115,12 +115,14 @@ export const EXAMPLE_WORKFLOW_YAML = `# yaml-language-server: $schema=../.kiri/w
 
 name: example
 steps:
-  - use: example
+  - sh: echo "Lee"
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/example.tpl
 `;
 
-/** Contents of the scaffolded example bundle's `run.sh`. */
-export const EXAMPLE_RUN_SCRIPT = `#!/bin/sh
-echo "hello from kiri"
+/** Contents of the scaffolded `prompts/example.tpl`. */
+export const EXAMPLE_PROMPT_TPL = `Say a friendly one-sentence hello to {{KIRI_INPUT}}.
 `;
 
 /** Contents of the scaffolded `scripts/claude-code/run.sh`. */
@@ -305,7 +307,7 @@ shows cost in its header.
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
 const README_REL_PATH = "README.md";
 const EXAMPLE_REL_PATH = "workflows/example.yaml";
-const EXAMPLE_BUNDLE_RUN_REL_PATH = "scripts/example/run.sh";
+const EXAMPLE_PROMPT_REL_PATH = "prompts/example.tpl";
 const CLAUDE_CODE_RUN_REL_PATH = "scripts/claude-code/run.sh";
 const CLAUDE_CODE_README_REL_PATH = "scripts/claude-code/README.md";
 const GITIGNORE_REL_PATH = ".gitignore";
@@ -373,17 +375,18 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 
 /**
  * Bootstrap a kiri-ready repo at `cwd`: scaffold `workflows/` with a README
- * and example workflow, drop in the example and `claude-code` script bundles,
- * (re)write the JSON Schema file, and add `.kiri/` to `.gitignore` if one
- * exists. User-authored README/YAML/script files are never overwritten —
- * only missing files are created. The schema file is always refreshed.
+ * and a 2-step example workflow, drop in the example prompt template and
+ * `claude-code` bundle, (re)write the JSON Schema file, and add `.kiri/`
+ * to `.gitignore` if one exists. User-authored files are never
+ * overwritten — only missing files are created. The schema file is
+ * always refreshed.
  */
 export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
-  const exampleBundleDir = join(cwd, "scripts", "example");
+  const promptsDir = join(cwd, "prompts");
   const claudeCodeBundleDir = join(cwd, "scripts", "claude-code");
   mkdirSync(workflowsDir, { recursive: true });
-  mkdirSync(exampleBundleDir, { recursive: true });
+  mkdirSync(promptsDir, { recursive: true });
   mkdirSync(claudeCodeBundleDir, { recursive: true });
 
   const created: string[] = [];
@@ -398,12 +401,11 @@ export function initRepo(cwd: string): InitResult {
     skipped,
   );
   writeIfMissing(
-    join(exampleBundleDir, "run.sh"),
-    EXAMPLE_BUNDLE_RUN_REL_PATH,
-    EXAMPLE_RUN_SCRIPT,
+    join(promptsDir, "example.tpl"),
+    EXAMPLE_PROMPT_REL_PATH,
+    EXAMPLE_PROMPT_TPL,
     created,
     skipped,
-    0o755,
   );
   writeIfMissing(
     join(claudeCodeBundleDir, "run.sh"),

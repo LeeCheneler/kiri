@@ -25,8 +25,8 @@ const INIT_HELP = `Usage: kiri init
 
 Scaffold workflow authoring assets in the current directory:
   README.md                       DSL reference and IDE/LSP setup notes
-  workflows/example.yaml          Minimal example workflow
-  scripts/example/run.sh          Paired example script (executable)
+  workflows/example.yaml          2-step example workflow demoing {{KIRI_INPUT}}
+  prompts/example.tpl             Paired prompt template for the example
   scripts/claude-code/run.sh      Claude Code bundle starter (executable)
   scripts/claude-code/README.md   Bundle env-var contract reference
   .kiri/workflow.schema.json      JSON Schema for editor validation
