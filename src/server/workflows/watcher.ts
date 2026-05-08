@@ -55,35 +55,31 @@ export function watchWorkflows(
 
   const rebuild = async () => {
     timer = null;
-    try {
-      const result = await loadWorkflows(dir);
-      const next = buildSnapshot(result);
-      for (const [name, info] of next.byName) {
-        const prev = snapshot.byName.get(name);
-        if (!prev) {
-          console.log(`workflows: added "${name}"`);
-        } else if (prev.mtimeMs !== info.mtimeMs) {
-          console.log(`workflows: changed "${name}"`);
-        }
+    const result = await loadWorkflows(dir);
+    const next = buildSnapshot(result);
+    for (const [name, info] of next.byName) {
+      const prev = snapshot.byName.get(name);
+      if (!prev) {
+        console.log(`workflows: added "${name}"`);
+      } else if (prev.mtimeMs !== info.mtimeMs) {
+        console.log(`workflows: changed "${name}"`);
       }
-      for (const name of snapshot.byName.keys()) {
-        if (!next.byName.has(name)) console.log(`workflows: removed "${name}"`);
-      }
-      for (const failure of result.failures) {
-        if (!snapshot.failingPaths.has(failure.path)) {
-          console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
-        }
-      }
-      for (const path of snapshot.failingPaths) {
-        if (!next.failingPaths.has(path)) {
-          console.log(`workflows: ${path} no longer failing`);
-        }
-      }
-      snapshot = next;
-      registry.replace(result.workflows);
-    } catch (err) {
-      console.error("workflows: failed to reload", err);
     }
+    for (const name of snapshot.byName.keys()) {
+      if (!next.byName.has(name)) console.log(`workflows: removed "${name}"`);
+    }
+    for (const failure of result.failures) {
+      if (!snapshot.failingPaths.has(failure.path)) {
+        console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
+      }
+    }
+    for (const path of snapshot.failingPaths) {
+      if (!next.failingPaths.has(path)) {
+        console.log(`workflows: ${path} no longer failing`);
+      }
+    }
+    snapshot = next;
+    registry.replace(result.workflows);
   };
 
   const schedule = () => {
