@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/api": "http://localhost:3000",
+      // Trailing slash matters: "/api" prefix-matches "/api.ts" too and
+      // would intercept client modules served by Vite.
+      "/api/": "http://localhost:3000",
     },
   },
   build: {

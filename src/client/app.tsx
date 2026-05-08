@@ -1,26 +1,44 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { type RunListEntry, type WorkflowSummary, fetchRuns, fetchWorkflows } from "./api.ts";
+import { RunFeed } from "./components/run-feed.tsx";
+import { WorkflowList } from "./components/workflow-list.tsx";
 
 /**
- * Root component for the kiri SPA. Currently a placeholder todo list
- * while the spine is being built out.
+ * Single-page kiri SPA: workflow registry on top, run feed below.
+ * After a manual run completes, both queries refetch so the feed and
+ * any orphan flags stay in sync.
  */
 export function App() {
-  const [todos, setTodos] = useState<string[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  const [runs, setRuns] = useState<RunListEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/todos")
-      .then((res) => res.json())
-      .then(setTodos);
+  const reload = useCallback(async () => {
+    try {
+      const [w, r] = await Promise.all([fetchWorkflows(), fetchRuns()]);
+      setWorkflows(w);
+      setRuns(r);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
   }, []);
 
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
   return (
-    <>
-      <h1>Kiri</h1>
-      <ul>
-        {todos.map((todo) => (
-          <li key={todo}>{todo}</li>
-        ))}
-      </ul>
-    </>
+    <main>
+      <header>
+        <h1>Kiri</h1>
+        <button type="button" onClick={() => void reload()}>
+          Refresh
+        </button>
+      </header>
+      {error && <p className="error">Error: {error}</p>}
+      <WorkflowList workflows={workflows} onRunComplete={reload} />
+      <RunFeed runs={runs} />
+    </main>
   );
 }
