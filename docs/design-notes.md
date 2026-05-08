@@ -15,9 +15,9 @@ Differentiation against Windmill, Kestra, n8n, Inngest et al. is two-fold:
 
 - **App-active scope.** Everything runs while the app is open. No daemons, no launchd, no overnight execution. Sleep/wake is not our problem.
 - **Single user.** No auth, no multi-tenancy, no scaling.
-- **Git as source of truth.** Workflow definitions, templates, and config live in a git repo.
+- **Git as source of truth.** Workflow definitions, prompts, and scripts live in a git repo.
 - **Linear pipelines only.** No branches, no conditionals, no fan-out/fan-in. `script → ai → script` covers most real cases.
-- **Everything is a workflow.** A workflow is N≥1 nodes. Single-node workflows wrap "just run a script" cases. Cron triggers workflows. Todos invoke workflows. MCP exposes workflows. Manual menu items are workflows. One concept, uniform treatment everywhere.
+- **Everything is a workflow.** A workflow is N≥1 steps. Single-step workflows wrap "just run a script" cases. Cron triggers workflows. Todos invoke workflows. MCP exposes workflows. Manual menu items are workflows. One concept, uniform treatment everywhere.
 
 ## Architecture
 
@@ -28,39 +28,54 @@ YAML files validated against a Zod schema. No custom DSL.
 ```yaml
 name: pr-review
 schedule: "*/15 * * * *"   # optional cron expression
-nodes:
-  - kind: script
-    path: ...
-  - kind: agent
-    template: claude-code-review
-    config: { ... }
-  - kind: script
-    path: ...
 gating: auto               # or "propose"
+steps:
+  - use: fetch-pr           # script bundle: scripts/fetch-pr/run.sh
+    env:
+      PR_NUMBER: "42"
+  - use: claude-code        # script bundle: scripts/claude-code/run.sh (shipped by `kiri init`)
+    env:
+      PROMPT_FILE: prompts/pr-review.tpl
+      MAX_TURNS: "8"
+      ALLOWED_TOOLS: "Read,Glob,Grep"
+  - sh: |                   # inline shell — sugar for trivial steps
+      echo "review complete"
+      date
 ```
+
+A step is one of two shapes:
+
+- `{ use: <name>, env?: { ... } }` — references a **script bundle** at `scripts/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
+- `{ sh: <string>, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
+
+`env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_META_FILE`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
+
+This single primitive — the script bundle — supports every runtime kiri will ever care about. `kiri init` ships a `scripts/claude-code/` starter; LM Studio support is `cp -r scripts/claude-code scripts/lm-studio` and editing the script. Kiri itself stays runtime-blind: it spawns `run.sh`, captures the envelope, reads `KIRI_META_FILE`, and stays out of the way.
 
 Rationale for YAML over TS: workflow files live in arbitrary user repos, but kiri ships as a single Bun-compiled binary. Resolving a TS `import { defineWorkflow } from "kiri"` from those repos would require both a Bun plugin baked into the binary to intercept the import *and* generated `.d.ts` files dropped into each repo for IDE support — both maintenance costs that compound forever. YAML is pure data, validated at load time, and a JSON schema can be published alongside the binary for editor LSP integration with no per-repo footprint.
 
-### Standard node envelope
+### Standard step envelope
 
-Every node returns the same shape. Designed in early — painful to retrofit.
+Every step returns the same shape. Designed in early — painful to retrofit.
 
 ```ts
 {
   status: "ok" | "failed",
-  output: unknown,         // matches the next node's input schema
+  output: unknown,         // becomes the next step's input
   error?: { message, stack? },
   traces: { stdout, stderr, durations, ... },
-  usage?: { tokens_in, tokens_out, cost_usd, model }
+  meta?: Record<string, unknown>  // arbitrary key-value populated by the step
 }
 ```
 
 Full I/O captured at every step. Linked from the corresponding feed entry for debugging and replay.
 
+`meta` is populated by the step writing JSON to `KIRI_META_FILE` (path provided by kiri, under per-run scratch). Kiri reads the file after the step exits and folds it into the envelope. The channel is generic — any step kind can emit whatever keys are useful. Conventional keys (`cost_usd`, `tokens_in`, `tokens_out`, `model`) get promoted to feed-entry headers by the UI; everything else renders as a key-value list in the expanded view.
+
 ### Execution semantics
 
 - **Concurrency:** global default of 1 in-flight workflow run. Per-workflow override added later only if needed.
-- **Errors:** node fails → workflow halts → run marked failed → feed entry shows error → manual re-run from the feed entry.
+- **Errors:** step fails → workflow halts → run marked failed → feed entry shows error → manual re-run from the feed entry.
 - **No auto-retry, no DLQ, no fan-out** in v1.
 
 ### Triggers
@@ -77,7 +92,7 @@ No file watches, webhooks, or inbox polling. Polling-via-cron-workflow handles e
 
 State lives in three tiers, by what kind of state it is:
 
-- **In git** — workflow definitions (`.yaml` files), template scripts, per-template `.claude/settings.json`, Seatbelt profiles. Everything that benefits from review and version history.
+- **In git** — workflow definitions (`.yaml` files), script bundles (`scripts/<name>/`), prompt files, sandbox profiles. Everything that benefits from review and version history.
 - **In SQLite** — runtime state: runs, todos, schedules, app state (paused/running, in-flight counter), MCP audit log, run metadata + envelopes. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
 - **On disk (data dir)** — large blob payloads referenced by path from SQLite rows: full CC transcripts, big stdout dumps, anything that'd bloat the DB. Same pattern CI systems use to keep the DB lean.
 
@@ -89,8 +104,8 @@ Workflow definitions are YAML files in `workflows/` — the single source of tru
 
 When a run starts, the executor captures a **snapshot** of everything that produced it:
 
-- The resolved workflow definition (name, schemas, node list, gating, schedule) onto the `runs` row.
-- Per-node *materials* — the actual bytes read off disk for each node — onto the `run_nodes` rows. For script nodes that's the script source. Later, for agent nodes (M1+), it's the prompt template, `.claude/settings.json`, and the sandbox profile.
+- The resolved workflow definition (name, steps, gating, schedule) onto the run row.
+- Per-step *materials* — the actual bytes that drove the step — onto the per-step row. For `use:` steps that's the entire bundle directory contents (`run.sh` + any sidecar files). For `sh:` steps that's the inline shell text.
 
 This means feed entries always show the exact code that ran, not whatever the file says now; diffing two runs of the same workflow shows what changed between them; and renaming or deleting a workflow leaves old runs intact under their original name (UI shows a "(deleted)" badge).
 
@@ -106,36 +121,40 @@ Workflows can produce todos. A todo is a proposed workflow invocation waiting fo
 
 ## AI integration
 
-### Claude Code via CLI
+### Claude Code via the `claude-code` bundle
 
-The orchestrator spawns `claude` CLI for agent nodes. This keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
+Kiri integrates with Claude Code by shipping a `scripts/claude-code/` bundle via `kiri init` — a starter the user owns once written. Kiri itself has no CC-specific code; the bundle does the spawning, config translation, transcript parsing, and meta emission. Spawning CC's CLI directly keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
 
-Per-template directory layout:
+Bundle layout shipped by `kiri init`:
 
 ```
-templates/
-  pr-review/
-    .claude/settings.json    # Read, Glob, Grep, Bash(gh pr view *)
-    prompt.tpl
-    run.sh
-  patch-deps/
-    .claude/settings.json    # Read, Edit, Bash(npm:*), Bash(pnpm:*)
-    prompt.tpl
-    run.sh
+scripts/claude-code/
+  run.sh         # spawns `claude` CLI, parses transcript, writes KIRI_META_FILE
+  README.md      # documents the env-var contract: PROMPT_FILE, MAX_TURNS, ALLOWED_TOOLS, MODEL
 ```
 
-Each invocation:
+Workflow usage:
 
-```bash
-CLAUDE_CONFIG_DIR=$TEMPLATE_DIR claude -p "$PROMPT" \
-  --allowedTools "..." \
-  --max-turns N \
-  --output-format json
+```yaml
+- use: claude-code
+  env:
+    PROMPT_FILE: prompts/pr-review.tpl
+    MAX_TURNS: "8"
+    ALLOWED_TOOLS: "Read,Glob,Grep,Bash(gh pr view:*)"
+    MODEL: opus              # optional
 ```
 
-The allowlist is **also injected into the prompt** so the agent doesn't burn turns on denied tools. Frame positively: "You have access to: …. If you need anything else, end the session with a final message describing what you needed and why."
+What `run.sh` does at spawn time:
 
-### Output validation (for LLM nodes producing structured output)
+- Reads its env-var contract (`PROMPT_FILE`, `MAX_TURNS`, `ALLOWED_TOOLS`, `MODEL`).
+- Synthesises a `.claude/settings.json` in per-run scratch from `ALLOWED_TOOLS`, sets `CLAUDE_CONFIG_DIR` to that dir.
+- Loads the prompt from `PROMPT_FILE` (resolved against `KIRI_REPO_ROOT`) and **prepends the allowlist as positive framing** ("You have access to: …. If you need anything else, end the session with a final message describing what you needed and why.") so the agent doesn't burn turns on denied tools.
+- Spawns `claude -p "$PROMPT" --max-turns "$MAX_TURNS" --output-format json`, capturing the session ID.
+- Locates the JSONL transcript at `~/.claude/projects/<hash>/<session>.jsonl`, parses tokens / model / cost, and writes them as JSON to `$KIRI_META_FILE` so they land on the envelope's `meta`.
+
+The bundle is plain bash — readable, modifiable, replaceable. Adding LM Studio support is `cp -r scripts/claude-code scripts/lm-studio` and editing. Kiri ships the starter, the user owns it from there.
+
+### Output validation (for LLM steps producing structured output)
 
 Three tiers, in order:
 
@@ -145,25 +164,21 @@ Three tiers, in order:
 
 ### Cost tracking
 
-CC writes JSONL transcripts to `~/.claude/projects/<hash>/`. Each agent template script:
+The shipped `claude-code` bundle is one consumer of the generic `meta` channel. After each invocation it parses the CC transcript and writes `{ cost_usd, tokens_in, tokens_out, model }` to `$KIRI_META_FILE`. The UI promotes those conventional keys to feed-entry headers — cost surfaces directly in the feed, not buried in a settings page.
 
-- Captures the session ID at start
-- Reads the transcript at end
-- Returns `usage` in the standard envelope
-
-ccusage already does this parsing — borrow its approach. Per-workflow cost then surfaces directly in the feed, not buried in a settings page.
+ccusage's parsing approach is the reference for transcript-derived numbers. Future bundles (`scripts/lm-studio/`, `scripts/ollama/`) populate the same conventional keys when they have the data; the UI doesn't care which bundle produced them, and kiri carries no runtime-specific cost-shape knowledge.
 
 ### Permissions philosophy
 
-Static policy per template via `.claude/settings.json`. **No runtime hooks for v1.** Hooks are reserved for if/when dynamic per-call policy is wanted (token budget caps, mid-session escalation, tool-granular propose-to-approve). Directory-per-template scoped settings are the spine.
+Static policy per step via `ALLOWED_TOOLS` in the workflow's `env:`. The `claude-code` bundle's `run.sh` synthesises a `.claude/settings.json` at spawn time and points CC at it — so the workflow YAML is the load-bearing source of permission truth, no hand-edited settings files anywhere in the user's repo. **No runtime hooks for v1.** Hooks are reserved for if/when dynamic per-call policy is wanted (token budget caps, mid-session escalation, tool-granular propose-to-approve).
 
-For workflows using broad `Bash(*)` permissions, layer macOS Seatbelt sandboxing as a kernel-level backstop.
+For workflows using broad `Bash(*)` permissions, layer macOS Seatbelt sandboxing as a kernel-level backstop. Sandbox profiles live alongside the bundle — `scripts/<name>/sandbox.sb` — and kiri's executor applies the bundle's profile to the spawned process by default.
 
 ## UI
 
 Three regions:
 
-- **Center: feed.** Streaming activity log. Filterable, scoped, tab-able. Each entry has a condensed view (produced by a summariser workflow node — leaf only, no recursion) with an expandable full view that includes traces and usage.
+- **Center: feed.** Streaming activity log. Filterable, scoped, tab-able. Each entry has a condensed view (produced by a summariser step — leaf only, no recursion) with an expandable full view that includes traces and meta.
 - **Right rail: todos.** Pending proposals + active items. Approve/reject inline.
 - **Top right: global pause.** Halts new invocations. Modifier to also kill in-flight runs.
 
@@ -205,11 +220,16 @@ Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
 
 ```
 <repo-root>/
-  workflows/        # YAML workflow definitions (in git)
-  templates/        # per-template dirs, M1+ (in git)
-  .kiri/            # gitignored — repo-scoped runtime state
-    state.db        # SQLite
-    runs/<id>/      # per-run scratch dirs
+  workflows/                  # YAML workflow definitions (in git)
+  scripts/                    # script bundles (in git)
+    claude-code/              # `kiri init` ships this; user owns from then on
+      run.sh
+      README.md
+    <other-bundles>/...
+  prompts/                    # CC prompt templates (in git, convention only — any path works)
+  .kiri/                      # gitignored — repo-scoped runtime state
+    state.db                  # SQLite
+    runs/<id>/                # per-run scratch dirs
 ```
 
 Startup scaffolds `workflows/` and `.kiri/` at cwd if either is missing, then opens and migrates the state DB. No gates — a fresh `cd && kiri` just works, and the empty `workflows/` itself signals "nothing defined yet."
@@ -237,17 +257,19 @@ Script execution is the central capability of this system, which means security 
 
 ### Trust boundaries
 
-- **Template definitions** (TS files in git) are *trusted*. They are reviewed and version-controlled.
-- **Workflow inputs** at runtime are *untrusted*. They come from MCP clients, external polling, or upstream node outputs that may have processed third-party data.
-- **AI outputs** are *untrusted*. Even from a tightly-scoped agent, output is data, not commands. When it flows downstream as input to another node, it must be treated as untrusted input.
+- **Workflow definitions, prompts, and scripts** (files in git) are *trusted*. They are reviewed and version-controlled.
+- **Workflow inputs** at runtime are *untrusted*. They come from MCP clients, external polling, or upstream step outputs that may have processed third-party data.
+- **AI outputs** are *untrusted*. Even from a tightly-scoped agent, output is data, not commands. When it flows downstream as input to another step, it must be treated as untrusted input.
 
 ### Script execution
 
 - **No shell interpolation of inputs.** Workflow inputs are passed via env vars or argv arrays, never spliced into shell command strings. The orchestrator constructs argument lists, the OS handles them, no shell parsing of user-controlled strings.
-- **Per-template working directory.** Each workflow run gets a scratch directory; the script's cwd is set there, not the user's home or the orchestrator repo.
-- **Per-template env scope.** Scripts only see env vars explicitly declared by the template. No leaking of orchestrator state or unrelated secrets.
+- **Per-step working directory.** Each workflow run gets a scratch directory; the step's cwd is set there, not the user's home or the orchestrator repo.
+- **Per-step env scope.** Steps only see env vars from the step's `env:` block plus a small kiri-controlled set (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_META_FILE`, `KIRI_REPO_ROOT`) and the OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`). No other parent-process env leaks through.
+- **Env precedence at spawn.** User-declared `env:` is applied first; kiri- and OS-controlled vars overwrite on key collision. A workflow can't redirect `PATH` to inject a malicious binary, can't rebind `KIRI_META_FILE` to escape capture, can't shadow `KIRI_RUN_ID` to confuse run identity.
+- **Reserved namespace.** `env:` keys starting with `KIRI_` are rejected at workflow load time as a schema error. Typos and accidental collisions surface as load failures, not silent overwrites at spawn.
 - **Resource limits.** ulimits on CPU time, memory, file descriptors, and disk writes. A runaway script halts cleanly rather than degrading the system.
-- **Seatbelt sandbox** applied to all script execution by default — not just to CC's `Bash(*)` operations. The macOS sandbox restricts filesystem and network reach to what the template explicitly declares.
+- **Seatbelt sandbox** applied to all step execution by default — not just to CC's `Bash(*)` operations. The macOS sandbox restricts filesystem and network reach to what the bundle's sandbox profile declares.
 
 ### MCP server
 
@@ -258,12 +280,12 @@ Script execution is the central capability of this system, which means security 
 
 ### AI integration
 
-- **Assume prompt injection.** PR bodies, issue text, file contents reaching an agent's prompt may attempt to redirect its behaviour. The permission allowlist is the load-bearing defence — even a fully compromised agent can only do what its template allows. Prompt-level mitigations (system prompt framing) help but aren't relied on as primary defence.
-- **Conservative allowlists.** Adding `Bash(*)` to any template requires a deliberate decision, never a quick fix to "make it work."
+- **Assume prompt injection.** PR bodies, issue text, file contents reaching an agent's prompt may attempt to redirect its behaviour. The permission allowlist is the load-bearing defence — even a fully compromised agent can only do what the step's `ALLOWED_TOOLS` declares. Prompt-level mitigations (system prompt framing) help but aren't relied on as primary defence.
+- **Conservative allowlists.** Adding `Bash(*)` to any step's allowlist requires a deliberate decision, never a quick fix to "make it work."
 
 ### Secrets
 
-- **No secrets in workflow definitions.** Definitions are git-tracked. Secrets stay outside the repo, mode 600, referenced by name from the template.
+- **No secrets in workflow definitions.** Definitions are git-tracked. Secrets stay outside the repo, mode 600, referenced by name from the workflow.
 - **No secrets in feed entries or traces.** Output rendering scrubs known secret patterns (tokens, AWS keys, etc.) before display and persistence.
 
 ### UI
@@ -285,31 +307,30 @@ Non-goals to resist scope creep:
 - File watches, webhooks, inbox polling
 - Multi-user, auth, sharing
 - Tool-granular propose-to-approve (workflow-level only)
-- Dynamic per-call permission policy (static per template only)
+- Dynamic per-call permission policy (static per step only)
 - Persistent execution across app restarts (graceful halt on close, manual re-run on reopen)
 - Custom DSL for workflows
 
 ## Phased build
 
-Suggested ordering — cheapest viable spine first, layer up. Each phase a usable artifact.
+Sequenced for fastest path to dogfooding, then layering capability outward. Each phase a usable artifact. Detailed work items per milestone live in `milestones.md`.
 
-1. **Spine.** Workflow runner that executes a YAML-defined linear pipeline of script nodes. Standard envelope. Traces captured. Run history persisted to SQLite via Drizzle.
-2. **Feed UI.** Render run history as a feed. No live updates yet — reload-to-refresh. Expandable entry view.
-3. **MCP read surface.** `list_workflows`, `run_workflow`, `get_run`, `list_runs`. Agent can now drive the system end-to-end.
-4. **Cron triggers.** In-process tick loop, schedule field on workflows.
-5. **Agent nodes.** CC CLI spawning, per-template settings dirs, prompt-injected allowlists, cost capture from transcripts.
-6. **Todo list + gating.** Dedup keys, propose vs auto, right-rail UI.
-7. **Live feed updates.** Streaming, filtering, summariser node.
-8. **Global pause.** Top-right control, kill semantics.
-9. **MCP write surface.** `create_workflow`, `approve_todo`, etc. — once the read surface feels solid.
+1. **Spine** (M0). Workflow runner that executes a YAML-defined linear pipeline of script steps. Standard envelope. Traces captured. Run history persisted to SQLite via Drizzle. Feed UI renders run history; reload to refresh.
+2. **Step schema migration** (M1). Move workflow YAML from `nodes:`/`kind:` to `steps:` with `use:` (bundle reference) or `sh:` (inline shell). Add `env:` map per step with the precedence and reserved-namespace rules. Bundle resolver: `use: <name>` → `scripts/<name>/run.sh`. Re-home the existing repo's scripts into the bundle layout.
+3. **`claude-code` bundle starter** (M2). `kiri init` writes `scripts/claude-code/{run.sh, README.md}` — a working CC runner that translates `env:` keys to CC flags, synthesises `.claude/settings.json`, spawns `claude`, captures the session. No cost capture yet — that wires in alongside M6's meta channel.
+4. **Security baseline** (M3). Bind to localhost only, `X-Kiri-Client` header for state-changing endpoints, Seatbelt sandbox profile per bundle (`scripts/<name>/sandbox.sb`).
+5. **Cron triggers** (M4). In-process tick loop, schedule field on workflows.
+6. **Todo list + gating** (M5). Dedup keys, propose vs auto, right-rail UI.
+7. **Generic step meta** (M6). `KIRI_META_FILE` channel, DB storage, UI rendering. The `claude-code` bundle gets updated to populate `cost_usd` and tokens; UI promotes conventional keys to feed-entry headers.
+8. **Polish** (M7). SSE feed updates, filtering, summariser step, global pause.
+9. **MCP read surface** (M8). `list_workflows`, `run_workflow`, `get_run`, `list_runs`. Agent drives the system end-to-end.
 
 ## Open questions
 
 - **Trace retention policy.** How long do verbose traces and CC transcripts stay in SQLite before pruning? Size-cap, time-cap, or both? Decision triggers the disk-blob split.
-- **Templates vs inline scripts.** Defer until 3+ CC-flavoured workflows exist. Template extraction is a refactor, not a v1 decision.
 - **Summariser model choice.** Haiku via API for speed/cost, or a CC session for consistency with the rest of the agent stack? Probably Haiku.
 - **Secret store mechanism.** Mode-600 env files in a known dir, OS keychain integration, or 1Password CLI integration? Trade-off: friction vs ergonomics.
-- **Seatbelt enforcement for arbitrary script nodes.** Wrapper script that invokes `sandbox-exec` with a per-template profile? Generated profile from declared filesystem/network needs? Worth prototyping early — this is the load-bearing defence for non-CC nodes.
+- **Seatbelt enforcement strategy.** Each bundle ships its own `sandbox.sb` and kiri's executor invokes `sandbox-exec` against it? Default-deny baseline that bundles relax? Generated from a declared filesystem/network needs file? Worth prototyping early — this is the load-bearing defence beyond per-step env scoping.
 
 ## Prior art (reference, not imitation)
 
