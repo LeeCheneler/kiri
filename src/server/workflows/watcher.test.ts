@@ -144,6 +144,27 @@ describe("watchWorkflows", () => {
     watcher.stop();
   });
 
+  it("logs and survives if the workflows dir disappears mid-watch", async () => {
+    writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir);
+    registry.replace(initial.workflows);
+
+    // Long debounce so the event-driven timer is comfortably pending when
+    // we delete the dir; the timer then fires rebuild() against a missing
+    // directory and exercises the catch.
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 100 });
+
+    writeFileSync(join(dir, "trigger.yaml"), yamlSource("trigger"));
+    await Bun.sleep(30);
+    rmSync(dir, { recursive: true, force: true });
+
+    await waitFor(() => errs.some((m) => m.includes("rebuild failed")));
+
+    expect(errs[0]).toContain("rebuild failed");
+    watcher.stop();
+  });
+
   it("stop() halts further rebuilds", async () => {
     const registry = createRegistry();
     const initial = await loadWorkflows(dir);

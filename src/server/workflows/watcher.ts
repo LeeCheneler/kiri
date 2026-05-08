@@ -55,7 +55,18 @@ export function watchWorkflows(
 
   const rebuild = async () => {
     timer = null;
-    const result = await loadWorkflows(dir);
+    let result: LoadResult;
+    try {
+      result = await loadWorkflows(dir);
+    } catch (cause) {
+      // Directory disappeared between an fs.watch event and the debounced
+      // rebuild — usually a teardown race. Log and bail; if it's transient
+      // the next event reschedules a rebuild that succeeds.
+      console.error(
+        `workflows: rebuild failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+      return;
+    }
     const next = buildSnapshot(result);
     for (const [name, info] of next.byName) {
       const prev = snapshot.byName.get(name);
