@@ -23,13 +23,12 @@ export const runs = sqliteTable("runs", {
 });
 
 /**
- * Per-node state for a run. Carries the standard envelope (`status`,
+ * Per-step state for a run. Carries the standard envelope (`status`,
  * `output`, `error`, `traces`, `usage`) plus a `materials` snapshot of the
- * source bytes that produced the node — script source for `script` nodes;
- * prompt and template settings for `agent` nodes once they land.
+ * source bytes that produced the step.
  */
-export const runNodes = sqliteTable(
-  "run_nodes",
+export const runSteps = sqliteTable(
+  "run_steps",
   {
     id: text("id").primaryKey(),
     runId: text("run_id")
@@ -39,10 +38,9 @@ export const runNodes = sqliteTable(
     kind: text("kind").notNull(),
     status: text("status").notNull(),
     /**
-     * Node output. Script nodes currently store stdout as a string; agent
-     * nodes will store structured output once they land. `mode: "json"`
-     * round-trips through `JSON.stringify`, so a string lands in the cell
-     * *quoted* (drizzle re-parses on read; matters only for raw SQL inspection).
+     * Step output. `mode: "json"` round-trips through `JSON.stringify`, so
+     * a string lands in the cell *quoted* (drizzle re-parses on read;
+     * matters only for raw SQL inspection).
      */
     output: text("output", { mode: "json" }),
     error: text("error", { mode: "json" }),
@@ -50,5 +48,5 @@ export const runNodes = sqliteTable(
     usage: text("usage", { mode: "json" }),
     materials: text("materials", { mode: "json" }).notNull(),
   },
-  (t) => [index("run_nodes_run_id_idx").on(t.runId)],
+  (t) => [index("run_steps_run_id_idx").on(t.runId)],
 );

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "./bootstrap.ts";
 import type { KiriDb } from "./db/index.ts";
-import { runNodes, runs } from "./db/schema.ts";
+import { runSteps, runs } from "./db/schema.ts";
 import { reconcileInterruptedRuns } from "./reconcile.ts";
 
 describe("reconcileInterruptedRuns", () => {
@@ -37,7 +37,7 @@ describe("reconcileInterruptedRuns", () => {
   };
 
   const insertNode = (id: string, runId: string, status: "running" | "ok" | "failed") => {
-    db.insert(runNodes)
+    db.insert(runSteps)
       .values({
         id,
         runId,
@@ -60,13 +60,13 @@ describe("reconcileInterruptedRuns", () => {
     expect(row?.error).toEqual({ message: "interrupted by server restart" });
   });
 
-  it("marks stuck running run_nodes as failed with an interrupted error", () => {
+  it("marks stuck running run_steps as failed with an interrupted error", () => {
     insertRun("r1", "running");
     insertNode("n1", "r1", "running");
 
     reconcileInterruptedRuns(db);
 
-    const node = db.select().from(runNodes).where(eq(runNodes.id, "n1")).get();
+    const node = db.select().from(runSteps).where(eq(runSteps.id, "n1")).get();
     expect(node?.status).toBe("failed");
     expect(node?.error).toEqual({ message: "interrupted by server restart" });
   });
@@ -81,8 +81,8 @@ describe("reconcileInterruptedRuns", () => {
 
     expect(db.select().from(runs).where(eq(runs.id, "done")).get()?.status).toBe("ok");
     expect(db.select().from(runs).where(eq(runs.id, "broke")).get()?.status).toBe("failed");
-    expect(db.select().from(runNodes).where(eq(runNodes.id, "done-node")).get()?.status).toBe("ok");
-    expect(db.select().from(runNodes).where(eq(runNodes.id, "broke-node")).get()?.status).toBe(
+    expect(db.select().from(runSteps).where(eq(runSteps.id, "done-node")).get()?.status).toBe("ok");
+    expect(db.select().from(runSteps).where(eq(runSteps.id, "broke-node")).get()?.status).toBe(
       "failed",
     );
   });

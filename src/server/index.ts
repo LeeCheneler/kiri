@@ -2,7 +2,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import type { KiriDb } from "./db/index.ts";
-import { runNodes, runs } from "./db/schema.ts";
+import { runSteps, runs } from "./db/schema.ts";
 import { runWorkflow } from "./runner/index.ts";
 import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
 
@@ -75,9 +75,9 @@ export function createApp(deps: AppDeps): Hono {
     if (!run) return c.json({ error: `run "${id}" not found` }, 404);
     const nodes = db
       .select()
-      .from(runNodes)
-      .where(eq(runNodes.runId, id))
-      .orderBy(asc(runNodes.index))
+      .from(runSteps)
+      .where(eq(runSteps.runId, id))
+      .orderBy(asc(runSteps.index))
       .all();
     return c.json({
       run: { ...run, isOrphan: !registry.getWorkflow(run.workflowName) },

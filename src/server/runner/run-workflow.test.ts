@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { bootstrap } from "../bootstrap.ts";
 import type { KiriDb } from "../db/index.ts";
-import { runNodes, runs } from "../db/schema.ts";
+import { runSteps, runs } from "../db/schema.ts";
 import type { WorkflowDefinition } from "../workflows/index.ts";
 import { runWorkflow } from "./run-workflow.ts";
 
@@ -52,7 +52,7 @@ describe("runWorkflow", () => {
     expect(run?.finishedAt).toBeInstanceOf(Date);
     expect(run?.error).toBeNull();
 
-    const nodeRows = db.select().from(runNodes).where(eq(runNodes.runId, result.runId)).all();
+    const nodeRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
     expect(nodeRows).toHaveLength(1);
     const node = nodeRows[0];
     expect(node.index).toBe(0);
@@ -74,9 +74,9 @@ describe("runWorkflow", () => {
     expect(result.status).toBe("ok");
     const nodes = db
       .select()
-      .from(runNodes)
-      .where(eq(runNodes.runId, result.runId))
-      .orderBy(asc(runNodes.index))
+      .from(runSteps)
+      .where(eq(runSteps.runId, result.runId))
+      .orderBy(asc(runSteps.index))
       .all();
     expect(nodes).toHaveLength(2);
     expect(nodes[0].output).toBe("first-output\n");
@@ -98,7 +98,7 @@ describe("runWorkflow", () => {
     expect(run?.error).not.toBeNull();
     expect(run?.finishedAt).toBeInstanceOf(Date);
 
-    const nodes = db.select().from(runNodes).where(eq(runNodes.runId, result.runId)).all();
+    const nodes = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
     expect(nodes).toHaveLength(1);
     expect(nodes[0].status).toBe("failed");
     expect(nodes[0].error).not.toBeNull();
@@ -111,7 +111,7 @@ describe("runWorkflow", () => {
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
     writeFileSync(scriptPath, "#!/bin/sh\necho v2\n");
 
-    const node = db.select().from(runNodes).where(eq(runNodes.runId, result.runId)).get();
+    const node = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(node?.materials).toEqual({ source: "#!/bin/sh\necho v1\n" });
   });
 
@@ -160,7 +160,7 @@ describe("runWorkflow", () => {
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
     expect(result.status).toBe("failed");
-    const node = db.select().from(runNodes).where(eq(runNodes.runId, result.runId)).get();
+    const node = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(node?.status).toBe("failed");
     expect(node?.materials).toEqual({ source: "" });
     expect(node?.error).not.toBeNull();
@@ -195,7 +195,7 @@ describe("runWorkflow", () => {
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
-    const node = db.select().from(runNodes).where(eq(runNodes.runId, result.runId)).get();
+    const node = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(node?.output).toBe(`RUN=${result.runId} NODE=0\n`);
   });
 
@@ -205,7 +205,7 @@ describe("runWorkflow", () => {
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
-    const node = db.select().from(runNodes).where(eq(runNodes.runId, result.runId)).get();
+    const node = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(node?.output).toBe(
       `USER=${process.env.USER ?? ""} LOGNAME=${process.env.LOGNAME ?? ""}\n`,
     );

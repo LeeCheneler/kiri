@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
-import { runNodes, runs } from "../db/schema.ts";
+import { runSteps, runs } from "../db/schema.ts";
 import type { WorkflowDefinition, WorkflowNode } from "../workflows/index.ts";
 import { runScriptNode } from "./run-script-node.ts";
 
@@ -51,7 +51,7 @@ const scopedEnv = (runId: string, nodeIndex: number): Record<string, string> => 
  *
  * Lifecycle, in order: insert `runs` with the definition snapshot →
  * create the per-run scratch dir → for each node, read the script source
- * off disk and insert `run_nodes` with `materials` *before* spawning →
+ * off disk and insert `run_steps` with `materials` *before* spawning →
  * execute the node → update the row with the envelope → halt on first
  * failure → finalize the `runs` row → remove the scratch dir.
  *
@@ -98,7 +98,7 @@ export async function runWorkflow(
       }
 
       const nodeId = crypto.randomUUID();
-      db.insert(runNodes)
+      db.insert(runSteps)
         .values({
           id: nodeId,
           runId,
@@ -116,14 +116,14 @@ export async function runWorkflow(
         env: scopedEnv(runId, i),
       });
 
-      db.update(runNodes)
+      db.update(runSteps)
         .set({
           status: envelope.status,
           output: envelope.output,
           error: envelope.error ?? null,
           traces: envelope.traces,
         })
-        .where(eq(runNodes.id, nodeId))
+        .where(eq(runSteps.id, nodeId))
         .run();
 
       if (envelope.status === "failed") {

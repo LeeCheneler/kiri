@@ -15,6 +15,13 @@
       "when": 1778105916699,
       "tag": "0001_index_run_nodes_run_id",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1778250000000,
+      "tag": "0002_rename_run_nodes_to_run_steps",
+      "breakpoints": true
     }
   ]
 }

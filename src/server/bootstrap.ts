@@ -9,7 +9,7 @@ import { reconcileInterruptedRuns } from "./reconcile.ts";
  * Prepare `cwd` for kiri: scaffold `workflows/` and `.kiri/` if missing,
  * (re)write `.kiri/workflow.schema.json` from the live Zod schema so editor
  * validation stays in sync after a binary upgrade, open and migrate the
- * state database, then reconcile any in-flight `runs`/`run_nodes` left
+ * state database, then reconcile any in-flight `runs`/`run_steps` left
  * over from a prior process that died mid-run. Idempotent — safe to call
  * on every launch.
  */
