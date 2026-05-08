@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import {
+  type FSWatcher,
+  mkdtempSync,
+  rmSync,
+  unlinkSync,
+  type watch,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadWorkflows } from "./loader.ts";
@@ -162,6 +170,48 @@ describe("watchWorkflows", () => {
     await waitFor(() => errs.some((m) => m.includes("rebuild failed")));
 
     expect(errs[0]).toContain("rebuild failed");
+    watcher.stop();
+  });
+
+  it("logs and schedules a rebuild when the underlying fs watcher emits an error", async () => {
+    writeFileSync(join(dir, "alpha.yaml"), yamlSource("alpha"));
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir);
+    registry.replace(initial.workflows);
+
+    const fakeWatcher = Object.assign(new EventEmitter(), {
+      close: () => {},
+    }) as unknown as FSWatcher;
+    const watchFn = (() => fakeWatcher) as unknown as typeof watch;
+
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10, watchFn });
+
+    unlinkSync(join(dir, "alpha.yaml"));
+    fakeWatcher.emit("error", new Error("simulated inotify hiccup"));
+
+    await waitFor(() => registry.getWorkflow("alpha") === undefined);
+
+    expect(errs.some((m) => m.includes("watcher error: simulated inotify hiccup"))).toBe(true);
+    expect(logs.some((m) => m.includes('removed "alpha"'))).toBe(true);
+    watcher.stop();
+  });
+
+  it("stringifies non-Error values from the fs watcher's error event", async () => {
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir);
+    registry.replace(initial.workflows);
+
+    const fakeWatcher = Object.assign(new EventEmitter(), {
+      close: () => {},
+    }) as unknown as FSWatcher;
+    const watchFn = (() => fakeWatcher) as unknown as typeof watch;
+
+    const watcher = watchWorkflows(dir, registry, initial, { debounceMs: 10, watchFn });
+
+    fakeWatcher.emit("error", "raw string");
+    await waitFor(() => errs.some((m) => m.includes("raw string")));
+
+    expect(errs.some((m) => m.includes("watcher error: raw string"))).toBe(true);
     watcher.stop();
   });
 

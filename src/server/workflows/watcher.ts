@@ -4,6 +4,8 @@ import type { Registry } from "./registry.ts";
 
 export interface WatchOptions {
   debounceMs?: number;
+  /** Injection hook for `fs.watch` so tests can drive watcher events deterministically. */
+  watchFn?: typeof watch;
 }
 
 export interface WorkflowWatcher {
@@ -49,6 +51,7 @@ export function watchWorkflows(
   options: WatchOptions = {},
 ): WorkflowWatcher {
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
+  const watchFn = options.watchFn ?? watch;
 
   let snapshot = buildSnapshot(initial);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -100,7 +103,19 @@ export function watchWorkflows(
     }, debounceMs);
   };
 
-  const fsWatcher: FSWatcher = watch(dir, { persistent: false }, () => schedule());
+  const fsWatcher: FSWatcher = watchFn(dir, { persistent: false }, () => schedule());
+
+  // Bun's fs.watch on Linux can emit `error` events for transient inotify
+  // races (e.g. a file removed under the watched dir). Without a handler
+  // these would propagate as unhandled errors and kill the process. Log
+  // and schedule a rebuild — if the error is real, the rebuild surfaces
+  // it via loadWorkflows; if it's transient, the rebuild reconciles state.
+  fsWatcher.on("error", (cause) => {
+    console.error(
+      `workflows: watcher error: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    schedule();
+  });
 
   return {
     stop() {
