@@ -87,19 +87,22 @@ describe("runWorkflow", () => {
   });
 
   it("captures bundle sidecar files in the use: materials snapshot", async () => {
-    writeBundle("with-sidecar", "#!/bin/sh\ncat sidecar.txt\n", {
+    writeBundle("with-sidecar", '#!/bin/sh\ncat "$KIRI_BUNDLE_DIR/sidecar.txt"\n', {
       "sidecar.txt": "sidecar-payload\n",
     });
     const wf = makeWorkflow("sidecar", useSteps("with-sidecar"));
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
 
+    expect(result.status).toBe("ok");
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    // Sidecar reachable at runtime via KIRI_BUNDLE_DIR (cwd is the per-run scratch dir).
+    expect(step?.output).toBe("sidecar-payload\n");
     expect(step?.materials).toEqual({
       kind: "use",
       bundle: "with-sidecar",
       files: {
-        "run.sh": "#!/bin/sh\ncat sidecar.txt\n",
+        "run.sh": '#!/bin/sh\ncat "$KIRI_BUNDLE_DIR/sidecar.txt"\n',
         "sidecar.txt": "sidecar-payload\n",
       },
     });
@@ -252,10 +255,10 @@ describe("runWorkflow", () => {
     expect(allRuns[0].error).not.toBeNull();
   });
 
-  it("exposes KIRI_RUN_ID, KIRI_STEP_INDEX, KIRI_REPO_ROOT, and KIRI_META_FILE in the step's env", async () => {
+  it("exposes KIRI_RUN_ID, KIRI_STEP_INDEX, KIRI_REPO_ROOT, KIRI_META_FILE, and KIRI_BUNDLE_DIR for use: steps", async () => {
     writeBundle(
       "dump",
-      '#!/bin/sh\necho "RUN=$KIRI_RUN_ID STEP=$KIRI_STEP_INDEX ROOT=$KIRI_REPO_ROOT META=$KIRI_META_FILE"\n',
+      '#!/bin/sh\necho "RUN=$KIRI_RUN_ID STEP=$KIRI_STEP_INDEX ROOT=$KIRI_REPO_ROOT META=$KIRI_META_FILE BUNDLE=$KIRI_BUNDLE_DIR"\n',
     );
     const wf = makeWorkflow("env-vars", useSteps("dump"));
 
@@ -263,8 +266,20 @@ describe("runWorkflow", () => {
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(
-      `RUN=${result.runId} STEP=0 ROOT=${cwd} META=${join(cwd, ".kiri", "runs", result.runId, "step-0.meta.json")}\n`,
+      `RUN=${result.runId} STEP=0 ROOT=${cwd} META=${join(cwd, ".kiri", "runs", result.runId, "step-0.meta.json")} BUNDLE=${join(cwd, "scripts", "dump")}\n`,
     );
+  });
+
+  it("does not set KIRI_BUNDLE_DIR for sh: steps (no bundle to point at)", async () => {
+    const wf: WorkflowDefinition = {
+      name: "no-bundle",
+      steps: [{ sh: 'echo "BUNDLE=${KIRI_BUNDLE_DIR-unset}"' }],
+    };
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.output).toBe("BUNDLE=unset\n");
   });
 
   it("kiri-injected vars overwrite user env keys on collision (PATH cannot be hijacked)", async () => {

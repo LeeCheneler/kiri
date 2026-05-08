@@ -42,13 +42,10 @@ export interface RunListEntry {
 /**
  * Materials snapshot persisted with each step. `use:` steps record every
  * file in the bundle directory; `sh:` steps record the inline source.
- * Pre-rename rows can also surface as the legacy `{ source }` shape — UI
- * code must accept either.
  */
 export type StepMaterials =
   | { kind: "use"; bundle: string; files: Record<string, string> }
-  | { kind: "sh"; source: string }
-  | { source: string };
+  | { kind: "sh"; source: string };
 
 /**
  * One per-step row inside a run detail. Carries the standard envelope

@@ -130,7 +130,7 @@ function RunDetailView({ runId }: { runId: string }) {
 }
 
 function MaterialsView({ materials }: { materials: StepMaterials }) {
-  if ("kind" in materials && materials.kind === "use") {
+  if (materials.kind === "use") {
     return (
       <>
         <Field label={`bundle (${materials.bundle})`}>
@@ -144,7 +144,6 @@ function MaterialsView({ materials }: { materials: StepMaterials }) {
       </>
     );
   }
-  // Both `{ kind: "sh", source }` and the legacy `{ source }` shape land here.
   return (
     <Field label="materials.source">
       <pre>{materials.source}</pre>

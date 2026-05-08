@@ -165,6 +165,26 @@ nodes:
     expect(result.failures[0].reason.length).toBeGreaterThan(0);
   });
 
+  it("rejects a file that has both steps: and a stale nodes: at the top level", async () => {
+    writeBundle(cwd, "x");
+    writeFileSync(
+      join(dir, "mixed.yaml"),
+      `name: mixed
+steps:
+  - use: x
+nodes:
+  - kind: script
+    path: scripts/x.sh
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "mixed.yaml"));
+  });
+
   it("records a failure when a YAML file can't be read", async () => {
     // Dangling symlink: readdir lists the entry, readFileSync fails ENOENT.
     symlinkSync("/nonexistent/kiri-loader-target", join(dir, "ghost.yaml"));

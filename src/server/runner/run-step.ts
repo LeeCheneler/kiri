@@ -1,4 +1,4 @@
-import { type WorkflowStep, isUseStep } from "../workflows/index.ts";
+import { type WorkflowStep, bundleRunPath, isUseStep } from "../workflows/index.ts";
 
 /**
  * Standard envelope for a step, matching the shape every step variant
@@ -15,8 +15,8 @@ export interface StepEnvelope {
 export interface RunStepArgs {
   /** The validated workflow step — either a `use:` bundle reference or an inline `sh:` snippet. */
   step: WorkflowStep;
-  /** Absolute path to a `use:` step's bundle entry (`<cwd>/scripts/<name>/run.sh`). Ignored for `sh:` steps. */
-  bundleRunPath: string;
+  /** Repo root. Used to resolve `use:` bundles to `<cwd>/scripts/<name>/run.sh`. */
+  cwd: string;
   /** Working directory for the spawned process — typically a per-run scratch dir. */
   scratchDir: string;
   /** Bytes piped to the step's stdin. Pass `""` for the first step in a pipeline. */
@@ -31,16 +31,16 @@ export interface RunStepArgs {
 /**
  * Spawn a workflow step and assemble the standard envelope.
  *
- * `use:` steps spawn `bundleRunPath` directly (`[runPath]`); `sh:` steps
- * spawn `["sh", "-c", inline]`. Both use the explicit argv form — no
- * shell interpolation of any input. Caller controls `cwd` (scratchDir)
- * and the env scope. Spawn-time failure (missing script, not executable)
- * and a non-zero exit both yield `status: "failed"` with the cause in
- * `error`.
+ * `use:` steps spawn the bundle's `run.sh` directly (`[runPath]`); `sh:`
+ * steps spawn `["sh", "-c", inline]`. Both use the explicit argv form —
+ * no shell interpolation of any input. Caller controls `cwd`
+ * (scratchDir) and the env scope. Spawn-time failure (missing script,
+ * not executable) and a non-zero exit both yield `status: "failed"`
+ * with the cause in `error`.
  */
 export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
-  const { step, bundleRunPath, scratchDir, input, env } = args;
-  const cmd = isUseStep(step) ? [bundleRunPath] : ["sh", "-c", step.sh];
+  const { step, cwd, scratchDir, input, env } = args;
+  const cmd = isUseStep(step) ? [bundleRunPath(cwd, step.use)] : ["sh", "-c", step.sh];
   const startedAt = performance.now();
 
   let stdout: string;

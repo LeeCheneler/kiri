@@ -23,12 +23,14 @@ const shStepSchema = z
 const stepSchema = z.union([useStepSchema, shStepSchema]);
 
 /** Zod schema for a YAML workflow definition. */
-export const workflowSchema = z.object({
-  name: z.string().min(1),
-  steps: z.array(stepSchema).min(1),
-  gating: z.enum(["auto", "propose"]).optional(),
-  schedule: z.string().min(1).optional(),
-});
+export const workflowSchema = z
+  .object({
+    name: z.string().min(1),
+    steps: z.array(stepSchema).min(1),
+    gating: z.enum(["auto", "propose"]).optional(),
+    schedule: z.string().min(1).optional(),
+  })
+  .strict();
 
 export type WorkflowDefinition = z.infer<typeof workflowSchema>;
 export type WorkflowStep = z.infer<typeof stepSchema>;

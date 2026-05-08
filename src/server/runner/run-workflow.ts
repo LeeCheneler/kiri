@@ -3,12 +3,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { runSteps, runs } from "../db/schema.ts";
-import {
-  type WorkflowDefinition,
-  type WorkflowStep,
-  bundleRunPath,
-  isUseStep,
-} from "../workflows/index.ts";
+import { type WorkflowDefinition, type WorkflowStep, isUseStep } from "../workflows/index.ts";
 import { runStep } from "./run-step.ts";
 
 export interface RunWorkflowArgs {
@@ -99,6 +94,10 @@ const buildEnv = (
   env.KIRI_STEP_INDEX = String(stepIndex);
   env.KIRI_REPO_ROOT = cwd;
   env.KIRI_META_FILE = join(scratchDir, `step-${stepIndex}.meta.json`);
+  // use: steps run with cwd = scratchDir, so the bundle can't reach its
+  // own sidecar files via relative paths. KIRI_BUNDLE_DIR points at the
+  // bundle source; sh: steps don't have a bundle so it stays unset.
+  if (isUseStep(step)) env.KIRI_BUNDLE_DIR = join(cwd, "scripts", step.use);
   return env;
 };
 
@@ -159,7 +158,7 @@ export async function runWorkflow(
 
       const envelope = await runStep({
         step,
-        bundleRunPath: isUseStep(step) ? bundleRunPath(args.cwd, step.use) : "",
+        cwd: args.cwd,
         scratchDir,
         input,
         env: buildEnv(step, runId, i, args.cwd, scratchDir),

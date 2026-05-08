@@ -70,6 +70,11 @@ essentials (\`PATH\`, \`HOME\`, \`USER\`, \`LOGNAME\`). These are applied
 shadow them. Workflow \`env:\` keys starting with \`KIRI_\` are rejected
 at load time.
 
+\`use:\` steps additionally get \`KIRI_BUNDLE_DIR\` pointing at the
+bundle's source directory. Steps run with their cwd set to a per-run
+scratch dir, so bundles must read sidecar files via this env var
+(\`cat "$KIRI_BUNDLE_DIR/prompt.tpl"\`) rather than relative paths.
+
 ## IDE / LSP integration
 
 Kiri publishes the workflow JSON Schema at \`.kiri/workflow.schema.json\` and
@@ -122,7 +127,7 @@ echo "hello from kiri"
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
 const README_REL_PATH = "README.md";
 const EXAMPLE_REL_PATH = "workflows/example.yaml";
-const EXAMPLE_SCRIPT_REL_PATH = "scripts/example/run.sh";
+const EXAMPLE_BUNDLE_RUN_REL_PATH = "scripts/example/run.sh";
 const GITIGNORE_REL_PATH = ".gitignore";
 const GITIGNORE_KIRI_LINE = ".kiri/";
 
@@ -212,7 +217,7 @@ export function initRepo(cwd: string): InitResult {
   );
   writeIfMissing(
     join(exampleBundleDir, "run.sh"),
-    EXAMPLE_SCRIPT_REL_PATH,
+    EXAMPLE_BUNDLE_RUN_REL_PATH,
     EXAMPLE_RUN_SCRIPT,
     created,
     skipped,

@@ -5,35 +5,34 @@ import { join } from "node:path";
 import { runStep } from "./run-step.ts";
 
 describe("runStep", () => {
-  let dir: string;
+  let cwd: string;
   let scratchDir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "kiri-step-"));
-    scratchDir = join(dir, "scratch");
+    cwd = mkdtempSync(join(tmpdir(), "kiri-step-"));
+    scratchDir = join(cwd, "scratch");
     mkdirSync(scratchDir);
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
   });
 
-  const writeBundle = (name: string, body: string): string => {
-    const bundleDir = join(dir, "scripts", name);
+  const writeBundle = (name: string, body: string): void => {
+    const bundleDir = join(cwd, "scripts", name);
     mkdirSync(bundleDir, { recursive: true });
     const path = join(bundleDir, "run.sh");
     writeFileSync(path, body);
     chmodSync(path, 0o755);
-    return path;
   };
 
   describe("use: steps", () => {
     it("returns an ok envelope when the bundle's run.sh exits 0", async () => {
-      const runPath = writeBundle("ok", "#!/bin/sh\necho hello\n");
+      writeBundle("ok", "#!/bin/sh\necho hello\n");
 
       const envelope = await runStep({
         step: { use: "ok" },
-        bundleRunPath: runPath,
+        cwd,
         scratchDir,
         input: "",
         env: {},
@@ -48,11 +47,11 @@ describe("runStep", () => {
     });
 
     it("returns a failed envelope when the bundle exits non-zero", async () => {
-      const runPath = writeBundle("fail", "#!/bin/sh\necho boom\nexit 7\n");
+      writeBundle("fail", "#!/bin/sh\necho boom\nexit 7\n");
 
       const envelope = await runStep({
         step: { use: "fail" },
-        bundleRunPath: runPath,
+        cwd,
         scratchDir,
         input: "",
         env: {},
@@ -64,11 +63,11 @@ describe("runStep", () => {
     });
 
     it("captures stderr separately from stdout", async () => {
-      const runPath = writeBundle("err", "#!/bin/sh\necho out\necho err 1>&2\n");
+      writeBundle("err", "#!/bin/sh\necho out\necho err 1>&2\n");
 
       const envelope = await runStep({
         step: { use: "err" },
-        bundleRunPath: runPath,
+        cwd,
         scratchDir,
         input: "",
         env: {},
@@ -79,11 +78,11 @@ describe("runStep", () => {
     });
 
     it("pipes input into the bundle's stdin", async () => {
-      const runPath = writeBundle("cat", "#!/bin/sh\ncat\n");
+      writeBundle("cat", "#!/bin/sh\ncat\n");
 
       const envelope = await runStep({
         step: { use: "cat" },
-        bundleRunPath: runPath,
+        cwd,
         scratchDir,
         input: "echo me back",
         env: {},
@@ -93,11 +92,11 @@ describe("runStep", () => {
     });
 
     it("runs the bundle with cwd set to the scratch dir", async () => {
-      const runPath = writeBundle("pwd", "#!/bin/sh\npwd\n");
+      writeBundle("pwd", "#!/bin/sh\npwd\n");
 
       const envelope = await runStep({
         step: { use: "pwd" },
-        bundleRunPath: runPath,
+        cwd,
         scratchDir,
         input: "",
         env: {},
@@ -112,11 +111,11 @@ describe("runStep", () => {
       // the child sees neither — only FOO comes through.
       expect(process.env.USER).toBeTruthy();
       expect(process.env.HOME).toBeTruthy();
-      const runPath = writeBundle("env", '#!/bin/sh\necho "FOO=$FOO USER=$USER HOME=$HOME"\n');
+      writeBundle("env", '#!/bin/sh\necho "FOO=$FOO USER=$USER HOME=$HOME"\n');
 
       const envelope = await runStep({
         step: { use: "env" },
-        bundleRunPath: runPath,
+        cwd,
         scratchDir,
         input: "",
         env: { FOO: "bar" },
@@ -129,7 +128,7 @@ describe("runStep", () => {
     it("returns a failed envelope when the bundle script does not exist", async () => {
       const envelope = await runStep({
         step: { use: "missing" },
-        bundleRunPath: join(dir, "scripts", "missing", "run.sh"),
+        cwd,
         scratchDir,
         input: "",
         env: {},
@@ -144,7 +143,7 @@ describe("runStep", () => {
     it("runs an inline shell snippet via sh -c and reports ok on exit 0", async () => {
       const envelope = await runStep({
         step: { sh: "echo from-sh" },
-        bundleRunPath: "",
+        cwd,
         scratchDir,
         input: "",
         env: {},
@@ -157,7 +156,7 @@ describe("runStep", () => {
     it("returns a failed envelope on non-zero exit", async () => {
       const envelope = await runStep({
         step: { sh: "echo bye; exit 3" },
-        bundleRunPath: "",
+        cwd,
         scratchDir,
         input: "",
         env: {},
@@ -171,7 +170,7 @@ describe("runStep", () => {
     it("pipes input into the inline snippet's stdin", async () => {
       const envelope = await runStep({
         step: { sh: "cat" },
-        bundleRunPath: "",
+        cwd,
         scratchDir,
         input: "piped",
         env: {},
@@ -183,7 +182,7 @@ describe("runStep", () => {
     it("uses scratchDir as cwd", async () => {
       const envelope = await runStep({
         step: { sh: "pwd" },
-        bundleRunPath: "",
+        cwd,
         scratchDir,
         input: "",
         env: {},
@@ -195,7 +194,7 @@ describe("runStep", () => {
     it("scopes env to exactly what was passed", async () => {
       const envelope = await runStep({
         step: { sh: 'echo "FOO=$FOO USER=$USER"' },
-        bundleRunPath: "",
+        cwd,
         scratchDir,
         input: "",
         env: { FOO: "bar" },
