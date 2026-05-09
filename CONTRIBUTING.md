@@ -41,6 +41,10 @@ Kiri ships with the same 2-step `example` workflow that `kiri init` scaffolds fo
 
 The bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, the run is marked failed and the underlying error is visible in the expanded entry.
 
+## Tests
+
+Server tests live next to source as `*.test.ts`. Client component tests live next to source as `*.test.tsx` and run in `bun:test` against a `happy-dom` DOM environment with `@testing-library/react` for rendering and queries. HTTP is mocked via [MSW](https://mswjs.io) — handlers default to empty registry/feed responses; per-test overrides go through `server.use(...)`. The setup wiring lives under `tests/setup/` and is hooked in via `bunfig.toml`'s `preload` list so a single `bun test` covers both surfaces.
+
 ## Quality gates
 
 ```sh
