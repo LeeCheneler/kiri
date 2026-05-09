@@ -1,0 +1,3 @@
+name = "local-kiri-build"
+pages_build_output_dir = "./shell"
+compatibility_date = "2026-05-09"
