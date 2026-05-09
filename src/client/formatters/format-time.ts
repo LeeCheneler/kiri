@@ -26,15 +26,15 @@ export const formatRelativeTime = (iso: string, now: Date = new Date()): string 
 };
 
 /**
- * Format the gap between two ISO timestamps as a compact duration string:
- * `420ms`, `1.4s`, `12s`, `2m 30s`, `1h 5m`. Clamps negative values to zero
- * so a clock skew between rows doesn't surface as "-1s".
+ * Format a millisecond duration as a compact string: `420ms`, `1.4s`, `12s`,
+ * `2m 30s`, `1h 5m`. Clamps negative values to zero so a clock skew doesn't
+ * surface as "-1s"; rounds fractional millisecond inputs.
  */
-export const formatDuration = (startedAt: string, finishedAt: string): string => {
-  const ms = Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime());
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
-  const totalSeconds = Math.round(ms / 1000);
+export const formatDurationMs = (ms: number): string => {
+  const clamped = Math.max(0, ms);
+  if (clamped < 1000) return `${Math.round(clamped)}ms`;
+  if (clamped < 10_000) return `${(clamped / 1000).toFixed(1)}s`;
+  const totalSeconds = Math.round(clamped / 1000);
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -43,3 +43,11 @@ export const formatDuration = (startedAt: string, finishedAt: string): string =>
   const remainingMinutes = minutes % 60;
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 };
+
+/**
+ * Format the gap between two ISO timestamps as a compact duration string.
+ * Convenience wrapper around `formatDurationMs` for callers that hold ISO
+ * start/finish strings (e.g. run rows in the activity feed).
+ */
+export const formatDuration = (startedAt: string, finishedAt: string): string =>
+  formatDurationMs(new Date(finishedAt).getTime() - new Date(startedAt).getTime());

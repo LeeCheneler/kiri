@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { formatDuration, formatRelativeTime } from "./format-time.ts";
+import { formatDuration, formatDurationMs, formatRelativeTime } from "./format-time.ts";
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 const isoOffset = (seconds: number) => new Date(NOW.getTime() + seconds * 1000).toISOString();
@@ -77,5 +77,35 @@ describe("formatDuration", () => {
 
   it("clamps a negative gap to zero", () => {
     expect(formatDuration(finish(1_000), start)).toBe("0ms");
+  });
+});
+
+describe("formatDurationMs", () => {
+  it("renders sub-second durations in milliseconds", () => {
+    expect(formatDurationMs(420)).toBe("420ms");
+  });
+
+  it("rounds fractional millisecond inputs", () => {
+    expect(formatDurationMs(420.7)).toBe("421ms");
+  });
+
+  it("renders sub-10s durations with one decimal place", () => {
+    expect(formatDurationMs(1_400)).toBe("1.4s");
+  });
+
+  it("renders sub-minute durations in whole seconds", () => {
+    expect(formatDurationMs(12_000)).toBe("12s");
+  });
+
+  it("renders minute+seconds durations with both parts", () => {
+    expect(formatDurationMs(2 * 60_000 + 30_000)).toBe("2m 30s");
+  });
+
+  it("renders hour+minutes durations with both parts", () => {
+    expect(formatDurationMs(60 * 60_000 + 5 * 60_000)).toBe("1h 5m");
+  });
+
+  it("clamps negative inputs to zero", () => {
+    expect(formatDurationMs(-50)).toBe("0ms");
   });
 });
