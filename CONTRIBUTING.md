@@ -87,13 +87,18 @@ To preview a shell change locally before merging, `bunx wrangler pages deploy --
 
 ### One-time setup
 
-In the Cloudflare dashboard:
+**Bootstrap the Pages project (CLI).** Cloudflare doesn't auto-create Pages projects on deploy, and creating one via the dashboard requires uploading an initial artefact. Easiest path is to bootstrap from your machine — this creates the project on first run, ships the initial deploy, and CI takes over for subsequent deploys.
 
-1. Create a Pages project named `local-kiri-build` (the name baked into `wrangler.toml`).
-2. Skip the build step — the shell is static.
-3. Attach `local.kiri.build` as a custom domain. Pages auto-provisions the DNS record and TLS cert.
+```sh
+bunx wrangler login                                       # once per machine
+bunx wrangler pages deploy ./shell \
+  --project-name=local-kiri-build \
+  --branch=main
+```
 
-In the GitHub repo settings (Settings → Secrets and variables → Actions):
+**Attach the custom domain (Cloudflare dashboard).** Pages project → `local-kiri-build` → Custom domains → Set up a custom domain → `local.kiri.build`. Pages auto-provisions the DNS record and TLS cert. (Allow up to ~15 min for cert provisioning + DNS propagation.)
 
-- **Secret** `CLOUDFLARE_API_TOKEN` — a Pages-scoped API token (Cloudflare dashboard → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template, narrowed to the Pages project).
+**Add repo secrets (GitHub repo settings → Secrets and variables → Actions).**
+
+- **Secret** `CLOUDFLARE_API_TOKEN` — a custom API token (Cloudflare dashboard → My Profile → API Tokens → Create Token → Custom token). Permission: `Account → Cloudflare Pages → Edit`. Account resources: include the account that owns the Pages project. Zone resources: irrelevant for Pages, leave as default. *Do not use the "Edit Cloudflare Workers" template* — it omits the Pages permission.
 - **Variable** `CLOUDFLARE_ACCOUNT_ID` — the account ID visible on the Cloudflare dashboard sidebar. Stored as a repository *variable* (not a secret); it's an identifier, not a credential.
