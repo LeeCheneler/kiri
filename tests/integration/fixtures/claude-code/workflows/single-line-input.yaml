@@ -1,0 +1,6 @@
+name: single-line-input
+steps:
+  - sh: echo "Lee"
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/single-line-input.tpl
