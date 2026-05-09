@@ -1,6 +1,7 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import { cors } from "hono/cors";
 import type { KiriDb } from "./db/index.ts";
 import { runSteps, runs } from "./db/schema.ts";
 import { runWorkflow } from "./runner/index.ts";
@@ -28,6 +29,12 @@ const MAX_RUN_LIMIT = 200;
 
 const NO_STORE_PATHS = new Set(["/", "/index.html", "/app.js", "/app.css"]);
 
+const ALLOWED_ORIGINS = [
+  "https://local.kiri.build",
+  "http://127.0.0.1:4242",
+  "http://localhost:4242",
+];
+
 const parseListParam = (raw: string | undefined, fallback: number, max: number): number => {
   if (raw === undefined) return fallback;
   const n = Number.parseInt(raw, 10);
@@ -43,6 +50,19 @@ const parseListParam = (raw: string | undefined, fallback: number, max: number):
 export function createApp(deps: AppDeps): Hono {
   const { db, registry, cwd } = deps;
   const app = new Hono();
+
+  // CORS allow-list for the hosted shell at https://local.kiri.build plus the
+  // local-direct origins. Mounted before route handlers so OPTIONS preflight is
+  // answered by the middleware rather than falling through. Disallowed origins
+  // get no Access-Control-Allow-Origin header — the browser default-blocks.
+  app.use(
+    "*",
+    cors({
+      origin: ALLOWED_ORIGINS,
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      allowHeaders: ["Content-Type"],
+    }),
+  );
 
   app.get("/api/health", (c) => c.json({ status: "ok" }));
 
