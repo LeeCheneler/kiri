@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "wouter";
 import { type RunListEntry, fetchRuns } from "../api.ts";
+import { ActivityFeed } from "../components/activity-feed.tsx";
 
 type State =
   | { status: "loading" }
@@ -8,9 +8,9 @@ type State =
   | { status: "ready"; runs: RunListEntry[] };
 
 /**
- * Dashboard route. Lists the run feed with each entry linking to its
- * detail page. Visual treatment is intentionally minimal — this is the
- * routing scaffold; the activity-feed redesign replaces the entry shape.
+ * Dashboard route. Renders an editorial section header above the
+ * activity feed; owns only the loading and error states and delegates
+ * the populated/empty rendering to `<ActivityFeed>`.
  */
 export function Dashboard() {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -29,19 +29,20 @@ export function Dashboard() {
     };
   }, []);
 
-  if (state.status === "loading") return <p>Loading runs…</p>;
-  if (state.status === "error") return <p role="alert">Failed to load runs: {state.message}</p>;
-  if (state.runs.length === 0) return <p>No runs yet.</p>;
-
   return (
-    <ul>
-      {state.runs.map((run) => (
-        <li key={run.id}>
-          <Link href={`/runs/${run.id}`}>
-            {run.workflowName} — {run.status}
-          </Link>
-        </li>
-      ))}
-    </ul>
+    <section>
+      <header className="mb-6 flex items-baseline border-b border-rule pb-3">
+        <h2 className="text-xs tracking-widest text-ink-muted uppercase">Activity</h2>
+      </header>
+      {state.status === "loading" ? (
+        <p className="text-ink-muted italic">Loading runs…</p>
+      ) : state.status === "error" ? (
+        <p role="alert" className="text-status-failed">
+          Failed to load runs: {state.message}
+        </p>
+      ) : (
+        <ActivityFeed runs={state.runs} />
+      )}
+    </section>
   );
 }

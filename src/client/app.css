@@ -10,8 +10,8 @@
 
   --color-status-running: #7aaedb;
   --color-status-ok: #88a579;
-  --color-status-failed: #cd7b5e;
-  --color-status-orphaned: #c99858;
+  --color-status-failed: #d1493e;
+  --color-status-interrupted: #c99858;
 
   --font-display: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -43,5 +43,28 @@
   .font-display {
     font-optical-sizing: auto;
     font-variation-settings: "SOFT" 50;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Stagger-reveal for activity feed rows. Each row sets animation-delay
+   inline based on its index, capped so long feeds don't drag. */
+@keyframes feed-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
