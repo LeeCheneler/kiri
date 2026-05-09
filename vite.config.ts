@@ -11,6 +11,13 @@ export default defineConfig({
       // would intercept client modules served by Vite.
       "/api/": "http://localhost:4242",
     },
+    watch: {
+      // Test files belong to bun:test, not the SPA. Without this, Vite
+      // sees a test-file change, treats it as an out-of-graph module,
+      // triggers a page reload + dep rescan, and esbuild blows up trying
+      // to follow the test setup's transitive imports into Playwright.
+      ignored: ["**/*.test.{ts,tsx}"],
+    },
   },
   build: {
     outDir: "../../dist/client",
