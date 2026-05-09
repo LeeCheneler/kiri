@@ -23,7 +23,7 @@ describe("<RunPage>", () => {
     expect(screen.getByText(/loading run/i)).toBeDefined();
   });
 
-  it("renders the workflow name and status when the run loads", async () => {
+  it("delegates to the run detail view when the run loads", async () => {
     server.use(
       http.get("*/api/runs/:id", ({ params }) =>
         HttpResponse.json({
@@ -45,8 +45,11 @@ describe("<RunPage>", () => {
 
     renderRun("abc");
 
-    expect(await screen.findByRole("heading", { name: /kiri-self-review/i })).toBeDefined();
-    expect(screen.getByText(/status: ok/i)).toBeDefined();
+    expect(
+      await screen.findByRole("heading", { level: 2, name: /kiri-self-review/i }),
+    ).toBeDefined();
+    expect(screen.getByRole("heading", { level: 3, name: /steps/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /all activity/i })).toBeDefined();
   });
 
   it("renders a not-found view when the API returns 404", async () => {
@@ -60,6 +63,7 @@ describe("<RunPage>", () => {
 
     expect(await screen.findByRole("heading", { name: /run not found/i })).toBeDefined();
     expect(screen.getByText("missing")).toBeDefined();
+    expect(screen.getByRole("link", { name: /all activity/i }).getAttribute("href")).toBe("/");
   });
 
   it("renders a generic error view on non-404 failures", async () => {

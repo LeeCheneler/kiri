@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { ApiError, type RunDetail, fetchRun } from "../api.ts";
+import { RunDetailView } from "../components/run-detail.tsx";
 
 type State =
   | { status: "loading" }
@@ -10,9 +11,9 @@ type State =
 
 /**
  * Run detail route. Fetches the run by id and renders one of: loading,
- * not-found (404 from the API), generic error, or the loaded run summary.
- * Per-step expandable detail lands in a follow-up ticket — this is the
- * routing scaffold.
+ * not-found (404 from the API), generic error, or the editorial run
+ * detail view. Owns only the fetch states; the populated case delegates
+ * to `<RunDetailView>`.
  */
 export function RunPage({ params }: { params: { id: string } }) {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -37,28 +38,32 @@ export function RunPage({ params }: { params: { id: string } }) {
     };
   }, [params.id]);
 
-  if (state.status === "loading") return <p>Loading run…</p>;
+  if (state.status === "loading") {
+    return <p className="font-display text-base text-ink-muted italic">Loading run…</p>;
+  }
   if (state.status === "not-found") {
     return (
       <section>
-        <h2>Run not found</h2>
-        <p>
-          No run with id <code>{params.id}</code>.
+        <Link
+          href="/"
+          className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
+        >
+          ← all activity
+        </Link>
+        <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Run not found</h2>
+        <p className="mt-3 font-mono text-sm text-ink-muted">
+          No run with id <code className="text-ink">{params.id}</code>.
         </p>
-        <Link href="/">Back to dashboard</Link>
       </section>
     );
   }
   if (state.status === "error") {
-    return <p role="alert">Failed to load run: {state.message}</p>;
+    return (
+      <p role="alert" className="font-mono text-sm text-status-failed">
+        Failed to load run: {state.message}
+      </p>
+    );
   }
 
-  const { run } = state.detail;
-  return (
-    <section>
-      <h2>{run.workflowName}</h2>
-      <p>Status: {run.status}</p>
-      <Link href="/">Back to dashboard</Link>
-    </section>
-  );
+  return <RunDetailView detail={state.detail} />;
 }
