@@ -149,6 +149,15 @@ for dep in claude awk; do
   }
 done
 
+# Verify the prompt file exists *before* the awk render — POSIX
+# \`set -e\` doesn't propagate failures from \`$()\` inside an
+# assignment, so a missing file would otherwise silently leave
+# \$prompt empty and we'd exec \`claude -p ""\`.
+[ -f "$KIRI_REPO_ROOT/$PROMPT_FILE" ] || {
+  echo "claude-code: prompt file not found: $PROMPT_FILE" >&2
+  exit 1
+}
+
 # Slurp the previous step's stdout (piped here by kiri) into KIRI_INPUT
 # so prompts can reference {{KIRI_INPUT}}. $() trims one trailing
 # newline so single-line outputs (e.g. \`echo "Lee"\`) render inline;
