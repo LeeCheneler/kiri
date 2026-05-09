@@ -71,10 +71,24 @@ export interface RunDetail {
   steps: RunStepRow[];
 }
 
+/**
+ * Error thrown for non-2xx responses from kiri's API. Carries the HTTP
+ * status so call sites can branch on it (e.g. show a "not found" view on
+ * 404) without parsing the message.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 const json = async <T>(res: Response): Promise<T> => {
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
   }
   return (await res.json()) as T;
 };

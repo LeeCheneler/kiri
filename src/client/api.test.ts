@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { server } from "../../tests/setup/msw.ts";
-import { fetchRun, fetchRuns, fetchWorkflows, triggerRun } from "./api.ts";
+import { ApiError, fetchRun, fetchRuns, fetchWorkflows, triggerRun } from "./api.ts";
 
 describe("api client", () => {
   it("returns the workflow registry from the default handler", async () => {
@@ -36,5 +36,22 @@ describe("api client", () => {
     server.use(http.get("*/api/runs/:id", () => new HttpResponse("not json", { status: 503 })));
 
     await expect(fetchRun("missing")).rejects.toThrow(/503/);
+  });
+
+  it("throws an ApiError carrying the HTTP status on non-2xx responses", async () => {
+    server.use(
+      http.get("*/api/runs/:id", () =>
+        HttpResponse.json({ error: 'run "missing" not found' }, { status: 404 }),
+      ),
+    );
+
+    try {
+      await fetchRun("missing");
+      throw new Error("expected fetchRun to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(404);
+      expect((err as ApiError).message).toBe('run "missing" not found');
+    }
   });
 });
