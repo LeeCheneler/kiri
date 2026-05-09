@@ -33,7 +33,9 @@ test("a successful run surfaces in the feed with status and link to detail", asy
   expect(status).toBe("ok");
 
   await page.goto("/");
-  const row = page.getByRole("link", { name: /golden/i });
+  // Scope to <main> so the side nav's "golden" link in the rail doesn't
+  // collide with the feed row.
+  const row = page.getByRole("main").getByRole("link", { name: /golden/i });
   await expect(row).toBeVisible();
   await expect(row).toHaveAttribute("href", `/runs/${runId}`);
   await expect(row).toHaveAttribute("data-status", "ok");
@@ -44,7 +46,7 @@ test("a failing run row carries the failed status treatment", async ({ page, req
   expect(status).toBe("failed");
 
   await page.goto("/");
-  const row = page.getByRole("link", { name: /failing/i });
+  const row = page.getByRole("main").getByRole("link", { name: /failing/i });
   await expect(row).toBeVisible();
   await expect(row).toHaveAttribute("data-status", "failed");
 });
@@ -88,4 +90,22 @@ test("a failed run surfaces a run-level failure block on the detail page", async
   const alert = page.getByRole("alert");
   await expect(alert).toBeVisible();
   await expect(alert).toContainText(/run failed/i);
+});
+
+test("triggering a workflow from the side nav lands on the run detail", async ({ page }) => {
+  await page.goto("/");
+
+  const nav = page.getByRole("navigation", { name: /workflows/i });
+  await expect(nav).toBeVisible();
+  await expect(nav.getByRole("link", { name: /golden/i })).toBeVisible();
+  await expect(nav.getByRole("link", { name: /failing/i })).toBeVisible();
+
+  await nav.getByRole("link", { name: /golden/i }).click();
+  await expect(page).toHaveURL("/workflows/golden");
+  await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
+  await expect(nav.getByRole("link", { name: /golden/i })).toHaveAttribute("aria-current", "page");
+
+  await page.getByRole("button", { name: /^run/i }).click();
+  await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
+  await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
 });
