@@ -9,13 +9,18 @@ import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
- * workflow registry, and the repo root passed to the runner.
+ * workflow registry, and the repo root passed to the runner. `staticRoot`
+ * locates the built SPA bundle and defaults to the prod path; tests pass a
+ * fixture directory.
  */
 export interface AppDeps {
   db: KiriDb;
   registry: Registry;
   cwd: string;
+  staticRoot?: string;
 }
+
+const DEFAULT_STATIC_ROOT = "./dist/client";
 
 const summarizeWorkflow = (def: WorkflowDefinition) => ({
   name: def.name,
@@ -56,7 +61,7 @@ const parseListParam = (raw: string | undefined, fallback: number, max: number):
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const { db, registry, cwd } = deps;
+  const { db, registry, cwd, staticRoot = DEFAULT_STATIC_ROOT } = deps;
   const app = new Hono();
 
   // CORS allow-list for the hosted shell at https://local.kiri.build plus the
@@ -137,7 +142,24 @@ export function createApp(deps: AppDeps): Hono {
     if (NO_STORE_PATHS.has(c.req.path)) c.header("Cache-Control", "no-store");
   });
 
-  app.use("*", serveStatic({ root: "./dist/client" }));
+  // Serve real bundle files: /, /index.html, /app.{js,css}, hashed assets
+  // under /assets/. Hono's serveStatic finalises the response when a file
+  // matches and otherwise calls next(), so unknown paths fall through to
+  // the SPA fallback below.
+  app.use("*", serveStatic({ root: staticRoot }));
+
+  // SPA fallback for client-side routes. serveStatic above doesn't rewrite
+  // unknown paths to index.html, so a refresh on /runs/:id would 404. Catch
+  // any unmatched GET that isn't an API call or a hashed asset and return
+  // the SPA shell. Same bytes as /index.html, so the same no-store policy
+  // applies — a fresh shell every load means client updates propagate.
+  app.get("*", (c, next) => {
+    if (c.finalized) return next();
+    const path = c.req.path;
+    if (path.startsWith("/api/") || path.startsWith("/assets/")) return next();
+    c.header("Cache-Control", "no-store");
+    return serveStatic({ root: staticRoot, path: "index.html" })(c, next);
+  });
 
   return app;
 }

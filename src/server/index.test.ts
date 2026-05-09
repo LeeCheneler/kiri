@@ -351,4 +351,61 @@ describe("createApp", () => {
       expect(res.status).toBe(200);
     });
   });
+
+  describe("SPA shell fallback", () => {
+    const SHELL = '<!doctype html><html><body><div id="root"></div></body></html>';
+
+    const writeShell = () => {
+      const root = join(cwd, "client");
+      mkdirSync(root, { recursive: true });
+      writeFileSync(join(root, "index.html"), SHELL);
+      return root;
+    };
+
+    it("serves the SPA shell on a client-side route so refresh boots the app", async () => {
+      const staticRoot = writeShell();
+      const app = createApp({ db, registry, cwd, staticRoot });
+
+      const res = await app.request("/runs/abc-123");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("text/html");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(await res.text()).toBe(SHELL);
+    });
+
+    it("does not intercept unknown /api/* paths", async () => {
+      const staticRoot = writeShell();
+      const app = createApp({ db, registry, cwd, staticRoot });
+
+      const res = await app.request("/api/nope");
+      expect(res.status).toBe(404);
+    });
+
+    it("does not intercept hashed /assets/* paths", async () => {
+      const staticRoot = writeShell();
+      const app = createApp({ db, registry, cwd, staticRoot });
+
+      const res = await app.request("/assets/missing-abc123.js");
+      expect(res.status).toBe(404);
+    });
+
+    it("falls through when the SPA shell is not built", async () => {
+      const staticRoot = join(cwd, "missing-dist");
+      const app = createApp({ db, registry, cwd, staticRoot });
+
+      const res = await app.request("/runs/abc-123");
+      expect(res.status).toBe(404);
+    });
+
+    it("does not run for non-GET methods on client-side routes", async () => {
+      const staticRoot = writeShell();
+      const app = createApp({ db, registry, cwd, staticRoot });
+
+      const res = await app.request("/runs/abc-123", {
+        method: "POST",
+        headers: { "X-Kiri-Client": "kiri-ui" },
+      });
+      expect(res.status).toBe(404);
+    });
+  });
 });
