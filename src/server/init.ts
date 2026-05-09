@@ -167,8 +167,10 @@ export KIRI_INPUT="$(cat)"
 # Render {{VAR}} placeholders from the environment in a single
 # left-to-right pass. Substituted values are not re-scanned, so a
 # value containing "{{X}}" stays literal — no infinite loops on
-# self-referential content. Unknown vars resolve to empty.
-prompt=$(awk '
+# self-referential content. Unknown vars resolve to empty. LC_ALL=C
+# pins the regex character classes to ASCII so non-C locales can't
+# widen \`[A-Z]\` to accented uppercase.
+prompt=$(LC_ALL=C awk '
   {
     out = ""
     rest = $0
@@ -216,7 +218,7 @@ Full reference, all knobs explicit:
 
 | Var | Required | Default | Description |
 | --- | --- | --- | --- |
-| \`PROMPT_FILE\` | yes | — | Path to the prompt template, resolved against \`KIRI_REPO_ROOT\`. |
+| \`PROMPT_FILE\` | yes | — | Path to the prompt template. If relative, resolved against \`KIRI_REPO_ROOT\`; absolute paths are passed through as-is. |
 | \`MAX_TURNS\` | no | \`8\` | Hard cap on the number of agent turns. |
 | \`MODEL\` | no | — | Override the model. If unset, \`claude\` picks its default. |
 
@@ -235,7 +237,7 @@ your global claude settings to match the strictness you want.
    \`KIRI_INPUT\` and renders \`$KIRI_REPO_ROOT/$PROMPT_FILE\` —
    substituting \`{{VAR}}\` placeholders from the environment (see
    *Prompt templates* below).
-2. Spawns \`claude -p "$PROMPT" --max-turns "$MAX_TURNS"\` (plus
+2. Spawns \`claude -p "$prompt" --max-turns "$MAX_TURNS"\` (plus
    \`--model "$MODEL"\` if set). The agent's final message lands on
    stdout and shows up in the run feed.
 
@@ -258,7 +260,8 @@ loops on self-referential content.
 | \`{{KIRI_REPO_ROOT}}\` | Absolute path of the workflow repo root. |
 | \`{{KIRI_BUNDLE_DIR}}\` | Absolute path of this bundle's directory. |
 | \`{{KIRI_META_FILE}}\` | Path the bundle writes step metadata to. |
-| \`{{PROMPT_FILE}}\`, \`{{MAX_TURNS}}\`, \`{{MODEL}}\` | Bundle env-var contract values (defaulted as documented above). |
+| \`{{PROMPT_FILE}}\`, \`{{MAX_TURNS}}\` | Bundle env-var contract values, defaulted as documented above. |
+| \`{{MODEL}}\` | Same — but resolves to empty when unset, since \`MODEL\` has no default. |
 | Any \`{{MY_VAR}}\` | Anything set in the workflow's \`env:\` block. |
 
 ### Example

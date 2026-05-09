@@ -39,8 +39,10 @@ export KIRI_INPUT="$(cat)"
 # Render {{VAR}} placeholders from the environment in a single
 # left-to-right pass. Substituted values are not re-scanned, so a
 # value containing "{{X}}" stays literal — no infinite loops on
-# self-referential content. Unknown vars resolve to empty.
-prompt=$(awk '
+# self-referential content. Unknown vars resolve to empty. LC_ALL=C
+# pins the regex character classes to ASCII so non-C locales can't
+# widen `[A-Z]` to accented uppercase.
+prompt=$(LC_ALL=C awk '
   {
     out = ""
     rest = $0
