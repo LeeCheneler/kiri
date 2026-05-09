@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { EventEmitter } from "node:events";
 import {
   type FSWatcher,
@@ -29,7 +29,13 @@ const writeBundle = (cwd: string, name: string): void => {
   chmodSync(path, 0o755);
 };
 
-const waitFor = async (predicate: () => boolean, timeoutMs = 2000): Promise<void> => {
+// fs.watch on macOS (FSEvents) has variable latency that spikes when bun
+// runs test files in parallel — 2s margins flaked at ~2020ms in the wild.
+// 10s waitFor under a 15s per-test deadline keeps the predicate-specific
+// error message ("waitFor timed out") visible without racing the harness.
+setDefaultTimeout(15000);
+
+const waitFor = async (predicate: () => boolean, timeoutMs = 10000): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error("waitFor timed out");
