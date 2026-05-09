@@ -1,3 +1,0 @@
-name: golden
-steps:
-  - sh: echo "kiri e2e golden path"
