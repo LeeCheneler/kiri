@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../.kiri/workflow.schema.json
+
+name: example
+steps:
+  - sh: echo "Lee"
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/example.tpl

@@ -45,15 +45,15 @@ kiri init
 
 This scaffolds `README.md` (DSL reference and IDE/LSP setup), a 2-step `workflows/example.yaml` paired with `prompts/example.tpl`, the `scripts/claude-code/` bundle starter (`run.sh` + `README.md`), and `.kiri/workflow.schema.json` for editor validation. Re-running is safe — existing files are never overwritten, and the schema file is also refreshed on every plain `kiri` launch so it stays in sync after a binary upgrade.
 
-### Dogfood: `kiri-self-review`
+### Dogfood: `example`
 
-Kiri ships with a self-review workflow that runs `claude` against `prompts/self-review.tpl` and writes the agent's final message to the run feed. It exercises the `claude-code` bundle end-to-end. The bundle defers tool permissions to your `~/.claude/settings.json`; the prompt itself nudges the agent toward `Read`, `Glob`, and `Grep`.
+Kiri ships with the same 2-step `example` workflow that `kiri init` scaffolds for end users — step 1 echoes a name, step 2 runs `claude` against `prompts/example.tpl` to produce a one-sentence greeting using the `{{KIRI_INPUT}}` substitution. The kiri repo runs as a consumer of its own init output, so the example workflow is the end-to-end smoke test for the `claude-code` bundle.
 
 1. `bun dev` and open the local URL.
-2. Find **kiri-self-review** in the workflow list and click **Run**.
+2. Find **example** in the workflow list and click **Run**.
 3. Refresh the feed. Click the new entry to expand it — you'll see the snapshotted bundle under *materials*, the agent's final message under the step's *output*, and full envelope traces alongside.
 
-If `claude` isn't on your `PATH` or you're not signed in, the run is marked failed and the underlying error is visible in the expanded entry.
+The bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, the run is marked failed and the underlying error is visible in the expanded entry.
 
 ### Quality gates
 

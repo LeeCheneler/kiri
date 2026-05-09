@@ -1,5 +1,0 @@
-name: kiri-self-review
-steps:
-  - use: claude-code
-    env:
-      PROMPT_FILE: prompts/self-review.tpl
