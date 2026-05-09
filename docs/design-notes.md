@@ -172,7 +172,7 @@ ccusage's parsing approach is the reference for transcript-derived numbers. Futu
 
 Static policy per step via `ALLOWED_TOOLS` in the workflow's `env:`. The `claude-code` bundle's `run.sh` synthesises a `.claude/settings.json` at spawn time and points CC at it — so the workflow YAML is the load-bearing source of permission truth, no hand-edited settings files anywhere in the user's repo. **No runtime hooks for v1.** Hooks are reserved for if/when dynamic per-call policy is wanted (token budget caps, mid-session escalation, tool-granular propose-to-approve).
 
-For workflows using broad `Bash(*)` permissions, layer macOS Seatbelt sandboxing as a kernel-level backstop. Sandbox profiles live alongside the bundle — `scripts/<name>/sandbox.sb` — and kiri's executor applies the bundle's profile to the spawned process by default.
+For workflows using broad `Bash(*)` permissions, the load-bearing defence is the static `ALLOWED_TOOLS` allowlist on the step itself, plus the user's own claude config. Kiri does not wrap steps in a kernel sandbox: bundles are user-authored scripts in the user's own repo, with the same trust posture as any shell script they'd run themselves. If a bundle-install mechanism is ever added (a marketplace, `kiri install <bundle>`, etc.), revisit — the trust boundary changes at that point.
 
 ## UI
 
@@ -273,7 +273,7 @@ Script execution is the central capability of this system, which means security 
 - **Env precedence at spawn.** User-declared `env:` is applied first; kiri- and OS-controlled vars overwrite on key collision. A workflow can't redirect `PATH` to inject a malicious binary, can't rebind `KIRI_META_FILE` to escape capture, can't shadow `KIRI_RUN_ID` to confuse run identity.
 - **Reserved namespace.** `env:` keys starting with `KIRI_` are rejected at workflow load time as a schema error. Typos and accidental collisions surface as load failures, not silent overwrites at spawn.
 - **Resource limits.** ulimits on CPU time, memory, file descriptors, and disk writes. A runaway script halts cleanly rather than degrading the system.
-- **Seatbelt sandbox** applied to all step execution by default — not just to CC's `Bash(*)` operations. The macOS sandbox restricts filesystem and network reach to what the bundle's sandbox profile declares.
+- **No kernel sandbox.** Bundles run with the user's permissions. The trust posture is "scripts you authored or pasted into your own repo, same as any shell script you'd run yourself" — sandbox-wrapping every step is cost without protection in that model. The defence here is `ALLOWED_TOOLS` on the step plus reading the bundle before you use it.
 
 ### MCP server
 
@@ -322,7 +322,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 1. **Spine** (M0). Workflow runner that executes a YAML-defined linear pipeline of script steps. Standard envelope. Traces captured. Run history persisted to SQLite via Drizzle. Feed UI renders run history; reload to refresh.
 2. **Step schema migration** (M1). Move workflow YAML from `nodes:`/`kind:` to `steps:` with `use:` (bundle reference) or `sh:` (inline shell). Add `env:` map per step with the precedence and reserved-namespace rules. Bundle resolver: `use: <name>` → `scripts/<name>/run.sh`. Re-home the existing repo's scripts into the bundle layout.
 3. **`claude-code` bundle starter** (M2). `kiri init` writes `scripts/claude-code/{run.sh, README.md}` — a working CC runner that translates `env:` keys to CC flags, synthesises `.claude/settings.json`, spawns `claude`, captures the session. No cost capture yet — that wires in alongside M6's meta channel.
-4. **Security baseline** (M3). Bind to localhost only, `X-Kiri-Client` header for state-changing endpoints, Seatbelt sandbox profile per bundle (`scripts/<name>/sandbox.sb`).
+4. **Security baseline** (M3). Bind to localhost only and require `X-Kiri-Client` header on state-changing endpoints — together they shut down cross-origin attacks from other browser tabs. No kernel sandboxing of step execution: bundles are user-authored, trusted as such.
 5. **Cron triggers** (M4). In-process tick loop, schedule field on workflows.
 6. **Todo list + gating** (M5). Dedup keys, propose vs auto, right-rail UI.
 7. **Generic step meta** (M6). `KIRI_META_FILE` channel, DB storage, UI rendering. The `claude-code` bundle gets updated to populate `cost_usd` and tokens; UI promotes conventional keys to feed-entry headers.
@@ -334,7 +334,6 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 - **Trace retention policy.** How long do verbose traces and CC transcripts stay in SQLite before pruning? Size-cap, time-cap, or both? Decision triggers the disk-blob split.
 - **Summariser model choice.** Haiku via API for speed/cost, or a CC session for consistency with the rest of the agent stack? Probably Haiku.
 - **Secret store mechanism.** Mode-600 env files in a known dir, OS keychain integration, or 1Password CLI integration? Trade-off: friction vs ergonomics.
-- **Seatbelt enforcement strategy.** Each bundle ships its own `sandbox.sb` and kiri's executor invokes `sandbox-exec` against it? Default-deny baseline that bundles relax? Generated from a declared filesystem/network needs file? Worth prototyping early — this is the load-bearing defence beyond per-step env scoping.
 
 ## Prior art (reference, not imitation)
 

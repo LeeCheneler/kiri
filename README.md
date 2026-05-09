@@ -34,6 +34,12 @@ Then open **https://local.kiri.build** in your browser. The hosted shell at that
 
 The bundled `example` workflow is a 2-step pipeline that calls Claude Code. Click **Run** in the UI, then refresh the feed to see the result. You'll need the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your `$PATH`, signed in.
 
+## Trust model
+
+Kiri runs scripts with **your user's permissions**. Bundles under `scripts/<name>/run.sh` and inline `sh:` steps in your workflow YAML are shell scripts you wrote (or pasted into your own repo) — kiri does not sandbox them. Treat them like any shell script you'd run yourself: read it before you use it.
+
+The defences kiri *does* provide are external: the HTTP API binds to `127.0.0.1` only and requires a custom `X-Kiri-Client` header on state-changing requests, so other browser tabs and arbitrary LAN clients can't trigger workflow runs.
+
 ## Learn more
 
 - [`docs/design-notes.md`](./docs/design-notes.md) — architecture, workflows, script bundles, MCP, todos.

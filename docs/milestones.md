@@ -94,21 +94,20 @@ Work items:
 
 ## M3 — Security baseline
 
-**Strategy.** This is a personal CLI tool: it runs while invoked, lives on `localhost`, and is gone when stopped. Two threats are real and worth defending against; the rest of the production-grade story (persistent auth, audit logs, HTTPS, secret stores, ulimits) is overkill for a single-user ephemeral process and explicitly out of scope.
+**Strategy.** This is a personal CLI tool: it runs while invoked, lives on `localhost`, and is gone when stopped. The threat worth defending against is *external* — other tabs in the same browser issuing cross-origin requests to kiri's `localhost` API. The rest of the production-grade story (persistent auth, audit logs, HTTPS, secret stores, ulimits, kernel sandboxing of step execution) is overkill for a single-user ephemeral process and explicitly out of scope.
 
-The two threats:
+The threat:
 
 - **CSRF from other browser tabs.** Any site you visit can issue cross-origin requests to `localhost`. State-changing side effects happen even if the response is blocked. Kiri spawns scripts — that makes it an RCE vector if undefended.
-- **Bundle escape.** Bundles with broad bash permissions (or just buggy scripts) can touch parts of the filesystem they shouldn't.
+
+Bundle escape (a script reaching outside its declared filesystem or network scope) is *not* defended against at this layer. Bundles are scripts the user wrote into their own repo: the trust boundary is the same as any shell script they'd run on their machine. Treat `scripts/<name>/run.sh` like any other shell script — read it before you use it. Revisit if kiri ever grows a way to install bundles from elsewhere; until then, kernel sandboxing is cost without commensurate protection.
 
 Work items:
 
 - Bind HTTP listener to `127.0.0.1` only; assert at startup, refuse to bind elsewhere.
 - Require `X-Kiri-Client` header on every state-changing endpoint — custom headers force a CORS preflight that cross-origin attackers can't satisfy.
-- Per-bundle Seatbelt sandbox profile at `scripts/<name>/sandbox.sb`. Kiri's executor invokes `sandbox-exec` against the bundle's profile by default for `use:` steps; inline `sh:` steps get a baseline profile (no bundle to attach one to).
-- Sensible default profile shipped with the `claude-code` starter: read-only filesystem outside per-run scratch, network limited to claude API hosts.
 
-**Done when:** visiting a malicious page in another tab cannot trigger a workflow run; bundles with broad bash permissions can't reach outside their declared filesystem or network scope.
+**Done when:** visiting a malicious page in another tab cannot trigger a workflow run.
 
 ## M4 — Cron
 
@@ -180,6 +179,7 @@ Security (deliberately not built — single-user ephemeral local tool):
 - Audit logs
 - HTTPS / custom subdomain (`localhost` over HTTP is fine)
 - `ulimits` and resource caps on script execution
+- Kernel sandboxing of step execution (e.g. macOS Seatbelt). Revisit if a bundle-install mechanism ever lands; until then bundles are user-authored and trusted as such.
 - Secret store mechanism (use env vars; revisit if it becomes painful)
 - Output secret-pattern scrubbing
 - UI sanitisation beyond plain-text rendering
