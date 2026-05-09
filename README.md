@@ -111,5 +111,5 @@ In the Cloudflare dashboard:
 
 In the GitHub repo settings (Settings → Secrets and variables → Actions):
 
-- `CLOUDFLARE_API_TOKEN` — a Pages-scoped API token (Cloudflare dashboard → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template, narrowed to the Pages project).
-- `CLOUDFLARE_ACCOUNT_ID` — the account ID visible on the Cloudflare dashboard sidebar.
+- **Secret** `CLOUDFLARE_API_TOKEN` — a Pages-scoped API token (Cloudflare dashboard → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template, narrowed to the Pages project).
+- **Variable** `CLOUDFLARE_ACCOUNT_ID` — the account ID visible on the Cloudflare dashboard sidebar. Stored as a repository *variable* (not a secret); it's an identifier, not a credential.
