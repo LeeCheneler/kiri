@@ -24,16 +24,16 @@ bun install    # installs project deps; also runs lefthook install via prepare
 bun dev
 ```
 
-Runs Vite (UI, HMR) and Hono (API) concurrently. Visit **http://localhost:5173** — Vite proxies `/api/*` to Hono on `:3000`, so you get a single browser origin, hot reload, and live API calls. Edit anything under `src/client/` and the browser updates without a full reload.
+Runs Vite (UI, HMR) and Hono (API) concurrently. Visit **http://localhost:5173** — Vite proxies `/api/*` to Hono on `:4242`, so you get a single browser origin, hot reload, and live API calls. Edit anything under `src/client/` and the browser updates without a full reload.
 
 ### Production build
 
 ```sh
 bun build      # builds the SPA into dist/client
-bun start      # runs Hono; serves the built SPA + API at :3000
+bun start      # runs Hono; serves the built SPA + API at :4242
 ```
 
-In prod, visit **http://localhost:3000** — Hono serves both the SPA and `/api/*` from a single origin.
+In prod, visit **http://localhost:4242** — Hono serves both the SPA and `/api/*` from a single origin.
 
 ### Bootstrap a workflow repo
 

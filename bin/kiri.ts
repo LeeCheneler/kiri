@@ -79,7 +79,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 const app = createApp({ db, registry, cwd });
-const server = Bun.serve({ port: 3000, fetch: app.fetch });
+const server = Bun.serve({ port: 4242, fetch: app.fetch });
 console.log(`kiri listening on http://localhost:${server.port}`);
 
 const shutdown = () => {
