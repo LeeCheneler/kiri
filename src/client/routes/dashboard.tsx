@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type RunListEntry, fetchRuns } from "../api.ts";
 import { ActivityFeed } from "../components/activity-feed.tsx";
+import { useLiveSync } from "../events/live.tsx";
 
 type State =
   | { status: "loading" }
@@ -10,24 +11,35 @@ type State =
 /**
  * Dashboard route. Renders an editorial section header above the
  * activity feed; owns only the loading and error states and delegates
- * the populated/empty rendering to `<ActivityFeed>`.
+ * the populated/empty rendering to `<ActivityFeed>`. Refetches whenever
+ * a run lifecycle event fires so the feed stays live without reload.
  */
 export function Dashboard() {
   const [state, setState] = useState<State>({ status: "loading" });
+  const tokenRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
+  const refetch = useCallback(() => {
+    const token = ++tokenRef.current;
     fetchRuns()
       .then((runs) => {
-        if (!cancelled) setState({ status: "ready", runs });
+        if (tokenRef.current !== token) return;
+        setState({ status: "ready", runs });
       })
       .catch((err: Error) => {
-        if (!cancelled) setState({ status: "error", message: err.message });
+        if (tokenRef.current !== token) return;
+        setState({ status: "error", message: err.message });
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    refetch();
+    return () => {
+      // Bump the token so any in-flight fetch's resolution is ignored.
+      tokenRef.current++;
+    };
+  }, [refetch]);
+
+  useLiveSync({ on: ["run.started", "run.updated", "run.finished"], refetch });
 
   return (
     <section>

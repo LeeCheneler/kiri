@@ -1,21 +1,26 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
+import { LiveEventsProvider } from "../events/live.tsx";
 import { WorkflowPage } from "./workflow-page.tsx";
 
 afterEach(() => cleanup());
 
 const renderWorkflow = (name: string, initialPath = `/workflows/${name}`) => {
   const memory = memoryLocation({ path: initialPath, record: true });
+  const { factory, sources } = captureEventSources();
   const ui = render(
     <Router hook={memory.hook}>
-      <WorkflowPage params={{ name }} />
+      <LiveEventsProvider factory={factory}>
+        <WorkflowPage params={{ name }} />
+      </LiveEventsProvider>
     </Router>,
   );
-  return { ...ui, history: memory.history };
+  return { ...ui, history: memory.history, sources };
 };
 
 describe("<WorkflowPage>", () => {
@@ -82,5 +87,65 @@ describe("<WorkflowPage>", () => {
     await waitFor(() => {
       expect(history[history.length - 1]).toBe("/runs/run-kiri-self-review-fresh");
     });
+  });
+
+  it("refetches when the matching workflow is updated", async () => {
+    let calls = 0;
+    server.use(
+      http.get("*/api/workflows", () => {
+        calls++;
+        return HttpResponse.json([{ name: "alpha", steps: [{ sh: `echo v${calls}` }] }]);
+      }),
+    );
+
+    const { sources } = renderWorkflow("alpha");
+    await screen.findByText(/sh: echo v1/);
+
+    act(() => {
+      sources[0]?.emit({ type: "workflow.updated", name: "alpha" });
+    });
+
+    await screen.findByText(/sh: echo v2/);
+  });
+
+  it("ignores workflow events for other names", async () => {
+    let calls = 0;
+    server.use(
+      http.get("*/api/workflows", () => {
+        calls++;
+        return HttpResponse.json([{ name: "alpha", steps: [{ sh: `echo v${calls}` }] }]);
+      }),
+    );
+
+    const { sources } = renderWorkflow("alpha");
+    await screen.findByText(/sh: echo v1/);
+
+    act(() => {
+      sources[0]?.emit({ type: "workflow.updated", name: "beta" });
+      sources[0]?.emit({ type: "workflow.removed", name: "beta" });
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.getByText(/sh: echo v1/)).toBeDefined();
+    expect(calls).toBe(1);
+  });
+
+  it("transitions to not-found when the matching workflow is removed", async () => {
+    let calls = 0;
+    server.use(
+      http.get("*/api/workflows", () => {
+        calls++;
+        return HttpResponse.json(calls === 1 ? [{ name: "alpha", steps: [{ sh: "echo a" }] }] : []);
+      }),
+    );
+
+    const { sources } = renderWorkflow("alpha");
+    await screen.findByRole("heading", { level: 2, name: /alpha/i });
+
+    act(() => {
+      sources[0]?.emit({ type: "workflow.removed", name: "alpha" });
+    });
+
+    await screen.findByRole("heading", { name: /workflow not found/i });
   });
 });

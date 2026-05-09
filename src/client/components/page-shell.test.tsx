@@ -1,21 +1,27 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
+import { LiveEventsProvider } from "../events/live.tsx";
 import { PageShell } from "./page-shell.tsx";
 
 afterEach(() => cleanup());
 
 const renderShell = (children: ReactNode, path = "/") => {
   const { hook } = memoryLocation({ path });
-  return render(
+  const { factory, sources } = captureEventSources();
+  const ui = render(
     <Router hook={hook}>
-      <PageShell>{children}</PageShell>
+      <LiveEventsProvider factory={factory}>
+        <PageShell>{children}</PageShell>
+      </LiveEventsProvider>
     </Router>,
   );
+  return { ...ui, sources };
 };
 
 describe("<PageShell>", () => {
@@ -103,5 +109,27 @@ describe("<PageShell>", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.queryByRole("navigation", { name: /workflows/i })).toBeNull();
     expect(screen.queryByText(/no workflows yet/i)).toBeNull();
+  });
+
+  it("refetches the workflows list when a workflow event fires", async () => {
+    let calls = 0;
+    server.use(
+      http.get("*/api/workflows", () => {
+        calls++;
+        return HttpResponse.json(
+          calls === 1 ? [{ name: "alpha", steps: [] }] : [{ name: "beta", steps: [] }],
+        );
+      }),
+    );
+
+    const { sources } = renderShell(<p>x</p>);
+    await screen.findByRole("link", { name: /alpha/i });
+
+    act(() => {
+      sources[0]?.emit({ type: "workflow.added", name: "beta" });
+    });
+
+    await screen.findByRole("link", { name: /beta/i });
+    expect(screen.queryByRole("link", { name: /alpha/i })).toBeNull();
   });
 });

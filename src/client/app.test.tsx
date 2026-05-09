@@ -2,15 +2,17 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { captureEventSources } from "../../tests/setup/fake-event-source.ts";
 import { App } from "./app.tsx";
 
 afterEach(() => cleanup());
 
 const renderAt = (path: string) => {
   const { hook } = memoryLocation({ path });
+  const { factory } = captureEventSources();
   return render(
     <Router hook={hook}>
-      <App />
+      <App liveEventsFactory={factory} />
     </Router>,
   );
 };

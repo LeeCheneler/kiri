@@ -1,6 +1,7 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows } from "../api.ts";
+import { useLiveSync } from "../events/live.tsx";
 import { WorkflowsNav } from "./workflows-nav.tsx";
 
 const WORKFLOW_PATH_PREFIX = "/workflows/";
@@ -30,22 +31,33 @@ const activeWorkflowName = (location: string): string | null => {
 export function PageShell({ children }: { children: ReactNode }) {
   const [workflows, setWorkflows] = useState<WorkflowSummary[] | null>(null);
   const [location] = useLocation();
+  const tokenRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
+  const refetch = useCallback(() => {
+    const token = ++tokenRef.current;
     fetchWorkflows()
       .then((all) => {
-        if (!cancelled) setWorkflows(all);
+        if (tokenRef.current !== token) return;
+        setWorkflows(all);
       })
       .catch(() => {
         // Side-nav is non-essential chrome; the dashboard and workflow
         // page surface fetch errors prominently. Hide the nav on failure
         // rather than show a misleading empty state.
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    refetch();
+    return () => {
+      tokenRef.current++;
+    };
+  }, [refetch]);
+
+  useLiveSync({
+    on: ["workflow.added", "workflow.updated", "workflow.removed"],
+    refetch,
+  });
 
   const activeName = activeWorkflowName(location);
 

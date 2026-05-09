@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows, triggerRun } from "../api.ts";
 import { WorkflowDetailView } from "../components/workflow-detail.tsx";
+import { useLiveSync } from "../events/live.tsx";
 
 type State =
   | { status: "loading" }
@@ -13,18 +14,20 @@ type State =
  * Workflow detail route. Loads the workflow registry, finds the entry by
  * name, and renders one of: loading, not-found, error, or the editorial
  * detail view. Owns the trigger handler — it POSTs the run, awaits the
- * terminal status, then navigates to `/runs/:id` on success.
+ * terminal status, then navigates to `/runs/:id` on success. Refetches
+ * the registry when the matching workflow's YAML changes or is removed
+ * so edits and deletions reflect without reload.
  */
 export function WorkflowPage({ params }: { params: { name: string } }) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [, navigate] = useLocation();
+  const tokenRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
+  const refetch = useCallback(() => {
+    const token = ++tokenRef.current;
     fetchWorkflows()
       .then((all) => {
-        if (cancelled) return;
+        if (tokenRef.current !== token) return;
         const workflow = all.find((w) => w.name === params.name);
         if (!workflow) {
           setState({ status: "not-found" });
@@ -33,12 +36,24 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
         }
       })
       .catch((err: Error) => {
-        if (!cancelled) setState({ status: "error", message: err.message });
+        if (tokenRef.current !== token) return;
+        setState({ status: "error", message: err.message });
       });
-    return () => {
-      cancelled = true;
-    };
   }, [params.name]);
+
+  useEffect(() => {
+    setState({ status: "loading" });
+    refetch();
+    return () => {
+      tokenRef.current++;
+    };
+  }, [refetch]);
+
+  useLiveSync({
+    on: ["workflow.updated", "workflow.removed"],
+    filter: (event) => event.name === params.name,
+    refetch,
+  });
 
   const handleTrigger = async (name: string) => {
     const result = await triggerRun(name);

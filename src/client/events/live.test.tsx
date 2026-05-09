@@ -1,65 +1,10 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
 import { useState } from "react";
-import {
-  type EventSourceFactory,
-  type EventSourceLike,
-  type KiriEvent,
-  LiveEventsProvider,
-  useLiveSync,
-} from "./live.tsx";
+import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
+import { type KiriEvent, LiveEventsProvider, useLiveSync } from "./live.tsx";
 
 afterEach(() => cleanup());
-
-class FakeEventSource implements EventSourceLike {
-  closed = false;
-  onopen: (() => void) | null = null;
-  onerror: (() => void) | null = null;
-  readonly url: string;
-  private readonly listeners = new Map<string, Set<(event: MessageEvent) => void>>();
-
-  constructor(url: string) {
-    this.url = url;
-  }
-
-  addEventListener(type: string, handler: (event: MessageEvent) => void): void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
-    set.add(handler);
-  }
-
-  removeEventListener(type: string, handler: (event: MessageEvent) => void): void {
-    this.listeners.get(type)?.delete(handler);
-  }
-
-  close(): void {
-    this.closed = true;
-  }
-
-  triggerOpen(): void {
-    this.onopen?.();
-  }
-
-  emit(event: KiriEvent): void {
-    const listeners = this.listeners.get(event.type);
-    if (!listeners) return;
-    const message = { data: JSON.stringify(event) } as unknown as MessageEvent;
-    for (const handler of listeners) handler(message);
-  }
-}
-
-const captureFactory = () => {
-  const sources: FakeEventSource[] = [];
-  const factory: EventSourceFactory = (url) => {
-    const source = new FakeEventSource(url);
-    sources.push(source);
-    return source;
-  };
-  return { factory, sources };
-};
 
 const Probe = ({
   on,
@@ -77,7 +22,7 @@ const Probe = ({
 
 describe("LiveEventsProvider", () => {
   it("opens an EventSource at /api/events on mount", () => {
-    const { factory, sources } = captureFactory();
+    const { factory, sources } = captureEventSources();
     render(
       <LiveEventsProvider factory={factory}>
         <p>x</p>
@@ -88,7 +33,7 @@ describe("LiveEventsProvider", () => {
   });
 
   it("closes the EventSource on unmount", () => {
-    const { factory, sources } = captureFactory();
+    const { factory, sources } = captureEventSources();
     const ui = render(
       <LiveEventsProvider factory={factory}>
         <p>x</p>
@@ -127,7 +72,7 @@ describe("LiveEventsProvider", () => {
 
 describe("useLiveSync", () => {
   it("calls refetch when a subscribed event type fires", () => {
-    const { factory, sources } = captureFactory();
+    const { factory, sources } = captureEventSources();
     const refetch = mock(() => {});
     render(
       <LiveEventsProvider factory={factory}>
@@ -143,7 +88,7 @@ describe("useLiveSync", () => {
   });
 
   it("ignores event types the subscriber didn't ask for", () => {
-    const { factory, sources } = captureFactory();
+    const { factory, sources } = captureEventSources();
     const refetch = mock(() => {});
     render(
       <LiveEventsProvider factory={factory}>
@@ -159,7 +104,7 @@ describe("useLiveSync", () => {
   });
 
   it("narrows by filter when one is provided", () => {
-    const { factory, sources } = captureFactory();
+    const { factory, sources } = captureEventSources();
     const refetch = mock(() => {});
     render(
       <LiveEventsProvider factory={factory}>
@@ -183,7 +128,7 @@ describe("useLiveSync", () => {
   });
 
   it("fires every subscriber's refetch on reconnect (open after first)", () => {
-    const { factory, sources } = captureFactory();
+    const { factory, sources } = captureEventSources();
     const a = mock(() => {});
     const b = mock(() => {});
     render(
@@ -207,7 +152,7 @@ describe("useLiveSync", () => {
   });
 
   it("uses the latest refetch and filter without re-subscribing", () => {
-    const { factory, sources } = captureFactory();
+    const { factory, sources } = captureEventSources();
     const a = mock(() => {});
     const b = mock(() => {});
 
@@ -254,7 +199,7 @@ describe("useLiveSync", () => {
   });
 
   it("removes the subscriber when its component unmounts", () => {
-    const { factory, sources } = captureFactory();
+    const { factory, sources } = captureEventSources();
     const refetch = mock(() => {});
 
     const ui = render(

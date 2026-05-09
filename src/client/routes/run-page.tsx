@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ApiError, type RunDetail, fetchRun } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
+import { useLiveSync } from "../events/live.tsx";
 
 type State =
   | { status: "loading" }
@@ -13,30 +14,44 @@ type State =
  * Run detail route. Fetches the run by id and renders one of: loading,
  * not-found (404 from the API), generic error, or the editorial run
  * detail view. Owns only the fetch states; the populated case delegates
- * to `<RunDetailView>`.
+ * to `<RunDetailView>`. Refetches whenever a run/step event for the
+ * matching id fires so step transitions surface live without reload.
  */
 export function RunPage({ params }: { params: { id: string } }) {
   const [state, setState] = useState<State>({ status: "loading" });
+  const tokenRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
+  const refetch = useCallback(() => {
+    const token = ++tokenRef.current;
     fetchRun(params.id)
       .then((detail) => {
-        if (!cancelled) setState({ status: "ready", detail });
+        if (tokenRef.current !== token) return;
+        setState({ status: "ready", detail });
       })
       .catch((err: Error) => {
-        if (cancelled) return;
+        if (tokenRef.current !== token) return;
         if (err instanceof ApiError && err.status === 404) {
           setState({ status: "not-found" });
         } else {
           setState({ status: "error", message: err.message });
         }
       });
-    return () => {
-      cancelled = true;
-    };
   }, [params.id]);
+
+  useEffect(() => {
+    setState({ status: "loading" });
+    refetch();
+    return () => {
+      tokenRef.current++;
+    };
+  }, [refetch]);
+
+  useLiveSync({
+    on: ["run.updated", "run.step.updated", "run.finished"],
+    filter: (event) =>
+      event.type === "run.step.updated" ? event.runId === params.id : event.id === params.id,
+    refetch,
+  });
 
   if (state.status === "loading") {
     return <p className="font-display text-base text-ink-muted italic">Loading run…</p>;
