@@ -51,7 +51,7 @@ describe("<WorkflowPage>", () => {
 
     expect(await screen.findByRole("heading", { name: /workflow not found/i })).toBeDefined();
     expect(screen.getByText("missing")).toBeDefined();
-    expect(screen.getByRole("link", { name: /dashboard/i }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: /all activity/i }).getAttribute("href")).toBe("/");
   });
 
   it("renders a generic error view when the registry fetch fails", async () => {

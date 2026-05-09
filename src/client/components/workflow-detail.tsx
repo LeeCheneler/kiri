@@ -42,7 +42,7 @@ export function WorkflowDetailView({
         href="/"
         className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
       >
-        ← dashboard
+        ← all activity
       </Link>
 
       <header className="relative mt-6 pl-6">

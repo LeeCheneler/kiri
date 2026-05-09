@@ -32,9 +32,9 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.getByRole("heading", { level: 2, name: /pr-review/i })).toBeDefined();
     });
 
-    it("renders the back link to the dashboard", () => {
+    it("renders the back link to the activity feed", () => {
       renderDetail(stubWorkflow());
-      const link = screen.getByRole("link", { name: /dashboard/i });
+      const link = screen.getByRole("link", { name: /all activity/i });
       expect(link.getAttribute("href")).toBe("/");
     });
 

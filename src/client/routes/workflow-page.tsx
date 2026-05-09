@@ -56,7 +56,7 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
           href="/"
           className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
         >
-          ← dashboard
+          ← all activity
         </Link>
         <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Workflow not found</h2>
         <p className="mt-3 font-mono text-sm text-ink-muted">
