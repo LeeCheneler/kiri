@@ -21,6 +21,17 @@ export interface RunWorkflowResult {
   status: "ok" | "failed";
 }
 
+/**
+ * Handle on a started run. `runId` is generated and the `runs` row is
+ * inserted synchronously, so it can be returned to API callers right away;
+ * `done` resolves once the workflow has reached a terminal status (or
+ * rejects with the same throw that `runWorkflow` used to surface).
+ */
+export interface StartedRun {
+  runId: string;
+  done: Promise<RunWorkflowResult>;
+}
+
 /** Persisted on the `runs` row. Shallow-cloned so the in-memory registry entry can mutate without affecting historical rows. */
 interface DefinitionSnapshot {
   name: string;
@@ -105,7 +116,12 @@ const buildEnv = (
 };
 
 /**
- * Execute a workflow definition's linear step list.
+ * Start a workflow run.
+ *
+ * The `runs` row and `runId` are created synchronously so API callers can
+ * navigate to the run detail page immediately and watch live events.
+ * Step execution and finalisation continue in the background; await `done`
+ * when the caller needs the terminal status (e.g. cron, tests).
  *
  * Lifecycle, in order: insert `runs` with the definition snapshot →
  * create the per-run scratch dir → for each step, capture materials and
@@ -115,13 +131,15 @@ const buildEnv = (
  *
  * Snapshot rows always reflect the bytes that ran, even if the bundle
  * file is later edited or deleted. Halt-on-failure: a failed step leaves
- * later steps uncreated, and the run is marked failed.
+ * later steps uncreated, and the run is marked failed. `done` rejects if
+ * any non-envelope surface (mkdir, drizzle) throws — the `runs` row is
+ * still finalised to "failed" before the rejection.
  */
-export async function runWorkflow(
+export function runWorkflow(
   db: KiriDb,
   definition: WorkflowDefinition,
   args: RunWorkflowArgs,
-): Promise<RunWorkflowResult> {
+): StartedRun {
   const runId = crypto.randomUUID();
   const scratchDir = join(args.cwd, ".kiri", "runs", runId);
 
@@ -138,96 +156,100 @@ export async function runWorkflow(
 
   args.bus?.publish({ type: "run.started", id: runId });
 
-  let status: "ok" | "failed" = "ok";
-  let runError: { message: string; stack?: string } | undefined;
-  let caughtThrow: unknown;
+  const done = (async (): Promise<RunWorkflowResult> => {
+    let status: "ok" | "failed" = "ok";
+    let runError: { message: string; stack?: string } | undefined;
+    let caughtThrow: unknown;
 
-  try {
-    mkdirSync(scratchDir, { recursive: true });
-    let input = "";
-    for (let i = 0; i < definition.steps.length; i++) {
-      const step = definition.steps[i];
-      const materials = captureMaterials(step, args.cwd);
+    try {
+      mkdirSync(scratchDir, { recursive: true });
+      let input = "";
+      for (let i = 0; i < definition.steps.length; i++) {
+        const step = definition.steps[i];
+        const materials = captureMaterials(step, args.cwd);
 
-      const stepId = crypto.randomUUID();
-      db.insert(runSteps)
-        .values({
-          id: stepId,
+        const stepId = crypto.randomUUID();
+        db.insert(runSteps)
+          .values({
+            id: stepId,
+            runId,
+            index: i,
+            kind: isUseStep(step) ? "use" : "sh",
+            status: "running",
+            materials,
+          })
+          .run();
+
+        args.bus?.publish({ type: "run.step.updated", runId, step: i, status: "running" });
+
+        const envelope = await runStep({
+          step,
+          cwd: args.cwd,
+          scratchDir,
+          input,
+          env: buildEnv(step, runId, i, args.cwd, scratchDir),
+        });
+
+        db.update(runSteps)
+          .set({
+            status: envelope.status,
+            output: envelope.output,
+            error: envelope.error ?? null,
+            traces: envelope.traces,
+          })
+          .where(eq(runSteps.id, stepId))
+          .run();
+
+        args.bus?.publish({
+          type: "run.step.updated",
           runId,
-          index: i,
-          kind: isUseStep(step) ? "use" : "sh",
-          status: "running",
-          materials,
-        })
-        .run();
-
-      args.bus?.publish({ type: "run.step.updated", runId, step: i, status: "running" });
-
-      const envelope = await runStep({
-        step,
-        cwd: args.cwd,
-        scratchDir,
-        input,
-        env: buildEnv(step, runId, i, args.cwd, scratchDir),
-      });
-
-      db.update(runSteps)
-        .set({
+          step: i,
           status: envelope.status,
-          output: envelope.output,
-          error: envelope.error ?? null,
-          traces: envelope.traces,
-        })
-        .where(eq(runSteps.id, stepId))
-        .run();
+        });
 
-      args.bus?.publish({
-        type: "run.step.updated",
-        runId,
-        step: i,
-        status: envelope.status,
-      });
-
-      if (envelope.status === "failed") {
-        status = "failed";
-        // runStep always populates error on a failed envelope.
-        runError = envelope.error;
-        break;
+        if (envelope.status === "failed") {
+          status = "failed";
+          // runStep always populates error on a failed envelope.
+          runError = envelope.error;
+          break;
+        }
+        input = envelope.output;
       }
-      input = envelope.output;
+    } catch (cause) {
+      // mkdirSync, drizzle, or any future surface that throws lands here.
+      // Finalize state below before re-throwing so the runs row is never
+      // stranded in "running".
+      caughtThrow = cause;
+      status = "failed";
+      runError =
+        cause instanceof Error
+          ? { message: cause.message, stack: cause.stack }
+          : { message: String(cause) };
     }
-  } catch (cause) {
-    // mkdirSync, drizzle, or any future surface that throws lands here.
-    // Finalize state below before re-throwing so the runs row is never
-    // stranded in "running".
-    caughtThrow = cause;
-    status = "failed";
-    runError =
-      cause instanceof Error
-        ? { message: cause.message, stack: cause.stack }
-        : { message: String(cause) };
-  }
 
-  db.update(runs)
-    .set({ status, finishedAt: new Date(), error: runError ?? null })
-    .where(eq(runs.id, runId))
-    .run();
+    db.update(runs)
+      .set({ status, finishedAt: new Date(), error: runError ?? null })
+      .where(eq(runs.id, runId))
+      .run();
 
-  // run.updated paired with run.finished so consumers that only watch
-  // status transitions still see the terminal flip; run.finished carries
-  // workflowName so completion toasts can render without a refetch.
-  // Published before scratch-dir teardown so a teardown error can't
-  // suppress the lifecycle events that downstream views depend on.
-  args.bus?.publish({ type: "run.updated", id: runId, status });
-  args.bus?.publish({
-    type: "run.finished",
-    id: runId,
-    status,
-    workflowName: definition.name,
-  });
+    // run.updated paired with run.finished so consumers that only watch
+    // status transitions still see the terminal flip; run.finished carries
+    // workflowName so completion toasts can render without a refetch.
+    // Published before scratch-dir teardown so a teardown error can't
+    // suppress the lifecycle events that downstream views depend on.
+    args.bus?.publish({ type: "run.updated", id: runId, status });
+    args.bus?.publish({
+      type: "run.finished",
+      id: runId,
+      status,
+      workflowName: definition.name,
+    });
 
-  rmSync(scratchDir, { recursive: true, force: true });
+    rmSync(scratchDir, { recursive: true, force: true });
 
-  if (caughtThrow !== undefined) throw caughtThrow;
-  return { runId, status };
+    if (caughtThrow !== undefined) throw caughtThrow;
+    return { runId, status };
+  })();
+
+  return { runId, done };
 }

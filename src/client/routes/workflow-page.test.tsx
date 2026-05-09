@@ -70,13 +70,16 @@ describe("<WorkflowPage>", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/failed to load workflow/i);
   });
 
-  it("triggers a run and navigates to the run detail on success", async () => {
+  it("triggers a run and navigates to the run detail immediately on accept", async () => {
     server.use(
       http.get("*/api/workflows", () =>
         HttpResponse.json([{ name: "kiri-self-review", steps: [{ sh: "echo ok" }] }]),
       ),
       http.post("*/api/workflows/:name/runs", ({ params }) =>
-        HttpResponse.json({ runId: `run-${String(params.name)}-fresh`, status: "ok" }),
+        HttpResponse.json(
+          { runId: `run-${String(params.name)}-fresh`, status: "running" },
+          { status: 202 },
+        ),
       ),
     );
 

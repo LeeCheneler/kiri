@@ -25,11 +25,11 @@ describe("api client", () => {
     expect(detail.steps).toEqual([]);
   });
 
-  it("triggers a manual run and returns the terminal status", async () => {
+  it("triggers a manual run and returns the runId with running status", async () => {
     const result = await triggerRun("kiri-self-review");
 
     expect(result.runId).toBe("run-kiri-self-review");
-    expect(result.status).toBe("ok");
+    expect(result.status).toBe("running");
   });
 
   it("falls back to status text when the error body is not JSON", async () => {

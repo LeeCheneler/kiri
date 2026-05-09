@@ -35,6 +35,29 @@ describe("createApp", () => {
     return path;
   };
 
+  // The trigger endpoint returns 202 the moment the run row is inserted —
+  // execution continues in the background. Tests that assert on terminal
+  // state need a way to wait for the run to actually finish; an event-bus
+  // subscriber set up before triggering is the most reliable signal.
+  const setupRunWaiter = () => {
+    const bus = createEventBus();
+    const finished = new Set<string>();
+    const pending = new Map<string, () => void>();
+    bus.subscribe((e) => {
+      if (e.type !== "run.finished") return;
+      finished.add(e.id);
+      pending.get(e.id)?.();
+      pending.delete(e.id);
+    });
+    const waitForFinished = (runId: string): Promise<void> => {
+      if (finished.has(runId)) return Promise.resolve();
+      return new Promise((resolve) => {
+        pending.set(runId, resolve);
+      });
+    };
+    return { bus, waitForFinished };
+  };
+
   describe("GET /api/health", () => {
     it("returns ok", async () => {
       const app = createApp({ db, registry, cwd });
@@ -88,7 +111,7 @@ describe("createApp", () => {
       expect(await res.json()).toEqual({ error: 'workflow "nope" not found' });
     });
 
-    it("triggers a run and returns runId + status", async () => {
+    it("returns 202 with runId and running status the moment a run starts", async () => {
       writeBundle("hi", "#!/bin/sh\necho hello\n");
       const wf: WorkflowDefinition = {
         name: "greeter",
@@ -96,20 +119,63 @@ describe("createApp", () => {
       };
       registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db, registry, cwd });
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
       const res = await app.request("/api/workflows/greeter/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(202);
       const body = (await res.json()) as { runId: string; status: string };
-      expect(body.status).toBe("ok");
+      expect(body.status).toBe("running");
       expect(body.runId).toMatch(/[0-9a-f-]{36}/);
 
-      const run = db.select().from(runs).where(eq(runs.id, body.runId)).get();
-      expect(run?.workflowName).toBe("greeter");
-      expect(run?.trigger).toBe("manual");
-      expect(run?.status).toBe("ok");
+      // Run row exists immediately, still in `running` state.
+      const initial = db.select().from(runs).where(eq(runs.id, body.runId)).get();
+      expect(initial?.workflowName).toBe("greeter");
+      expect(initial?.trigger).toBe("manual");
+      expect(initial?.status).toBe("running");
+      expect(initial?.finishedAt).toBeNull();
+
+      await waitForFinished(body.runId);
+
+      const finished = db.select().from(runs).where(eq(runs.id, body.runId)).get();
+      expect(finished?.status).toBe("ok");
+      expect(finished?.finishedAt).toBeInstanceOf(Date);
+    });
+
+    it("logs and absorbs rejections from the background runner so they never go unhandled", async () => {
+      writeBundle("hi", "#!/bin/sh\necho hello\n");
+      const wf: WorkflowDefinition = { name: "throwy", steps: [{ use: "hi" }] };
+      registry.replace(new Map([[wf.name, wf]]));
+      // Pre-create .kiri/runs as a *file* so the runner's mkdirSync(.../runs/<id>)
+      // throws ENOTDIR — exercises the route's `done.catch` so the rejection is
+      // logged rather than left unhandled.
+      writeFileSync(join(cwd, ".kiri", "runs"), "blocker");
+
+      const errors: unknown[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => {
+        errors.push(args.join(" "));
+      };
+
+      try {
+        const { bus, waitForFinished } = setupRunWaiter();
+        const app = createApp({ db, registry, cwd, bus });
+        const res = await app.request("/api/workflows/throwy/runs", {
+          method: "POST",
+          headers: CLIENT_HEADERS,
+        });
+        expect(res.status).toBe(202);
+        const { runId } = (await res.json()) as { runId: string };
+        await waitForFinished(runId);
+        // Microtask flush so the .catch handler attached to `done` runs.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(errors.some((line) => String(line).includes("crashed"))).toBe(true);
     });
 
     it("forwards the bus into the runner so triggered runs publish lifecycle events", async () => {
@@ -122,7 +188,12 @@ describe("createApp", () => {
 
       const bus = createEventBus();
       const seen: KiriEvent[] = [];
-      bus.subscribe((e) => seen.push(e));
+      const finished = new Promise<void>((resolve) => {
+        bus.subscribe((e) => {
+          seen.push(e);
+          if (e.type === "run.finished") resolve();
+        });
+      });
 
       const app = createApp({ db, registry, cwd, bus });
       const res = await app.request("/api/workflows/greeter/runs", {
@@ -130,6 +201,7 @@ describe("createApp", () => {
         headers: CLIENT_HEADERS,
       });
       const body = (await res.json()) as { runId: string };
+      await finished;
 
       expect(seen).toContainEqual({ type: "run.started", id: body.runId });
       expect(seen).toContainEqual({
@@ -142,12 +214,17 @@ describe("createApp", () => {
   });
 
   describe("GET /api/runs", () => {
-    const triggerRun = async (app: ReturnType<typeof createApp>, name: string) => {
+    const triggerAndAwait = async (
+      app: ReturnType<typeof createApp>,
+      name: string,
+      waitForFinished: (runId: string) => Promise<void>,
+    ) => {
       const res = await app.request(`/api/workflows/${name}/runs`, {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
       const { runId } = (await res.json()) as { runId: string };
+      await waitForFinished(runId);
       return runId;
     };
 
@@ -169,9 +246,10 @@ describe("createApp", () => {
         ]),
       );
 
-      const app = createApp({ db, registry, cwd });
-      const firstId = await triggerRun(app, "alpha");
-      const secondId = await triggerRun(app, "beta");
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
+      const firstId = await triggerAndAwait(app, "alpha", waitForFinished);
+      const secondId = await triggerAndAwait(app, "beta", waitForFinished);
 
       // Drop alpha from the registry — its prior run is now an orphan.
       registry.replace(new Map([[wfB.name, wfB]]));
@@ -196,9 +274,10 @@ describe("createApp", () => {
       };
       registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db, registry, cwd });
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
       const ids: string[] = [];
-      for (let i = 0; i < 3; i++) ids.push(await triggerRun(app, "wf"));
+      for (let i = 0; i < 3; i++) ids.push(await triggerAndAwait(app, "wf", waitForFinished));
 
       const limited = (await (await app.request("/api/runs?limit=2")).json()) as Array<{
         id: string;
@@ -229,12 +308,14 @@ describe("createApp", () => {
       };
       registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db, registry, cwd });
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
       const trigger = await app.request("/api/workflows/two-step/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
       const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
 
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
@@ -268,12 +349,14 @@ describe("createApp", () => {
       };
       registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db, registry, cwd });
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
       const trigger = await app.request("/api/workflows/ephemeral/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
       const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
 
       registry.replace(new Map());
 
@@ -366,12 +449,18 @@ describe("createApp", () => {
       };
       registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db, registry, cwd });
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
       const res = await app.request("/api/workflows/kept/runs", {
         method: "POST",
         headers: { "X-Kiri-Client": "anything" },
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(202);
+      // Drain the background run so afterEach doesn't close the DB while it's
+      // still writing — closed-handle errors would log even though the test
+      // itself passed.
+      const { runId } = (await res.json()) as { runId: string };
+      await waitForFinished(runId);
     });
 
     it("does not require the header on safe (GET) requests", async () => {

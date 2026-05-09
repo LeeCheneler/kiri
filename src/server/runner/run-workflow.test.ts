@@ -47,7 +47,7 @@ describe("runWorkflow", () => {
     writeBundle("hello", "#!/bin/sh\necho hi from kiri\n");
     const wf = makeWorkflow("greeter", useSteps("hello"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     expect(result.status).toBe("ok");
 
@@ -78,7 +78,7 @@ describe("runWorkflow", () => {
   it("persists an inline sh: step with materials = { kind: 'sh', source }", async () => {
     const wf = makeWorkflow("inline", [{ sh: "echo from-inline" }]);
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     expect(result.status).toBe("ok");
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
@@ -93,7 +93,7 @@ describe("runWorkflow", () => {
     });
     const wf = makeWorkflow("sidecar", useSteps("with-sidecar"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     expect(result.status).toBe("ok");
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
@@ -118,7 +118,7 @@ describe("runWorkflow", () => {
     );
     const wf = makeWorkflow("subdir", useSteps("with-subdir"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.materials).toEqual({
@@ -132,7 +132,7 @@ describe("runWorkflow", () => {
     writeBundle("emit", "#!/bin/sh\necho first-output\n");
     const wf = makeWorkflow("pipe", [{ use: "emit" }, { sh: "cat" }]);
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     expect(result.status).toBe("ok");
     const steps = db
@@ -151,7 +151,7 @@ describe("runWorkflow", () => {
     writeBundle("wont-run", "#!/bin/sh\necho should-not-run\n");
     const wf = makeWorkflow("halts", useSteps("boom", "wont-run"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     expect(result.status).toBe("failed");
 
@@ -170,7 +170,7 @@ describe("runWorkflow", () => {
     const runPath = writeBundle("v", "#!/bin/sh\necho v1\n");
     const wf = makeWorkflow("snap", useSteps("v"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
     writeFileSync(runPath, "#!/bin/sh\necho v2\n");
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
@@ -190,7 +190,7 @@ describe("runWorkflow", () => {
       schedule: "*/5 * * * *",
     };
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
     expect(run?.definitionSnapshot).toEqual({
@@ -205,7 +205,7 @@ describe("runWorkflow", () => {
     writeBundle("ok", "#!/bin/sh\necho ok\n");
     const wf = makeWorkflow("clean-ok", useSteps("ok"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     expect(existsSync(join(cwd, ".kiri", "runs", result.runId))).toBe(false);
   });
@@ -214,7 +214,7 @@ describe("runWorkflow", () => {
     writeBundle("fail", "#!/bin/sh\nexit 1\n");
     const wf = makeWorkflow("clean-fail", useSteps("fail"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     expect(result.status).toBe("failed");
     expect(existsSync(join(cwd, ".kiri", "runs", result.runId))).toBe(false);
@@ -223,7 +223,7 @@ describe("runWorkflow", () => {
   it("fails the step when the bundle directory is missing on disk", async () => {
     const wf = makeWorkflow("missing", useSteps("ghost"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     expect(result.status).toBe("failed");
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
@@ -242,7 +242,7 @@ describe("runWorkflow", () => {
 
     let caught: unknown;
     try {
-      await runWorkflow(db, wf, { cwd, trigger: "manual" });
+      await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
     } catch (e) {
       caught = e;
     }
@@ -263,7 +263,7 @@ describe("runWorkflow", () => {
     );
     const wf = makeWorkflow("env-vars", useSteps("dump"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(
@@ -277,7 +277,7 @@ describe("runWorkflow", () => {
       steps: [{ sh: 'echo "BUNDLE=${KIRI_BUNDLE_DIR-unset}"' }],
     };
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe("BUNDLE=unset\n");
@@ -292,7 +292,7 @@ describe("runWorkflow", () => {
       steps: [{ use: "path", env: { PATH: "/sneaky/bin" } }],
     };
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
@@ -305,7 +305,7 @@ describe("runWorkflow", () => {
       steps: [{ use: "greet", env: { NAME: "lee" } }],
     };
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe("name=lee\n");
@@ -315,7 +315,7 @@ describe("runWorkflow", () => {
     writeBundle("who", '#!/bin/sh\necho "USER=$USER LOGNAME=$LOGNAME"\n');
     const wf = makeWorkflow("who", useSteps("who"));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(
@@ -331,7 +331,7 @@ describe("runWorkflow", () => {
     const seen: KiriEvent[] = [];
     bus.subscribe((e) => seen.push(e));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus }).done;
 
     expect(result.status).toBe("ok");
     expect(seen).toEqual([
@@ -354,7 +354,7 @@ describe("runWorkflow", () => {
     const seen: KiriEvent[] = [];
     bus.subscribe((e) => seen.push(e));
 
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus }).done;
 
     expect(result.status).toBe("failed");
     expect(seen).toEqual([
@@ -378,7 +378,7 @@ describe("runWorkflow", () => {
 
     let caught: unknown;
     try {
-      await runWorkflow(db, wf, { cwd, trigger: "manual", bus });
+      await runWorkflow(db, wf, { cwd, trigger: "manual", bus }).done;
     } catch (e) {
       caught = e;
     }

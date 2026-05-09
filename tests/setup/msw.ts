@@ -6,7 +6,7 @@ const defaultHandlers = [
   http.get("*/api/workflows", () => HttpResponse.json([])),
   http.get("*/api/runs", () => HttpResponse.json([])),
   http.post("*/api/workflows/:name/runs", ({ params }) =>
-    HttpResponse.json({ runId: `run-${String(params.name)}`, status: "ok" }),
+    HttpResponse.json({ runId: `run-${String(params.name)}`, status: "running" }, { status: 202 }),
   ),
 ];
 

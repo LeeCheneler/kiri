@@ -11,10 +11,14 @@ export interface WorkflowSummary {
   schedule?: string;
 }
 
-/** Result of a manual run trigger: the new run's id and its terminal status. */
+/**
+ * Result of a manual run trigger: the new run's id and its current status.
+ * The server responds the moment the run row is inserted, so the status is
+ * `"running"` here — terminal transitions arrive over the SSE event stream.
+ */
 export interface RunStartResult {
   runId: string;
-  status: "ok" | "failed";
+  status: "running" | "ok" | "failed";
 }
 
 /**
@@ -129,9 +133,9 @@ export const fetchRun = async (id: string): Promise<RunDetail> =>
   json<RunDetail>(await apiFetch(`/api/runs/${id}`));
 
 /**
- * Trigger a manual run for the named workflow. Resolves once the run has
- * finished (the server awaits the runner) — the returned `status` is the
- * terminal status, not "queued".
+ * Trigger a manual run for the named workflow. Resolves the moment the run
+ * row is inserted server-side — the returned `status` is `"running"`, and
+ * terminal transitions arrive on the SSE event stream. Throws on non-2xx.
  */
 export const triggerRun = async (name: string): Promise<RunStartResult> =>
   json<RunStartResult>(

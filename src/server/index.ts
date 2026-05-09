@@ -100,12 +100,18 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get("/api/workflows", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
 
-  app.post("/api/workflows/:name/runs", async (c) => {
+  app.post("/api/workflows/:name/runs", (c) => {
     const name = c.req.param("name");
     const wf = registry.getWorkflow(name);
     if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus });
-    return c.json(result);
+    const { runId, done } = runWorkflow(db, wf, { cwd, trigger: "manual", bus });
+    // Background execution: log unhandled rejections so they don't trip the
+    // process-wide handler. The run row is finalised inside `done` before any
+    // re-throw, so the DB stays consistent regardless.
+    done.catch((cause) => {
+      console.error(`run ${runId} crashed: ${cause instanceof Error ? cause.message : cause}`);
+    });
+    return c.json({ runId, status: "running" }, 202);
   });
 
   app.get("/api/runs", (c) => {

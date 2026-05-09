@@ -19,6 +19,11 @@ export function assertLoopback(hostname: string): void {
  * Start kiri's HTTP server bound to 127.0.0.1 on `port`. Asserts the
  * loopback bind before opening the socket so a misconfiguration fails
  * fast with a clear error rather than a silent wide-open listener.
+ *
+ * `idleTimeout: 0` disables Bun.serve's default 10s idle timeout — the
+ * SSE event stream at `/api/events` holds a long-lived connection that
+ * would otherwise be closed mid-stream, forcing the EventSource into a
+ * reconnect loop.
  */
 export function startServer({
   app,
@@ -29,5 +34,5 @@ export function startServer({
 }): ReturnType<typeof Bun.serve> {
   const hostname = LOOPBACK_HOSTNAME;
   assertLoopback(hostname);
-  return Bun.serve({ hostname, port, fetch: app.fetch });
+  return Bun.serve({ hostname, port, fetch: app.fetch, idleTimeout: 0 });
 }
