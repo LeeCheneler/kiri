@@ -16,9 +16,9 @@ const renderAt = (path: string) => {
 };
 
 describe("<App>", () => {
-  it("renders the kiri heading", () => {
+  it("renders the kiri wordmark from the page shell", () => {
     renderAt("/");
-    expect(screen.getByRole("heading", { name: /kiri/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /kiri/i })).toBeDefined();
   });
 
   it("routes / to the dashboard", () => {

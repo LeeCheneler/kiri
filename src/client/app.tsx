@@ -1,27 +1,22 @@
 import { Route, Switch } from "wouter";
+import { PageShell } from "./components/page-shell.tsx";
 import { Dashboard } from "./routes/dashboard.tsx";
 import { RunPage } from "./routes/run-page.tsx";
 
 /**
- * Root client shell. Two routes today: the dashboard and the run detail
- * page. wouter reads `window.location` directly, so no provider is needed
- * — `<Switch>` picks the first matching `<Route>`.
+ * Root client shell. Wraps the wouter route switch in the page shell so
+ * every route inherits the three-column layout and the kiri wordmark.
  */
 export function App() {
   return (
-    <>
-      <header>
-        <h1 className="text-3xl font-bold">Kiri</h1>
-      </header>
-      <main>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/runs/:id" component={RunPage} />
-          <Route>
-            <p>Page not found.</p>
-          </Route>
-        </Switch>
-      </main>
-    </>
+    <PageShell>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/runs/:id" component={RunPage} />
+        <Route>
+          <p>Page not found.</p>
+        </Route>
+      </Switch>
+    </PageShell>
   );
 }
