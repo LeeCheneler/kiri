@@ -14,5 +14,17 @@ export default defineConfig({
   build: {
     outDir: "../../dist/client",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Stable, root-served paths for the entry chunk and entry CSS so
+        // the hosted shell at https://local.kiri.build can load them from
+        // the local kiri instance without chasing content hashes. Other
+        // chunks and assets stay hashed for cache-busting.
+        entryFileNames: "app.js",
+        assetFileNames: (info) =>
+          info.names?.some((n) => n.endsWith(".css")) ? "app.css" : "assets/[name]-[hash][extname]",
+        chunkFileNames: "assets/[name]-[hash].js",
+      },
+    },
   },
 });
