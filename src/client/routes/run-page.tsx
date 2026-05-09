@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { ApiError, type RunDetail, fetchRun } from "./api.ts";
+import { ApiError, type RunDetail, fetchRun } from "../api.ts";
 
 type State =
   | { status: "loading" }

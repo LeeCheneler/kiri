@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { server } from "../../tests/setup/msw.ts";
+import { server } from "../../../tests/setup/msw.ts";
 import { RunPage } from "./run-page.tsx";
 
 afterEach(() => cleanup());

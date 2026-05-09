@@ -1,6 +1,6 @@
 import { Route, Switch } from "wouter";
-import { Dashboard } from "./dashboard.tsx";
-import { RunPage } from "./run-page.tsx";
+import { Dashboard } from "./routes/dashboard.tsx";
+import { RunPage } from "./routes/run-page.tsx";
 
 /**
  * Root client shell. Two routes today: the dashboard and the run detail
