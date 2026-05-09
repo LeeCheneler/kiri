@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
+import { startServer } from "../src/server/listen.ts";
 import {
   type WorkflowWatcher,
   createRegistry,
@@ -79,7 +80,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 const app = createApp({ db, registry, cwd });
-const server = Bun.serve({ port: 4242, fetch: app.fetch });
+const server = startServer({ app, port: 4242 });
 console.log(`kiri listening on http://localhost:${server.port}`);
 
 const shutdown = () => {
