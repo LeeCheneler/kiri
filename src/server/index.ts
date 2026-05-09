@@ -26,6 +26,8 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
 const DEFAULT_RUN_LIMIT = 50;
 const MAX_RUN_LIMIT = 200;
 
+const NO_STORE_PATHS = new Set(["/", "/index.html", "/app.js", "/app.css"]);
+
 const parseListParam = (raw: string | undefined, fallback: number, max: number): number => {
   if (raw === undefined) return fallback;
   const n = Number.parseInt(raw, 10);
@@ -83,6 +85,15 @@ export function createApp(deps: AppDeps): Hono {
       run: { ...run, isOrphan: !registry.getWorkflow(run.workflowName) },
       steps,
     });
+  });
+
+  // The SPA shell ships at stable paths (/, /app.js, /app.css), so there is no
+  // content hash to bust the browser cache when kiri serves an updated bundle.
+  // Force revalidation via Cache-Control. Hashed assets under /assets/ are
+  // immutable and stay freely cacheable.
+  app.use("*", async (c, next) => {
+    await next();
+    if (NO_STORE_PATHS.has(c.req.path)) c.header("Cache-Control", "no-store");
   });
 
   app.use("*", serveStatic({ root: "./dist/client" }));

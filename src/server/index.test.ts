@@ -236,4 +236,26 @@ describe("createApp", () => {
       expect(body.run.isOrphan).toBe(true);
     });
   });
+
+  describe("Cache-Control on stable-path SPA assets", () => {
+    it("sends no-store on /app.js, /app.css, /, and /index.html", async () => {
+      const app = createApp({ db, registry, cwd });
+      for (const path of ["/app.js", "/app.css", "/", "/index.html"]) {
+        const res = await app.request(path);
+        expect(res.headers.get("Cache-Control")).toBe("no-store");
+      }
+    });
+
+    it("does not send no-store on hashed /assets/* paths", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/assets/anything-abc123.js");
+      expect(res.headers.get("Cache-Control")).toBeNull();
+    });
+
+    it("does not send no-store on /api routes", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/health");
+      expect(res.headers.get("Cache-Control")).toBeNull();
+    });
+  });
 });
