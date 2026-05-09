@@ -19,6 +19,6 @@
     }
   },
   "files": {
-    "ignore": ["dist", "node_modules", ".kiri", "drizzle"]
+    "ignore": ["dist", "node_modules", ".kiri", "drizzle", "test-results", "playwright-report"]
   }
 }

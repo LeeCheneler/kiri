@@ -45,6 +45,10 @@ The bundle defers tool permissions to your `~/.claude/settings.json`. If `claude
 
 Server tests live next to source as `*.test.ts`. Client component tests live next to source as `*.test.tsx` and run in `bun:test` against a `happy-dom` DOM environment with `@testing-library/react` for rendering and queries. HTTP is mocked via [MSW](https://mswjs.io) — handlers default to empty registry/feed responses; per-test overrides go through `server.use(...)`. The setup wiring lives under `tests/setup/` and is hooked in via `bunfig.toml`'s `preload` list so a single `bun test` covers both surfaces.
 
+### End-to-end
+
+Browser-driven golden-path tests live under `tests/e2e/`, run by Playwright (Chromium only). `bun run test:e2e` builds the SPA, boots a fresh kiri against the seeded fixture at `tests/e2e/fixture/`, and drives a real browser through the critical flow. CI runs them as a separate `e2e` job after the unit job passes. The fixture's `.kiri/` is wiped and `dist/` symlinked into place at boot, so every run starts from a clean state DB. Port `4242` is hardcoded — stop any local kiri before running.
+
 ## Quality gates
 
 ```sh

@@ -1,7 +1,9 @@
 node_modules/
 .kiri/
-dist/
+dist
 coverage/
+test-results/
+playwright-report/
 *.lcov
 *.log
 .DS_Store

@@ -14,5 +14,5 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx"
   },
-  "include": ["src", "bin", "tests", "vite.config.ts"]
+  "include": ["src", "bin", "tests", "vite.config.ts", "playwright.config.ts"]
 }
