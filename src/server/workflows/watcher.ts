@@ -1,4 +1,5 @@
 import { type FSWatcher, statSync, watch } from "node:fs";
+import type { EventBus } from "../events/index.ts";
 import { type LoadResult, loadWorkflows } from "./loader.ts";
 import type { Registry } from "./registry.ts";
 
@@ -6,6 +7,8 @@ export interface WatchOptions {
   debounceMs?: number;
   /** Injection hook for `fs.watch` so tests can drive watcher events deterministically. */
   watchFn?: typeof watch;
+  /** Optional event bus. When supplied, the watcher publishes workflow.added / workflow.updated / workflow.removed on registry changes. */
+  bus?: EventBus;
 }
 
 export interface WorkflowWatcher {
@@ -54,6 +57,7 @@ export function watchWorkflows(
 ): WorkflowWatcher {
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const watchFn = options.watchFn ?? watch;
+  const bus = options.bus;
 
   let snapshot = buildSnapshot(initial);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -77,12 +81,17 @@ export function watchWorkflows(
       const prev = snapshot.byName.get(name);
       if (!prev) {
         console.log(`workflows: added "${name}"`);
+        bus?.publish({ type: "workflow.added", name });
       } else if (prev.mtimeMs !== info.mtimeMs) {
         console.log(`workflows: changed "${name}"`);
+        bus?.publish({ type: "workflow.updated", name });
       }
     }
     for (const name of snapshot.byName.keys()) {
-      if (!next.byName.has(name)) console.log(`workflows: removed "${name}"`);
+      if (!next.byName.has(name)) {
+        console.log(`workflows: removed "${name}"`);
+        bus?.publish({ type: "workflow.removed", name });
+      }
     }
     for (const failure of result.failures) {
       if (!snapshot.failingPaths.has(failure.path)) {

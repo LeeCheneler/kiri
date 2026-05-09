@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type KiriEvent, createEventBus } from "../events/index.ts";
 import { loadWorkflows } from "./loader.ts";
 import { createRegistry } from "./registry.ts";
 import { watchWorkflows } from "./watcher.ts";
@@ -241,6 +242,70 @@ describe("watchWorkflows", () => {
     await waitFor(() => errs.some((m) => m.includes("raw string")));
 
     expect(errs.some((m) => m.includes("watcher error: raw string"))).toBe(true);
+    watcher.stop();
+  });
+
+  it("publishes workflow.added when a new workflow file appears", async () => {
+    writeBundle(cwd, "evt-add");
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir, cwd);
+    registry.replace(initial.workflows);
+
+    const bus = createEventBus();
+    const seen: KiriEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, bus });
+
+    writeFileSync(join(dir, "evt-add.yaml"), yamlSource("evt-add"));
+    await waitFor(() => registry.getWorkflow("evt-add") !== undefined);
+
+    expect(seen).toContainEqual({ type: "workflow.added", name: "evt-add" });
+    watcher.stop();
+  });
+
+  it("publishes workflow.updated when an existing workflow file is edited", async () => {
+    writeBundle(cwd, "v1");
+    writeBundle(cwd, "v2");
+    writeFileSync(join(dir, "evt-upd.yaml"), yamlSource("evt-upd", "v1"));
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir, cwd);
+    registry.replace(initial.workflows);
+
+    const bus = createEventBus();
+    const seen: KiriEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, bus });
+
+    await Bun.sleep(20);
+    writeFileSync(join(dir, "evt-upd.yaml"), yamlSource("evt-upd", "v2"));
+    await waitFor(() => {
+      const wf = registry.getWorkflow("evt-upd");
+      return wf !== undefined && "use" in wf.steps[0] && wf.steps[0].use === "v2";
+    });
+
+    expect(seen).toContainEqual({ type: "workflow.updated", name: "evt-upd" });
+    watcher.stop();
+  });
+
+  it("publishes workflow.removed when a workflow file is deleted", async () => {
+    writeBundle(cwd, "evt-rm");
+    writeFileSync(join(dir, "evt-rm.yaml"), yamlSource("evt-rm"));
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir, cwd);
+    registry.replace(initial.workflows);
+
+    const bus = createEventBus();
+    const seen: KiriEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, bus });
+
+    unlinkSync(join(dir, "evt-rm.yaml"));
+    await waitFor(() => registry.getWorkflow("evt-rm") === undefined);
+
+    expect(seen).toContainEqual({ type: "workflow.removed", name: "evt-rm" });
     watcher.stop();
   });
 
