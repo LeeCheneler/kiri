@@ -4,8 +4,10 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 // replaces fetch primitives with browser-spec implementations. Two of those
 // implementations break us: its Request strips the Origin header (Hono CORS
 // tests), and its AbortSignal/EventTarget aren't recognised by MSW's
-// interceptor. Stash the natives, register happy-dom, then put the natives
-// back so server tests and MSW continue to work.
+// interceptor. Hono's `streamSSE` also needs the WHATWG stream classes
+// (Bun's natives have `getWriter` etc.; happy-dom's polyfills don't).
+// Stash the natives, register happy-dom, then put the natives back so
+// server tests and MSW continue to work.
 const nativeKeys = [
   "fetch",
   "Request",
@@ -17,6 +19,7 @@ const nativeKeys = [
   "EventTarget",
   "Event",
   "MessageEvent",
+  "TransformStream",
 ] as const;
 
 const native: Record<string, unknown> = {};

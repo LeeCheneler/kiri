@@ -381,6 +381,23 @@ describe("createApp", () => {
     });
   });
 
+  describe("GET /api/events", () => {
+    it("is mounted when a bus is supplied", async () => {
+      const bus = createEventBus();
+      const app = createApp({ db, registry, cwd, bus });
+      const res = await app.request("/api/events");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("text/event-stream");
+      await res.body?.cancel();
+    });
+
+    it("is not mounted when no bus is supplied", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/events");
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe("SPA shell fallback", () => {
     const SHELL = '<!doctype html><html><body><div id="root"></div></body></html>';
 

@@ -4,7 +4,7 @@ import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import type { KiriDb } from "./db/index.ts";
 import { runSteps, runs } from "./db/schema.ts";
-import type { EventBus } from "./events/index.ts";
+import { type EventBus, mountEventsRoute } from "./events/index.ts";
 import { runWorkflow } from "./runner/index.ts";
 import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
 
@@ -13,7 +13,9 @@ import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
  * workflow registry, and the repo root passed to the runner. `staticRoot`
  * locates the built SPA bundle and defaults to the prod path; tests pass a
  * fixture directory. `bus`, when supplied, is forwarded to the runner so
- * triggered runs publish lifecycle events to downstream consumers.
+ * triggered runs publish lifecycle events to downstream consumers, and
+ * mounts `GET /api/events` so clients can stream those events live.
+ * `eventsHeartbeatMs` overrides the SSE keep-alive cadence (test hook).
  */
 export interface AppDeps {
   db: KiriDb;
@@ -21,6 +23,7 @@ export interface AppDeps {
   cwd: string;
   staticRoot?: string;
   bus?: EventBus;
+  eventsHeartbeatMs?: number;
 }
 
 const DEFAULT_STATIC_ROOT = "./dist/client";
@@ -64,7 +67,7 @@ const parseListParam = (raw: string | undefined, fallback: number, max: number):
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const { db, registry, cwd, staticRoot = DEFAULT_STATIC_ROOT, bus } = deps;
+  const { db, registry, cwd, staticRoot = DEFAULT_STATIC_ROOT, bus, eventsHeartbeatMs } = deps;
   const app = new Hono();
 
   // CORS allow-list for the hosted shell at https://local.kiri.build plus the
@@ -135,6 +138,13 @@ export function createApp(deps: AppDeps): Hono {
       steps,
     });
   });
+
+  if (bus) {
+    mountEventsRoute(
+      app,
+      eventsHeartbeatMs === undefined ? { bus } : { bus, heartbeatMs: eventsHeartbeatMs },
+    );
+  }
 
   // The SPA shell ships at stable paths (/, /app.js, /app.css), so there is no
   // content hash to bust the browser cache when kiri serves an updated bundle.
