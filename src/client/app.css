@@ -1,1 +1,47 @@
 @import "tailwindcss";
+
+@theme {
+  --color-canvas: #0e0f0d;
+  --color-paper: #1a1b19;
+  --color-ink: #e5dfd2;
+  --color-ink-muted: #8b8579;
+  --color-rule: #2a2a26;
+  --color-accent: #d6b85a;
+
+  --color-status-running: #7aaedb;
+  --color-status-ok: #88a579;
+  --color-status-failed: #cd7b5e;
+  --color-status-orphaned: #c99858;
+
+  --font-display: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.55;
+    font-feature-settings: "tnum", "ss01";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-canvas);
+  }
+
+  /* Fraunces with optical sizing on for editorial display moments. */
+  .font-display {
+    font-optical-sizing: auto;
+    font-variation-settings: "SOFT" 50;
+  }
+}
