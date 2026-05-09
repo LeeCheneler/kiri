@@ -1,0 +1,6 @@
+name: model-set
+steps:
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/model-set.tpl
+      MODEL: opus

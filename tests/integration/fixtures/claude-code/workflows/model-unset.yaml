@@ -1,0 +1,5 @@
+name: model-unset
+steps:
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/model-unset.tpl
