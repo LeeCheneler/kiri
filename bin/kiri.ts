@@ -81,7 +81,7 @@ if (process.env.NODE_ENV !== "production") {
 
 const app = createApp({ db, registry, cwd });
 const server = startServer({ app, port: 4242 });
-console.log(`kiri listening on http://localhost:${server.port}`);
+console.log("Visit https://local.kiri.build");
 
 const shutdown = () => {
   watcher?.stop();
