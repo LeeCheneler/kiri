@@ -33,7 +33,9 @@ bun build      # builds the SPA into dist/client
 bun start      # runs Hono; serves the built SPA + API at :4242
 ```
 
-In prod, visit **http://localhost:4242** — Hono serves both the SPA and `/api/*` from a single origin.
+With kiri running, the canonical URL is **https://local.kiri.build** — a hosted static shell that loads kiri's bundle from the local process. Bookmark it; it stays stable across machines. **http://localhost:4242** still works as a direct fallback (Hono serves the same SPA + `/api/*` from one origin).
+
+> **Safari / Brave note.** Both browsers block HTTP-localhost subresource loads from an HTTPS page, so `https://local.kiri.build` won't pull kiri's bundle there. Use **http://localhost:4242** directly on those browsers. Chrome and Firefox work either way.
 
 ### Bootstrap a workflow repo
 
@@ -82,8 +84,32 @@ To evolve the schema:
 bin/kiri.ts            entry point — boots Hono
 src/server/            Hono app + tests
 src/client/            Vite + React SPA (kebab-case filenames)
+shell/                 static shell deployed to https://local.kiri.build
 docs/                  design notes & milestones — read these before substantive work
 .kiri/                 repo-scoped runtime state (gitignored, created on launch)
 ```
 
 See `docs/design-notes.md` for architecture and `docs/milestones.md` for the M0 → M6 build sequence.
+
+## Deploying the shell at `https://local.kiri.build`
+
+The Pages-hosted shell is a hand-maintained `shell/index.html` that loads kiri's bundle from `http://127.0.0.1:4242`. Pages serves only the shell; kiri itself stays plain HTTP on `127.0.0.1`.
+
+### Deploys
+
+Automatic. `.github/workflows/cd.yml` runs `wrangler pages deploy` on every push to `main` that touches `shell/` or `wrangler.toml`. `shell/_headers` caps the shell index at `max-age=300`, so a deploy reaches users within ~5 minutes regardless of edge cache state.
+
+To preview a shell change locally before merging, `bunx wrangler pages deploy --branch=preview` from a checkout of the branch (requires `bunx wrangler login` once per machine).
+
+### One-time setup
+
+In the Cloudflare dashboard:
+
+1. Create a Pages project named `local-kiri-build` (the name baked into `wrangler.toml`).
+2. Skip the build step — the shell is static.
+3. Attach `local.kiri.build` as a custom domain. Pages auto-provisions the DNS record and TLS cert.
+
+In the GitHub repo settings (Settings → Secrets and variables → Actions):
+
+- `CLOUDFLARE_API_TOKEN` — a Pages-scoped API token (Cloudflare dashboard → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template, narrowed to the Pages project).
+- `CLOUDFLARE_ACCOUNT_ID` — the account ID visible on the Cloudflare dashboard sidebar.

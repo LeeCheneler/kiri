@@ -240,7 +240,11 @@ Closing the browser tab does not kill the orchestrator. Killing the Hono process
 
 ### Local URL & HTTPS
 
-Hosted at `kiri.cheneler.me` — DNS A record points to `127.0.0.1`, real Let's Encrypt cert via DNS-01 challenge. Real HTTPS on localhost, bookmarkable, consistent across devices on the LAN. No new domain purchase needed; subdomain on an existing personal domain handles it cleanly.
+Canonical entry point is `https://local.kiri.build` — a tiny hand-maintained HTML shell hosted on Cloudflare Pages. The shell loads the locally-running kiri's app bundle from `http://127.0.0.1:4242/app.js` + `/app.css` (cross-origin, with `crossorigin="anonymous"`) and the bundle calls the API on the same local origin. Pages auto-provisions the cert on the custom domain; no embedded ACME, no DNS-01 challenge, no on-host TLS termination.
+
+The split is what makes this trivial: Pages serves a single static shell file; kiri itself is unchanged HTTP on `127.0.0.1`. CORS allow-list on the kiri server permits `https://local.kiri.build` (plus `http://127.0.0.1:4242` and `http://localhost:4242` as fallbacks), and the shell's bundle paths are stable (`app.js`, `app.css`) so the shell needs no rebuild when kiri updates.
+
+Browser caveat: Safari and Brave block HTTP-localhost subresource loads from an HTTPS page (mixed-content / private-network policies). On those browsers the fallback is the direct `http://localhost:4242` URL. A local-served HTTPS recipe (mkcert) is a possible future follow-on but not built.
 
 ### Future: native shell
 

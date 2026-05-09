@@ -73,6 +73,25 @@ Work items:
 
 **Done when:** `kiri-self-review` (now using the `claude-code` bundle) runs end-to-end and CC's final message appears in the feed.
 
+## M2.5 — Hosted shell on local.kiri.build
+
+Flips kiri's canonical URL from `http://localhost:4242` to `https://local.kiri.build`. A static HTML shell on Cloudflare Pages loads the locally-running kiri's bundle and calls the API there. Real HTTPS on a stable, bookmarkable URL with no on-host TLS termination.
+
+Work items:
+
+- Server: stable bundle paths so the shell can hard-code references — Vite emits `app.js` + `app.css` at the dist root rather than hashed filenames, and Hono serves them with `Cache-Control: no-store`. Hashed assets under `/assets/` stay immutable.
+- Server: CORS allow-list permitting `https://local.kiri.build` (plus the `127.0.0.1`/`localhost` direct origins as fallback). Allow-list is mounted before route handlers so OPTIONS preflight is answered by middleware.
+- `shell/index.html`: minimal hand-maintained HTML, loads `http://127.0.0.1:4242/app.{js,css}` with `crossorigin="anonymous"`. Single file, audit-by-sight.
+- `shell/_headers`: `Cache-Control: public, max-age=300` on `/index.html` so a shell tweak propagates within minutes.
+- `wrangler.toml`: `pages_build_output_dir = "./shell"`, project name fixed, so `wrangler pages deploy` resolves config without flag-shuffling — used by both CI and any local invocation.
+- CI deploy: `cd.yml` job that runs `wrangler pages deploy` on pushes to `main` that touch `shell/` or `wrangler.toml`. Path-filtered so unrelated `main` pushes don't trigger redeploys; gated to `push` events only so PRs don't deploy.
+- One-time Cloudflare setup (manual, documented in README): create the Pages project, attach `local.kiri.build` as a custom domain — Pages auto-provisions DNS + cert. `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` set as repo secrets.
+- README: open-kiri instructions point at `https://local.kiri.build`, with `http://localhost:4242` retained as a fallback. Safari/Brave caveat documented (HTTPS→HTTP-localhost subresource blocking). One-time setup + deploy mechanism documented.
+
+**Done when:** `https://local.kiri.build` resolves with a valid Pages cert and, with a local kiri running, shows the same UI as direct `http://127.0.0.1:4242` access.
+
+**Out of scope:** local-served HTTPS for Safari/Brave (mkcert recipe), a friendly "kiri not running" UI state.
+
 ## M3 — Security baseline
 
 **Strategy.** This is a personal CLI tool: it runs while invoked, lives on `localhost`, and is gone when stopped. Two threats are real and worth defending against; the rest of the production-grade story (persistent auth, audit logs, HTTPS, secret stores, ulimits) is overkill for a single-user ephemeral process and explicitly out of scope.
