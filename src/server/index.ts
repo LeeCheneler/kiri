@@ -35,6 +35,14 @@ const ALLOWED_ORIGINS = [
   "http://localhost:4242",
 ];
 
+// Custom header required on every state-changing request. Browsers will only
+// send it cross-origin after a successful CORS preflight permitting the header,
+// so a malicious page in another tab cannot satisfy the check even if the CORS
+// allow-list is misconfigured. Presence-only — the value is irrelevant.
+const REQUIRED_CLIENT_HEADER = "X-Kiri-Client";
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 const parseListParam = (raw: string | undefined, fallback: number, max: number): number => {
   if (raw === undefined) return fallback;
   const n = Number.parseInt(raw, 10);
@@ -60,9 +68,22 @@ export function createApp(deps: AppDeps): Hono {
     cors({
       origin: ALLOWED_ORIGINS,
       allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["Content-Type"],
+      allowHeaders: ["Content-Type", REQUIRED_CLIENT_HEADER],
     }),
   );
+
+  // Belt-and-braces CSRF defence layered on top of the CORS allow-list.
+  // Custom headers force a CORS preflight; a cross-origin attacker can't
+  // satisfy it without an explicit Access-Control-Allow-Headers permitting
+  // the header — so even if the CORS allow-list ever drifts, state-changing
+  // requests from disallowed origins are still rejected here.
+  app.use("*", async (c, next) => {
+    if (SAFE_METHODS.has(c.req.method)) return next();
+    if (!c.req.header(REQUIRED_CLIENT_HEADER)) {
+      return c.json({ error: `${REQUIRED_CLIENT_HEADER} header required` }, 403);
+    }
+    return next();
+  });
 
   app.get("/api/health", (c) => c.json({ status: "ok" }));
 

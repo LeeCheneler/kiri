@@ -90,17 +90,29 @@ const apiOrigin =
     : KIRI_ORIGIN;
 const apiUrl = (path: string) => `${apiOrigin}${path}`;
 
+// Identifies this client to the server's CSRF gate. Presence is what matters;
+// the value is informational. State-changing endpoints reject requests
+// missing this header — kiri's belt-and-braces defence atop the CORS allow-list.
+const CLIENT_HEADER_NAME = "X-Kiri-Client";
+const CLIENT_HEADER_VALUE = "kiri-ui";
+
+const apiFetch = (path: string, init: RequestInit = {}): Promise<Response> => {
+  const headers = new Headers(init.headers);
+  headers.set(CLIENT_HEADER_NAME, CLIENT_HEADER_VALUE);
+  return fetch(apiUrl(path), { ...init, headers });
+};
+
 /** Fetch the workflow registry summary. Throws on non-2xx with the server-provided error message. */
 export const fetchWorkflows = async (): Promise<WorkflowSummary[]> =>
-  json<WorkflowSummary[]>(await fetch(apiUrl("/api/workflows")));
+  json<WorkflowSummary[]>(await apiFetch("/api/workflows"));
 
 /** Fetch the reverse-chronological run feed. Throws on non-2xx. */
 export const fetchRuns = async (): Promise<RunListEntry[]> =>
-  json<RunListEntry[]>(await fetch(apiUrl("/api/runs")));
+  json<RunListEntry[]>(await apiFetch("/api/runs"));
 
 /** Fetch a single run with its per-step envelopes. Throws on non-2xx (including 404 for unknown ids). */
 export const fetchRun = async (id: string): Promise<RunDetail> =>
-  json<RunDetail>(await fetch(apiUrl(`/api/runs/${id}`)));
+  json<RunDetail>(await apiFetch(`/api/runs/${id}`));
 
 /**
  * Trigger a manual run for the named workflow. Resolves once the run has
@@ -109,5 +121,5 @@ export const fetchRun = async (id: string): Promise<RunDetail> =>
  */
 export const triggerRun = async (name: string): Promise<RunStartResult> =>
   json<RunStartResult>(
-    await fetch(apiUrl(`/api/workflows/${encodeURIComponent(name)}/runs`), { method: "POST" }),
+    await apiFetch(`/api/workflows/${encodeURIComponent(name)}/runs`, { method: "POST" }),
   );

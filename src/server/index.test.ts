@@ -74,10 +74,15 @@ describe("createApp", () => {
     });
   });
 
+  const CLIENT_HEADERS = { "X-Kiri-Client": "kiri-ui" };
+
   describe("POST /api/workflows/:name/runs", () => {
     it("returns 404 for an unknown workflow name", async () => {
       const app = createApp({ db, registry, cwd });
-      const res = await app.request("/api/workflows/nope/runs", { method: "POST" });
+      const res = await app.request("/api/workflows/nope/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'workflow "nope" not found' });
     });
@@ -91,7 +96,10 @@ describe("createApp", () => {
       registry.replace(new Map([[wf.name, wf]]));
 
       const app = createApp({ db, registry, cwd });
-      const res = await app.request("/api/workflows/greeter/runs", { method: "POST" });
+      const res = await app.request("/api/workflows/greeter/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { runId: string; status: string };
       expect(body.status).toBe("ok");
@@ -106,7 +114,10 @@ describe("createApp", () => {
 
   describe("GET /api/runs", () => {
     const triggerRun = async (app: ReturnType<typeof createApp>, name: string) => {
-      const res = await app.request(`/api/workflows/${name}/runs`, { method: "POST" });
+      const res = await app.request(`/api/workflows/${name}/runs`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
       const { runId } = (await res.json()) as { runId: string };
       return runId;
     };
@@ -190,7 +201,10 @@ describe("createApp", () => {
       registry.replace(new Map([[wf.name, wf]]));
 
       const app = createApp({ db, registry, cwd });
-      const trigger = await app.request("/api/workflows/two-step/runs", { method: "POST" });
+      const trigger = await app.request("/api/workflows/two-step/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
       const { runId } = (await trigger.json()) as { runId: string };
 
       const res = await app.request(`/api/runs/${runId}`);
@@ -226,7 +240,10 @@ describe("createApp", () => {
       registry.replace(new Map([[wf.name, wf]]));
 
       const app = createApp({ db, registry, cwd });
-      const trigger = await app.request("/api/workflows/ephemeral/runs", { method: "POST" });
+      const trigger = await app.request("/api/workflows/ephemeral/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
       const { runId } = (await trigger.json()) as { runId: string };
 
       registry.replace(new Map());
@@ -293,13 +310,45 @@ describe("createApp", () => {
         headers: {
           Origin: "https://local.kiri.build",
           "Access-Control-Request-Method": "POST",
-          "Access-Control-Request-Headers": "Content-Type",
+          "Access-Control-Request-Headers": "Content-Type, X-Kiri-Client",
         },
       });
       expect(res.status).toBe(204);
       expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://local.kiri.build");
       expect(res.headers.get("Access-Control-Allow-Methods")).toContain("POST");
       expect(res.headers.get("Access-Control-Allow-Headers")).toContain("Content-Type");
+      expect(res.headers.get("Access-Control-Allow-Headers")).toContain("X-Kiri-Client");
+    });
+  });
+
+  describe("X-Kiri-Client gate", () => {
+    it("rejects state-changing requests without the header with 403", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/workflows/anything/runs", { method: "POST" });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
+    });
+
+    it("accepts state-changing requests when the header is present (any value)", async () => {
+      writeBundle("k", "#!/bin/sh\necho k\n");
+      const wf: WorkflowDefinition = {
+        name: "kept",
+        steps: [{ use: "k" }],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/workflows/kept/runs", {
+        method: "POST",
+        headers: { "X-Kiri-Client": "anything" },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("does not require the header on safe (GET) requests", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs");
+      expect(res.status).toBe(200);
     });
   });
 });
