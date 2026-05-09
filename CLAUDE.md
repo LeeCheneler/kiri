@@ -70,6 +70,7 @@ If during implementation you discover the plan is wrong, **stop and revise the p
 - **Filenames are kebab-case.** Always. No PascalCase or camelCase filenames — even for React components (`app.tsx`, not `App.tsx`). The exported symbol can stay PascalCase; only the filename rule is fixed.
 - **No daemons, no overnight execution.** Everything is scoped to "while the app is active." Don't add features that violate this.
 - **Definitions are YAML.** Workflow files are YAML validated against a Zod schema (`src/server/workflows/schema.ts`). When in doubt about workflow shape, defer to that schema and `docs/design-notes.md` § Architecture.
+- **UI test selectors.** Component tests (`@testing-library/react`) and e2e tests (Playwright) target the UI the way a user does — by role, label, and visible text. Default to accessible queries: `getByRole`, `getByLabelText`, `getByText`, `getByPlaceholderText`. They double as accessibility regression tests: if the query can't find the element, the element probably isn't accessible to screen readers either. Test ids (`data-testid`) and class/CSS selectors are escape hatches — use them only when there's no semantic anchor (e.g. a purely decorative wrapper that needs to be asserted on) and prefer adding the missing semantics to the component instead. No selectors that depend on Tailwind utility classes — those churn with styling changes and aren't meaningful to a user.
 
 ## Git
 
