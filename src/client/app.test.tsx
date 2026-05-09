@@ -29,6 +29,12 @@ describe("<App>", () => {
     expect(screen.queryByText(/page not found/i)).toBeNull();
   });
 
+  it("routes /workflows/:name to the workflow page", () => {
+    renderAt("/workflows/example");
+    expect(screen.getByText(/loading workflow/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+  });
+
   it("renders 'page not found' for an unmatched path", () => {
     renderAt("/totally-unknown");
     expect(screen.getByText(/page not found/i)).toBeDefined();
