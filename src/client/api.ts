@@ -79,17 +79,28 @@ const json = async <T>(res: Response): Promise<T> => {
   return (await res.json()) as T;
 };
 
+// When the bundle runs from the hosted shell at https://local.kiri.build,
+// relative URLs would resolve against that origin and never reach kiri.
+// Target the loopback kiri origin explicitly in that case; stay relative
+// for localhost so dev (vite proxy) and direct kiri access stay same-origin.
+const KIRI_ORIGIN = "http://127.0.0.1:4242";
+const apiOrigin =
+  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? ""
+    : KIRI_ORIGIN;
+const apiUrl = (path: string) => `${apiOrigin}${path}`;
+
 /** Fetch the workflow registry summary. Throws on non-2xx with the server-provided error message. */
 export const fetchWorkflows = async (): Promise<WorkflowSummary[]> =>
-  json<WorkflowSummary[]>(await fetch("/api/workflows"));
+  json<WorkflowSummary[]>(await fetch(apiUrl("/api/workflows")));
 
 /** Fetch the reverse-chronological run feed. Throws on non-2xx. */
 export const fetchRuns = async (): Promise<RunListEntry[]> =>
-  json<RunListEntry[]>(await fetch("/api/runs"));
+  json<RunListEntry[]>(await fetch(apiUrl("/api/runs")));
 
 /** Fetch a single run with its per-step envelopes. Throws on non-2xx (including 404 for unknown ids). */
 export const fetchRun = async (id: string): Promise<RunDetail> =>
-  json<RunDetail>(await fetch(`/api/runs/${id}`));
+  json<RunDetail>(await fetch(apiUrl(`/api/runs/${id}`)));
 
 /**
  * Trigger a manual run for the named workflow. Resolves once the run has
@@ -98,5 +109,5 @@ export const fetchRun = async (id: string): Promise<RunDetail> =>
  */
 export const triggerRun = async (name: string): Promise<RunStartResult> =>
   json<RunStartResult>(
-    await fetch(`/api/workflows/${encodeURIComponent(name)}/runs`, { method: "POST" }),
+    await fetch(apiUrl(`/api/workflows/${encodeURIComponent(name)}/runs`), { method: "POST" }),
   );
