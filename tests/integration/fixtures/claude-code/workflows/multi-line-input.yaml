@@ -1,0 +1,7 @@
+name: multi-line-input
+steps:
+  - sh: |
+      printf '%s\n' first second third
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/multi-line-input.tpl

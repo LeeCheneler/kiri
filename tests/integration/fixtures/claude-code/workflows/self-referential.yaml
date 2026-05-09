@@ -1,0 +1,6 @@
+name: self-referential
+steps:
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/self-referential.tpl
+      X: "{{Y}}"

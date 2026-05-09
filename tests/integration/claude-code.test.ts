@@ -147,4 +147,46 @@ describe("claude-code bundle: integration", () => {
     const { argv } = readCapture(ws);
     expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "8"]);
   });
+
+  it("preserves internal newlines when {{KIRI_INPUT}} is multi-line", async () => {
+    const envelopes = await runScenario(ws, "multi-line-input");
+
+    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
+    const { argv } = readCapture(ws);
+    expect(argv).toEqual(["-p", "Names:\nfirst\nsecond\nthird", "--max-turns", "8"]);
+  });
+
+  it("substitutes a custom {{VAR}} from the workflow's env block", async () => {
+    const envelopes = await runScenario(ws, "custom-env");
+
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
+    const { argv } = readCapture(ws);
+    expect(argv).toEqual(["-p", "Be cheerful.", "--max-turns", "8"]);
+  });
+
+  it("leaves {{lowercase}} placeholders literal even when an env var with that name is set", async () => {
+    const envelopes = await runScenario(ws, "lowercase-literal");
+
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
+    const { argv } = readCapture(ws);
+    // Regex is [A-Z_][A-Z0-9_]*; {{tone}} doesn't match so it survives untouched.
+    expect(argv).toEqual(["-p", "Be {{tone}}.", "--max-turns", "8"]);
+  });
+
+  it("does a single-pass substitution: a value containing {{X}} is not re-scanned", async () => {
+    const envelopes = await runScenario(ws, "self-referential");
+
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
+    const { argv } = readCapture(ws);
+    // {{X}} -> "{{Y}}" once; the result is emitted as-is, never re-scanned.
+    expect(argv).toEqual(["-p", "{{Y}}", "--max-turns", "8"]);
+  });
+
+  it("renders unknown {{VARS}} as empty string", async () => {
+    const envelopes = await runScenario(ws, "unknown-vars");
+
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
+    const { argv } = readCapture(ws);
+    expect(argv).toEqual(["-p", "before--after", "--max-turns", "8"]);
+  });
 });

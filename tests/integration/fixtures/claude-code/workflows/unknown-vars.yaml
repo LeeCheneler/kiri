@@ -1,0 +1,5 @@
+name: unknown-vars
+steps:
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/unknown-vars.tpl

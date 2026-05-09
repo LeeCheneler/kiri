@@ -1,0 +1,6 @@
+name: lowercase-literal
+steps:
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/lowercase-literal.tpl
+      tone: cheerful
