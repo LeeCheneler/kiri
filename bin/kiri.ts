@@ -4,12 +4,7 @@ import { bootstrap } from "../src/server/bootstrap.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
-import {
-  type WorkflowWatcher,
-  createRegistry,
-  loadWorkflows,
-  watchWorkflows,
-} from "../src/server/workflows/index.ts";
+import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
 const HELP = `Usage: kiri [command]
 
@@ -74,17 +69,14 @@ for (const failure of initial.failures) {
   console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
 }
 
-let watcher: WorkflowWatcher | undefined;
-if (process.env.NODE_ENV !== "production") {
-  watcher = watchWorkflows(workflowsDir, cwd, registry, initial);
-}
+const watcher = watchWorkflows(workflowsDir, cwd, registry, initial);
 
 const app = createApp({ db, registry, cwd });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
 
 const shutdown = () => {
-  watcher?.stop();
+  watcher.stop();
   server.stop();
   db.$client.close();
   process.exit(0);
