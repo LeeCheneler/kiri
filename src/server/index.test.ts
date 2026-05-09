@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { bootstrap } from "./bootstrap.ts";
 import type { KiriDb } from "./db/index.ts";
 import { runs } from "./db/schema.ts";
+import { type KiriEvent, createEventBus } from "./events/index.ts";
 import { createApp } from "./index.ts";
 import { type Registry, type WorkflowDefinition, createRegistry } from "./workflows/index.ts";
 
@@ -109,6 +110,34 @@ describe("createApp", () => {
       expect(run?.workflowName).toBe("greeter");
       expect(run?.trigger).toBe("manual");
       expect(run?.status).toBe("ok");
+    });
+
+    it("forwards the bus into the runner so triggered runs publish lifecycle events", async () => {
+      writeBundle("hi", "#!/bin/sh\necho hello\n");
+      const wf: WorkflowDefinition = {
+        name: "greeter",
+        steps: [{ use: "hi" }],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((e) => seen.push(e));
+
+      const app = createApp({ db, registry, cwd, bus });
+      const res = await app.request("/api/workflows/greeter/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const body = (await res.json()) as { runId: string };
+
+      expect(seen).toContainEqual({ type: "run.started", id: body.runId });
+      expect(seen).toContainEqual({
+        type: "run.finished",
+        id: body.runId,
+        status: "ok",
+        workflowName: "greeter",
+      });
     });
   });
 

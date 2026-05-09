@@ -4,6 +4,7 @@ import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import type { KiriDb } from "./db/index.ts";
 import { runSteps, runs } from "./db/schema.ts";
+import type { EventBus } from "./events/index.ts";
 import { runWorkflow } from "./runner/index.ts";
 import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
 
@@ -11,13 +12,15 @@ import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
  * Dependencies the HTTP API needs to do real work: the state DB, the live
  * workflow registry, and the repo root passed to the runner. `staticRoot`
  * locates the built SPA bundle and defaults to the prod path; tests pass a
- * fixture directory.
+ * fixture directory. `bus`, when supplied, is forwarded to the runner so
+ * triggered runs publish lifecycle events to downstream consumers.
  */
 export interface AppDeps {
   db: KiriDb;
   registry: Registry;
   cwd: string;
   staticRoot?: string;
+  bus?: EventBus;
 }
 
 const DEFAULT_STATIC_ROOT = "./dist/client";
@@ -61,7 +64,7 @@ const parseListParam = (raw: string | undefined, fallback: number, max: number):
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const { db, registry, cwd, staticRoot = DEFAULT_STATIC_ROOT } = deps;
+  const { db, registry, cwd, staticRoot = DEFAULT_STATIC_ROOT, bus } = deps;
   const app = new Hono();
 
   // CORS allow-list for the hosted shell at https://local.kiri.build plus the
@@ -98,7 +101,7 @@ export function createApp(deps: AppDeps): Hono {
     const name = c.req.param("name");
     const wf = registry.getWorkflow(name);
     if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus });
     return c.json(result);
   });
 

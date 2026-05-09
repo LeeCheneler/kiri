@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
 import { bootstrap } from "../src/server/bootstrap.ts";
+import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
@@ -61,6 +62,7 @@ if (args.length > 0) {
 
 const db = bootstrap(cwd);
 const registry = createRegistry();
+const bus = createEventBus();
 
 const workflowsDir = join(cwd, "workflows");
 const initial = await loadWorkflows(workflowsDir, cwd);
@@ -69,9 +71,9 @@ for (const failure of initial.failures) {
   console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
 }
 
-const watcher = watchWorkflows(workflowsDir, cwd, registry, initial);
+const watcher = watchWorkflows(workflowsDir, cwd, registry, initial, { bus });
 
-const app = createApp({ db, registry, cwd });
+const app = createApp({ db, registry, cwd, bus });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
 
