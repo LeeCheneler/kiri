@@ -1,0 +1,3 @@
+name: slow
+steps:
+  - sh: sleep 2 && echo "slow done"

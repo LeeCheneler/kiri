@@ -4,8 +4,13 @@ const triggerRun = async (request: APIRequestContext, name: string) => {
   const res = await request.post(`/api/workflows/${name}/runs`, {
     headers: { "X-Kiri-Client": "kiri-e2e" },
   });
-  expect(res.ok()).toBe(true);
-  return (await res.json()) as { runId: string; status: "ok" | "failed" };
+  expect(res.status()).toBe(202);
+  // Run starts in `running` and reaches its terminal status in the background;
+  // the page-level assertions below auto-wait for the DB row + SSE-driven view
+  // updates to converge. Tests that need to assert post-completion only — like
+  // run-detail content checks — should wait via the existing `data-status` and
+  // duration-visibility assertions rather than blocking here.
+  return (await res.json()) as { runId: string; status: "running" };
 };
 
 test("dashboard renders the wordmark, activity heading, and empty feed", async ({ page }) => {
@@ -29,8 +34,7 @@ test("a successful run surfaces in the feed with status and link to detail", asy
   page,
   request,
 }) => {
-  const { runId, status } = await triggerRun(request, "golden");
-  expect(status).toBe("ok");
+  const { runId } = await triggerRun(request, "golden");
 
   await page.goto("/");
   // Scope to <main> so the side nav's "golden" link in the rail doesn't
@@ -42,8 +46,7 @@ test("a successful run surfaces in the feed with status and link to detail", asy
 });
 
 test("a failing run row carries the failed status treatment", async ({ page, request }) => {
-  const { status } = await triggerRun(request, "failing");
-  expect(status).toBe("failed");
+  await triggerRun(request, "failing");
 
   await page.goto("/");
   const row = page.getByRole("main").getByRole("link", { name: /failing/i });
