@@ -6,6 +6,7 @@ import { asc, eq } from "drizzle-orm";
 import { bootstrap } from "../bootstrap.ts";
 import type { KiriDb } from "../db/index.ts";
 import { runSteps, runs } from "../db/schema.ts";
+import { type KiriEvent, createEventBus } from "../events/index.ts";
 import type { WorkflowDefinition, WorkflowStep } from "../workflows/index.ts";
 import { runWorkflow } from "./run-workflow.ts";
 
@@ -320,5 +321,84 @@ describe("runWorkflow", () => {
     expect(step?.output).toBe(
       `USER=${process.env.USER ?? ""} LOGNAME=${process.env.LOGNAME ?? ""}\n`,
     );
+  });
+
+  it("publishes the run lifecycle event sequence for an ok run", async () => {
+    writeBundle("a", "#!/bin/sh\necho a\n");
+    writeBundle("b", "#!/bin/sh\necho b\n");
+    const wf = makeWorkflow("seq-ok", useSteps("a", "b"));
+    const bus = createEventBus();
+    const seen: KiriEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus });
+
+    expect(result.status).toBe("ok");
+    expect(seen).toEqual([
+      { type: "run.started", id: result.runId },
+      { type: "run.step.updated", runId: result.runId, step: 0, status: "running" },
+      { type: "run.step.updated", runId: result.runId, step: 0, status: "ok" },
+      { type: "run.step.updated", runId: result.runId, step: 1, status: "running" },
+      { type: "run.step.updated", runId: result.runId, step: 1, status: "ok" },
+      { type: "run.updated", id: result.runId, status: "ok" },
+      { type: "run.finished", id: result.runId, status: "ok", workflowName: "seq-ok" },
+    ]);
+  });
+
+  it("publishes a failed step event and stops emitting later steps when a run fails", async () => {
+    writeBundle("ok-step", "#!/bin/sh\necho ok\n");
+    writeBundle("bad-step", "#!/bin/sh\nexit 1\n");
+    writeBundle("never", "#!/bin/sh\necho never\n");
+    const wf = makeWorkflow("seq-fail", useSteps("ok-step", "bad-step", "never"));
+    const bus = createEventBus();
+    const seen: KiriEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus });
+
+    expect(result.status).toBe("failed");
+    expect(seen).toEqual([
+      { type: "run.started", id: result.runId },
+      { type: "run.step.updated", runId: result.runId, step: 0, status: "running" },
+      { type: "run.step.updated", runId: result.runId, step: 0, status: "ok" },
+      { type: "run.step.updated", runId: result.runId, step: 1, status: "running" },
+      { type: "run.step.updated", runId: result.runId, step: 1, status: "failed" },
+      { type: "run.updated", id: result.runId, status: "failed" },
+      { type: "run.finished", id: result.runId, status: "failed", workflowName: "seq-fail" },
+    ]);
+  });
+
+  it("publishes run.updated/run.finished even when execution throws mid-flight", async () => {
+    writeBundle("n", "#!/bin/sh\necho hi\n");
+    writeFileSync(join(cwd, ".kiri", "runs"), "blocker");
+    const wf = makeWorkflow("throwy-bus", useSteps("n"));
+    const bus = createEventBus();
+    const seen: KiriEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    let caught: unknown;
+    try {
+      await runWorkflow(db, wf, { cwd, trigger: "manual", bus });
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+    const runRow = db.select().from(runs).get();
+    const runId = runRow?.id;
+    expect(runId).toBeDefined();
+    // The throw happens before any step row is inserted (mkdirSync of the
+    // scratch dir fails first), so no step events fire — but run.started,
+    // run.updated, and run.finished still bracket the lifecycle.
+    expect(seen).toEqual([
+      { type: "run.started", id: runId as string },
+      { type: "run.updated", id: runId as string, status: "failed" },
+      {
+        type: "run.finished",
+        id: runId as string,
+        status: "failed",
+        workflowName: "throwy-bus",
+      },
+    ]);
   });
 });

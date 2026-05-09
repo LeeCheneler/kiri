@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { runSteps, runs } from "../db/schema.ts";
+import type { EventBus } from "../events/index.ts";
 import { type WorkflowDefinition, type WorkflowStep, isUseStep } from "../workflows/index.ts";
 import { runStep } from "./run-step.ts";
 
@@ -11,6 +12,8 @@ export interface RunWorkflowArgs {
   cwd: string;
   /** Where the run was triggered from — recorded on the `runs` row. Currently `"manual"`; cron and MCP triggers will use distinct values. */
   trigger: string;
+  /** Optional event bus. When supplied, the runner publishes lifecycle events at run/step transitions. */
+  bus?: EventBus;
 }
 
 export interface RunWorkflowResult {
@@ -133,6 +136,8 @@ export async function runWorkflow(
     })
     .run();
 
+  args.bus?.publish({ type: "run.started", id: runId });
+
   let status: "ok" | "failed" = "ok";
   let runError: { message: string; stack?: string } | undefined;
   let caughtThrow: unknown;
@@ -156,6 +161,8 @@ export async function runWorkflow(
         })
         .run();
 
+      args.bus?.publish({ type: "run.step.updated", runId, step: i, status: "running" });
+
       const envelope = await runStep({
         step,
         cwd: args.cwd,
@@ -173,6 +180,13 @@ export async function runWorkflow(
         })
         .where(eq(runSteps.id, stepId))
         .run();
+
+      args.bus?.publish({
+        type: "run.step.updated",
+        runId,
+        step: i,
+        status: envelope.status,
+      });
 
       if (envelope.status === "failed") {
         status = "failed";
@@ -198,6 +212,20 @@ export async function runWorkflow(
     .set({ status, finishedAt: new Date(), error: runError ?? null })
     .where(eq(runs.id, runId))
     .run();
+
+  // run.updated paired with run.finished so consumers that only watch
+  // status transitions still see the terminal flip; run.finished carries
+  // workflowName so completion toasts can render without a refetch.
+  // Published before scratch-dir teardown so a teardown error can't
+  // suppress the lifecycle events that downstream views depend on.
+  args.bus?.publish({ type: "run.updated", id: runId, status });
+  args.bus?.publish({
+    type: "run.finished",
+    id: runId,
+    status,
+    workflowName: definition.name,
+  });
+
   rmSync(scratchDir, { recursive: true, force: true });
 
   if (caughtThrow !== undefined) throw caughtThrow;
