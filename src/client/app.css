@@ -1,0 +1,119 @@
+:root {
+  color-scheme: light dark;
+}
+body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 0;
+  padding: 1rem;
+  line-height: 1.4;
+}
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1.5rem;
+}
+h1 {
+  margin: 0;
+}
+h2 {
+  margin: 1.5rem 0 0.5rem;
+}
+h3 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.95rem;
+}
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+}
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error {
+  color: #c33;
+}
+.workflow-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+.workflow-name {
+  font-weight: bold;
+}
+.workflow-meta {
+  opacity: 0.7;
+  font-size: 0.9rem;
+}
+.run-list li {
+  border-top: 1px solid currentColor;
+}
+.run-list li:first-child {
+  border-top: none;
+}
+.run-row {
+  display: grid;
+  grid-template-columns: 5rem 1fr auto auto;
+  gap: 0.75rem;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  font: inherit;
+  color: inherit;
+}
+.run-row:hover {
+  background: rgba(127, 127, 127, 0.08);
+}
+.status {
+  text-transform: uppercase;
+  font-weight: bold;
+}
+.status-ok {
+  color: #2a7;
+}
+.status-failed {
+  color: #c33;
+}
+.status-running {
+  color: #c80;
+}
+.orphan-badge {
+  opacity: 0.6;
+  font-style: italic;
+}
+.run-time,
+.run-duration {
+  opacity: 0.7;
+  font-size: 0.9rem;
+}
+.run-detail {
+  padding: 0.75rem 0 1rem;
+  border-left: 2px solid currentColor;
+  margin: 0 0 0 0.5rem;
+  padding-left: 0.75rem;
+}
+.detail-section {
+  margin-bottom: 0.75rem;
+}
+.detail-field {
+  margin: 0.25rem 0;
+}
+.detail-label {
+  opacity: 0.6;
+  font-size: 0.85rem;
+}
