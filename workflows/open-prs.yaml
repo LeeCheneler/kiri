@@ -10,3 +10,5 @@ steps:
       else
         echo "$prs"
       fi
+summarize:
+  use: claude-code-summarizer
