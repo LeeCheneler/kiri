@@ -5,9 +5,88 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kiri</title>
     <link rel="stylesheet" href="http://127.0.0.1:4242/app.css" crossorigin="anonymous" />
+    <style>
+      :root {
+        --canvas: #0e0f0d;
+        --paper: #1a1b19;
+        --ink: #e5dfd2;
+        --ink-muted: #8b8579;
+        --rule: #2a2a26;
+        --accent: #d6b85a;
+      }
+      html { background: var(--canvas); color: var(--ink); }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      #kiri-offline {
+        opacity: 0;
+        visibility: hidden;
+        max-width: 36rem;
+        margin: 0 auto;
+        padding: 5rem 2rem;
+        transition: opacity 240ms ease-out;
+      }
+      #kiri-offline[data-state="shown"] {
+        opacity: 1;
+        visibility: visible;
+      }
+      #kiri-offline h1 {
+        font-family: "Iowan Old Style", Palatino, Georgia, serif;
+        font-style: italic;
+        font-weight: 400;
+        font-size: 2.25rem;
+        line-height: 1;
+        margin: 0 0 1.5rem;
+      }
+      #kiri-offline p { margin: 0 0 1.25rem; }
+      #kiri-offline pre {
+        background: var(--paper);
+        border: 1px solid var(--rule);
+        color: var(--accent);
+        padding: 0.75rem 1rem;
+        margin: 0 0 1.5rem;
+        overflow-x: auto;
+      }
+      #kiri-offline a {
+        color: var(--accent);
+        text-underline-offset: 2px;
+      }
+      #kiri-offline a:hover { color: var(--ink); }
+      #kiri-offline .note {
+        margin-top: 2.5rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--rule);
+        color: var(--ink-muted);
+        font-size: 0.85rem;
+      }
+      #kiri-offline .note a { color: var(--ink); }
+      @media (prefers-reduced-motion: reduce) {
+        #kiri-offline { transition-duration: 0.01ms; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="http://127.0.0.1:4242/app.js" crossorigin="anonymous"></script>
+    <div id="kiri-offline" aria-live="polite">
+      <h1>kiri isn't running</h1>
+      <p>Open a terminal in the repo you want kiri to manage, then run:</p>
+      <pre>kiri</pre>
+      <p>First time? See the <a href="/docs">docs</a> for install instructions.</p>
+      <p class="note">Safari or Brave? Open <a href="http://localhost:4242">http://localhost:4242</a> directly — those browsers block HTTPS pages from loading HTTP localhost subresources.</p>
+    </div>
+    <script type="module" src="http://127.0.0.1:4242/app.js" crossorigin="anonymous" onerror="window.__kiriOffline()"></script>
+    <script>
+      window.__kiriOffline = function () {
+        var panel = document.getElementById("kiri-offline");
+        if (!panel || panel.dataset.state === "shown") return;
+        if (document.getElementById("root").children.length > 0) return;
+        panel.dataset.state = "shown";
+      };
+      setTimeout(window.__kiriOffline, 1500);
+    </script>
   </body>
 </html>
