@@ -20,6 +20,13 @@ export const runs = sqliteTable("runs", {
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   error: text("error", { mode: "json" }),
   definitionSnapshot: text("definition_snapshot", { mode: "json" }).notNull(),
+  /**
+   * Trimmed stdout of the workflow's `summarize:` step, when one is
+   * configured and exits successfully. Null on workflows without a
+   * summarize step, on cancelled runs (where the summariser is skipped),
+   * and on runs whose summariser failed.
+   */
+  summary: text("summary"),
 });
 
 /**
@@ -47,6 +54,13 @@ export const runSteps = sqliteTable(
     traces: text("traces", { mode: "json" }),
     usage: text("usage", { mode: "json" }),
     materials: text("materials", { mode: "json" }).notNull(),
+    /**
+     * Marks the row as the workflow's `summarize:` execution rather than
+     * a member of the `steps:` pipeline. Set on the single summariser row
+     * a run produces; the UI hides these from the main step list and
+     * surfaces them in a dedicated section.
+     */
+    isSummary: integer("is_summary", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [index("run_steps_run_id_idx").on(t.runId)],
 );

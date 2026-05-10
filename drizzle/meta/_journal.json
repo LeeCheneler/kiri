@@ -22,6 +22,13 @@
       "when": 1778250000000,
       "tag": "0002_rename_run_nodes_to_run_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1778406035844,
+      "tag": "0003_add_run_summary_columns",
+      "breakpoints": true
     }
   ]
 }

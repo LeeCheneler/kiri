@@ -101,6 +101,122 @@ describe("db", () => {
     expect(count?.count).toBe(1);
   });
 
+  it("round-trips runs.summary and run_steps.is_summary", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-2",
+        workflowName: "summed",
+        status: "ok",
+        trigger: "manual",
+        startedAt: new Date(1_700_000_000_000),
+        definitionSnapshot: { name: "summed", steps: [] },
+        summary: "two steps ran cleanly.",
+      })
+      .run();
+
+    db.insert(runSteps)
+      .values({
+        id: "summary-1",
+        runId: "run-2",
+        index: 0,
+        kind: "use",
+        status: "ok",
+        materials: { kind: "use", bundle: "claude-code-summarizer", files: {} },
+        isSummary: true,
+      })
+      .run();
+
+    const run = db.select().from(runs).where(eq(runs.id, "run-2")).get();
+    expect(run?.summary).toBe("two steps ran cleanly.");
+
+    const summaryStep = db.select().from(runSteps).where(eq(runSteps.id, "summary-1")).get();
+    expect(summaryStep?.isSummary).toBe(true);
+  });
+
+  it("defaults isSummary to false and summary to null on existing-shape inserts", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-3",
+        workflowName: "plain",
+        status: "ok",
+        trigger: "manual",
+        startedAt: new Date(),
+        definitionSnapshot: {},
+      })
+      .run();
+
+    db.insert(runSteps)
+      .values({
+        id: "step-1",
+        runId: "run-3",
+        index: 0,
+        kind: "sh",
+        status: "ok",
+        materials: { kind: "sh", source: "echo hi" },
+      })
+      .run();
+
+    const run = db.select().from(runs).where(eq(runs.id, "run-3")).get();
+    expect(run?.summary).toBeNull();
+
+    const step = db.select().from(runSteps).where(eq(runSteps.id, "step-1")).get();
+    expect(step?.isSummary).toBe(false);
+  });
+
+  it("adds summary and is_summary columns when migrating a pre-summary DB", () => {
+    const sqlite = db.$client;
+    sqlite.run(
+      "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
+    );
+    sqlite.run(`CREATE TABLE runs (
+      id TEXT PRIMARY KEY NOT NULL,
+      workflow_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      error TEXT,
+      definition_snapshot TEXT NOT NULL
+    )`);
+    sqlite.run(`CREATE TABLE run_steps (
+      id TEXT PRIMARY KEY NOT NULL,
+      run_id TEXT NOT NULL,
+      "index" INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      output TEXT,
+      error TEXT,
+      traces TEXT,
+      usage TEXT,
+      materials TEXT NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES runs(id)
+    )`);
+    sqlite.run("CREATE INDEX run_steps_run_id_idx ON run_steps (run_id)");
+    sqlite.run(
+      "INSERT INTO __kiri_migrations (name, applied_at) VALUES ('0000_initial', 0), ('0001_index_run_nodes_run_id', 0), ('0002_rename_run_nodes_to_run_steps', 0)",
+    );
+    sqlite.run(
+      "INSERT INTO runs (id, workflow_name, status, trigger, started_at, definition_snapshot) VALUES ('r1', 'wf', 'ok', 'manual', 0, '{}')",
+    );
+
+    migrate(db);
+
+    const runRow = sqlite
+      .query<{ summary: string | null }, []>("SELECT summary FROM runs WHERE id = 'r1'")
+      .get();
+    expect(runRow).toEqual({ summary: null });
+
+    const stepCols = sqlite
+      .query<{ name: string }, []>("PRAGMA table_info(run_steps)")
+      .all()
+      .map((r) => r.name);
+    expect(stepCols).toContain("is_summary");
+  });
+
   it("renames run_nodes → run_steps on a pre-rename DB and preserves rows", () => {
     const sqlite = db.$client;
     sqlite.run(
