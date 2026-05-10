@@ -25,6 +25,11 @@ export interface RunStartResult {
  * One row in the `GET /api/runs` feed. Timestamps are ISO strings (JSON
  * has no Date type); `isInterrupted` is true when no workflow with this
  * name exists in the registry — render the `(deleted)` badge in that case.
+ *
+ * `summary` carries the trimmed stdout of the workflow's `summarize:`
+ * step when one ran successfully — null on workflows without a
+ * summarise step, on cancelled runs (the summariser is skipped), and
+ * on runs whose summariser failed.
  */
 export interface RunListEntry {
   id: string;
@@ -34,11 +39,13 @@ export interface RunListEntry {
   startedAt: string;
   finishedAt: string | null;
   error: { message: string; stack?: string } | null;
+  summary: string | null;
   definitionSnapshot: {
     name: string;
     steps: WorkflowStepSummary[];
     gating?: "auto" | "propose";
     schedule?: string;
+    summarize?: WorkflowStepSummary;
   };
   isInterrupted: boolean;
 }
@@ -55,6 +62,10 @@ export type StepMaterials =
  * One per-step row inside a run detail. Carries the standard envelope
  * (`status`, `output`, `error`, `traces`, `usage`) and the `materials`
  * snapshot of the bytes that produced the step.
+ *
+ * `isSummary` distinguishes the workflow's `summarize:` execution from
+ * a regular pipeline step. The UI hides summariser rows from the main
+ * step list and surfaces them in a dedicated section.
  */
 export interface RunStepRow {
   id: string;
@@ -67,6 +78,7 @@ export interface RunStepRow {
   traces: { stdout: string; stderr: string; durationMs: number } | null;
   usage: unknown;
   materials: StepMaterials;
+  isSummary: boolean;
 }
 
 /** Full run as returned by `GET /api/runs/:id`: the run row plus its steps ordered by index. */

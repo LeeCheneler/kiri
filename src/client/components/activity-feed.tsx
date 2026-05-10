@@ -66,6 +66,9 @@ export function ActivityFeed({ runs, now }: { runs: RunListEntry[]; now?: Date }
                     </span>
                   )}
                 </div>
+                {run.summary && (
+                  <p className="mt-2 line-clamp-2 text-sm leading-snug text-ink">{run.summary}</p>
+                )}
                 <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-xs leading-none text-ink-muted">
                   <span className={`tracking-widest uppercase ${STATUS_TEXT[status]}`}>
                     {status}

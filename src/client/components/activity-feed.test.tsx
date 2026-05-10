@@ -17,6 +17,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   startedAt: new Date(NOW.getTime() - 3 * 60 * 1000).toISOString(),
   finishedAt: new Date(NOW.getTime() - 3 * 60 * 1000 + 12_000).toISOString(),
   error: null,
+  summary: null,
   definitionSnapshot: { name: "kiri-self-review", steps: [] },
   isInterrupted: false,
   ...overrides,
@@ -94,6 +95,18 @@ describe("<ActivityFeed>", () => {
     expect(screen.getByText(/failed/i)).toBeDefined();
     expect(screen.getByText(/3 minutes ago/i)).toBeDefined();
     expect(screen.getByText(/12s/i)).toBeDefined();
+  });
+
+  it("renders the summary text when present", () => {
+    renderFeed([stubRun({ summary: "reviewed the changes and flagged a regression in auth.ts." })]);
+    expect(
+      screen.getByText(/reviewed the changes and flagged a regression in auth\.ts\./i),
+    ).toBeDefined();
+  });
+
+  it("does not render a summary block when summary is null", () => {
+    const { container } = renderFeed([stubRun({ summary: null })]);
+    expect(container.querySelector("p.line-clamp-2")).toBeNull();
   });
 
   it("omits the duration text for runs that haven't finished", () => {

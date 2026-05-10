@@ -17,6 +17,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   startedAt: new Date(NOW.getTime() - 3 * 60 * 1000).toISOString(),
   finishedAt: new Date(NOW.getTime() - 3 * 60 * 1000 + 12_000).toISOString(),
   error: null,
+  summary: null,
   definitionSnapshot: { name: "kiri-self-review", steps: [] },
   isInterrupted: false,
   ...overrides,
@@ -33,6 +34,7 @@ const stubStep = (overrides: Partial<RunStepRow> = {}): RunStepRow => ({
   traces: { stdout: "hello, world", stderr: "", durationMs: 1_400 },
   usage: null,
   materials: { kind: "sh", source: "echo hello, world" },
+  isSummary: false,
   ...overrides,
 });
 
