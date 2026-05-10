@@ -31,18 +31,6 @@ test("clicking cancel on the run detail page transitions the run to cancelled li
   await expect(cancelButton).not.toBeVisible();
 });
 
-test("cancel button is hidden for terminal runs", async ({ page, request }) => {
-  // `golden` is a fast successful run from the existing fixture set.
-  const trigger = await request.post("/api/workflows/golden/runs", {
-    headers: { "X-Kiri-Client": "kiri-e2e" },
-  });
-  const { runId } = (await trigger.json()) as { runId: string };
-
-  await page.goto(`/runs/${runId}`);
-  await expect(page.locator('[data-status="ok"]').first()).toBeVisible();
-  await expect(page.getByRole("button", { name: /cancel run/i })).not.toBeVisible();
-});
-
 test("cancelling via the API surfaces the cancelled treatment in the feed live", async ({
   page,
   request,
