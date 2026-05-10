@@ -539,6 +539,56 @@ describe("runWorkflow", () => {
       expect(cancelRegistry.requestCancel(result.runId)).toBe(false);
     });
 
+    it("propagates cancel arriving during the summariser to the run status", async () => {
+      writeBundle("quick", "#!/bin/sh\necho done\n");
+      writeBundle("slow-summer", "#!/bin/sh\nexec 1>&- 2>&-; sleep 5\n");
+      const wf: WorkflowDefinition = {
+        name: "summed-cancel",
+        steps: [{ use: "quick" }],
+        summarize: { use: "slow-summer" },
+      };
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      const bus = createEventBus();
+
+      // Cancel as soon as the summariser starts running.
+      let target = "";
+      bus.subscribe((e) => {
+        if (
+          e.type === "run.step.updated" &&
+          e.runId === target &&
+          e.step === 1 &&
+          e.status === "running"
+        ) {
+          cancelRegistry.requestCancel(target);
+        }
+      });
+
+      const { runId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        bus,
+        cancelRegistry,
+      });
+      target = runId;
+
+      const result = await done;
+      expect(result.status).toBe("cancelled");
+
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("cancelled");
+      expect(run?.summary).toBeNull();
+      expect(run?.error).toEqual({ message: "run cancelled" });
+
+      const summaryStep = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .find((s) => s.isSummary);
+      expect(summaryStep?.status).toBe("cancelled");
+    });
+
     it("forwards the spawned child to the cancel registry via setChild", async () => {
       writeBundle("ok", "#!/bin/sh\necho ok\n");
       const wf = makeWorkflow("ok-run", useSteps("ok"));
@@ -560,6 +610,256 @@ describe("runWorkflow", () => {
 
       expect(result.status).toBe("ok");
       expect(setChildCalls).toEqual([result.runId]);
+    });
+  });
+
+  describe("summarize", () => {
+    it("writes the summariser's trimmed stdout to runs.summary on success", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("summer", "#!/bin/sh\necho '  workflow ran one step.  '\n");
+      const wf: WorkflowDefinition = {
+        name: "summed",
+        steps: [{ use: "step" }],
+        summarize: { use: "summer" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("workflow ran one step.");
+    });
+
+    it("records the summariser as a run_steps row with isSummary=true", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("summer", "#!/bin/sh\necho summary\n");
+      const wf: WorkflowDefinition = {
+        name: "summed",
+        steps: [{ use: "step" }],
+        summarize: { use: "summer" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      const stepsRows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+
+      expect(stepsRows).toHaveLength(2);
+      expect(stepsRows[0].isSummary).toBe(false);
+      expect(stepsRows[1].isSummary).toBe(true);
+      expect(stepsRows[1].kind).toBe("use");
+      expect(stepsRows[1].materials).toEqual({
+        kind: "use",
+        bundle: "summer",
+        files: { "run.sh": "#!/bin/sh\necho summary\n" },
+      });
+    });
+
+    it("works with an inline sh: summarize step", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      const wf: WorkflowDefinition = {
+        name: "summed-sh",
+        steps: [{ use: "step" }],
+        summarize: { sh: "echo inline-summary" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("inline-summary");
+
+      const summaryStep = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .find((s) => s.isSummary);
+      expect(summaryStep?.kind).toBe("sh");
+      expect(summaryStep?.materials).toEqual({ kind: "sh", source: "echo inline-summary" });
+    });
+
+    it("leaves runs.status unchanged when the summariser fails", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("bad-summer", "#!/bin/sh\necho oops >&2\nexit 7\n");
+      const wf: WorkflowDefinition = {
+        name: "summer-fails",
+        steps: [{ use: "step" }],
+        summarize: { use: "bad-summer" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.status).toBe("ok");
+      expect(run?.summary).toBeNull();
+      expect(run?.error).toBeNull();
+
+      const summaryStep = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .find((s) => s.isSummary);
+      expect(summaryStep?.status).toBe("failed");
+      expect(summaryStep?.error).not.toBeNull();
+    });
+
+    it("still summarises when the run itself failed", async () => {
+      writeBundle("boom", "#!/bin/sh\nexit 3\n");
+      writeBundle("summer", "#!/bin/sh\necho 'failed at step 1'\n");
+      const wf: WorkflowDefinition = {
+        name: "failed-summed",
+        steps: [{ use: "boom" }],
+        summarize: { use: "summer" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("failed");
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.status).toBe("failed");
+      expect(run?.summary).toBe("failed at step 1");
+    });
+
+    it("treats empty summariser output as null (not an empty string)", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("blank", "#!/bin/sh\necho '   '\n");
+      const wf: WorkflowDefinition = {
+        name: "blank-sum",
+        steps: [{ use: "step" }],
+        summarize: { use: "blank" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBeNull();
+    });
+
+    it("skips the summariser entirely when the run is cancelled", async () => {
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      writeBundle(
+        "summer-marker",
+        '#!/bin/sh\necho summer-ran > "$KIRI_REPO_ROOT/summer-marker"\necho summary\n',
+      );
+      const wf: WorkflowDefinition = {
+        name: "cancel-skip-sum",
+        steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }],
+        summarize: { use: "summer-marker" },
+      };
+
+      const { runId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        cancelRegistry,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      cancelRegistry.requestCancel(runId);
+
+      const result = await done;
+      expect(result.status).toBe("cancelled");
+
+      // No summariser row was inserted; the marker file does not exist.
+      expect(existsSync(join(cwd, "summer-marker"))).toBe(false);
+      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, runId)).all();
+      expect(stepsRows.some((s) => s.isSummary)).toBe(false);
+
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.summary).toBeNull();
+    });
+
+    it("exposes KIRI_RUN_CONTEXT_FILE pointing at the run envelope JSON", async () => {
+      writeBundle("step", "#!/bin/sh\necho hello\n");
+      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      const wf: WorkflowDefinition = {
+        name: "ctx",
+        steps: [{ use: "step" }],
+        summarize: { use: "context-dump" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      const summary = run?.summary;
+      expect(summary).toBeDefined();
+      // Summariser stdout was a JSON blob piped through `cat`.
+      const parsed = JSON.parse(summary as string);
+      expect(parsed.workflow).toBe("ctx");
+      expect(parsed.status).toBe("ok");
+      expect(typeof parsed.startedAt).toBe("string");
+      expect(typeof parsed.durationMs).toBe("number");
+      expect(parsed.steps).toEqual([
+        expect.objectContaining({
+          index: 0,
+          kind: "use",
+          use: "step",
+          status: "ok",
+          stdout: "hello\n",
+          stderr: "",
+          error: null,
+        }),
+      ]);
+    });
+
+    it("publishes summariser step events between run.step.updated and run.updated", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("summer", "#!/bin/sh\necho summary\n");
+      const wf: WorkflowDefinition = {
+        name: "events",
+        steps: [{ use: "step" }],
+        summarize: { use: "summer" },
+      };
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((e) => seen.push(e));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus }).done;
+      expect(result.status).toBe("ok");
+      expect(seen).toEqual([
+        { type: "run.started", id: result.runId },
+        { type: "run.step.updated", runId: result.runId, step: 0, status: "running" },
+        { type: "run.step.updated", runId: result.runId, step: 0, status: "ok" },
+        { type: "run.step.updated", runId: result.runId, step: 1, status: "running" },
+        { type: "run.step.updated", runId: result.runId, step: 1, status: "ok" },
+        { type: "run.updated", id: result.runId, status: "ok" },
+        { type: "run.finished", id: result.runId, status: "ok", workflowName: "events" },
+      ]);
+    });
+
+    it("snapshots summarize onto definitionSnapshot", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("summer", "#!/bin/sh\necho summary\n");
+      const wf: WorkflowDefinition = {
+        name: "snap-sum",
+        steps: [{ use: "step" }],
+        summarize: { use: "summer", env: { KEEP: "yes" } },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.definitionSnapshot).toMatchObject({
+        name: "snap-sum",
+        summarize: { use: "summer", env: { KEEP: "yes" } },
+      });
+    });
+
+    it("does not record a summariser row for workflows without summarize", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      const wf = makeWorkflow("plain", useSteps("step"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+      expect(stepsRows).toHaveLength(1);
+      expect(stepsRows[0].isSummary).toBe(false);
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBeNull();
     });
   });
 });

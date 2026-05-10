@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
@@ -43,7 +43,22 @@ interface DefinitionSnapshot {
   steps: WorkflowStep[];
   gating?: "auto" | "propose";
   schedule?: string;
+  summarize?: WorkflowStep;
 }
+
+/**
+ * Per-step record accumulated during execution and serialised into the
+ * run-context JSON file the summariser reads. Carries each step's
+ * outcome so the summariser has full context without a DB round-trip.
+ */
+type ExecutedStep = ({ kind: "use"; use: string } | { kind: "sh"; sh: string }) & {
+  index: number;
+  status: "ok" | "failed" | "cancelled";
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+  error: { message: string; stack?: string } | null;
+};
 
 /**
  * Per-step materials snapshot persisted to `run_steps.materials`.
@@ -62,6 +77,7 @@ const snapshotDefinition = (def: WorkflowDefinition): DefinitionSnapshot => ({
   steps: def.steps.map((s) => ({ ...s })),
   gating: def.gating,
   schedule: def.schedule,
+  summarize: def.summarize ? { ...def.summarize } : undefined,
 });
 
 const snapshotBundle = (bundleDir: string): Record<string, string> => {
@@ -147,6 +163,7 @@ export function runWorkflow(
 ): StartedRun {
   const runId = crypto.randomUUID();
   const scratchDir = join(args.cwd, ".kiri", "runs", runId);
+  const startedAt = new Date();
 
   db.insert(runs)
     .values({
@@ -154,7 +171,7 @@ export function runWorkflow(
       workflowName: definition.name,
       status: "running",
       trigger: args.trigger,
-      startedAt: new Date(),
+      startedAt,
       definitionSnapshot: snapshotDefinition(definition),
     })
     .run();
@@ -169,6 +186,8 @@ export function runWorkflow(
     let status: "ok" | "failed" | "cancelled" = "ok";
     let runError: { message: string; stack?: string } | undefined;
     let caughtThrow: unknown;
+    let summaryText: string | null = null;
+    const executed: ExecutedStep[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
@@ -230,6 +249,19 @@ export function runWorkflow(
           status: stepStatus,
         });
 
+        const stepIdent: { kind: "use"; use: string } | { kind: "sh"; sh: string } = isUseStep(step)
+          ? { kind: "use", use: step.use }
+          : { kind: "sh", sh: step.sh };
+        executed.push({
+          ...stepIdent,
+          index: i,
+          status: stepStatus,
+          durationMs: envelope.traces.durationMs,
+          stdout: envelope.traces.stdout,
+          stderr: envelope.traces.stderr,
+          error: stepError,
+        });
+
         if (envelope.status === "failed") {
           status = cancelled ? "cancelled" : "failed";
           runError = cancelled ? { ...CANCELLED_ERROR } : envelope.error;
@@ -246,6 +278,99 @@ export function runWorkflow(
         status = "cancelled";
         runError = { ...CANCELLED_ERROR };
       }
+
+      // Summariser runs after the steps loop on `ok` and `failed` runs.
+      // Cancelled runs skip it: cancel = "stop now", spawning haiku
+      // defeats the user's intent. Failure here doesn't change the run's
+      // terminal status; the summariser is best-effort.
+      if (definition.summarize && status !== "cancelled") {
+        const summarizeStep = definition.summarize;
+        const summaryIndex = definition.steps.length;
+        const contextFile = join(scratchDir, "run-context.json");
+        writeFileSync(
+          contextFile,
+          JSON.stringify(
+            {
+              workflow: definition.name,
+              status,
+              startedAt: startedAt.toISOString(),
+              durationMs: Date.now() - startedAt.getTime(),
+              steps: executed,
+            },
+            null,
+            2,
+          ),
+        );
+
+        const materials = captureMaterials(summarizeStep, args.cwd);
+        const stepId = crypto.randomUUID();
+        db.insert(runSteps)
+          .values({
+            id: stepId,
+            runId,
+            index: summaryIndex,
+            kind: isUseStep(summarizeStep) ? "use" : "sh",
+            status: "running",
+            materials,
+            isSummary: true,
+          })
+          .run();
+
+        args.bus?.publish({
+          type: "run.step.updated",
+          runId,
+          step: summaryIndex,
+          status: "running",
+        });
+
+        const env = buildEnv(summarizeStep, runId, summaryIndex, args.cwd, scratchDir);
+        env.KIRI_RUN_CONTEXT_FILE = contextFile;
+
+        const envelope = await runStep({
+          step: summarizeStep,
+          cwd: args.cwd,
+          scratchDir,
+          input: "",
+          env,
+          onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
+        });
+
+        const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
+        const summaryStatus =
+          cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
+        const summaryError =
+          cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
+
+        db.update(runSteps)
+          .set({
+            status: summaryStatus,
+            output: envelope.output,
+            error: summaryError,
+            traces: envelope.traces,
+          })
+          .where(eq(runSteps.id, stepId))
+          .run();
+
+        args.bus?.publish({
+          type: "run.step.updated",
+          runId,
+          step: summaryIndex,
+          status: summaryStatus,
+        });
+
+        if (envelope.status === "ok" && !cancelled) {
+          const trimmed = envelope.output.trim();
+          if (trimmed.length > 0) summaryText = trimmed;
+        }
+
+        // Cancel mid-summariser flips the run to cancelled even if the
+        // earlier steps completed cleanly: the user pressed cancel, the
+        // run is cancelled, summary stays null.
+        if (cancelled && envelope.status === "failed") {
+          status = "cancelled";
+          runError = { ...CANCELLED_ERROR };
+        }
+      }
     } catch (cause) {
       // mkdirSync, drizzle, or any future surface that throws lands here.
       // Finalize state below before re-throwing so the runs row is never
@@ -259,7 +384,7 @@ export function runWorkflow(
     }
 
     db.update(runs)
-      .set({ status, finishedAt: new Date(), error: runError ?? null })
+      .set({ status, finishedAt: new Date(), error: runError ?? null, summary: summaryText })
       .where(eq(runs.id, runId))
       .run();
 
