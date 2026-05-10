@@ -167,8 +167,17 @@ steps:
       MAX_TURNS: "8"</code></pre>
       <p>The shipped <code>claude-code</code> bundle reads a prompt template, renders <code>{{VAR}}</code> placeholders from the environment, and spawns the Claude Code CLI.</p>
 
+      <h3>Piping output between steps</h3>
+      <p>Each step's stdout is piped into the next step's stdin. The first step receives empty stdin. <code>sh:</code> steps can read it with <code>cat</code>; bundles often slurp it into a variable themselves — the shipped <code>claude-code</code> bundle does <code>export KIRI_INPUT="$(cat)"</code> so prompt templates can reference <code>{{KIRI_INPUT}}</code>.</p>
+      <pre><code>name: greet
+steps:
+  - sh: echo "Lee"
+  - sh: |
+      name=$(cat)
+      echo "hello, $name"</code></pre>
+
       <h3>Step environment</h3>
-      <p>Every step runs in a fresh per-run scratch directory with a scoped env. User <code>env:</code> values apply first; the variables below overwrite on collision, so a workflow can't redirect <code>PATH</code> or shadow kiri's identity vars. The previous step's stdout is piped into the next step's stdin.</p>
+      <p>Every step runs in a fresh per-run scratch directory with a scoped env. User <code>env:</code> values apply first; the variables below overwrite on collision, so a workflow can't redirect <code>PATH</code> or shadow kiri's identity vars.</p>
       <dl>
         <dt><code>KIRI_RUN_ID</code></dt>
         <dd>The run's ID.</dd>
