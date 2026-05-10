@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kiri — Docs</title>
+    <meta name="description" content="A local-first, git-based workflow orchestrator for personal automation." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,30..100;1,9..144,400..700,30..100&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --canvas: #0e0f0d;
+        --paper: #1a1b19;
+        --ink: #e5dfd2;
+        --ink-muted: #8b8579;
+        --rule: #2a2a26;
+        --accent: #d6b85a;
+        --display: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
+        --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+      *, *::before, *::after { box-sizing: border-box; }
+      html {
+        background: var(--canvas);
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      a { color: var(--accent); text-underline-offset: 2px; }
+      a:hover { color: var(--ink); }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 4rem 2rem 8rem;
+      }
+      header { margin-bottom: 3rem; }
+      .wordmark {
+        font-family: var(--display);
+        font-style: italic;
+        font-weight: 400;
+        font-size: 2.5rem;
+        line-height: 1;
+        margin: 0;
+      }
+      .wordmark a { color: var(--ink); text-decoration: none; }
+      .wordmark a:hover { color: var(--accent); }
+      .tagline {
+        margin: 0.5rem 0 0;
+        color: var(--ink-muted);
+      }
+      h2, h3 {
+        font-family: var(--display);
+        font-weight: 400;
+        line-height: 1.15;
+        color: var(--ink);
+      }
+      h2 {
+        font-size: 1.6rem;
+        margin: 3rem 0 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--rule);
+      }
+      h3 {
+        font-size: 1.2rem;
+        margin: 2rem 0 0.75rem;
+      }
+      p { margin: 0 0 1rem; }
+      strong { color: var(--ink); font-weight: 600; }
+      code {
+        font-family: var(--mono);
+        font-size: 0.95em;
+        color: var(--accent);
+      }
+      pre {
+        background: var(--paper);
+        border: 1px solid var(--rule);
+        padding: 1rem 1.25rem;
+        margin: 0 0 1.25rem;
+        overflow-x: auto;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      pre code { color: var(--ink); font-size: inherit; }
+      dl { margin: 0 0 1.5rem; }
+      dt { margin-top: 0.85rem; }
+      dt:first-child { margin-top: 0; }
+      dd { margin: 0.25rem 0 0; }
+      .lede {
+        font-family: var(--display);
+        font-size: 1.2rem;
+        line-height: 1.5;
+        color: var(--ink);
+        margin: 0 0 2rem;
+      }
+      footer {
+        margin-top: 5rem;
+        padding-top: 2rem;
+        border-top: 1px solid var(--rule);
+        color: var(--ink-muted);
+        font-size: 0.85rem;
+      }
+      footer ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem;
+      }
+      footer a { color: var(--ink-muted); }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 class="wordmark"><a href="/">kiri</a></h1>
+        <p class="tagline">A local-first, git-based workflow orchestrator for personal automation.</p>
+      </header>
+
+      <p class="lede">Drop YAML workflows into <code>workflows/</code>, run <code>kiri</code> in the same directory, and trigger them from a feed-first UI on <a href="/">local.kiri.build</a>.</p>
+
+      <h2>Install</h2>
+      <p>Download the macOS ARM64 binary from the <a href="https://github.com/LeeCheneler/kiri/releases/latest">latest release</a> and put it on your <code>$PATH</code>:</p>
+      <pre><code>chmod +x ~/Downloads/kiri
+mv ~/Downloads/kiri /usr/local/bin/kiri
+kiri --help</code></pre>
+      <p>Building from source? See <a href="https://github.com/LeeCheneler/kiri/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p>
+
+      <h2>Quick start</h2>
+      <p>Kiri runs per-directory. Each working directory is its own workspace.</p>
+      <pre><code>cd ~/projects/some-workspace
+kiri init    # scaffold workflows/, scripts/, prompts/
+kiri         # boot on :4242</code></pre>
+      <p>Then open <a href="/">local.kiri.build</a> and click <strong>Run</strong> on the example workflow.</p>
+
+      <h2>Workflows</h2>
+      <p>Workflows live in <code>workflows/*.yaml</code>. Each has a name and one or more steps:</p>
+      <pre><code>name: hello
+steps:
+  - sh: echo "hello world"</code></pre>
+      <p>Edits are picked up live — no restart needed. The activity feed on <a href="/">local.kiri.build</a> is where runs surface.</p>
+
+      <h3>Inline shell — <code>sh:</code></h3>
+      <p>The simplest step. The string runs under <code>sh -c</code> with a scoped env. Useful for quick scripts that don't warrant a bundle:</p>
+      <pre><code>name: open-prs
+steps:
+  - sh: |
+      cd "$KIRI_REPO_ROOT"
+      gh pr list --state open</code></pre>
+
+      <h3>Bundle — <code>use:</code></h3>
+      <p>A reference to <code>scripts/&lt;name&gt;/run.sh</code> in your repo. Bundles are reusable, version-controlled scripts. The <code>env:</code> map sets per-step variables (keys starting with <code>KIRI_</code> are reserved):</p>
+      <pre><code>name: self-review
+steps:
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/self-review.tpl
+      MAX_TURNS: "8"</code></pre>
+      <p>The shipped <code>claude-code</code> bundle reads a prompt template, renders <code>{{VAR}}</code> placeholders from the environment, and spawns the Claude Code CLI.</p>
+
+      <h3>Step environment</h3>
+      <p>Every step runs in a fresh per-run scratch directory with a scoped env. User <code>env:</code> values apply first; the variables below overwrite on collision, so a workflow can't redirect <code>PATH</code> or shadow kiri's identity vars. The previous step's stdout is piped into the next step's stdin.</p>
+      <dl>
+        <dt><code>KIRI_RUN_ID</code></dt>
+        <dd>The run's ID.</dd>
+        <dt><code>KIRI_STEP_INDEX</code></dt>
+        <dd>Zero-based index of this step in the workflow.</dd>
+        <dt><code>KIRI_REPO_ROOT</code></dt>
+        <dd>Absolute path of the repo kiri is running against. Steps run in a scratch dir, so use this to reach the repo (<code>cd "$KIRI_REPO_ROOT"</code>).</dd>
+        <dt><code>KIRI_META_FILE</code></dt>
+        <dd>Path to a JSON file the step can write to attach meta (cost, tokens, anything) to the run envelope.</dd>
+        <dt><code>KIRI_BUNDLE_DIR</code></dt>
+        <dd>Absolute path to <code>scripts/&lt;name&gt;/</code>. Set only on <code>use:</code> steps. Useful for sourcing sidecar files shipped with the bundle.</dd>
+        <dt><code>PATH</code>, <code>HOME</code>, <code>USER</code>, <code>LOGNAME</code></dt>
+        <dd>Passed through from the kiri process so tools that authenticate as you (Keychain, ssh-agent, gpg) keep working.</dd>
+      </dl>
+      <p>Keys starting with <code>KIRI_</code> in your workflow's <code>env:</code> map are rejected at load time — the prefix is reserved.</p>
+
+      <h3>Summaries — <code>summarize:</code></h3>
+      <p>An optional post-run step whose stdout becomes the run's one-or-two-sentence feed-entry summary. Same shape as a step. Kiri ships a <code>claude-code-summarizer</code> bundle with the prompt baked in — drop it in and forget about it:</p>
+      <pre><code>name: hello
+steps:
+  - sh: echo "hello world"
+summarize:
+  use: claude-code-summarizer</code></pre>
+      <p>Summarize steps additionally receive <code>KIRI_RUN_CONTEXT_FILE</code> — a path to a JSON dump of the run envelope (workflow name, status, duration, per-step kind / status / duration / stdout / stderr / error). The summarizer formats this into its prompt.</p>
+
+      <h2>Trust model</h2>
+      <p>Kiri runs scripts with your user's permissions. <code>scripts/&lt;name&gt;/run.sh</code> and inline <code>sh:</code> steps are shell scripts you wrote into your own repo — kiri does not sandbox them. Treat them like any shell script you'd run yourself: read it before you use it.</p>
+      <p>The defences kiri does provide are external: the HTTP API binds to <code>127.0.0.1</code> only and requires a custom <code>X-Kiri-Client</code> header on state-changing requests, so other browser tabs and arbitrary LAN clients can't trigger workflow runs.</p>
+
+      <footer>
+        <ul>
+          <li><a href="https://github.com/LeeCheneler/kiri">GitHub</a></li>
+          <li><a href="https://github.com/LeeCheneler/kiri/blob/main/docs/design-notes.md">Design notes</a></li>
+          <li><a href="https://github.com/LeeCheneler/kiri/blob/main/docs/milestones.md">Milestones</a></li>
+        </ul>
+      </footer>
+    </main>
+  </body>
+</html>

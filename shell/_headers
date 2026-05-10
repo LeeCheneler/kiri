@@ -1,2 +1,5 @@
 /index.html
   Cache-Control: public, max-age=300
+
+/docs/index.html
+  Cache-Control: public, max-age=300
