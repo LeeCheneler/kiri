@@ -6,17 +6,27 @@ A local-first, git-based workflow orchestrator for personal automation. Triggere
 
 ## Install
 
-> Pre-built binaries will appear on the [Releases page](https://github.com/LeeCheneler/kiri/releases) once `v0.1.0` is cut. Until then, see [CONTRIBUTING.md](./CONTRIBUTING.md) for run-from-source instructions.
+macOS ARM64 only for now — [open an issue](https://github.com/LeeCheneler/kiri/issues) if you'd like another platform.
+
+```sh
+brew install LeeCheneler/kiri/kiri
+kiri --version
+```
+
+Homebrew auto-taps [`LeeCheneler/homebrew-kiri`](https://github.com/LeeCheneler/homebrew-kiri) on first install. To upgrade later, `brew upgrade kiri`.
+
+<details>
+<summary>Without Homebrew</summary>
 
 Download the macOS ARM64 binary from the [latest release](https://github.com/LeeCheneler/kiri/releases/latest), make it executable, and put it on your `$PATH`:
 
 ```sh
 chmod +x ~/Downloads/kiri
 mv ~/Downloads/kiri /usr/local/bin/kiri
-kiri --help
+kiri --version
 ```
 
-Other platforms aren't built yet — [open an issue](https://github.com/LeeCheneler/kiri/issues) if you'd like one.
+</details>
 
 ## Use
 
