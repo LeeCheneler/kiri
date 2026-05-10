@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import type { KiriDb } from "./db/index.ts";
 import { runSteps, runs } from "./db/schema.ts";
 import { type EventBus, mountEventsRoute } from "./events/index.ts";
+import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
 import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
 
@@ -24,6 +25,13 @@ export interface AppDeps {
   staticRoot?: string;
   bus?: EventBus;
   eventsHeartbeatMs?: number;
+  /**
+   * Cancel registry for in-flight runs. When supplied, triggered runs are
+   * registered with it (so their child processes can be reached) and
+   * `POST /api/runs/:id/cancel` is mounted. Without it, the cancel route
+   * is omitted entirely.
+   */
+  cancelRegistry?: CancelRegistry;
 }
 
 const DEFAULT_STATIC_ROOT = "./dist/client";
@@ -67,7 +75,15 @@ const parseListParam = (raw: string | undefined, fallback: number, max: number):
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const { db, registry, cwd, staticRoot = DEFAULT_STATIC_ROOT, bus, eventsHeartbeatMs } = deps;
+  const {
+    db,
+    registry,
+    cwd,
+    staticRoot = DEFAULT_STATIC_ROOT,
+    bus,
+    eventsHeartbeatMs,
+    cancelRegistry,
+  } = deps;
   const app = new Hono();
 
   // CORS allow-list for the hosted shell at https://local.kiri.build plus the
@@ -104,7 +120,12 @@ export function createApp(deps: AppDeps): Hono {
     const name = c.req.param("name");
     const wf = registry.getWorkflow(name);
     if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
-    const { runId, done } = runWorkflow(db, wf, { cwd, trigger: "manual", bus });
+    const { runId, done } = runWorkflow(db, wf, {
+      cwd,
+      trigger: "manual",
+      bus,
+      cancelRegistry,
+    });
     // Background execution: log unhandled rejections so they don't trip the
     // process-wide handler. The run row is finalised inside `done` before any
     // re-throw, so the DB stays consistent regardless.
@@ -113,6 +134,24 @@ export function createApp(deps: AppDeps): Hono {
     });
     return c.json({ runId, status: "running" }, 202);
   });
+
+  if (cancelRegistry) {
+    app.post("/api/runs/:id/cancel", (c) => {
+      const id = c.req.param("id");
+      const run = db.select().from(runs).where(eq(runs.id, id)).get();
+      if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+      if (run.status !== "running") {
+        return c.json({ error: `run "${id}" is not in flight` }, 409);
+      }
+      // requestCancel returns false only if the registry has no entry — i.e.
+      // the runner already released it in the small window between our DB
+      // read above and this call. Treat as already-terminal.
+      if (!cancelRegistry.requestCancel(id)) {
+        return c.json({ error: `run "${id}" is not in flight` }, 409);
+      }
+      return c.json({ runId: id }, 202);
+    });
+  }
 
   app.get("/api/runs", (c) => {
     const limit = parseListParam(c.req.query("limit"), DEFAULT_RUN_LIMIT, MAX_RUN_LIMIT);
