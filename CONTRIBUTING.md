@@ -5,7 +5,7 @@ Setup, development workflow, and deploy steps for working on kiri itself. For *u
 ## Prerequisites
 
 - [mise](https://mise.jdx.dev) — manages the Bun version pinned in `mise.toml`. Activate it in your shell (`eval "$(mise activate zsh)"`) so `bun` resolves to the project-pinned version automatically when you `cd` into the repo.
-- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for any workflow using the `claude-code` bundle (including the bundled `example` dogfood). `claude` must be on your `PATH` and signed in.
+- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for any workflow using the `claude-code` bundle (including the bundled `HackerNews Digest` dogfood). `claude` must be on your `PATH` and signed in.
 
 ## Install
 
@@ -31,15 +31,20 @@ bun start      # runs Hono; serves the built SPA + API at :4242
 
 The canonical user URL is `https://local.kiri.build` (the Pages-hosted shell). For local testing of the built SPA without going through the hosted shell, use `http://localhost:4242` directly.
 
-## Dogfood: `example`
+## Dogfood
 
-Kiri ships with the same 2-step `example` workflow that `kiri init` scaffolds for end users — step 1 echoes a name, step 2 runs `claude` against `prompts/example.tpl` to produce a one-sentence greeting using the `{{KIRI_INPUT}}` substitution. The kiri repo runs as a consumer of its own init output, so the example workflow is the end-to-end smoke test for the `claude-code` bundle.
+Kiri's `workflows/` directory ships a couple of real workflows the project uses on itself, so the kiri repo runs as a consumer of its own bundles. They double as manual smoke tests:
+
+- **PR Review Queue** — single `sh:` step running `gh search prs --review-requested=@me --state=open`. Exercises the bundle-less path and the summariser.
+- **HackerNews Digest** — `sh:` (curl + jq against the HN Firebase API) → `claude-code` (formats the JSON as markdown) → summariser. Exercises the `claude-code` bundle end to end.
+
+To smoke-test:
 
 1. `bun dev` and open the local URL.
-2. Find **example** in the workflow list and click **Run**.
-3. Refresh the feed. Click the new entry to expand it — you'll see the snapshotted bundle under *materials*, the agent's final message under the step's *output*, and full envelope traces alongside.
+2. Pick a workflow and click **Run**.
+3. Refresh the feed. Click the new entry to expand it — you'll see the snapshotted bundle under *materials*, each step's *output*, and full envelope traces alongside.
 
-The bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, the run is marked failed and the underlying error is visible in the expanded entry.
+The `claude-code` bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, runs that use it are marked failed and the underlying error is visible in the expanded entry. HackerNews Digest also requires `jq`.
 
 ## Tests
 

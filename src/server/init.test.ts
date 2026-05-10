@@ -7,8 +7,6 @@ import {
   CLAUDE_CODE_RUN_SCRIPT,
   CLAUDE_CODE_SUMMARIZER_README,
   CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT,
-  EXAMPLE_PROMPT_TPL,
-  EXAMPLE_WORKFLOW_YAML,
   KIRI_README,
   initRepo,
   writeSchemaFile,
@@ -53,14 +51,10 @@ describe("initRepo", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("scaffolds README, example workflow + prompt, claude-code + summarizer bundles, and schema on a fresh repo", () => {
+  it("scaffolds README, claude-code + summarizer bundles, and schema on a fresh repo", () => {
     const result = initRepo(cwd);
 
     expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe(KIRI_README);
-    expect(readFileSync(join(cwd, "workflows", "example.yaml"), "utf8")).toBe(
-      EXAMPLE_WORKFLOW_YAML,
-    );
-    expect(readFileSync(join(cwd, "prompts", "example.tpl"), "utf8")).toBe(EXAMPLE_PROMPT_TPL);
     expect(readFileSync(join(cwd, "scripts", "claude-code", "run.sh"), "utf8")).toBe(
       CLAUDE_CODE_RUN_SCRIPT,
     );
@@ -79,8 +73,6 @@ describe("initRepo", () => {
 
     expect(result.created).toEqual([
       "README.md",
-      "workflows/example.yaml",
-      "prompts/example.tpl",
       "scripts/claude-code/run.sh",
       "scripts/claude-code/README.md",
       "scripts/claude-code-summarizer/run.sh",
@@ -105,8 +97,6 @@ describe("initRepo", () => {
   it("does not overwrite user-authored scaffold files on re-run", () => {
     initRepo(cwd);
     writeFileSync(join(cwd, "README.md"), "user notes");
-    writeFileSync(join(cwd, "workflows", "example.yaml"), "name: mine\nsteps: []\n");
-    writeFileSync(join(cwd, "prompts", "example.tpl"), "user prompt");
     writeFileSync(join(cwd, "scripts", "claude-code", "run.sh"), "#!/bin/sh\necho mine-cc\n");
     writeFileSync(join(cwd, "scripts", "claude-code", "README.md"), "user cc notes");
     writeFileSync(
@@ -118,10 +108,6 @@ describe("initRepo", () => {
     const result = initRepo(cwd);
 
     expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe("user notes");
-    expect(readFileSync(join(cwd, "workflows", "example.yaml"), "utf8")).toBe(
-      "name: mine\nsteps: []\n",
-    );
-    expect(readFileSync(join(cwd, "prompts", "example.tpl"), "utf8")).toBe("user prompt");
     expect(readFileSync(join(cwd, "scripts", "claude-code", "run.sh"), "utf8")).toBe(
       "#!/bin/sh\necho mine-cc\n",
     );
@@ -137,8 +123,6 @@ describe("initRepo", () => {
     expect(result.created).toEqual([]);
     expect(result.skipped).toEqual([
       "README.md",
-      "workflows/example.yaml",
-      "prompts/example.tpl",
       "scripts/claude-code/run.sh",
       "scripts/claude-code/README.md",
       "scripts/claude-code-summarizer/run.sh",
@@ -199,9 +183,9 @@ describe("initRepo", () => {
 });
 
 // Drift guard: this repo runs as a consumer of its own `kiri init` —
-// the example workflow + prompt + claude-code bundle are checked in
-// alongside the init scaffold constants. If anyone edits one without
-// the other, fail fast — the constant is the source of truth.
+// the claude-code + summarizer bundles are checked in alongside the
+// init scaffold constants. If anyone edits one without the other,
+// fail fast — the constant is the source of truth.
 describe("checked-in init artifacts (dogfood drift guard)", () => {
   const repoRoot = join(import.meta.dir, "..", "..");
 
@@ -229,15 +213,5 @@ describe("checked-in init artifacts (dogfood drift guard)", () => {
       "utf8",
     );
     expect(tracked).toBe(CLAUDE_CODE_SUMMARIZER_README);
-  });
-
-  it("workflows/example.yaml matches EXAMPLE_WORKFLOW_YAML", () => {
-    const tracked = readFileSync(join(repoRoot, "workflows", "example.yaml"), "utf8");
-    expect(tracked).toBe(EXAMPLE_WORKFLOW_YAML);
-  });
-
-  it("prompts/example.tpl matches EXAMPLE_PROMPT_TPL", () => {
-    const tracked = readFileSync(join(repoRoot, "prompts", "example.tpl"), "utf8");
-    expect(tracked).toBe(EXAMPLE_PROMPT_TPL);
   });
 });

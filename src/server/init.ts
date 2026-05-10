@@ -83,8 +83,7 @@ sync after you upgrade kiri.
 
 ### VS Code (Red Hat YAML extension)
 
-The simplest setup is the modeline at the top of each workflow file (the
-generated \`workflows/example.yaml\` has one):
+The simplest setup is a modeline at the top of each workflow file:
 
 \`\`\`yaml
 # yaml-language-server: $schema=../.kiri/workflow.schema.json
@@ -108,23 +107,6 @@ Map \`.kiri/workflow.schema.json\` to \`workflows/*.yaml\`.
 ## Re-running \`kiri init\`
 
 Safe — existing files are never overwritten; only the schema is refreshed.
-`;
-
-/** Contents of the scaffolded `workflows/example.yaml`. */
-export const EXAMPLE_WORKFLOW_YAML = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
-
-name: example
-steps:
-  - sh: echo "Lee"
-  - use: claude-code
-    env:
-      PROMPT_FILE: prompts/example.tpl
-summarize:
-  use: claude-code-summarizer
-`;
-
-/** Contents of the scaffolded `prompts/example.tpl`. */
-export const EXAMPLE_PROMPT_TPL = `Say a friendly one-sentence hello to {{KIRI_INPUT}}.
 `;
 
 /** Contents of the scaffolded `scripts/claude-code/run.sh`. */
@@ -402,8 +384,6 @@ clear error if it isn't.
 /** Relative paths reported by `initRepo`. */
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
 const README_REL_PATH = "README.md";
-const EXAMPLE_REL_PATH = "workflows/example.yaml";
-const EXAMPLE_PROMPT_REL_PATH = "prompts/example.tpl";
 const CLAUDE_CODE_RUN_REL_PATH = "scripts/claude-code/run.sh";
 const CLAUDE_CODE_README_REL_PATH = "scripts/claude-code/README.md";
 const CLAUDE_CODE_SUMMARIZER_RUN_REL_PATH = "scripts/claude-code-summarizer/run.sh";
@@ -472,20 +452,18 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 };
 
 /**
- * Bootstrap a kiri-ready repo at `cwd`: scaffold `workflows/` with a README
- * and a 2-step example workflow, drop in the example prompt template and
- * `claude-code` bundle, (re)write the JSON Schema file, and add `.kiri/`
- * to `.gitignore` if one exists. User-authored files are never
- * overwritten — only missing files are created. The schema file is
- * always refreshed.
+ * Bootstrap a kiri-ready repo at `cwd`: create an empty `workflows/`
+ * directory, drop in a repo README plus the `claude-code` and
+ * `claude-code-summarizer` bundles, (re)write the JSON Schema file,
+ * and add `.kiri/` to `.gitignore` if one exists. User-authored
+ * files are never overwritten — only missing files are created. The
+ * schema file is always refreshed.
  */
 export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
-  const promptsDir = join(cwd, "prompts");
   const claudeCodeBundleDir = join(cwd, "scripts", "claude-code");
   const claudeCodeSummarizerBundleDir = join(cwd, "scripts", "claude-code-summarizer");
   mkdirSync(workflowsDir, { recursive: true });
-  mkdirSync(promptsDir, { recursive: true });
   mkdirSync(claudeCodeBundleDir, { recursive: true });
   mkdirSync(claudeCodeSummarizerBundleDir, { recursive: true });
 
@@ -493,20 +471,6 @@ export function initRepo(cwd: string): InitResult {
   const skipped: string[] = [];
 
   writeIfMissing(join(cwd, "README.md"), README_REL_PATH, KIRI_README, created, skipped);
-  writeIfMissing(
-    join(workflowsDir, "example.yaml"),
-    EXAMPLE_REL_PATH,
-    EXAMPLE_WORKFLOW_YAML,
-    created,
-    skipped,
-  );
-  writeIfMissing(
-    join(promptsDir, "example.tpl"),
-    EXAMPLE_PROMPT_REL_PATH,
-    EXAMPLE_PROMPT_TPL,
-    created,
-    skipped,
-  );
   writeIfMissing(
     join(claudeCodeBundleDir, "run.sh"),
     CLAUDE_CODE_RUN_REL_PATH,
