@@ -119,6 +119,8 @@ steps:
   - use: claude-code
     env:
       PROMPT_FILE: prompts/example.tpl
+summarize:
+  use: claude-code-summarizer
 `;
 
 /** Contents of the scaffolded `prompts/example.tpl`. */
