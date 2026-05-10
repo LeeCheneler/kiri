@@ -545,6 +545,89 @@ describe("createApp", () => {
     });
   });
 
+  describe("embedded SPA", () => {
+    const SHELL = '<!doctype html><html><body><div id="root"></div></body></html>';
+    const JS = 'console.log("hi");';
+    const CSS = "body { color: red; }";
+    // 8-byte PNG signature — proves binary roundtrips through the handler.
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const enc = (s: string) => new TextEncoder().encode(s);
+    const embeddedFiles = () =>
+      new Map<string, Uint8Array>([
+        ["/index.html", enc(SHELL)],
+        ["/app.js", enc(JS)],
+        ["/app.css", enc(CSS)],
+        ["/assets/icon-abc123.png", PNG],
+      ]);
+
+    it("serves embedded /app.js with the right Content-Type and no-store", async () => {
+      const app = createApp({ db, registry, cwd, embeddedFiles: embeddedFiles() });
+      const res = await app.request("/app.js");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("javascript");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(await res.text()).toBe(JS);
+    });
+
+    it("serves embedded /app.css with the right Content-Type and no-store", async () => {
+      const app = createApp({ db, registry, cwd, embeddedFiles: embeddedFiles() });
+      const res = await app.request("/app.css");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("css");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(await res.text()).toBe(CSS);
+    });
+
+    it("serves the embedded shell for the root path with no-store", async () => {
+      const app = createApp({ db, registry, cwd, embeddedFiles: embeddedFiles() });
+      const res = await app.request("/");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("text/html");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(await res.text()).toBe(SHELL);
+    });
+
+    it("serves the embedded shell for client-side routes so refresh boots the app", async () => {
+      const app = createApp({ db, registry, cwd, embeddedFiles: embeddedFiles() });
+      const res = await app.request("/runs/abc-123");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("text/html");
+      expect(await res.text()).toBe(SHELL);
+    });
+
+    it("does not intercept unknown /api/* paths even when embedded is active", async () => {
+      const app = createApp({ db, registry, cwd, embeddedFiles: embeddedFiles() });
+      const res = await app.request("/api/nope");
+      expect(res.status).toBe(404);
+    });
+
+    it("serves hashed /assets/* with image content-type and an immutable cache", async () => {
+      const app = createApp({ db, registry, cwd, embeddedFiles: embeddedFiles() });
+      const res = await app.request("/assets/icon-abc123.png");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe("image/png");
+      expect(res.headers.get("Cache-Control")).toContain("immutable");
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+    });
+
+    it("uses disk over embedded when both are supplied (explicit override wins)", async () => {
+      const root = join(cwd, "disk-shell");
+      mkdirSync(root, { recursive: true });
+      writeFileSync(join(root, "index.html"), "<html>from-disk</html>");
+      const app = createApp({
+        db,
+        registry,
+        cwd,
+        staticRoot: root,
+        embeddedFiles: embeddedFiles(),
+      });
+
+      const res = await app.request("/runs/abc-123");
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("<html>from-disk</html>");
+    });
+  });
+
   describe("POST /api/runs/:id/cancel", () => {
     it("is not mounted when no cancel registry is supplied", async () => {
       const app = createApp({ db, registry, cwd });

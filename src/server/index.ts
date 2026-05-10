@@ -4,6 +4,7 @@ import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import type { KiriDb } from "./db/index.ts";
 import { runSteps, runs } from "./db/schema.ts";
+import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute } from "./events/index.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
@@ -11,11 +12,18 @@ import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
- * workflow registry, and the repo root passed to the runner. `staticRoot`
- * locates the built SPA bundle and defaults to the prod path; tests pass a
- * fixture directory. `bus`, when supplied, is forwarded to the runner so
- * triggered runs publish lifecycle events to downstream consumers, and
- * mounts `GET /api/events` so clients can stream those events live.
+ * workflow registry, and the repo root passed to the runner.
+ *
+ * `staticRoot` locates the built SPA bundle on disk. When omitted and the
+ * `embedded-assets.ts` module has been populated by the release pipeline
+ * (i.e. inside a compiled binary), the SPA is served from memory instead
+ * and `staticRoot` is ignored. Tests and `bun start` from this repo
+ * pass `staticRoot` explicitly; the empty stub keeps embedded mode
+ * dormant on the main branch.
+ *
+ * `bus`, when supplied, is forwarded to the runner so triggered runs
+ * publish lifecycle events to downstream consumers, and mounts
+ * `GET /api/events` so clients can stream those events live.
  * `eventsHeartbeatMs` overrides the SSE keep-alive cadence (test hook).
  */
 export interface AppDeps {
@@ -32,9 +40,48 @@ export interface AppDeps {
    * is omitted entirely.
    */
   cancelRegistry?: CancelRegistry;
+  /**
+   * Inject the embedded-SPA map directly (test seam). Production reads
+   * from `embedded-assets.ts`; tests pass a `Map` to exercise the
+   * embedded code path without going through `bun build --compile`.
+   * Ignored when `staticRoot` is also set — explicit disk path wins.
+   */
+  embeddedFiles?: Map<string, Uint8Array>;
 }
 
 const DEFAULT_STATIC_ROOT = "./dist/client";
+
+const CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+const contentTypeFor = (path: string): string => {
+  const dot = path.lastIndexOf(".");
+  const ext = dot === -1 ? "" : path.slice(dot).toLowerCase();
+  return CONTENT_TYPES[ext] ?? "application/octet-stream";
+};
+
+// Hashed bundle chunks under /assets/ carry content hashes in their name,
+// so they're safe to cache aggressively. Anything else (SPA shell + the
+// stable-named entry chunks) revalidates every load.
+const isHashedAsset = (path: string): boolean => path.startsWith("/assets/");
+const cacheControlFor = (path: string): string =>
+  isHashedAsset(path) ? "public, max-age=31536000, immutable" : "no-store";
 
 const summarizeWorkflow = (def: WorkflowDefinition) => ({
   name: def.name,
@@ -75,15 +122,14 @@ const parseListParam = (raw: string | undefined, fallback: number, max: number):
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const {
-    db,
-    registry,
-    cwd,
-    staticRoot = DEFAULT_STATIC_ROOT,
-    bus,
-    eventsHeartbeatMs,
-    cancelRegistry,
-  } = deps;
+  const { db, registry, cwd, bus, eventsHeartbeatMs, cancelRegistry } = deps;
+  // When the caller doesn't pin a disk path and the binary carries an
+  // embedded SPA (release pipeline overwrites `embedded-assets.ts` before
+  // compile), serve from memory. Otherwise fall back to disk so dev,
+  // tests, and `bun start` from this repo keep working off `dist/client`.
+  const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
+  const useEmbedded = deps.staticRoot === undefined && embeddedFiles.size > 0;
+  const staticRoot = useEmbedded ? null : (deps.staticRoot ?? DEFAULT_STATIC_ROOT);
   const app = new Hono();
 
   // CORS allow-list for the hosted shell at https://local.kiri.build plus the
@@ -200,24 +246,57 @@ export function createApp(deps: AppDeps): Hono {
     if (NO_STORE_PATHS.has(c.req.path)) c.header("Cache-Control", "no-store");
   });
 
-  // Serve real bundle files: /, /index.html, /app.{js,css}, hashed assets
-  // under /assets/. Hono's serveStatic finalises the response when a file
-  // matches and otherwise calls next(), so unknown paths fall through to
-  // the SPA fallback below.
-  app.use("*", serveStatic({ root: staticRoot }));
+  if (staticRoot === null) {
+    // Embedded SPA — assets baked into the compiled binary at release
+    // time. One handler covers everything: it looks the request path up
+    // in the map (mapping `/` to `/index.html`), falls back to the shell
+    // for unmatched client-side routes, and infers the Content-Type and
+    // cache policy from the path so future assets (images, fonts, hashed
+    // chunks under /assets/) need zero code changes.
+    app.get("*", (c, next) => {
+      const path = c.req.path;
+      if (path.startsWith("/api/")) return next();
 
-  // SPA fallback for client-side routes. serveStatic above doesn't rewrite
-  // unknown paths to index.html, so a refresh on /runs/:id would 404. Catch
-  // any unmatched GET that isn't an API call or a hashed asset and return
-  // the SPA shell. Same bytes as /index.html, so the same no-store policy
-  // applies — a fresh shell every load means client updates propagate.
-  app.get("*", (c, next) => {
-    if (c.finalized) return next();
-    const path = c.req.path;
-    if (path.startsWith("/api/") || path.startsWith("/assets/")) return next();
-    c.header("Cache-Control", "no-store");
-    return serveStatic({ root: staticRoot, path: "index.html" })(c, next);
-  });
+      const lookup = path === "/" ? "/index.html" : path;
+      const bytes = embeddedFiles.get(lookup);
+      if (bytes !== undefined) {
+        c.header("Cache-Control", cacheControlFor(lookup));
+        // Cast: Hono's c.body wants Uint8Array<ArrayBuffer> specifically;
+        // the bytes we hold are always ArrayBuffer-backed (TextEncoder /
+        // literal constructor / atob), never SharedArrayBuffer.
+        return c.body(bytes as Uint8Array<ArrayBuffer>, 200, {
+          "Content-Type": contentTypeFor(lookup),
+        });
+      }
+
+      // Client-side route (e.g. /runs/:id): return the shell so refresh
+      // boots the SPA. Same no-store policy as the stable-named entry chunks.
+      const shell = embeddedFiles.get("/index.html");
+      if (shell === undefined) return next();
+      c.header("Cache-Control", "no-store");
+      return c.body(shell as Uint8Array<ArrayBuffer>, 200, {
+        "Content-Type": "text/html; charset=utf-8",
+      });
+    });
+  } else {
+    // Disk-served SPA — dev, tests, and `bun start` from this repo. Hono's
+    // serveStatic finalises the response when a file matches and otherwise
+    // calls next(), so unknown paths fall through to the SPA shell below.
+    app.use("*", serveStatic({ root: staticRoot }));
+
+    // SPA fallback for client-side routes. serveStatic above doesn't rewrite
+    // unknown paths to index.html, so a refresh on /runs/:id would 404. Catch
+    // any unmatched GET that isn't an API call or a hashed asset and return
+    // the SPA shell. Same bytes as /index.html, so the same no-store policy
+    // applies — a fresh shell every load means client updates propagate.
+    app.get("*", (c, next) => {
+      if (c.finalized) return next();
+      const path = c.req.path;
+      if (path.startsWith("/api/") || path.startsWith("/assets/")) return next();
+      c.header("Cache-Control", "no-store");
+      return serveStatic({ root: staticRoot, path: "index.html" })(c, next);
+    });
+  }
 
   return app;
 }
