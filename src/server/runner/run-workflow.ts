@@ -5,6 +5,7 @@ import type { KiriDb } from "../db/index.ts";
 import { runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { type WorkflowDefinition, type WorkflowStep, isUseStep } from "../workflows/index.ts";
+import type { CancelRegistry } from "./cancel-registry.ts";
 import { runStep } from "./run-step.ts";
 
 export interface RunWorkflowArgs {
@@ -14,12 +15,16 @@ export interface RunWorkflowArgs {
   trigger: string;
   /** Optional event bus. When supplied, the runner publishes lifecycle events at run/step transitions. */
   bus?: EventBus;
+  /** Optional cancel registry. When supplied, the runner registers the run, publishes the active step's child handle for SIGTERM/SIGKILL, checks for cancellation between steps, and translates a cancel-induced step failure into a `cancelled` terminal status. */
+  cancelRegistry?: CancelRegistry;
 }
 
 export interface RunWorkflowResult {
   runId: string;
-  status: "ok" | "failed";
+  status: "ok" | "failed" | "cancelled";
 }
+
+const CANCELLED_ERROR = { message: "run cancelled" } as const;
 
 /**
  * Handle on a started run. `runId` is generated and the `runs` row is
@@ -154,10 +159,14 @@ export function runWorkflow(
     })
     .run();
 
+  // Register synchronously so a cancel request received between this
+  // function returning and the executor's first await never sees a
+  // running DB row that the registry doesn't know about.
+  args.cancelRegistry?.register(runId);
   args.bus?.publish({ type: "run.started", id: runId });
 
   const done = (async (): Promise<RunWorkflowResult> => {
-    let status: "ok" | "failed" = "ok";
+    let status: "ok" | "failed" | "cancelled" = "ok";
     let runError: { message: string; stack?: string } | undefined;
     let caughtThrow: unknown;
 
@@ -165,6 +174,8 @@ export function runWorkflow(
       mkdirSync(scratchDir, { recursive: true });
       let input = "";
       for (let i = 0; i < definition.steps.length; i++) {
+        if (args.cancelRegistry?.isCancelled(runId)) break;
+
         const step = definition.steps[i];
         const materials = captureMaterials(step, args.cwd);
 
@@ -188,13 +199,25 @@ export function runWorkflow(
           scratchDir,
           input,
           env: buildEnv(step, runId, i, args.cwd, scratchDir),
+          onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
         });
+
+        // A `failed` envelope produced after cancel was requested is the
+        // child reacting to our SIGTERM/SIGKILL — surface it as `cancelled`
+        // on the step row so the UI distinguishes "we stopped this" from
+        // "the script broke". An `ok` envelope is left as-is even if
+        // cancel was requested mid-execution: the step actually finished.
+        const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
+        const stepStatus =
+          cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
+        const stepError =
+          cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
 
         db.update(runSteps)
           .set({
-            status: envelope.status,
+            status: stepStatus,
             output: envelope.output,
-            error: envelope.error ?? null,
+            error: stepError,
             traces: envelope.traces,
           })
           .where(eq(runSteps.id, stepId))
@@ -204,16 +227,24 @@ export function runWorkflow(
           type: "run.step.updated",
           runId,
           step: i,
-          status: envelope.status,
+          status: stepStatus,
         });
 
         if (envelope.status === "failed") {
-          status = "failed";
-          // runStep always populates error on a failed envelope.
-          runError = envelope.error;
+          status = cancelled ? "cancelled" : "failed";
+          runError = cancelled ? { ...CANCELLED_ERROR } : envelope.error;
           break;
         }
+        if (cancelled) break;
         input = envelope.output;
+      }
+
+      // Loop ended without a step failure but cancel was requested — either
+      // before the first iteration or in the gap after a step's `ok`. The
+      // run is cancelled even though no step row was marked so.
+      if (status === "ok" && args.cancelRegistry?.isCancelled(runId)) {
+        status = "cancelled";
+        runError = { ...CANCELLED_ERROR };
       }
     } catch (cause) {
       // mkdirSync, drizzle, or any future surface that throws lands here.
@@ -231,6 +262,11 @@ export function runWorkflow(
       .set({ status, finishedAt: new Date(), error: runError ?? null })
       .where(eq(runs.id, runId))
       .run();
+
+    // Release after the DB flips terminal so a cancel request arriving in
+    // this window observes the run as already-terminal (409) rather than
+    // as a registered-but-no-entry inconsistency.
+    args.cancelRegistry?.release(runId);
 
     // run.updated paired with run.finished so consumers that only watch
     // status transitions still see the terminal flip; run.finished carries

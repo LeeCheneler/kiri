@@ -9,11 +9,16 @@
  * between steps so a cancel that arrives after the active step exits
  * still halts the workflow before the next step starts.
  */
+/** Minimal shape needed to stop a child — matches `Bun.Subprocess.kill`. */
+export interface ChildHandle {
+  kill(signal?: NodeJS.Signals | number): void;
+}
+
 export interface CancelRegistry {
   /** Mark `runId` as in-flight. Must be called synchronously at run start so the cancel HTTP handler never observes a window where the run is `running` in the DB but unknown to the registry. */
   register(runId: string): void;
   /** Publish the active step's child process. If cancel was already requested, the child is signalled immediately. */
-  setChild(runId: string, child: { kill: (signal: string) => void }): void;
+  setChild(runId: string, child: ChildHandle): void;
   /** Send the cancel signal. Returns `true` if the run was registered (the caller can map this to 202); `false` if unknown. Idempotent. */
   requestCancel(runId: string): boolean;
   /** Clear the entry and any pending SIGKILL timer. Call once when the run reaches a terminal state. */
@@ -29,17 +34,13 @@ export interface CancelRegistryOptions {
 
 interface Entry {
   cancelled: boolean;
-  child?: { kill: (signal: string) => void };
+  child?: ChildHandle;
   killTimer?: ReturnType<typeof setTimeout>;
 }
 
 const DEFAULT_SIGKILL_DELAY_MS = 2000;
 
-const armKillTimer = (
-  entry: Entry,
-  child: { kill: (signal: string) => void },
-  delayMs: number,
-): void => {
+const armKillTimer = (entry: Entry, child: ChildHandle, delayMs: number): void => {
   child.kill("SIGTERM");
   entry.killTimer = setTimeout(() => {
     child.kill("SIGKILL");

@@ -26,6 +26,12 @@ export interface RunStepArgs {
    * pass exactly what the step should see. Empty object means an empty env.
    */
   env: Record<string, string>;
+  /**
+   * Invoked synchronously after the child is spawned, with the live
+   * subprocess handle. The runner uses this to publish the handle to the
+   * cancel registry so an in-flight cancel can SIGTERM/SIGKILL the child.
+   */
+  onSpawn?: (proc: Bun.Subprocess) => void;
 }
 
 /**
@@ -39,7 +45,7 @@ export interface RunStepArgs {
  * with the cause in `error`.
  */
 export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
-  const { step, cwd, scratchDir, input, env } = args;
+  const { step, cwd, scratchDir, input, env, onSpawn } = args;
   const cmd = isUseStep(step) ? [bundleRunPath(cwd, step.use)] : ["sh", "-c", step.sh];
   const startedAt = performance.now();
 
@@ -55,6 +61,7 @@ export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
       stdout: "pipe",
       stderr: "pipe",
     });
+    onSpawn?.(proc);
     proc.stdin.write(input);
     // Awaiting `end()` waits for the buffer to drain to the OS pipe;
     // `write()` only queues into Bun's FileSink and returns synchronously.

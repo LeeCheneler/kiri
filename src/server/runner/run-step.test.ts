@@ -139,6 +139,25 @@ describe("runStep", () => {
     });
   });
 
+  describe("onSpawn callback", () => {
+    it("invokes onSpawn synchronously with the live subprocess handle", async () => {
+      const captured: Bun.Subprocess[] = [];
+      const envelope = await runStep({
+        step: { sh: "echo hi" },
+        cwd,
+        scratchDir,
+        input: "",
+        env: {},
+        onSpawn: (proc) => captured.push(proc),
+      });
+
+      expect(envelope.status).toBe("ok");
+      expect(captured).toHaveLength(1);
+      // Bun.Subprocess shape: a `kill` method the cancel registry will call.
+      expect(typeof captured[0].kill).toBe("function");
+    });
+  });
+
   describe("sh: steps", () => {
     it("runs an inline shell snippet via sh -c and reports ok on exit 0", async () => {
       const envelope = await runStep({

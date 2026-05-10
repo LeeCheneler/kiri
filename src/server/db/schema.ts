@@ -10,9 +10,9 @@ export const runs = sqliteTable("runs", {
   id: text("id").primaryKey(),
   workflowName: text("workflow_name").notNull(),
   /**
-   * Run lifecycle: `"running"` at insert → `"ok"` or `"failed"` when the
-   * runner finalizes. Feed-view consumers must handle all three states —
-   * in-flight rows render as live runs.
+   * Run lifecycle: `"running"` at insert → `"ok"`, `"failed"`, or
+   * `"cancelled"` when the runner finalizes. Feed-view consumers must
+   * handle all four states — in-flight rows render as live runs.
    */
   status: text("status").notNull(),
   trigger: text("trigger").notNull(),

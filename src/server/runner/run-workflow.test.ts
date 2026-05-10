@@ -8,6 +8,7 @@ import type { KiriDb } from "../db/index.ts";
 import { runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import type { WorkflowDefinition, WorkflowStep } from "../workflows/index.ts";
+import { createCancelRegistry } from "./cancel-registry.ts";
 import { runWorkflow } from "./run-workflow.ts";
 
 describe("runWorkflow", () => {
@@ -400,5 +401,158 @@ describe("runWorkflow", () => {
         workflowName: "throwy-bus",
       },
     ]);
+  });
+
+  describe("cancel handling", () => {
+    it("cancels a running step: run + step transition to cancelled, child is killed", async () => {
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      const wf: WorkflowDefinition = { name: "long", steps: [{ sh: "sleep 5" }] };
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((e) => seen.push(e));
+
+      const startedAt = Date.now();
+      const { runId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        bus,
+        cancelRegistry,
+      });
+
+      // Brief settle so the spawn's child is actually live before we signal it.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(cancelRegistry.requestCancel(runId)).toBe(true);
+
+      const result = await done;
+      expect(Date.now() - startedAt).toBeLessThan(2000);
+      expect(result.status).toBe("cancelled");
+
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("cancelled");
+      expect(run?.error).toEqual({ message: "run cancelled" });
+      expect(run?.finishedAt).toBeInstanceOf(Date);
+
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, runId)).get();
+      expect(step?.status).toBe("cancelled");
+      expect(step?.error).toEqual({ message: "run cancelled" });
+
+      expect(seen).toContainEqual({
+        type: "run.step.updated",
+        runId,
+        step: 0,
+        status: "cancelled",
+      });
+      expect(seen).toContainEqual({ type: "run.updated", id: runId, status: "cancelled" });
+      expect(seen).toContainEqual({
+        type: "run.finished",
+        id: runId,
+        status: "cancelled",
+        workflowName: "long",
+      });
+    });
+
+    it("escalates to SIGKILL when the child traps and ignores SIGTERM", async () => {
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 150 });
+      // `trap '' TERM` makes sh ignore SIGTERM. The busy `while :; do :; done`
+      // loop is a shell builtin (no fork), so killing sh closes the pipes —
+      // a forked `sleep` would orphan and hold stdout open, hanging the reader.
+      const wf: WorkflowDefinition = {
+        name: "untrappable",
+        steps: [{ sh: "trap '' TERM; while :; do :; done" }],
+      };
+
+      const startedAt = Date.now();
+      const { runId, done } = runWorkflow(db, wf, { cwd, trigger: "manual", cancelRegistry });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      cancelRegistry.requestCancel(runId);
+
+      const result = await done;
+      const elapsed = Date.now() - startedAt;
+
+      expect(result.status).toBe("cancelled");
+      // Took at least the grace period because SIGTERM was ignored.
+      expect(elapsed).toBeGreaterThanOrEqual(150);
+      expect(elapsed).toBeLessThan(2000);
+    });
+
+    it("inter-step cancel halts before the next step starts; earlier ok step stays ok", async () => {
+      writeBundle("first", "#!/bin/sh\necho first\n");
+      writeBundle("second", "#!/bin/sh\necho second\n");
+      const wf = makeWorkflow("two-step", useSteps("first", "second"));
+      const cancelRegistry = createCancelRegistry();
+      const bus = createEventBus();
+
+      // Cancel synchronously when step 0's `ok` event lands. The runner's
+      // `isCancelled` check at the top of iteration 1 picks it up and breaks.
+      let target = "";
+      bus.subscribe((e) => {
+        if (
+          e.type === "run.step.updated" &&
+          e.runId === target &&
+          e.step === 0 &&
+          e.status === "ok"
+        ) {
+          cancelRegistry.requestCancel(target);
+        }
+      });
+
+      const { runId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        bus,
+        cancelRegistry,
+      });
+      target = runId;
+
+      const result = await done;
+
+      expect(result.status).toBe("cancelled");
+
+      const stepRows = db.select().from(runSteps).where(eq(runSteps.runId, runId)).all();
+      // Only step 0 was inserted. The post-loop `cancelled` check flips the
+      // run row but leaves step 0's terminal `ok` intact.
+      expect(stepRows).toHaveLength(1);
+      expect(stepRows[0].status).toBe("ok");
+
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("cancelled");
+      expect(run?.error).toEqual({ message: "run cancelled" });
+    });
+
+    it("releases the registry entry on terminal transition", async () => {
+      writeBundle("ok", "#!/bin/sh\necho ok\n");
+      const wf = makeWorkflow("ok-run", useSteps("ok"));
+      const cancelRegistry = createCancelRegistry();
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual", cancelRegistry }).done;
+      expect(result.status).toBe("ok");
+
+      // requestCancel returns false because release() deleted the entry.
+      expect(cancelRegistry.requestCancel(result.runId)).toBe(false);
+    });
+
+    it("forwards the spawned child to the cancel registry via setChild", async () => {
+      writeBundle("ok", "#!/bin/sh\necho ok\n");
+      const wf = makeWorkflow("ok-run", useSteps("ok"));
+      const cancelRegistry = createCancelRegistry();
+      const setChildCalls: string[] = [];
+      const wrapped = {
+        ...cancelRegistry,
+        setChild(runId: string, child: { kill(signal?: NodeJS.Signals | number): void }) {
+          setChildCalls.push(runId);
+          cancelRegistry.setChild(runId, child);
+        },
+      };
+
+      const result = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        cancelRegistry: wrapped,
+      }).done;
+
+      expect(result.status).toBe("ok");
+      expect(setChildCalls).toEqual([result.runId]);
+    });
   });
 });

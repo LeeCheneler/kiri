@@ -2,11 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { createCancelRegistry } from "./cancel-registry.ts";
 
 const makeFakeChild = () => {
-  const signals: string[] = [];
+  const signals: (NodeJS.Signals | number)[] = [];
   return {
     signals,
-    kill(signal: string) {
-      signals.push(signal);
+    kill(signal?: NodeJS.Signals | number) {
+      if (signal !== undefined) signals.push(signal);
     },
   };
 };

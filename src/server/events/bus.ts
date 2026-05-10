@@ -13,8 +13,8 @@ export type KiriEvent =
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string };
 
-export type RunStatus = "running" | "ok" | "failed";
-export type StepStatus = "running" | "ok" | "failed";
+export type RunStatus = "running" | "ok" | "failed" | "cancelled";
+export type StepStatus = "running" | "ok" | "failed" | "cancelled";
 
 export type EventListener = (event: KiriEvent) => void;
 
