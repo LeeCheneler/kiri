@@ -197,6 +197,28 @@ Work items:
 - Multi-step summarisers (single step only, like a regular entry).
 - A separate `summary.updated` event — `run.finished` carries the terminal state and the summary lands before it fires.
 
+## M3.97 — Onboarding & docs
+
+Polish around the canonical URL. Three pieces: a friendly fallback when the hosted shell loads but no local kiri is running, a one-sheet docs site at `local.kiri.build/docs`, and a link to it from the running app's side panel.
+
+M2.5 set up `local.kiri.build` as the canonical entry point but explicitly punted on the "kiri not running" UI state — visitors who bookmark the URL and hit it cold currently see a blank page. Slotted ahead of M4 (cron) so the cold-load and discovery experience holds up before the surface area grows.
+
+Work items:
+
+- Hosted shell fallback: `shell/index.html` keeps its single-file, audit-by-sight shape. Add an inline pre-rendered instructions panel, hidden by default, fading in if the kiri bundle fails to load. Two detection paths combined — script `onerror` (immediate on connection-refused in Chromium/Firefox) and a 1.5s timeout backstop checking whether `#root` has children (covers Safari/Brave mixed-content blocking and any browser where `onerror` doesn't fire reliably). Panel content: heading, the `kiri` command in a code block, a link to the docs site for install instructions, and the existing Safari/Brave caveat pointing at `http://localhost:4242`.
+- One-sheet docs site at `shell/docs/index.html`, served at `https://local.kiri.build/docs` by Cloudflare Pages. Hand-written single file, same gov.uk-style design tokens as the running app for visual consistency. Sections: what kiri is, install (homebrew placeholder marked "coming soon" with a fallback to Releases / CONTRIBUTING.md), quick start, a minimal `steps:` workflow, `use:` bundle example, inline `sh:` example, `summarize:` example, trust-model summary, and links to GitHub / design-notes / milestones.
+- Side-panel docs link in `src/client/components/page-shell.tsx`, below the workflows nav in the left rail. Subtle treatment matching the existing smallcaps heading style, `target="_blank" rel="noopener"`, hardcoded to `https://local.kiri.build/docs` so it works whether the user opened the hosted shell or `http://localhost:4242` directly.
+
+**Done when:** visiting `https://local.kiri.build` with no local kiri running fades in clear instructions to start it; `/docs` is a published one-sheet covering install through `summarize:`; the running app links to the docs from the left rail.
+
+**Out of scope:**
+
+- Public homebrew tap — placeholder install command only; tap setup is gated on the repo going public.
+- Cron section in the docs — lands with M4.
+- Localised / translated docs.
+- Search or multi-page navigation in the docs site.
+- Per-tag deep links into the docs.
+
 ## M4 — Cron
 
 - In-process tick loop, runs while Hono is up
