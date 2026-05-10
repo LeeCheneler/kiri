@@ -654,4 +654,122 @@ describe("createApp", () => {
       expect(await res.json()).toEqual({ error: `run "${orphanId}" is not in flight` });
     });
   });
+
+  describe("cancelled runs surfaced through the API", () => {
+    const cancellableWf = (name: string): WorkflowDefinition => ({
+      name,
+      steps: [{ sh: "sleep 5" }],
+    });
+
+    const triggerAndCancel = async (
+      app: ReturnType<typeof createApp>,
+      name: string,
+      waitForFinished: (runId: string) => Promise<void>,
+    ): Promise<string> => {
+      const trigger = await app.request(`/api/workflows/${name}/runs`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      // Settle so the spawned child is live before the cancel signal lands.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const cancel = await app.request(`/api/runs/${runId}/cancel`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(cancel.status).toBe(202);
+      await waitForFinished(runId);
+      return runId;
+    };
+
+    it("renders a cancelled run on GET /api/runs/:id with cancelled step status and error", async () => {
+      const wf = cancellableWf("long");
+      registry.replace(new Map([[wf.name, wf]]));
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus, cancelRegistry });
+
+      const runId = await triggerAndCancel(app, "long", waitForFinished);
+
+      const res = await app.request(`/api/runs/${runId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        run: { status: string; error: { message: string } | null };
+        steps: Array<{ status: string; error: { message: string } | null }>;
+      };
+      expect(body.run.status).toBe("cancelled");
+      expect(body.run.error).toEqual({ message: "run cancelled" });
+      expect(body.steps).toHaveLength(1);
+      expect(body.steps[0].status).toBe("cancelled");
+      expect(body.steps[0].error).toEqual({ message: "run cancelled" });
+    });
+
+    it("includes cancelled runs in GET /api/runs with their cancelled status", async () => {
+      const wf = cancellableWf("long");
+      registry.replace(new Map([[wf.name, wf]]));
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus, cancelRegistry });
+
+      const runId = await triggerAndCancel(app, "long", waitForFinished);
+
+      const res = await app.request("/api/runs");
+      const body = (await res.json()) as Array<{ id: string; status: string }>;
+      const entry = body.find((r) => r.id === runId);
+      expect(entry?.status).toBe("cancelled");
+    });
+
+    it("returns 409 on a second cancel after the run has terminated (idempotent fail-stop)", async () => {
+      const wf = cancellableWf("long");
+      registry.replace(new Map([[wf.name, wf]]));
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus, cancelRegistry });
+
+      const runId = await triggerAndCancel(app, "long", waitForFinished);
+
+      const second = await app.request(`/api/runs/${runId}/cancel`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(second.status).toBe(409);
+      expect(await second.json()).toEqual({ error: `run "${runId}" is not in flight` });
+    });
+
+    it("publishes run.finished with status cancelled to the bus when cancelled via HTTP", async () => {
+      const wf = cancellableWf("long");
+      registry.replace(new Map([[wf.name, wf]]));
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      const finished = new Promise<void>((resolve) => {
+        bus.subscribe((e) => {
+          seen.push(e);
+          if (e.type === "run.finished") resolve();
+        });
+      });
+      const app = createApp({ db, registry, cwd, bus, cancelRegistry });
+
+      const trigger = await app.request("/api/workflows/long/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await app.request(`/api/runs/${runId}/cancel`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+
+      await finished;
+
+      expect(seen).toContainEqual({
+        type: "run.finished",
+        id: runId,
+        status: "cancelled",
+        workflowName: "long",
+      });
+      expect(seen).toContainEqual({ type: "run.updated", id: runId, status: "cancelled" });
+    });
+  });
 });
