@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kiri</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,30..100;1,9..144,400..700,30..100&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="http://127.0.0.1:4242/app.css" crossorigin="anonymous" />
     <style>
       :root {
@@ -18,7 +24,7 @@
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
         font-size: 14px;
         line-height: 1.55;
       }
@@ -35,12 +41,14 @@
         visibility: visible;
       }
       #kiri-offline h1 {
-        font-family: "Iowan Old Style", Palatino, Georgia, serif;
+        font-family: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
         font-style: italic;
         font-weight: 400;
         font-size: 2.25rem;
         line-height: 1;
         margin: 0 0 1.5rem;
+        font-optical-sizing: auto;
+        font-variation-settings: "SOFT" 50;
       }
       #kiri-offline p { margin: 0 0 1.25rem; }
       #kiri-offline pre {
