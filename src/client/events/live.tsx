@@ -13,17 +13,17 @@ export type KiriEventType =
 /** Mirrors the server's discriminated union; payloads are thin invalidation signals. */
 export type KiriEvent =
   | { type: "run.started"; id: string }
-  | { type: "run.updated"; id: string; status: "running" | "ok" | "failed" }
+  | { type: "run.updated"; id: string; status: "running" | "ok" | "failed" | "cancelled" }
   | {
       type: "run.step.updated";
       runId: string;
       step: number;
-      status: "running" | "ok" | "failed";
+      status: "running" | "ok" | "failed" | "cancelled";
     }
   | {
       type: "run.finished";
       id: string;
-      status: "running" | "ok" | "failed";
+      status: "running" | "ok" | "failed" | "cancelled";
       workflowName: string;
     }
   | { type: "workflow.added"; name: string }

@@ -18,7 +18,7 @@ export interface WorkflowSummary {
  */
 export interface RunStartResult {
   runId: string;
-  status: "running" | "ok" | "failed";
+  status: "running" | "ok" | "failed" | "cancelled";
 }
 
 /**
@@ -29,7 +29,7 @@ export interface RunStartResult {
 export interface RunListEntry {
   id: string;
   workflowName: string;
-  status: "running" | "ok" | "failed";
+  status: "running" | "ok" | "failed" | "cancelled";
   trigger: string;
   startedAt: string;
   finishedAt: string | null;
@@ -61,7 +61,7 @@ export interface RunStepRow {
   runId: string;
   index: number;
   kind: string;
-  status: "running" | "ok" | "failed";
+  status: "running" | "ok" | "failed" | "cancelled";
   output: unknown;
   error: { message: string; stack?: string } | null;
   traces: { stdout: string; stderr: string; durationMs: number } | null;

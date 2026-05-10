@@ -64,6 +64,13 @@ describe("<RunDetailView>", () => {
       expect(status?.className).toContain("text-status-failed");
     });
 
+    it("renders cancelled runs with the cancelled status colour", () => {
+      const { container } = renderDetail(stubDetail({ status: "cancelled" }));
+      const status = container.querySelector('[data-status="cancelled"]');
+      expect(status?.textContent).toBe("cancelled");
+      expect(status?.className).toContain("text-status-cancelled");
+    });
+
     it("renders the trigger, relative start time and duration in the metadata row", () => {
       renderDetail(
         stubDetail({

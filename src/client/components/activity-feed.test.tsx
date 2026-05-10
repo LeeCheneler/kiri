@@ -58,6 +58,11 @@ describe("<ActivityFeed>", () => {
     expect(screen.getByRole("link").getAttribute("data-status")).toBe("failed");
   });
 
+  it("tags cancelled rows with data-status='cancelled'", () => {
+    renderFeed([stubRun({ status: "cancelled" })]);
+    expect(screen.getByRole("link").getAttribute("data-status")).toBe("cancelled");
+  });
+
   it("tags orphan rows with data-status='interrupted' regardless of underlying status", () => {
     renderFeed([stubRun({ status: "ok", isOrphan: true })]);
     expect(screen.getByRole("link").getAttribute("data-status")).toBe("interrupted");

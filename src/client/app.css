@@ -12,6 +12,7 @@
   --color-status-ok: #88a579;
   --color-status-failed: #d1493e;
   --color-status-interrupted: #c99858;
+  --color-status-cancelled: #8b8579;
 
   --font-display: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;

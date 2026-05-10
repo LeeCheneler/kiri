@@ -2,12 +2,13 @@ import { Link } from "wouter";
 import type { RunListEntry } from "../api.ts";
 import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
 
-type RunStatusKind = "running" | "ok" | "failed" | "interrupted";
+type RunStatusKind = "running" | "ok" | "failed" | "cancelled" | "interrupted";
 
 const STRIP_BG: Record<RunStatusKind, string> = {
   running: "bg-status-running",
   ok: "bg-status-ok",
   failed: "bg-status-failed",
+  cancelled: "bg-status-cancelled",
   interrupted: "bg-status-interrupted",
 };
 
@@ -15,6 +16,7 @@ const STATUS_TEXT: Record<RunStatusKind, string> = {
   running: "text-status-running",
   ok: "text-status-ok",
   failed: "text-status-failed",
+  cancelled: "text-status-cancelled",
   interrupted: "text-status-interrupted",
 };
 

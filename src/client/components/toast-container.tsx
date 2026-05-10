@@ -5,7 +5,7 @@ import { useLiveEvent } from "../events/live.tsx";
 const DEFAULT_AUTO_DISMISS_MS = 6000;
 const RUN_PATH_PREFIX = "/runs/";
 
-type ToastStatus = "ok" | "failed";
+type ToastStatus = "ok" | "failed" | "cancelled";
 
 interface ToastEntry {
   id: number;
@@ -17,11 +17,13 @@ interface ToastEntry {
 const STRIP_BG: Record<ToastStatus, string> = {
   ok: "bg-status-ok",
   failed: "bg-status-failed",
+  cancelled: "bg-status-cancelled",
 };
 
 const STATUS_TEXT: Record<ToastStatus, string> = {
   ok: "text-status-ok",
   failed: "text-status-failed",
+  cancelled: "text-status-cancelled",
 };
 
 const activeRunIdFor = (location: string): string | null => {
@@ -62,7 +64,9 @@ export function ToastContainer({
       // — terminal-only is a runtime invariant, not a type guarantee. Skip
       // anything that wouldn't render with a real status colour.
       const status: ToastStatus | null =
-        event.status === "ok" || event.status === "failed" ? event.status : null;
+        event.status === "ok" || event.status === "failed" || event.status === "cancelled"
+          ? event.status
+          : null;
       if (!status) return;
       if (activeRunIdFor(location) === event.id) return;
       const id = ++idRef.current;

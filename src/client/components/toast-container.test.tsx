@@ -54,6 +54,19 @@ describe("<ToastContainer>", () => {
     expect(screen.getByText("failed")).toBeDefined();
   });
 
+  it("renders a cancelled toast with the cancelled status word", () => {
+    const { sources } = renderToasts({ path: "/" });
+    act(() => {
+      sources[0]?.emit({
+        type: "run.finished",
+        id: "abc",
+        status: "cancelled",
+        workflowName: "deploy",
+      });
+    });
+    expect(screen.getByText("cancelled")).toBeDefined();
+  });
+
   it("suppresses the toast when the user is on /runs/:id for the same run", () => {
     const { sources } = renderToasts({ path: "/runs/abc" });
     act(() => {
