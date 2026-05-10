@@ -8,6 +8,10 @@ import { startServer } from "../src/server/listen.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
+// Replaced at build time via `bun build --define`; falls back to "dev" for local runs.
+declare const KIRI_VERSION: string;
+const VERSION: string = typeof KIRI_VERSION === "string" ? KIRI_VERSION : "dev";
+
 const HELP = `Usage: kiri [command]
 
 Commands:
@@ -17,6 +21,7 @@ Run kiri with no command to start the server.
 
 Options:
   -h, --help     Show this help text
+  -v, --version  Show kiri version
 `;
 
 const INIT_HELP = `Usage: kiri init
@@ -39,6 +44,11 @@ const cwd = process.cwd();
 
 if (args[0] === "--help" || args[0] === "-h") {
   console.log(HELP);
+  process.exit(0);
+}
+
+if (args[0] === "--version" || args[0] === "-v") {
+  console.log(VERSION);
   process.exit(0);
 }
 
