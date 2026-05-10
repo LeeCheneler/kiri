@@ -34,7 +34,8 @@ export const bundleRunPath = (cwd: string, name: string): string =>
 
 const validateBundles = (def: WorkflowDefinition, cwd: string): string[] => {
   const missing: string[] = [];
-  for (const step of def.steps) {
+  const candidates = def.summarize ? [...def.steps, def.summarize] : def.steps;
+  for (const step of candidates) {
     if (!isUseStep(step)) continue;
     if (!existsSync(bundleRunPath(cwd, step.use))) missing.push(step.use);
   }

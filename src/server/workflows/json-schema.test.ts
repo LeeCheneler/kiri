@@ -53,4 +53,22 @@ describe("workflowJsonSchema", () => {
     expect(schema.properties.gating.enum).toEqual(expect.arrayContaining(["auto", "propose"]));
     expect(schema.properties.schedule.type).toBe("string");
   });
+
+  it("optionally permits a summarize field with the step variant shape", () => {
+    type Variant = { properties: { use?: { type: string }; sh?: { type: string } } };
+    const schema = workflowJsonSchema() as {
+      required: string[];
+      properties: {
+        summarize: Variant | { oneOf: Variant[] } | { anyOf: Variant[] };
+      };
+    };
+    expect(schema.required).not.toContain("summarize");
+    const summarize = schema.properties.summarize;
+    const variants =
+      "oneOf" in summarize ? summarize.oneOf : "anyOf" in summarize ? summarize.anyOf : [summarize];
+    const useVariant = variants.find((v) => v.properties.use !== undefined);
+    const shVariant = variants.find((v) => v.properties.sh !== undefined);
+    expect(useVariant).toBeDefined();
+    expect(shVariant).toBeDefined();
+  });
 });

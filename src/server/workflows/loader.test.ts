@@ -147,6 +147,80 @@ steps:
     expect(result.failures[0].reason).toContain("scripts/<name>/run.sh");
   });
 
+  it("loads a workflow whose summarize step uses an existing bundle", async () => {
+    writeBundle(cwd, "step");
+    writeBundle(cwd, "summer");
+    writeFileSync(
+      join(dir, "wf.yaml"),
+      `name: wf
+steps:
+  - use: step
+summarize:
+  use: summer
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
+    expect(result.workflows.get("wf")?.summarize).toEqual({ use: "summer" });
+    expect(result.failures).toEqual([]);
+  });
+
+  it("loads a workflow with an inline sh: summarize step (no bundle needed)", async () => {
+    writeBundle(cwd, "step");
+    writeFileSync(
+      join(dir, "wf.yaml"),
+      `name: wf
+steps:
+  - use: step
+summarize:
+  sh: |
+    head -c 200
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("records a failure when a summarize use: step references a missing bundle", async () => {
+    writeBundle(cwd, "step");
+    writeFileSync(
+      join(dir, "wf.yaml"),
+      `name: wf
+steps:
+  - use: step
+summarize:
+  use: ghost-summer
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "wf.yaml"));
+    expect(result.failures[0].reason).toContain('"ghost-summer"');
+  });
+
+  it("reports both step and summarize missing-bundle failures together", async () => {
+    writeFileSync(
+      join(dir, "wf.yaml"),
+      `name: wf
+steps:
+  - use: ghost-step
+summarize:
+  use: ghost-summer
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].reason).toContain('"ghost-step"');
+    expect(result.failures[0].reason).toContain('"ghost-summer"');
+  });
+
   it("uses the legacy nodes:/kind: shape as a validation failure with a clear error", async () => {
     writeFileSync(
       join(dir, "legacy.yaml"),

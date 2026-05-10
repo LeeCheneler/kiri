@@ -29,6 +29,13 @@ export const workflowSchema = z
     steps: z.array(stepSchema).min(1),
     gating: z.enum(["auto", "propose"]).optional(),
     schedule: z.string().min(1).optional(),
+    /**
+     * Optional post-run step whose stdout becomes the run's feed-entry
+     * summary. Same shape, validation rules, and reserved-namespace
+     * guarantees as a regular step. Runs after `steps:` terminates;
+     * failure is non-fatal to the run.
+     */
+    summarize: stepSchema.optional(),
   })
   .strict();
 

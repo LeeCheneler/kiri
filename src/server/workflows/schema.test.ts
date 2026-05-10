@@ -112,4 +112,70 @@ describe("workflowSchema", () => {
       }),
     ).toThrow();
   });
+
+  it("parses a workflow with a use: summarize step", () => {
+    const result = workflowSchema.parse({
+      name: "summed",
+      steps: [{ use: "x" }],
+      summarize: { use: "claude-code-summarizer" },
+    });
+    expect(result.summarize).toEqual({ use: "claude-code-summarizer" });
+  });
+
+  it("parses a workflow with an inline sh: summarize step", () => {
+    const result = workflowSchema.parse({
+      name: "summed-sh",
+      steps: [{ use: "x" }],
+      summarize: { sh: "head -c 200" },
+    });
+    expect(result.summarize).toEqual({ sh: "head -c 200" });
+  });
+
+  it("treats summarize as optional", () => {
+    const result = workflowSchema.parse({
+      name: "no-sum",
+      steps: [{ use: "x" }],
+    });
+    expect(result.summarize).toBeUndefined();
+  });
+
+  it("rejects a summarize step with both use and sh keys", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "ambig-sum",
+        steps: [{ use: "x" }],
+        summarize: { use: "a", sh: "echo b" },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a summarize step with neither use nor sh", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "neither-sum",
+        steps: [{ use: "x" }],
+        summarize: { env: { FOO: "bar" } },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a summarize step with KIRI_-prefixed env keys", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "reserved-sum",
+        steps: [{ use: "x" }],
+        summarize: { use: "y", env: { KIRI_RUN_ID: "spoofed" } },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a summarize step with unknown extra keys", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "extras-sum",
+        steps: [{ use: "x" }],
+        summarize: { use: "y", path: "scripts/y/run.sh" },
+      }),
+    ).toThrow();
+  });
 });
