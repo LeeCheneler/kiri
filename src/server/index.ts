@@ -164,7 +164,7 @@ export function createApp(deps: AppDeps): Hono {
       .offset(offset)
       .all();
     return c.json(
-      rows.map((row) => ({ ...row, isOrphan: !registry.getWorkflow(row.workflowName) })),
+      rows.map((row) => ({ ...row, isInterrupted: !registry.getWorkflow(row.workflowName) })),
     );
   });
 
@@ -179,7 +179,7 @@ export function createApp(deps: AppDeps): Hono {
       .orderBy(asc(runSteps.index))
       .all();
     return c.json({
-      run: { ...run, isOrphan: !registry.getWorkflow(run.workflowName) },
+      run: { ...run, isInterrupted: !registry.getWorkflow(run.workflowName) },
       steps,
     });
   });

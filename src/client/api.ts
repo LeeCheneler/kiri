@@ -23,8 +23,8 @@ export interface RunStartResult {
 
 /**
  * One row in the `GET /api/runs` feed. Timestamps are ISO strings (JSON
- * has no Date type); `isOrphan` is true when no workflow with this name
- * exists in the registry — render the `(deleted)` badge in that case.
+ * has no Date type); `isInterrupted` is true when no workflow with this
+ * name exists in the registry — render the `(deleted)` badge in that case.
  */
 export interface RunListEntry {
   id: string;
@@ -40,7 +40,7 @@ export interface RunListEntry {
     gating?: "auto" | "propose";
     schedule?: string;
   };
-  isOrphan: boolean;
+  isInterrupted: boolean;
 }
 
 /**

@@ -29,7 +29,7 @@ These are constraints, not work items. They hold for every milestone below.
 - Run-start snapshot: capture the resolved workflow definition onto the `runs` row and each step's script source onto its row before execution
 - Manual trigger: list workflows in UI (from registry), "Run" button per workflow
 - Feed view: reverse-chronological list of runs, click-to-expand for full envelope, traces, and per-step material snapshot
-- Orphaned-workflow handling: runs whose workflow no longer exists in the registry render under their original name with a "(deleted)" badge
+- Interrupted-run handling: runs whose workflow no longer exists in the registry render under their original name with a "(deleted)" badge
 - Reload to refresh; no live updates
 - Workflow definition hot-reload in dev (file watcher → registry rebuild)
 
@@ -119,7 +119,7 @@ Work items:
 
 - Component test infra: `bun:test` + `happy-dom` + `@testing-library/react`. Smoke `<App>` test to lock in wiring.
 - E2E test infra: Playwright + a single golden-path test (boot kiri → list workflows → trigger a run → see it in the feed → open the run page).
-- Tailwind v4 with design tokens following the gov.uk system: ink `#0b0c0c`, muted `#505a5f`, rule `#b1b4b6`, accent `#1d70b8`; status colours running `#1d70b8` / ok `#00703c` / failed `#d4351c` / orphaned `#f47738`; focus `#ffdd00`; body 18px / 1.5 line-height; headings 36 / 24 / 19 / 16 at weight 700; system sans + monospace stack. Replaces `src/client/app.css` entirely — no surviving hand-rolled CSS, no CSS modules, Tailwind utilities + `@layer components` only.
+- Tailwind v4 with design tokens following the gov.uk system: ink `#0b0c0c`, muted `#505a5f`, rule `#b1b4b6`, accent `#1d70b8`; status colours running `#1d70b8` / ok `#00703c` / failed `#d4351c` / interrupted `#f47738`; focus `#ffdd00`; body 18px / 1.5 line-height; headings 36 / 24 / 19 / 16 at weight 700; system sans + monospace stack. Replaces `src/client/app.css` entirely — no surviving hand-rolled CSS, no CSS modules, Tailwind utilities + `@layer components` only.
 - Client router via `wouter`: `/` (dashboard) and `/runs/:id` (run page). Replaces the inline expanded-run view.
 - Activity feed redesign: gov.uk-style entry rows with status strip, workflow name, status, trigger, started-at, duration. Borders or whitespace only, no cards.
 - Workflow run page at `/runs/:id`: GitHub-Actions-shaped — header (workflow, status, trigger, duration, started-at) with per-step expandable sections covering stdout, stderr, duration, and the materials snapshot.

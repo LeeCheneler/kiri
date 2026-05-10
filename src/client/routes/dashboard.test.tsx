@@ -64,7 +64,7 @@ describe("<Dashboard>", () => {
             finishedAt: "2026-05-09T12:00:01.000Z",
             error: null,
             definitionSnapshot: { name: `wf-${calls}`, steps: [] },
-            isOrphan: false,
+            isInterrupted: false,
           },
         ]);
       }),

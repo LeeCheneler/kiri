@@ -23,7 +23,8 @@ const STATUS_TEXT: Record<StatusKind, string> = {
 
 const SHELL_PREVIEW_LIMIT = 60;
 
-const runStatus = (run: RunListEntry): StatusKind => (run.isOrphan ? "interrupted" : run.status);
+const runStatus = (run: RunListEntry): StatusKind =>
+  run.isInterrupted ? "interrupted" : run.status;
 
 const stepKindLabel = (step: RunStepRow): string => {
   if (step.materials.kind === "use") return `use: ${step.materials.bundle}`;
@@ -84,7 +85,7 @@ export function RunDetailView({
             </div>
             <h2 className="mt-2 font-display text-4xl text-ink leading-tight">
               {run.workflowName}
-              {run.isOrphan && (
+              {run.isInterrupted && (
                 <span className="ml-3 align-middle font-mono text-sm text-ink-muted italic">
                   (deleted)
                 </span>

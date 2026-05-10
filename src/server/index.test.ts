@@ -229,7 +229,7 @@ describe("createApp", () => {
       return runId;
     };
 
-    it("returns runs newest-first with isOrphan derived from the registry", async () => {
+    it("returns runs newest-first with isInterrupted derived from the registry", async () => {
       writeBundle("a", "#!/bin/sh\necho a\n");
       writeBundle("b", "#!/bin/sh\necho b\n");
       const wfA: WorkflowDefinition = {
@@ -252,7 +252,7 @@ describe("createApp", () => {
       const firstId = await triggerAndAwait(app, "alpha", waitForFinished);
       const secondId = await triggerAndAwait(app, "beta", waitForFinished);
 
-      // Drop alpha from the registry — its prior run is now an orphan.
+      // Drop alpha from the registry — its prior run is now interrupted.
       registry.replace(new Map([[wfB.name, wfB]]));
 
       const res = await app.request("/api/runs");
@@ -260,11 +260,11 @@ describe("createApp", () => {
       const body = (await res.json()) as Array<{
         id: string;
         workflowName: string;
-        isOrphan: boolean;
+        isInterrupted: boolean;
       }>;
       expect(body.map((r) => r.id)).toEqual([secondId, firstId]);
-      expect(body[0]).toMatchObject({ workflowName: "beta", isOrphan: false });
-      expect(body[1]).toMatchObject({ workflowName: "alpha", isOrphan: true });
+      expect(body[0]).toMatchObject({ workflowName: "beta", isInterrupted: false });
+      expect(body[1]).toMatchObject({ workflowName: "alpha", isInterrupted: true });
     });
 
     it("honours limit and offset", async () => {
@@ -321,7 +321,7 @@ describe("createApp", () => {
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        run: { id: string; workflowName: string; isOrphan: boolean };
+        run: { id: string; workflowName: string; isInterrupted: boolean };
         steps: Array<{
           index: number;
           kind: string;
@@ -329,7 +329,7 @@ describe("createApp", () => {
           materials: Record<string, unknown>;
         }>;
       };
-      expect(body.run).toMatchObject({ id: runId, workflowName: "two-step", isOrphan: false });
+      expect(body.run).toMatchObject({ id: runId, workflowName: "two-step", isInterrupted: false });
       expect(body.steps.map((n) => n.index)).toEqual([0, 1]);
       expect(body.steps[0].output).toBe("one\n");
       expect(body.steps[0].kind).toBe("use");
@@ -342,7 +342,7 @@ describe("createApp", () => {
       expect(body.steps[1].materials).toEqual({ kind: "sh", source: "cat" });
     });
 
-    it("flags isOrphan when the workflow no longer exists", async () => {
+    it("flags isInterrupted when the workflow no longer exists", async () => {
       writeBundle("x", "#!/bin/sh\necho x\n");
       const wf: WorkflowDefinition = {
         name: "ephemeral",
@@ -362,8 +362,8 @@ describe("createApp", () => {
       registry.replace(new Map());
 
       const res = await app.request(`/api/runs/${runId}`);
-      const body = (await res.json()) as { run: { isOrphan: boolean } };
-      expect(body.run.isOrphan).toBe(true);
+      const body = (await res.json()) as { run: { isInterrupted: boolean } };
+      expect(body.run.isInterrupted).toBe(true);
     });
   });
 
@@ -639,10 +639,10 @@ describe("createApp", () => {
       // the brief window where the runner has updated the DB to terminal but
       // hasn't yet released — except in this test the runner isn't involved
       // at all, so requestCancel returns false on this id.
-      const orphanId = "orphan-running";
+      const interruptedId = "interrupted-running";
       db.insert(runs)
         .values({
-          id: orphanId,
+          id: interruptedId,
           workflowName: "ghost",
           status: "running",
           trigger: "manual",
@@ -653,12 +653,12 @@ describe("createApp", () => {
 
       const cancelRegistry = createCancelRegistry();
       const app = createApp({ db, registry, cwd, cancelRegistry });
-      const res = await app.request(`/api/runs/${orphanId}/cancel`, {
+      const res = await app.request(`/api/runs/${interruptedId}/cancel`, {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
       expect(res.status).toBe(409);
-      expect(await res.json()).toEqual({ error: `run "${orphanId}" is not in flight` });
+      expect(await res.json()).toEqual({ error: `run "${interruptedId}" is not in flight` });
     });
   });
 

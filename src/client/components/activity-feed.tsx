@@ -20,7 +20,8 @@ const STATUS_TEXT: Record<RunStatusKind, string> = {
   interrupted: "text-status-interrupted",
 };
 
-const statusFor = (run: RunListEntry): RunStatusKind => (run.isOrphan ? "interrupted" : run.status);
+const statusFor = (run: RunListEntry): RunStatusKind =>
+  run.isInterrupted ? "interrupted" : run.status;
 
 /**
  * Activity feed: each run is one editorial row prefaced by a status
@@ -59,7 +60,7 @@ export function ActivityFeed({ runs, now }: { runs: RunListEntry[]; now?: Date }
               <div className="min-w-0 flex-1">
                 <div className="font-display text-2xl text-ink leading-tight">
                   {run.workflowName}
-                  {run.isOrphan && (
+                  {run.isInterrupted && (
                     <span className="ml-2 align-middle font-mono text-xs text-ink-muted italic">
                       (deleted)
                     </span>

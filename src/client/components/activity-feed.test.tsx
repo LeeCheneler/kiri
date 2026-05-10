@@ -18,7 +18,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   finishedAt: new Date(NOW.getTime() - 3 * 60 * 1000 + 12_000).toISOString(),
   error: null,
   definitionSnapshot: { name: "kiri-self-review", steps: [] },
-  isOrphan: false,
+  isInterrupted: false,
   ...overrides,
 });
 
@@ -63,18 +63,18 @@ describe("<ActivityFeed>", () => {
     expect(screen.getByRole("link").getAttribute("data-status")).toBe("cancelled");
   });
 
-  it("tags orphan rows with data-status='interrupted' regardless of underlying status", () => {
-    renderFeed([stubRun({ status: "ok", isOrphan: true })]);
+  it("tags interrupted rows with data-status='interrupted' regardless of underlying status", () => {
+    renderFeed([stubRun({ status: "ok", isInterrupted: true })]);
     expect(screen.getByRole("link").getAttribute("data-status")).toBe("interrupted");
   });
 
-  it("renders a deleted marker on orphan rows", () => {
-    renderFeed([stubRun({ isOrphan: true })]);
+  it("renders a deleted marker on interrupted rows", () => {
+    renderFeed([stubRun({ isInterrupted: true })]);
     expect(screen.getByText(/deleted/i)).toBeDefined();
   });
 
   it("does not render the marker for runs whose workflow still exists", () => {
-    renderFeed([stubRun({ isOrphan: false })]);
+    renderFeed([stubRun({ isInterrupted: false })]);
     expect(screen.queryByText(/deleted/i)).toBeNull();
   });
 

@@ -18,7 +18,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   finishedAt: new Date(NOW.getTime() - 3 * 60 * 1000 + 12_000).toISOString(),
   error: null,
   definitionSnapshot: { name: "kiri-self-review", steps: [] },
-  isOrphan: false,
+  isInterrupted: false,
   ...overrides,
 });
 
@@ -104,21 +104,21 @@ describe("<RunDetailView>", () => {
     });
   });
 
-  describe("orphaned runs", () => {
+  describe("interrupted runs", () => {
     it("overrides the status to 'interrupted' when the workflow no longer exists", () => {
-      const { container } = renderDetail(stubDetail({ status: "ok", isOrphan: true }));
+      const { container } = renderDetail(stubDetail({ status: "ok", isInterrupted: true }));
       const status = container.querySelector('[data-status="interrupted"]');
       expect(status?.textContent).toBe("interrupted");
       expect(status?.className).toContain("text-status-interrupted");
     });
 
     it("appends a (deleted) marker after the workflow name", () => {
-      renderDetail(stubDetail({ isOrphan: true }));
+      renderDetail(stubDetail({ isInterrupted: true }));
       expect(screen.getByText(/\(deleted\)/i)).toBeDefined();
     });
 
     it("does not render the deleted marker when the workflow still exists", () => {
-      renderDetail(stubDetail({ isOrphan: false }));
+      renderDetail(stubDetail({ isInterrupted: false }));
       expect(screen.queryByText(/\(deleted\)/i)).toBeNull();
     });
   });
@@ -179,8 +179,8 @@ describe("<RunDetailView>", () => {
       },
     );
 
-    it("is hidden for orphaned runs (status renders as interrupted)", () => {
-      renderDetail(stubDetail({ status: "running", isOrphan: true, finishedAt: null }), {
+    it("is hidden for interrupted runs (status renders as interrupted)", () => {
+      renderDetail(stubDetail({ status: "running", isInterrupted: true, finishedAt: null }), {
         onCancel: () => Promise.resolve({ runId: "run-1" }),
       });
       expect(screen.queryByRole("button", { name: /cancel run/i })).toBeNull();
