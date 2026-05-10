@@ -36,6 +36,16 @@ describe("<PageShell>", () => {
     expect(wordmark.getAttribute("href")).toBe("/");
   });
 
+  it("renders a docs link that opens the hosted docs in a new tab", () => {
+    renderShell(<p>x</p>);
+    const link = screen.getByRole("link", { name: /docs/i });
+    expect(link.getAttribute("href")).toBe("https://local.kiri.build/docs");
+    expect(link.getAttribute("target")).toBe("_blank");
+    const rel = link.getAttribute("rel") ?? "";
+    expect(rel).toContain("noopener");
+    expect(rel).toContain("noreferrer");
+  });
+
   it("renders the workflows nav once the registry resolves", async () => {
     server.use(
       http.get("*/api/workflows", () =>

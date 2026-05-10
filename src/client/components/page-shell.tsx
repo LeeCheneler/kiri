@@ -18,15 +18,17 @@ const activeWorkflowName = (location: string): string | null => {
 };
 
 /**
- * Three-column page shell: a sticky left rail with the kiri wordmark and
- * the workflows nav, the route content in the centre with a max-width
- * tuned for legible single-column reading, and a sticky right rail
- * reserved for system-status / todos as those land. Below the `lg`
- * breakpoint the grid collapses to a single column.
+ * Three-column page shell: a sticky left rail with the kiri wordmark,
+ * the workflows nav, and a docs link; the route content in the centre
+ * with a max-width tuned for legible single-column reading; and a
+ * sticky right rail reserved for system-status / todos as those land.
+ * Below the `lg` breakpoint the grid collapses to a single column.
  *
  * The shell owns the workflows fetch so the nav stays consistent across
  * routes; the nav stays hidden until the registry resolves so a brief
- * empty-state flash never shows on a populated repo.
+ * empty-state flash never shows on a populated repo. The docs link
+ * always renders so the rail still surfaces something useful when the
+ * workflows fetch fails.
  */
 export function PageShell({ children }: { children: ReactNode }) {
   const [workflows, setWorkflows] = useState<WorkflowSummary[] | null>(null);
@@ -79,6 +81,16 @@ export function PageShell({ children }: { children: ReactNode }) {
               <WorkflowsNav workflows={workflows} activeName={activeName} />
             </div>
           )}
+          <div className="mt-10">
+            <a
+              href="https://local.kiri.build/docs"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-ink"
+            >
+              Docs
+            </a>
+          </div>
         </aside>
         <main className="min-w-0 lg:max-w-160">{children}</main>
         <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start" aria-hidden="true" />
