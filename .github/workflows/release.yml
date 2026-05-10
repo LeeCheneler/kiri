@@ -36,9 +36,11 @@ jobs:
     name: bump homebrew formula
     needs: build-macos-arm64
     runs-on: ubuntu-latest
-    # Soft-fail until the LeeCheneler/homebrew-kiri tap and HOMEBREW_TAP_TOKEN
-    # secret are bootstrapped (see CONTRIBUTING.md). Flip to strict once set up.
-    continue-on-error: true
+    # Force `bash --noprofile --norc -eo pipefail`; the implicit shell uses
+    # `bash -e` only, which silently passes a 404'd `curl | sha256sum` pipeline.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Compute release asset sha256
         id: asset

@@ -124,7 +124,4 @@ The version baked into the binary is what `kiri --version` reports.
 
 The tap lives at [`LeeCheneler/homebrew-kiri`](https://github.com/LeeCheneler/homebrew-kiri) so users can `brew install LeeCheneler/kiri/kiri` (Homebrew auto-taps it on first install). The formula there is auto-bumped by the release workflow on every published release — don't hand-edit it.
 
-**Remaining one-time setup before the bump job goes live:**
-
-1. **Add the repo secret** (this repo's settings → Secrets and variables → Actions): **Secret** `HOMEBREW_TAP_TOKEN` — a fine-grained personal access token scoped to `LeeCheneler/homebrew-kiri` only, with `Contents: Read and write` permission. The default `GITHUB_TOKEN` can't push to other repos, which is why a PAT is required.
-2. **Flip the bump job to strict.** Once the secret is in place and the bump succeeds on a real release, remove `continue-on-error: true` from the `bump-homebrew-formula` job in `release.yml` so future bump failures fail the release.
+The bump job needs the `HOMEBREW_TAP_TOKEN` secret on this repo: a fine-grained personal access token scoped to `LeeCheneler/homebrew-kiri` only, with `Contents: Read and write` permission. The default `GITHUB_TOKEN` can't push across repos, which is why a PAT is required.
