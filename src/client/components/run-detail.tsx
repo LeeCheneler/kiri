@@ -63,6 +63,8 @@ export function RunDetailView({
 }) {
   const { run, steps } = detail;
   const status = runStatus(run);
+  const regularSteps = steps.filter((s) => !s.isSummary);
+  const summaryStep = steps.find((s) => s.isSummary);
 
   return (
     <article>
@@ -132,20 +134,22 @@ export function RunDetailView({
         </dl>
       </header>
 
+      {run.summary && <RunSummaryBlock summary={run.summary} />}
+
       {run.error && <RunFailureBlock error={run.error} />}
 
       <section className="mt-12">
         <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
           <h3 className="text-xs tracking-widest text-ink-muted uppercase">Steps</h3>
           <span className="font-mono text-xs text-ink-muted tabular-nums">
-            {steps.length === 1 ? "1 step" : `${steps.length} steps`}
+            {regularSteps.length === 1 ? "1 step" : `${regularSteps.length} steps`}
           </span>
         </header>
-        {steps.length === 0 ? (
+        {regularSteps.length === 0 ? (
           <p className="font-display text-base text-ink-muted italic">no steps recorded.</p>
         ) : (
           <ol className="divide-y divide-rule">
-            {steps.map((step, index) => (
+            {regularSteps.map((step, index) => (
               <li
                 key={step.id}
                 style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
@@ -157,6 +161,8 @@ export function RunDetailView({
           </ol>
         )}
       </section>
+
+      {summaryStep && <SummarizerSection step={summaryStep} />}
     </article>
   );
 }
@@ -193,6 +199,61 @@ function CancelButton({ onCancel }: { onCancel: () => Promise<unknown> }) {
         </p>
       )}
     </div>
+  );
+}
+
+function RunSummaryBlock({ summary }: { summary: string }) {
+  return (
+    <section className="mt-10 border-l-2 border-rule py-2 pl-5">
+      <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summary</h3>
+      <p className="mt-2 text-lg leading-relaxed text-ink">{summary}</p>
+    </section>
+  );
+}
+
+function SummarizerSection({ step }: { step: RunStepRow }) {
+  const [open, setOpen] = useState(false);
+  const status: StatusKind = step.status;
+  const panelId = `summarizer-${step.id}-panel`;
+
+  return (
+    <section className="mt-12">
+      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
+        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summariser execution</h3>
+        <span className={`text-xs tracking-widest uppercase ${STATUS_TEXT[status]}`}>{status}</span>
+      </header>
+      <div data-status={status} className="group">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="relative flex w-full cursor-pointer items-baseline gap-5 px-5 py-4 text-left no-underline outline-none transition-colors duration-150 hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+        >
+          <span
+            aria-hidden="true"
+            className={`absolute inset-y-2 left-1 w-0.5 transition-all duration-150 group-hover:w-[3px] ${STRIP_BG[status]}`}
+          />
+          <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink">
+            {stepKindLabel(step)}
+          </span>
+          <span className="w-16 shrink-0 text-right font-mono text-xs text-ink-muted tabular-nums">
+            {step.traces ? formatDurationMs(step.traces.durationMs) : "—"}
+          </span>
+          <span aria-hidden="true" className="shrink-0 font-mono text-xs text-ink-muted">
+            {open ? "▴" : "▾"}
+          </span>
+        </button>
+        {open && (
+          <div id={panelId} className="space-y-6 px-5 pt-2 pb-6 pl-12">
+            <Trace label="stdout" body={step.traces?.stdout ?? ""} />
+            <Trace label="stderr" body={step.traces?.stderr ?? ""} />
+            {step.error && <StepError error={step.error} />}
+            <Materials materials={step.materials} />
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

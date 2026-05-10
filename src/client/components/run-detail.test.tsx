@@ -432,4 +432,90 @@ describe("<RunDetailView>", () => {
       expect(paths).toEqual(["a.sh", "m.sh", "z.sh"]);
     });
   });
+
+  describe("summary", () => {
+    it("renders the summary section above the steps when run.summary is set", () => {
+      renderDetail(stubDetail({ summary: "Reviewed PR #42 and flagged a regression in auth.ts." }));
+      const heading = screen.getByText(/^summary$/i);
+      expect(heading).toBeDefined();
+      const body = screen.getByText(/regression in auth\.ts/);
+      expect(body).toBeDefined();
+    });
+
+    it("does not render the summary section when run.summary is null", () => {
+      renderDetail(stubDetail({ summary: null }));
+      expect(screen.queryByText(/^summary$/i)).toBeNull();
+    });
+  });
+
+  describe("summariser execution", () => {
+    const summarizerStep = (overrides: Partial<RunStepRow> = {}): RunStepRow =>
+      stubStep({
+        id: "sum-1",
+        index: 1,
+        kind: "use",
+        materials: {
+          kind: "use",
+          bundle: "claude-code-summarizer",
+          files: { "run.sh": "#!/bin/sh" },
+        },
+        isSummary: true,
+        ...overrides,
+      });
+
+    it("filters is_summary rows out of the main steps list", () => {
+      renderDetail(
+        stubDetail({}, [
+          stubStep({ id: "regular", index: 0 }),
+          summarizerStep({ id: "summer", index: 1 }),
+        ]),
+      );
+      // Steps section count reflects regular steps only.
+      expect(screen.getByText(/^1 step$/)).toBeDefined();
+    });
+
+    it("renders a summariser execution section when an is_summary step exists", () => {
+      renderDetail(stubDetail({}, [stubStep({ id: "regular", index: 0 }), summarizerStep()]));
+      expect(screen.getByText(/summariser execution/i)).toBeDefined();
+    });
+
+    it("does not render a summariser execution section when no is_summary step exists", () => {
+      renderDetail(stubDetail({}, [stubStep()]));
+      expect(screen.queryByText(/summariser execution/i)).toBeNull();
+    });
+
+    it("expands the summariser disclosure to show stdout / stderr / materials", () => {
+      renderDetail(
+        stubDetail({}, [
+          stubStep({ id: "regular", index: 0 }),
+          summarizerStep({
+            traces: {
+              stdout: "summary text out",
+              stderr: "summariser warnings",
+              durationMs: 800,
+            },
+          }),
+        ]),
+      );
+      // Both bundles share the same kindLabel pattern; pick the summariser by name.
+      fireEvent.click(screen.getByRole("button", { name: /use: claude-code-summarizer/i }));
+      expect(screen.getByText("summary text out")).toBeDefined();
+      expect(screen.getByText("summariser warnings")).toBeDefined();
+    });
+
+    it("surfaces the summariser's status alongside the section header (e.g. failed)", () => {
+      renderDetail(
+        stubDetail({ summary: null }, [
+          stubStep({ id: "regular", index: 0 }),
+          summarizerStep({
+            status: "failed",
+            error: { message: "claude exited 1" },
+          }),
+        ]),
+      );
+      const heading = screen.getByText(/summariser execution/i);
+      const sectionHeader = heading.closest("header");
+      expect(sectionHeader?.textContent).toContain("failed");
+    });
+  });
 });
