@@ -31,3 +31,53 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ github.event.release.tag_name }}" kiri --clobber
+
+  bump-homebrew-formula:
+    name: bump homebrew formula
+    needs: build-macos-arm64
+    runs-on: ubuntu-latest
+    # Soft-fail until the LeeCheneler/homebrew-kiri tap and HOMEBREW_TAP_TOKEN
+    # secret are bootstrapped (see CONTRIBUTING.md). Flip to strict once set up.
+    continue-on-error: true
+    steps:
+      - name: Compute release asset sha256
+        id: asset
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/kiri"
+          SHA=$(curl -fsSL "$URL" | sha256sum | awk '{print $1}')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: LeeCheneler/homebrew-kiri
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update formula
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          URL: ${{ steps.asset.outputs.url }}
+          SHA: ${{ steps.asset.outputs.sha }}
+        run: |
+          cd tap
+          VERSION="${TAG#v}"
+          sed -i -E "s|^(\s*version\s+).*|\1\"${VERSION}\"|" Formula/kiri.rb
+          sed -i -E "s|^(\s*url\s+).*|\1\"${URL}\"|" Formula/kiri.rb
+          sed -i -E "s|^(\s*sha256\s+).*|\1\"${SHA}\"|" Formula/kiri.rb
+
+      - name: Commit and push
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/kiri.rb
+          if git diff --cached --quiet; then
+            echo "formula already up to date"
+            exit 0
+          fi
+          git commit -m "kiri ${TAG}"
+          git push

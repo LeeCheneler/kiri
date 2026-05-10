@@ -110,3 +110,21 @@ bunx wrangler pages deploy ./shell \
 
 - **Secret** `CLOUDFLARE_API_TOKEN` — a custom API token (Cloudflare dashboard → My Profile → API Tokens → Create Token → Custom token). Permission: `Account → Cloudflare Pages → Edit`. Account resources: include the account that owns the Pages project. Zone resources: irrelevant for Pages, leave as default. *Do not use the "Edit Cloudflare Workers" template* — it omits the Pages permission.
 - **Variable** `CLOUDFLARE_ACCOUNT_ID` — the account ID visible on the Cloudflare dashboard sidebar. Stored as a repository *variable* (not a secret); it's an identifier, not a credential.
+
+## Releasing
+
+Cutting a release is a two-step ritual: publish a GitHub release, and let CI take over. `.github/workflows/release.yml` runs on `release: published` and:
+
+1. Compiles the macOS ARM64 binary with the release tag baked in via `bun build --define KIRI_VERSION=...`, then uploads it as the `kiri` asset on the release.
+2. Bumps the Homebrew formula in the `LeeCheneler/homebrew-kiri` tap so `brew upgrade kiri` picks up the new version.
+
+The version baked into the binary is what `kiri --version` reports.
+
+### Homebrew tap
+
+The tap lives at [`LeeCheneler/homebrew-kiri`](https://github.com/LeeCheneler/homebrew-kiri) so users can `brew install LeeCheneler/kiri/kiri` (Homebrew auto-taps it on first install). The formula there is auto-bumped by the release workflow on every published release — don't hand-edit it.
+
+**Remaining one-time setup before the bump job goes live:**
+
+1. **Add the repo secret** (this repo's settings → Secrets and variables → Actions): **Secret** `HOMEBREW_TAP_TOKEN` — a fine-grained personal access token scoped to `LeeCheneler/homebrew-kiri` only, with `Contents: Read and write` permission. The default `GITHUB_TOKEN` can't push to other repos, which is why a PAT is required.
+2. **Flip the bump job to strict.** Once the secret is in place and the bump succeeds on a real release, remove `continue-on-error: true` from the `bump-homebrew-formula` job in `release.yml` so future bump failures fail the release.
