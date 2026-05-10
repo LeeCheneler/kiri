@@ -295,6 +295,108 @@ and \`model\`, and write them to \`$KIRI_META_FILE\` so the feed entry
 shows cost in its header.
 `;
 
+/** Contents of the scaffolded `scripts/claude-code-summarizer/run.sh`. */
+export const CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT = `#!/bin/sh
+# Summarises a kiri workflow run for the activity feed by feeding the
+# run envelope to Claude Code (haiku) and asking for one or two
+# sentences of plain prose. Spawned by kiri after the workflow's
+# \`steps:\` complete on non-cancelled runs; this bundle's stdout
+# becomes the run's \`summary\` field when it exits 0.
+#
+# Zero-config by design — model and prompt are baked in. Fork the
+# bundle (cp -r scripts/claude-code-summarizer scripts/my-summarizer
+# and edit) if you want a different tone, framing, or model.
+set -eu
+
+: "\${KIRI_RUN_CONTEXT_FILE:?required (kiri injects this)}"
+
+command -v claude >/dev/null 2>&1 || {
+  echo "claude-code-summarizer bundle requires 'claude' on PATH" >&2
+  exit 1
+}
+
+[ -f "$KIRI_RUN_CONTEXT_FILE" ] || {
+  echo "claude-code-summarizer: run-context file not found: $KIRI_RUN_CONTEXT_FILE" >&2
+  exit 1
+}
+
+context=$(cat "$KIRI_RUN_CONTEXT_FILE")
+
+prompt="You are writing a one or two sentence summary of a kiri workflow run for an activity feed. Lead with what happened — read the step stdout/stderr to find the substance. No markdown, no headers, no bullets, no preamble like 'the workflow ran'. Plain prose, under 40 words.
+
+Run envelope (JSON):
+$context"
+
+exec claude -p "$prompt" --max-turns 1 --model haiku
+`;
+
+/** Contents of the scaffolded `scripts/claude-code-summarizer/README.md`. */
+export const CLAUDE_CODE_SUMMARIZER_README = `# claude-code-summarizer bundle
+
+A workflow \`summarize:\` step that produces a one-or-two-sentence
+summary of a run for the activity feed. Spawned by kiri after the
+workflow's \`steps:\` complete on non-cancelled runs; this bundle's
+stdout becomes the run's \`summary\` when it exits successfully.
+
+## Usage
+
+Reference it from a workflow's \`summarize:\` field — no env vars
+needed:
+
+\`\`\`yaml
+name: my-workflow
+steps:
+  - sh: echo "hello"
+summarize:
+  use: claude-code-summarizer
+\`\`\`
+
+## What \`run.sh\` does
+
+1. Reads \`KIRI_RUN_CONTEXT_FILE\` (kiri-injected) — a JSON file under
+   the per-run scratch dir containing the workflow name, status,
+   duration, and per-step kind / status / duration / stdout / stderr /
+   error.
+2. Embeds the JSON into a baked-in prompt asking for a brief
+   plain-prose summary suitable for a feed entry.
+3. Spawns \`claude -p "$prompt" --max-turns 1 --model haiku\` — the
+   alias keeps the bundle on whichever haiku is current without a
+   future bundle bump.
+4. Claude's stdout becomes the run's \`summary\` field.
+
+## Zero config by design
+
+There are no env vars to set on this bundle. The prompt and model are
+baked into \`run.sh\` so a workflow can declare
+\`summarize: { use: claude-code-summarizer }\` and forget about it. If
+you want a different tone, framing, or model, fork the bundle:
+
+\`\`\`
+cp -r scripts/claude-code-summarizer scripts/my-summarizer
+$EDITOR scripts/my-summarizer/run.sh
+\`\`\`
+
+Then reference your fork:
+
+\`\`\`yaml
+summarize:
+  use: my-summarizer
+\`\`\`
+
+## Failure handling
+
+A summariser failure does not affect the run's status — \`runs.status\`
+stays \`ok\` or \`failed\` as determined by the workflow steps. The run's
+\`summary\` field stays null when the summariser fails. The summariser's
+stdout/stderr are captured on a \`run_steps\` row (with \`is_summary\`
+set) so the run detail page can surface them for debugging.
+
+## Dependencies
+
+The \`claude\` CLI must be on \`PATH\`. The bundle exits non-zero with a
+clear error if it isn't.
+`;
+
 /** Relative paths reported by `initRepo`. */
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
 const README_REL_PATH = "README.md";
@@ -302,6 +404,8 @@ const EXAMPLE_REL_PATH = "workflows/example.yaml";
 const EXAMPLE_PROMPT_REL_PATH = "prompts/example.tpl";
 const CLAUDE_CODE_RUN_REL_PATH = "scripts/claude-code/run.sh";
 const CLAUDE_CODE_README_REL_PATH = "scripts/claude-code/README.md";
+const CLAUDE_CODE_SUMMARIZER_RUN_REL_PATH = "scripts/claude-code-summarizer/run.sh";
+const CLAUDE_CODE_SUMMARIZER_README_REL_PATH = "scripts/claude-code-summarizer/README.md";
 const GITIGNORE_REL_PATH = ".gitignore";
 const GITIGNORE_KIRI_LINE = ".kiri/";
 
@@ -377,9 +481,11 @@ export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
   const promptsDir = join(cwd, "prompts");
   const claudeCodeBundleDir = join(cwd, "scripts", "claude-code");
+  const claudeCodeSummarizerBundleDir = join(cwd, "scripts", "claude-code-summarizer");
   mkdirSync(workflowsDir, { recursive: true });
   mkdirSync(promptsDir, { recursive: true });
   mkdirSync(claudeCodeBundleDir, { recursive: true });
+  mkdirSync(claudeCodeSummarizerBundleDir, { recursive: true });
 
   const created: string[] = [];
   const skipped: string[] = [];
@@ -411,6 +517,21 @@ export function initRepo(cwd: string): InitResult {
     join(claudeCodeBundleDir, "README.md"),
     CLAUDE_CODE_README_REL_PATH,
     CLAUDE_CODE_README,
+    created,
+    skipped,
+  );
+  writeIfMissing(
+    join(claudeCodeSummarizerBundleDir, "run.sh"),
+    CLAUDE_CODE_SUMMARIZER_RUN_REL_PATH,
+    CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT,
+    created,
+    skipped,
+    0o755,
+  );
+  writeIfMissing(
+    join(claudeCodeSummarizerBundleDir, "README.md"),
+    CLAUDE_CODE_SUMMARIZER_README_REL_PATH,
+    CLAUDE_CODE_SUMMARIZER_README,
     created,
     skipped,
   );

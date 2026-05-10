@@ -1,0 +1,19 @@
+#!/bin/sh
+# Test stub for the `claude` CLI used by the claude-code bundle's
+# integration suite. Captures argv and stdin to $TEST_CAPTURE_DIR so the
+# test can assert on what scripts/claude-code/run.sh invoked it with.
+# Each argument is written to its own file with raw bytes preserved
+# (no escaping needed for newlines or shell metacharacters).
+set -eu
+
+: "${TEST_CAPTURE_DIR:?required (set by integration test)}"
+
+mkdir -p "$TEST_CAPTURE_DIR"
+
+i=0
+for arg in "$@"; do
+  printf '%s' "$arg" > "$TEST_CAPTURE_DIR/arg-$i"
+  i=$((i + 1))
+done
+printf '%s' "$i" > "$TEST_CAPTURE_DIR/argc"
+cat > "$TEST_CAPTURE_DIR/stdin"

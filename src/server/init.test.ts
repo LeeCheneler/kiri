@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
   CLAUDE_CODE_README,
   CLAUDE_CODE_RUN_SCRIPT,
+  CLAUDE_CODE_SUMMARIZER_README,
+  CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT,
   EXAMPLE_PROMPT_TPL,
   EXAMPLE_WORKFLOW_YAML,
   KIRI_README,
@@ -51,7 +53,7 @@ describe("initRepo", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("scaffolds README, example workflow + prompt, claude-code bundle, and schema on a fresh repo", () => {
+  it("scaffolds README, example workflow + prompt, claude-code + summarizer bundles, and schema on a fresh repo", () => {
     const result = initRepo(cwd);
 
     expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe(KIRI_README);
@@ -65,6 +67,12 @@ describe("initRepo", () => {
     expect(readFileSync(join(cwd, "scripts", "claude-code", "README.md"), "utf8")).toBe(
       CLAUDE_CODE_README,
     );
+    expect(readFileSync(join(cwd, "scripts", "claude-code-summarizer", "run.sh"), "utf8")).toBe(
+      CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT,
+    );
+    expect(readFileSync(join(cwd, "scripts", "claude-code-summarizer", "README.md"), "utf8")).toBe(
+      CLAUDE_CODE_SUMMARIZER_README,
+    );
     expect(JSON.parse(readFileSync(join(cwd, ".kiri", "workflow.schema.json"), "utf8"))).toEqual(
       workflowJsonSchema(),
     );
@@ -75,6 +83,8 @@ describe("initRepo", () => {
       "prompts/example.tpl",
       "scripts/claude-code/run.sh",
       "scripts/claude-code/README.md",
+      "scripts/claude-code-summarizer/run.sh",
+      "scripts/claude-code-summarizer/README.md",
     ]);
     expect(result.skipped).toEqual([]);
     expect(result.schemaPath).toBe(".kiri/workflow.schema.json");
@@ -86,6 +96,12 @@ describe("initRepo", () => {
     expect(mode & 0o111).not.toBe(0);
   });
 
+  it("marks the scaffolded claude-code-summarizer bundle's run.sh as executable", () => {
+    initRepo(cwd);
+    const mode = statSync(join(cwd, "scripts", "claude-code-summarizer", "run.sh")).mode & 0o777;
+    expect(mode & 0o111).not.toBe(0);
+  });
+
   it("does not overwrite user-authored scaffold files on re-run", () => {
     initRepo(cwd);
     writeFileSync(join(cwd, "README.md"), "user notes");
@@ -93,6 +109,11 @@ describe("initRepo", () => {
     writeFileSync(join(cwd, "prompts", "example.tpl"), "user prompt");
     writeFileSync(join(cwd, "scripts", "claude-code", "run.sh"), "#!/bin/sh\necho mine-cc\n");
     writeFileSync(join(cwd, "scripts", "claude-code", "README.md"), "user cc notes");
+    writeFileSync(
+      join(cwd, "scripts", "claude-code-summarizer", "run.sh"),
+      "#!/bin/sh\necho mine-summer\n",
+    );
+    writeFileSync(join(cwd, "scripts", "claude-code-summarizer", "README.md"), "user summer notes");
 
     const result = initRepo(cwd);
 
@@ -107,6 +128,12 @@ describe("initRepo", () => {
     expect(readFileSync(join(cwd, "scripts", "claude-code", "README.md"), "utf8")).toBe(
       "user cc notes",
     );
+    expect(readFileSync(join(cwd, "scripts", "claude-code-summarizer", "run.sh"), "utf8")).toBe(
+      "#!/bin/sh\necho mine-summer\n",
+    );
+    expect(readFileSync(join(cwd, "scripts", "claude-code-summarizer", "README.md"), "utf8")).toBe(
+      "user summer notes",
+    );
     expect(result.created).toEqual([]);
     expect(result.skipped).toEqual([
       "README.md",
@@ -114,6 +141,8 @@ describe("initRepo", () => {
       "prompts/example.tpl",
       "scripts/claude-code/run.sh",
       "scripts/claude-code/README.md",
+      "scripts/claude-code-summarizer/run.sh",
+      "scripts/claude-code-summarizer/README.md",
     ]);
   });
 
@@ -184,6 +213,22 @@ describe("checked-in init artifacts (dogfood drift guard)", () => {
   it("scripts/claude-code/README.md matches CLAUDE_CODE_README", () => {
     const tracked = readFileSync(join(repoRoot, "scripts", "claude-code", "README.md"), "utf8");
     expect(tracked).toBe(CLAUDE_CODE_README);
+  });
+
+  it("scripts/claude-code-summarizer/run.sh matches CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT", () => {
+    const tracked = readFileSync(
+      join(repoRoot, "scripts", "claude-code-summarizer", "run.sh"),
+      "utf8",
+    );
+    expect(tracked).toBe(CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT);
+  });
+
+  it("scripts/claude-code-summarizer/README.md matches CLAUDE_CODE_SUMMARIZER_README", () => {
+    const tracked = readFileSync(
+      join(repoRoot, "scripts", "claude-code-summarizer", "README.md"),
+      "utf8",
+    );
+    expect(tracked).toBe(CLAUDE_CODE_SUMMARIZER_README);
   });
 
   it("workflows/example.yaml matches EXAMPLE_WORKFLOW_YAML", () => {
