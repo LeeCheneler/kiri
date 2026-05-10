@@ -120,10 +120,15 @@ bunx wrangler pages deploy ./shell \
 
 Cutting a release is a two-step ritual: publish a GitHub release, and let CI take over. `.github/workflows/release.yml` runs on `release: published` and:
 
-1. Compiles the macOS ARM64 binary with the release tag baked in via `bun build --define KIRI_VERSION=...`, then uploads it as the `kiri` asset on the release.
-2. Bumps the Homebrew formula in the `LeeCheneler/homebrew-kiri` tap so `brew upgrade kiri` picks up the new version.
+1. Builds the SPA + overwrites `src/server/embedded-assets.ts` (`bun run build:embed`) so the compiled binary carries the SPA inside itself rather than reaching for `./dist/client` at runtime.
+2. Compiles the macOS ARM64 binary with the release tag baked in via `bun build --define KIRI_VERSION=...`, then uploads it as the `kiri` asset on the release.
+3. Bumps the Homebrew formula in the `LeeCheneler/homebrew-kiri` tap so `brew upgrade kiri` picks up the new version.
 
 The version baked into the binary is what `kiri --version` reports.
+
+### Verifying the embedded SPA locally
+
+`bun run build:embed` reproduces the CI overwrite, so you can `bun build --compile bin/kiri.ts --outfile /tmp/kiri-test` and run it from a directory with no `dist/client/` to prove the binary serves the SPA from memory. **Do not commit the regenerated `src/server/embedded-assets.ts`** — the main branch keeps the empty stub. After verifying, restore it with `git checkout src/server/embedded-assets.ts`.
 
 ### Homebrew tap
 

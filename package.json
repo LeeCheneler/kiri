@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "concurrently -n vite,server -c blue,green 'vite' 'bun --watch bin/kiri.ts'",
     "build": "vite build",
+    "build:embed": "vite build && bun bin/generate-embedded-assets.ts",
     "start": "bun bin/kiri.ts",
     "lint": "biome check .",
     "format": "biome format --write .",

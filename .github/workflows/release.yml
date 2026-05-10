@@ -25,6 +25,12 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # Build the SPA and overwrite src/server/embedded-assets.ts with the
+      # generated map so 'bun build --compile' folds the SPA bytes into
+      # the binary. Without this, the binary serves './dist/client'
+      # relative to cwd, which is empty wherever brew-installed kiri runs.
+      - run: bun run build:embed
+
       - run: bun build --compile --define 'KIRI_VERSION="${{ github.event.release.tag_name }}"' --target=bun-darwin-arm64 bin/kiri.ts --outfile kiri
 
       - name: Upload binary to release
