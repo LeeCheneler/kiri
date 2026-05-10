@@ -381,6 +381,78 @@ The \`claude\` CLI must be on \`PATH\`. The bundle exits non-zero with a
 clear error if it isn't.
 `;
 
+/** Contents of the scaffolded `workflows/pr-review-queue.yaml`. */
+export const PR_REVIEW_QUEUE_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
+
+name: PR Review Queue
+steps:
+  - sh: |
+      set -eu
+      prs=$(gh search prs --review-requested=@me --state=open)
+      if [ -z "$prs" ]; then
+        echo "No PRs awaiting your review."
+      else
+        echo "$prs"
+      fi
+summarize:
+  use: claude-code-summarizer
+`;
+
+/** Contents of the scaffolded `workflows/hackernews-digest.yaml`. */
+export const HACKERNEWS_DIGEST_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
+
+name: HackerNews Digest
+steps:
+  - sh: |
+      set -eu
+      limit=10
+      ids=$(curl -fsSL "https://hacker-news.firebaseio.com/v0/topstories.json" \\
+        | jq -r ".[:\${limit}][]")
+      [ -n "$ids" ] || { echo "Could not fetch HackerNews top stories." >&2; exit 1; }
+      printf '['
+      first=1
+      for id in $ids; do
+        [ "$first" = 1 ] && first=0 || printf ','
+        curl -fsSL "https://hacker-news.firebaseio.com/v0/item/\${id}.json"
+      done
+      printf ']'
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/hackernews-digest.tpl
+summarize:
+  use: claude-code-summarizer
+`;
+
+/** Contents of the scaffolded `prompts/hackernews-digest.tpl`. */
+export const HACKERNEWS_DIGEST_PROMPT = `You are formatting today's HackerNews top stories as a markdown digest
+for an activity feed.
+
+Input is a JSON array of HN items. Each item has fields like \`title\`,
+\`url\`, \`by\`, \`score\`, \`descendants\` (comment count), and \`id\`. Some
+items have no \`url\` (self-posts) — for those, use
+\`https://news.ycombinator.com/item?id=<id>\` as the link.
+
+Produce markdown with this shape:
+
+## HackerNews Top Stories
+
+A one-sentence lede observing what's notable across the list as a
+whole (e.g. "AI agents and infra dominate; one curious throwback
+about ..."). Base this only on titles — do **not** pretend to have
+read the articles or fabricate per-story takes.
+
+Then for each story, in input order:
+
+### N. {title}
+[link]({url}) · [discussion](https://news.ycombinator.com/item?id={id}) · {score} points · {descendants} comments · by {by}
+
+Output only the markdown. No preamble, no code fences.
+
+Stories (JSON):
+
+{{KIRI_INPUT}}
+`;
+
 /** Relative paths reported by `initRepo`. */
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
 const README_REL_PATH = "README.md";
@@ -388,6 +460,9 @@ const CLAUDE_CODE_RUN_REL_PATH = "scripts/claude-code/run.sh";
 const CLAUDE_CODE_README_REL_PATH = "scripts/claude-code/README.md";
 const CLAUDE_CODE_SUMMARIZER_RUN_REL_PATH = "scripts/claude-code-summarizer/run.sh";
 const CLAUDE_CODE_SUMMARIZER_README_REL_PATH = "scripts/claude-code-summarizer/README.md";
+const PR_REVIEW_QUEUE_WORKFLOW_REL_PATH = "workflows/pr-review-queue.yaml";
+const HACKERNEWS_DIGEST_WORKFLOW_REL_PATH = "workflows/hackernews-digest.yaml";
+const HACKERNEWS_DIGEST_PROMPT_REL_PATH = "prompts/hackernews-digest.tpl";
 const GITIGNORE_REL_PATH = ".gitignore";
 const GITIGNORE_KIRI_LINE = ".kiri/";
 
@@ -452,18 +527,21 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 };
 
 /**
- * Bootstrap a kiri-ready repo at `cwd`: create an empty `workflows/`
- * directory, drop in a repo README plus the `claude-code` and
- * `claude-code-summarizer` bundles, (re)write the JSON Schema file,
- * and add `.kiri/` to `.gitignore` if one exists. User-authored
- * files are never overwritten — only missing files are created. The
- * schema file is always refreshed.
+ * Bootstrap a kiri-ready repo at `cwd`: create `workflows/` and `prompts/`,
+ * drop in a repo README, the `claude-code` and `claude-code-summarizer`
+ * bundles, the `pr-review-queue` and `hackernews-digest` starter
+ * workflows, (re)write the JSON Schema file, and add `.kiri/` to
+ * `.gitignore` if one exists. User-authored files are never
+ * overwritten — only missing files are created. The schema file is
+ * always refreshed.
  */
 export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
+  const promptsDir = join(cwd, "prompts");
   const claudeCodeBundleDir = join(cwd, "scripts", "claude-code");
   const claudeCodeSummarizerBundleDir = join(cwd, "scripts", "claude-code-summarizer");
   mkdirSync(workflowsDir, { recursive: true });
+  mkdirSync(promptsDir, { recursive: true });
   mkdirSync(claudeCodeBundleDir, { recursive: true });
   mkdirSync(claudeCodeSummarizerBundleDir, { recursive: true });
 
@@ -498,6 +576,27 @@ export function initRepo(cwd: string): InitResult {
     join(claudeCodeSummarizerBundleDir, "README.md"),
     CLAUDE_CODE_SUMMARIZER_README_REL_PATH,
     CLAUDE_CODE_SUMMARIZER_README,
+    created,
+    skipped,
+  );
+  writeIfMissing(
+    join(workflowsDir, "pr-review-queue.yaml"),
+    PR_REVIEW_QUEUE_WORKFLOW_REL_PATH,
+    PR_REVIEW_QUEUE_WORKFLOW,
+    created,
+    skipped,
+  );
+  writeIfMissing(
+    join(workflowsDir, "hackernews-digest.yaml"),
+    HACKERNEWS_DIGEST_WORKFLOW_REL_PATH,
+    HACKERNEWS_DIGEST_WORKFLOW,
+    created,
+    skipped,
+  );
+  writeIfMissing(
+    join(promptsDir, "hackernews-digest.tpl"),
+    HACKERNEWS_DIGEST_PROMPT_REL_PATH,
+    HACKERNEWS_DIGEST_PROMPT,
     created,
     skipped,
   );
