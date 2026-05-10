@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { ApiError, type RunDetail, fetchRun } from "../api.ts";
+import { ApiError, type RunDetail, cancelRun, fetchRun } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
 import { useLiveSync } from "../events/live.tsx";
 
@@ -80,5 +80,5 @@ export function RunPage({ params }: { params: { id: string } }) {
     );
   }
 
-  return <RunDetailView detail={state.detail} />;
+  return <RunDetailView detail={state.detail} onCancel={() => cancelRun(params.id)} />;
 }

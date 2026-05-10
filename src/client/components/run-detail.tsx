@@ -45,8 +45,21 @@ const stepKindLabel = (step: RunStepRow): string => {
  *
  * `now` is injectable so component tests render deterministic relative
  * timestamps; production callers omit it and pick up the system clock.
+ *
+ * `onCancel`, when supplied, surfaces a cancel button in the header
+ * while the run is `running`. The handler resolves on accepted-cancel
+ * (HTTP 202) and rejects with the server error otherwise — the button
+ * shows a brief inline message in the rejected case.
  */
-export function RunDetailView({ detail, now }: { detail: RunDetail; now?: Date }) {
+export function RunDetailView({
+  detail,
+  now,
+  onCancel,
+}: {
+  detail: RunDetail;
+  now?: Date;
+  onCancel?: () => Promise<unknown>;
+}) {
   const { run, steps } = detail;
   const status = runStatus(run);
 
@@ -61,20 +74,25 @@ export function RunDetailView({ detail, now }: { detail: RunDetail; now?: Date }
 
       <header className="relative mt-6 pl-6">
         <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${STRIP_BG[status]}`} />
-        <div
-          className={`text-xs tracking-widest uppercase ${STATUS_TEXT[status]}`}
-          data-status={status}
-        >
-          {status}
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div
+              className={`text-xs tracking-widest uppercase ${STATUS_TEXT[status]}`}
+              data-status={status}
+            >
+              {status}
+            </div>
+            <h2 className="mt-2 font-display text-4xl text-ink leading-tight">
+              {run.workflowName}
+              {run.isOrphan && (
+                <span className="ml-3 align-middle font-mono text-sm text-ink-muted italic">
+                  (deleted)
+                </span>
+              )}
+            </h2>
+          </div>
+          {status === "running" && onCancel && <CancelButton onCancel={onCancel} />}
         </div>
-        <h2 className="mt-2 font-display text-4xl text-ink leading-tight">
-          {run.workflowName}
-          {run.isOrphan && (
-            <span className="ml-3 align-middle font-mono text-sm text-ink-muted italic">
-              (deleted)
-            </span>
-          )}
-        </h2>
         <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
           <div className="flex items-baseline">
             <dt className="sr-only">trigger</dt>
@@ -139,6 +157,41 @@ export function RunDetailView({ detail, now }: { detail: RunDetail; now?: Date }
         )}
       </section>
     </article>
+  );
+}
+
+function CancelButton({ onCancel }: { onCancel: () => Promise<unknown> }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleClick = async () => {
+    setError(null);
+    setPending(true);
+    try {
+      await onCancel();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="shrink-0 text-right">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={pending}
+        className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-status-failed hover:text-status-failed focus-visible:border-status-failed focus-visible:text-status-failed focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {pending ? "cancelling…" : "cancel run"}
+      </button>
+      {error && (
+        <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

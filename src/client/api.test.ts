@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { server } from "../../tests/setup/msw.ts";
-import { ApiError, fetchRun, fetchRuns, fetchWorkflows, triggerRun } from "./api.ts";
+import { ApiError, cancelRun, fetchRun, fetchRuns, fetchWorkflows, triggerRun } from "./api.ts";
 
 describe("api client", () => {
   it("returns the workflow registry from the default handler", async () => {
@@ -36,6 +36,39 @@ describe("api client", () => {
     server.use(http.get("*/api/runs/:id", () => new HttpResponse("not json", { status: 503 })));
 
     await expect(fetchRun("missing")).rejects.toThrow(/503/);
+  });
+
+  it("cancels an in-flight run and returns the runId", async () => {
+    const seen: { header: string | null }[] = [];
+    server.use(
+      http.post("*/api/runs/:id/cancel", ({ request, params }) => {
+        seen.push({ header: request.headers.get("X-Kiri-Client") });
+        return HttpResponse.json({ runId: params.id }, { status: 202 });
+      }),
+    );
+
+    const result = await cancelRun("abc-123");
+
+    expect(result.runId).toBe("abc-123");
+    expect(seen).toHaveLength(1);
+    expect(seen[0].header).toBe("kiri-ui");
+  });
+
+  it("throws an ApiError carrying the 409 status when the run is already terminal", async () => {
+    server.use(
+      http.post("*/api/runs/:id/cancel", () =>
+        HttpResponse.json({ error: 'run "abc" is not in flight' }, { status: 409 }),
+      ),
+    );
+
+    try {
+      await cancelRun("abc");
+      throw new Error("expected cancelRun to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(409);
+      expect((err as ApiError).message).toBe('run "abc" is not in flight');
+    }
   });
 
   it("throws an ApiError carrying the HTTP status on non-2xx responses", async () => {

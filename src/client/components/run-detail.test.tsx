@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type { RunDetail, RunListEntry, RunStepRow } from "../api.ts";
@@ -41,11 +41,11 @@ const stubDetail = (run: Partial<RunListEntry> = {}, steps: RunStepRow[] = []): 
   steps,
 });
 
-const renderDetail = (detail: RunDetail) => {
+const renderDetail = (detail: RunDetail, opts: { onCancel?: () => Promise<unknown> } = {}) => {
   const { hook } = memoryLocation({ path: `/runs/${detail.run.id}` });
   return render(
     <Router hook={hook}>
-      <RunDetailView detail={detail} now={NOW} />
+      <RunDetailView detail={detail} now={NOW} onCancel={opts.onCancel} />
     </Router>,
   );
 };
@@ -151,6 +151,96 @@ describe("<RunDetailView>", () => {
     it("does not render the failure block on a successful run", () => {
       renderDetail(stubDetail({ status: "ok", error: null }));
       expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
+
+  describe("cancel button", () => {
+    const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it("renders when the run is running and an onCancel handler is provided", () => {
+      renderDetail(stubDetail({ status: "running", finishedAt: null }), {
+        onCancel: () => Promise.resolve({ runId: "run-1" }),
+      });
+      expect(screen.getByRole("button", { name: /cancel run/i })).toBeDefined();
+    });
+
+    it("does not render when no onCancel handler is provided (presentational fallback)", () => {
+      renderDetail(stubDetail({ status: "running", finishedAt: null }));
+      expect(screen.queryByRole("button", { name: /cancel run/i })).toBeNull();
+    });
+
+    it.each(["ok", "failed", "cancelled"] as const)(
+      "is hidden for terminal status: %s",
+      (status) => {
+        renderDetail(stubDetail({ status }), {
+          onCancel: () => Promise.resolve({ runId: "run-1" }),
+        });
+        expect(screen.queryByRole("button", { name: /cancel run/i })).toBeNull();
+      },
+    );
+
+    it("is hidden for orphaned runs (status renders as interrupted)", () => {
+      renderDetail(stubDetail({ status: "running", isOrphan: true, finishedAt: null }), {
+        onCancel: () => Promise.resolve({ runId: "run-1" }),
+      });
+      expect(screen.queryByRole("button", { name: /cancel run/i })).toBeNull();
+    });
+
+    it("invokes onCancel exactly once on click", async () => {
+      let calls = 0;
+      const onCancel = () => {
+        calls++;
+        return Promise.resolve({ runId: "run-1" });
+      };
+      renderDetail(stubDetail({ status: "running", finishedAt: null }), { onCancel });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /cancel run/i }));
+        await flushMicrotasks();
+      });
+
+      expect(calls).toBe(1);
+    });
+
+    it("shows a pending label and disables the button while the request is in flight", async () => {
+      let resolve: (() => void) | undefined;
+      const onCancel = () =>
+        new Promise<{ runId: string }>((res) => {
+          resolve = () => res({ runId: "run-1" });
+        });
+      renderDetail(stubDetail({ status: "running", finishedAt: null }), { onCancel });
+
+      const button = screen.getByRole("button", { name: /cancel run/i });
+      act(() => {
+        fireEvent.click(button);
+      });
+
+      const pending = screen.getByRole("button", { name: /cancelling/i });
+      expect(pending.hasAttribute("disabled")).toBe(true);
+
+      await act(async () => {
+        resolve?.();
+        await flushMicrotasks();
+      });
+
+      // After the request resolves the button returns to its idle label.
+      expect(screen.getByRole("button", { name: /cancel run/i })).toBeDefined();
+    });
+
+    it("surfaces the error message inline when onCancel rejects", async () => {
+      const onCancel = () => Promise.reject(new Error('run "abc" is not in flight'));
+      renderDetail(stubDetail({ status: "running", finishedAt: null }), { onCancel });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /cancel run/i }));
+        await flushMicrotasks();
+      });
+
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toContain('run "abc" is not in flight');
+      // Button is re-enabled and back to its idle label so the user can retry.
+      const button = screen.getByRole("button", { name: /cancel run/i });
+      expect(button.hasAttribute("disabled")).toBe(false);
     });
   });
 

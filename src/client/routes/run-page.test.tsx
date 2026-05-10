@@ -134,6 +134,42 @@ describe("<RunPage>", () => {
     await screen.findByRole("heading", { level: 2, name: /wf-4/i });
   });
 
+  it("wires the cancel button to POST /api/runs/:id/cancel", async () => {
+    const cancelCalls: string[] = [];
+    server.use(
+      http.get("*/api/runs/:id", ({ params }) =>
+        HttpResponse.json({
+          run: {
+            id: params.id,
+            workflowName: "long",
+            status: "running",
+            trigger: "manual",
+            startedAt: "2026-05-09T12:00:00.000Z",
+            finishedAt: null,
+            error: null,
+            definitionSnapshot: { name: "long", steps: [] },
+            isOrphan: false,
+          },
+          steps: [],
+        }),
+      ),
+      http.post("*/api/runs/:id/cancel", ({ params }) => {
+        cancelCalls.push(String(params.id));
+        return HttpResponse.json({ runId: params.id }, { status: 202 });
+      }),
+    );
+
+    renderRun("abc");
+    const button = await screen.findByRole("button", { name: /cancel run/i });
+
+    await act(async () => {
+      button.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(cancelCalls).toEqual(["abc"]);
+  });
+
   it("ignores events for other run ids", async () => {
     let calls = 0;
     server.use(
