@@ -4,12 +4,9 @@
 
 ## Concept
 
-A local-first, git-based workflow orchestrator for personal automation. Scripts and AI workflows triggered by cron, manual invocation, or AI agents via MCP. A feed UI streams activity, a todo list captures gated proposals, and a global pause provides a panic button. Single user (me), running while the app is active.
+A local-first, git-based workflow orchestrator for personal automation. Scripts and AI workflows triggered by cron or manual invocation. A feed UI streams activity, a todo list captures gated proposals, and a global pause provides a panic button. Single user (me), running while the app is active.
 
-Differentiation against Windmill, Kestra, n8n, Inngest et al. is two-fold:
-
-- **MCP-first** — AI agents can list, invoke, configure, and inspect workflows as a primary interaction model, not a bolt-on
-- **Feed-first UI** — activity stream as the primary surface, not a node-graph canvas
+What sets kiri apart from Windmill, Kestra, n8n, Inngest et al. is the **feed-first UI** — activity stream as the primary surface, not a node-graph canvas.
 
 ## Core principles
 
@@ -17,7 +14,7 @@ Differentiation against Windmill, Kestra, n8n, Inngest et al. is two-fold:
 - **Single user.** No auth, no multi-tenancy, no scaling.
 - **Git as source of truth.** Workflow definitions, prompts, and scripts live in a git repo.
 - **Linear pipelines only.** No branches, no conditionals, no fan-out/fan-in. `script → ai → script` covers most real cases.
-- **Everything is a workflow.** A workflow is N≥1 steps. Single-step workflows wrap "just run a script" cases. Cron triggers workflows. Todos invoke workflows. MCP exposes workflows. Manual menu items are workflows. One concept, uniform treatment everywhere.
+- **Everything is a workflow.** A workflow is N≥1 steps. Single-step workflows wrap "just run a script" cases. Cron triggers workflows. Todos invoke workflows. Manual menu items are workflows. One concept, uniform treatment everywhere.
 
 ## Architecture
 
@@ -27,8 +24,8 @@ YAML files validated against a Zod schema. No custom DSL.
 
 ```yaml
 name: pr-review
-schedule: "*/15 * * * *"   # optional cron expression
-gating: auto               # or "propose"
+schedule: "*/15 * * * *"   # optional cron expression (M7)
+gating: auto               # or "propose" (M8)
 steps:
   - use: fetch-pr           # script bundle: scripts/fetch-pr/run.sh
     env:
@@ -37,10 +34,17 @@ steps:
     env:
       PROMPT_FILE: prompts/pr-review.tpl
       MAX_TURNS: "8"
-      ALLOWED_TOOLS: "Read,Glob,Grep"
   - sh: |                   # inline shell — sugar for trivial steps
       echo "review complete"
       date
+publish:                   # optional, M6: long-form markdown artefacts
+  - name: digest
+    title: "PR Review Digest"
+    use: claude-code
+    env:
+      PROMPT_FILE: prompts/pr-digest.tpl
+summarize:                 # optional one or two sentence feed summary
+  use: claude-code-summarizer
 ```
 
 A step is one of two shapes:
@@ -49,6 +53,13 @@ A step is one of two shapes:
 - `{ sh: <string>, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
 
 `env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_META_FILE`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
+
+Two workflow-level sibling fields run alongside `steps:`:
+
+- **`summarize:`** — a single `{ use | sh, env? }` entry executed after `steps:` complete (on `ok` or `failed`, not `cancelled`). Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The shipped `claude-code-summarizer` bundle ships with a baked-in prompt and `MODEL=haiku` so the default `kiri init` experience produces summaries out of the box. M4 makes prompt and model configurable via `env:` without forking the bundle.
+- **`publish:`** — an array of named long-form markdown artefacts (M6). Each entry has the shape `{ name, title?, use | sh, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference artefacts in its context. Artefacts are stored as rows in `run_artefacts`, surfaced as chips on the activity feed, listed under a "Published" section on the run detail page, and rendered on dedicated `/runs/:id/published/:name` pages via a sandboxed markdown parser.
+
+Both fields share the same load-time validation as `steps:` (`use:` / `sh:` mutually exclusive, `KIRI_` prefix banned on `env:` keys, missing `use:` bundle is a workflow load failure). Both treat their own execution failures as non-fatal — a failing summariser or publish step does not affect `runs.status`.
 
 This single primitive — the script bundle — supports every runtime kiri will ever care about. `kiri init` ships a `scripts/claude-code/` starter; LM Studio support is `cp -r scripts/claude-code scripts/lm-studio` and editing the script. Kiri itself stays runtime-blind: it spawns `run.sh`, captures the envelope, reads `KIRI_META_FILE`, and stays out of the way.
 
@@ -80,11 +91,10 @@ Full I/O captured at every step. Linked from the corresponding feed entry for de
 
 ### Triggers
 
-Three only:
+Two only:
 
 - **Cron** — in-process tick loop while the app is active.
 - **Manual** — invoked from the UI (menu, feed, todo).
-- **MCP** — invoked by AI agents via the orchestrator's MCP server.
 
 No file watches, webhooks, or inbox polling. Polling-via-cron-workflow handles everything that shape.
 
@@ -93,7 +103,7 @@ No file watches, webhooks, or inbox polling. Polling-via-cron-workflow handles e
 State lives in three tiers, by what kind of state it is:
 
 - **In git** — workflow definitions (`.yaml` files), script bundles (`scripts/<name>/`), prompt files, sandbox profiles. Everything that benefits from review and version history.
-- **In SQLite** — runtime state: runs, todos, schedules, app state (paused/running, in-flight counter), MCP audit log, run metadata + envelopes. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
+- **In SQLite** — runtime state: runs, todos, schedules, app state (paused/running, in-flight counter), run metadata + envelopes. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
 - **On disk (data dir)** — large blob payloads referenced by path from SQLite rows: full CC transcripts, big stdout dumps, anything that'd bloat the DB. Same pattern CI systems use to keep the DB lean.
 
 Pragmatic v1 simplification: skip the disk-blob split initially. Put traces straight into SQLite TEXT columns. Move to disk-backed blobs only when a "last 50 runs" feed query starts dragging on trace payloads — probably won't for months.
@@ -176,27 +186,14 @@ For workflows using broad `Bash(*)` permissions, the load-bearing defence is the
 
 ## UI
 
-Three regions:
+Two regions today (right rail and top-right pause land with todos and polish):
 
-- **Center: feed.** Streaming activity log. Filterable, scoped, tab-able. Each entry has a condensed view (produced by a summariser step — leaf only, no recursion) with an expandable full view that includes traces and meta.
-- **Right rail: todos.** Pending proposals + active items. Approve/reject inline.
-- **Top right: global pause.** Halts new invocations. Modifier to also kill in-flight runs.
+- **Left rail: workflows nav.** Lists workflows from the registry, each linking to its detail page.
+- **Center: feed.** Reverse-chronological activity log. Each row shows workflow name, status, trigger, duration, and (when present) the run's one-or-two-sentence summary plus a chip-list of published artefacts. Clicking a row opens the run detail page (`/runs/:id`) with full traces; clicking an artefact chip opens its dedicated page (`/runs/:id/published/:name`).
+- **Right rail: todos.** Pending proposals + active items. Approve/reject inline. (Lands with M8.)
+- **Top right: global pause.** Halts new invocations. Modifier to also kill in-flight runs. (Lands with M10.)
 
-Cost visibility lives in the feed itself, not a separate dashboard.
-
-## MCP server surface
-
-Initial sketch:
-
-- `list_workflows` — names, schemas, gating
-- `run_workflow(name, inputs)` — invoke
-- `get_run(id)` — full envelope + traces
-- `list_runs(filter)` — feed-shaped query
-- `create_workflow / edit_workflow` — write workflow definitions to git
-- `approve_todo / reject_todo` — act on the todo list
-- `pause / resume` — global control
-
-The same surface a human uses is callable by an MCP client. That's what makes the "AI agent operates the system" framing real.
+Cost visibility lives in the feed itself, not a separate dashboard (the conventional meta keys are promoted to the row header once M9 lands).
 
 ## Application stack
 
@@ -205,7 +202,7 @@ The orchestrator is a single Node process serving both the engine and the UI. Th
 ### Stack
 
 - **Bun** — runtime. TypeScript runs natively (no separate compile step), `bun:sqlite` is statically linked (no native-module headache), and `bun build --compile` produces a single-file macOS binary — the release artifact for distribution. One toolchain for install, test, run, and build.
-- **Hono** — HTTP server, SSE streams, MCP transport. Runtime-agnostic by design but pairs cleanly with Bun via `Bun.serve`. The Hono process *is* the orchestrator daemon: runs the cron tick loop, executes workflows, hosts the MCP server, serves the UI bundle. One process, clear ownership.
+- **Hono** — HTTP server, SSE streams. Runtime-agnostic by design but pairs cleanly with Bun via `Bun.serve`. The Hono process *is* the orchestrator daemon: runs the cron tick loop, executes workflows, serves the UI bundle. One process, clear ownership.
 - **Vite + React** — UI bundle, served by Hono. No SSR, no framework magic — just a SPA window into the daemon. TanStack Router or React Router for routing.
 - **SSE** for live feed updates. One-way (server → client), browsers handle reconnection natively, Hono has `streamSSE` built in. WebSockets reserved for if/when bidirectional streaming is actually needed.
 - **bun:sqlite + Drizzle** for state (see *State storage* under Architecture). Drizzle's `drizzle-orm/bun-sqlite` adapter; schema and migrations identical to a Node + better-sqlite3 setup.
@@ -254,7 +251,7 @@ Web-first for v1. If/when native system notifications, menu bar presence, or a r
 
 Script execution is the central capability of this system, which means security is not a bolt-on layer — it's a design constraint that shapes every surface. The threat model assumes:
 
-- Workflow inputs (especially via MCP) are untrusted data.
+- Workflow inputs (from polled external content, upstream step output, or anywhere user-controlled bytes can land) are untrusted data.
 - Polled external content (PR titles, issue bodies, file contents from third-party repos) is untrusted.
 - AI agents may attempt actions outside their intended scope due to prompt injection, misalignment, or simple error.
 - The local machine is otherwise trusted (this is a personal tool on the user's own laptop).
@@ -262,7 +259,7 @@ Script execution is the central capability of this system, which means security 
 ### Trust boundaries
 
 - **Workflow definitions, prompts, and scripts** (files in git) are *trusted*. They are reviewed and version-controlled.
-- **Workflow inputs** at runtime are *untrusted*. They come from MCP clients, external polling, or upstream step outputs that may have processed third-party data.
+- **Workflow inputs** at runtime are *untrusted*. They come from external polling or upstream step outputs that may have processed third-party data.
 - **AI outputs** are *untrusted*. Even from a tightly-scoped agent, output is data, not commands. When it flows downstream as input to another step, it must be treated as untrusted input.
 
 ### Script execution
@@ -274,13 +271,6 @@ Script execution is the central capability of this system, which means security 
 - **Reserved namespace.** `env:` keys starting with `KIRI_` are rejected at workflow load time as a schema error. Typos and accidental collisions surface as load failures, not silent overwrites at spawn.
 - **Resource limits.** ulimits on CPU time, memory, file descriptors, and disk writes. A runaway script halts cleanly rather than degrading the system.
 - **No kernel sandbox.** Bundles run with the user's permissions. The trust posture is "scripts you authored or pasted into your own repo, same as any shell script you'd run yourself" — sandbox-wrapping every step is cost without protection in that model. The defence here is `ALLOWED_TOOLS` on the step plus reading the bundle before you use it.
-
-### MCP server
-
-- **Localhost-only or Unix socket.** No public listen address, ever. Unix socket preferred to eliminate CSRF risk entirely.
-- **Bearer token auth.** Even local clients authenticate. Token lives in `~/.local/share/orchestrator/auth-token` with mode 600.
-- **Write tools require confirmation.** `create_workflow`, `edit_workflow`, `approve_todo`, `pause/resume` either require an interactive confirmation in the UI or a separately-scoped confirmation token. Read-only tools don't.
-- **Audit log.** Every MCP call recorded with timestamp, client identity (where available), tool name, and arguments. Append-only, surfaced in the feed.
 
 ### AI integration
 
@@ -319,27 +309,38 @@ Non-goals to resist scope creep:
 
 Sequenced for fastest path to dogfooding, then layering capability outward. Each phase a usable artifact. Detailed work items per milestone live in `milestones.md`.
 
-1. **Spine** (M0). Workflow runner that executes a YAML-defined linear pipeline of script steps. Standard envelope. Traces captured. Run history persisted to SQLite via Drizzle. Feed UI renders run history; reload to refresh.
-2. **Step schema migration** (M1). Move workflow YAML from `nodes:`/`kind:` to `steps:` with `use:` (bundle reference) or `sh:` (inline shell). Add `env:` map per step with the precedence and reserved-namespace rules. Bundle resolver: `use: <name>` → `scripts/<name>/run.sh`. Re-home the existing repo's scripts into the bundle layout.
-3. **`claude-code` bundle starter** (M2). `kiri init` writes `scripts/claude-code/{run.sh, README.md}` — a working CC runner that translates `env:` keys to CC flags, synthesises `.claude/settings.json`, spawns `claude`, captures the session. No cost capture yet — that wires in alongside M6's meta channel.
-4. **Security baseline** (M3). Bind to localhost only and require `X-Kiri-Client` header on state-changing endpoints — together they shut down cross-origin attacks from other browser tabs. No kernel sandboxing of step execution: bundles are user-authored, trusted as such.
-5. **Cron triggers** (M4). In-process tick loop, schedule field on workflows.
-6. **Todo list + gating** (M5). Dedup keys, propose vs auto, right-rail UI.
-7. **Generic step meta** (M6). `KIRI_META_FILE` channel, DB storage, UI rendering. The `claude-code` bundle gets updated to populate `cost_usd` and tokens; UI promotes conventional keys to feed-entry headers.
-8. **Polish** (M7). SSE feed updates, filtering, summariser step, global pause.
-9. **MCP read surface** (M8). `list_workflows`, `run_workflow`, `get_run`, `list_runs`. Agent drives the system end-to-end.
+**Shipped (M0 – M3.97):**
+
+1. **Spine** (M0). YAML-defined linear pipeline of script steps. Standard envelope, traces captured, run history persisted to SQLite via Drizzle. Feed UI renders run history.
+2. **Step schema migration** (M1). YAML moved to `steps:` with `use:` (bundle reference) or `sh:` (inline shell), plus per-step `env:` with precedence and reserved-namespace rules.
+3. **`claude-code` bundle starter** (M2). `kiri init` ships `scripts/claude-code/`; a working CC runner that translates `env:` keys to CC flags, spawns `claude`, captures the session.
+4. **Hosted shell** (M2.5). `https://local.kiri.build` — a static Cloudflare Pages shell that loads the locally-running kiri's bundle. Stable bundle paths, CORS allow-list.
+5. **Security baseline** (M3). Bind to `127.0.0.1` only; require `X-Kiri-Client` header on state-changing endpoints — shuts down cross-origin attacks from other browser tabs.
+6. **UX foundation + test infra** (M3.5). Tailwind v4 in the gov.uk design language; `wouter` router with `/` and `/runs/:id`; `bun:test` + `happy-dom` + `@testing-library/react`; Playwright golden-path e2e.
+7. **Live updates, toasts, cancel** (M3.9). In-process event bus, SSE endpoint, EventSource cache invalidation, completion toasts, in-flight cancel.
+8. **Activity feed summaries** (M3.95). Workflow-level `summarize:` field, `claude-code-summarizer` bundle, summary rendered in feed and at the top of run detail.
+9. **Onboarding & docs** (M3.97). Hosted-shell fallback when no local kiri is running, one-sheet docs site at `/docs`, in-app link.
+
+**Next up (M4 onwards):**
+
+10. **Configurable summariser** (M4). `PROMPT` / `PROMPT_FILE` / `MODEL` / `MAX_TURNS` env support on `claude-code-summarizer` with defaults preserved; `PROMPT` added to `claude-code` with precedence over `PROMPT_FILE`.
+11. **Cursor-based feed pagination** (M5). Infinite-scroll feed; live updates and cold-load cost decoupled from total run count.
+12. **Artefact publishing** (M6). `publish: [...]` array on workflows. Markdown artefacts stored in `run_artefacts`, surfaced as chips on the feed and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:name` pages via a sandboxed renderer.
+13. **Cron triggers** (M7). In-process tick loop, `schedule:` field on workflows, global concurrency cap.
+14. **Todos + gating** (M8). `gating:` field, dedup keys, propose vs auto, right-rail UI.
+15. **Generic step meta** (M9). `KIRI_META_FILE` channel, DB storage, UI rendering. `claude-code` bundle populates `cost_usd` and tokens; UI promotes conventional keys to feed-entry headers.
+16. **Polish** (M10). Feed filtering and scoping, global pause control with kill-in-flight modifier.
 
 ## Open questions
 
 - **Trace retention policy.** How long do verbose traces and CC transcripts stay in SQLite before pruning? Size-cap, time-cap, or both? Decision triggers the disk-blob split.
-- **Summariser model choice.** Haiku via API for speed/cost, or a CC session for consistency with the rest of the agent stack? Probably Haiku.
 - **Secret store mechanism.** Mode-600 env files in a known dir, OS keychain integration, or 1Password CLI integration? Trade-off: friction vs ergonomics.
 
 ## Prior art (reference, not imitation)
 
-- **Windmill** — closest "shape" minus MCP/feed
+- **Windmill** — closest "shape" minus the feed-first UX
 - **Kestra** — declarative + git sync, more CI-flavoured
-- **n8n** — recently added MCP, but graph-first UX
+- **n8n** — graph-first UX
 - **Rivet** — visual AI flows in Electron
 - **Inngest / Trigger.dev** — event-driven dev primitives, cloud-oriented
 - **Huginn** — old Ruby agents project that originated the "feed of events" model
