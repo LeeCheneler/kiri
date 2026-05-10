@@ -4,3 +4,6 @@ coverage = true
 coverageThreshold = 1.0
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"
+# Playwright specs run via `bun run test:e2e`; Bun's own runner can't load
+# them (they call test() outside the playwright runner and throw).
+pathIgnorePatterns = ["tests/e2e/**"]
