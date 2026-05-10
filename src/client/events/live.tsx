@@ -65,7 +65,8 @@ const defaultFactory: EventSourceFactory = (url) => new EventSource(url);
 interface Subscriber {
   types: Set<KiriEventType>;
   filter: ((event: KiriEvent) => boolean) | undefined;
-  refetch: () => void;
+  onEvent: ((event: KiriEvent) => void) | undefined;
+  onReconnect: (() => void) | undefined;
 }
 
 interface LiveEventsContextValue {
@@ -107,7 +108,7 @@ export function LiveEventsProvider({
     source.onopen = () => {
       openCount++;
       if (openCount === 1) return;
-      for (const sub of subscribersRef.current) sub.refetch();
+      for (const sub of subscribersRef.current) sub.onReconnect?.();
     };
 
     const handlers = new Map<KiriEventType, (event: MessageEvent) => void>();
@@ -117,7 +118,7 @@ export function LiveEventsProvider({
         for (const sub of subscribersRef.current) {
           if (!sub.types.has(parsed.type)) continue;
           if (sub.filter && !sub.filter(parsed)) continue;
-          sub.refetch();
+          sub.onEvent?.(parsed);
         }
       };
       source.addEventListener(type, handler);
@@ -163,12 +164,47 @@ export function useLiveSync<T extends KiriEventType>(opts: {
 
   useEffect(() => {
     const types = new Set<KiriEventType>(key.split("|") as KiriEventType[]);
+    const fire = () => refetchRef.current();
     return ctx.subscribe({
       types,
       filter: filterRef.current
         ? (event) => (filterRef.current as (event: KiriEvent) => boolean)(event)
         : undefined,
-      refetch: () => refetchRef.current(),
+      onEvent: fire,
+      onReconnect: fire,
+    });
+  }, [ctx, key]);
+}
+
+/**
+ * Subscribe a side-effecting handler to live events. `handler` is called
+ * with the typed payload for every dispatched event whose `type` is in
+ * `on`. Reconnects do not replay handlers — pair with `useLiveSync` if a
+ * surface also needs to recover state on (re)connect.
+ *
+ * Throws when used outside `<LiveEventsProvider>`.
+ */
+export function useLiveEvent<T extends KiriEventType>(opts: {
+  on: readonly T[];
+  handler: (event: Extract<KiriEvent, { type: T }>) => void;
+}): void {
+  const ctx = useContext(LiveEventsContext);
+  if (!ctx) throw new Error("useLiveEvent must be used inside <LiveEventsProvider>");
+
+  const { on, handler } = opts;
+
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+
+  const key = [...on].sort().join("|");
+
+  useEffect(() => {
+    const types = new Set<KiriEventType>(key.split("|") as KiriEventType[]);
+    return ctx.subscribe({
+      types,
+      filter: undefined,
+      onEvent: (event) => (handlerRef.current as (event: KiriEvent) => void)(event),
+      onReconnect: undefined,
     });
   }, [ctx, key]);
 }

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
 import { useState } from "react";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
-import { type KiriEvent, LiveEventsProvider, useLiveSync } from "./live.tsx";
+import { type KiriEvent, LiveEventsProvider, useLiveEvent, useLiveSync } from "./live.tsx";
 
 afterEach(() => cleanup());
 
@@ -224,6 +224,167 @@ describe("useLiveSync", () => {
 
   it("throws when used outside the provider", () => {
     expect(() => render(<Probe on={["run.started"]} refetch={() => {}} />)).toThrow(
+      /inside <LiveEventsProvider>/,
+    );
+  });
+});
+
+const EventProbe = ({
+  on,
+  handler,
+}: {
+  on: KiriEvent["type"][];
+  // biome-ignore lint/suspicious/noExplicitAny: handler is narrowed in the public API; tests pass plain functions.
+  handler: (event: any) => void;
+}) => {
+  useLiveEvent({ on, handler });
+  return null;
+};
+
+describe("useLiveEvent", () => {
+  it("calls the handler with the typed payload when a subscribed event fires", () => {
+    const { factory, sources } = captureEventSources();
+    const events: KiriEvent[] = [];
+    render(
+      <LiveEventsProvider factory={factory}>
+        <EventProbe on={["run.finished"]} handler={(e) => events.push(e)} />
+      </LiveEventsProvider>,
+    );
+
+    act(() => {
+      sources[0]?.emit({
+        type: "run.finished",
+        id: "r1",
+        status: "ok",
+        workflowName: "deploy",
+      });
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "run.finished",
+      id: "r1",
+      status: "ok",
+      workflowName: "deploy",
+    });
+  });
+
+  it("ignores event types the handler didn't subscribe to", () => {
+    const { factory, sources } = captureEventSources();
+    const handler = mock(() => {});
+    render(
+      <LiveEventsProvider factory={factory}>
+        <EventProbe on={["run.finished"]} handler={handler} />
+      </LiveEventsProvider>,
+    );
+
+    act(() => {
+      sources[0]?.emit({ type: "run.started", id: "r1" });
+    });
+
+    expect(handler).toHaveBeenCalledTimes(0);
+  });
+
+  it("does not fire on reconnect — only on dispatched events", () => {
+    const { factory, sources } = captureEventSources();
+    const handler = mock(() => {});
+    render(
+      <LiveEventsProvider factory={factory}>
+        <EventProbe on={["run.finished"]} handler={handler} />
+      </LiveEventsProvider>,
+    );
+
+    act(() => {
+      sources[0]?.triggerOpen();
+    });
+    act(() => {
+      sources[0]?.triggerOpen();
+    });
+
+    expect(handler).toHaveBeenCalledTimes(0);
+  });
+
+  it("uses the latest handler closure without re-subscribing", () => {
+    const { factory, sources } = captureEventSources();
+    const a: KiriEvent[] = [];
+    const b: KiriEvent[] = [];
+
+    const Toggle = () => {
+      const [which, setWhich] = useState<"a" | "b">("a");
+      const handler = (event: KiriEvent) => (which === "a" ? a : b).push(event);
+      return (
+        <>
+          <EventProbe on={["run.finished"]} handler={handler} />
+          <button type="button" onClick={() => setWhich("b")}>
+            swap
+          </button>
+        </>
+      );
+    };
+
+    const ui = render(
+      <LiveEventsProvider factory={factory}>
+        <Toggle />
+      </LiveEventsProvider>,
+    );
+
+    act(() => {
+      sources[0]?.emit({
+        type: "run.finished",
+        id: "r1",
+        status: "ok",
+        workflowName: "x",
+      });
+    });
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(0);
+
+    act(() => {
+      ui.container.querySelector("button")?.click();
+    });
+    act(() => {
+      sources[0]?.emit({
+        type: "run.finished",
+        id: "r2",
+        status: "failed",
+        workflowName: "y",
+      });
+    });
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(1);
+  });
+
+  it("removes the handler when its component unmounts", () => {
+    const { factory, sources } = captureEventSources();
+    const handler = mock(() => {});
+
+    const ui = render(
+      <LiveEventsProvider factory={factory}>
+        <EventProbe on={["run.finished"]} handler={handler} />
+      </LiveEventsProvider>,
+    );
+
+    act(() => {
+      ui.rerender(
+        <LiveEventsProvider factory={factory}>
+          <p>gone</p>
+        </LiveEventsProvider>,
+      );
+    });
+
+    act(() => {
+      sources[0]?.emit({
+        type: "run.finished",
+        id: "r1",
+        status: "ok",
+        workflowName: "x",
+      });
+    });
+    expect(handler).toHaveBeenCalledTimes(0);
+  });
+
+  it("throws when used outside the provider", () => {
+    expect(() => render(<EventProbe on={["run.finished"]} handler={() => {}} />)).toThrow(
       /inside <LiveEventsProvider>/,
     );
   });

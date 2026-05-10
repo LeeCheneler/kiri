@@ -41,4 +41,11 @@ describe("<App>", () => {
     renderAt("/totally-unknown");
     expect(screen.getByText(/page not found/i)).toBeDefined();
   });
+
+  it("mounts the toast container so completion notifications surface app-wide", () => {
+    renderAt("/");
+    // The container exposes itself as a polite live region; presence is
+    // enough — toast behaviour is covered in toast-container.test.tsx.
+    expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
+  });
 });
