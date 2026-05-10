@@ -170,6 +170,33 @@ Work items:
 - Summariser step (M7).
 - Global pause control (M7).
 
+## M3.95 — Activity feed summaries
+
+Each completed run gets a one-or-two-sentence AI summary surfaced in the activity feed and at the top of the run detail page. Workflows opt in via a new `summarize:` field; kiri ships a `claude-code-summarizer` bundle (haiku, prompt baked in, zero env vars) so the default `kiri init` experience produces summaries out of the box.
+
+The summariser was originally scoped to M7; pulled forward because the feed is the system's primary UX surface ("feed-first UI" is one of the two stated differentiators) and runs render as bare workflow-name + status rows without it. Once cron lands the feed fills up faster, so summaries are worth landing before that pressure arrives.
+
+Work items:
+
+- Workflow schema: optional `summarize:` field, same `{ use, env? } | { sh, env? }` shape as a step. Same load-time validation rules (mutually exclusive variants, `KIRI_` prefix banned, missing `use:` bundle is a workflow load failure).
+- Executor extension: after the `steps:` loop terminates (`ok` or `failed`, but not `cancelled`), if `summarize:` is set, run it via the same `runStep` path as a regular step. Recorded in `run_steps` with `is_summary: true`; on success, stdout (trimmed) lands on `runs.summary`. Summariser failure does not affect `runs.status` — the feed falls back to today's rendering, and the run detail page exposes the failed summariser execution for debugging.
+- New injected env var: `KIRI_RUN_CONTEXT_FILE`, path under per-run scratch. Kiri writes the full run envelope (workflow name, status, duration, per-step kind/status/duration/stdout/stderr/error) as JSON before spawning the summariser; the bundle decides how to format it for the prompt.
+- DB: `runs.summary TEXT NULL`, `run_steps.is_summary INTEGER NOT NULL DEFAULT 0`. Drizzle migration; existing rows unaffected.
+- `claude-code-summarizer` bundle: spawns `claude -p --max-turns 1` with haiku and a baked-in prompt, fed the JSON envelope. README documents the no-config posture and how to fork. `kiri init` scaffolds it alongside `claude-code/`.
+- Example workflow wiring: `EXAMPLE_WORKFLOW_YAML` (and kiri's own dogfood `workflows/example.yaml`) gain `summarize: { use: claude-code-summarizer }` so the default new-repo experience produces summaries.
+- Activity feed renders the summary under the workflow name when present, line-clamped. Run detail page renders a "Summary" section under the header and a separate "Summariser execution" disclosure below the steps for debugging. `is_summary` rows are filtered from the main step list.
+- `run.finished` fires after the summariser completes — toast latency picks up haiku's invocation time (~1–3s). No separate `summary.updated` event.
+
+**Done when:** running a workflow with `summarize: { use: claude-code-summarizer }` produces a summary visible in the activity feed and at the top of the run detail page; workflows without `summarize:` render identically to today.
+
+**Out of scope:**
+
+- Configurable summariser prompt or model on the shipped bundle — fork the bundle to customise.
+- Summarising cancelled runs (cancel = "stop now"; spawning haiku defeats user intent).
+- Streaming the summary as it generates.
+- Multi-step summarisers (single step only, like a regular entry).
+- A separate `summary.updated` event — `run.finished` carries the terminal state and the summary lands before it fires.
+
 ## M4 — Cron
 
 - In-process tick loop, runs while Hono is up
@@ -208,8 +235,6 @@ Work items:
 
 - SSE feed updates via Hono `streamSSE` — feed updates without reload
 - Feed filtering and scoping (by workflow, by status)
-- Summariser step: leaf-only (no recursion), generates condensed view for feed entries
-- Decide and integrate summariser model (probably Haiku via API)
 - Global pause control top-right; halts new invocations; modifier-click also kills in-flight
 
 ## M8 — MCP (deferred until trigger)
