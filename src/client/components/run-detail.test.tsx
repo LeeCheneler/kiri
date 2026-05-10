@@ -106,12 +106,12 @@ describe("<RunDetailView>", () => {
     });
   });
 
-  describe("interrupted runs", () => {
-    it("overrides the status to 'interrupted' when the workflow no longer exists", () => {
+  describe("deleted workflow", () => {
+    it("preserves the underlying status when the workflow no longer exists", () => {
       const { container } = renderDetail(stubDetail({ status: "ok", isInterrupted: true }));
-      const status = container.querySelector('[data-status="interrupted"]');
-      expect(status?.textContent).toBe("interrupted");
-      expect(status?.className).toContain("text-status-interrupted");
+      const status = container.querySelector('[data-status="ok"]');
+      expect(status?.textContent).toBe("ok");
+      expect(status?.className).toContain("text-status-ok");
     });
 
     it("appends a (deleted) marker after the workflow name", () => {
@@ -181,11 +181,11 @@ describe("<RunDetailView>", () => {
       },
     );
 
-    it("is hidden for interrupted runs (status renders as interrupted)", () => {
+    it("stays visible for running runs whose workflow has been deleted", () => {
       renderDetail(stubDetail({ status: "running", isInterrupted: true, finishedAt: null }), {
         onCancel: () => Promise.resolve({ runId: "run-1" }),
       });
-      expect(screen.queryByRole("button", { name: /cancel run/i })).toBeNull();
+      expect(screen.getByRole("button", { name: /cancel run/i })).toBeDefined();
     });
 
     it("invokes onCancel exactly once on click", async () => {

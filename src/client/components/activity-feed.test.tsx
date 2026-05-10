@@ -64,12 +64,12 @@ describe("<ActivityFeed>", () => {
     expect(screen.getByRole("link").getAttribute("data-status")).toBe("cancelled");
   });
 
-  it("tags interrupted rows with data-status='interrupted' regardless of underlying status", () => {
+  it("preserves the underlying status when the workflow has been deleted", () => {
     renderFeed([stubRun({ status: "ok", isInterrupted: true })]);
-    expect(screen.getByRole("link").getAttribute("data-status")).toBe("interrupted");
+    expect(screen.getByRole("link").getAttribute("data-status")).toBe("ok");
   });
 
-  it("renders a deleted marker on interrupted rows", () => {
+  it("renders a deleted marker for runs whose workflow is gone", () => {
     renderFeed([stubRun({ isInterrupted: true })]);
     expect(screen.getByText(/deleted/i)).toBeDefined();
   });

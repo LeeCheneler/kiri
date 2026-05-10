@@ -20,8 +20,7 @@ const STATUS_TEXT: Record<RunStatusKind, string> = {
   interrupted: "text-status-interrupted",
 };
 
-const statusFor = (run: RunListEntry): RunStatusKind =>
-  run.isInterrupted ? "interrupted" : run.status;
+const statusFor = (run: RunListEntry): RunStatusKind => run.status;
 
 /**
  * Activity feed: each run is one editorial row prefaced by a status

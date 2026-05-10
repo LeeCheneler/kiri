@@ -23,8 +23,7 @@ const STATUS_TEXT: Record<StatusKind, string> = {
 
 const SHELL_PREVIEW_LIMIT = 60;
 
-const runStatus = (run: RunListEntry): StatusKind =>
-  run.isInterrupted ? "interrupted" : run.status;
+const runStatus = (run: RunListEntry): StatusKind => run.status;
 
 const stepKindLabel = (step: RunStepRow): string => {
   if (step.materials.kind === "use") return `use: ${step.materials.bundle}`;
