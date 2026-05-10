@@ -129,10 +129,17 @@
       <p class="lede">Drop YAML workflows into <code>workflows/</code>, run <code>kiri</code> in the same directory, and trigger them from a feed-first UI on <a href="/">local.kiri.build</a>.</p>
 
       <h2>Install</h2>
-      <p>Download the macOS ARM64 binary from the <a href="https://github.com/LeeCheneler/kiri/releases/latest">latest release</a> and put it on your <code>$PATH</code>:</p>
-      <pre><code>chmod +x ~/Downloads/kiri
+      <p>macOS ARM64 only for now — <a href="https://github.com/LeeCheneler/kiri/issues">open an issue</a> if you'd like another platform.</p>
+      <pre><code>brew install LeeCheneler/kiri/kiri
+kiri --version</code></pre>
+      <p>Homebrew auto-taps <a href="https://github.com/LeeCheneler/homebrew-kiri">LeeCheneler/homebrew-kiri</a> on first install. To upgrade later, <code>brew upgrade kiri</code>.</p>
+      <details>
+        <summary>Without Homebrew</summary>
+        <p>Download the macOS ARM64 binary from the <a href="https://github.com/LeeCheneler/kiri/releases/latest">latest release</a> and put it on your <code>$PATH</code>:</p>
+        <pre><code>chmod +x ~/Downloads/kiri
 mv ~/Downloads/kiri /usr/local/bin/kiri
-kiri --help</code></pre>
+kiri --version</code></pre>
+      </details>
       <p>Building from source? See <a href="https://github.com/LeeCheneler/kiri/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p>
 
       <h2>Quick start</h2>
