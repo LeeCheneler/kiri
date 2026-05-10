@@ -406,7 +406,14 @@ describe("runWorkflow", () => {
   describe("cancel handling", () => {
     it("cancels a running step: run + step transition to cancelled, child is killed", async () => {
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
-      const wf: WorkflowDefinition = { name: "long", steps: [{ sh: "sleep 5" }] };
+      // `exec 1>&- 2>&-` closes sh's stdout/stderr before sleep is forked, so
+      // Bun's pipe readers get EOF immediately. Without this, an orphaned
+      // sleep inherits the write ends and hangs the readers until natural
+      // completion (only matters on Linux/CI; macOS resolves them sooner).
+      const wf: WorkflowDefinition = {
+        name: "long",
+        steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }],
+      };
       const bus = createEventBus();
       const seen: KiriEvent[] = [];
       bus.subscribe((e) => seen.push(e));

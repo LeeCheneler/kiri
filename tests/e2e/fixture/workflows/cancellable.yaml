@@ -1,3 +1,7 @@
 name: cancellable
 steps:
-  - sh: sleep 10 && echo "should-not-finish"
+  # exec 1>&- 2>&- closes sh's stdout/stderr before sleep is forked, so
+  # Bun's pipe readers get EOF on cancel even with the orphaned sleep
+  # still holding the write ends. Without this, cancellation hangs on
+  # Linux until the sleep finishes naturally.
+  - sh: exec 1>&- 2>&-; sleep 10

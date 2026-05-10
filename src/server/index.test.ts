@@ -591,7 +591,14 @@ describe("createApp", () => {
     });
 
     it("accepts cancel for an in-flight run, returning 202; the run terminates as cancelled", async () => {
-      const wf: WorkflowDefinition = { name: "long", steps: [{ sh: "sleep 5" }] };
+      // `exec 1>&- 2>&-` closes sh's stdout/stderr before sleep is forked so
+      // Bun's pipe readers get EOF immediately on cancel; otherwise the
+      // orphaned sleep holds the write ends and hangs the readers (manifests
+      // as a CI-only timeout on Linux).
+      const wf: WorkflowDefinition = {
+        name: "long",
+        steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }],
+      };
       registry.replace(new Map([[wf.name, wf]]));
 
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
@@ -656,9 +663,13 @@ describe("createApp", () => {
   });
 
   describe("cancelled runs surfaced through the API", () => {
+    // `exec 1>&- 2>&-` closes sh's stdout/stderr before sleep is forked so
+    // Bun's pipe readers get EOF immediately on cancel; otherwise the
+    // orphaned sleep holds the write ends and hangs the readers (manifests
+    // as a CI-only timeout on Linux).
     const cancellableWf = (name: string): WorkflowDefinition => ({
       name,
-      steps: [{ sh: "sleep 5" }],
+      steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }],
     });
 
     const triggerAndCancel = async (
