@@ -404,6 +404,111 @@ describe("createApp", () => {
       const body = (await res.json()) as { run: { isInterrupted: boolean } };
       expect(body.run.isInterrupted).toBe(true);
     });
+
+    it("returns an empty artefacts array and unchanged step list when the run has no publishes", async () => {
+      writeBundle("one", "#!/bin/sh\necho one\n");
+      const wf: WorkflowDefinition = {
+        name: "plain",
+        steps: [{ use: "one" }],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
+      const trigger = await app.request("/api/workflows/plain/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
+
+      const res = await app.request(`/api/runs/${runId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        steps: Array<{ index: number }>;
+        artefacts: unknown[];
+      };
+      expect(body.artefacts).toEqual([]);
+      expect(body.steps.map((s) => s.index)).toEqual([0]);
+    });
+
+    it("returns artefacts ordered by created_at and excludes is_publish rows from the step list", async () => {
+      writeBundle("one", "#!/bin/sh\necho one\n");
+      writeBundle("digest", "#!/bin/sh\necho digest-body\n");
+      writeBundle("notes", "#!/bin/sh\necho notes-body\n");
+      const wf: WorkflowDefinition = {
+        name: "with-publish",
+        steps: [{ use: "one" }],
+        publish: [
+          { name: "digest", title: "Digest Title", use: "digest" },
+          { name: "release-notes", use: "notes" },
+        ],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
+      const trigger = await app.request("/api/workflows/with-publish/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
+
+      const res = await app.request(`/api/runs/${runId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        steps: Array<{ index: number; kind: string }>;
+        artefacts: Array<{ name: string; title: string; createdAt: string }>;
+      };
+      // is_publish rows filtered out — only the original pipeline step remains.
+      expect(body.steps.map((s) => s.index)).toEqual([0]);
+      // Declared order matches created_at order (publishes run serially).
+      expect(body.artefacts.map((a) => a.name)).toEqual(["digest", "release-notes"]);
+      // Resolved title travels with each row; defaulted via titlecase when omitted.
+      expect(body.artefacts[0]).toMatchObject({ name: "digest", title: "Digest Title" });
+      expect(body.artefacts[1]).toMatchObject({ name: "release-notes", title: "Release Notes" });
+      // content_md is intentionally absent on this payload.
+      for (const a of body.artefacts) expect(a).not.toHaveProperty("contentMd");
+      // createdAt round-trips as an ISO timestamp (Date.toJSON in the response).
+      for (const a of body.artefacts) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    });
+
+    it("omits artefacts for a failed publish while still hiding its step row", async () => {
+      writeBundle("one", "#!/bin/sh\necho one\n");
+      writeBundle("bad", "#!/bin/sh\nexit 2\n");
+      writeBundle("good", "#!/bin/sh\necho good-body\n");
+      const wf: WorkflowDefinition = {
+        name: "pub-fail",
+        steps: [{ use: "one" }],
+        publish: [
+          { name: "bad", use: "bad" },
+          { name: "good", use: "good" },
+        ],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
+      const trigger = await app.request("/api/workflows/pub-fail/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
+
+      const res = await app.request(`/api/runs/${runId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        steps: Array<{ index: number }>;
+        artefacts: Array<{ name: string }>;
+      };
+      // Only the pipeline step is visible — both publish rows (one failed,
+      // one ok) are filtered out.
+      expect(body.steps.map((s) => s.index)).toEqual([0]);
+      // The failed publish produced no artefact row; the ok sibling did.
+      expect(body.artefacts.map((a) => a.name)).toEqual(["good"]);
+    });
   });
 
   describe("Cache-Control on stable-path SPA assets", () => {

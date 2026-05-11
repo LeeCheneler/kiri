@@ -4,7 +4,7 @@ import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { z } from "zod";
 import type { KiriDb } from "./db/index.ts";
-import { runSteps, runs } from "./db/schema.ts";
+import { runArtefacts, runSteps, runs } from "./db/schema.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute } from "./events/index.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
@@ -252,15 +252,31 @@ export function createApp(deps: AppDeps): Hono {
     const id = c.req.param("id");
     const run = db.select().from(runs).where(eq(runs.id, id)).get();
     if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+    // Publish-step rows are filtered out here so every consumer sees the
+    // same pipeline-only step list. The artefacts they produced live on
+    // the sibling `artefacts` field below.
     const steps = db
       .select()
       .from(runSteps)
-      .where(eq(runSteps.runId, id))
+      .where(and(eq(runSteps.runId, id), eq(runSteps.isPublish, false)))
       .orderBy(asc(runSteps.index))
+      .all();
+    // `content_md` is deliberately omitted — the artefact body is fetched
+    // by the dedicated artefact page so the run-detail payload stays small.
+    const artefacts = db
+      .select({
+        name: runArtefacts.name,
+        title: runArtefacts.title,
+        createdAt: runArtefacts.createdAt,
+      })
+      .from(runArtefacts)
+      .where(eq(runArtefacts.runId, id))
+      .orderBy(asc(runArtefacts.createdAt))
       .all();
     return c.json({
       run: { ...run, isInterrupted: !registry.getWorkflow(run.workflowName) },
       steps,
+      artefacts,
     });
   });
 
