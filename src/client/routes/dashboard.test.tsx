@@ -53,26 +53,128 @@ describe("<Dashboard>", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/failed to load runs/i);
   });
 
-  it("refreshes page one when a run lifecycle event fires", async () => {
-    let calls = 0;
+  // Shape of a run row as the API returns it (and as our MSW handlers
+  // assemble it). Local helper to keep the test handlers readable.
+  const stubRunPayload = (id: string, workflowName: string, status = "ok") => ({
+    id,
+    workflowName,
+    status,
+    trigger: "manual",
+    startedAt: "2026-05-09T12:00:00.000Z",
+    finishedAt: status === "running" ? null : "2026-05-09T12:00:01.000Z",
+    error: null,
+    summary: null,
+    definitionSnapshot: { name: workflowName, steps: [] },
+    isInterrupted: false,
+  });
+
+  it("prepends a freshly-started run via a single-row fetch on run.started", async () => {
+    let pageOneCalls = 0;
     server.use(
       http.get("*/api/runs", () => {
-        calls++;
+        pageOneCalls++;
         return HttpResponse.json({
-          runs: [
-            {
-              id: `r${calls}`,
-              workflowName: `wf-${calls}`,
-              status: "ok",
-              trigger: "manual",
-              startedAt: "2026-05-09T12:00:00.000Z",
-              finishedAt: "2026-05-09T12:00:01.000Z",
-              error: null,
-              summary: null,
-              definitionSnapshot: { name: `wf-${calls}`, steps: [] },
-              isInterrupted: false,
-            },
-          ],
+          runs: [stubRunPayload("r1", "old-wf")],
+          nextCursor: null,
+        });
+      }),
+      http.get("*/api/runs/r-new", () =>
+        HttpResponse.json({
+          run: stubRunPayload("r-new", "fresh-wf", "running"),
+          steps: [],
+        }),
+      ),
+    );
+
+    const { sources } = renderDashboard();
+    await screen.findByText(/old-wf/);
+    expect(pageOneCalls).toBe(1);
+
+    act(() => sources[0]?.emit({ type: "run.started", id: "r-new" }));
+
+    await screen.findByText(/fresh-wf/);
+    // Crucially: no second page-one fetch — the prepend was surgical.
+    expect(pageOneCalls).toBe(1);
+  });
+
+  it("patches a loaded run in place on run.finished", async () => {
+    server.use(
+      http.get("*/api/runs", () =>
+        HttpResponse.json({
+          runs: [stubRunPayload("r1", "wf", "running")],
+          nextCursor: null,
+        }),
+      ),
+      http.get("*/api/runs/r1", () =>
+        HttpResponse.json({
+          run: stubRunPayload("r1", "wf", "ok"),
+          steps: [],
+        }),
+      ),
+    );
+
+    const { sources, container } = renderDashboard();
+    await waitFor(() => {
+      expect(container.querySelector('[data-status="running"]')).not.toBeNull();
+    });
+
+    act(() => {
+      sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok", workflowName: "wf" });
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-status="ok"]')).not.toBeNull();
+    });
+  });
+
+  it("ignores a run.updated event for a row that isn't on any loaded page", async () => {
+    let detailFetches = 0;
+    server.use(
+      http.get("*/api/runs", () =>
+        HttpResponse.json({
+          runs: [stubRunPayload("r1", "wf")],
+          nextCursor: null,
+        }),
+      ),
+      http.get("*/api/runs/r-other", () => {
+        detailFetches++;
+        return HttpResponse.json({
+          run: stubRunPayload("r-other", "other-wf", "ok"),
+          steps: [],
+        });
+      }),
+    );
+
+    const { sources } = renderDashboard();
+    await screen.findByText(/^wf$/);
+
+    act(() => {
+      sources[0]?.emit({
+        type: "run.updated",
+        id: "r-other",
+        status: "ok",
+      });
+    });
+
+    // The fetch happens (we don't know yet whether the row is loaded
+    // until the response arrives), but the patch is a no-op.
+    await waitFor(() => expect(detailFetches).toBe(1));
+    expect(screen.queryByText(/other-wf/)).toBeNull();
+  });
+
+  it("refetches page one and merges by id on SSE reconnect", async () => {
+    let pageOneCalls = 0;
+    server.use(
+      http.get("*/api/runs", () => {
+        pageOneCalls++;
+        if (pageOneCalls === 1) {
+          return HttpResponse.json({
+            runs: [stubRunPayload("r1", "wf-1")],
+            nextCursor: null,
+          });
+        }
+        return HttpResponse.json({
+          runs: [stubRunPayload("r0", "fresh-wf"), stubRunPayload("r1", "wf-1")],
           nextCursor: null,
         });
       }),
@@ -80,12 +182,72 @@ describe("<Dashboard>", () => {
 
     const { sources } = renderDashboard();
     await screen.findByText(/wf-1/);
+    // Initial open doesn't count as a reconnect.
+    act(() => sources[0]?.triggerOpen());
+    expect(pageOneCalls).toBe(1);
 
-    act(() => {
-      sources[0]?.emit({ type: "run.started", id: "new" });
-    });
+    act(() => sources[0]?.triggerOpen());
+    await screen.findByText(/fresh-wf/);
+    expect(pageOneCalls).toBe(2);
+  });
 
-    await screen.findByText(/wf-2/);
+  it("logs and drops the prepend when the single-row fetch fails", async () => {
+    server.use(
+      http.get("*/api/runs", () =>
+        HttpResponse.json({ runs: [stubRunPayload("r1", "wf")], nextCursor: null }),
+      ),
+      http.get("*/api/runs/missing", () =>
+        HttpResponse.json({ error: 'run "missing" not found' }, { status: 404 }),
+      ),
+    );
+
+    const errors: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.join(" "));
+    };
+
+    try {
+      const { sources } = renderDashboard();
+      await screen.findByText(/wf/);
+      act(() => sources[0]?.emit({ type: "run.started", id: "missing" }));
+      await waitFor(() =>
+        expect(errors.some((line) => String(line).includes("run.started fetch failed"))).toBe(true),
+      );
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  it("logs and drops the patch when the single-row fetch fails", async () => {
+    server.use(
+      http.get("*/api/runs", () =>
+        HttpResponse.json({
+          runs: [stubRunPayload("r1", "wf", "running")],
+          nextCursor: null,
+        }),
+      ),
+      http.get("*/api/runs/r1", () => HttpResponse.json({ error: "boom" }, { status: 500 })),
+    );
+
+    const errors: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.join(" "));
+    };
+
+    try {
+      const { sources } = renderDashboard();
+      await screen.findByText(/wf/);
+      act(() => {
+        sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok", workflowName: "wf" });
+      });
+      await waitFor(() =>
+        expect(errors.some((line) => String(line).includes("run.updated fetch failed"))).toBe(true),
+      );
+    } finally {
+      console.error = originalError;
+    }
   });
 
   // Page handlers reused across the pagination scenarios: page one

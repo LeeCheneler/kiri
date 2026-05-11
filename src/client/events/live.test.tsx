@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
 import { useState } from "react";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
-import { type KiriEvent, LiveEventsProvider, useLiveEvent, useLiveSync } from "./live.tsx";
+import {
+  type KiriEvent,
+  LiveEventsProvider,
+  useLiveEvent,
+  useLiveReconnect,
+  useLiveSync,
+} from "./live.tsx";
 
 afterEach(() => cleanup());
 
@@ -385,6 +391,93 @@ describe("useLiveEvent", () => {
 
   it("throws when used outside the provider", () => {
     expect(() => render(<EventProbe on={["run.finished"]} handler={() => {}} />)).toThrow(
+      /inside <LiveEventsProvider>/,
+    );
+  });
+});
+
+const ReconnectProbe = ({ onReconnect }: { onReconnect: () => void }) => {
+  useLiveReconnect(onReconnect);
+  return null;
+};
+
+describe("useLiveReconnect", () => {
+  it("does not fire on the initial open — only on subsequent reconnects", () => {
+    const { factory, sources } = captureEventSources();
+    const onReconnect = mock(() => {});
+    render(
+      <LiveEventsProvider factory={factory}>
+        <ReconnectProbe onReconnect={onReconnect} />
+      </LiveEventsProvider>,
+    );
+
+    act(() => {
+      sources[0]?.triggerOpen();
+    });
+    expect(onReconnect).toHaveBeenCalledTimes(0);
+
+    act(() => {
+      sources[0]?.triggerOpen();
+    });
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      sources[0]?.triggerOpen();
+    });
+    expect(onReconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores dispatched events — only reconnects trigger the handler", () => {
+    const { factory, sources } = captureEventSources();
+    const onReconnect = mock(() => {});
+    render(
+      <LiveEventsProvider factory={factory}>
+        <ReconnectProbe onReconnect={onReconnect} />
+      </LiveEventsProvider>,
+    );
+
+    act(() => {
+      sources[0]?.emit({ type: "run.started", id: "r1" });
+      sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok", workflowName: "x" });
+    });
+
+    expect(onReconnect).toHaveBeenCalledTimes(0);
+  });
+
+  it("uses the latest handler closure without re-subscribing", () => {
+    const { factory, sources } = captureEventSources();
+    const calls: string[] = [];
+
+    const Rerenderer = () => {
+      const [tag, setTag] = useState("a");
+      useLiveReconnect(() => calls.push(tag));
+      return (
+        <button type="button" onClick={() => setTag("b")}>
+          flip
+        </button>
+      );
+    };
+
+    const { getByRole } = render(
+      <LiveEventsProvider factory={factory}>
+        <Rerenderer />
+      </LiveEventsProvider>,
+    );
+
+    act(() => sources[0]?.triggerOpen());
+    act(() => sources[0]?.triggerOpen());
+    expect(calls).toEqual(["a"]);
+
+    act(() => {
+      getByRole("button").click();
+    });
+
+    act(() => sources[0]?.triggerOpen());
+    expect(calls).toEqual(["a", "b"]);
+  });
+
+  it("throws when used outside the provider", () => {
+    expect(() => render(<ReconnectProbe onReconnect={() => {}} />)).toThrow(
       /inside <LiveEventsProvider>/,
     );
   });

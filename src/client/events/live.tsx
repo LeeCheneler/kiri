@@ -208,3 +208,29 @@ export function useLiveEvent<T extends KiriEventType>(opts: {
     });
   }, [ctx, key]);
 }
+
+/**
+ * Subscribe a handler that only fires on `EventSource` reconnects.
+ * Useful for surfaces that handle live events with surgical state
+ * updates (via `useLiveEvent`) but still need to reconcile state on
+ * reconnect — recovering from events that may have been missed while
+ * disconnected.
+ *
+ * Throws when used outside `<LiveEventsProvider>`.
+ */
+export function useLiveReconnect(onReconnect: () => void): void {
+  const ctx = useContext(LiveEventsContext);
+  if (!ctx) throw new Error("useLiveReconnect must be used inside <LiveEventsProvider>");
+
+  const handlerRef = useRef(onReconnect);
+  handlerRef.current = onReconnect;
+
+  useEffect(() => {
+    return ctx.subscribe({
+      types: new Set(),
+      filter: undefined,
+      onEvent: undefined,
+      onReconnect: () => handlerRef.current(),
+    });
+  }, [ctx]);
+}

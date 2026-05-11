@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
+import { fetchRun } from "../api.ts";
 import { ActivityFeed } from "../components/activity-feed.tsx";
-import { useLiveSync } from "../events/live.tsx";
+import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 import { useRunFeed } from "../hooks/use-run-feed.ts";
 
 /**
@@ -13,8 +14,12 @@ import { useRunFeed } from "../hooks/use-run-feed.ts";
  * the sentinel enters the viewport. The hook coalesces overlapping
  * triggers so a slow page can't queue duplicate fetches.
  *
- * Live updates: lifecycle events trigger a page-one refresh through
- * the hook so new and updated runs surface without a reload.
+ * Live updates: `run.started` events prepend the new run to page one;
+ * `run.updated` / `run.finished` patch the matching row in whichever
+ * loaded page holds it (no-op if the user hasn't scrolled to it yet).
+ * SSE reconnects trigger a page-one refetch + merge so the feed
+ * recovers any rows that arrived while disconnected without losing
+ * loaded pages below.
  */
 export function Dashboard() {
   const feed = useRunFeed();
@@ -22,8 +27,12 @@ export function Dashboard() {
   // the freshest closure without re-creating the observer.
   const loadNextRef = useRef(feed.loadNext);
   loadNextRef.current = feed.loadNext;
-  const refreshRef = useRef(feed.refresh);
-  refreshRef.current = feed.refresh;
+  const prependRef = useRef(feed.prependRun);
+  prependRef.current = feed.prependRun;
+  const patchRef = useRef(feed.patchRun);
+  patchRef.current = feed.patchRun;
+  const mergePageOneRef = useRef(feed.mergePageOne);
+  mergePageOneRef.current = feed.mergePageOne;
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   // Callback ref: React invokes this with the DOM node when the sentinel
@@ -44,13 +53,27 @@ export function Dashboard() {
     observerRef.current = observer;
   }, []);
 
-  const handleLifecycleEvent = useCallback(() => {
-    refreshRef.current();
-  }, []);
-  useLiveSync({
-    on: ["run.started", "run.updated", "run.finished"],
-    refetch: handleLifecycleEvent,
+  useLiveEvent({
+    on: ["run.started"],
+    handler: (event) => {
+      // Bus payload only carries the id; resolve the row for the
+      // prepend. A failed fetch (e.g. the run was deleted before we
+      // could reach it) is logged and dropped — the next reconnect
+      // merge will reconcile.
+      fetchRun(event.id)
+        .then((detail) => prependRef.current(detail.run))
+        .catch((err: Error) => console.error(`run.started fetch failed: ${err.message}`));
+    },
   });
+  useLiveEvent({
+    on: ["run.updated", "run.finished"],
+    handler: (event) => {
+      fetchRun(event.id)
+        .then((detail) => patchRef.current(detail.run))
+        .catch((err: Error) => console.error(`run.updated fetch failed: ${err.message}`));
+    },
+  });
+  useLiveReconnect(useCallback(() => mergePageOneRef.current(), []));
 
   return (
     <section>
