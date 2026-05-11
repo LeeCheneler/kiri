@@ -3,12 +3,25 @@ export type WorkflowStepSummary =
   | { use: string; env?: Record<string, string> }
   | { sh: string; env?: Record<string, string> };
 
+/**
+ * One `publish:` entry on a workflow summary. `title` is always present —
+ * the server applies the schema's titlecase fallback so the client doesn't
+ * re-implement it.
+ */
+export type WorkflowPublishSummary =
+  | { name: string; title: string; use: string; env?: Record<string, string> }
+  | { name: string; title: string; sh: string; env?: Record<string, string> };
+
 /** Workflow summary as returned by `GET /api/workflows`. */
 export interface WorkflowSummary {
   name: string;
   steps: WorkflowStepSummary[];
   gating?: "auto" | "propose";
   schedule?: string;
+  /** Defined when the workflow has at least one `publish:` entry. */
+  publish?: WorkflowPublishSummary[];
+  /** Defined when the workflow has a `summarize:` step. */
+  summarize?: WorkflowStepSummary;
 }
 
 /**

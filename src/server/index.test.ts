@@ -97,6 +97,75 @@ describe("createApp", () => {
         schedule: "*/5 * * * *",
       });
     });
+
+    it("omits publish and summarize when the workflow has neither", async () => {
+      const wf: WorkflowDefinition = { name: "steps-only", steps: [{ sh: "echo hi" }] };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/workflows");
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      // Absence is signalled by missing keys (JSON.stringify drops `undefined`),
+      // never by `[]` or `null`. Callers branch on "field present" with no
+      // empty-collection ambiguity.
+      expect("publish" in body[0]).toBe(false);
+      expect("summarize" in body[0]).toBe(false);
+    });
+
+    it("projects publish entries with title resolved from the schema fallback", async () => {
+      const wf: WorkflowDefinition = {
+        name: "publishes",
+        steps: [{ sh: "echo hi" }],
+        publish: [
+          { name: "pr-digest", use: "claude-code", env: { MODEL: "sonnet" } },
+          { name: "report", title: "Weekly Report", sh: "echo report" },
+        ],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/workflows");
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      expect(body[0].publish).toEqual([
+        { name: "pr-digest", title: "PR Digest", use: "claude-code", env: { MODEL: "sonnet" } },
+        { name: "report", title: "Weekly Report", sh: "echo report" },
+      ]);
+      expect("summarize" in body[0]).toBe(false);
+    });
+
+    it("projects summarize as-is when only summarize is defined", async () => {
+      const wf: WorkflowDefinition = {
+        name: "summarises",
+        steps: [{ sh: "echo hi" }],
+        summarize: { use: "claude-code-summarizer", env: { MODEL: "haiku" } },
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/workflows");
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      expect(body[0].summarize).toEqual({
+        use: "claude-code-summarizer",
+        env: { MODEL: "haiku" },
+      });
+      expect("publish" in body[0]).toBe(false);
+    });
+
+    it("projects both publish and summarize when the workflow has both", async () => {
+      const wf: WorkflowDefinition = {
+        name: "full",
+        steps: [{ sh: "echo hi" }],
+        publish: [{ name: "digest", sh: "echo body" }],
+        summarize: { sh: "echo one-liner" },
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/workflows");
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      expect(body[0].publish).toEqual([{ name: "digest", title: "Digest", sh: "echo body" }]);
+      expect(body[0].summarize).toEqual({ sh: "echo one-liner" });
+    });
   });
 
   const CLIENT_HEADERS = { "X-Kiri-Client": "kiri-ui" };

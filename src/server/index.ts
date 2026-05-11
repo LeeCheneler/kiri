@@ -10,7 +10,7 @@ import { type EventBus, mountEventsRoute } from "./events/index.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
 import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
-import { publishNameSchema } from "./workflows/schema.ts";
+import { publishNameSchema, resolvePublishTitle } from "./workflows/schema.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
@@ -90,6 +90,16 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
   steps: def.steps,
   gating: def.gating,
   schedule: def.schedule,
+  // Absence (no `publish:` / `summarize:` field, or `publish: []`) collapses
+  // to `undefined` so the client has a single "section not present" signal.
+  publish:
+    def.publish && def.publish.length > 0
+      ? def.publish.map((entry) => ({
+          ...entry,
+          title: resolvePublishTitle(entry.name, entry.title),
+        }))
+      : undefined,
+  summarize: def.summarize,
 });
 
 const DEFAULT_RUN_LIMIT = 25;
