@@ -4,7 +4,13 @@ import { eq } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
-import { type WorkflowDefinition, type WorkflowStep, isUseStep } from "../workflows/index.ts";
+import {
+  type PublishEntry,
+  type WorkflowDefinition,
+  type WorkflowStep,
+  isUsePublish,
+  isUseStep,
+} from "../workflows/index.ts";
 import type { CancelRegistry } from "./cancel-registry.ts";
 import { runStep } from "./run-step.ts";
 
@@ -44,6 +50,7 @@ interface DefinitionSnapshot {
   gating?: "auto" | "propose";
   schedule?: string;
   summarize?: WorkflowStep;
+  publish?: PublishEntry[];
 }
 
 /**
@@ -78,7 +85,11 @@ const snapshotDefinition = (def: WorkflowDefinition): DefinitionSnapshot => ({
   gating: def.gating,
   schedule: def.schedule,
   summarize: def.summarize ? { ...def.summarize } : undefined,
+  publish: def.publish ? def.publish.map((p) => ({ ...p })) : undefined,
 });
+
+const publishAsStep = (entry: PublishEntry): WorkflowStep =>
+  isUsePublish(entry) ? { use: entry.use, env: entry.env } : { sh: entry.sh, env: entry.env };
 
 const snapshotBundle = (bundleDir: string): Record<string, string> => {
   let entries: string[];
@@ -279,13 +290,110 @@ export function runWorkflow(
         runError = { ...CANCELLED_ERROR };
       }
 
+      // Publishes run after `steps:` on `ok` and `failed` runs, before the
+      // summariser. Each entry goes through the same runStep path. Failure
+      // is non-fatal — siblings keep running and `runs.status` is unaffected.
+      // Cancel mid-publish flips the run to `cancelled` and halts further work.
+      const publishes = definition.publish ?? [];
+      for (let pi = 0; pi < publishes.length && status !== "cancelled"; pi++) {
+        if (args.cancelRegistry?.isCancelled(runId)) {
+          status = "cancelled";
+          runError = { ...CANCELLED_ERROR };
+          break;
+        }
+
+        const entry = publishes[pi];
+        const publishStep = publishAsStep(entry);
+        const publishIndex = definition.steps.length + pi;
+        const materials = captureMaterials(publishStep, args.cwd);
+
+        const stepId = crypto.randomUUID();
+        db.insert(runSteps)
+          .values({
+            id: stepId,
+            runId,
+            index: publishIndex,
+            kind: isUseStep(publishStep) ? "use" : "sh",
+            status: "running",
+            materials,
+            isPublish: true,
+          })
+          .run();
+
+        args.bus?.publish({
+          type: "run.step.updated",
+          runId,
+          step: publishIndex,
+          status: "running",
+        });
+
+        const contextFile = join(scratchDir, `publish-context-${pi}.json`);
+        writeFileSync(
+          contextFile,
+          JSON.stringify(
+            {
+              workflow: definition.name,
+              status,
+              startedAt: startedAt.toISOString(),
+              durationMs: Date.now() - startedAt.getTime(),
+              steps: executed,
+            },
+            null,
+            2,
+          ),
+        );
+
+        const env = buildEnv(publishStep, runId, publishIndex, args.cwd, scratchDir);
+        env.KIRI_RUN_CONTEXT_FILE = contextFile;
+
+        const envelope = await runStep({
+          step: publishStep,
+          cwd: args.cwd,
+          scratchDir,
+          input: "",
+          env,
+          onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
+        });
+
+        const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
+        const publishStatus =
+          cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
+        const publishError =
+          cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
+
+        db.update(runSteps)
+          .set({
+            status: publishStatus,
+            output: envelope.output,
+            error: publishError,
+            traces: envelope.traces,
+          })
+          .where(eq(runSteps.id, stepId))
+          .run();
+
+        args.bus?.publish({
+          type: "run.step.updated",
+          runId,
+          step: publishIndex,
+          status: publishStatus,
+        });
+
+        // Cancel mid-publish flips the run terminal status; ordinary
+        // failure leaves the run status untouched and lets siblings run.
+        if (cancelled && envelope.status === "failed") {
+          status = "cancelled";
+          runError = { ...CANCELLED_ERROR };
+          break;
+        }
+      }
+
       // Summariser runs after the steps loop on `ok` and `failed` runs.
       // Cancelled runs skip it: cancel = "stop now", spawning haiku
       // defeats the user's intent. Failure here doesn't change the run's
       // terminal status; the summariser is best-effort.
       if (definition.summarize && status !== "cancelled") {
         const summarizeStep = definition.summarize;
-        const summaryIndex = definition.steps.length;
+        const summaryIndex = definition.steps.length + publishes.length;
         const contextFile = join(scratchDir, "run-context.json");
         writeFileSync(
           contextFile,

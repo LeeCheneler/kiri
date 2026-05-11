@@ -862,4 +862,331 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBeNull();
     });
   });
+
+  describe("publish", () => {
+    it("records each publish entry as a run_steps row with isPublish=true", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("digest", "#!/bin/sh\necho digest-body\n");
+      writeBundle("notes", "#!/bin/sh\necho notes-body\n");
+      const wf: WorkflowDefinition = {
+        name: "with-publish",
+        steps: [{ use: "step" }],
+        publish: [
+          { name: "digest", use: "digest" },
+          { name: "notes", sh: 'echo "from-sh"' },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const stepsRows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(stepsRows).toHaveLength(3);
+      expect(stepsRows[0].isPublish).toBe(false);
+      expect(stepsRows[0].isSummary).toBe(false);
+      expect(stepsRows[1].index).toBe(1);
+      expect(stepsRows[1].isPublish).toBe(true);
+      expect(stepsRows[1].isSummary).toBe(false);
+      expect(stepsRows[1].kind).toBe("use");
+      expect(stepsRows[1].materials).toEqual({
+        kind: "use",
+        bundle: "digest",
+        files: { "run.sh": "#!/bin/sh\necho digest-body\n" },
+      });
+      expect(stepsRows[2].index).toBe(2);
+      expect(stepsRows[2].isPublish).toBe(true);
+      expect(stepsRows[2].kind).toBe("sh");
+      expect(stepsRows[2].materials).toEqual({ kind: "sh", source: 'echo "from-sh"' });
+    });
+
+    it("places publish rows between steps and summarise in the index sequence", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("art", "#!/bin/sh\necho artefact\n");
+      writeBundle("summer", "#!/bin/sh\necho summary\n");
+      const wf: WorkflowDefinition = {
+        name: "full",
+        steps: [{ use: "step" }],
+        publish: [{ name: "art", use: "art" }],
+        summarize: { use: "summer" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const stepsRows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(stepsRows.map((s) => [s.index, s.isPublish, s.isSummary])).toEqual([
+        [0, false, false],
+        [1, true, false],
+        [2, false, true],
+      ]);
+    });
+
+    it("snapshots publish onto definitionSnapshot", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("art", "#!/bin/sh\necho artefact\n");
+      const wf: WorkflowDefinition = {
+        name: "snap-pub",
+        steps: [{ use: "step" }],
+        publish: [{ name: "art", title: "Custom Title", use: "art", env: { KEEP: "yes" } }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.definitionSnapshot).toMatchObject({
+        name: "snap-pub",
+        publish: [{ name: "art", title: "Custom Title", use: "art", env: { KEEP: "yes" } }],
+      });
+    });
+
+    it("continues iterating siblings after a failing publish and leaves runs.status unaffected", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("bad", "#!/bin/sh\necho oops >&2\nexit 9\n");
+      writeBundle("good", "#!/bin/sh\necho after-bad\n");
+      const wf: WorkflowDefinition = {
+        name: "pub-failure",
+        steps: [{ use: "step" }],
+        publish: [
+          { name: "bad", use: "bad" },
+          { name: "good", use: "good" },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.status).toBe("ok");
+      expect(run?.error).toBeNull();
+
+      const publishRows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .filter((s) => s.isPublish);
+      expect(publishRows).toHaveLength(2);
+      expect(publishRows[0].status).toBe("failed");
+      expect(publishRows[0].error).not.toBeNull();
+      expect(publishRows[1].status).toBe("ok");
+    });
+
+    it("still runs publishes when the steps: pipeline failed (ordering parity with summarize)", async () => {
+      writeBundle("boom", "#!/bin/sh\nexit 4\n");
+      writeBundle("art", "#!/bin/sh\necho after-fail\n");
+      const wf: WorkflowDefinition = {
+        name: "pub-after-fail",
+        steps: [{ use: "boom" }],
+        publish: [{ name: "art", use: "art" }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("failed");
+
+      const publishRow = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .find((s) => s.isPublish);
+      expect(publishRow?.status).toBe("ok");
+    });
+
+    it("skips publishes entirely when the run is cancelled", async () => {
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      writeBundle(
+        "pub-marker",
+        '#!/bin/sh\necho pub-ran > "$KIRI_REPO_ROOT/pub-marker"\necho artefact\n',
+      );
+      const wf: WorkflowDefinition = {
+        name: "cancel-skip-pub",
+        steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }],
+        publish: [{ name: "art", use: "pub-marker" }],
+      };
+
+      const { runId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        cancelRegistry,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      cancelRegistry.requestCancel(runId);
+
+      const result = await done;
+      expect(result.status).toBe("cancelled");
+
+      // No publish row inserted; the marker file was never created.
+      expect(existsSync(join(cwd, "pub-marker"))).toBe(false);
+      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, runId)).all();
+      expect(stepsRows.some((s) => s.isPublish)).toBe(false);
+    });
+
+    it("exposes KIRI_RUN_CONTEXT_FILE to publishes with the steps envelope", async () => {
+      writeBundle("step", "#!/bin/sh\necho hello\n");
+      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      const wf: WorkflowDefinition = {
+        name: "pub-ctx",
+        steps: [{ use: "step" }],
+        publish: [{ name: "ctx", use: "context-dump" }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const publishRow = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .find((s) => s.isPublish);
+      const parsed = JSON.parse(publishRow?.output as string);
+      expect(parsed.workflow).toBe("pub-ctx");
+      expect(parsed.status).toBe("ok");
+      expect(parsed.steps).toEqual([
+        expect.objectContaining({ index: 0, kind: "use", use: "step", status: "ok" }),
+      ]);
+    });
+
+    it("inter-publish cancel halts before the next publish starts; earlier ok publish stays ok", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("first-pub", "#!/bin/sh\necho first-publish\n");
+      writeBundle("second-pub", "#!/bin/sh\necho should-not-run\n");
+      const wf: WorkflowDefinition = {
+        name: "two-pub",
+        steps: [{ use: "step" }],
+        publish: [
+          { name: "first", use: "first-pub" },
+          { name: "second", use: "second-pub" },
+        ],
+      };
+      const cancelRegistry = createCancelRegistry();
+      const bus = createEventBus();
+
+      // Cancel synchronously when the first publish's `ok` event lands.
+      // The publish loop's `isCancelled` check at iteration 2 picks it up.
+      let target = "";
+      bus.subscribe((e) => {
+        if (
+          e.type === "run.step.updated" &&
+          e.runId === target &&
+          e.step === 1 &&
+          e.status === "ok"
+        ) {
+          cancelRegistry.requestCancel(target);
+        }
+      });
+
+      const { runId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        bus,
+        cancelRegistry,
+      });
+      target = runId;
+
+      const result = await done;
+      expect(result.status).toBe("cancelled");
+
+      const publishRows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .filter((s) => s.isPublish);
+      expect(publishRows).toHaveLength(1);
+      expect(publishRows[0].status).toBe("ok");
+
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.error).toEqual({ message: "run cancelled" });
+    });
+
+    it("propagates cancel arriving during a publish step to the run status", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("slow-pub", "#!/bin/sh\nexec 1>&- 2>&-; sleep 5\n");
+      const wf: WorkflowDefinition = {
+        name: "pub-cancel",
+        steps: [{ use: "step" }],
+        publish: [{ name: "art", use: "slow-pub" }],
+      };
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      const bus = createEventBus();
+
+      let target = "";
+      bus.subscribe((e) => {
+        if (
+          e.type === "run.step.updated" &&
+          e.runId === target &&
+          e.step === 1 &&
+          e.status === "running"
+        ) {
+          cancelRegistry.requestCancel(target);
+        }
+      });
+
+      const { runId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        bus,
+        cancelRegistry,
+      });
+      target = runId;
+
+      const result = await done;
+      expect(result.status).toBe("cancelled");
+
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("cancelled");
+      expect(run?.error).toEqual({ message: "run cancelled" });
+
+      const publishRow = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .find((s) => s.isPublish);
+      expect(publishRow?.status).toBe("cancelled");
+      expect(publishRow?.error).toEqual({ message: "run cancelled" });
+    });
+
+    it("publishes run.step.updated events for each publish step", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("art", "#!/bin/sh\necho artefact\n");
+      const wf: WorkflowDefinition = {
+        name: "pub-events",
+        steps: [{ use: "step" }],
+        publish: [{ name: "art", use: "art" }],
+      };
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((e) => seen.push(e));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual", bus }).done;
+      expect(result.status).toBe("ok");
+      expect(seen).toEqual([
+        { type: "run.started", id: result.runId },
+        { type: "run.step.updated", runId: result.runId, step: 0, status: "running" },
+        { type: "run.step.updated", runId: result.runId, step: 0, status: "ok" },
+        { type: "run.step.updated", runId: result.runId, step: 1, status: "running" },
+        { type: "run.step.updated", runId: result.runId, step: 1, status: "ok" },
+        { type: "run.updated", id: result.runId, status: "ok" },
+        { type: "run.finished", id: result.runId, status: "ok", workflowName: "pub-events" },
+      ]);
+    });
+  });
 });
