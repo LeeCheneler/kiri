@@ -18,7 +18,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   finishedAt: new Date(NOW.getTime() - 3 * 60 * 1000 + 12_000).toISOString(),
   error: null,
   summary: null,
-  definitionSnapshot: { name: "kiri-self-review", steps: [] },
+  definitionSnapshot: { name: "kiri-self-review", steps: [{ sh: "echo hello, world" }] },
   isInterrupted: false,
   ...overrides,
 });
@@ -67,14 +67,14 @@ describe("<RunDetailView>", () => {
 
     it("renders the status word in the matching status colour", () => {
       const { container } = renderDetail(stubDetail({ status: "failed" }));
-      const status = container.querySelector('[data-status="failed"]');
+      const status = container.querySelector('header [data-status="failed"]');
       expect(status?.textContent).toBe("failed");
       expect(status?.className).toContain("text-status-failed");
     });
 
     it("renders cancelled runs with the cancelled status colour", () => {
       const { container } = renderDetail(stubDetail({ status: "cancelled" }));
-      const status = container.querySelector('[data-status="cancelled"]');
+      const status = container.querySelector('header [data-status="cancelled"]');
       expect(status?.textContent).toBe("cancelled");
       expect(status?.className).toContain("text-status-cancelled");
     });
@@ -115,7 +115,7 @@ describe("<RunDetailView>", () => {
   describe("deleted workflow", () => {
     it("preserves the underlying status when the workflow no longer exists", () => {
       const { container } = renderDetail(stubDetail({ status: "ok", isInterrupted: true }));
-      const status = container.querySelector('[data-status="ok"]');
+      const status = container.querySelector('header [data-status="ok"]');
       expect(status?.textContent).toBe("ok");
       expect(status?.className).toContain("text-status-ok");
     });
@@ -132,7 +132,7 @@ describe("<RunDetailView>", () => {
   });
 
   describe("run-level failure", () => {
-    it("renders the failure block above the steps section when the run errored", () => {
+    it("renders the failure block above the activity list when the run errored", () => {
       renderDetail(
         stubDetail({
           status: "failed",
@@ -252,134 +252,261 @@ describe("<RunDetailView>", () => {
     });
   });
 
-  describe("step list", () => {
-    it("renders an empty-state sentence when there are no steps", () => {
-      renderDetail(stubDetail({}, []));
-      expect(screen.getByText(/no steps recorded/i)).toBeDefined();
+  describe("activity list", () => {
+    // A representative run definition: two pipeline steps, two publishes,
+    // and a summariser. Tests below populate per-row state to exercise
+    // pending / running / terminal transitions across kinds.
+    const definitionWithEverything: RunListEntry["definitionSnapshot"] = {
+      name: "everything",
+      steps: [{ sh: "echo one" }, { use: "linter" }],
+      publish: [
+        { name: "digest", title: "Daily Digest", use: "digest-bundle" },
+        { name: "release-notes", use: "notes-bundle" },
+      ],
+      summarize: { use: "claude-code-summarizer" },
+    };
+
+    it("renders every declared activity as a pending row before any step has run", () => {
+      renderDetail(stubDetail({ definitionSnapshot: definitionWithEverything }, []));
+      const list = screen.getByRole("list", { name: /^activity$/i });
+      const rows = within(list).queryAllByRole("listitem");
+      // Two pipeline steps + two publishes + one summariser = 5 expected rows.
+      expect(rows).toHaveLength(5);
+      // All five are pending — there's no step row yet for any of them.
+      for (const row of rows) {
+        expect(row.querySelector('[data-status="pending"]')).not.toBeNull();
+      }
     });
 
-    it("renders the step count in the section header", () => {
+    it("numbers every row in declared order, padded to two digits", () => {
+      renderDetail(stubDetail({ definitionSnapshot: definitionWithEverything }, []));
+      const list = screen.getByRole("list", { name: /^activity$/i });
+      const rows = within(list).queryAllByRole("listitem");
+      const ordinals = rows.map((r) => within(r).getByText(/^\d{2}$/).textContent);
+      expect(ordinals).toEqual(["01", "02", "03", "04", "05"]);
+    });
+
+    it("tags each row with its activity kind", () => {
+      renderDetail(stubDetail({ definitionSnapshot: definitionWithEverything }, []));
+      const list = screen.getByRole("list", { name: /^activity$/i });
+      const rows = within(list).queryAllByRole("listitem");
+      const kinds = rows.map((r) => r.querySelector("[data-kind]")?.getAttribute("data-kind"));
+      expect(kinds).toEqual(["step", "step", "publishing", "publishing", "summarising"]);
+    });
+
+    it("renders the activity item count in the section header", () => {
+      renderDetail(stubDetail({ definitionSnapshot: definitionWithEverything }, []));
+      expect(screen.getByText(/^5 items$/)).toBeDefined();
+    });
+
+    it("uses the singular form when there is exactly one activity item", () => {
       renderDetail(
-        stubDetail({}, [
-          stubStep({ id: "s1", index: 0 }),
-          stubStep({ id: "s2", index: 1 }),
-          stubStep({ id: "s3", index: 2 }),
-        ]),
+        stubDetail({ definitionSnapshot: { name: "tiny", steps: [{ sh: "echo hi" }] } }, []),
       );
-      expect(screen.getByText(/^3 steps$/)).toBeDefined();
+      expect(screen.getByText(/^1 item$/)).toBeDefined();
     });
 
-    it("renders the singular form when there is exactly one step", () => {
-      renderDetail(stubDetail({}, [stubStep()]));
-      expect(screen.getByText(/^1 step$/)).toBeDefined();
-    });
-
-    it("renders the step number padded to two digits", () => {
-      renderDetail(stubDetail({}, [stubStep({ index: 0 })]));
-      expect(screen.getByText("01")).toBeDefined();
-    });
-
-    it("renders the step duration in the row", () => {
+    it("flips a pending row to running when its row materialises with running status", () => {
       renderDetail(
-        stubDetail({}, [stubStep({ traces: { stdout: "", stderr: "", durationMs: 1_400 } })]),
-      );
-      expect(screen.getByText("1.4s")).toBeDefined();
-    });
-
-    it("renders an em-dash for steps with no traces yet", () => {
-      renderDetail(stubDetail({}, [stubStep({ status: "running", traces: null })]));
-      expect(screen.getByText("—")).toBeDefined();
-    });
-
-    it("labels a use: step with the bundle name", () => {
-      renderDetail(
-        stubDetail({}, [
+        stubDetail({ definitionSnapshot: definitionWithEverything }, [
+          stubStep({ id: "s0", index: 0, status: "ok" }),
           stubStep({
-            materials: { kind: "use", bundle: "claude-code", files: { "run.sh": "#!/bin/sh" } },
+            id: "s1",
+            index: 1,
+            status: "running",
+            traces: null,
+            kind: "use",
+            materials: { kind: "use", bundle: "linter", files: {} },
           }),
         ]),
       );
-      expect(screen.getByText("use: claude-code")).toBeDefined();
+      const list = screen.getByRole("list", { name: /^activity$/i });
+      const rows = within(list).queryAllByRole("listitem");
+      // Row 0 = ok, row 1 = running, rows 2..4 still pending.
+      expect(rows[0].querySelector('[data-status="ok"]')).not.toBeNull();
+      expect(rows[1].querySelector('[data-status="running"]')).not.toBeNull();
+      for (let i = 2; i < 5; i++) {
+        expect(rows[i].querySelector('[data-status="pending"]')).not.toBeNull();
+      }
     });
 
-    it("labels a sh: step with the first line of the inline source, truncated", () => {
+    it("renders a consistent running indicator (pulse + 'running') across kinds", () => {
       renderDetail(
-        stubDetail({}, [stubStep({ materials: { kind: "sh", source: "echo hello\nexit 0" } })]),
-      );
-      expect(screen.getByText(/^sh: echo hello$/)).toBeDefined();
-    });
-
-    it("tags failed step rows with data-status='failed'", () => {
-      const { container } = renderDetail(stubDetail({}, [stubStep({ status: "failed" })]));
-      expect(container.querySelector("[data-status='failed']")).toBeDefined();
-    });
-  });
-
-  describe("step disclosure", () => {
-    it("collapses step rows by default", () => {
-      renderDetail(
-        stubDetail({}, [stubStep({ traces: { stdout: "hello", stderr: "", durationMs: 5 } })]),
-      );
-      expect(screen.queryByText("hello")).toBeNull();
-      expect(screen.getByRole("button", { name: /sh:/i }).getAttribute("aria-expanded")).toBe(
-        "false",
-      );
-    });
-
-    it("expands a step on click and reveals stdout / stderr blocks", () => {
-      renderDetail(
-        stubDetail({}, [
+        stubDetail({ definitionSnapshot: definitionWithEverything }, [
+          stubStep({ id: "s0", index: 0, status: "ok" }),
+          stubStep({ id: "s1", index: 1, status: "ok" }),
           stubStep({
-            traces: { stdout: "ran ok", stderr: "warning: foo", durationMs: 5 },
+            id: "p0",
+            index: 2,
+            status: "running",
+            traces: null,
+            kind: "use",
+            isPublish: true,
+            materials: { kind: "use", bundle: "digest-bundle", files: {} },
+          }),
+          stubStep({
+            id: "p1",
+            index: 3,
+            status: "ok",
+            isPublish: true,
+            materials: { kind: "use", bundle: "notes-bundle", files: {} },
+          }),
+          stubStep({
+            id: "sum",
+            index: 4,
+            status: "running",
+            traces: null,
+            kind: "use",
+            isSummary: true,
+            materials: { kind: "use", bundle: "claude-code-summarizer", files: {} },
           }),
         ]),
       );
-      fireEvent.click(screen.getByRole("button", { name: /sh:/i }));
+      // Every running row renders "running" in a status-running coloured span;
+      // none of the rows render a kind-specific running word like "publishing
+      // …" or "Summarising…" — those were the inconsistencies we collapsed.
+      const runningWords = screen.getAllByText(/^running$/);
+      expect(runningWords).toHaveLength(2);
+      expect(screen.queryByText(/Summarising/)).toBeNull();
+    });
+
+    it("uses the declared publish title (not the bundle) on publishing rows", () => {
+      renderDetail(stubDetail({ definitionSnapshot: definitionWithEverything }, []));
+      // Pending publishing rows: titles come from the snapshot's name/title
+      // resolved via the shared `resolvePublishTitle`.
+      expect(screen.getByText("Daily Digest")).toBeDefined();
+      // The second publish has no explicit title — titlecase from the name.
+      expect(screen.getByText("Release Notes")).toBeDefined();
+    });
+
+    it("labels step rows with the declared step identifier", () => {
+      renderDetail(stubDetail({ definitionSnapshot: definitionWithEverything }, []));
+      expect(screen.getByText(/^sh: echo one$/)).toBeDefined();
+      expect(screen.getByText(/^use: linter$/)).toBeDefined();
+    });
+
+    it("labels the summariser row with its declared identifier", () => {
+      renderDetail(stubDetail({ definitionSnapshot: definitionWithEverything }, []));
+      expect(screen.getByText(/^use: claude-code-summarizer$/)).toBeDefined();
+    });
+
+    it("renders the row duration when traces are populated, em-dash otherwise", () => {
+      renderDetail(
+        stubDetail({ definitionSnapshot: definitionWithEverything }, [
+          stubStep({
+            id: "s0",
+            index: 0,
+            status: "ok",
+            traces: { stdout: "", stderr: "", durationMs: 2_500 },
+          }),
+        ]),
+      );
+      // Row 0 has traces → 2.5s. The remaining four are pending → em-dash.
+      expect(screen.getByText("2.5s")).toBeDefined();
+      expect(screen.getAllByText("—")).toHaveLength(4);
+    });
+
+    it("renders pending rows as non-interactive (no expand button)", () => {
+      renderDetail(stubDetail({ definitionSnapshot: definitionWithEverything }, []));
+      // No row in the list has an expand button while pending.
+      const list = screen.getByRole("list", { name: /^activity$/i });
+      expect(within(list).queryAllByRole("button")).toHaveLength(0);
+    });
+
+    it("expands a row's disclosure to reveal stdout / stderr / materials once a row has run", () => {
+      renderDetail(
+        stubDetail(
+          {
+            definitionSnapshot: {
+              name: "one-step",
+              steps: [{ sh: "echo hi" }],
+            },
+          },
+          [
+            stubStep({
+              id: "only",
+              index: 0,
+              status: "ok",
+              traces: { stdout: "ran ok", stderr: "warning: foo", durationMs: 5 },
+            }),
+          ],
+        ),
+      );
+      // Disclosure closed by default; nothing in the trace bodies is rendered.
+      expect(screen.queryByText("ran ok")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /sh: echo hi/i }));
       expect(screen.getByText("ran ok")).toBeDefined();
       expect(screen.getByText("warning: foo")).toBeDefined();
     });
 
-    it("renders an empty-state placeholder for empty stdout / stderr", () => {
+    it("renders the step's error envelope inside the disclosure when the row failed", () => {
       renderDetail(
-        stubDetail({}, [stubStep({ traces: { stdout: "", stderr: "", durationMs: 5 } })]),
-      );
-      fireEvent.click(screen.getByRole("button", { name: /sh:/i }));
-      const stdoutHeading = screen.getByText(/^stdout$/i);
-      const stdoutPanel = stdoutHeading.parentElement;
-      expect(stdoutPanel?.textContent).toContain("(empty)");
-    });
-
-    it("renders the step error envelope when the step failed", () => {
-      renderDetail(
-        stubDetail({}, [
-          stubStep({
+        stubDetail(
+          {
             status: "failed",
-            error: { message: "exit 1" },
-            traces: { stdout: "", stderr: "", durationMs: 2 },
-          }),
-        ]),
+            error: { message: "step 'lint' exited 1" },
+            definitionSnapshot: { name: "one-step", steps: [{ sh: "false" }] },
+          },
+          [
+            stubStep({
+              id: "only",
+              index: 0,
+              status: "failed",
+              error: { message: "exit 1" },
+              traces: { stdout: "", stderr: "", durationMs: 2 },
+            }),
+          ],
+        ),
       );
-      fireEvent.click(screen.getByRole("button", { name: /sh:/i }));
+      fireEvent.click(screen.getByRole("button", { name: /sh: false/i }));
       const errorHeading = screen.getByText(/^error$/i);
       const errorPanel = errorHeading.parentElement;
       expect(errorPanel?.textContent).toContain("exit 1");
     });
-  });
 
-  describe("step materials", () => {
-    it("renders the inline source for sh: steps", () => {
+    it("renders an empty-state placeholder for empty stdout / stderr in the disclosure", () => {
       renderDetail(
-        stubDetail({}, [stubStep({ materials: { kind: "sh", source: "echo materials body" } })]),
+        stubDetail({ definitionSnapshot: { name: "one-step", steps: [{ sh: "noop" }] } }, [
+          stubStep({
+            id: "only",
+            index: 0,
+            status: "ok",
+            traces: { stdout: "", stderr: "", durationMs: 5 },
+          }),
+        ]),
       );
-      fireEvent.click(screen.getByRole("button", { name: /sh:/i }));
+      fireEvent.click(screen.getByRole("button", { name: /sh: noop/i }));
+      const stdoutHeading = screen.getByText(/^stdout$/i);
+      expect(stdoutHeading.parentElement?.textContent).toContain("(empty)");
+    });
+
+    it("opens the materials disclosure for an sh: step", () => {
+      renderDetail(
+        stubDetail(
+          { definitionSnapshot: { name: "one-step", steps: [{ sh: "echo materials body" }] } },
+          [
+            stubStep({
+              id: "only",
+              index: 0,
+              status: "ok",
+              materials: { kind: "sh", source: "echo materials body" },
+            }),
+          ],
+        ),
+      );
+      fireEvent.click(screen.getByRole("button", { name: /sh: echo materials body/i }));
       expect(screen.getByText(/inline shell/i)).toBeDefined();
       expect(screen.getByText("echo materials body")).toBeDefined();
     });
 
-    it("renders a file disclosure list for use: bundles", () => {
+    it("opens the materials disclosure for a use: bundle and lists its files", () => {
       renderDetail(
-        stubDetail({}, [
+        stubDetail({ definitionSnapshot: { name: "one-step", steps: [{ use: "claude-code" }] } }, [
           stubStep({
+            id: "only",
+            index: 0,
+            status: "ok",
+            kind: "use",
             materials: {
               kind: "use",
               bundle: "claude-code",
@@ -389,19 +516,19 @@ describe("<RunDetailView>", () => {
         ]),
       );
       fireEvent.click(screen.getByRole("button", { name: /use: claude-code/i }));
-
-      const materialsHeading = screen.getByText(/materials — bundle/i);
-      const wrapper = materialsHeading.parentElement;
-      expect(wrapper?.textContent).toContain("claude-code");
-
+      expect(screen.getByText(/materials — bundle/i)).toBeDefined();
       expect(screen.getByRole("button", { name: /run\.sh/i })).toBeDefined();
       expect(screen.getByRole("button", { name: /README\.md/i })).toBeDefined();
     });
 
     it("expands a bundle file on click to show its source", () => {
       renderDetail(
-        stubDetail({}, [
+        stubDetail({ definitionSnapshot: { name: "one-step", steps: [{ use: "claude-code" }] } }, [
           stubStep({
+            id: "only",
+            index: 0,
+            status: "ok",
+            kind: "use",
             materials: {
               kind: "use",
               bundle: "claude-code",
@@ -411,7 +538,6 @@ describe("<RunDetailView>", () => {
         ]),
       );
       fireEvent.click(screen.getByRole("button", { name: /use: claude-code/i }));
-
       expect(screen.queryByText("echo hi from bundle")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: /run\.sh/i }));
       expect(screen.getByText("echo hi from bundle")).toBeDefined();
@@ -419,8 +545,12 @@ describe("<RunDetailView>", () => {
 
     it("sorts bundle files alphabetically by path", () => {
       renderDetail(
-        stubDetail({}, [
+        stubDetail({ definitionSnapshot: { name: "one-step", steps: [{ use: "b" }] } }, [
           stubStep({
+            id: "only",
+            index: 0,
+            status: "ok",
+            kind: "use",
             materials: {
               kind: "use",
               bundle: "b",
@@ -430,17 +560,61 @@ describe("<RunDetailView>", () => {
         ]),
       );
       fireEvent.click(screen.getByRole("button", { name: /use: b/i }));
-
       const list = screen.getByRole("button", { name: /a\.sh/i }).closest("ul");
       const paths = within(list as HTMLElement)
         .getAllByRole("button")
         .map((btn) => btn.querySelector("span:last-child")?.textContent);
       expect(paths).toEqual(["a.sh", "m.sh", "z.sh"]);
     });
+
+    it("tags failed rows with data-status='failed'", () => {
+      const { container } = renderDetail(
+        stubDetail({ definitionSnapshot: { name: "one-step", steps: [{ sh: "false" }] } }, [
+          stubStep({ id: "only", index: 0, status: "failed" }),
+        ]),
+      );
+      expect(container.querySelector('[data-status="failed"][data-kind="step"]')).not.toBeNull();
+    });
+
+    it("hides the summariser row when no summariser is declared", () => {
+      renderDetail(
+        stubDetail(
+          {
+            definitionSnapshot: {
+              name: "no-summary",
+              steps: [{ sh: "echo hi" }],
+            },
+          },
+          [],
+        ),
+      );
+      const list = screen.getByRole("list", { name: /^activity$/i });
+      expect(within(list).queryAllByRole("listitem")).toHaveLength(1);
+      expect(within(list).queryAllByText(/summarising/i)).toHaveLength(0);
+    });
+
+    it("omits publishing rows when the workflow has no publish entries", () => {
+      renderDetail(
+        stubDetail(
+          {
+            definitionSnapshot: {
+              name: "no-publish",
+              steps: [{ sh: "echo hi" }],
+              summarize: { use: "claude-code-summarizer" },
+            },
+          },
+          [],
+        ),
+      );
+      const list = screen.getByRole("list", { name: /^activity$/i });
+      expect(within(list).queryAllByText(/publishing/i)).toHaveLength(0);
+      // step + summariser, no publishing rows.
+      expect(within(list).queryAllByRole("listitem")).toHaveLength(2);
+    });
   });
 
   describe("summary", () => {
-    it("renders the summary section above the steps when run.summary is set", () => {
+    it("renders the summary section above the activity list when run.summary is set", () => {
       renderDetail(stubDetail({ summary: "Reviewed PR #42 and flagged a regression in auth.ts." }));
       const heading = screen.getByText(/^summary$/i);
       expect(heading).toBeDefined();
@@ -518,299 +692,15 @@ describe("<RunDetailView>", () => {
       expect(time.getAttribute("title")).toBe(createdAt);
     });
 
-    it("renders above the steps section so the long-form output is reached first", () => {
+    it("renders above the activity list so the long-form output is reached first", () => {
       renderDetail(
         stubDetail({}, [stubStep()], [stubArtefact({ name: "digest", title: "Digest" })]),
       );
       const published = screen.getByRole("heading", { name: /^published$/i });
-      const steps = screen.getByRole("heading", { name: /^steps$/i });
-      // DOCUMENT_POSITION_FOLLOWING = 4 → published precedes steps.
-      expect(published.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      const activity = screen.getByRole("heading", { name: /^activity$/i });
+      expect(published.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
-    });
-  });
-
-  describe("publishing section", () => {
-    // A run with one pipeline step and two declared publishes; per-test
-    // overrides plug in step rows at the matching indices (1 = first
-    // publish, 2 = second). Title resolution flows through the shared
-    // `resolvePublishTitle`, so empty-title entries titlecase from name.
-    const runWithPublishes = (overrides: Partial<RunListEntry> = {}): Partial<RunListEntry> => ({
-      definitionSnapshot: {
-        name: "with-publish",
-        steps: [{ sh: "echo one" }],
-        publish: [
-          { name: "digest", title: "Digest Title", use: "digest" },
-          { name: "release-notes", use: "notes" },
-        ],
-      },
-      ...overrides,
-    });
-
-    const publishStep = (overrides: Partial<RunStepRow> = {}): RunStepRow =>
-      stubStep({
-        id: "pub-1",
-        index: 1,
-        kind: "use",
-        materials: { kind: "use", bundle: "digest", files: {} },
-        isPublish: true,
-        ...overrides,
-      });
-
-    it("filters publish rows out of the main steps list", () => {
-      renderDetail(
-        stubDetail(runWithPublishes(), [
-          stubStep({ id: "regular", index: 0 }),
-          publishStep({ status: "running" }),
-        ]),
-      );
-      expect(screen.getByText(/^1 step$/)).toBeDefined();
-    });
-
-    it("does not render the section when no publish rows are in flight or failed", () => {
-      renderDetail(stubDetail(runWithPublishes(), [stubStep({ id: "regular", index: 0 })]));
-      expect(screen.queryByRole("heading", { name: /^publishing$/i })).toBeNull();
-    });
-
-    it("does not render the section when every publish row is ok", () => {
-      // ok publishes flow into the Published artefact list; the Publishing
-      // section is reserved for states the artefact list can't represent.
-      renderDetail(
-        stubDetail(runWithPublishes(), [
-          stubStep({ id: "regular", index: 0 }),
-          publishStep({ id: "p1", index: 1, status: "ok" }),
-          publishStep({ id: "p2", index: 2, status: "ok" }),
-        ]),
-      );
-      expect(screen.queryByRole("heading", { name: /^publishing$/i })).toBeNull();
-    });
-
-    it("renders a row for every running, failed, or cancelled publish", () => {
-      renderDetail(
-        stubDetail(runWithPublishes(), [
-          stubStep({ id: "regular", index: 0 }),
-          publishStep({ id: "p1", index: 1, status: "running" }),
-          publishStep({ id: "p2", index: 2, status: "failed" }),
-        ]),
-      );
-      expect(screen.getByRole("heading", { level: 3, name: /^publishing$/i })).toBeDefined();
-      expect(screen.getByText("Digest Title")).toBeDefined();
-      expect(screen.getByText("Release Notes")).toBeDefined();
-      expect(screen.getByText(/^2 in progress$/)).toBeDefined();
-    });
-
-    it("uses the singular count form for a single non-ok publish", () => {
-      renderDetail(
-        stubDetail(runWithPublishes(), [
-          stubStep({ id: "regular", index: 0 }),
-          publishStep({ status: "running" }),
-        ]),
-      );
-      expect(screen.getByText(/^1 in progress$/)).toBeDefined();
-    });
-
-    it("shows the running status with the running-state colour", () => {
-      const { container } = renderDetail(
-        stubDetail(runWithPublishes(), [
-          stubStep({ id: "regular", index: 0 }),
-          publishStep({ status: "running" }),
-        ]),
-      );
-      const row = container.querySelector('[data-status="running"]');
-      expect(row?.textContent).toContain("Digest Title");
-      expect(row?.textContent).toContain("running");
-    });
-
-    it("shows failed publishes in the failed status colour without affecting the run header", () => {
-      const { container } = renderDetail(
-        stubDetail({ ...runWithPublishes(), status: "ok" }, [
-          stubStep({ id: "regular", index: 0 }),
-          publishStep({ status: "failed", error: { message: "boom" } }),
-        ]),
-      );
-      // Failed publish row carries the failed status colour.
-      const failedRow = container.querySelector('[data-status="failed"]');
-      expect(failedRow?.textContent).toContain("Digest Title");
-      expect(failedRow?.className).toContain("group");
-      // Run header status remains ok — the failure didn't bleed up.
-      const header = container.querySelector('header [data-status="ok"]');
-      expect(header?.textContent).toBe("ok");
-    });
-
-    it("hides the section once previously-running publishes have moved to ok", () => {
-      // Mirror live-update reconciliation: a refetch that returns the
-      // terminal state should make the section disappear, with the
-      // artefact list taking over.
-      const { rerender } = render(
-        <Router hook={memoryLocation({ path: "/runs/run-1" }).hook}>
-          <RunDetailView
-            detail={stubDetail(runWithPublishes(), [
-              stubStep({ id: "regular", index: 0 }),
-              publishStep({ status: "running" }),
-            ])}
-            now={NOW}
-          />
-        </Router>,
-      );
-      expect(screen.getByRole("heading", { name: /^publishing$/i })).toBeDefined();
-
-      rerender(
-        <Router hook={memoryLocation({ path: "/runs/run-1" }).hook}>
-          <RunDetailView
-            detail={stubDetail(
-              runWithPublishes(),
-              [stubStep({ id: "regular", index: 0 }), publishStep({ status: "ok" })],
-              [
-                {
-                  name: "digest",
-                  title: "Digest Title",
-                  createdAt: new Date(NOW.getTime() - 1_000).toISOString(),
-                },
-              ],
-            )}
-            now={NOW}
-          />
-        </Router>,
-      );
-      expect(screen.queryByRole("heading", { name: /^publishing$/i })).toBeNull();
-      expect(screen.getByRole("heading", { name: /^published$/i })).toBeDefined();
-    });
-
-    it("renders above the Published section when both surfaces are visible", () => {
-      renderDetail(
-        stubDetail(
-          runWithPublishes(),
-          [
-            stubStep({ id: "regular", index: 0 }),
-            publishStep({ id: "p1", index: 1, status: "running" }),
-            publishStep({ id: "p2", index: 2, status: "ok" }),
-          ],
-          [
-            {
-              name: "release-notes",
-              title: "Release Notes",
-              createdAt: new Date(NOW.getTime() - 1_000).toISOString(),
-            },
-          ],
-        ),
-      );
-      const publishing = screen.getByRole("heading", { name: /^publishing$/i });
-      const published = screen.getByRole("heading", { name: /^published$/i });
-      expect(publishing.compareDocumentPosition(published) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      );
-    });
-
-    it("resolves a publish title from name when the snapshot has no explicit title", () => {
-      // `release-notes` snapshot has no `title`; resolvePublishTitle
-      // titlecases to "Release Notes".
-      renderDetail(
-        stubDetail(runWithPublishes(), [
-          stubStep({ id: "regular", index: 0 }),
-          publishStep({ id: "p1", index: 1, status: "ok" }),
-          publishStep({
-            id: "p2",
-            index: 2,
-            status: "running",
-            materials: { kind: "use", bundle: "notes", files: {} },
-          }),
-        ]),
-      );
-      expect(screen.getByText("Release Notes")).toBeDefined();
-    });
-
-    it("renders the row duration when traces are populated, em-dash otherwise", () => {
-      renderDetail(
-        stubDetail(runWithPublishes(), [
-          stubStep({ id: "regular", index: 0 }),
-          publishStep({
-            id: "p1",
-            index: 1,
-            status: "failed",
-            traces: { stdout: "", stderr: "", durationMs: 2_500 },
-          }),
-          publishStep({
-            id: "p2",
-            index: 2,
-            status: "running",
-            traces: null,
-          }),
-        ]),
-      );
-      expect(screen.getByText("2.5s")).toBeDefined();
-      expect(screen.getByText("—")).toBeDefined();
-    });
-  });
-
-  describe("summariser execution", () => {
-    const summarizerStep = (overrides: Partial<RunStepRow> = {}): RunStepRow =>
-      stubStep({
-        id: "sum-1",
-        index: 1,
-        kind: "use",
-        materials: {
-          kind: "use",
-          bundle: "claude-code-summarizer",
-          files: { "run.sh": "#!/bin/sh" },
-        },
-        isSummary: true,
-        ...overrides,
-      });
-
-    it("filters is_summary rows out of the main steps list", () => {
-      renderDetail(
-        stubDetail({}, [
-          stubStep({ id: "regular", index: 0 }),
-          summarizerStep({ id: "summer", index: 1 }),
-        ]),
-      );
-      // Steps section count reflects regular steps only.
-      expect(screen.getByText(/^1 step$/)).toBeDefined();
-    });
-
-    it("renders a summariser execution section when an is_summary step exists", () => {
-      renderDetail(stubDetail({}, [stubStep({ id: "regular", index: 0 }), summarizerStep()]));
-      expect(screen.getByText(/summariser execution/i)).toBeDefined();
-    });
-
-    it("does not render a summariser execution section when no is_summary step exists", () => {
-      renderDetail(stubDetail({}, [stubStep()]));
-      expect(screen.queryByText(/summariser execution/i)).toBeNull();
-    });
-
-    it("expands the summariser disclosure to show stdout / stderr / materials", () => {
-      renderDetail(
-        stubDetail({}, [
-          stubStep({ id: "regular", index: 0 }),
-          summarizerStep({
-            traces: {
-              stdout: "summary text out",
-              stderr: "summariser warnings",
-              durationMs: 800,
-            },
-          }),
-        ]),
-      );
-      // Both bundles share the same kindLabel pattern; pick the summariser by name.
-      fireEvent.click(screen.getByRole("button", { name: /use: claude-code-summarizer/i }));
-      expect(screen.getByText("summary text out")).toBeDefined();
-      expect(screen.getByText("summariser warnings")).toBeDefined();
-    });
-
-    it("surfaces the summariser's status alongside the section header (e.g. failed)", () => {
-      renderDetail(
-        stubDetail({ summary: null }, [
-          stubStep({ id: "regular", index: 0 }),
-          summarizerStep({
-            status: "failed",
-            error: { message: "claude exited 1" },
-          }),
-        ]),
-      );
-      const heading = screen.getByText(/summariser execution/i);
-      const sectionHeader = heading.closest("header");
-      expect(sectionHeader?.textContent).toContain("failed");
     });
   });
 });

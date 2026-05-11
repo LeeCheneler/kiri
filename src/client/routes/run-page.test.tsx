@@ -55,7 +55,7 @@ describe("<RunPage>", () => {
     expect(
       await screen.findByRole("heading", { level: 2, name: /kiri-self-review/i }),
     ).toBeDefined();
-    expect(screen.getByRole("heading", { level: 3, name: /steps/i })).toBeDefined();
+    expect(screen.getByRole("heading", { level: 3, name: /activity/i })).toBeDefined();
     expect(screen.getByRole("link", { name: /all activity/i })).toBeDefined();
   });
 

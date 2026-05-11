@@ -13,6 +13,9 @@
   --color-status-failed: #d1493e;
   --color-status-interrupted: #c99858;
   --color-status-cancelled: #8b8579;
+  /* Declared-but-not-yet-started activity rows. Quieter than `cancelled`
+     so pending and skipped rows read distinctly. */
+  --color-status-pending: #555048;
 
   --font-display: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
