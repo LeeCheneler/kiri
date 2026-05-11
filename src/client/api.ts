@@ -35,6 +35,15 @@ export interface RunStartResult {
 }
 
 /**
+ * Snapshotted publish entry on a run row. Carries the *raw* `title` (or
+ * `undefined`) as it appeared in the workflow definition at run-start —
+ * callers that need a display string resolve via `resolvePublishTitle`.
+ */
+export type RunPublishSnapshot =
+  | { name: string; title?: string; use: string; env?: Record<string, string> }
+  | { name: string; title?: string; sh: string; env?: Record<string, string> };
+
+/**
  * One row in the `GET /api/runs` feed. Timestamps are ISO strings (JSON
  * has no Date type); `isInterrupted` is true when no workflow with this
  * name exists in the registry — render the `(deleted)` badge in that case.
@@ -43,6 +52,10 @@ export interface RunStartResult {
  * step when one ran successfully — null on workflows without a
  * summarise step, on cancelled runs (the summariser is skipped), and
  * on runs whose summariser failed.
+ *
+ * `definitionSnapshot.publish` is present when the workflow defined a
+ * `publish:` array at run-start; absent otherwise. The run detail page
+ * uses it to resolve each publish step row's display title by index.
  */
 export interface RunListEntry {
   id: string;
@@ -59,6 +72,7 @@ export interface RunListEntry {
     gating?: "auto" | "propose";
     schedule?: string;
     summarize?: WorkflowStepSummary;
+    publish?: RunPublishSnapshot[];
   };
   isInterrupted: boolean;
 }
@@ -76,9 +90,11 @@ export type StepMaterials =
  * (`status`, `output`, `error`, `traces`, `usage`) and the `materials`
  * snapshot of the bytes that produced the step.
  *
- * `isSummary` distinguishes the workflow's `summarize:` execution from
- * a regular pipeline step. The UI hides summariser rows from the main
- * step list and surfaces them in a dedicated section.
+ * `isSummary` and `isPublish` distinguish summariser and publish rows
+ * from regular pipeline steps. The UI hides both from the main step
+ * list and surfaces them in dedicated sections — the Summariser
+ * execution disclosure and the Publishing / Published sections
+ * respectively.
  */
 export interface RunStepRow {
   id: string;
@@ -92,6 +108,7 @@ export interface RunStepRow {
   usage: unknown;
   materials: StepMaterials;
   isSummary: boolean;
+  isPublish: boolean;
 }
 
 /**

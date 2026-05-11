@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link } from "wouter";
+import { resolvePublishTitle } from "../../shared/publish-title.ts";
 import type {
   RunArtefactSummary,
   RunDetail,
   RunListEntry,
+  RunPublishSnapshot,
   RunStepRow,
   StepMaterials,
 } from "../api.ts";
@@ -68,8 +70,15 @@ export function RunDetailView({
 }) {
   const { run, steps, artefacts } = detail;
   const status = runStatus(run);
-  const regularSteps = steps.filter((s) => !s.isSummary);
+  const regularSteps = steps.filter((s) => !s.isSummary && !s.isPublish);
   const summaryStep = steps.find((s) => s.isSummary);
+  // Publish rows whose terminal state isn't representable as a written
+  // artefact (`ok` rows produce a `run_artefacts` row and flow into the
+  // Published section). Everything else — in-flight, failed, cancelled —
+  // surfaces in a Publishing section above Published.
+  const inFlightPublishSteps = steps.filter((s) => s.isPublish && s.status !== "ok");
+  const publishSnapshots = run.definitionSnapshot.publish ?? [];
+  const pipelineStepCount = run.definitionSnapshot.steps.length;
 
   return (
     <article>
@@ -143,6 +152,14 @@ export function RunDetailView({
 
       {run.error && <RunFailureBlock error={run.error} />}
 
+      {inFlightPublishSteps.length > 0 && (
+        <PublishingSection
+          rows={inFlightPublishSteps}
+          snapshots={publishSnapshots}
+          pipelineStepCount={pipelineStepCount}
+        />
+      )}
+
       {artefacts.length > 0 && <PublishedSection runId={run.id} artefacts={artefacts} now={now} />}
 
       <section className="mt-12">
@@ -205,6 +222,72 @@ function CancelButton({ onCancel }: { onCancel: () => Promise<unknown> }) {
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+function PublishingSection({
+  rows,
+  snapshots,
+  pipelineStepCount,
+}: {
+  rows: RunStepRow[];
+  snapshots: RunPublishSnapshot[];
+  pipelineStepCount: number;
+}) {
+  return (
+    <section className="mt-12">
+      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
+        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Publishing</h3>
+        <span className="font-mono text-xs text-ink-muted tabular-nums">
+          {rows.length === 1 ? "1 in progress" : `${rows.length} in progress`}
+        </span>
+      </header>
+      <ul className="divide-y divide-rule">
+        {rows.map((row) => {
+          // Each publish row sits at definition-step-count + publish-index;
+          // recover the publish index to look up its name/title from the
+          // run's snapshot. Falls back to the row's materials bundle name
+          // when the snapshot is unexpectedly short (defensive — runs
+          // produced before this surface existed lack `publish` snapshots).
+          const publishIndex = row.index - pipelineStepCount;
+          const snapshot = snapshots[publishIndex];
+          const title = snapshot
+            ? resolvePublishTitle(snapshot.name, snapshot.title)
+            : (stepKindLabel(row) ?? `publish #${publishIndex}`);
+          return (
+            <li key={row.id}>
+              <PublishingRow row={row} title={title} />
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function PublishingRow({ row, title }: { row: RunStepRow; title: string }) {
+  const status: StatusKind = row.status;
+  return (
+    <div data-status={status} className="group relative flex items-baseline gap-5 px-5 py-4">
+      <span aria-hidden="true" className={`absolute inset-y-2 left-1 w-0.5 ${STRIP_BG[status]}`} />
+      <span className="min-w-0 flex-1 truncate font-display text-base text-ink">{title}</span>
+      <span className={`shrink-0 text-xs tracking-widest uppercase ${STATUS_TEXT[status]}`}>
+        {status === "running" ? (
+          <span className="inline-flex items-baseline gap-1.5">
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 animate-pulse self-center rounded-full bg-status-running"
+            />
+            running
+          </span>
+        ) : (
+          status
+        )}
+      </span>
+      <span className="w-16 shrink-0 text-right font-mono text-xs text-ink-muted tabular-nums">
+        {row.traces ? formatDurationMs(row.traces.durationMs) : "—"}
+      </span>
     </div>
   );
 }

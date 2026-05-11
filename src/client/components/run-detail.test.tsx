@@ -35,6 +35,7 @@ const stubStep = (overrides: Partial<RunStepRow> = {}): RunStepRow => ({
   usage: null,
   materials: { kind: "sh", source: "echo hello, world" },
   isSummary: false,
+  isPublish: false,
   ...overrides,
 });
 
@@ -527,6 +528,218 @@ describe("<RunDetailView>", () => {
       expect(published.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
+    });
+  });
+
+  describe("publishing section", () => {
+    // A run with one pipeline step and two declared publishes; per-test
+    // overrides plug in step rows at the matching indices (1 = first
+    // publish, 2 = second). Title resolution flows through the shared
+    // `resolvePublishTitle`, so empty-title entries titlecase from name.
+    const runWithPublishes = (overrides: Partial<RunListEntry> = {}): Partial<RunListEntry> => ({
+      definitionSnapshot: {
+        name: "with-publish",
+        steps: [{ sh: "echo one" }],
+        publish: [
+          { name: "digest", title: "Digest Title", use: "digest" },
+          { name: "release-notes", use: "notes" },
+        ],
+      },
+      ...overrides,
+    });
+
+    const publishStep = (overrides: Partial<RunStepRow> = {}): RunStepRow =>
+      stubStep({
+        id: "pub-1",
+        index: 1,
+        kind: "use",
+        materials: { kind: "use", bundle: "digest", files: {} },
+        isPublish: true,
+        ...overrides,
+      });
+
+    it("filters publish rows out of the main steps list", () => {
+      renderDetail(
+        stubDetail(runWithPublishes(), [
+          stubStep({ id: "regular", index: 0 }),
+          publishStep({ status: "running" }),
+        ]),
+      );
+      expect(screen.getByText(/^1 step$/)).toBeDefined();
+    });
+
+    it("does not render the section when no publish rows are in flight or failed", () => {
+      renderDetail(stubDetail(runWithPublishes(), [stubStep({ id: "regular", index: 0 })]));
+      expect(screen.queryByRole("heading", { name: /^publishing$/i })).toBeNull();
+    });
+
+    it("does not render the section when every publish row is ok", () => {
+      // ok publishes flow into the Published artefact list; the Publishing
+      // section is reserved for states the artefact list can't represent.
+      renderDetail(
+        stubDetail(runWithPublishes(), [
+          stubStep({ id: "regular", index: 0 }),
+          publishStep({ id: "p1", index: 1, status: "ok" }),
+          publishStep({ id: "p2", index: 2, status: "ok" }),
+        ]),
+      );
+      expect(screen.queryByRole("heading", { name: /^publishing$/i })).toBeNull();
+    });
+
+    it("renders a row for every running, failed, or cancelled publish", () => {
+      renderDetail(
+        stubDetail(runWithPublishes(), [
+          stubStep({ id: "regular", index: 0 }),
+          publishStep({ id: "p1", index: 1, status: "running" }),
+          publishStep({ id: "p2", index: 2, status: "failed" }),
+        ]),
+      );
+      expect(screen.getByRole("heading", { level: 3, name: /^publishing$/i })).toBeDefined();
+      expect(screen.getByText("Digest Title")).toBeDefined();
+      expect(screen.getByText("Release Notes")).toBeDefined();
+      expect(screen.getByText(/^2 in progress$/)).toBeDefined();
+    });
+
+    it("uses the singular count form for a single non-ok publish", () => {
+      renderDetail(
+        stubDetail(runWithPublishes(), [
+          stubStep({ id: "regular", index: 0 }),
+          publishStep({ status: "running" }),
+        ]),
+      );
+      expect(screen.getByText(/^1 in progress$/)).toBeDefined();
+    });
+
+    it("shows the running status with the running-state colour", () => {
+      const { container } = renderDetail(
+        stubDetail(runWithPublishes(), [
+          stubStep({ id: "regular", index: 0 }),
+          publishStep({ status: "running" }),
+        ]),
+      );
+      const row = container.querySelector('[data-status="running"]');
+      expect(row?.textContent).toContain("Digest Title");
+      expect(row?.textContent).toContain("running");
+    });
+
+    it("shows failed publishes in the failed status colour without affecting the run header", () => {
+      const { container } = renderDetail(
+        stubDetail({ ...runWithPublishes(), status: "ok" }, [
+          stubStep({ id: "regular", index: 0 }),
+          publishStep({ status: "failed", error: { message: "boom" } }),
+        ]),
+      );
+      // Failed publish row carries the failed status colour.
+      const failedRow = container.querySelector('[data-status="failed"]');
+      expect(failedRow?.textContent).toContain("Digest Title");
+      expect(failedRow?.className).toContain("group");
+      // Run header status remains ok — the failure didn't bleed up.
+      const header = container.querySelector('header [data-status="ok"]');
+      expect(header?.textContent).toBe("ok");
+    });
+
+    it("hides the section once previously-running publishes have moved to ok", () => {
+      // Mirror live-update reconciliation: a refetch that returns the
+      // terminal state should make the section disappear, with the
+      // artefact list taking over.
+      const { rerender } = render(
+        <Router hook={memoryLocation({ path: "/runs/run-1" }).hook}>
+          <RunDetailView
+            detail={stubDetail(runWithPublishes(), [
+              stubStep({ id: "regular", index: 0 }),
+              publishStep({ status: "running" }),
+            ])}
+            now={NOW}
+          />
+        </Router>,
+      );
+      expect(screen.getByRole("heading", { name: /^publishing$/i })).toBeDefined();
+
+      rerender(
+        <Router hook={memoryLocation({ path: "/runs/run-1" }).hook}>
+          <RunDetailView
+            detail={stubDetail(
+              runWithPublishes(),
+              [stubStep({ id: "regular", index: 0 }), publishStep({ status: "ok" })],
+              [
+                {
+                  name: "digest",
+                  title: "Digest Title",
+                  createdAt: new Date(NOW.getTime() - 1_000).toISOString(),
+                },
+              ],
+            )}
+            now={NOW}
+          />
+        </Router>,
+      );
+      expect(screen.queryByRole("heading", { name: /^publishing$/i })).toBeNull();
+      expect(screen.getByRole("heading", { name: /^published$/i })).toBeDefined();
+    });
+
+    it("renders above the Published section when both surfaces are visible", () => {
+      renderDetail(
+        stubDetail(
+          runWithPublishes(),
+          [
+            stubStep({ id: "regular", index: 0 }),
+            publishStep({ id: "p1", index: 1, status: "running" }),
+            publishStep({ id: "p2", index: 2, status: "ok" }),
+          ],
+          [
+            {
+              name: "release-notes",
+              title: "Release Notes",
+              createdAt: new Date(NOW.getTime() - 1_000).toISOString(),
+            },
+          ],
+        ),
+      );
+      const publishing = screen.getByRole("heading", { name: /^publishing$/i });
+      const published = screen.getByRole("heading", { name: /^published$/i });
+      expect(publishing.compareDocumentPosition(published) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    });
+
+    it("resolves a publish title from name when the snapshot has no explicit title", () => {
+      // `release-notes` snapshot has no `title`; resolvePublishTitle
+      // titlecases to "Release Notes".
+      renderDetail(
+        stubDetail(runWithPublishes(), [
+          stubStep({ id: "regular", index: 0 }),
+          publishStep({ id: "p1", index: 1, status: "ok" }),
+          publishStep({
+            id: "p2",
+            index: 2,
+            status: "running",
+            materials: { kind: "use", bundle: "notes", files: {} },
+          }),
+        ]),
+      );
+      expect(screen.getByText("Release Notes")).toBeDefined();
+    });
+
+    it("renders the row duration when traces are populated, em-dash otherwise", () => {
+      renderDetail(
+        stubDetail(runWithPublishes(), [
+          stubStep({ id: "regular", index: 0 }),
+          publishStep({
+            id: "p1",
+            index: 1,
+            status: "failed",
+            traces: { stdout: "", stderr: "", durationMs: 2_500 },
+          }),
+          publishStep({
+            id: "p2",
+            index: 2,
+            status: "running",
+            traces: null,
+          }),
+        ]),
+      );
+      expect(screen.getByText("2.5s")).toBeDefined();
+      expect(screen.getByText("—")).toBeDefined();
     });
   });
 
