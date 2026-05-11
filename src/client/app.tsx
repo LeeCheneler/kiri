@@ -2,6 +2,7 @@ import { Route, Switch } from "wouter";
 import { PageShell } from "./components/page-shell.tsx";
 import { ToastContainer } from "./components/toast-container.tsx";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
+import { ArtefactPage } from "./routes/artefact-page.tsx";
 import { Dashboard } from "./routes/dashboard.tsx";
 import { RunPage } from "./routes/run-page.tsx";
 import { WorkflowPage } from "./routes/workflow-page.tsx";
@@ -24,6 +25,7 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/workflows/:name" component={WorkflowPage} />
+          <Route path="/runs/:id/published/:name" component={ArtefactPage} />
           <Route path="/runs/:id" component={RunPage} />
           <Route>
             <p>Page not found.</p>
