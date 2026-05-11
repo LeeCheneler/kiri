@@ -93,6 +93,31 @@ describe("workflowSchema", () => {
     ).toThrow();
   });
 
+  it("parses a step with an optional description on use:", () => {
+    const result = workflowSchema.parse({
+      name: "described",
+      steps: [{ use: "x", description: "fetch the latest PRs" }],
+    });
+    expect(result.steps[0]).toEqual({ use: "x", description: "fetch the latest PRs" });
+  });
+
+  it("parses a step with an optional description on sh:", () => {
+    const result = workflowSchema.parse({
+      name: "described-sh",
+      steps: [{ sh: "echo hi", description: "smoke test" }],
+    });
+    expect(result.steps[0]).toEqual({ sh: "echo hi", description: "smoke test" });
+  });
+
+  it("rejects an empty description on a step", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "empty-desc",
+        steps: [{ use: "x", description: "" }],
+      }),
+    ).toThrow();
+  });
+
   it("rejects invalid gating value", () => {
     expect(() =>
       workflowSchema.parse({
@@ -167,6 +192,15 @@ describe("workflowSchema", () => {
         summarize: { use: "y", env: { KIRI_RUN_ID: "spoofed" } },
       }),
     ).toThrow();
+  });
+
+  it("parses a summarize step with an optional description", () => {
+    const result = workflowSchema.parse({
+      name: "described-sum",
+      steps: [{ use: "x" }],
+      summarize: { use: "y", description: "one-line digest" },
+    });
+    expect(result.summarize).toEqual({ use: "y", description: "one-line digest" });
   });
 
   it("rejects a summarize step with unknown extra keys", () => {
@@ -279,6 +313,29 @@ describe("workflowSchema", () => {
         name: "reserved-pub",
         steps: [{ use: "x" }],
         publish: [{ name: "digest", use: "writer", env: { KIRI_RUN_ID: "spoofed" } }],
+      }),
+    ).toThrow();
+  });
+
+  it("parses a publish entry with an optional description", () => {
+    const result = workflowSchema.parse({
+      name: "pub-desc",
+      steps: [{ use: "x" }],
+      publish: [{ name: "digest", description: "weekly summary", use: "writer" }],
+    });
+    expect(result.publish?.[0]).toEqual({
+      name: "digest",
+      description: "weekly summary",
+      use: "writer",
+    });
+  });
+
+  it("rejects an empty description on a publish entry", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "empty-desc-pub",
+        steps: [{ use: "x" }],
+        publish: [{ name: "digest", description: "", use: "writer" }],
       }),
     ).toThrow();
   });

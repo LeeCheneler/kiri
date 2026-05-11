@@ -19,12 +19,19 @@ const hasEnv = (env: Record<string, string> | undefined): env is Record<string, 
 
 const stepCountLabel = (count: number): string => (count === 1 ? "1 step" : `${count} steps`);
 
+const artefactCountLabel = (count: number): string =>
+  count === 1 ? "1 artefact" : `${count} artefacts`;
+
 /**
  * Editorial detail view for one workflow definition. Header carries the
- * name in Fraunces with a trigger affordance set in the accent token,
- * step count + gating in mono small caps and schedule (when present) in
- * mono italic. Each step lays out flat — number, kind label, then the
- * inline source (for `sh:`) and env map (when populated) below.
+ * name in Fraunces with a trigger affordance set in the accent token.
+ * Step count, artefact count (when the workflow publishes), summariser
+ * presence, gating, and schedule are listed alongside it in mono small
+ * caps so the reader sees the run shape at a glance.
+ *
+ * Every entry — step, publish, summariser — renders the same config
+ * blocks (description, source, env) using one shared component so the
+ * page reads as a single rhythm of identical units.
  *
  * `onTrigger` returns a promise so the button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
@@ -38,6 +45,7 @@ export function WorkflowDetailView({
   onTrigger: (name: string) => Promise<unknown>;
 }) {
   const stepCount = workflow.steps.length;
+  const publishCount = workflow.publish?.length ?? 0;
   return (
     <article>
       <Link
@@ -54,26 +62,28 @@ export function WorkflowDetailView({
           <TriggerButton name={workflow.name} onTrigger={onTrigger} />
         </div>
         <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
-          <div className="flex items-baseline">
-            <dt className="sr-only">steps</dt>
-            <dd className="tracking-widest uppercase">{stepCountLabel(stepCount)}</dd>
-          </div>
+          <HeaderFact label="steps" value={stepCountLabel(stepCount)} />
+          {publishCount > 0 && (
+            <>
+              <HeaderSeparator />
+              <HeaderFact label="artefacts" value={artefactCountLabel(publishCount)} />
+            </>
+          )}
+          {workflow.summarize && (
+            <>
+              <HeaderSeparator />
+              <HeaderFact label="summariser" value="summarised" />
+            </>
+          )}
           {workflow.gating && (
             <>
-              <span aria-hidden="true" className="text-rule">
-                ·
-              </span>
-              <div className="flex items-baseline">
-                <dt className="sr-only">gating</dt>
-                <dd className="tracking-widest uppercase">gating: {workflow.gating}</dd>
-              </div>
+              <HeaderSeparator />
+              <HeaderFact label="gating" value={`gating: ${workflow.gating}`} />
             </>
           )}
           {workflow.schedule && (
             <>
-              <span aria-hidden="true" className="text-rule">
-                ·
-              </span>
+              <HeaderSeparator />
               <div className="flex items-baseline">
                 <dt className="sr-only">schedule</dt>
                 <dd className="text-ink italic">{workflow.schedule}</dd>
@@ -103,7 +113,19 @@ export function WorkflowDetailView({
                 style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
                 className="animate-[feed-row-in_320ms_ease-out_backwards]"
               >
-                <StepRow step={step} index={index} />
+                <EntryRow
+                  entry={step}
+                  identityLines={[
+                    <span key="step" className="flex items-baseline gap-5">
+                      <span className="shrink-0 font-mono text-xs text-ink-muted tabular-nums">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <span className="min-w-0 flex-1 font-mono text-sm text-ink">
+                        {sourceLabel(step)}
+                      </span>
+                    </span>,
+                  ]}
+                />
               </li>
             ))}
           </ol>
@@ -119,16 +141,37 @@ export function WorkflowDetailView({
   );
 }
 
+function HeaderFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline">
+      <dt className="sr-only">{label}</dt>
+      <dd className="tracking-widest uppercase">{value}</dd>
+    </div>
+  );
+}
+
+function HeaderSeparator() {
+  return (
+    <span aria-hidden="true" className="text-rule">
+      ·
+    </span>
+  );
+}
+
 function SummariseSection({ step }: { step: WorkflowStepSummary }) {
   return (
     <section className="mt-12">
       <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
         <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summarise</h3>
       </header>
-      <div className="relative flex items-baseline gap-5 px-5 py-4">
-        <span aria-hidden="true" className="absolute inset-y-2 left-1 w-0.5 bg-rule" />
-        <span className="min-w-0 flex-1 font-mono text-sm text-ink">{sourceLabel(step)}</span>
-      </div>
+      <EntryRow
+        entry={step}
+        identityLines={[
+          <span key="src" className="font-mono text-sm text-ink">
+            {sourceLabel(step)}
+          </span>,
+        ]}
+      />
     </section>
   );
 }
@@ -139,28 +182,28 @@ function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
       <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
         <h3 className="text-xs tracking-widest text-ink-muted uppercase">Publish</h3>
         <span className="font-mono text-xs text-ink-muted tabular-nums">
-          {entries.length === 1 ? "1 artefact" : `${entries.length} artefacts`}
+          {artefactCountLabel(entries.length)}
         </span>
       </header>
       <ul className="divide-y divide-rule">
         {entries.map((entry) => (
           <li key={entry.name}>
-            <PublishRow entry={entry} />
+            <EntryRow
+              entry={entry}
+              title={entry.title}
+              identityLines={[
+                <span key="name" className="font-mono text-sm text-ink">
+                  {`name: ${entry.name}`}
+                </span>,
+                <span key="src" className="font-mono text-sm text-ink">
+                  {sourceLabel(entry)}
+                </span>,
+              ]}
+            />
           </li>
         ))}
       </ul>
     </section>
-  );
-}
-
-function PublishRow({ entry }: { entry: WorkflowPublishSummary }) {
-  return (
-    <div className="relative flex flex-col gap-2 px-5 py-4">
-      <span aria-hidden="true" className="absolute inset-y-2 left-1 w-0.5 bg-rule" />
-      <h4 className="font-display text-2xl text-ink leading-tight">{entry.title}</h4>
-      <p className="font-mono text-sm text-ink">{sourceLabel(entry)}</p>
-      <p className="font-mono text-xs text-ink-muted">{entry.name}</p>
-    </div>
   );
 }
 
@@ -215,42 +258,73 @@ function TriggerButton({
   );
 }
 
-function StepRow({ step, index }: { step: WorkflowStepSummary; index: number }) {
-  const stepNumber = String(index + 1).padStart(2, "0");
-  const env = step.env;
-  const showSource = "sh" in step;
-  const showEnv = hasEnv(env);
+type EntryShape = { description?: string; env?: Record<string, string> } & (
+  | { use: string }
+  | { sh: string }
+);
+
+/**
+ * Render one workflow entry (step, publish, summariser) with a shared
+ * layout: optional editorial title, a stack of mono identity lines
+ * (ordinal, name, source label), and then the standard config blocks —
+ * description, inline sh source, and env — keyed in small caps.
+ */
+function EntryRow({
+  entry,
+  title,
+  identityLines,
+}: {
+  entry: EntryShape;
+  title?: string;
+  identityLines: ReactNode[];
+}) {
   return (
     <div className="relative flex flex-col gap-3 px-5 py-4">
       <span aria-hidden="true" className="absolute inset-y-2 left-1 w-0.5 bg-rule" />
-      <div className="flex items-baseline gap-5">
-        <span className="shrink-0 font-mono text-xs text-ink-muted tabular-nums">{stepNumber}</span>
-        <span className="min-w-0 flex-1 font-mono text-sm text-ink">{sourceLabel(step)}</span>
-      </div>
-      {(showSource || showEnv) && (
-        <div className="space-y-4 pl-12">
-          {"sh" in step && (
-            <Block label="source">
-              <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink">
-                {step.sh}
-              </pre>
-            </Block>
-          )}
-          {showEnv && (
-            <Block label="env">
-              <dl className="space-y-1 font-mono text-xs">
-                {Object.entries(env as Record<string, string>)
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([k, v]) => (
-                    <div key={k} className="flex items-baseline gap-4">
-                      <dt className="w-40 shrink-0 text-ink-muted">{k}</dt>
-                      <dd className="min-w-0 flex-1 break-words text-ink">{v}</dd>
-                    </div>
-                  ))}
-              </dl>
-            </Block>
-          )}
-        </div>
+      {title && <h4 className="font-display text-2xl text-ink leading-tight">{title}</h4>}
+      <div className="flex flex-col gap-1">{identityLines}</div>
+      <EntryConfig entry={entry} />
+    </div>
+  );
+}
+
+/**
+ * Renders the optional description / inline `sh:` source / env map for a
+ * step, publish entry, or summariser. Each block only appears when its
+ * value is populated, so callers don't need to gate the render themselves.
+ */
+function EntryConfig({ entry }: { entry: EntryShape }) {
+  const showDescription = entry.description !== undefined && entry.description.length > 0;
+  const showSource = "sh" in entry;
+  const showEnv = hasEnv(entry.env);
+  if (!showDescription && !showSource && !showEnv) return null;
+  return (
+    <div className="space-y-4">
+      {showDescription && (
+        <Block label="description">
+          <p className="font-display text-base text-ink italic">{entry.description}</p>
+        </Block>
+      )}
+      {showSource && (
+        <Block label="source">
+          <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink">
+            {(entry as { sh: string }).sh}
+          </pre>
+        </Block>
+      )}
+      {showEnv && (
+        <Block label="env">
+          <dl className="space-y-1 font-mono text-xs">
+            {Object.entries(entry.env as Record<string, string>)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([k, v]) => (
+                <div key={k} className="flex items-baseline gap-4">
+                  <dt className="w-40 shrink-0 text-ink-muted">{k}</dt>
+                  <dd className="min-w-0 flex-1 break-words text-ink">{v}</dd>
+                </div>
+              ))}
+          </dl>
+        </Block>
       )}
     </div>
   );

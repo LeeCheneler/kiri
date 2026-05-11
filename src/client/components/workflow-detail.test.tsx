@@ -73,6 +73,31 @@ describe("<WorkflowDetailView>", () => {
       renderDetail(stubWorkflow({ schedule: undefined }));
       expect(screen.queryByText(/\*/)).toBeNull();
     });
+
+    it("surfaces the artefact count in the header when the workflow publishes", () => {
+      renderDetail(
+        stubWorkflow({
+          publish: [{ name: "digest", title: "Digest", use: "claude-code" }],
+        }),
+      );
+      // Both the header dl and the publish section header carry the count.
+      expect(screen.getAllByText(/^1 artefact$/i).length).toBeGreaterThan(0);
+    });
+
+    it("omits the artefact slot when the workflow has no publish entries", () => {
+      renderDetail(stubWorkflow());
+      expect(screen.queryByText(/artefact/i)).toBeNull();
+    });
+
+    it("surfaces a 'summarised' indicator in the header when the workflow summarises", () => {
+      renderDetail(stubWorkflow({ summarize: { use: "claude-code-summarizer" } }));
+      expect(screen.getByText(/^summarised$/i)).toBeDefined();
+    });
+
+    it("omits the summariser indicator when the workflow has no summarize step", () => {
+      renderDetail(stubWorkflow());
+      expect(screen.queryByText(/^summarised$/i)).toBeNull();
+    });
   });
 
   describe("steps", () => {
@@ -156,6 +181,21 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.getByText(/^env$/i)).toBeDefined();
       expect(screen.getByText("GREETING")).toBeDefined();
     });
+
+    it("renders the description block when a step declares one", () => {
+      renderDetail(
+        stubWorkflow({
+          steps: [{ use: "claude-code", description: "review the open PR" }],
+        }),
+      );
+      expect(screen.getByText(/^description$/i)).toBeDefined();
+      expect(screen.getByText("review the open PR")).toBeDefined();
+    });
+
+    it("omits the description block when a step has no description", () => {
+      renderDetail(stubWorkflow({ steps: [{ use: "claude-code" }] }));
+      expect(screen.queryByText(/^description$/i)).toBeNull();
+    });
   });
 
   describe("publish", () => {
@@ -176,10 +216,10 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.getByRole("heading", { level: 3, name: /^publish$/i })).toBeDefined();
       expect(screen.getByRole("heading", { level: 4, name: /^PR Digest$/ })).toBeDefined();
       expect(screen.getByRole("heading", { level: 4, name: /^Weekly Report$/ })).toBeDefined();
-      // Both entries surface their source label and kebab-case name.
+      // Both entries surface their source label and keyed kebab-case name.
       expect(screen.getAllByText(/^use: claude-code$/)).toHaveLength(2);
-      expect(screen.getByText("pr-digest")).toBeDefined();
-      expect(screen.getByText("weekly-report")).toBeDefined();
+      expect(screen.getByText(/^name: pr-digest$/)).toBeDefined();
+      expect(screen.getByText(/^name: weekly-report$/)).toBeDefined();
     });
 
     it("renders the truncated first line of an sh: publish entry as its source label", () => {
@@ -197,7 +237,8 @@ describe("<WorkflowDetailView>", () => {
           publish: [{ name: "digest", title: "Digest", use: "claude-code" }],
         }),
       );
-      expect(screen.getByText(/^1 artefact$/)).toBeDefined();
+      // Header summary + publish section header both surface the count.
+      expect(screen.getAllByText(/^1 artefact$/).length).toBeGreaterThan(0);
     });
 
     it("shows the plural artefact count for multiple publish entries", () => {
@@ -210,7 +251,59 @@ describe("<WorkflowDetailView>", () => {
           ],
         }),
       );
-      expect(screen.getByText(/^3 artefacts$/)).toBeDefined();
+      expect(screen.getAllByText(/^3 artefacts$/).length).toBeGreaterThan(0);
+    });
+
+    it("renders inline source for sh: publish entries", () => {
+      renderDetail(
+        stubWorkflow({
+          // Override the default sh: step so the only "source" block on
+          // screen is the one under the publish entry.
+          steps: [{ use: "noop" }],
+          publish: [{ name: "report", title: "Report", sh: "echo body\nexit 0" }],
+        }),
+      );
+      const sourceHeading = screen.getByText(/^source$/i);
+      const sourcePanel = sourceHeading.parentElement;
+      expect(sourcePanel?.textContent).toContain("echo body");
+      expect(sourcePanel?.textContent).toContain("exit 0");
+    });
+
+    it("renders the env block for publish entries that declare env", () => {
+      renderDetail(
+        stubWorkflow({
+          publish: [
+            {
+              name: "digest",
+              title: "Digest",
+              use: "claude-code",
+              env: { PROMPT_FILE: "prompts/x.tpl", MODEL: "sonnet" },
+            },
+          ],
+        }),
+      );
+      expect(screen.getByText(/^env$/i)).toBeDefined();
+      expect(screen.getByText("PROMPT_FILE")).toBeDefined();
+      expect(screen.getByText("prompts/x.tpl")).toBeDefined();
+      expect(screen.getByText("MODEL")).toBeDefined();
+      expect(screen.getByText("sonnet")).toBeDefined();
+    });
+
+    it("renders the description block when a publish entry declares one", () => {
+      renderDetail(
+        stubWorkflow({
+          publish: [
+            {
+              name: "digest",
+              title: "Digest",
+              description: "a long-form summary of the top stories",
+              use: "claude-code",
+            },
+          ],
+        }),
+      );
+      expect(screen.getByText(/^description$/i)).toBeDefined();
+      expect(screen.getByText("a long-form summary of the top stories")).toBeDefined();
     });
   });
 
@@ -230,6 +323,49 @@ describe("<WorkflowDetailView>", () => {
       renderDetail(stubWorkflow({ summarize: { sh: "echo summarising\nexit 0" } }));
       expect(screen.getByRole("heading", { level: 3, name: /^summarise$/i })).toBeDefined();
       expect(screen.getByText(/^sh: echo summarising$/)).toBeDefined();
+    });
+
+    it("renders inline source for an sh: summariser", () => {
+      renderDetail(
+        stubWorkflow({
+          // Override the default sh: step so the only "source" block on
+          // screen is the summariser's.
+          steps: [{ use: "noop" }],
+          summarize: { sh: "echo summarising\nexit 0" },
+        }),
+      );
+      const sourceHeading = screen.getByText(/^source$/i);
+      const sourcePanel = sourceHeading.parentElement;
+      expect(sourcePanel?.textContent).toContain("echo summarising");
+      expect(sourcePanel?.textContent).toContain("exit 0");
+    });
+
+    it("renders the env block for a summariser that declares env", () => {
+      renderDetail(
+        stubWorkflow({
+          summarize: {
+            use: "claude-code-summarizer",
+            env: { MODEL: "haiku", PROMPT: "summarise" },
+          },
+        }),
+      );
+      expect(screen.getByText(/^env$/i)).toBeDefined();
+      expect(screen.getByText("MODEL")).toBeDefined();
+      expect(screen.getByText("haiku")).toBeDefined();
+      expect(screen.getByText("PROMPT")).toBeDefined();
+    });
+
+    it("renders the description block when the summariser declares one", () => {
+      renderDetail(
+        stubWorkflow({
+          summarize: {
+            use: "claude-code-summarizer",
+            description: "one-line digest of the run",
+          },
+        }),
+      );
+      expect(screen.getByText(/^description$/i)).toBeDefined();
+      expect(screen.getByText("one-line digest of the run")).toBeDefined();
     });
   });
 

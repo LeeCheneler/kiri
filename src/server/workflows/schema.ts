@@ -9,6 +9,7 @@ const envSchema = z
 const useStepSchema = z
   .object({
     use: z.string().min(1),
+    description: z.string().min(1).optional(),
     env: envSchema.optional(),
   })
   .strict();
@@ -16,6 +17,7 @@ const useStepSchema = z
 const shStepSchema = z
   .object({
     sh: z.string().min(1),
+    description: z.string().min(1).optional(),
     env: envSchema.optional(),
   })
   .strict();
@@ -35,6 +37,7 @@ const usePublishSchema = z
   .object({
     name: publishNameSchema,
     title: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
     use: z.string().min(1),
     env: envSchema.optional(),
   })
@@ -44,6 +47,7 @@ const shPublishSchema = z
   .object({
     name: publishNameSchema,
     title: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
     sh: z.string().min(1),
     env: envSchema.optional(),
   })

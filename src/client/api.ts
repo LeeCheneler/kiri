@@ -1,7 +1,7 @@
 /** A single workflow step as seen by the client. */
 export type WorkflowStepSummary =
-  | { use: string; env?: Record<string, string> }
-  | { sh: string; env?: Record<string, string> };
+  | { use: string; description?: string; env?: Record<string, string> }
+  | { sh: string; description?: string; env?: Record<string, string> };
 
 /**
  * One `publish:` entry on a workflow summary. `title` is always present —
@@ -9,8 +9,14 @@ export type WorkflowStepSummary =
  * re-implement it.
  */
 export type WorkflowPublishSummary =
-  | { name: string; title: string; use: string; env?: Record<string, string> }
-  | { name: string; title: string; sh: string; env?: Record<string, string> };
+  | { name: string; title: string; description?: string; use: string; env?: Record<string, string> }
+  | {
+      name: string;
+      title: string;
+      description?: string;
+      sh: string;
+      env?: Record<string, string>;
+    };
 
 /** Workflow summary as returned by `GET /api/workflows`. */
 export interface WorkflowSummary {
@@ -40,8 +46,20 @@ export interface RunStartResult {
  * callers that need a display string resolve via `resolvePublishTitle`.
  */
 export type RunPublishSnapshot =
-  | { name: string; title?: string; use: string; env?: Record<string, string> }
-  | { name: string; title?: string; sh: string; env?: Record<string, string> };
+  | {
+      name: string;
+      title?: string;
+      description?: string;
+      use: string;
+      env?: Record<string, string>;
+    }
+  | {
+      name: string;
+      title?: string;
+      description?: string;
+      sh: string;
+      env?: Record<string, string>;
+    };
 
 /**
  * One row in the `GET /api/runs` feed. Timestamps are ISO strings (JSON
