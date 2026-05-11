@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
-import { ArtefactMarkdown } from "./artefact-markdown.tsx";
+import { Markdown } from "./markdown.tsx";
 
 afterEach(() => cleanup());
 
-describe("<ArtefactMarkdown>", () => {
+describe("<Markdown>", () => {
   it("renders headings, lists, links, and code blocks", () => {
     const { container } = render(
-      <ArtefactMarkdown
+      <Markdown
         content={[
           "# Heading",
           "",
@@ -36,9 +36,7 @@ describe("<ArtefactMarkdown>", () => {
   });
 
   it("renders raw <script> tags from source as plain text, never as elements", () => {
-    const { container } = render(
-      <ArtefactMarkdown content={"hello\n\n<script>alert(1)</script>\n"} />,
-    );
+    const { container } = render(<Markdown content={"hello\n\n<script>alert(1)</script>\n"} />);
     // react-markdown does not parse raw HTML — the tag text reaches the DOM
     // verbatim. The load-bearing assertion is that no `<script>` element
     // exists in the rendered tree.
@@ -46,7 +44,7 @@ describe("<ArtefactMarkdown>", () => {
   });
 
   it("refuses javascript: URLs on links (href becomes safe)", () => {
-    const { container } = render(<ArtefactMarkdown content={"[bad](javascript:alert(1))"} />);
+    const { container } = render(<Markdown content={"[bad](javascript:alert(1))"} />);
     // react-markdown's defaultUrlTransform neutralises the href to empty
     // string. An anchor with empty href loses the link role, so query the
     // raw `<a>` and assert on its href directly.
@@ -57,9 +55,7 @@ describe("<ArtefactMarkdown>", () => {
   });
 
   it("refuses data: URLs on links (href becomes safe)", () => {
-    const { container } = render(
-      <ArtefactMarkdown content={"[bad](data:text/html,<script>1</script>)"} />,
-    );
+    const { container } = render(<Markdown content={"[bad](data:text/html,<script>1</script>)"} />);
     const anchor = container.querySelector("a");
     expect(anchor).not.toBeNull();
     const href = anchor?.getAttribute("href") ?? "";
@@ -68,7 +64,7 @@ describe("<ArtefactMarkdown>", () => {
 
   it("does not render raw <img onerror> handlers from the source", () => {
     const { container } = render(
-      <ArtefactMarkdown content={'before\n\n<img src="x" onerror="alert(1)">\n\nafter\n'} />,
+      <Markdown content={'before\n\n<img src="x" onerror="alert(1)">\n\nafter\n'} />,
     );
     // The literal img tag text passes through but is never interpreted —
     // no img element appears in the tree, so the onerror handler can't
@@ -77,7 +73,7 @@ describe("<ArtefactMarkdown>", () => {
   });
 
   it("decorates external anchors with target=_blank and rel=noopener noreferrer", () => {
-    render(<ArtefactMarkdown content={"[external](https://news.ycombinator.com/x)"} />);
+    render(<Markdown content={"[external](https://news.ycombinator.com/x)"} />);
     const link = screen.getByRole("link", { name: "external" });
     expect(link.getAttribute("href")).toBe("https://news.ycombinator.com/x");
     expect(link.getAttribute("target")).toBe("_blank");
@@ -85,14 +81,14 @@ describe("<ArtefactMarkdown>", () => {
   });
 
   it("leaves same-origin absolute links untouched", () => {
-    render(<ArtefactMarkdown content={`[inside](${window.location.origin}/runs/abc)`} />);
+    render(<Markdown content={`[inside](${window.location.origin}/runs/abc)`} />);
     const link = screen.getByRole("link", { name: "inside" });
     expect(link.getAttribute("target")).toBeNull();
     expect(link.getAttribute("rel")).toBeNull();
   });
 
   it("leaves relative links untouched", () => {
-    render(<ArtefactMarkdown content={"[relative](/runs/abc)"} />);
+    render(<Markdown content={"[relative](/runs/abc)"} />);
     const link = screen.getByRole("link", { name: "relative" });
     expect(link.getAttribute("target")).toBeNull();
     expect(link.getAttribute("rel")).toBeNull();
@@ -101,7 +97,7 @@ describe("<ArtefactMarkdown>", () => {
   it("treats unparseable hrefs as same-origin (no target/rel applied)", () => {
     // `http://[invalid` throws inside the URL constructor; the renderer
     // falls through to the same-origin branch and renders a plain anchor.
-    render(<ArtefactMarkdown content={"[bad](http://[invalid)"} />);
+    render(<Markdown content={"[bad](http://[invalid)"} />);
     const link = screen.queryByRole("link", { name: "bad" });
     if (link !== null) {
       expect(link.getAttribute("target")).toBeNull();
@@ -116,7 +112,7 @@ describe("<ArtefactMarkdown>", () => {
     // evolve without churning the test, but the styling contract stays
     // self-documenting.
     const { container } = render(
-      <ArtefactMarkdown
+      <Markdown
         content={[
           "# H1",
           "## H2",
@@ -178,9 +174,7 @@ describe("<ArtefactMarkdown>", () => {
   });
 
   it("respects an explicit className on an image", () => {
-    const { container } = render(
-      <ArtefactMarkdown content={'<img src="x" class="custom-img" />'} />,
-    );
+    const { container } = render(<Markdown content={'<img src="x" class="custom-img" />'} />);
     // The raw HTML img isn't parsed (react-markdown skips raw HTML); only
     // markdown-syntax images go through the Image component. This asserts
     // the renderer doesn't crash on an empty result.
@@ -191,9 +185,7 @@ describe("<ArtefactMarkdown>", () => {
     // Defensive: if a future override passes a className via custom props
     // it should win over the default. We can't easily express that
     // through markdown syntax, but the branch matters for coverage.
-    const { container } = render(
-      <ArtefactMarkdown content={"[ext](https://news.ycombinator.com/x)"} />,
-    );
+    const { container } = render(<Markdown content={"[ext](https://news.ycombinator.com/x)"} />);
     expect(container.querySelector("a")?.className).toContain("text-accent");
   });
 });

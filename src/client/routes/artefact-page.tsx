@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ApiError, type RunArtefactDetail, fetchArtefact } from "../api.ts";
-import { ArtefactMarkdown } from "../components/artefact-markdown.tsx";
+import { Markdown } from "../components/markdown.tsx";
 import { formatRelativeTime } from "../formatters/format-time.ts";
 
 type State =
@@ -13,7 +13,7 @@ type State =
 /**
  * Published-artefact route. Fetches a single artefact by `(runId, name)`
  * once on mount and renders the markdown body through the sandboxed
- * `<ArtefactMarkdown>` component. No live sync — once an artefact is
+ * `<Markdown>` component. No live sync — once an artefact is
  * written its row is immutable.
  *
  * `now` is injectable so component tests render deterministic relative
@@ -120,7 +120,7 @@ export function ArtefactPage({
       </header>
 
       <div className="mt-10">
-        <ArtefactMarkdown content={artefact.contentMd} />
+        <Markdown content={artefact.contentMd} />
       </div>
     </article>
   );

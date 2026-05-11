@@ -29,7 +29,7 @@ test("clicking a published artefact navigates to a page rendering its markdown b
   await expect(page).toHaveURL(`/runs/${runId}/published/digest`);
   // Title in Fraunces lands as the level-2 heading on the artefact page.
   await expect(page.getByRole("heading", { level: 2, name: /published digest/i })).toBeVisible();
-  // Body markdown is rendered through ArtefactMarkdown — a level-1 heading
+  // Body markdown is rendered through <Markdown> — a level-1 heading
   // and at least one paragraph element appear in the tree.
   await expect(page.getByRole("heading", { level: 1, name: /published digest/i })).toBeVisible();
   await expect(page.locator("article p").first()).toBeVisible();

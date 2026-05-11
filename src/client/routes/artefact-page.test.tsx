@@ -57,7 +57,7 @@ describe("<ArtefactPage>", () => {
     // Back link sits above the header.
     const backLink = screen.getByRole("link", { name: /back to run/i });
     expect(backLink.getAttribute("href")).toBe("/runs/abc12345-0000-0000-0000-000000000000");
-    // Markdown body is rendered through ArtefactMarkdown — headings and
+    // Markdown body is rendered through <Markdown> — headings and
     // paragraphs both make it into the tree.
     expect(screen.getByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
     expect(screen.getByText(/First paragraph\./)).toBeDefined();

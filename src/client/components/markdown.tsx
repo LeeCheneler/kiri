@@ -8,7 +8,7 @@ import type {
   TdHTMLAttributes,
   ThHTMLAttributes,
 } from "react";
-import Markdown, { type Components, type ExtraProps } from "react-markdown";
+import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const isExternalHref = (href: string): boolean => {
@@ -329,7 +329,7 @@ const components: Components = {
 };
 
 /**
- * Render a published artefact's markdown body. Built on `react-markdown`,
+ * Render a markdown string as React elements. Built on `react-markdown`,
  * which parses markdown to React elements directly — there is no HTML
  * string and no `dangerouslySetInnerHTML` call site at all. Raw HTML in
  * the source is not parsed: literal tags like `<script>` land as text,
@@ -342,13 +342,15 @@ const components: Components = {
  * the SPA) are decorated with `target="_blank"` and
  * `rel="noopener noreferrer"`; same-origin and fragment links pass
  * through untouched.
+ *
+ * Used by every surface that renders markdown — published artefacts,
+ * activity-feed summaries, the run-detail summary block — so each one
+ * inherits the same sandboxing and editorial styling.
  */
-export function ArtefactMarkdown({ content }: { content: string }) {
+export function Markdown({ content }: { content: string }) {
   return (
-    <div className="artefact-markdown">
-      <Markdown components={components} remarkPlugins={[remarkGfm]}>
-        {content}
-      </Markdown>
-    </div>
+    <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+      {content}
+    </ReactMarkdown>
   );
 }
