@@ -1,0 +1,8 @@
+name: publishing
+steps:
+  - sh: echo "pipeline step"
+publish:
+  - name: digest
+    title: Published Digest
+    sh: |
+      printf '# Published Digest\n\nFirst body paragraph.\n\nSecond paragraph.\n'
