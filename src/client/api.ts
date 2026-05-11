@@ -81,10 +81,27 @@ export interface RunStepRow {
   isSummary: boolean;
 }
 
-/** Full run as returned by `GET /api/runs/:id`: the run row plus its steps ordered by index. */
+/**
+ * A run's published artefact as seen by the run-detail consumer. The
+ * markdown body lives on the dedicated artefact route — only metadata
+ * needed to render the "Published" section row travels with the run.
+ */
+export interface RunArtefactSummary {
+  name: string;
+  title: string;
+  createdAt: string;
+}
+
+/**
+ * Full run as returned by `GET /api/runs/:id`: the run row, its
+ * pipeline steps ordered by index (publish-step rows filtered out
+ * server-side), and any artefacts the run published, ordered by
+ * creation time.
+ */
 export interface RunDetail {
   run: RunListEntry;
   steps: RunStepRow[];
+  artefacts: RunArtefactSummary[];
 }
 
 /**

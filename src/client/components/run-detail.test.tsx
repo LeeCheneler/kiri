@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import type { RunDetail, RunListEntry, RunStepRow } from "../api.ts";
+import type { RunArtefactSummary, RunDetail, RunListEntry, RunStepRow } from "../api.ts";
 import { RunDetailView } from "./run-detail.tsx";
 
 afterEach(() => cleanup());
@@ -38,9 +38,14 @@ const stubStep = (overrides: Partial<RunStepRow> = {}): RunStepRow => ({
   ...overrides,
 });
 
-const stubDetail = (run: Partial<RunListEntry> = {}, steps: RunStepRow[] = []): RunDetail => ({
+const stubDetail = (
+  run: Partial<RunListEntry> = {},
+  steps: RunStepRow[] = [],
+  artefacts: RunArtefactSummary[] = [],
+): RunDetail => ({
   run: stubRun(run),
   steps,
+  artefacts,
 });
 
 const renderDetail = (detail: RunDetail, opts: { onCancel?: () => Promise<unknown> } = {}) => {
@@ -445,6 +450,83 @@ describe("<RunDetailView>", () => {
     it("does not render the summary section when run.summary is null", () => {
       renderDetail(stubDetail({ summary: null }));
       expect(screen.queryByText(/^summary$/i)).toBeNull();
+    });
+  });
+
+  describe("published section", () => {
+    const stubArtefact = (overrides: Partial<RunArtefactSummary> = {}): RunArtefactSummary => ({
+      name: "digest",
+      title: "PR Review Digest",
+      createdAt: new Date(NOW.getTime() - 60 * 1000).toISOString(),
+      ...overrides,
+    });
+
+    it("does not render the section when there are no artefacts", () => {
+      renderDetail(stubDetail({}, [], []));
+      expect(screen.queryByRole("heading", { name: /^published$/i })).toBeNull();
+    });
+
+    it("renders the section heading and a row per artefact when present", () => {
+      renderDetail(
+        stubDetail({}, [], [stubArtefact({ name: "digest", title: "PR Review Digest" })]),
+      );
+      expect(screen.getByRole("heading", { level: 3, name: /^published$/i })).toBeDefined();
+      expect(screen.getByText("PR Review Digest")).toBeDefined();
+    });
+
+    it("renders the artefact count in the section header", () => {
+      renderDetail(
+        stubDetail(
+          {},
+          [],
+          [
+            stubArtefact({ name: "digest", title: "Digest" }),
+            stubArtefact({ name: "notes", title: "Notes" }),
+          ],
+        ),
+      );
+      expect(screen.getByText(/^2 artefacts$/)).toBeDefined();
+    });
+
+    it("uses the singular form for a single artefact", () => {
+      renderDetail(stubDetail({}, [], [stubArtefact()]));
+      expect(screen.getByText(/^1 artefact$/)).toBeDefined();
+    });
+
+    it("links each artefact to /runs/:id/published/:name", () => {
+      renderDetail(
+        stubDetail(
+          { id: "run-1" },
+          [],
+          [
+            stubArtefact({ name: "digest", title: "Digest" }),
+            stubArtefact({ name: "release-notes", title: "Release Notes" }),
+          ],
+        ),
+      );
+      const digestLink = screen.getByRole("link", { name: /digest/i });
+      expect(digestLink.getAttribute("href")).toBe("/runs/run-1/published/digest");
+      const notesLink = screen.getByRole("link", { name: /release notes/i });
+      expect(notesLink.getAttribute("href")).toBe("/runs/run-1/published/release-notes");
+    });
+
+    it("renders the created-at as a relative timestamp with absolute hover title", () => {
+      const createdAt = new Date(NOW.getTime() - 45 * 1000).toISOString();
+      renderDetail(stubDetail({}, [], [stubArtefact({ createdAt })]));
+      const time = screen.getByText(/45 seconds ago/i);
+      expect(time.getAttribute("title")).toBe(createdAt);
+    });
+
+    it("renders above the steps section so the long-form output is reached first", () => {
+      renderDetail(
+        stubDetail({}, [stubStep()], [stubArtefact({ name: "digest", title: "Digest" })]),
+      );
+      const published = screen.getByRole("heading", { name: /^published$/i });
+      const steps = screen.getByRole("heading", { name: /^steps$/i });
+      // DOCUMENT_POSITION_FOLLOWING = 4 → published precedes steps.
+      expect(published.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
     });
   });
 

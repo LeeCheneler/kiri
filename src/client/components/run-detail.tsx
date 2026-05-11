@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import type { RunDetail, RunListEntry, RunStepRow, StepMaterials } from "../api.ts";
+import type {
+  RunArtefactSummary,
+  RunDetail,
+  RunListEntry,
+  RunStepRow,
+  StepMaterials,
+} from "../api.ts";
 import { formatDuration, formatDurationMs, formatRelativeTime } from "../formatters/format-time.ts";
 
 type StatusKind = "running" | "ok" | "failed" | "cancelled" | "interrupted";
@@ -60,7 +66,7 @@ export function RunDetailView({
   now?: Date;
   onCancel?: () => Promise<unknown>;
 }) {
-  const { run, steps } = detail;
+  const { run, steps, artefacts } = detail;
   const status = runStatus(run);
   const regularSteps = steps.filter((s) => !s.isSummary);
   const summaryStep = steps.find((s) => s.isSummary);
@@ -137,6 +143,8 @@ export function RunDetailView({
 
       {run.error && <RunFailureBlock error={run.error} />}
 
+      {artefacts.length > 0 && <PublishedSection runId={run.id} artefacts={artefacts} now={now} />}
+
       <section className="mt-12">
         <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
           <h3 className="text-xs tracking-widest text-ink-muted uppercase">Steps</h3>
@@ -198,6 +206,48 @@ function CancelButton({ onCancel }: { onCancel: () => Promise<unknown> }) {
         </p>
       )}
     </div>
+  );
+}
+
+function PublishedSection({
+  runId,
+  artefacts,
+  now,
+}: {
+  runId: string;
+  artefacts: RunArtefactSummary[];
+  now?: Date;
+}) {
+  return (
+    <section className="mt-12">
+      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
+        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Published</h3>
+        <span className="font-mono text-xs text-ink-muted tabular-nums">
+          {artefacts.length === 1 ? "1 artefact" : `${artefacts.length} artefacts`}
+        </span>
+      </header>
+      <ul className="divide-y divide-rule">
+        {artefacts.map((artefact) => (
+          <li key={artefact.name}>
+            <Link
+              href={`/runs/${runId}/published/${artefact.name}`}
+              className="flex items-baseline gap-5 px-5 py-4 no-underline outline-none transition-colors duration-150 hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+            >
+              <span className="min-w-0 flex-1 truncate font-display text-base text-ink">
+                {artefact.title}
+              </span>
+              <time
+                dateTime={artefact.createdAt}
+                title={artefact.createdAt}
+                className="shrink-0 font-mono text-xs text-ink-muted tabular-nums"
+              >
+                {formatRelativeTime(artefact.createdAt, now)}
+              </time>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

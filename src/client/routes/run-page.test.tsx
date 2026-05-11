@@ -45,6 +45,7 @@ describe("<RunPage>", () => {
             isInterrupted: false,
           },
           steps: [],
+          artefacts: [],
         }),
       ),
     );
@@ -101,6 +102,7 @@ describe("<RunPage>", () => {
             isInterrupted: false,
           },
           steps: [],
+          artefacts: [],
         });
       }),
     );
@@ -151,6 +153,7 @@ describe("<RunPage>", () => {
             isInterrupted: false,
           },
           steps: [],
+          artefacts: [],
         }),
       ),
       http.post("*/api/runs/:id/cancel", ({ params }) => {
@@ -188,6 +191,7 @@ describe("<RunPage>", () => {
             isInterrupted: false,
           },
           steps: [],
+          artefacts: [],
         });
       }),
     );
