@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync }
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
-import { runSteps, runs } from "../db/schema.ts";
+import { runArtefacts, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import {
   type PublishEntry,
@@ -10,6 +10,7 @@ import {
   type WorkflowStep,
   isUsePublish,
   isUseStep,
+  resolvePublishTitle,
 } from "../workflows/index.ts";
 import type { CancelRegistry } from "./cancel-registry.ts";
 import { runStep } from "./run-step.ts";
@@ -199,6 +200,7 @@ export function runWorkflow(
     let caughtThrow: unknown;
     let summaryText: string | null = null;
     const executed: ExecutedStep[] = [];
+    const publishedArtefacts: { name: string; title: string; content_md: string }[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
@@ -337,6 +339,7 @@ export function runWorkflow(
               startedAt: startedAt.toISOString(),
               durationMs: Date.now() - startedAt.getTime(),
               steps: executed,
+              artefacts: publishedArtefacts,
             },
             null,
             2,
@@ -377,6 +380,22 @@ export function runWorkflow(
           step: publishIndex,
           status: publishStatus,
         });
+
+        if (envelope.status === "ok" && !cancelled) {
+          const title = resolvePublishTitle(entry.name, entry.title);
+          const contentMd = envelope.output.trimEnd();
+          db.insert(runArtefacts)
+            .values({
+              id: crypto.randomUUID(),
+              runId,
+              name: entry.name,
+              title,
+              contentMd,
+              createdAt: new Date(),
+            })
+            .run();
+          publishedArtefacts.push({ name: entry.name, title, content_md: contentMd });
+        }
 
         // Cancel mid-publish flips the run terminal status; ordinary
         // failure leaves the run status untouched and lets siblings run.

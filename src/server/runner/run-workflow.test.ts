@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { bootstrap } from "../bootstrap.ts";
 import type { KiriDb } from "../db/index.ts";
-import { runSteps, runs } from "../db/schema.ts";
+import { runArtefacts, runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import type { WorkflowDefinition, WorkflowStep } from "../workflows/index.ts";
 import { createCancelRegistry } from "./cancel-registry.ts";
@@ -980,6 +980,121 @@ describe("runWorkflow", () => {
       expect(publishRows[0].status).toBe("failed");
       expect(publishRows[0].error).not.toBeNull();
       expect(publishRows[1].status).toBe("ok");
+
+      // Only the successful sibling lands as an artefact row.
+      const artefacts = db
+        .select()
+        .from(runArtefacts)
+        .where(eq(runArtefacts.runId, result.runId))
+        .all();
+      expect(artefacts).toHaveLength(1);
+      expect(artefacts[0].name).toBe("good");
+    });
+
+    it("persists trimmed stdout to run_artefacts with the resolved title", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("digest", "#!/bin/sh\nprintf '# Digest\\n\\nbody\\n\\n\\n'\n");
+      writeBundle("notes", "#!/bin/sh\necho notes-body\n");
+      const wf: WorkflowDefinition = {
+        name: "pub-rows",
+        steps: [{ use: "step" }],
+        publish: [
+          { name: "digest", title: "PR Review Digest", use: "digest" },
+          { name: "release-notes", use: "notes" },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const artefacts = db
+        .select()
+        .from(runArtefacts)
+        .where(eq(runArtefacts.runId, result.runId))
+        .orderBy(asc(runArtefacts.name))
+        .all();
+      expect(artefacts).toHaveLength(2);
+
+      const digest = artefacts.find((a) => a.name === "digest");
+      expect(digest?.title).toBe("PR Review Digest");
+      // Trailing whitespace stripped; interior newlines preserved.
+      expect(digest?.contentMd).toBe("# Digest\n\nbody");
+      expect(digest?.createdAt).toBeInstanceOf(Date);
+
+      const notes = artefacts.find((a) => a.name === "release-notes");
+      // Title defaults via resolvePublishTitle when omitted.
+      expect(notes?.title).toBe("Release Notes");
+      expect(notes?.contentMd).toBe("notes-body");
+    });
+
+    it("inserts an artefact row even when the publish writes nothing", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      const wf: WorkflowDefinition = {
+        name: "empty-pub",
+        steps: [{ use: "step" }],
+        publish: [{ name: "empty", sh: "true" }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const artefacts = db
+        .select()
+        .from(runArtefacts)
+        .where(eq(runArtefacts.runId, result.runId))
+        .all();
+      expect(artefacts).toHaveLength(1);
+      expect(artefacts[0].contentMd).toBe("");
+      expect(artefacts[0].title).toBe("Empty");
+    });
+
+    it("does not insert an artefact row for a publish that fails", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("bad", "#!/bin/sh\nexit 2\n");
+      const wf: WorkflowDefinition = {
+        name: "no-art-on-fail",
+        steps: [{ use: "step" }],
+        publish: [{ name: "bad", use: "bad" }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const artefacts = db
+        .select()
+        .from(runArtefacts)
+        .where(eq(runArtefacts.runId, result.runId))
+        .all();
+      expect(artefacts).toHaveLength(0);
+    });
+
+    it("exposes earlier successful artefacts to later publishes via KIRI_RUN_CONTEXT_FILE", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("first-art", "#!/bin/sh\necho first-content\n");
+      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      const wf: WorkflowDefinition = {
+        name: "sibling-ctx",
+        steps: [{ use: "step" }],
+        publish: [
+          { name: "first", title: "First Artefact", use: "first-art" },
+          { name: "second", use: "context-dump" },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const secondRow = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all()
+        .find((s) => s.isPublish && s.index === 2);
+      const parsed = JSON.parse(secondRow?.output as string);
+      expect(parsed.artefacts).toEqual([
+        { name: "first", title: "First Artefact", content_md: "first-content" },
+      ]);
     });
 
     it("still runs publishes when the steps: pipeline failed (ordering parity with summarize)", async () => {
