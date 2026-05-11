@@ -1,11 +1,17 @@
 export {
   type Gating,
+  type PublishEntry,
+  type ShPublish,
   type ShStep,
+  type UsePublish,
   type UseStep,
   type WorkflowDefinition,
   type WorkflowStep,
+  isShPublish,
   isShStep,
+  isUsePublish,
   isUseStep,
+  resolvePublishTitle,
   workflowSchema,
 } from "./schema.ts";
 export {

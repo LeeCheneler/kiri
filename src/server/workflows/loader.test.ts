@@ -203,6 +203,65 @@ summarize:
     expect(result.failures[0].reason).toContain('"ghost-summer"');
   });
 
+  it("loads a workflow whose publish entry uses an existing bundle", async () => {
+    writeBundle(cwd, "step");
+    writeBundle(cwd, "writer");
+    writeFileSync(
+      join(dir, "wf.yaml"),
+      `name: wf
+steps:
+  - use: step
+publish:
+  - name: digest
+    use: writer
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
+    expect(result.workflows.get("wf")?.publish).toEqual([{ name: "digest", use: "writer" }]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("loads a workflow with an inline sh: publish entry (no bundle needed)", async () => {
+    writeBundle(cwd, "step");
+    writeFileSync(
+      join(dir, "wf.yaml"),
+      `name: wf
+steps:
+  - use: step
+publish:
+  - name: digest
+    sh: |
+      cat README.md
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("records a failure when a publish use: entry references a missing bundle", async () => {
+    writeBundle(cwd, "step");
+    writeFileSync(
+      join(dir, "wf.yaml"),
+      `name: wf
+steps:
+  - use: step
+publish:
+  - name: digest
+    use: ghost-writer
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "wf.yaml"));
+    expect(result.failures[0].reason).toContain('"ghost-writer"');
+  });
+
   it("reports both step and summarize missing-bundle failures together", async () => {
     writeFileSync(
       join(dir, "wf.yaml"),

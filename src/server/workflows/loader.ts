@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { type WorkflowDefinition, isUseStep, workflowSchema } from "./schema.ts";
+import { type WorkflowDefinition, isUsePublish, isUseStep, workflowSchema } from "./schema.ts";
 
 /**
  * A workflow file that failed to load — either a YAML parse error, a
@@ -34,10 +34,14 @@ export const bundleRunPath = (cwd: string, name: string): string =>
 
 const validateBundles = (def: WorkflowDefinition, cwd: string): string[] => {
   const missing: string[] = [];
-  const candidates = def.summarize ? [...def.steps, def.summarize] : def.steps;
-  for (const step of candidates) {
+  const steps = def.summarize ? [...def.steps, def.summarize] : def.steps;
+  for (const step of steps) {
     if (!isUseStep(step)) continue;
     if (!existsSync(bundleRunPath(cwd, step.use))) missing.push(step.use);
+  }
+  for (const entry of def.publish ?? []) {
+    if (!isUsePublish(entry)) continue;
+    if (!existsSync(bundleRunPath(cwd, entry.use))) missing.push(entry.use);
   }
   return missing;
 };

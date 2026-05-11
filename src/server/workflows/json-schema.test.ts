@@ -71,4 +71,37 @@ describe("workflowJsonSchema", () => {
     expect(useVariant).toBeDefined();
     expect(shVariant).toBeDefined();
   });
+
+  it("optionally permits a publish array of named use/sh entries", () => {
+    type Variant = {
+      properties: {
+        name?: { type: string; pattern?: string };
+        title?: { type: string };
+        use?: { type: string };
+        sh?: { type: string };
+      };
+      required?: string[];
+    };
+    const schema = workflowJsonSchema() as {
+      required: string[];
+      properties: {
+        publish: {
+          type: string;
+          items: Variant | { oneOf: Variant[] } | { anyOf: Variant[] };
+        };
+      };
+    };
+    expect(schema.required).not.toContain("publish");
+    const publish = schema.properties.publish;
+    expect(publish.type).toBe("array");
+    const items = publish.items;
+    const variants = "oneOf" in items ? items.oneOf : "anyOf" in items ? items.anyOf : [items];
+    const useVariant = variants.find((v) => v.properties.use !== undefined);
+    const shVariant = variants.find((v) => v.properties.sh !== undefined);
+    expect(useVariant?.properties.name?.type).toBe("string");
+    expect(useVariant?.properties.name?.pattern).toBe("^[a-z0-9-]+$");
+    expect(useVariant?.required).toEqual(expect.arrayContaining(["name", "use"]));
+    expect(shVariant?.properties.name?.type).toBe("string");
+    expect(shVariant?.required).toEqual(expect.arrayContaining(["name", "sh"]));
+  });
 });
