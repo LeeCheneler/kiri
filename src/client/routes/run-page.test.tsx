@@ -136,6 +136,59 @@ describe("<RunPage>", () => {
     await screen.findByRole("heading", { level: 2, name: /wf-4/i });
   });
 
+  it("refreshes the artefact list in place when a run event arrives mid-run", async () => {
+    // First fetch: pipeline running, no artefacts yet. After a run.updated
+    // event the next fetch reflects the artefact the publish step just
+    // produced — the Published section appears without a page reload.
+    let calls = 0;
+    server.use(
+      http.get("*/api/runs/:id", ({ params }) => {
+        calls++;
+        const artefacts =
+          calls === 1
+            ? []
+            : [
+                {
+                  name: "digest",
+                  title: "PR Review Digest",
+                  createdAt: "2026-05-09T12:00:30.000Z",
+                },
+              ];
+        return HttpResponse.json({
+          run: {
+            id: params.id,
+            workflowName: "with-publish",
+            status: "running",
+            trigger: "manual",
+            startedAt: "2026-05-09T12:00:00.000Z",
+            finishedAt: null,
+            error: null,
+            summary: null,
+            definitionSnapshot: { name: "with-publish", steps: [] },
+            isInterrupted: false,
+          },
+          steps: [],
+          artefacts,
+        });
+      }),
+    );
+
+    const { sources } = renderRun("abc");
+    await screen.findByRole("heading", { level: 2, name: /with-publish/i });
+    // No Published section yet — initial fetch returned no artefacts.
+    expect(screen.queryByRole("heading", { name: /^published$/i })).toBeNull();
+
+    act(() => {
+      sources[0]?.emit({ type: "run.updated", id: "abc", status: "running" });
+    });
+
+    // The refetch driven by the event surfaces the new artefact row in place.
+    expect(await screen.findByRole("heading", { name: /^published$/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /PR Review Digest/i }).getAttribute("href")).toBe(
+      "/runs/abc/published/digest",
+    );
+  });
+
   it("wires the cancel button to POST /api/runs/:id/cancel", async () => {
     const cancelCalls: string[] = [];
     server.use(
