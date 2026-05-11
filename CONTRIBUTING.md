@@ -42,7 +42,7 @@ To smoke-test:
 
 1. `bun dev` and open the local URL.
 2. Pick a workflow and click **Run**.
-3. Refresh the feed. Click the new entry to expand it — you'll see the snapshotted bundle under *materials*, each step's *output*, and full envelope traces alongside.
+3. Refresh the feed. Click the new entry to open the run detail page — the header pins the data-repo git sha (with a dirty marker if the working tree had uncommitted changes), and each step shows its captured output and envelope traces. To reproduce a past run faithfully, `git checkout <sha>` in the data repo.
 
 The `claude-code` bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, runs that use it are marked failed and the underlying error is visible in the expanded entry. HackerNews Digest also requires `jq`.
 
