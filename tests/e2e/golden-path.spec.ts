@@ -38,10 +38,14 @@ test("a successful run surfaces in the feed with status and link to detail", asy
 
   await page.goto("/");
   // Scope to <main> so the side nav's "golden" link in the rail doesn't
-  // collide with the feed row.
-  const row = page.getByRole("main").getByRole("link", { name: /golden/i });
-  await expect(row).toBeVisible();
-  await expect(row).toHaveAttribute("href", `/runs/${runId}`);
+  // collide with the feed row. The row uses a stacked-link pattern —
+  // the link wraps the workflow name; status / hover state live on the
+  // wrapping `<div data-status>` above it. Query both via the link's
+  // accessible name.
+  const link = page.getByRole("main").getByRole("link", { name: /golden/i });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", `/runs/${runId}`);
+  const row = page.locator("li", { has: link }).locator("[data-status]").first();
   await expect(row).toHaveAttribute("data-status", "ok");
 });
 
@@ -49,8 +53,9 @@ test("a failing run row carries the failed status treatment", async ({ page, req
   await triggerRun(request, "failing");
 
   await page.goto("/");
-  const row = page.getByRole("main").getByRole("link", { name: /failing/i });
-  await expect(row).toBeVisible();
+  const link = page.getByRole("main").getByRole("link", { name: /failing/i });
+  await expect(link).toBeVisible();
+  const row = page.locator("li", { has: link }).locator("[data-status]").first();
   await expect(row).toHaveAttribute("data-status", "failed");
 });
 

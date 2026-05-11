@@ -40,10 +40,13 @@ test("dashboard reflects a new run appearing and reaching terminal status withou
   expect(triggerRes.status()).toBe(202);
 
   // A new "slow" row appears (count grows by one) and eventually carries an
-  // ok data-status — both via live invalidations, no goto/reload.
+  // ok data-status — both via live invalidations, no goto/reload. The row
+  // is a stacked-link card; data-status lives on the wrapping div above
+  // the link, so query through the link's <li> ancestor.
   await expect
     .poll(() => feed.getByRole("link", { name: /slow/i }).count())
     .toBe(initialRowCount + 1);
-  const row = feed.getByRole("link", { name: /slow/i }).first();
+  const link = feed.getByRole("link", { name: /slow/i }).first();
+  const row = page.locator("li", { has: link }).locator("[data-status]").first();
   await expect(row).toHaveAttribute("data-status", "ok", { timeout: 10_000 });
 });
