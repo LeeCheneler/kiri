@@ -253,9 +253,10 @@ export function runWorkflow(
       }
 
       // Publishes run after `steps:` on `ok` and `failed` runs, before the
-      // summariser. Each entry goes through the same runStep path. Failure
-      // is non-fatal — siblings keep running and `runs.status` is unaffected.
-      // Cancel mid-publish flips the run to `cancelled` and halts further work.
+      // summariser. Each entry goes through the same runStep path. Siblings
+      // keep running after a failure — publishes are independent targets —
+      // but the run terminal status flips to `failed`. Cancel mid-publish
+      // flips the run to `cancelled` and halts further work.
       const publishes = definition.publish ?? [];
       for (let pi = 0; pi < publishes.length && status !== "cancelled"; pi++) {
         if (args.cancelRegistry?.isCancelled(runId)) {
@@ -355,20 +356,26 @@ export function runWorkflow(
           publishedArtefacts.push({ name: entry.name, title, content_md: contentMd });
         }
 
-        // Cancel mid-publish flips the run terminal status; ordinary
-        // failure leaves the run status untouched and lets siblings run.
+        // Cancel mid-publish flips the run terminal status and halts.
+        // Ordinary failure flips the run to `failed` but lets siblings
+        // continue — independent targets shouldn't gate on each other.
         if (cancelled && envelope.status === "failed") {
           status = "cancelled";
           runError = { ...CANCELLED_ERROR };
           break;
         }
+        if (envelope.status === "failed") {
+          status = "failed";
+          if (!runError) runError = envelope.error;
+        }
       }
 
-      // Summariser runs after the steps loop on `ok` and `failed` runs.
-      // Cancelled runs skip it: cancel = "stop now", spawning haiku
-      // defeats the user's intent. Failure here doesn't change the run's
-      // terminal status; the summariser is best-effort.
-      if (definition.summarize && status !== "cancelled") {
+      // Summariser only runs when the run is still `ok`. A failed steps
+      // pipeline or a failed publish skips it: there's nothing to celebrate
+      // and running haiku to describe a broken run wastes a model call.
+      // Failure here doesn't change the run's terminal status; the
+      // summariser is best-effort.
+      if (definition.summarize && status === "ok") {
         const summarizeStep = definition.summarize;
         const summaryIndex = definition.steps.length + publishes.length;
         const contextFile = join(scratchDir, "run-context.json");

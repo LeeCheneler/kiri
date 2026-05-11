@@ -696,21 +696,53 @@ describe("runWorkflow", () => {
       expect(summaryStep?.error).not.toBeNull();
     });
 
-    it("still summarises when the run itself failed", async () => {
+    it("skips the summariser when the run failed", async () => {
       writeBundle("boom", "#!/bin/sh\nexit 3\n");
-      writeBundle("summer", "#!/bin/sh\necho 'failed at step 1'\n");
+      writeBundle(
+        "summer-marker",
+        '#!/bin/sh\necho summer-ran > "$KIRI_REPO_ROOT/summer-marker"\necho summary\n',
+      );
       const wf: WorkflowDefinition = {
         name: "failed-summed",
         steps: [{ use: "boom" }],
-        summarize: { use: "summer" },
+        summarize: { use: "summer-marker" },
       };
 
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
       expect(result.status).toBe("failed");
 
+      // No summariser row inserted; the marker file was never created.
+      expect(existsSync(join(cwd, "summer-marker"))).toBe(false);
+      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+      expect(stepsRows.some((s) => s.isSummary)).toBe(false);
+
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      expect(run?.status).toBe("failed");
-      expect(run?.summary).toBe("failed at step 1");
+      expect(run?.summary).toBeNull();
+    });
+
+    it("skips the summariser when a publish failed", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("bad-pub", "#!/bin/sh\nexit 2\n");
+      writeBundle(
+        "summer-marker",
+        '#!/bin/sh\necho summer-ran > "$KIRI_REPO_ROOT/summer-marker"\necho summary\n',
+      );
+      const wf: WorkflowDefinition = {
+        name: "pub-fail-skips-summer",
+        steps: [{ use: "step" }],
+        publish: [{ name: "bad", use: "bad-pub" }],
+        summarize: { use: "summer-marker" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("failed");
+
+      expect(existsSync(join(cwd, "summer-marker"))).toBe(false);
+      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+      expect(stepsRows.some((s) => s.isSummary)).toBe(false);
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBeNull();
     });
 
     it("treats empty summariser output as null (not an empty string)", async () => {
@@ -951,7 +983,7 @@ describe("runWorkflow", () => {
       });
     });
 
-    it("continues iterating siblings after a failing publish and leaves runs.status unaffected", async () => {
+    it("continues iterating siblings after a failing publish but marks the run as failed", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("bad", "#!/bin/sh\necho oops >&2\nexit 9\n");
       writeBundle("good", "#!/bin/sh\necho after-bad\n");
@@ -965,11 +997,11 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
-      expect(result.status).toBe("ok");
+      expect(result.status).toBe("failed");
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      expect(run?.status).toBe("ok");
-      expect(run?.error).toBeNull();
+      expect(run?.status).toBe("failed");
+      expect(run?.error).not.toBeNull();
 
       const publishRows = db
         .select()
@@ -1060,7 +1092,7 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
-      expect(result.status).toBe("ok");
+      expect(result.status).toBe("failed");
 
       const artefacts = db
         .select()
@@ -1099,7 +1131,7 @@ describe("runWorkflow", () => {
       ]);
     });
 
-    it("still runs publishes when the steps: pipeline failed (ordering parity with summarize)", async () => {
+    it("still runs publishes when the steps: pipeline failed", async () => {
       writeBundle("boom", "#!/bin/sh\nexit 4\n");
       writeBundle("art", "#!/bin/sh\necho after-fail\n");
       const wf: WorkflowDefinition = {
