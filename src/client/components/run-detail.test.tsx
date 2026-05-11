@@ -19,6 +19,8 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   error: null,
   summary: null,
   definitionSnapshot: { name: "kiri-self-review", steps: [{ sh: "echo hello, world" }] },
+  gitSha: null,
+  gitDirty: null,
   isInterrupted: false,
   artefacts: [],
   ...overrides,
@@ -109,6 +111,35 @@ describe("<RunDetailView>", () => {
       renderDetail(stubDetail());
       const link = screen.getByRole("link", { name: /all activity/i });
       expect(link.getAttribute("href")).toBe("/");
+    });
+
+    it("shows a short git sha in the metadata row with the full sha as a title", () => {
+      const sha = "abc1234567890abcdef1234567890abcdef123456";
+      renderDetail(stubDetail({ gitSha: sha, gitDirty: false }));
+      const ref = screen.getByText("abc1234");
+      expect(ref.getAttribute("title")).toBe(sha);
+    });
+
+    it("renders a (dirty) marker when the working tree had uncommitted changes", () => {
+      renderDetail(
+        stubDetail({ gitSha: "abc1234567890abcdef1234567890abcdef123456", gitDirty: true }),
+      );
+      expect(screen.getByText(/\(dirty\)/i)).toBeDefined();
+    });
+
+    it("omits the dirty marker on a clean git ref", () => {
+      renderDetail(
+        stubDetail({ gitSha: "abc1234567890abcdef1234567890abcdef123456", gitDirty: false }),
+      );
+      expect(screen.queryByText(/\(dirty\)/i)).toBeNull();
+    });
+
+    it("omits the git ref entirely when the data dir is not a git repo", () => {
+      renderDetail(stubDetail({ gitSha: null, gitDirty: null }));
+      expect(screen.queryByText(/\(dirty\)/i)).toBeNull();
+      // The sr-only `git ref` label is only rendered alongside the sha;
+      // its absence confirms the whole segment is gone.
+      expect(screen.queryByText("git ref")).toBeNull();
     });
   });
 

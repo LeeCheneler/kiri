@@ -80,6 +80,13 @@ export interface RunListEntry {
     summarize?: WorkflowStepSummary;
     publish?: RunPublishSnapshot[];
   };
+  /**
+   * HEAD sha of the data repo at run-start, with a dirty flag for
+   * uncommitted changes. Both null when the data dir is not a git repo
+   * or has no commits.
+   */
+  gitSha: string | null;
+  gitDirty: boolean | null;
   isInterrupted: boolean;
   artefacts: RunArtefactSummary[];
 }

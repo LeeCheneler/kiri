@@ -20,6 +20,8 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   error: null,
   summary: null,
   definitionSnapshot: { name: "kiri-self-review", steps: [] },
+  gitSha: null,
+  gitDirty: null,
   isInterrupted: false,
   artefacts: [],
   ...overrides,

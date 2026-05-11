@@ -221,6 +221,20 @@ export function RunDetailView({
               )}
             </dd>
           </div>
+          {run.gitSha && (
+            <>
+              <span aria-hidden="true" className="text-rule">
+                ·
+              </span>
+              <div className="flex items-baseline gap-1.5">
+                <dt className="sr-only">git ref</dt>
+                <dd className="font-mono text-ink tabular-nums" title={run.gitSha}>
+                  {run.gitSha.slice(0, 7)}
+                </dd>
+                {run.gitDirty && <span className="text-ink-muted italic">(dirty)</span>}
+              </div>
+            </>
+          )}
         </dl>
       </header>
 

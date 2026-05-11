@@ -15,6 +15,8 @@ const stubRun = (id: string, workflowName = "wf"): RunListEntry => ({
   error: null,
   summary: null,
   definitionSnapshot: { name: workflowName, steps: [] },
+  gitSha: null,
+  gitDirty: null,
   isInterrupted: false,
   artefacts: [],
 });
