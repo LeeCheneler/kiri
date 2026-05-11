@@ -1,0 +1,5 @@
+name: prompt-only
+steps:
+  - use: claude-code
+    env:
+      PROMPT: "Inline prompt, no file."

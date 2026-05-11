@@ -207,11 +207,39 @@ describe("claude-code bundle: integration", () => {
     expect(argv).not.toContain("--model");
   });
 
-  it("fails the step with a clear stderr when PROMPT_FILE is unset", async () => {
+  it("fails the step with a clear stderr when neither PROMPT nor PROMPT_FILE is set", async () => {
     const envelopes = await runScenario(ws, "missing-prompt");
 
     expect(envelopes.map((e) => e.status)).toEqual(["failed"]);
+    expect(envelopes[0].traces.stderr).toContain("PROMPT");
     expect(envelopes[0].traces.stderr).toContain("PROMPT_FILE");
+  });
+
+  it("renders an inline PROMPT when PROMPT_FILE is unset", async () => {
+    const envelopes = await runScenario(ws, "prompt-only");
+
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
+    const { argv } = readCapture(ws);
+    expect(argv).toEqual(["-p", "Inline prompt, no file.", "--max-turns", "8"]);
+  });
+
+  it("uses PROMPT and ignores PROMPT_FILE when both are set", async () => {
+    const envelopes = await runScenario(ws, "prompt-overrides-file");
+
+    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
+    const { argv } = readCapture(ws);
+    expect(argv).toEqual(["-p", "Inline wins.", "--max-turns", "8"]);
+    // PROMPT_FILE points at single-line-input.tpl ("Hello, {{KIRI_INPUT}}.")
+    // — its content must not leak into the rendered prompt.
+    expect(argv[1]).not.toContain("Hello");
+  });
+
+  it("substitutes {{VAR}} placeholders inside an inline PROMPT", async () => {
+    const envelopes = await runScenario(ws, "prompt-substitution");
+
+    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
+    const { argv } = readCapture(ws);
+    expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "8"]);
   });
 
   it("fails the step with a clear stderr when claude is not on PATH", async () => {

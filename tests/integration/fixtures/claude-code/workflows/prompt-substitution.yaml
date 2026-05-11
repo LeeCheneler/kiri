@@ -1,0 +1,6 @@
+name: prompt-substitution
+steps:
+  - sh: echo "Lee"
+  - use: claude-code
+    env:
+      PROMPT: "Hello, {{KIRI_INPUT}}."

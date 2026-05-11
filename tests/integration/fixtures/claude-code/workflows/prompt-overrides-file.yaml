@@ -1,0 +1,7 @@
+name: prompt-overrides-file
+steps:
+  - sh: echo "Lee"
+  - use: claude-code
+    env:
+      PROMPT: "Inline wins."
+      PROMPT_FILE: prompts/single-line-input.tpl
