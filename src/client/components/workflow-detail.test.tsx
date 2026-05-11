@@ -214,6 +214,25 @@ describe("<WorkflowDetailView>", () => {
     });
   });
 
+  describe("summarise", () => {
+    it("does not render the summarise section when the workflow has no summarize step", () => {
+      renderDetail(stubWorkflow());
+      expect(screen.queryByRole("heading", { level: 3, name: /^summarise$/i })).toBeNull();
+    });
+
+    it("renders the summarise section with the use: source label", () => {
+      renderDetail(stubWorkflow({ summarize: { use: "claude-code-summarizer" } }));
+      expect(screen.getByRole("heading", { level: 3, name: /^summarise$/i })).toBeDefined();
+      expect(screen.getByText(/^use: claude-code-summarizer$/)).toBeDefined();
+    });
+
+    it("renders the summarise section with the truncated first line of an sh: step", () => {
+      renderDetail(stubWorkflow({ summarize: { sh: "echo summarising\nexit 0" } }));
+      expect(screen.getByRole("heading", { level: 3, name: /^summarise$/i })).toBeDefined();
+      expect(screen.getByText(/^sh: echo summarising$/)).toBeDefined();
+    });
+  });
+
   describe("trigger", () => {
     it("calls onTrigger with the workflow name on click", () => {
       const onTrigger = mock(() => Promise.resolve({}));

@@ -113,7 +113,23 @@ export function WorkflowDetailView({
       {workflow.publish && workflow.publish.length > 0 && (
         <PublishSection entries={workflow.publish} />
       )}
+
+      {workflow.summarize && <SummariseSection step={workflow.summarize} />}
     </article>
+  );
+}
+
+function SummariseSection({ step }: { step: WorkflowStepSummary }) {
+  return (
+    <section className="mt-12">
+      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
+        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summarise</h3>
+      </header>
+      <div className="relative flex items-baseline gap-5 px-5 py-4">
+        <span aria-hidden="true" className="absolute inset-y-2 left-1 w-0.5 bg-rule" />
+        <span className="min-w-0 flex-1 font-mono text-sm text-ink">{sourceLabel(step)}</span>
+      </div>
+    </section>
   );
 }
 
