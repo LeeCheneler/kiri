@@ -151,7 +151,8 @@ export function RunDetailView({
   now?: Date;
   onCancel?: () => Promise<unknown>;
 }) {
-  const { run, steps, artefacts } = detail;
+  const { run, steps } = detail;
+  const { artefacts } = run;
   const status = runStatus(run);
   const activity = buildActivityItems(run, steps);
 

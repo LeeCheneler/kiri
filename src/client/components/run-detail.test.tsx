@@ -20,6 +20,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   summary: null,
   definitionSnapshot: { name: "kiri-self-review", steps: [{ sh: "echo hello, world" }] },
   isInterrupted: false,
+  artefacts: [],
   ...overrides,
 });
 
@@ -44,9 +45,8 @@ const stubDetail = (
   steps: RunStepRow[] = [],
   artefacts: RunArtefactSummary[] = [],
 ): RunDetail => ({
-  run: stubRun(run),
+  run: stubRun({ ...run, artefacts }),
   steps,
-  artefacts,
 });
 
 const renderDetail = (detail: RunDetail, opts: { onCancel?: () => Promise<unknown> } = {}) => {

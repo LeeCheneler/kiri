@@ -16,6 +16,7 @@ const stubRun = (id: string, workflowName = "wf"): RunListEntry => ({
   summary: null,
   definitionSnapshot: { name: workflowName, steps: [] },
   isInterrupted: false,
+  artefacts: [],
 });
 
 const deferred = <T>() => {

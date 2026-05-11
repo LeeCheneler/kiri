@@ -56,6 +56,12 @@ export type RunPublishSnapshot =
  * `definitionSnapshot.publish` is present when the workflow defined a
  * `publish:` array at run-start; absent otherwise. The run detail page
  * uses it to resolve each publish step row's display title by index.
+ *
+ * `artefacts` lists the run's published artefacts ordered by creation
+ * time, populated by the server in a single aggregation across the
+ * page. Empty for runs that didn't publish anything. The same field
+ * powers both feed-row chips and the run detail's Published section
+ * so consumers read from one place.
  */
 export interface RunListEntry {
   id: string;
@@ -75,6 +81,7 @@ export interface RunListEntry {
     publish?: RunPublishSnapshot[];
   };
   isInterrupted: boolean;
+  artefacts: RunArtefactSummary[];
 }
 
 /**
@@ -123,15 +130,13 @@ export interface RunArtefactSummary {
 }
 
 /**
- * Full run as returned by `GET /api/runs/:id`: the run row, its
- * pipeline steps ordered by index (publish-step rows filtered out
- * server-side), and any artefacts the run published, ordered by
- * creation time.
+ * Full run as returned by `GET /api/runs/:id`: the run row (which
+ * carries its artefacts on `run.artefacts`, ordered by creation time)
+ * and its pipeline steps ordered by index.
  */
 export interface RunDetail {
   run: RunListEntry;
   steps: RunStepRow[];
-  artefacts: RunArtefactSummary[];
 }
 
 /**

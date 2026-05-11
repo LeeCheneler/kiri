@@ -43,9 +43,9 @@ describe("<RunPage>", () => {
             error: null,
             definitionSnapshot: { name: "kiri-self-review", steps: [] },
             isInterrupted: false,
+            artefacts: [],
           },
           steps: [],
-          artefacts: [],
         }),
       ),
     );
@@ -100,9 +100,9 @@ describe("<RunPage>", () => {
             error: null,
             definitionSnapshot: { name: `wf-${calls}`, steps: [] },
             isInterrupted: false,
+            artefacts: [],
           },
           steps: [],
-          artefacts: [],
         });
       }),
     );
@@ -166,9 +166,9 @@ describe("<RunPage>", () => {
             summary: null,
             definitionSnapshot: { name: "with-publish", steps: [] },
             isInterrupted: false,
+            artefacts,
           },
           steps: [],
-          artefacts,
         });
       }),
     );
@@ -204,9 +204,9 @@ describe("<RunPage>", () => {
             error: null,
             definitionSnapshot: { name: "long", steps: [] },
             isInterrupted: false,
+            artefacts: [],
           },
           steps: [],
-          artefacts: [],
         }),
       ),
       http.post("*/api/runs/:id/cancel", ({ params }) => {
@@ -242,9 +242,9 @@ describe("<RunPage>", () => {
             error: null,
             definitionSnapshot: { name: `wf-${calls}`, steps: [] },
             isInterrupted: false,
+            artefacts: [],
           },
           steps: [],
-          artefacts: [],
         });
       }),
     );

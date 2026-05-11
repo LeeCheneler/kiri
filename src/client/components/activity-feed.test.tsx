@@ -21,6 +21,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   summary: null,
   definitionSnapshot: { name: "kiri-self-review", steps: [] },
   isInterrupted: false,
+  artefacts: [],
   ...overrides,
 });
 

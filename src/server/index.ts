@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
@@ -251,10 +251,40 @@ export function createApp(deps: AppDeps): Hono {
 
     const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
 
+    // Single aggregation across the page rather than per-row N+1. Empty page
+    // skips the query entirely so the common no-artefacts feed pays nothing.
+    type ArtefactProjection = { name: string; title: string; createdAt: Date };
+    const artefactsByRunId = new Map<string, ArtefactProjection[]>();
+    if (rows.length > 0) {
+      const allArtefacts = db
+        .select({
+          runId: runArtefacts.runId,
+          name: runArtefacts.name,
+          title: runArtefacts.title,
+          createdAt: runArtefacts.createdAt,
+        })
+        .from(runArtefacts)
+        .where(
+          inArray(
+            runArtefacts.runId,
+            rows.map((r) => r.id),
+          ),
+        )
+        .orderBy(asc(runArtefacts.createdAt))
+        .all();
+      for (const { runId, name, title, createdAt } of allArtefacts) {
+        const list = artefactsByRunId.get(runId);
+        const entry: ArtefactProjection = { name, title, createdAt };
+        if (list) list.push(entry);
+        else artefactsByRunId.set(runId, [entry]);
+      }
+    }
+
     return c.json({
       runs: rows.map((row) => ({
         ...row,
         isInterrupted: !registry.getWorkflow(row.workflowName),
+        artefacts: artefactsByRunId.get(row.id) ?? [],
       })),
       nextCursor,
     });
@@ -304,6 +334,9 @@ export function createApp(deps: AppDeps): Hono {
       .all();
     // `content_md` is deliberately omitted — the artefact body is fetched
     // by the dedicated artefact page so the run-detail payload stays small.
+    // Lives on `run.artefacts` so every RunListEntry — list or detail —
+    // shares the same shape; chip rendering and the published-section row
+    // both read from one place.
     const artefacts = db
       .select({
         name: runArtefacts.name,
@@ -315,9 +348,8 @@ export function createApp(deps: AppDeps): Hono {
       .orderBy(asc(runArtefacts.createdAt))
       .all();
     return c.json({
-      run: { ...run, isInterrupted: !registry.getWorkflow(run.workflowName) },
+      run: { ...run, isInterrupted: !registry.getWorkflow(run.workflowName), artefacts },
       steps,
-      artefacts,
     });
   });
 
