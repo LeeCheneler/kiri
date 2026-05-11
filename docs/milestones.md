@@ -12,7 +12,7 @@ These are constraints, not work items. They hold for every milestone below.
 - Kiri is a CLI launched per-repo; workflow definitions live in `<cwd>/workflows/` of whichever repo Kiri is running against. No global cross-repo store
 - Repo-scoped runtime state lives in `<cwd>/.kiri/` (gitignored)
 - Workflow definitions are loaded into an in-memory registry; there is no `workflows` table — YAML files are the only source of truth
-- Every run snapshots the resolved workflow definition and per-step materials at start; feed entries always reflect the exact code that ran
+- Every run snapshots the resolved workflow definition and the data-repo git ref (HEAD + dirty flag) at start; feed entries reflect the workflow shape that ran, and the sha pins the working tree for reproduction
 - Per-run scratch directory; steps never run with cwd of repo or home
 - Per-step env scope; user `env:` applied first, kiri- and OS-controlled vars overwrite on collision; `KIRI_` prefix reserved
 - Step output rendered as plain text in the UI. Markdown rendering is reserved for surfaces with explicit content semantics — `publish:` artefacts (M6) and `summarize:` summaries — routed through the same sandboxed renderer. Raw step stdout/stderr stays plain text.
@@ -99,26 +99,19 @@ Work items:
 
 - `gating: "auto" | "propose"` field on workflow definitions
 - Todo SQLite schema with lifecycle: pending → approved/auto → in-flight → completed/failed → archived
-- Producing step declares the dedup key (mechanism TBD when this milestone starts — likely a conventional meta key once M9 lands; if M8 ships first, parsed from stdout)
+- Producing step declares the dedup key (mechanism TBD when this milestone starts — parsed from stdout, since M9's meta channel is deferred)
 - Right-rail UI: pending todos with approve/reject inline
 - Active todos linked to originating run and downstream feed entries
 - Invoking a propose-gated workflow lands as a todo rather than executing immediately
 - Auto-gated workflows run as before, with todo entry visible for traceability
 
-## M9 — Generic step meta
+## M9 — Generic step meta (deferred)
 
-Generic key-value channel any step can populate. Kiri stays runtime-blind; the `claude-code` bundle populates conventional keys because its `run.sh` happens to.
+Originally a generic key-value channel any step can populate, with `claude-code` writing `{ cost_usd, tokens_in, tokens_out, model }` for cost visibility on the feed.
 
-Work items:
+**Status: deferred.** An earlier iteration shipped the runner side (`KIRI_META_FILE` env injection + a `usage` column on `run_steps`) without the read-back or UI promotion. The unread file channel and unused column were retired alongside the snapshot rework so the runtime contract reflects what actually runs. Picking this back up means deciding the transport (file channel, stdout sentinel, or something else) and then implementing the full read-back + DB persistence + feed-header promotion as a single landed feature — no half-shipped scaffolding.
 
-- `KIRI_META_FILE` env var injected on every step (path under per-run scratch).
-- After the step finishes, kiri reads the file if present, validates JSON, folds into `meta` on the envelope.
-- DB: per-step row gains a `meta` JSON column.
-- `claude-code` bundle updated: at end of run, parse the CC transcript (port the ccusage approach), write `{ cost_usd, tokens_in, tokens_out, model }` to `$KIRI_META_FILE` before exit.
-- Feed UI: meta rendered as key-value pairs in the expanded entry view.
-- Header promotion: conventional keys (`cost_usd`, `tokens_in`, `tokens_out`) shown inline in the feed entry header.
-
-**Done when:** the `kiri-self-review` workflow's CC step shows cost in the feed entry header; an arbitrary `sh:` step that writes `{"foo": "bar"}` to `$KIRI_META_FILE` renders that key/value in the expanded view.
+Reference for the underlying numbers when this is revisited: ccusage's transcript-parsing approach.
 
 ## M10 — Polish
 

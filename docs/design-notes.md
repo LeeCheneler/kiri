@@ -52,7 +52,7 @@ A step is one of two shapes:
 - `{ use: <name>, env?: { ... } }` — references a **script bundle** at `scripts/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
 - `{ sh: <string>, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
 
-`env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_META_FILE`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
+`env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
 
 Two workflow-level sibling fields run alongside `steps:`:
 
@@ -61,7 +61,7 @@ Two workflow-level sibling fields run alongside `steps:`:
 
 Both fields share the same load-time validation as `steps:` (`use:` / `sh:` mutually exclusive, `KIRI_` prefix banned on `env:` keys, missing `use:` bundle is a workflow load failure). Both treat their own execution failures as non-fatal — a failing summariser or publish step does not affect `runs.status`.
 
-This single primitive — the script bundle — supports every runtime kiri will ever care about. `kiri init` ships a `scripts/claude-code/` starter; LM Studio support is `cp -r scripts/claude-code scripts/lm-studio` and editing the script. Kiri itself stays runtime-blind: it spawns `run.sh`, captures the envelope, reads `KIRI_META_FILE`, and stays out of the way.
+This single primitive — the script bundle — supports every runtime kiri will ever care about. `kiri init` ships a `scripts/claude-code/` starter; LM Studio support is `cp -r scripts/claude-code scripts/lm-studio` and editing the script. Kiri itself stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way.
 
 Rationale for YAML over TS: workflow files live in arbitrary user repos, but kiri ships as a single Bun-compiled binary. Resolving a TS `import { defineWorkflow } from "kiri"` from those repos would require both a Bun plugin baked into the binary to intercept the import *and* generated `.d.ts` files dropped into each repo for IDE support — both maintenance costs that compound forever. YAML is pure data, validated at load time, and a JSON schema can be published alongside the binary for editor LSP integration with no per-repo footprint.
 
@@ -75,13 +75,10 @@ Every step returns the same shape. Designed in early — painful to retrofit.
   output: unknown,         // becomes the next step's input
   error?: { message, stack? },
   traces: { stdout, stderr, durations, ... },
-  meta?: Record<string, unknown>  // arbitrary key-value populated by the step
 }
 ```
 
 Full I/O captured at every step. Linked from the corresponding feed entry for debugging and replay.
-
-`meta` is populated by the step writing JSON to `KIRI_META_FILE` (path provided by kiri, under per-run scratch). Kiri reads the file after the step exits and folds it into the envelope. The channel is generic — any step kind can emit whatever keys are useful. Conventional keys (`cost_usd`, `tokens_in`, `tokens_out`, `model`) get promoted to feed-entry headers by the UI; everything else renders as a key-value list in the expanded view.
 
 ### Execution semantics
 
@@ -112,14 +109,14 @@ Pragmatic v1 simplification: skip the disk-blob split initially. Put traces stra
 
 Workflow definitions are YAML files in `workflows/` — the single source of truth, with no SQL representation. There is **no `workflows` table**. On startup (and on file change in dev) the loader scans the directory, parses each file, validates it against the workflow Zod schema, and hydrates an in-memory registry; runs reference workflows by name only.
 
-When a run starts, the executor captures a **snapshot** of everything that produced it:
+When a run starts, the executor captures two things to pin the run's context:
 
-- The resolved workflow definition (name, steps, gating, schedule) onto the run row.
-- Per-step *materials* — the actual bytes that drove the step — onto the per-step row. For `use:` steps that's the entire bundle directory contents (`run.sh` + any sidecar files). For `sh:` steps that's the inline shell text.
+- The resolved workflow definition (name, steps, env, gating, schedule, summarize, publish) onto the `runs` row as `definitionSnapshot`. Feed entries always show the workflow shape that ran, even if the YAML file is later edited or deleted (UI shows a "(deleted)" badge when the registry no longer has the name).
+- The data repo's git ref at run-start: the HEAD commit (`runs.gitSha`) plus a `runs.gitDirty` flag for uncommitted changes. The data dir is already a git repo by convention, so a single SHA pins every file the run could possibly have read — bundle scripts, prompts, anything `run.sh` resolves at runtime. The UI renders the short sha (with a dirty marker when applicable) in the run header.
 
-This means feed entries always show the exact code that ran, not whatever the file says now; diffing two runs of the same workflow shows what changed between them; and renaming or deleting a workflow leaves old runs intact under their original name (UI shows a "(deleted)" badge).
+Kiri does not snapshot individual bundle files or prompts into the database. Reproducing what ran means `git checkout <sha>` in the data repo. Both `gitSha` and `gitDirty` are nullable so a non-git data dir is a first-class state, not an error — the run loses the reproducibility affordance but everything else works.
 
-Re-running an old run uses the *current* definition, not the snapshot. Replay-from-snapshot is out of scope for v1.
+Re-running an old run uses the *current* definition and *current* working tree, not the snapshot. Replay-from-snapshot is out of scope for v1.
 
 ## Todo system
 
@@ -139,7 +136,7 @@ Bundle layout shipped by `kiri init`:
 
 ```
 scripts/claude-code/
-  run.sh         # spawns `claude` CLI, parses transcript, writes KIRI_META_FILE
+  run.sh         # spawns `claude` CLI with the resolved prompt + allowlist
   README.md      # documents the env-var contract: PROMPT_FILE, MAX_TURNS, ALLOWED_TOOLS, MODEL
 ```
 
@@ -159,8 +156,7 @@ What `run.sh` does at spawn time:
 - Reads its env-var contract (`PROMPT_FILE`, `MAX_TURNS`, `ALLOWED_TOOLS`, `MODEL`).
 - Synthesises a `.claude/settings.json` in per-run scratch from `ALLOWED_TOOLS`, sets `CLAUDE_CONFIG_DIR` to that dir.
 - Loads the prompt from `PROMPT_FILE` (resolved against `KIRI_REPO_ROOT`) and **prepends the allowlist as positive framing** ("You have access to: …. If you need anything else, end the session with a final message describing what you needed and why.") so the agent doesn't burn turns on denied tools.
-- Spawns `claude -p "$PROMPT" --max-turns "$MAX_TURNS" --output-format json`, capturing the session ID.
-- Locates the JSONL transcript at `~/.claude/projects/<hash>/<session>.jsonl`, parses tokens / model / cost, and writes them as JSON to `$KIRI_META_FILE` so they land on the envelope's `meta`.
+- Spawns `claude -p "$PROMPT" --max-turns "$MAX_TURNS"` and forwards its stdout/stderr to kiri's standard step envelope.
 
 The bundle is plain bash — readable, modifiable, replaceable. Adding LM Studio support is `cp -r scripts/claude-code scripts/lm-studio` and editing. Kiri ships the starter, the user owns it from there.
 
@@ -174,9 +170,7 @@ Three tiers, in order:
 
 ### Cost tracking
 
-The shipped `claude-code` bundle is one consumer of the generic `meta` channel. After each invocation it parses the CC transcript and writes `{ cost_usd, tokens_in, tokens_out, model }` to `$KIRI_META_FILE`. The UI promotes those conventional keys to feed-entry headers — cost surfaces directly in the feed, not buried in a settings page.
-
-ccusage's parsing approach is the reference for transcript-derived numbers. Future bundles (`scripts/lm-studio/`, `scripts/ollama/`) populate the same conventional keys when they have the data; the UI doesn't care which bundle produced them, and kiri carries no runtime-specific cost-shape knowledge.
+Deferred. The earlier design carried a generic `meta` channel (`KIRI_META_FILE`) for steps to emit `{ cost_usd, tokens_in, tokens_out, model }`, with the UI promoting conventional keys to feed headers. The channel was never read back and the cost numbers never landed, so the wiring was retired to keep the runtime contract honest. Picking this up later means re-introducing both the file channel (or a different transport) and the UI promotion; ccusage's transcript-parsing approach remains the reference for the underlying numbers.
 
 ### Permissions philosophy
 
@@ -193,7 +187,7 @@ Two regions today (right rail and top-right pause land with todos and polish):
 - **Right rail: todos.** Pending proposals + active items. Approve/reject inline. (Lands with M8.)
 - **Top right: global pause.** Halts new invocations. Modifier to also kill in-flight runs. (Lands with M10.)
 
-Cost visibility lives in the feed itself, not a separate dashboard (the conventional meta keys are promoted to the row header once M9 lands).
+Cost visibility is deferred (see *Cost tracking* above).
 
 ## Application stack
 
@@ -266,8 +260,8 @@ Script execution is the central capability of this system, which means security 
 
 - **No shell interpolation of inputs.** Workflow inputs are passed via env vars or argv arrays, never spliced into shell command strings. The orchestrator constructs argument lists, the OS handles them, no shell parsing of user-controlled strings.
 - **Per-step working directory.** Each workflow run gets a scratch directory; the step's cwd is set there, not the user's home or the orchestrator repo.
-- **Per-step env scope.** Steps only see env vars from the step's `env:` block plus a small kiri-controlled set (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_META_FILE`, `KIRI_REPO_ROOT`) and the OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`). No other parent-process env leaks through.
-- **Env precedence at spawn.** User-declared `env:` is applied first; kiri- and OS-controlled vars overwrite on key collision. A workflow can't redirect `PATH` to inject a malicious binary, can't rebind `KIRI_META_FILE` to escape capture, can't shadow `KIRI_RUN_ID` to confuse run identity.
+- **Per-step env scope.** Steps only see env vars from the step's `env:` block plus a small kiri-controlled set (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and the OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`). No other parent-process env leaks through.
+- **Env precedence at spawn.** User-declared `env:` is applied first; kiri- and OS-controlled vars overwrite on key collision. A workflow can't redirect `PATH` to inject a malicious binary or shadow `KIRI_RUN_ID` to confuse run identity.
 - **Reserved namespace.** `env:` keys starting with `KIRI_` are rejected at workflow load time as a schema error. Typos and accidental collisions surface as load failures, not silent overwrites at spawn.
 - **Resource limits.** ulimits on CPU time, memory, file descriptors, and disk writes. A runaway script halts cleanly rather than degrading the system.
 - **No kernel sandbox.** Bundles run with the user's permissions. The trust posture is "scripts you authored or pasted into your own repo, same as any shell script you'd run yourself" — sandbox-wrapping every step is cost without protection in that model. The defence here is `ALLOWED_TOOLS` on the step plus reading the bundle before you use it.
@@ -328,7 +322,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 12. **Artefact publishing** (M6). `publish: [...]` array on workflows. Markdown artefacts stored in `run_artefacts`, surfaced as chips on the feed and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:name` pages via a sandboxed renderer.
 13. **Cron triggers** (M7). In-process tick loop, `schedule:` field on workflows, global concurrency cap.
 14. **Todos + gating** (M8). `gating:` field, dedup keys, propose vs auto, right-rail UI.
-15. **Generic step meta** (M9). `KIRI_META_FILE` channel, DB storage, UI rendering. `claude-code` bundle populates `cost_usd` and tokens; UI promotes conventional keys to feed-entry headers.
+15. **Generic step meta** (M9). Deferred. The original design used a `KIRI_META_FILE` file channel for steps to emit cost/tokens/model; that wiring was retired without ever being read back. Re-introducing this needs both a transport and the UI promotion to feed-entry headers.
 16. **Polish** (M10). Feed filtering and scoping, global pause control with kill-in-flight modifier.
 
 ## Open questions
