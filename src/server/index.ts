@@ -10,6 +10,7 @@ import { type EventBus, mountEventsRoute } from "./events/index.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
 import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
+import { publishNameSchema } from "./workflows/schema.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
@@ -245,6 +246,34 @@ export function createApp(deps: AppDeps): Hono {
         isInterrupted: !registry.getWorkflow(row.workflowName),
       })),
       nextCursor,
+    });
+  });
+
+  app.get("/api/runs/:id/published/:name", (c) => {
+    const id = c.req.param("id");
+    const name = c.req.param("name");
+    const parsedName = publishNameSchema.safeParse(name);
+    if (!parsedName.success) {
+      return c.json({ error: parsedName.error.issues[0]?.message ?? "invalid artefact name" }, 400);
+    }
+    const run = db.select().from(runs).where(eq(runs.id, id)).get();
+    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+    const artefact = db
+      .select()
+      .from(runArtefacts)
+      .where(and(eq(runArtefacts.runId, id), eq(runArtefacts.name, name)))
+      .get();
+    if (!artefact) {
+      return c.json({ error: `artefact "${name}" not found on run "${id}"` }, 404);
+    }
+    return c.json({
+      id: artefact.id,
+      runId: artefact.runId,
+      name: artefact.name,
+      title: artefact.title,
+      contentMd: artefact.contentMd,
+      createdAt: artefact.createdAt,
+      workflowName: run.workflowName,
     });
   });
 

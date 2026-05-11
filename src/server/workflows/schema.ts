@@ -22,7 +22,12 @@ const shStepSchema = z
 
 const stepSchema = z.union([useStepSchema, shStepSchema]);
 
-const publishNameSchema = z.string().regex(/^[a-z0-9-]+$/, {
+/**
+ * Pattern that constrains a published artefact's `name`. Re-used by the
+ * HTTP route that fetches artefacts by name so the regex lives once and
+ * the validation surface matches the schema exactly.
+ */
+export const publishNameSchema = z.string().regex(/^[a-z0-9-]+$/, {
   message: "publish name must match ^[a-z0-9-]+$",
 });
 

@@ -511,6 +511,77 @@ describe("createApp", () => {
     });
   });
 
+  describe("GET /api/runs/:id/published/:name", () => {
+    const setupPublishingRun = async () => {
+      writeBundle("one", "#!/bin/sh\necho one\n");
+      writeBundle("digest", "#!/bin/sh\nprintf '# Heading\\n\\nBody paragraph.\\n'\n");
+      const wf: WorkflowDefinition = {
+        name: "with-publish",
+        steps: [{ use: "one" }],
+        publish: [{ name: "digest", title: "Digest Title", use: "digest" }],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
+      const trigger = await app.request("/api/workflows/with-publish/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
+      return { app, runId };
+    };
+
+    it("returns the artefact body and metadata on the happy path", async () => {
+      const { app, runId } = await setupPublishingRun();
+
+      const res = await app.request(`/api/runs/${runId}/published/digest`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        id: string;
+        runId: string;
+        name: string;
+        title: string;
+        contentMd: string;
+        createdAt: string;
+        workflowName: string;
+      };
+      expect(body.runId).toBe(runId);
+      expect(body.name).toBe("digest");
+      expect(body.title).toBe("Digest Title");
+      expect(body.workflowName).toBe("with-publish");
+      expect(body.contentMd).toContain("# Heading");
+      expect(body.contentMd).toContain("Body paragraph.");
+      expect(body.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(body.id).toMatch(/[0-9a-f-]{36}/);
+    });
+
+    it("returns 404 when the run id is unknown", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs/missing-run/published/digest");
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'run "missing-run" not found' });
+    });
+
+    it("returns 404 when the artefact name is unknown on an existing run", async () => {
+      const { app, runId } = await setupPublishingRun();
+      const res = await app.request(`/api/runs/${runId}/published/nope`);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: `artefact "nope" not found on run "${runId}"`,
+      });
+    });
+
+    it("returns 400 when the artefact name fails the schema regex", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs/any-id/published/Bad_Name");
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(/publish name must match/);
+    });
+  });
+
   describe("Cache-Control on stable-path SPA assets", () => {
     it("sends no-store on /app.js, /app.css, /, and /index.html", async () => {
       const app = createApp({ db, registry, cwd });
