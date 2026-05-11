@@ -36,9 +36,11 @@ describe("<PageShell>", () => {
     expect(wordmark.getAttribute("href")).toBe("/");
   });
 
-  it("renders a docs link that opens the hosted docs in a new tab", () => {
+  it("renders a documentation link that opens the hosted docs in a new tab", () => {
     renderShell(<p>x</p>);
-    const link = screen.getByRole("link", { name: /docs/i });
+    const docsNav = screen.getByRole("navigation", { name: /docs/i });
+    expect(docsNav).toBeDefined();
+    const link = screen.getByRole("link", { name: /documentation/i });
     expect(link.getAttribute("href")).toBe("https://local.kiri.build/docs");
     expect(link.getAttribute("target")).toBe("_blank");
     const rel = link.getAttribute("rel") ?? "";
