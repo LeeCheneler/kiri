@@ -1,4 +1,5 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { FakeIntersectionObserver } from "./fake-intersection-observer.ts";
 
 // happy-dom registers DOM globals (window, document, navigator, …) but also
 // replaces fetch primitives with browser-spec implementations. Two of those
@@ -30,3 +31,12 @@ GlobalRegistrator.register({ url: "http://localhost:5173/" });
 for (const [key, value] of Object.entries(native)) {
   Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
 }
+
+// happy-dom doesn't ship an IntersectionObserver — install the test
+// double on globalThis so components that observe sentinels can boot
+// without throwing. Tests grab the latest instance via the class itself.
+Object.defineProperty(globalThis, "IntersectionObserver", {
+  value: FakeIntersectionObserver,
+  writable: true,
+  configurable: true,
+});

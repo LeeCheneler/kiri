@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
+import { createRef } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type { RunListEntry } from "../api.ts";
@@ -120,5 +121,38 @@ describe("<ActivityFeed>", () => {
 
     expect(screen.getByText(/30 seconds ago/i)).toBeDefined();
     expect(screen.queryByText(/^\d+s$/)).toBeNull();
+  });
+
+  it("attaches the sentinel ref to the placeholder below the list", () => {
+    const ref = createRef<HTMLDivElement>();
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ActivityFeed runs={[stubRun()]} now={NOW} sentinelRef={ref} />
+      </Router>,
+    );
+    expect(ref.current).toBeInstanceOf(HTMLDivElement);
+  });
+
+  it("renders a loading-more indicator while a follow-on page is in flight", () => {
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ActivityFeed runs={[stubRun()]} now={NOW} isLoadingMore />
+      </Router>,
+    );
+    expect(screen.getByText(/loading more/i)).toBeDefined();
+  });
+
+  it("renders an end-of-feed indicator instead of the sentinel when exhausted", () => {
+    const ref = createRef<HTMLDivElement>();
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ActivityFeed runs={[stubRun()]} now={NOW} sentinelRef={ref} endReached />
+      </Router>,
+    );
+    expect(screen.getByText(/end of feed/i)).toBeDefined();
+    expect(ref.current).toBeNull();
   });
 });
