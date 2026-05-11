@@ -185,6 +185,31 @@ export const fetchRun = async (id: string): Promise<RunDetail> =>
   json<RunDetail>(await apiFetch(`/api/runs/${id}`));
 
 /**
+ * One run's published artefact, fetched by `(runId, name)`. Carries the
+ * full markdown body for the dedicated artefact page; the run detail
+ * payload only carries summary metadata so its size stays bounded.
+ */
+export interface RunArtefactDetail {
+  id: string;
+  runId: string;
+  name: string;
+  title: string;
+  contentMd: string;
+  createdAt: string;
+  workflowName: string;
+}
+
+/**
+ * Fetch a single published artefact by run id and name. Throws on
+ * non-2xx — 400 for a malformed name, 404 when either the run or the
+ * named artefact is missing.
+ */
+export const fetchArtefact = async (runId: string, name: string): Promise<RunArtefactDetail> =>
+  json<RunArtefactDetail>(
+    await apiFetch(`/api/runs/${encodeURIComponent(runId)}/published/${encodeURIComponent(name)}`),
+  );
+
+/**
  * Trigger a manual run for the named workflow. Resolves the moment the run
  * row is inserted server-side — the returned `status` is `"running"`, and
  * terminal transitions arrive on the SSE event stream. Throws on non-2xx.
