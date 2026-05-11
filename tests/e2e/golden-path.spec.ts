@@ -78,9 +78,9 @@ test("opening a run detail page reveals stdout when the step is expanded", async
   await expect(step).toHaveAttribute("aria-expanded", "false");
   await step.click();
   await expect(step).toHaveAttribute("aria-expanded", "true");
-  // The fixture's `echo` produces this exact stdout; exact: true disambiguates
-  // from the kind label and the materials snapshot, both of which contain the
-  // same phrase wrapped in `sh: echo "..."`.
+  // The fixture's `echo` produces this exact stdout; exact: true
+  // disambiguates from the kind label, which contains the same phrase
+  // wrapped in `sh: echo "..."`.
   await expect(page.getByText("kiri e2e fixture", { exact: true })).toBeVisible();
 });
 

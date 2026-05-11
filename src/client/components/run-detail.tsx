@@ -6,7 +6,6 @@ import type {
   RunDetail,
   RunListEntry,
   RunStepRow,
-  StepMaterials,
   WorkflowStepSummary,
 } from "../api.ts";
 import { formatDuration, formatDurationMs, formatRelativeTime } from "../formatters/format-time.ts";
@@ -130,9 +129,9 @@ const buildActivityItems = (run: RunListEntry, steps: RunStepRow[]): ActivityIte
  * Everything the run intends to do — pipeline steps, publishes, the
  * summariser — appears as one ordered activity list. Declared
  * activities show as pending until the runner reaches them; running
- * rows pulse; terminal rows expose their envelope and materials via
- * disclosure. One list keeps the visual language consistent across
- * phases of the run.
+ * rows pulse; terminal rows expose their envelope via disclosure.
+ * One list keeps the visual language consistent across phases of the
+ * run.
  *
  * `now` is injectable so component tests render deterministic relative
  * timestamps; production callers omit it and pick up the system clock.
@@ -379,7 +378,6 @@ function ActivityRow({ item }: { item: ActivityItem }) {
           <Trace label="stdout" body={row.traces?.stdout ?? ""} />
           <Trace label="stderr" body={row.traces?.stderr ?? ""} />
           {row.error && <StepError error={row.error} />}
-          <Materials materials={row.materials} />
         </div>
       )}
     </div>
@@ -503,58 +501,5 @@ function StepError({ error }: { error: { message: string; stack?: string } }) {
         </pre>
       )}
     </div>
-  );
-}
-
-function Materials({ materials }: { materials: StepMaterials }) {
-  if (materials.kind === "sh") {
-    return (
-      <div>
-        <h4 className="text-xs tracking-widest text-ink-muted uppercase">
-          materials — inline shell
-        </h4>
-        <pre className="mt-2 border-l-2 border-rule py-1 pl-3 font-mono text-xs break-words whitespace-pre-wrap text-ink">
-          {materials.source}
-        </pre>
-      </div>
-    );
-  }
-
-  const entries = Object.entries(materials.files).sort(([a], [b]) => a.localeCompare(b));
-  return (
-    <div>
-      <h4 className="text-xs tracking-widest text-ink-muted uppercase">
-        materials — bundle <span className="text-ink normal-case">{materials.bundle}</span>
-      </h4>
-      <ul className="mt-2 divide-y divide-rule border-l-2 border-rule pl-3">
-        {entries.map(([path, source]) => (
-          <BundleFile key={path} path={path} source={source} />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function BundleFile({ path, source }: { path: string; source: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full cursor-pointer items-baseline gap-2 py-1.5 text-left font-mono text-xs text-ink no-underline outline-none transition-colors hover:text-accent focus-visible:text-accent"
-      >
-        <span aria-hidden="true" className="text-ink-muted">
-          {open ? "▾" : "▸"}
-        </span>
-        <span>{path}</span>
-      </button>
-      {open && (
-        <pre className="mb-2 font-mono text-xs break-words whitespace-pre-wrap text-ink-muted">
-          {source}
-        </pre>
-      )}
-    </li>
   );
 }

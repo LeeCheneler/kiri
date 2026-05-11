@@ -46,7 +46,6 @@ describe("db", () => {
         status: "ok",
         output: { foo: "bar" },
         traces: { stdout: "hello", stderr: "", durationMs: 12 },
-        materials: { source: "echo hi" },
       })
       .run();
 
@@ -60,7 +59,6 @@ describe("db", () => {
     expect(node).toBeDefined();
     expect(node?.kind).toBe("script");
     expect(node?.output).toEqual({ foo: "bar" });
-    expect(node?.materials).toEqual({ source: "echo hi" });
   });
 
   it("declares run_steps.run_id → runs.id foreign key", () => {
@@ -137,7 +135,6 @@ describe("db", () => {
         index: 0,
         kind: "use",
         status: "ok",
-        materials: { kind: "use", bundle: "claude-code-summarizer", files: {} },
         isSummary: true,
       })
       .run();
@@ -170,7 +167,6 @@ describe("db", () => {
         index: 0,
         kind: "sh",
         status: "ok",
-        materials: { kind: "sh", source: "echo hi" },
       })
       .run();
 
@@ -229,6 +225,8 @@ describe("db", () => {
       .all()
       .map((r) => r.name);
     expect(stepCols).toContain("is_summary");
+    // 0006 drops the legacy materials snapshot column at the same time.
+    expect(stepCols).not.toContain("materials");
   });
 
   it("round-trips run_artefacts rows", () => {
@@ -357,7 +355,6 @@ describe("db", () => {
         index: 0,
         kind: "use",
         status: "ok",
-        materials: { kind: "use", bundle: "writer", files: {} },
         isPublish: true,
       })
       .run();
@@ -369,7 +366,6 @@ describe("db", () => {
         index: 1,
         kind: "sh",
         status: "ok",
-        materials: { kind: "sh", source: "echo hi" },
       })
       .run();
 
@@ -505,10 +501,12 @@ describe("db", () => {
     expect(indexes).toEqual(["run_steps_run_id_idx"]);
 
     const preserved = sqlite
-      .query<{ id: string; materials: string }, []>(
-        "SELECT id, materials FROM run_steps WHERE id = 'n1'",
+      .query<{ id: string; kind: string; status: string }, []>(
+        "SELECT id, kind, status FROM run_steps WHERE id = 'n1'",
       )
       .get();
-    expect(preserved).toEqual({ id: "n1", materials: '{"source":"echo hi"}' });
+    // The rename preserved the row through 0002; later migrations
+    // (0006) drop the `materials` column. The row still survives.
+    expect(preserved).toEqual({ id: "n1", kind: "script", status: "ok" });
   });
 });

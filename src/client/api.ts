@@ -92,17 +92,9 @@ export interface RunListEntry {
 }
 
 /**
- * Materials snapshot persisted with each step. `use:` steps record every
- * file in the bundle directory; `sh:` steps record the inline source.
- */
-export type StepMaterials =
-  | { kind: "use"; bundle: string; files: Record<string, string> }
-  | { kind: "sh"; source: string };
-
-/**
- * One per-step row inside a run detail. Carries the standard envelope
- * (`status`, `output`, `error`, `traces`, `usage`) and the `materials`
- * snapshot of the bytes that produced the step.
+ * One per-step row inside a run detail. Carries the standard envelope:
+ * `status`, `output`, `error`, `traces`, `usage`. Reproducibility of
+ * the bytes that produced the step lives on the parent run's `gitSha`.
  *
  * `isSummary` and `isPublish` distinguish summariser and publish rows
  * from regular pipeline steps. The UI hides both from the main step
@@ -120,7 +112,6 @@ export interface RunStepRow {
   error: { message: string; stack?: string } | null;
   traces: { stdout: string; stderr: string; durationMs: number } | null;
   usage: unknown;
-  materials: StepMaterials;
   isSummary: boolean;
   isPublish: boolean;
 }

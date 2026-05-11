@@ -68,16 +68,11 @@ describe("runWorkflow", () => {
     expect(step.kind).toBe("use");
     expect(step.status).toBe("ok");
     expect(step.output).toBe("hi from kiri\n");
-    expect(step.materials).toEqual({
-      kind: "use",
-      bundle: "hello",
-      files: { "run.sh": "#!/bin/sh\necho hi from kiri\n" },
-    });
     expect(step.error).toBeNull();
     expect(step.traces).toMatchObject({ stdout: "hi from kiri\n", stderr: "" });
   });
 
-  it("persists an inline sh: step with materials = { kind: 'sh', source }", async () => {
+  it("persists an inline sh: step", async () => {
     const wf = makeWorkflow("inline", [{ sh: "echo from-inline" }]);
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
@@ -86,48 +81,6 @@ describe("runWorkflow", () => {
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.kind).toBe("sh");
     expect(step?.output).toBe("from-inline\n");
-    expect(step?.materials).toEqual({ kind: "sh", source: "echo from-inline" });
-  });
-
-  it("captures bundle sidecar files in the use: materials snapshot", async () => {
-    writeBundle("with-sidecar", '#!/bin/sh\ncat "$KIRI_BUNDLE_DIR/sidecar.txt"\n', {
-      "sidecar.txt": "sidecar-payload\n",
-    });
-    const wf = makeWorkflow("sidecar", useSteps("with-sidecar"));
-
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
-
-    expect(result.status).toBe("ok");
-    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    // Sidecar reachable at runtime via KIRI_BUNDLE_DIR (cwd is the per-run scratch dir).
-    expect(step?.output).toBe("sidecar-payload\n");
-    expect(step?.materials).toEqual({
-      kind: "use",
-      bundle: "with-sidecar",
-      files: {
-        "run.sh": '#!/bin/sh\ncat "$KIRI_BUNDLE_DIR/sidecar.txt"\n',
-        "sidecar.txt": "sidecar-payload\n",
-      },
-    });
-  });
-
-  it("skips sub-directories inside a bundle when snapshotting materials", async () => {
-    writeBundle("with-subdir", "#!/bin/sh\necho hi\n");
-    mkdirSync(join(cwd, "scripts", "with-subdir", "prompts"));
-    writeFileSync(
-      join(cwd, "scripts", "with-subdir", "prompts", "system.txt"),
-      "ignored payload\n",
-    );
-    const wf = makeWorkflow("subdir", useSteps("with-subdir"));
-
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
-
-    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(step?.materials).toEqual({
-      kind: "use",
-      bundle: "with-subdir",
-      files: { "run.sh": "#!/bin/sh\necho hi\n" },
-    });
   });
 
   it("pipes step output to the next step's stdin (mixed use → sh)", async () => {
@@ -166,21 +119,6 @@ describe("runWorkflow", () => {
     expect(steps).toHaveLength(1);
     expect(steps[0].status).toBe("failed");
     expect(steps[0].error).not.toBeNull();
-  });
-
-  it("captures bundle source at run start; later edits don't change the snapshot", async () => {
-    const runPath = writeBundle("v", "#!/bin/sh\necho v1\n");
-    const wf = makeWorkflow("snap", useSteps("v"));
-
-    const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
-    writeFileSync(runPath, "#!/bin/sh\necho v2\n");
-
-    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(step?.materials).toEqual({
-      kind: "use",
-      bundle: "v",
-      files: { "run.sh": "#!/bin/sh\necho v1\n" },
-    });
   });
 
   describe("git ref", () => {
@@ -283,7 +221,6 @@ describe("runWorkflow", () => {
     expect(result.status).toBe("failed");
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.status).toBe("failed");
-    expect(step?.materials).toEqual({ kind: "use", bundle: "ghost", files: {} });
     expect(step?.error).not.toBeNull();
   });
 
@@ -705,11 +642,6 @@ describe("runWorkflow", () => {
       expect(stepsRows[0].isSummary).toBe(false);
       expect(stepsRows[1].isSummary).toBe(true);
       expect(stepsRows[1].kind).toBe("use");
-      expect(stepsRows[1].materials).toEqual({
-        kind: "use",
-        bundle: "summer",
-        files: { "run.sh": "#!/bin/sh\necho summary\n" },
-      });
     });
 
     it("works with an inline sh: summarize step", async () => {
@@ -734,7 +666,6 @@ describe("runWorkflow", () => {
         .all()
         .find((s) => s.isSummary);
       expect(summaryStep?.kind).toBe("sh");
-      expect(summaryStep?.materials).toEqual({ kind: "sh", source: "echo inline-summary" });
     });
 
     it("leaves runs.status unchanged when the summariser fails", async () => {
@@ -970,15 +901,9 @@ describe("runWorkflow", () => {
       expect(stepsRows[1].isPublish).toBe(true);
       expect(stepsRows[1].isSummary).toBe(false);
       expect(stepsRows[1].kind).toBe("use");
-      expect(stepsRows[1].materials).toEqual({
-        kind: "use",
-        bundle: "digest",
-        files: { "run.sh": "#!/bin/sh\necho digest-body\n" },
-      });
       expect(stepsRows[2].index).toBe(2);
       expect(stepsRows[2].isPublish).toBe(true);
       expect(stepsRows[2].kind).toBe("sh");
-      expect(stepsRows[2].materials).toEqual({ kind: "sh", source: 'echo "from-sh"' });
     });
 
     it("places publish rows between steps and summarise in the index sequence", async () => {

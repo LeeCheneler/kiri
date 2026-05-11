@@ -44,7 +44,6 @@ describe("reconcileInterruptedRuns", () => {
         index: 0,
         kind: "script",
         status,
-        materials: { source: "" },
       })
       .run();
   };

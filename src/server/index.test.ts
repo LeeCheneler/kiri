@@ -569,20 +569,13 @@ describe("createApp", () => {
           index: number;
           kind: string;
           output: unknown;
-          materials: Record<string, unknown>;
         }>;
       };
       expect(body.run).toMatchObject({ id: runId, workflowName: "two-step", isInterrupted: false });
       expect(body.steps.map((n) => n.index)).toEqual([0, 1]);
       expect(body.steps[0].output).toBe("one\n");
       expect(body.steps[0].kind).toBe("use");
-      expect(body.steps[0].materials).toEqual({
-        kind: "use",
-        bundle: "one",
-        files: { "run.sh": "#!/bin/sh\necho one\n" },
-      });
       expect(body.steps[1].kind).toBe("sh");
-      expect(body.steps[1].materials).toEqual({ kind: "sh", source: "cat" });
     });
 
     it("flags isInterrupted when the workflow no longer exists", async () => {

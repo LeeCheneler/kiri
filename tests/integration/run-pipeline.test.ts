@@ -116,15 +116,6 @@ describe("run pipeline", () => {
     expect(stepRows[1].output).toBe("STEP=1\n");
   });
 
-  it("captures inline shell source as the materials snapshot for sh steps", async () => {
-    writeWorkflow("snap", 'name: snap\nsteps:\n  - sh: echo "snapshot me"\n');
-
-    const result = await loadAndRun("snap");
-
-    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(step?.materials).toEqual({ kind: "sh", source: 'echo "snapshot me"' });
-  });
-
   it("captures stderr and stdout independently on the step traces", async () => {
     writeWorkflow(
       "streams",
