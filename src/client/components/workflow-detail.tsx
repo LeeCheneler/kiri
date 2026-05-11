@@ -1,12 +1,14 @@
 import { type ReactNode, useState } from "react";
 import { Link } from "wouter";
-import type { WorkflowStepSummary, WorkflowSummary } from "../api.ts";
+import type { WorkflowPublishSummary, WorkflowStepSummary, WorkflowSummary } from "../api.ts";
 
 const SH_LABEL_LIMIT = 60;
 
-const stepLabel = (step: WorkflowStepSummary): string => {
-  if ("use" in step) return `use: ${step.use}`;
-  const firstLine = step.sh.split("\n", 1)[0]?.trim() ?? "";
+type LabelSource = { use: string } | { sh: string };
+
+const sourceLabel = (entry: LabelSource): string => {
+  if ("use" in entry) return `use: ${entry.use}`;
+  const firstLine = entry.sh.split("\n", 1)[0]?.trim() ?? "";
   const truncated =
     firstLine.length > SH_LABEL_LIMIT ? `${firstLine.slice(0, SH_LABEL_LIMIT)}…` : firstLine;
   return `sh: ${truncated}`;
@@ -107,7 +109,42 @@ export function WorkflowDetailView({
           </ol>
         )}
       </section>
+
+      {workflow.publish && workflow.publish.length > 0 && (
+        <PublishSection entries={workflow.publish} />
+      )}
     </article>
+  );
+}
+
+function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
+  return (
+    <section className="mt-12">
+      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
+        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Publish</h3>
+        <span className="font-mono text-xs text-ink-muted tabular-nums">
+          {entries.length === 1 ? "1 artefact" : `${entries.length} artefacts`}
+        </span>
+      </header>
+      <ul className="divide-y divide-rule">
+        {entries.map((entry) => (
+          <li key={entry.name}>
+            <PublishRow entry={entry} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function PublishRow({ entry }: { entry: WorkflowPublishSummary }) {
+  return (
+    <div className="relative flex flex-col gap-2 px-5 py-4">
+      <span aria-hidden="true" className="absolute inset-y-2 left-1 w-0.5 bg-rule" />
+      <h4 className="font-display text-2xl text-ink leading-tight">{entry.title}</h4>
+      <p className="font-mono text-sm text-ink">{sourceLabel(entry)}</p>
+      <p className="font-mono text-xs text-ink-muted">{entry.name}</p>
+    </div>
   );
 }
 
@@ -172,7 +209,7 @@ function StepRow({ step, index }: { step: WorkflowStepSummary; index: number }) 
       <span aria-hidden="true" className="absolute inset-y-2 left-1 w-0.5 bg-rule" />
       <div className="flex items-baseline gap-5">
         <span className="shrink-0 font-mono text-xs text-ink-muted tabular-nums">{stepNumber}</span>
-        <span className="min-w-0 flex-1 font-mono text-sm text-ink">{stepLabel(step)}</span>
+        <span className="min-w-0 flex-1 font-mono text-sm text-ink">{sourceLabel(step)}</span>
       </div>
       {(showSource || showEnv) && (
         <div className="space-y-4 pl-12">

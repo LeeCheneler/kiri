@@ -158,6 +158,62 @@ describe("<WorkflowDetailView>", () => {
     });
   });
 
+  describe("publish", () => {
+    it("does not render the publish section when the workflow has no publish entries", () => {
+      renderDetail(stubWorkflow());
+      expect(screen.queryByRole("heading", { level: 3, name: /^publish$/i })).toBeNull();
+    });
+
+    it("renders the publish section with a heading and per-entry rows for use: entries", () => {
+      renderDetail(
+        stubWorkflow({
+          publish: [
+            { name: "pr-digest", title: "PR Digest", use: "claude-code" },
+            { name: "weekly-report", title: "Weekly Report", use: "claude-code" },
+          ],
+        }),
+      );
+      expect(screen.getByRole("heading", { level: 3, name: /^publish$/i })).toBeDefined();
+      expect(screen.getByRole("heading", { level: 4, name: /^PR Digest$/ })).toBeDefined();
+      expect(screen.getByRole("heading", { level: 4, name: /^Weekly Report$/ })).toBeDefined();
+      // Both entries surface their source label and kebab-case name.
+      expect(screen.getAllByText(/^use: claude-code$/)).toHaveLength(2);
+      expect(screen.getByText("pr-digest")).toBeDefined();
+      expect(screen.getByText("weekly-report")).toBeDefined();
+    });
+
+    it("renders the truncated first line of an sh: publish entry as its source label", () => {
+      renderDetail(
+        stubWorkflow({
+          publish: [{ name: "report", title: "Report", sh: "echo line 1\nexit 0" }],
+        }),
+      );
+      expect(screen.getByText(/^sh: echo line 1$/)).toBeDefined();
+    });
+
+    it("shows the singular artefact count for a single publish entry", () => {
+      renderDetail(
+        stubWorkflow({
+          publish: [{ name: "digest", title: "Digest", use: "claude-code" }],
+        }),
+      );
+      expect(screen.getByText(/^1 artefact$/)).toBeDefined();
+    });
+
+    it("shows the plural artefact count for multiple publish entries", () => {
+      renderDetail(
+        stubWorkflow({
+          publish: [
+            { name: "a", title: "A", sh: "echo a" },
+            { name: "b", title: "B", sh: "echo b" },
+            { name: "c", title: "C", sh: "echo c" },
+          ],
+        }),
+      );
+      expect(screen.getByText(/^3 artefacts$/)).toBeDefined();
+    });
+  });
+
   describe("trigger", () => {
     it("calls onTrigger with the workflow name on click", () => {
       const onTrigger = mock(() => Promise.resolve({}));
