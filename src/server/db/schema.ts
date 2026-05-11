@@ -27,6 +27,18 @@ export const runs = sqliteTable("runs", {
    * and on runs whose summariser failed.
    */
   summary: text("summary"),
+  /**
+   * HEAD commit of the data repo at run-start. Null when the data
+   * directory is not a git repo or has no commits yet. Paired with
+   * `gitDirty` so consumers can render "ran at <sha> (dirty)" and
+   * reproduce the run state with `git checkout`.
+   */
+  gitSha: text("git_sha"),
+  /**
+   * Whether the working tree had uncommitted changes at run-start.
+   * Null when `gitSha` is null (no repo to compare against).
+   */
+  gitDirty: integer("git_dirty", { mode: "boolean" }),
 });
 
 /**

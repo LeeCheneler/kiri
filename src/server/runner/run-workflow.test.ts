@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -179,6 +180,59 @@ describe("runWorkflow", () => {
       kind: "use",
       bundle: "v",
       files: { "run.sh": "#!/bin/sh\necho v1\n" },
+    });
+  });
+
+  describe("git ref", () => {
+    const git = (at: string, ...args: string[]) => {
+      const r = spawnSync("git", args, { cwd: at, encoding: "utf8" });
+      if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
+    };
+
+    it("leaves gitSha/gitDirty null when the data dir is not a git repo", async () => {
+      writeBundle("n", "#!/bin/sh\necho hi\n");
+      const wf = makeWorkflow("no-git", useSteps("n"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.gitSha).toBeNull();
+      expect(run?.gitDirty).toBeNull();
+    });
+
+    it("captures HEAD sha with dirty=false when the data dir is a clean repo", async () => {
+      writeBundle("n", "#!/bin/sh\necho hi\n");
+      git(cwd, "init", "-q");
+      git(cwd, "config", "user.email", "test@example.com");
+      git(cwd, "config", "user.name", "Test");
+      git(cwd, "add", ".");
+      git(cwd, "commit", "-q", "-m", "init");
+      const wf = makeWorkflow("clean", useSteps("n"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.gitSha).toMatch(/^[0-9a-f]{40}$/);
+      // The runner writes .kiri/runs/<id>/... mid-run; by the time we read
+      // the row that scratch dir is cleaned up so the tree is clean again.
+      expect(run?.gitDirty).toBe(false);
+    });
+
+    it("captures dirty=true when the working tree has uncommitted changes", async () => {
+      writeBundle("n", "#!/bin/sh\necho hi\n");
+      git(cwd, "init", "-q");
+      git(cwd, "config", "user.email", "test@example.com");
+      git(cwd, "config", "user.name", "Test");
+      git(cwd, "add", ".");
+      git(cwd, "commit", "-q", "-m", "init");
+      writeFileSync(join(cwd, "uncommitted.txt"), "hello");
+      const wf = makeWorkflow("dirty", useSteps("n"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.gitSha).toMatch(/^[0-9a-f]{40}$/);
+      expect(run?.gitDirty).toBe(true);
     });
   });
 

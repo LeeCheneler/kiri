@@ -5,6 +5,7 @@ import migration0002 from "../../../drizzle/0002_rename_run_nodes_to_run_steps.s
 };
 import migration0003 from "../../../drizzle/0003_add_run_summary_columns.sql" with { type: "text" };
 import migration0004 from "../../../drizzle/0004_add_publish_support.sql" with { type: "text" };
+import migration0005 from "../../../drizzle/0005_add_run_git_columns.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -30,6 +31,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0002_rename_run_nodes_to_run_steps", sql: migration0002 },
   { name: "0003_add_run_summary_columns", sql: migration0003 },
   { name: "0004_add_publish_support", sql: migration0004 },
+  { name: "0005_add_run_git_columns", sql: migration0005 },
 ];
 
 /**

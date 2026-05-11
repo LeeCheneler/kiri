@@ -5,6 +5,7 @@ import { resolvePublishTitle } from "../../shared/publish-title.ts";
 import type { KiriDb } from "../db/index.ts";
 import { runArtefacts, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
+import { resolveGitHead } from "../git/head.ts";
 import {
   type PublishEntry,
   type WorkflowDefinition,
@@ -176,6 +177,7 @@ export function runWorkflow(
   const runId = crypto.randomUUID();
   const scratchDir = join(args.cwd, ".kiri", "runs", runId);
   const startedAt = new Date();
+  const gitHead = resolveGitHead(args.cwd);
 
   db.insert(runs)
     .values({
@@ -185,6 +187,8 @@ export function runWorkflow(
       trigger: args.trigger,
       startedAt,
       definitionSnapshot: snapshotDefinition(definition),
+      gitSha: gitHead.sha,
+      gitDirty: gitHead.dirty,
     })
     .run();
 

@@ -36,6 +36,13 @@
       "when": 1778508063193,
       "tag": "0004_add_publish_support",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1778531384244,
+      "tag": "0005_add_run_git_columns",
+      "breakpoints": true
     }
   ]
 }
