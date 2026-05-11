@@ -805,6 +805,29 @@ describe("runWorkflow", () => {
           error: null,
         }),
       ]);
+      // Stable shape: the field is always present, empty when no publishes ran.
+      expect(parsed.artefacts).toEqual([]);
+    });
+
+    it("includes successful artefacts in the summariser run-context envelope", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("art", "#!/bin/sh\necho artefact-body\n");
+      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      const wf: WorkflowDefinition = {
+        name: "summer-sees-art",
+        steps: [{ use: "step" }],
+        publish: [{ name: "art", title: "Artefact", use: "art" }],
+        summarize: { use: "context-dump" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      const parsed = JSON.parse(run?.summary as string);
+      expect(parsed.artefacts).toEqual([
+        { name: "art", title: "Artefact", content_md: "artefact-body" },
+      ]);
     });
 
     it("publishes summariser step events between run.step.updated and run.updated", async () => {

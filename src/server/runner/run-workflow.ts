@@ -423,6 +423,7 @@ export function runWorkflow(
               startedAt: startedAt.toISOString(),
               durationMs: Date.now() - startedAt.getTime(),
               steps: executed,
+              artefacts: publishedArtefacts,
             },
             null,
             2,
