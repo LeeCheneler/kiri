@@ -55,7 +55,12 @@ describe("<Dashboard>", () => {
 
   // Shape of a run row as the API returns it (and as our MSW handlers
   // assemble it). Local helper to keep the test handlers readable.
-  const stubRunPayload = (id: string, workflowName: string, status = "ok") => ({
+  const stubRunPayload = (
+    id: string,
+    workflowName: string,
+    status = "ok",
+    artefacts: Array<{ name: string; title: string; createdAt: string }> = [],
+  ) => ({
     id,
     workflowName,
     status,
@@ -66,6 +71,7 @@ describe("<Dashboard>", () => {
     summary: null,
     definitionSnapshot: { name: workflowName, steps: [] },
     isInterrupted: false,
+    artefacts,
   });
 
   it("prepends a freshly-started run via a single-row fetch on run.started", async () => {
@@ -125,6 +131,43 @@ describe("<Dashboard>", () => {
     await waitFor(() => {
       expect(container.querySelector('[data-status="ok"]')).not.toBeNull();
     });
+  });
+
+  it("reconciles artefact chips when a run goes from 0 to N artefacts mid-stream", async () => {
+    // First page-one fetch carries no artefacts. After a run.updated event
+    // the dashboard refetches the single run; the detail endpoint now
+    // returns artefacts on run.artefacts, and the feed row patches in place
+    // to show the chip without a page-one reload.
+    server.use(
+      http.get("*/api/runs", () =>
+        HttpResponse.json({
+          runs: [stubRunPayload("r1", "with-publish", "running")],
+          nextCursor: null,
+        }),
+      ),
+      http.get("*/api/runs/r1", () =>
+        HttpResponse.json({
+          run: stubRunPayload("r1", "with-publish", "ok", [
+            { name: "digest", title: "PR Review Digest", createdAt: "2026-05-09T12:00:30.000Z" },
+          ]),
+          steps: [],
+        }),
+      ),
+    );
+
+    const { sources } = renderDashboard();
+    await screen.findByText(/with-publish/);
+    // No chip yet — the initial page-one payload carried no artefacts.
+    expect(screen.queryByRole("link", { name: /^PR Review Digest$/ })).toBeNull();
+
+    act(() => {
+      sources[0]?.emit({ type: "run.updated", id: "r1", status: "running" });
+    });
+
+    // The refetched run now ships an artefact on run.artefacts; the chip
+    // surfaces without a page-one reload.
+    const chip = await screen.findByRole("link", { name: /^PR Review Digest$/ });
+    expect(chip.getAttribute("href")).toBe("/runs/r1/published/digest");
   });
 
   it("ignores a run.updated event for a row that isn't on any loaded page", async () => {
@@ -258,38 +301,12 @@ describe("<Dashboard>", () => {
         const cursor = new URL(request.url).searchParams.get("cursor");
         if (cursor === null) {
           return HttpResponse.json({
-            runs: [
-              {
-                id: "r1",
-                workflowName: "page-one",
-                status: "ok",
-                trigger: "manual",
-                startedAt: "2026-05-09T12:00:00.000Z",
-                finishedAt: "2026-05-09T12:00:01.000Z",
-                error: null,
-                summary: null,
-                definitionSnapshot: { name: "page-one", steps: [] },
-                isInterrupted: false,
-              },
-            ],
+            runs: [stubRunPayload("r1", "page-one")],
             nextCursor: "r1",
           });
         }
         return HttpResponse.json({
-          runs: [
-            {
-              id: "r2",
-              workflowName: "page-two",
-              status: "ok",
-              trigger: "manual",
-              startedAt: "2026-05-09T11:55:00.000Z",
-              finishedAt: "2026-05-09T11:55:01.000Z",
-              error: null,
-              summary: null,
-              definitionSnapshot: { name: "page-two", steps: [] },
-              isInterrupted: false,
-            },
-          ],
+          runs: [stubRunPayload("r2", "page-two")],
           nextCursor: null,
         });
       }),

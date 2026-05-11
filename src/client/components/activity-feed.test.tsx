@@ -156,6 +156,89 @@ describe("<ActivityFeed>", () => {
     expect(summaryLink.getAttribute("href")).toBe("https://example.com/pr/42");
   });
 
+  describe("artefact chips", () => {
+    const artefact = (
+      overrides: Partial<{ name: string; title: string; createdAt: string }> = {},
+    ) => ({
+      name: "digest",
+      title: "PR Review Digest",
+      createdAt: "2026-05-09T11:59:00.000Z",
+      ...overrides,
+    });
+
+    it("renders no chips when the run has no artefacts", () => {
+      renderFeed([stubRun({ id: "abc", artefacts: [] })]);
+      // The row's primary link is the only one — no extra artefact links.
+      expect(screen.getAllByRole("link")).toHaveLength(1);
+    });
+
+    it("renders one chip per artefact when there are 1–3", () => {
+      renderFeed([
+        stubRun({
+          id: "abc",
+          artefacts: [
+            artefact({ name: "digest", title: "PR Review Digest" }),
+            artefact({ name: "release-notes", title: "Release Notes" }),
+          ],
+        }),
+      ]);
+      const digestChip = screen.getByRole("link", { name: /^PR Review Digest$/ });
+      expect(digestChip.getAttribute("href")).toBe("/runs/abc/published/digest");
+      const notesChip = screen.getByRole("link", { name: /^Release Notes$/ });
+      expect(notesChip.getAttribute("href")).toBe("/runs/abc/published/release-notes");
+    });
+
+    it("renders the artefact title as the chip label (no name leakage)", () => {
+      renderFeed([
+        stubRun({
+          id: "abc",
+          artefacts: [artefact({ name: "weekly-digest", title: "Weekly Digest" })],
+        }),
+      ]);
+      // The label is the resolved title — the URL-safe slug stays in the
+      // href, not in the visible text.
+      const chip = screen.getByRole("link", { name: /^Weekly Digest$/ });
+      expect(chip.getAttribute("href")).toBe("/runs/abc/published/weekly-digest");
+      expect(screen.queryByText("weekly-digest")).toBeNull();
+    });
+
+    it("collapses to a single chip at 4 or more artefacts", () => {
+      renderFeed([
+        stubRun({
+          id: "abc",
+          artefacts: [
+            artefact({ name: "a", title: "A" }),
+            artefact({ name: "b", title: "B" }),
+            artefact({ name: "c", title: "C" }),
+            artefact({ name: "d", title: "D" }),
+          ],
+        }),
+      ]);
+      // Individual chip labels are gone — replaced by a single counted chip.
+      expect(screen.queryByRole("link", { name: /^A$/ })).toBeNull();
+      const collapsed = screen.getByRole("link", { name: /4 artefacts/i });
+      expect(collapsed.getAttribute("href")).toBe("/runs/abc");
+    });
+
+    it("clicking a chip targets the artefact, not the run page", () => {
+      // With the stacked-link pattern, chips paint above the row's
+      // ::before overlay, so a click on the chip never reaches the row
+      // link. Assert by hrefs: the chip's href is the artefact route,
+      // distinct from the row link's run route.
+      renderFeed([
+        stubRun({
+          id: "abc",
+          workflowName: "pr-review",
+          artefacts: [artefact()],
+        }),
+      ]);
+      const rowLink = screen.getByRole("link", { name: /^pr-review$/i });
+      expect(rowLink.getAttribute("href")).toBe("/runs/abc");
+      const chip = screen.getByRole("link", { name: /^PR Review Digest$/ });
+      expect(chip.getAttribute("href")).toBe("/runs/abc/published/digest");
+    });
+  });
+
   it("omits the duration text for runs that haven't finished", () => {
     renderFeed([
       stubRun({

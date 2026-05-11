@@ -389,14 +389,14 @@ function PublishedSection({
           {artefacts.length === 1 ? "1 artefact" : `${artefacts.length} artefacts`}
         </span>
       </header>
-      <ul className="divide-y divide-rule">
+      <ul className="space-y-2">
         {artefacts.map((artefact) => (
           <li key={artefact.name}>
             <Link
               href={`/runs/${runId}/published/${artefact.name}`}
-              className="flex items-baseline gap-5 px-5 py-4 no-underline outline-none transition-colors duration-150 hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+              className="group flex items-center gap-4 border border-ink-muted bg-paper px-5 py-4 no-underline outline-none transition-colors duration-150 hover:border-accent focus-visible:border-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
             >
-              <span className="min-w-0 flex-1 truncate font-display text-base text-ink">
+              <span className="min-w-0 flex-1 truncate font-display text-lg text-ink transition-colors group-hover:text-accent group-focus-visible:text-accent">
                 {artefact.title}
               </span>
               <time
@@ -406,6 +406,12 @@ function PublishedSection({
               >
                 {formatRelativeTime(artefact.createdAt, now)}
               </time>
+              <span
+                aria-hidden="true"
+                className="shrink-0 font-mono text-sm text-ink-muted transition-colors group-hover:text-accent group-focus-visible:text-accent"
+              >
+                →
+              </span>
             </Link>
           </li>
         ))}
@@ -416,9 +422,11 @@ function PublishedSection({
 
 function RunSummaryBlock({ summary }: { summary: string }) {
   return (
-    <section className="mt-10 border-l-2 border-rule py-2 pl-5">
-      <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summary</h3>
-      <div className="mt-2">
+    <section className="mt-12">
+      <header className="mb-6 flex items-baseline border-b border-rule pb-3">
+        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summary</h3>
+      </header>
+      <div className="text-ink [&_p]:mt-2 [&_p]:text-sm [&_p]:leading-snug [&_p]:first:mt-0 [&_ul]:mt-2 [&_ol]:mt-2 [&_li]:text-sm">
         <Markdown content={summary} />
       </div>
     </section>

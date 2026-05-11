@@ -69,7 +69,7 @@ Work items:
 - Summariser context: the envelope JSON written to `KIRI_RUN_CONTEXT_FILE` for the summariser includes the successful artefacts so the summary can reference them.
 - Router: `/runs/:id/published/:name` artefact page. Full-width markdown rendered through a sandboxed parser (`marked` + `DOMPurify`, no raw-HTML pass-through). Header shows workflow / run id / created-at with a back link to the run page.
 - Run detail page: "Published" section above the steps, one row per artefact (title + link to the dedicated page).
-- Activity feed: per-row chip list of artefact titles when present; chips link to the artefact page. Collapse to "📄 N artefacts" at 4+ to keep the row compact.
+- Activity feed: per-row chip list of artefact titles when present; chips link to the artefact page. Collapse to a single "N artefacts" chip at 4+ to keep the row compact.
 - Examples: rewrite `hackernews-digest` to publish a full markdown article and have the summariser highlight the top story.
 
 **Done when:** running a workflow with `publish: [...]` produces accessible markdown artefacts; chips appear on the relevant feed rows; the run page lists them under a "Published" section; clicking a chip opens the dedicated artefact page rendered as full markdown.
