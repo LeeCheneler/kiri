@@ -15,8 +15,12 @@ steps:
         curl -fsSL "https://hacker-news.firebaseio.com/v0/item/${id}.json"
       done
       printf ']'
-  - use: claude-code
+publish:
+  - name: article
+    title: HackerNews Top Stories
+    use: claude-code
     env:
       PROMPT_FILE: prompts/hackernews-digest.tpl
+      MODEL: sonnet
 summarize:
   use: claude-code-summarizer
