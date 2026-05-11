@@ -252,13 +252,18 @@ export function runWorkflow(
         runError = { ...CANCELLED_ERROR };
       }
 
-      // Publishes run after `steps:` on `ok` and `failed` runs, before the
-      // summariser. Each entry goes through the same runStep path. Siblings
-      // keep running after a failure — publishes are independent targets —
-      // but the run terminal status flips to `failed`. Cancel mid-publish
-      // flips the run to `cancelled` and halts further work.
+      // Publishes only run when the steps pipeline is still `ok`. A failed
+      // or cancelled pipeline skips them: artefacts describe a successful
+      // run, and emitting them off the back of a broken pipeline produces
+      // misleading output. The `stepsOk` snapshot is captured before the
+      // loop so a failing publish flipping `status` to `failed` doesn't
+      // also block its siblings — publishes are independent targets, and
+      // a sibling failure shouldn't gate the next one. A failing publish
+      // still flips the run to `failed`; cancel mid-publish flips it to
+      // `cancelled` and halts further work.
       const publishes = definition.publish ?? [];
-      for (let pi = 0; pi < publishes.length && status !== "cancelled"; pi++) {
+      const stepsOk = status === "ok";
+      for (let pi = 0; stepsOk && pi < publishes.length && status !== "cancelled"; pi++) {
         if (args.cancelRegistry?.isCancelled(runId)) {
           status = "cancelled";
           runError = { ...CANCELLED_ERROR };

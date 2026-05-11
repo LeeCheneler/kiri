@@ -1131,26 +1131,25 @@ describe("runWorkflow", () => {
       ]);
     });
 
-    it("still runs publishes when the steps: pipeline failed", async () => {
+    it("skips publishes entirely when the steps: pipeline failed", async () => {
       writeBundle("boom", "#!/bin/sh\nexit 4\n");
-      writeBundle("art", "#!/bin/sh\necho after-fail\n");
+      writeBundle(
+        "pub-marker",
+        '#!/bin/sh\necho pub-ran > "$KIRI_REPO_ROOT/pub-marker"\necho artefact\n',
+      );
       const wf: WorkflowDefinition = {
         name: "pub-after-fail",
         steps: [{ use: "boom" }],
-        publish: [{ name: "art", use: "art" }],
+        publish: [{ name: "art", use: "pub-marker" }],
       };
 
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
       expect(result.status).toBe("failed");
 
-      const publishRow = db
-        .select()
-        .from(runSteps)
-        .where(eq(runSteps.runId, result.runId))
-        .orderBy(asc(runSteps.index))
-        .all()
-        .find((s) => s.isPublish);
-      expect(publishRow?.status).toBe("ok");
+      // No publish row inserted; the marker file was never created.
+      expect(existsSync(join(cwd, "pub-marker"))).toBe(false);
+      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+      expect(stepsRows.some((s) => s.isPublish)).toBe(false);
     });
 
     it("skips publishes entirely when the run is cancelled", async () => {
