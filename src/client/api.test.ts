@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { server } from "../../tests/setup/msw.ts";
-import { ApiError, cancelRun, fetchRun, fetchRuns, fetchWorkflows, triggerRun } from "./api.ts";
+import { ApiError, cancelRun, fetchRun, fetchRunsPage, fetchWorkflows, triggerRun } from "./api.ts";
 
 describe("api client", () => {
   it("returns the workflow registry from the default handler", async () => {
@@ -9,7 +9,25 @@ describe("api client", () => {
   });
 
   it("returns the run feed from the default handler", async () => {
-    expect(await fetchRuns()).toEqual([]);
+    expect(await fetchRunsPage()).toEqual({ runs: [], nextCursor: null });
+  });
+
+  it("forwards cursor and limit as query params", async () => {
+    const seen: { cursor: string | null; limit: string | null }[] = [];
+    server.use(
+      http.get("*/api/runs", ({ request }) => {
+        const url = new URL(request.url);
+        seen.push({
+          cursor: url.searchParams.get("cursor"),
+          limit: url.searchParams.get("limit"),
+        });
+        return HttpResponse.json({ runs: [], nextCursor: null });
+      }),
+    );
+
+    await fetchRunsPage({ cursor: "abc-123", limit: 10 });
+
+    expect(seen).toEqual([{ cursor: "abc-123", limit: "10" }]);
   });
 
   it("fetches a single run with its steps", async () => {

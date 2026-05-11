@@ -54,19 +54,22 @@ describe("<Dashboard>", () => {
     server.use(
       http.get("*/api/runs", () => {
         calls++;
-        return HttpResponse.json([
-          {
-            id: `r${calls}`,
-            workflowName: `wf-${calls}`,
-            status: "ok",
-            trigger: "manual",
-            startedAt: "2026-05-09T12:00:00.000Z",
-            finishedAt: "2026-05-09T12:00:01.000Z",
-            error: null,
-            definitionSnapshot: { name: `wf-${calls}`, steps: [] },
-            isInterrupted: false,
-          },
-        ]);
+        return HttpResponse.json({
+          runs: [
+            {
+              id: `r${calls}`,
+              workflowName: `wf-${calls}`,
+              status: "ok",
+              trigger: "manual",
+              startedAt: "2026-05-09T12:00:00.000Z",
+              finishedAt: "2026-05-09T12:00:01.000Z",
+              error: null,
+              definitionSnapshot: { name: `wf-${calls}`, steps: [] },
+              isInterrupted: false,
+            },
+          ],
+          nextCursor: null,
+        });
       }),
     );
 

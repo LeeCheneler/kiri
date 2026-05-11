@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type RunListEntry, fetchRuns } from "../api.ts";
+import { type RunListEntry, fetchRunsPage } from "../api.ts";
 import { ActivityFeed } from "../components/activity-feed.tsx";
 import { useLiveSync } from "../events/live.tsx";
 
@@ -20,10 +20,10 @@ export function Dashboard() {
 
   const refetch = useCallback(() => {
     const token = ++tokenRef.current;
-    fetchRuns()
-      .then((runs) => {
+    fetchRunsPage()
+      .then((page) => {
         if (tokenRef.current !== token) return;
-        setState({ status: "ready", runs });
+        setState({ status: "ready", runs: page.runs });
       })
       .catch((err: Error) => {
         if (tokenRef.current !== token) return;

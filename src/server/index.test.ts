@@ -229,7 +229,12 @@ describe("createApp", () => {
       return runId;
     };
 
-    it("returns runs newest-first with isInterrupted derived from the registry", async () => {
+    type RunsPageBody = {
+      runs: Array<{ id: string; workflowName: string; isInterrupted: boolean; status: string }>;
+      nextCursor: string | null;
+    };
+
+    it("returns the first page newest-first with isInterrupted derived from the registry", async () => {
       writeBundle("a", "#!/bin/sh\necho a\n");
       writeBundle("b", "#!/bin/sh\necho b\n");
       const wfA: WorkflowDefinition = {
@@ -257,17 +262,15 @@ describe("createApp", () => {
 
       const res = await app.request("/api/runs");
       expect(res.status).toBe(200);
-      const body = (await res.json()) as Array<{
-        id: string;
-        workflowName: string;
-        isInterrupted: boolean;
-      }>;
-      expect(body.map((r) => r.id)).toEqual([secondId, firstId]);
-      expect(body[0]).toMatchObject({ workflowName: "beta", isInterrupted: false });
-      expect(body[1]).toMatchObject({ workflowName: "alpha", isInterrupted: true });
+      const body = (await res.json()) as RunsPageBody;
+      expect(body.runs.map((r) => r.id)).toEqual([secondId, firstId]);
+      expect(body.runs[0]).toMatchObject({ workflowName: "beta", isInterrupted: false });
+      expect(body.runs[1]).toMatchObject({ workflowName: "alpha", isInterrupted: true });
+      // Default page size is 25; we returned 2 rows so there's nothing further.
+      expect(body.nextCursor).toBeNull();
     });
 
-    it("honours limit and offset", async () => {
+    it("pages forward via the cursor and returns nextCursor on a full page", async () => {
       writeBundle("n", "#!/bin/sh\necho n\n");
       const wf: WorkflowDefinition = {
         name: "wf",
@@ -280,16 +283,52 @@ describe("createApp", () => {
       const ids: string[] = [];
       for (let i = 0; i < 3; i++) ids.push(await triggerAndAwait(app, "wf", waitForFinished));
 
-      const limited = (await (await app.request("/api/runs?limit=2")).json()) as Array<{
-        id: string;
-      }>;
-      expect(limited).toHaveLength(2);
-      expect(limited.map((r) => r.id)).toEqual([ids[2], ids[1]]);
+      // First page (limit=2) returns the two newest runs and a cursor pointing
+      // at the oldest of those two.
+      const page1 = (await (await app.request("/api/runs?limit=2")).json()) as RunsPageBody;
+      expect(page1.runs.map((r) => r.id)).toEqual([ids[2], ids[1]]);
+      expect(page1.nextCursor).toBe(ids[1]);
 
-      const offset = (await (await app.request("/api/runs?limit=2&offset=1")).json()) as Array<{
-        id: string;
-      }>;
-      expect(offset.map((r) => r.id)).toEqual([ids[1], ids[0]]);
+      // Page two via the cursor: the remaining oldest run, no further pages.
+      const page2 = (await (
+        await app.request(`/api/runs?limit=2&cursor=${page1.nextCursor}`)
+      ).json()) as RunsPageBody;
+      expect(page2.runs.map((r) => r.id)).toEqual([ids[0]]);
+      expect(page2.nextCursor).toBeNull();
+    });
+
+    it("returns an empty page with null nextCursor when the cursor sits past the end", async () => {
+      writeBundle("n", "#!/bin/sh\necho n\n");
+      const wf: WorkflowDefinition = { name: "wf", steps: [{ use: "n" }] };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
+      const onlyId = await triggerAndAwait(app, "wf", waitForFinished);
+
+      const past = (await (await app.request(`/api/runs?cursor=${onlyId}`)).json()) as RunsPageBody;
+      expect(past.runs).toEqual([]);
+      expect(past.nextCursor).toBeNull();
+    });
+
+    it("rejects an out-of-range limit with 400", async () => {
+      const app = createApp({ db, registry, cwd });
+
+      const tooSmall = await app.request("/api/runs?limit=0");
+      expect(tooSmall.status).toBe(400);
+
+      const tooBig = await app.request("/api/runs?limit=101");
+      expect(tooBig.status).toBe(400);
+
+      const nan = await app.request("/api/runs?limit=banana");
+      expect(nan.status).toBe(400);
+    });
+
+    it("rejects an unknown cursor with 400", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs?cursor=does-not-exist");
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'cursor "does-not-exist" not found' });
     });
   });
 
@@ -808,8 +847,11 @@ describe("createApp", () => {
       const runId = await triggerAndCancel(app, "long", waitForFinished);
 
       const res = await app.request("/api/runs");
-      const body = (await res.json()) as Array<{ id: string; status: string }>;
-      const entry = body.find((r) => r.id === runId);
+      const body = (await res.json()) as {
+        runs: Array<{ id: string; status: string }>;
+        nextCursor: string | null;
+      };
+      const entry = body.runs.find((r) => r.id === runId);
       expect(entry?.status).toBe("cancelled");
     });
 

@@ -136,9 +136,32 @@ const apiFetch = (path: string, init: RequestInit = {}): Promise<Response> => {
 export const fetchWorkflows = async (): Promise<WorkflowSummary[]> =>
   json<WorkflowSummary[]>(await apiFetch("/api/workflows"));
 
-/** Fetch the reverse-chronological run feed. Throws on non-2xx. */
-export const fetchRuns = async (): Promise<RunListEntry[]> =>
-  json<RunListEntry[]>(await apiFetch("/api/runs"));
+/**
+ * One page of the reverse-chronological run feed. `nextCursor` is the
+ * last row's `id` when a further page is available; `null` when this is
+ * the final page. Pass it back as the `cursor` query param to load the
+ * next page.
+ */
+export interface RunsPage {
+  runs: RunListEntry[];
+  nextCursor: string | null;
+}
+
+/**
+ * Fetch one page of the run feed. With no arguments returns the first
+ * page (default size). Pass `cursor` from the previous page's
+ * `nextCursor` to advance; pass `limit` (1–100) to override the page
+ * size. Throws on non-2xx.
+ */
+export const fetchRunsPage = async (
+  opts: { cursor?: string; limit?: number } = {},
+): Promise<RunsPage> => {
+  const params = new URLSearchParams();
+  if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return json<RunsPage>(await apiFetch(`/api/runs${qs ? `?${qs}` : ""}`));
+};
 
 /** Fetch a single run with its per-step envelopes. Throws on non-2xx (including 404 for unknown ids). */
 export const fetchRun = async (id: string): Promise<RunDetail> =>
