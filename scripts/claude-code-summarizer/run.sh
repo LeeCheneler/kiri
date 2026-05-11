@@ -45,7 +45,14 @@ elif [ -n "${PROMPT_FILE:-}" ]; then
   prompt_source=$(cat "$KIRI_REPO_ROOT/$PROMPT_FILE")
 else
   context=$(cat "$KIRI_RUN_CONTEXT_FILE")
-  prompt_source="You are writing a one or two sentence summary of a kiri workflow run for an activity feed. Lead with what happened — read the step stdout/stderr to find the substance. No markdown, no headers, no bullets, no preamble like 'the workflow ran'. Plain prose, under 40 words.
+  prompt_source="You are writing a kiri workflow run summary for an activity feed. Read the step stdout/stderr to find the substance and lead with what happened — no preamble like 'the workflow ran', no padding. Markdown is supported and encouraged.
+
+Match the shape of the output to the shape of the result:
+- If the workflow produced a list of items (for example, 'list all open PRs I need to review'), output a markdown bullet list. Each bullet is one concrete item the reader can skim — label or title first, the smallest useful detail after.
+- If the workflow produced a single piece of news, output a single sentence or short paragraph.
+- Use bold, inline code, and links where they help the reader scan.
+
+The feed is glanced at, not read. Keep it dense and skimmable, with no headings.
 
 Run envelope (JSON):
 $context"

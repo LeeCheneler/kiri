@@ -356,7 +356,14 @@ elif [ -n "\${PROMPT_FILE:-}" ]; then
   prompt_source=$(cat "$KIRI_REPO_ROOT/$PROMPT_FILE")
 else
   context=$(cat "$KIRI_RUN_CONTEXT_FILE")
-  prompt_source="You are writing a one or two sentence summary of a kiri workflow run for an activity feed. Lead with what happened — read the step stdout/stderr to find the substance. No markdown, no headers, no bullets, no preamble like 'the workflow ran'. Plain prose, under 40 words.
+  prompt_source="You are writing a kiri workflow run summary for an activity feed. Read the step stdout/stderr to find the substance and lead with what happened — no preamble like 'the workflow ran', no padding. Markdown is supported and encouraged.
+
+Match the shape of the output to the shape of the result:
+- If the workflow produced a list of items (for example, 'list all open PRs I need to review'), output a markdown bullet list. Each bullet is one concrete item the reader can skim — label or title first, the smallest useful detail after.
+- If the workflow produced a single piece of news, output a single sentence or short paragraph.
+- Use bold, inline code, and links where they help the reader scan.
+
+The feed is glanced at, not read. Keep it dense and skimmable, with no headings.
 
 Run envelope (JSON):
 $context"
@@ -393,10 +400,13 @@ exec claude -p "$prompt" --max-turns "$MAX_TURNS" --model "$MODEL"
 /** Contents of the scaffolded `scripts/claude-code-summarizer/README.md`. */
 export const CLAUDE_CODE_SUMMARIZER_README = `# claude-code-summarizer bundle
 
-A workflow \`summarize:\` step that produces a one-or-two-sentence
-summary of a run for the activity feed. Spawned by kiri after the
-workflow's \`steps:\` complete on non-cancelled runs; this bundle's
-stdout becomes the run's \`summary\` when it exits successfully.
+A workflow \`summarize:\` step that produces a markdown summary of a
+run for the activity feed. Spawned by kiri after the workflow's
+\`steps:\` complete on non-cancelled runs; this bundle's stdout becomes
+the run's \`summary\` when it exits successfully. The feed renders the
+result through the SPA's sandboxed markdown component, so the
+baked-in prompt produces a single sentence for one-shot results and a
+bullet list for list-style results.
 
 ## Usage
 
@@ -466,11 +476,13 @@ into a \`sh:\` step that pre-processes it however you like.
 
 ## Zero config by design
 
-Zero config is still the default posture: a workflow declaring
-\`summarize: { use: claude-code-summarizer }\` with no env vars
-produces the same prompt, model (\`haiku\`), and turn budget (\`1\`) as
-before. The env vars above are escape hatches for workflows that want
-to shape the summary without forking the bundle.
+Zero config is the default posture: a workflow declaring
+\`summarize: { use: claude-code-summarizer }\` with no env vars uses
+the baked-in prompt, model (\`haiku\`), and turn budget (\`1\`). The
+prompt asks for a single sentence when the run produced one piece of
+news and a markdown bullet list when it produced a list of items. The
+env vars above are escape hatches for workflows that want to shape
+the summary without forking the bundle.
 
 If the env-var contract still isn't enough — for example you need
 custom dep handling or a different CLI entirely — fork the bundle:

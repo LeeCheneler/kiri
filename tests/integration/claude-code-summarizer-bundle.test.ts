@@ -177,7 +177,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     expect(prompt).toContain('"stdout": "PR #42 fetched"');
     // Prompt also contains the framing instructions baked into run.sh.
     expect(prompt).toContain("activity feed");
-    expect(prompt).toContain("under 40 words");
+    expect(prompt).toContain("Markdown is supported");
   });
 
   it("fails the step with a clear stderr when KIRI_RUN_CONTEXT_FILE is unset", async () => {
