@@ -34,7 +34,7 @@ Kiri runs per-directory: each working directory is its own workspace.
 
 ```sh
 cd ~/projects/some-workspace
-kiri init    # scaffold workflows/, scripts/claude-code/, prompts/
+kiri init    # scaffold workflows/, scripts/, prompts/
 kiri         # boot the orchestrator on :4242
 ```
 
@@ -42,7 +42,7 @@ Then open **https://local.kiri.build** in your browser. The hosted shell at that
 
 > **Safari / Brave note.** Both browsers block HTTP-localhost subresource loads from an HTTPS page, so the shell won't fetch kiri's bundle there. Use **http://localhost:4242** directly on those browsers. Chrome and Firefox work either way.
 
-The bundled `example` workflow is a 2-step pipeline that calls Claude Code. Click **Run** in the UI, then refresh the feed to see the result. You'll need the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your `$PATH`, signed in.
+`kiri init` scaffolds two starter workflows — **PR Review Queue** (queries `gh` for PRs awaiting your review) and **HackerNews Digest** (fetches the HN top stories and publishes them as a markdown artefact) — plus the `claude-code` and `claude-code-summarizer` bundles they use. Click **Run** on either in the UI, then watch the feed. You'll need the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your `$PATH`, signed in.
 
 ## Trust model
 
