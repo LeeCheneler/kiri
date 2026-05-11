@@ -39,6 +39,14 @@ describe("<ActivityFeed>", () => {
     expect(screen.getByText(/no runs yet/i)).toBeDefined();
   });
 
+  // The row wraps a real `<Link>` on the workflow name plus a `::before`
+  // overlay so clicks anywhere on the row navigate to the run page.
+  // Status / hover state live on the wrapping `<div data-status>` rather
+  // than on the link itself — query both via the link's accessible name
+  // (the workflow name).
+  const rowOf = (workflowName: RegExp | string) =>
+    screen.getByRole("link", { name: workflowName }).closest("[data-status]");
+
   it("links each row to its run detail page", () => {
     renderFeed([stubRun({ id: "abc", workflowName: "alpha" })]);
     const link = screen.getByRole("link", { name: /alpha/i });
@@ -47,27 +55,27 @@ describe("<ActivityFeed>", () => {
 
   it("tags running rows with data-status='running'", () => {
     renderFeed([stubRun({ id: "r", status: "running", finishedAt: null })]);
-    expect(screen.getByRole("link").getAttribute("data-status")).toBe("running");
+    expect(rowOf(/kiri-self-review/i)?.getAttribute("data-status")).toBe("running");
   });
 
   it("tags ok rows with data-status='ok'", () => {
     renderFeed([stubRun({ status: "ok" })]);
-    expect(screen.getByRole("link").getAttribute("data-status")).toBe("ok");
+    expect(rowOf(/kiri-self-review/i)?.getAttribute("data-status")).toBe("ok");
   });
 
   it("tags failed rows with data-status='failed'", () => {
     renderFeed([stubRun({ status: "failed" })]);
-    expect(screen.getByRole("link").getAttribute("data-status")).toBe("failed");
+    expect(rowOf(/kiri-self-review/i)?.getAttribute("data-status")).toBe("failed");
   });
 
   it("tags cancelled rows with data-status='cancelled'", () => {
     renderFeed([stubRun({ status: "cancelled" })]);
-    expect(screen.getByRole("link").getAttribute("data-status")).toBe("cancelled");
+    expect(rowOf(/kiri-self-review/i)?.getAttribute("data-status")).toBe("cancelled");
   });
 
   it("preserves the underlying status when the workflow has been deleted", () => {
     renderFeed([stubRun({ status: "ok", isInterrupted: true })]);
-    expect(screen.getByRole("link").getAttribute("data-status")).toBe("ok");
+    expect(rowOf(/kiri-self-review/i)?.getAttribute("data-status")).toBe("ok");
   });
 
   it("renders a deleted marker for runs whose workflow is gone", () => {
@@ -98,16 +106,53 @@ describe("<ActivityFeed>", () => {
     expect(screen.getByText(/12s/i)).toBeDefined();
   });
 
-  it("renders the summary text when present", () => {
+  it("renders a prose summary as a paragraph when present", () => {
     renderFeed([stubRun({ summary: "reviewed the changes and flagged a regression in auth.ts." })]);
     expect(
       screen.getByText(/reviewed the changes and flagged a regression in auth\.ts\./i),
     ).toBeDefined();
   });
 
+  it("renders a list-shaped summary as a bullet list, not truncated", () => {
+    const summary = [
+      "- **#42** payments: refund flow tweaks",
+      "- **#43** auth: rotate session secret",
+      "- **#44** infra: bump terraform provider",
+    ].join("\n");
+    const { container } = renderFeed([stubRun({ summary })]);
+    // Bullet list renders through <Markdown> inside the row's summary block,
+    // not as a clamped paragraph. Scope to the summary container so the
+    // run-row <li> doesn't sneak into the listitem query.
+    const summaryEl = container.querySelector(".kiri-feed-summary");
+    const bullets = Array.from(summaryEl?.querySelectorAll("li") ?? []).map(
+      (li) => li.textContent ?? "",
+    );
+    expect(bullets).toEqual([
+      "#42 payments: refund flow tweaks",
+      "#43 auth: rotate session secret",
+      "#44 infra: bump terraform provider",
+    ]);
+  });
+
   it("does not render a summary block when summary is null", () => {
     const { container } = renderFeed([stubRun({ summary: null })]);
-    expect(container.querySelector("p.line-clamp-2")).toBeNull();
+    expect(container.querySelector(".kiri-feed-summary")).toBeNull();
+  });
+
+  it("renders markdown links inside the summary as distinct, navigable anchors", () => {
+    // The row uses a stacked-link pattern (real Link on the workflow name +
+    // ::before overlay over the row). Markdown links inside the summary
+    // must remain real, separately-targetable anchors with their own href.
+    renderFeed([
+      stubRun({
+        workflowName: "pr-review",
+        summary: "see [the PR](https://example.com/pr/42) for details.",
+      }),
+    ]);
+    const rowLink = screen.getByRole("link", { name: /pr-review/i });
+    expect(rowLink.getAttribute("href")).toBe("/runs/run-1");
+    const summaryLink = screen.getByRole("link", { name: /the PR/i });
+    expect(summaryLink.getAttribute("href")).toBe("https://example.com/pr/42");
   });
 
   it("omits the duration text for runs that haven't finished", () => {

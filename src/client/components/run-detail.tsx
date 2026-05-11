@@ -10,6 +10,7 @@ import type {
   WorkflowStepSummary,
 } from "../api.ts";
 import { formatDuration, formatDurationMs, formatRelativeTime } from "../formatters/format-time.ts";
+import { Markdown } from "./markdown.tsx";
 
 type StatusKind = "pending" | "running" | "ok" | "failed" | "cancelled" | "interrupted";
 
@@ -416,9 +417,9 @@ function RunSummaryBlock({ summary }: { summary: string }) {
   return (
     <section className="mt-10 border-l-2 border-rule py-2 pl-5">
       <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summary</h3>
-      <blockquote className="mt-2">
-        <p className="font-display text-base text-ink italic leading-relaxed">{summary}</p>
-      </blockquote>
+      <div className="mt-2">
+        <Markdown content={summary} />
+      </div>
     </section>
   );
 }

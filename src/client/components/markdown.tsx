@@ -33,8 +33,12 @@ function Anchor({
   className,
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & ExtraProps) {
+  // `relative` is intentional: it keeps the anchor clickable when the
+  // surrounding container uses a stacked-link pattern (an absolute
+  // `::before` overlay covering the row, e.g. the activity feed). On
+  // surfaces without an overlay it's a no-op — no inset, no z-index.
   const classes =
-    "text-accent underline underline-offset-2 transition-colors hover:text-ink focus-visible:text-ink focus-visible:outline-1 focus-visible:outline-accent";
+    "relative text-accent underline underline-offset-2 transition-colors hover:text-ink focus-visible:text-ink focus-visible:outline-1 focus-visible:outline-accent";
   if (href !== undefined && isExternalHref(href)) {
     return (
       <a

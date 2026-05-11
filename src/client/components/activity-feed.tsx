@@ -2,6 +2,7 @@ import type { Ref } from "react";
 import { Link } from "wouter";
 import type { RunListEntry } from "../api.ts";
 import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
+import { Markdown } from "./markdown.tsx";
 
 type RunStatusKind = "running" | "ok" | "failed" | "cancelled" | "interrupted";
 
@@ -26,7 +27,12 @@ const statusFor = (run: RunListEntry): RunStatusKind => run.status;
 /**
  * Activity feed: each run is one editorial row prefaced by a status
  * strip, with the workflow name set in Fraunces and the metadata in
- * JetBrains Mono. The whole row is the click target. Rows stagger in
+ * JetBrains Mono. The whole row is the click target — the row wraps
+ * a real `<Link>` on the workflow name plus a `::before` overlay that
+ * stretches across the row, so a click anywhere on the row navigates
+ * to the run page. Nested interactives inside the row (markdown links
+ * in the summary, and chips added later) sit `position: relative` so
+ * they punch through the overlay and stay clickable. Rows stagger in
  * on first paint; the running indicator pulses softly. Empty state is
  * a single italic sentence.
  *
@@ -67,18 +73,22 @@ export function ActivityFeed({
               style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
               className="animate-[feed-row-in_320ms_ease-out_backwards]"
             >
-              <Link
-                href={`/runs/${run.id}`}
+              <div
                 data-status={status}
-                className="group relative flex items-baseline gap-6 px-5 py-5 no-underline outline-none transition-colors duration-150 hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+                className="group relative flex items-baseline gap-6 px-5 py-5 transition-colors duration-150 hover:bg-paper focus-within:bg-paper focus-within:outline-1 focus-within:outline-accent focus-within:-outline-offset-1"
               >
                 <span
                   aria-hidden="true"
-                  className={`absolute inset-y-2 left-1 w-0.5 transition-all duration-150 group-hover:w-[3px] group-focus-visible:w-[3px] ${STRIP_BG[status]}`}
+                  className={`absolute inset-y-2 left-1 w-0.5 transition-all duration-150 group-hover:w-[3px] group-focus-within:w-[3px] ${STRIP_BG[status]}`}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="font-display text-2xl text-ink leading-tight">
-                    {run.workflowName}
+                    <Link
+                      href={`/runs/${run.id}`}
+                      className="text-ink no-underline outline-none before:absolute before:inset-0 before:content-['']"
+                    >
+                      {run.workflowName}
+                    </Link>
                     {run.isInterrupted && (
                       <span className="ml-2 align-middle font-mono text-xs text-ink-muted italic">
                         (deleted)
@@ -86,7 +96,9 @@ export function ActivityFeed({
                     )}
                   </div>
                   {run.summary && (
-                    <p className="mt-2 line-clamp-2 text-sm leading-snug text-ink">{run.summary}</p>
+                    <div className="kiri-feed-summary relative mt-2 text-sm leading-snug text-ink [&_p]:mt-1 [&_p]:text-sm [&_p]:leading-snug [&_p]:first:mt-0 [&_ul]:mt-1 [&_ol]:mt-1">
+                      <Markdown content={run.summary} />
+                    </div>
                   )}
                   <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-xs leading-none text-ink-muted">
                     <span className={`tracking-widest uppercase ${STATUS_TEXT[status]}`}>
@@ -111,7 +123,7 @@ export function ActivityFeed({
                     )}
                   </div>
                 </div>
-              </Link>
+              </div>
             </li>
           );
         })}
