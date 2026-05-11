@@ -94,7 +94,11 @@ const readCapture = (ws: Workspace): Capture => {
   return { argv, stdin };
 };
 
-const baseEnv = (ws: Workspace, withContext: boolean): Record<string, string> => {
+const baseEnv = (
+  ws: Workspace,
+  withContext: boolean,
+  extra: Record<string, string> = {},
+): Record<string, string> => {
   const env: Record<string, string> = {
     PATH: `${ws.binDir}:${process.env.PATH ?? ""}`,
     HOME: process.env.HOME ?? "",
@@ -106,6 +110,7 @@ const baseEnv = (ws: Workspace, withContext: boolean): Record<string, string> =>
     KIRI_META_FILE: join(ws.scratchDir, "step-1.meta.json"),
     KIRI_BUNDLE_DIR: join(ws.cwd, "scripts", "claude-code-summarizer"),
     TEST_CAPTURE_DIR: ws.captureDir,
+    ...extra,
   };
   if (withContext) env.KIRI_RUN_CONTEXT_FILE = ws.contextFile;
   return env;
@@ -220,5 +225,116 @@ describe("claude-code-summarizer bundle: integration", () => {
     expect(envelope.status).toBe("failed");
     expect(envelope.traces.stderr).toContain("'claude'");
     expect(envelope.traces.stderr).toContain("PATH");
+  });
+
+  it("uses an inline PROMPT in place of the baked-in default", async () => {
+    ws = setupWorkspace();
+    const envelope = await runStep({
+      step: { use: "claude-code-summarizer" },
+      cwd: ws.cwd,
+      scratchDir: ws.scratchDir,
+      input: "",
+      env: baseEnv(ws, true, {
+        PROMPT: "Custom inline summary, context at {{KIRI_RUN_CONTEXT_FILE}}.",
+      }),
+    });
+
+    expect(envelope.status).toBe("ok");
+    const { argv } = readCapture(ws);
+    expect(argv[0]).toBe("-p");
+    expect(argv[1]).toBe(`Custom inline summary, context at ${ws.contextFile}.`);
+    // Baked-in framing must not leak through when PROMPT is set.
+    expect(argv[1]).not.toContain("activity feed");
+    expect(argv[1]).not.toContain('"workflow"');
+    expect(argv.slice(2)).toEqual(["--max-turns", "1", "--model", "haiku"]);
+  });
+
+  it("renders a PROMPT_FILE resolved against KIRI_REPO_ROOT", async () => {
+    ws = setupWorkspace();
+    mkdirSync(join(ws.cwd, "prompts"), { recursive: true });
+    writeFileSync(
+      join(ws.cwd, "prompts", "summary.tpl"),
+      "Read {{KIRI_RUN_CONTEXT_FILE}} and write one sentence.",
+    );
+    const envelope = await runStep({
+      step: { use: "claude-code-summarizer" },
+      cwd: ws.cwd,
+      scratchDir: ws.scratchDir,
+      input: "",
+      env: baseEnv(ws, true, { PROMPT_FILE: "prompts/summary.tpl" }),
+    });
+
+    expect(envelope.status).toBe("ok");
+    const { argv } = readCapture(ws);
+    expect(argv[1]).toBe(`Read ${ws.contextFile} and write one sentence.`);
+    expect(argv[1]).not.toContain("activity feed");
+  });
+
+  it("uses PROMPT and ignores PROMPT_FILE when both are set", async () => {
+    ws = setupWorkspace();
+    mkdirSync(join(ws.cwd, "prompts"), { recursive: true });
+    writeFileSync(join(ws.cwd, "prompts", "ignored.tpl"), "File content must not appear.");
+    const envelope = await runStep({
+      step: { use: "claude-code-summarizer" },
+      cwd: ws.cwd,
+      scratchDir: ws.scratchDir,
+      input: "",
+      env: baseEnv(ws, true, {
+        PROMPT: "Inline wins.",
+        PROMPT_FILE: "prompts/ignored.tpl",
+      }),
+    });
+
+    expect(envelope.status).toBe("ok");
+    const { argv } = readCapture(ws);
+    expect(argv[1]).toBe("Inline wins.");
+    expect(argv[1]).not.toContain("File content");
+  });
+
+  it("passes the overridden MODEL to claude", async () => {
+    ws = setupWorkspace();
+    const envelope = await runStep({
+      step: { use: "claude-code-summarizer" },
+      cwd: ws.cwd,
+      scratchDir: ws.scratchDir,
+      input: "",
+      env: baseEnv(ws, true, { MODEL: "sonnet" }),
+    });
+
+    expect(envelope.status).toBe("ok");
+    const { argv } = readCapture(ws);
+    expect(argv.slice(-2)).toEqual(["--model", "sonnet"]);
+  });
+
+  it("passes the overridden MAX_TURNS to claude", async () => {
+    ws = setupWorkspace();
+    const envelope = await runStep({
+      step: { use: "claude-code-summarizer" },
+      cwd: ws.cwd,
+      scratchDir: ws.scratchDir,
+      input: "",
+      env: baseEnv(ws, true, { MAX_TURNS: "3" }),
+    });
+
+    expect(envelope.status).toBe("ok");
+    const { argv } = readCapture(ws);
+    const turnsIdx = argv.indexOf("--max-turns");
+    expect(turnsIdx).toBeGreaterThanOrEqual(0);
+    expect(argv[turnsIdx + 1]).toBe("3");
+  });
+
+  it("fails the step with a clear stderr when PROMPT_FILE points at a missing file", async () => {
+    ws = setupWorkspace();
+    const envelope = await runStep({
+      step: { use: "claude-code-summarizer" },
+      cwd: ws.cwd,
+      scratchDir: ws.scratchDir,
+      input: "",
+      env: baseEnv(ws, true, { PROMPT_FILE: "prompts/missing.tpl" }),
+    });
+
+    expect(envelope.status).toBe("failed");
+    expect(envelope.traces.stderr).toContain("prompt file not found");
+    expect(envelope.traces.stderr).toContain("prompts/missing.tpl");
   });
 });

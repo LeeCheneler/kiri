@@ -310,37 +310,84 @@ shows cost in its header.
 
 /** Contents of the scaffolded `scripts/claude-code-summarizer/run.sh`. */
 export const CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT = `#!/bin/sh
-# Summarises a kiri workflow run for the activity feed by feeding the
-# run envelope to Claude Code (haiku) and asking for one or two
-# sentences of plain prose. Spawned by kiri after the workflow's
-# \`steps:\` complete on non-cancelled runs; this bundle's stdout
-# becomes the run's \`summary\` field when it exits 0.
-#
-# Zero-config by design — model and prompt are baked in. Fork the
-# bundle (cp -r scripts/claude-code-summarizer scripts/my-summarizer
-# and edit) if you want a different tone, framing, or model.
+# Summarises a kiri workflow run for the activity feed. Spawns Claude
+# Code with a prompt taken from PROMPT (inline), PROMPT_FILE (a template
+# path resolved against KIRI_REPO_ROOT), or a baked-in default that
+# inlines the run-context JSON. When both PROMPT and PROMPT_FILE are
+# set, PROMPT wins and PROMPT_FILE is ignored. Spawned by kiri after
+# the workflow's \`steps:\` complete on non-cancelled runs; this bundle's
+# stdout becomes the run's \`summary\` field when it exits 0.
 set -eu
 
+: "\${KIRI_REPO_ROOT:?required (kiri injects this)}"
 : "\${KIRI_RUN_CONTEXT_FILE:?required (kiri injects this)}"
 
-command -v claude >/dev/null 2>&1 || {
-  echo "claude-code-summarizer bundle requires 'claude' on PATH" >&2
-  exit 1
-}
+# Defaults exported so {{MAX_TURNS}} and {{MODEL}} can be referenced
+# inside prompt templates even when the workflow leaves them unset.
+export MAX_TURNS="\${MAX_TURNS:-1}"
+export MODEL="\${MODEL:-haiku}"
+
+for dep in claude awk; do
+  command -v "$dep" >/dev/null 2>&1 || {
+    echo "claude-code-summarizer bundle requires '$dep' on PATH" >&2
+    exit 1
+  }
+done
 
 [ -f "$KIRI_RUN_CONTEXT_FILE" ] || {
   echo "claude-code-summarizer: run-context file not found: $KIRI_RUN_CONTEXT_FILE" >&2
   exit 1
 }
 
-context=$(cat "$KIRI_RUN_CONTEXT_FILE")
-
-prompt="You are writing a one or two sentence summary of a kiri workflow run for an activity feed. Lead with what happened — read the step stdout/stderr to find the substance. No markdown, no headers, no bullets, no preamble like 'the workflow ran'. Plain prose, under 40 words.
+# Resolve the prompt source. PROMPT wins over PROMPT_FILE when both are
+# set; both fall through to a baked-in default that inlines the
+# run-context JSON so a workflow with no env vars produces the same
+# prompt as before. Verify the file exists *before* the awk render —
+# POSIX \`set -e\` doesn't propagate failures from \`$()\` inside an
+# assignment, so a missing file would otherwise silently leave
+# \$prompt empty and we'd exec \`claude -p ""\`.
+if [ -n "\${PROMPT:-}" ]; then
+  prompt_source="$PROMPT"
+elif [ -n "\${PROMPT_FILE:-}" ]; then
+  [ -f "$KIRI_REPO_ROOT/$PROMPT_FILE" ] || {
+    echo "claude-code-summarizer: prompt file not found: $PROMPT_FILE" >&2
+    exit 1
+  }
+  prompt_source=$(cat "$KIRI_REPO_ROOT/$PROMPT_FILE")
+else
+  context=$(cat "$KIRI_RUN_CONTEXT_FILE")
+  prompt_source="You are writing a one or two sentence summary of a kiri workflow run for an activity feed. Lead with what happened — read the step stdout/stderr to find the substance. No markdown, no headers, no bullets, no preamble like 'the workflow ran'. Plain prose, under 40 words.
 
 Run envelope (JSON):
 $context"
+fi
 
-exec claude -p "$prompt" --max-turns 1 --model haiku
+# Slurp stdin so prompts can reference {{KIRI_INPUT}}. Kiri pipes nothing
+# into the summariser today, but mirror the claude-code bundle so a
+# user-supplied prompt that references {{KIRI_INPUT}} renders to empty
+# instead of leaving the placeholder literal.
+export KIRI_INPUT="$(cat)"
+
+# Render {{VAR}} placeholders from the environment in a single
+# left-to-right pass. Substituted values are not re-scanned, so a
+# value containing "{{X}}" stays literal — no infinite loops on
+# self-referential content. Unknown vars resolve to empty. LC_ALL=C
+# pins the regex character classes to ASCII so non-C locales can't
+# widen \`[A-Z]\` to accented uppercase.
+prompt=$(printf '%s\\n' "$prompt_source" | LC_ALL=C awk '
+  {
+    out = ""
+    rest = $0
+    while (match(rest, /\\{\\{[A-Z_][A-Z0-9_]*\\}\\}/)) {
+      name = substr(rest, RSTART + 2, RLENGTH - 4)
+      out = out substr(rest, 1, RSTART - 1) ENVIRON[name]
+      rest = substr(rest, RSTART + RLENGTH)
+    }
+    print out rest
+  }
+')
+
+exec claude -p "$prompt" --max-turns "$MAX_TURNS" --model "$MODEL"
 `;
 
 /** Contents of the scaffolded `scripts/claude-code-summarizer/README.md`. */
@@ -364,25 +411,69 @@ summarize:
   use: claude-code-summarizer
 \`\`\`
 
-## What \`run.sh\` does
+Or override the prompt, model, or turn budget directly from the
+workflow YAML:
 
-1. Reads \`KIRI_RUN_CONTEXT_FILE\` (kiri-injected) — a JSON file under
-   the per-run scratch dir containing the workflow name, status,
-   duration, and per-step kind / status / duration / stdout / stderr /
-   error.
-2. Embeds the JSON into a baked-in prompt asking for a brief
-   plain-prose summary suitable for a feed entry.
-3. Spawns \`claude -p "$prompt" --max-turns 1 --model haiku\` — the
-   alias keeps the bundle on whichever haiku is current without a
-   future bundle bump.
-4. Claude's stdout becomes the run's \`summary\` field.
+\`\`\`yaml
+summarize:
+  use: claude-code-summarizer
+  env:
+    PROMPT: "One witty sentence about this run. Context lives at {{KIRI_RUN_CONTEXT_FILE}}."
+    MODEL: sonnet
+\`\`\`
+
+Full reference, all knobs explicit:
+
+\`\`\`yaml
+summarize:
+  use: claude-code-summarizer
+  env:
+    PROMPT: "Inline prompt text."        # optional; wins over PROMPT_FILE
+    PROMPT_FILE: prompts/my-summary.tpl  # optional
+    MODEL: sonnet                        # optional, default haiku
+    MAX_TURNS: "1"                       # optional, default 1
+\`\`\`
+
+## Env-var contract
+
+| Var | Required | Default | Description |
+| --- | --- | --- | --- |
+| \`PROMPT\` | no | baked-in summariser prompt | Inline prompt text. Wins over \`PROMPT_FILE\` when both are set. |
+| \`PROMPT_FILE\` | no | baked-in summariser prompt | Path to a prompt template. If relative, resolved against \`KIRI_REPO_ROOT\`; absolute paths are passed through as-is. |
+| \`MODEL\` | no | \`haiku\` | Passed via \`--model\`. |
+| \`MAX_TURNS\` | no | \`1\` | Passed via \`--max-turns\`. |
+
+\`KIRI_REPO_ROOT\` and \`KIRI_RUN_CONTEXT_FILE\` are supplied by kiri.
+
+### Precedence
+
+When both \`PROMPT\` and \`PROMPT_FILE\` are set, \`PROMPT\` wins and
+\`PROMPT_FILE\` is ignored — its content is not read, validated, or
+concatenated. When neither is set, the bundle falls back to a baked-in
+prompt that inlines the run-context JSON. Matches \`claude-code\`'s
+precedence rule.
+
+### Run context
+
+\`KIRI_RUN_CONTEXT_FILE\` points at a JSON file under the per-run scratch
+dir containing the workflow name, status, duration, and per-step
+kind / status / duration / stdout / stderr / error. The baked-in
+default inlines this JSON directly into the prompt. A user-supplied
+\`PROMPT\` or \`PROMPT_FILE\` replaces the *framing* only — if you want
+the envelope content in your prompt, reference \`{{KIRI_RUN_CONTEXT_FILE}}\`
+to get the path and read it inside the prompt, or splice the path
+into a \`sh:\` step that pre-processes it however you like.
 
 ## Zero config by design
 
-There are no env vars to set on this bundle. The prompt and model are
-baked into \`run.sh\` so a workflow can declare
-\`summarize: { use: claude-code-summarizer }\` and forget about it. If
-you want a different tone, framing, or model, fork the bundle:
+Zero config is still the default posture: a workflow declaring
+\`summarize: { use: claude-code-summarizer }\` with no env vars
+produces the same prompt, model (\`haiku\`), and turn budget (\`1\`) as
+before. The env vars above are escape hatches for workflows that want
+to shape the summary without forking the bundle.
+
+If the env-var contract still isn't enough — for example you need
+custom dep handling or a different CLI entirely — fork the bundle:
 
 \`\`\`
 cp -r scripts/claude-code-summarizer scripts/my-summarizer
@@ -396,6 +487,41 @@ summarize:
   use: my-summarizer
 \`\`\`
 
+## Prompt templates
+
+\`{{VAR}}\` placeholders are substituted from the environment in a single
+left-to-right pass. The same rules apply to whichever source produced
+the prompt (\`PROMPT\`, \`PROMPT_FILE\`, or the baked-in default). Names
+must be uppercase letters, digits, or underscores. Unknown vars resolve
+to empty. Substituted values are not re-scanned, so a value that
+itself contains \`{{X}}\` stays literal — no infinite loops on
+self-referential content.
+
+### Substitutable vars
+
+| Var | Source |
+| --- | --- |
+| \`{{KIRI_RUN_CONTEXT_FILE}}\` | Path to the run-envelope JSON file. |
+| \`{{KIRI_RUN_ID}}\` | Kiri-injected run identifier. |
+| \`{{KIRI_STEP_INDEX}}\` | Zero-based index of this step in the run. |
+| \`{{KIRI_REPO_ROOT}}\` | Absolute path of the workflow repo root. |
+| \`{{KIRI_BUNDLE_DIR}}\` | Absolute path of this bundle's directory. |
+| \`{{KIRI_META_FILE}}\` | Path the bundle writes step metadata to. |
+| \`{{KIRI_INPUT}}\` | Stdin piped in by kiri — empty for \`summarize:\` steps today. |
+| \`{{MAX_TURNS}}\`, \`{{MODEL}}\` | Bundle env-var contract values, defaulted as documented above. |
+| \`{{PROMPT}}\`, \`{{PROMPT_FILE}}\` | Bundle env-var contract values — resolve to empty when unset. |
+| Any \`{{MY_VAR}}\` | Anything set in the step's \`env:\` block. |
+
+### Example
+
+\`\`\`yaml
+summarize:
+  use: claude-code-summarizer
+  env:
+    PROMPT: "Read {{KIRI_RUN_CONTEXT_FILE}} and write one sentence in a {{TONE}} tone."
+    TONE: dry
+\`\`\`
+
 ## Failure handling
 
 A summariser failure does not affect the run's status — \`runs.status\`
@@ -406,8 +532,8 @@ set) so the run detail page can surface them for debugging.
 
 ## Dependencies
 
-The \`claude\` CLI must be on \`PATH\`. The bundle exits non-zero with a
-clear error if it isn't.
+The \`claude\` CLI must be on \`PATH\` (\`awk\` and POSIX \`sh\` are assumed).
+The bundle exits non-zero with a clear error if either is missing.
 `;
 
 /** Contents of the scaffolded `workflows/pr-review-queue.yaml`. */
