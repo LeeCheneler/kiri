@@ -303,7 +303,7 @@ Non-goals to resist scope creep:
 
 Sequenced for fastest path to dogfooding, then layering capability outward. Each phase a usable artifact. Detailed work items per milestone live in `milestones.md`.
 
-**Shipped (M0 – M3.97):**
+**Shipped (M0 – M6):**
 
 1. **Spine** (M0). YAML-defined linear pipeline of script steps. Standard envelope, traces captured, run history persisted to SQLite via Drizzle. Feed UI renders run history.
 2. **Step schema migration** (M1). YAML moved to `steps:` with `use:` (bundle reference) or `sh:` (inline shell), plus per-step `env:` with precedence and reserved-namespace rules.
@@ -314,12 +314,12 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 7. **Live updates, toasts, cancel** (M3.9). In-process event bus, SSE endpoint, EventSource cache invalidation, completion toasts, in-flight cancel.
 8. **Activity feed summaries** (M3.95). Workflow-level `summarize:` field, `claude-code-summarizer` bundle, summary rendered in feed and at the top of run detail.
 9. **Onboarding & docs** (M3.97). Hosted-shell fallback when no local kiri is running, one-sheet docs site at `/docs`, in-app link.
-
-**Next up (M4 onwards):**
-
 10. **Configurable summariser** (M4). `PROMPT` / `PROMPT_FILE` / `MODEL` / `MAX_TURNS` env support on `claude-code-summarizer` with defaults preserved; `PROMPT` added to `claude-code` with precedence over `PROMPT_FILE`.
 11. **Cursor-based feed pagination** (M5). Infinite-scroll feed; live updates and cold-load cost decoupled from total run count.
 12. **Artefact publishing** (M6). `publish: [...]` array on workflows. Markdown artefacts stored in `run_artefacts`, surfaced as chips on the feed and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:name` pages via a sandboxed renderer.
+
+**Next up (M7 onwards):**
+
 13. **Cron triggers** (M7). In-process tick loop, `schedule:` field on workflows, global concurrency cap.
 14. **Todos + gating** (M8). `gating:` field, dedup keys, propose vs auto, right-rail UI.
 15. **Generic step meta** (M9). Deferred. The original design used a `KIRI_META_FILE` file channel for steps to emit cost/tokens/model; that wiring was retired without ever being read back. Re-introducing this needs both a transport and the UI promotion to feed-entry headers.
