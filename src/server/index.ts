@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { z } from "zod";
+import { resolvePublishTitle } from "../shared/publish-title.ts";
 import type { KiriDb } from "./db/index.ts";
 import { runArtefacts, runSteps, runs } from "./db/schema.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
@@ -10,7 +11,7 @@ import { type EventBus, mountEventsRoute } from "./events/index.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
 import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
-import { publishNameSchema, resolvePublishTitle } from "./workflows/schema.ts";
+import { publishNameSchema } from "./workflows/schema.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live

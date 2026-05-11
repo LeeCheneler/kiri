@@ -11,7 +11,6 @@ export {
   isShStep,
   isUsePublish,
   isUseStep,
-  resolvePublishTitle,
   workflowSchema,
 } from "./schema.ts";
 export {

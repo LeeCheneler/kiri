@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import { resolvePublishTitle } from "../../shared/publish-title.ts";
 import type { KiriDb } from "../db/index.ts";
 import { runArtefacts, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
@@ -10,7 +11,6 @@ import {
   type WorkflowStep,
   isUsePublish,
   isUseStep,
-  resolvePublishTitle,
 } from "../workflows/index.ts";
 import type { CancelRegistry } from "./cancel-registry.ts";
 import { runStep } from "./run-step.ts";
