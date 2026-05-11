@@ -71,7 +71,7 @@ test("opening a run detail page reveals stdout when the step is expanded", async
 
   await page.goto(`/runs/${runId}`);
   await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: /steps/i })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: /^activity$/i })).toBeVisible();
 
   const step = page.getByRole("button", { name: /sh:/i });
   await expect(step).toHaveAttribute("aria-expanded", "false");
