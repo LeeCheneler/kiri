@@ -80,6 +80,20 @@ describe("db", () => {
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
+  it("declares run_artefacts.run_id → runs.id foreign key", () => {
+    const fks = getTableConfig(runArtefacts).foreignKeys;
+    expect(fks).toHaveLength(1);
+    const fk = fks[0] as unknown as {
+      reference: () => {
+        columns: { name: string }[];
+        foreignColumns: { name: string }[];
+      };
+    };
+    const ref = fk.reference();
+    expect(ref.columns.map((c) => c.name)).toEqual(["run_id"]);
+    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+  });
+
   it("re-running migrate is a no-op", () => {
     migrate(db);
     migrate(db);
