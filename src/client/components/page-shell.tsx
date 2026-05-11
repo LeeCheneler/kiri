@@ -92,7 +92,7 @@ export function PageShell({ children }: { children: ReactNode }) {
             </a>
           </div>
         </aside>
-        <main className="min-w-0 lg:max-w-160">{children}</main>
+        <main className="min-w-0 lg:max-w-200">{children}</main>
         <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start" aria-hidden="true" />
       </div>
     </div>
