@@ -64,7 +64,7 @@ export function PageShell({ children }: { children: ReactNode }) {
   const activeName = activeWorkflowName(location);
 
   return (
-    <div className="mx-auto min-h-screen max-w-310 px-8 py-12 lg:py-16">
+    <div className="mx-auto min-h-screen max-w-420 px-8 py-12 lg:py-16">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[200px_1fr_260px] lg:gap-12">
         <aside className="lg:sticky lg:top-16 lg:self-start">
           <h1 className="leading-none">
@@ -92,7 +92,7 @@ export function PageShell({ children }: { children: ReactNode }) {
             </a>
           </div>
         </aside>
-        <main className="min-w-0 lg:max-w-200">{children}</main>
+        <main className="min-w-0 lg:max-w-240">{children}</main>
         <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start" aria-hidden="true" />
       </div>
     </div>
