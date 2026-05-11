@@ -501,7 +501,7 @@ describe("createApp", () => {
       expect(body.steps.map((s) => s.index)).toEqual([0]);
     });
 
-    it("returns artefacts ordered by created_at and excludes is_publish rows from the step list", async () => {
+    it("returns artefacts ordered by created_at and includes publish rows tagged isPublish in the step list", async () => {
       writeBundle("one", "#!/bin/sh\necho one\n");
       writeBundle("digest", "#!/bin/sh\necho digest-body\n");
       writeBundle("notes", "#!/bin/sh\necho notes-body\n");
@@ -527,11 +527,16 @@ describe("createApp", () => {
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        steps: Array<{ index: number; kind: string }>;
+        steps: Array<{ index: number; kind: string; isPublish: boolean; isSummary: boolean }>;
         artefacts: Array<{ name: string; title: string; createdAt: string }>;
       };
-      // is_publish rows filtered out — only the original pipeline step remains.
-      expect(body.steps.map((s) => s.index)).toEqual([0]);
+      // Pipeline step plus both publish rows in declared/index order; the
+      // client separates them by isPublish (same pattern as isSummary).
+      expect(body.steps.map((s) => [s.index, s.isPublish, s.isSummary])).toEqual([
+        [0, false, false],
+        [1, true, false],
+        [2, true, false],
+      ]);
       // Declared order matches created_at order (publishes run serially).
       expect(body.artefacts.map((a) => a.name)).toEqual(["digest", "release-notes"]);
       // Resolved title travels with each row; defaulted via titlecase when omitted.
@@ -543,7 +548,7 @@ describe("createApp", () => {
       for (const a of body.artefacts) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
-    it("omits artefacts for a failed publish while still hiding its step row", async () => {
+    it("exposes a failed publish row alongside the ok sibling's artefact", async () => {
       writeBundle("one", "#!/bin/sh\necho one\n");
       writeBundle("bad", "#!/bin/sh\nexit 2\n");
       writeBundle("good", "#!/bin/sh\necho good-body\n");
@@ -569,14 +574,73 @@ describe("createApp", () => {
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        steps: Array<{ index: number }>;
+        steps: Array<{ index: number; status: string; isPublish: boolean }>;
         artefacts: Array<{ name: string }>;
       };
-      // Only the pipeline step is visible — both publish rows (one failed,
-      // one ok) are filtered out.
-      expect(body.steps.map((s) => s.index)).toEqual([0]);
+      // Pipeline step, failed publish, ok publish — all three rows ship.
+      expect(body.steps.map((s) => [s.index, s.status, s.isPublish])).toEqual([
+        [0, "ok", false],
+        [1, "failed", true],
+        [2, "ok", true],
+      ]);
       // The failed publish produced no artefact row; the ok sibling did.
       expect(body.artefacts.map((a) => a.name)).toEqual(["good"]);
+    });
+
+    it("surfaces a running publish row before its artefact has been written", async () => {
+      writeBundle("one", "#!/bin/sh\necho one\n");
+      // Long-running publish so we can observe the in-flight row mid-execution.
+      // `exec 1>&- 2>&-` closes stdio before sleep is forked so cancel readers
+      // unblock cleanly when the test tears down (same idiom used elsewhere).
+      const wf: WorkflowDefinition = {
+        name: "slow-publish",
+        steps: [{ use: "one" }],
+        publish: [{ name: "slow", sh: "exec 1>&- 2>&-; sleep 5" }],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      const bus = createEventBus();
+      // Resolve when the publish step's `run.step.updated` event with the
+      // running status lands — guarantees the row exists and is in flight.
+      const publishRunning = new Promise<string>((resolve) => {
+        bus.subscribe((e) => {
+          if (e.type === "run.step.updated" && e.step === 1 && e.status === "running") {
+            resolve(e.runId);
+          }
+        });
+      });
+      const app = createApp({ db, registry, cwd, bus, cancelRegistry });
+
+      const trigger = await app.request("/api/workflows/slow-publish/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await publishRunning;
+
+      const res = await app.request(`/api/runs/${runId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        steps: Array<{ index: number; status: string; isPublish: boolean }>;
+        artefacts: Array<{ name: string }>;
+      };
+      // The publish row exists in `steps[]` tagged isPublish=true, status=running.
+      const publishRow = body.steps.find((s) => s.isPublish);
+      expect(publishRow).toMatchObject({ index: 1, status: "running", isPublish: true });
+      // Artefact row isn't written until the publish exits ok, so the array
+      // stays empty while the publish is in flight.
+      expect(body.artefacts).toEqual([]);
+
+      // Tear down the in-flight publish so afterEach doesn't close the DB
+      // mid-write. Cancel and wait for the row to flip terminal.
+      const finished = new Promise<void>((resolve) => {
+        bus.subscribe((e) => {
+          if (e.type === "run.finished" && e.id === runId) resolve();
+        });
+      });
+      cancelRegistry.requestCancel(runId);
+      await finished;
     });
   });
 
