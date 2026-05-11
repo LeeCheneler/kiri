@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { type KiriDb, openDatabase } from "./index.ts";
 import { migrate } from "./migrate.ts";
-import { runSteps, runs } from "./schema.ts";
+import { runArtefacts, runSteps, runs } from "./schema.ts";
 
 describe("db", () => {
   let dir: string;
@@ -215,6 +215,220 @@ describe("db", () => {
       .all()
       .map((r) => r.name);
     expect(stepCols).toContain("is_summary");
+  });
+
+  it("round-trips run_artefacts rows", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-art",
+        workflowName: "digester",
+        status: "ok",
+        trigger: "manual",
+        startedAt: new Date(1_700_000_000_000),
+        definitionSnapshot: { name: "digester", steps: [] },
+      })
+      .run();
+
+    const createdAt = new Date(1_700_000_005_000);
+    db.insert(runArtefacts)
+      .values({
+        id: "art-1",
+        runId: "run-art",
+        name: "digest",
+        title: "Digest",
+        contentMd: "# Top story\n\nA thing happened.",
+        createdAt,
+      })
+      .run();
+
+    const row = db.select().from(runArtefacts).where(eq(runArtefacts.id, "art-1")).get();
+    expect(row).toBeDefined();
+    expect(row?.runId).toBe("run-art");
+    expect(row?.name).toBe("digest");
+    expect(row?.title).toBe("Digest");
+    expect(row?.contentMd).toBe("# Top story\n\nA thing happened.");
+    expect(row?.createdAt).toEqual(createdAt);
+  });
+
+  it("enforces (run_id, name) uniqueness on run_artefacts", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-uniq",
+        workflowName: "x",
+        status: "ok",
+        trigger: "manual",
+        startedAt: new Date(),
+        definitionSnapshot: {},
+      })
+      .run();
+
+    db.insert(runArtefacts)
+      .values({
+        id: "art-a",
+        runId: "run-uniq",
+        name: "digest",
+        title: "Digest",
+        contentMd: "a",
+        createdAt: new Date(),
+      })
+      .run();
+
+    expect(() =>
+      db
+        .insert(runArtefacts)
+        .values({
+          id: "art-b",
+          runId: "run-uniq",
+          name: "digest",
+          title: "Other",
+          contentMd: "b",
+          createdAt: new Date(),
+        })
+        .run(),
+    ).toThrow();
+  });
+
+  it("allows the same artefact name across different runs", () => {
+    migrate(db);
+
+    for (const runId of ["run-x", "run-y"] as const) {
+      db.insert(runs)
+        .values({
+          id: runId,
+          workflowName: "x",
+          status: "ok",
+          trigger: "manual",
+          startedAt: new Date(),
+          definitionSnapshot: {},
+        })
+        .run();
+      db.insert(runArtefacts)
+        .values({
+          id: `${runId}-digest`,
+          runId,
+          name: "digest",
+          title: "Digest",
+          contentMd: "ok",
+          createdAt: new Date(),
+        })
+        .run();
+    }
+
+    const rows = db.select().from(runArtefacts).all();
+    expect(rows).toHaveLength(2);
+  });
+
+  it("round-trips run_steps.is_publish", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-pub",
+        workflowName: "x",
+        status: "ok",
+        trigger: "manual",
+        startedAt: new Date(),
+        definitionSnapshot: {},
+      })
+      .run();
+
+    db.insert(runSteps)
+      .values({
+        id: "pub-step-1",
+        runId: "run-pub",
+        index: 0,
+        kind: "use",
+        status: "ok",
+        materials: { kind: "use", bundle: "writer", files: {} },
+        isPublish: true,
+      })
+      .run();
+
+    db.insert(runSteps)
+      .values({
+        id: "regular-step-1",
+        runId: "run-pub",
+        index: 1,
+        kind: "sh",
+        status: "ok",
+        materials: { kind: "sh", source: "echo hi" },
+      })
+      .run();
+
+    const publishRow = db.select().from(runSteps).where(eq(runSteps.id, "pub-step-1")).get();
+    expect(publishRow?.isPublish).toBe(true);
+    expect(publishRow?.isSummary).toBe(false);
+
+    const regularRow = db.select().from(runSteps).where(eq(runSteps.id, "regular-step-1")).get();
+    expect(regularRow?.isPublish).toBe(false);
+  });
+
+  it("adds is_publish + run_artefacts when migrating a pre-publish DB", () => {
+    const sqlite = db.$client;
+    sqlite.run(
+      "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
+    );
+    sqlite.run(`CREATE TABLE runs (
+      id TEXT PRIMARY KEY NOT NULL,
+      workflow_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      error TEXT,
+      definition_snapshot TEXT NOT NULL,
+      summary TEXT
+    )`);
+    sqlite.run(`CREATE TABLE run_steps (
+      id TEXT PRIMARY KEY NOT NULL,
+      run_id TEXT NOT NULL,
+      "index" INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      output TEXT,
+      error TEXT,
+      traces TEXT,
+      usage TEXT,
+      materials TEXT NOT NULL,
+      is_summary INTEGER DEFAULT 0 NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES runs(id)
+    )`);
+    sqlite.run("CREATE INDEX run_steps_run_id_idx ON run_steps (run_id)");
+    sqlite.run(
+      "INSERT INTO __kiri_migrations (name, applied_at) VALUES ('0000_initial', 0), ('0001_index_run_nodes_run_id', 0), ('0002_rename_run_nodes_to_run_steps', 0), ('0003_add_run_summary_columns', 0)",
+    );
+    sqlite.run(
+      "INSERT INTO runs (id, workflow_name, status, trigger, started_at, definition_snapshot) VALUES ('r1', 'wf', 'ok', 'manual', 0, '{}')",
+    );
+
+    migrate(db);
+
+    const stepCols = sqlite
+      .query<{ name: string }, []>("PRAGMA table_info(run_steps)")
+      .all()
+      .map((r) => r.name);
+    expect(stepCols).toContain("is_publish");
+
+    const tables = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='run_artefacts'",
+      )
+      .all()
+      .map((r) => r.name);
+    expect(tables).toEqual(["run_artefacts"]);
+
+    const indexes = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='run_artefacts' AND name NOT LIKE 'sqlite_%'",
+      )
+      .all()
+      .map((r) => r.name)
+      .sort();
+    expect(indexes).toEqual(["run_artefacts_run_id_idx", "run_artefacts_run_id_name_unique"]);
   });
 
   it("renames run_nodes → run_steps on a pre-rename DB and preserves rows", () => {

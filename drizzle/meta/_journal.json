@@ -29,6 +29,13 @@
       "when": 1778406035844,
       "tag": "0003_add_run_summary_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1778508063193,
+      "tag": "0004_add_publish_support",
+      "breakpoints": true
     }
   ]
 }
