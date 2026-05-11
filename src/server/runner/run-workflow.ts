@@ -86,7 +86,6 @@ const buildEnv = (
   runId: string,
   stepIndex: number,
   cwd: string,
-  scratchDir: string,
 ): Record<string, string> => {
   // User env is applied first; kiri- and OS-controlled vars overwrite on
   // collision so a workflow can't redirect PATH or shadow KIRI_ identity.
@@ -102,7 +101,6 @@ const buildEnv = (
   env.KIRI_RUN_ID = runId;
   env.KIRI_STEP_INDEX = String(stepIndex);
   env.KIRI_REPO_ROOT = cwd;
-  env.KIRI_META_FILE = join(scratchDir, `step-${stepIndex}.meta.json`);
   // use: steps run with cwd = scratchDir, so the bundle can't reach its
   // own sidecar files via relative paths. KIRI_BUNDLE_DIR points at the
   // bundle source; sh: steps don't have a bundle so it stays unset.
@@ -192,7 +190,7 @@ export function runWorkflow(
           cwd: args.cwd,
           scratchDir,
           input,
-          env: buildEnv(step, runId, i, args.cwd, scratchDir),
+          env: buildEnv(step, runId, i, args.cwd),
           onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
         });
 
@@ -306,7 +304,7 @@ export function runWorkflow(
           ),
         );
 
-        const env = buildEnv(publishStep, runId, publishIndex, args.cwd, scratchDir);
+        const env = buildEnv(publishStep, runId, publishIndex, args.cwd);
         env.KIRI_RUN_CONTEXT_FILE = contextFile;
 
         const envelope = await runStep({
@@ -409,7 +407,7 @@ export function runWorkflow(
           status: "running",
         });
 
-        const env = buildEnv(summarizeStep, runId, summaryIndex, args.cwd, scratchDir);
+        const env = buildEnv(summarizeStep, runId, summaryIndex, args.cwd);
         env.KIRI_RUN_CONTEXT_FILE = contextFile;
 
         const envelope = await runStep({

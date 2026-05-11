@@ -111,7 +111,6 @@ const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]>
       KIRI_RUN_ID: "test-run",
       KIRI_STEP_INDEX: String(i),
       KIRI_REPO_ROOT: ws.cwd,
-      KIRI_META_FILE: join(ws.scratchDir, `step-${i}.meta.json`),
       TEST_CAPTURE_DIR: ws.captureDir,
     };
     if ("use" in step) env.KIRI_BUNDLE_DIR = join(ws.cwd, "scripts", step.use);
@@ -261,7 +260,6 @@ describe("claude-code bundle: integration", () => {
         KIRI_RUN_ID: "test-run",
         KIRI_STEP_INDEX: "0",
         KIRI_REPO_ROOT: ws.cwd,
-        KIRI_META_FILE: join(ws.scratchDir, "step-0.meta.json"),
         KIRI_BUNDLE_DIR: join(ws.cwd, "scripts", "claude-code"),
       },
     });

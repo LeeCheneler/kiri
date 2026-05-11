@@ -225,8 +225,10 @@ describe("db", () => {
       .all()
       .map((r) => r.name);
     expect(stepCols).toContain("is_summary");
-    // 0006 drops the legacy materials snapshot column at the same time.
+    // 0006/0007 drop the legacy materials snapshot and unused usage
+    // columns at the same time.
     expect(stepCols).not.toContain("materials");
+    expect(stepCols).not.toContain("usage");
   });
 
   it("round-trips run_artefacts rows", () => {

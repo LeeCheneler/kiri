@@ -107,7 +107,6 @@ const baseEnv = (
     KIRI_RUN_ID: "test-run",
     KIRI_STEP_INDEX: "1",
     KIRI_REPO_ROOT: ws.cwd,
-    KIRI_META_FILE: join(ws.scratchDir, "step-1.meta.json"),
     KIRI_BUNDLE_DIR: join(ws.cwd, "scripts", "claude-code-summarizer"),
     TEST_CAPTURE_DIR: ws.captureDir,
     ...extra,

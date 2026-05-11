@@ -248,10 +248,10 @@ describe("runWorkflow", () => {
     expect(allRuns[0].error).not.toBeNull();
   });
 
-  it("exposes KIRI_RUN_ID, KIRI_STEP_INDEX, KIRI_REPO_ROOT, KIRI_META_FILE, and KIRI_BUNDLE_DIR for use: steps", async () => {
+  it("exposes KIRI_RUN_ID, KIRI_STEP_INDEX, KIRI_REPO_ROOT, and KIRI_BUNDLE_DIR for use: steps", async () => {
     writeBundle(
       "dump",
-      '#!/bin/sh\necho "RUN=$KIRI_RUN_ID STEP=$KIRI_STEP_INDEX ROOT=$KIRI_REPO_ROOT META=$KIRI_META_FILE BUNDLE=$KIRI_BUNDLE_DIR"\n',
+      '#!/bin/sh\necho "RUN=$KIRI_RUN_ID STEP=$KIRI_STEP_INDEX ROOT=$KIRI_REPO_ROOT BUNDLE=$KIRI_BUNDLE_DIR"\n',
     );
     const wf = makeWorkflow("env-vars", useSteps("dump"));
 
@@ -259,7 +259,7 @@ describe("runWorkflow", () => {
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(
-      `RUN=${result.runId} STEP=0 ROOT=${cwd} META=${join(cwd, ".kiri", "runs", result.runId, "step-0.meta.json")} BUNDLE=${join(cwd, "scripts", "dump")}\n`,
+      `RUN=${result.runId} STEP=0 ROOT=${cwd} BUNDLE=${join(cwd, "scripts", "dump")}\n`,
     );
   });
 

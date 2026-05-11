@@ -86,7 +86,6 @@ content.
 | `{{KIRI_STEP_INDEX}}` | Zero-based index of this step in the run. |
 | `{{KIRI_REPO_ROOT}}` | Absolute path of the workflow repo root. |
 | `{{KIRI_BUNDLE_DIR}}` | Absolute path of this bundle's directory. |
-| `{{KIRI_META_FILE}}` | Path the bundle writes step metadata to. |
 | `{{MAX_TURNS}}` | Bundle env-var contract value, defaulted as documented above. |
 | `{{PROMPT}}`, `{{PROMPT_FILE}}`, `{{MODEL}}` | Bundle env-var contract values — resolve to empty when unset, since none have a default. |
 | Any `{{MY_VAR}}` | Anything set in the workflow's `env:` block. |
@@ -113,10 +112,3 @@ Renders to: `Say a cheerful one-sentence hello to Lee.`
 The `claude` CLI must be on `PATH` (`awk` and POSIX `sh` are
 assumed). The bundle fails with a clear error at the top of the run if
 either is missing.
-
-## Cost capture (deferred)
-
-A later iteration will switch the spawn to `--output-format json`,
-parse the transcript for `cost_usd`, `tokens_in`, `tokens_out`,
-and `model`, and write them to `$KIRI_META_FILE` so the feed entry
-shows cost in its header.

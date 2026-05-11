@@ -64,7 +64,7 @@ bundle defines its own contract for the keys it expects; kiri doesn't
 validate values.
 
 Kiri injects its own scoped vars on every step — \`KIRI_RUN_ID\`,
-\`KIRI_STEP_INDEX\`, \`KIRI_META_FILE\`, \`KIRI_REPO_ROOT\` — plus OS
+\`KIRI_STEP_INDEX\`, \`KIRI_REPO_ROOT\` — plus OS
 essentials (\`PATH\`, \`HOME\`, \`USER\`, \`LOGNAME\`). These are applied
 *after* user \`env:\` and overwrite on collision, so a workflow can't
 shadow them. Workflow \`env:\` keys starting with \`KIRI_\` are rejected
@@ -272,7 +272,6 @@ content.
 | \`{{KIRI_STEP_INDEX}}\` | Zero-based index of this step in the run. |
 | \`{{KIRI_REPO_ROOT}}\` | Absolute path of the workflow repo root. |
 | \`{{KIRI_BUNDLE_DIR}}\` | Absolute path of this bundle's directory. |
-| \`{{KIRI_META_FILE}}\` | Path the bundle writes step metadata to. |
 | \`{{MAX_TURNS}}\` | Bundle env-var contract value, defaulted as documented above. |
 | \`{{PROMPT}}\`, \`{{PROMPT_FILE}}\`, \`{{MODEL}}\` | Bundle env-var contract values — resolve to empty when unset, since none have a default. |
 | Any \`{{MY_VAR}}\` | Anything set in the workflow's \`env:\` block. |
@@ -299,13 +298,6 @@ Renders to: \`Say a cheerful one-sentence hello to Lee.\`
 The \`claude\` CLI must be on \`PATH\` (\`awk\` and POSIX \`sh\` are
 assumed). The bundle fails with a clear error at the top of the run if
 either is missing.
-
-## Cost capture (deferred)
-
-A later iteration will switch the spawn to \`--output-format json\`,
-parse the transcript for \`cost_usd\`, \`tokens_in\`, \`tokens_out\`,
-and \`model\`, and write them to \`$KIRI_META_FILE\` so the feed entry
-shows cost in its header.
 `;
 
 /** Contents of the scaffolded `scripts/claude-code-summarizer/run.sh`. */
@@ -518,7 +510,6 @@ self-referential content.
 | \`{{KIRI_STEP_INDEX}}\` | Zero-based index of this step in the run. |
 | \`{{KIRI_REPO_ROOT}}\` | Absolute path of the workflow repo root. |
 | \`{{KIRI_BUNDLE_DIR}}\` | Absolute path of this bundle's directory. |
-| \`{{KIRI_META_FILE}}\` | Path the bundle writes step metadata to. |
 | \`{{KIRI_INPUT}}\` | Stdin piped in by kiri — empty for \`summarize:\` steps today. |
 | \`{{MAX_TURNS}}\`, \`{{MODEL}}\` | Bundle env-var contract values, defaulted as documented above. |
 | \`{{PROMPT}}\`, \`{{PROMPT_FILE}}\` | Bundle env-var contract values — resolve to empty when unset. |

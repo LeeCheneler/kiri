@@ -118,7 +118,6 @@ self-referential content.
 | `{{KIRI_STEP_INDEX}}` | Zero-based index of this step in the run. |
 | `{{KIRI_REPO_ROOT}}` | Absolute path of the workflow repo root. |
 | `{{KIRI_BUNDLE_DIR}}` | Absolute path of this bundle's directory. |
-| `{{KIRI_META_FILE}}` | Path the bundle writes step metadata to. |
 | `{{KIRI_INPUT}}` | Stdin piped in by kiri — empty for `summarize:` steps today. |
 | `{{MAX_TURNS}}`, `{{MODEL}}` | Bundle env-var contract values, defaulted as documented above. |
 | `{{PROMPT}}`, `{{PROMPT_FILE}}` | Bundle env-var contract values — resolve to empty when unset. |

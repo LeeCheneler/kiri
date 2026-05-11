@@ -35,7 +35,6 @@ const stubStep = (overrides: Partial<RunStepRow> = {}): RunStepRow => ({
   output: null,
   error: null,
   traces: { stdout: "hello, world", stderr: "", durationMs: 1_400 },
-  usage: null,
   isSummary: false,
   isPublish: false,
   ...overrides,

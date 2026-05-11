@@ -93,8 +93,8 @@ export interface RunListEntry {
 
 /**
  * One per-step row inside a run detail. Carries the standard envelope:
- * `status`, `output`, `error`, `traces`, `usage`. Reproducibility of
- * the bytes that produced the step lives on the parent run's `gitSha`.
+ * `status`, `output`, `error`, `traces`. Reproducibility of the bytes
+ * that produced the step lives on the parent run's `gitSha`.
  *
  * `isSummary` and `isPublish` distinguish summariser and publish rows
  * from regular pipeline steps. The UI hides both from the main step
@@ -111,7 +111,6 @@ export interface RunStepRow {
   output: unknown;
   error: { message: string; stack?: string } | null;
   traces: { stdout: string; stderr: string; durationMs: number } | null;
-  usage: unknown;
   isSummary: boolean;
   isPublish: boolean;
 }

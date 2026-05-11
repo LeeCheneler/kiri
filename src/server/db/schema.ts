@@ -43,8 +43,8 @@ export const runs = sqliteTable("runs", {
 
 /**
  * Per-step state for a run. Carries the standard envelope: `status`,
- * `output`, `error`, `traces`, `usage`. Reproducibility of the source
- * bytes that produced the step lives on `runs.gitSha` — the data repo
+ * `output`, `error`, `traces`. Reproducibility of the source bytes
+ * that produced the step lives on `runs.gitSha` — the data repo
  * commit at run-start — rather than per-step file snapshots.
  */
 export const runSteps = sqliteTable(
@@ -65,7 +65,6 @@ export const runSteps = sqliteTable(
     output: text("output", { mode: "json" }),
     error: text("error", { mode: "json" }),
     traces: text("traces", { mode: "json" }),
-    usage: text("usage", { mode: "json" }),
     /**
      * Marks the row as the workflow's `summarize:` execution rather than
      * a member of the `steps:` pipeline. Set on the single summariser row
