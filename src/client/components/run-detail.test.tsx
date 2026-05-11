@@ -626,6 +626,12 @@ describe("<RunDetailView>", () => {
       renderDetail(stubDetail({ summary: null }));
       expect(screen.queryByText(/^summary$/i)).toBeNull();
     });
+
+    it("wraps the summary text in a blockquote so it reads as a quote", () => {
+      const { container } = renderDetail(stubDetail({ summary: "Quoted text body." }));
+      const quote = container.querySelector("blockquote");
+      expect(quote?.textContent).toContain("Quoted text body.");
+    });
   });
 
   describe("published section", () => {
@@ -699,6 +705,37 @@ describe("<RunDetailView>", () => {
       const published = screen.getByRole("heading", { name: /^published$/i });
       const activity = screen.getByRole("heading", { name: /^activity$/i });
       expect(published.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    });
+
+    it("renders directly under the summary when both surfaces are visible", () => {
+      renderDetail(
+        stubDetail(
+          { summary: "Top-line summary." },
+          [],
+          [stubArtefact({ name: "digest", title: "Digest" })],
+        ),
+      );
+      const summary = screen.getByText(/^summary$/i);
+      const published = screen.getByRole("heading", { name: /^published$/i });
+      // summary → published (no intervening section between them on this run).
+      expect(summary.compareDocumentPosition(published) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    });
+
+    it("renders above the run failure block when a failure is present", () => {
+      renderDetail(
+        stubDetail(
+          { status: "failed", error: { message: "boom" } },
+          [],
+          [stubArtefact({ name: "digest", title: "Digest" })],
+        ),
+      );
+      const published = screen.getByRole("heading", { name: /^published$/i });
+      const failure = screen.getByText(/^run failed$/i);
+      expect(published.compareDocumentPosition(failure) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
     });

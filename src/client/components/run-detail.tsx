@@ -224,9 +224,9 @@ export function RunDetailView({
 
       {run.summary && <RunSummaryBlock summary={run.summary} />}
 
-      {run.error && <RunFailureBlock error={run.error} />}
-
       {artefacts.length > 0 && <PublishedSection runId={run.id} artefacts={artefacts} now={now} />}
+
+      {run.error && <RunFailureBlock error={run.error} />}
 
       <ActivitySection items={activity} />
     </article>
@@ -416,7 +416,9 @@ function RunSummaryBlock({ summary }: { summary: string }) {
   return (
     <section className="mt-10 border-l-2 border-rule py-2 pl-5">
       <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summary</h3>
-      <p className="mt-2 text-lg leading-relaxed text-ink">{summary}</p>
+      <blockquote className="mt-2">
+        <p className="font-display text-base text-ink italic leading-relaxed">{summary}</p>
+      </blockquote>
     </section>
   );
 }
