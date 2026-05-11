@@ -50,9 +50,9 @@ test("cancelling via the API surfaces the cancelled treatment in the feed live",
   await expect
     .poll(() => feed.getByRole("link", { name: /cancellable/i }).count())
     .toBe(initialRowCount + 1);
-  // Stacked-link row: link wraps the workflow name, data-status lives on
-  // the wrapping div above the link.
-  const link = feed.getByRole("link", { name: /cancellable/i }).first();
-  const row = page.locator("li", { has: link }).locator("[data-status]").first();
+  // Stacked-link row: link wraps the workflow name; data-status lives on
+  // the wrapping <div data-status>. Query the row by its link href via
+  // :has() — one runId per row, so the match is unambiguous.
+  const row = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
   await expect(row).toHaveAttribute("data-status", "cancelled", { timeout: 10_000 });
 });
