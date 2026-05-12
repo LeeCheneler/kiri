@@ -140,15 +140,23 @@ const buildActivityItems = (run: RunListEntry, steps: RunStepRow[]): ActivityIte
  * while the run is `running`. The handler resolves on accepted-cancel
  * (HTTP 202) and rejects with the server error otherwise — the button
  * shows a brief inline message in the rejected case.
+ *
+ * `onDelete`, when supplied, surfaces a delete button in the header
+ * for any non-running run (mutually exclusive with cancel). The
+ * handler resolves once the run is gone and rejects with the server
+ * error otherwise — the button shows a brief inline message in the
+ * rejected case.
  */
 export function RunDetailView({
   detail,
   now,
   onCancel,
+  onDelete,
 }: {
   detail: RunDetail;
   now?: Date;
   onCancel?: () => Promise<unknown>;
+  onDelete?: () => Promise<unknown>;
 }) {
   const { run, steps } = detail;
   const { artefacts } = run;
@@ -183,7 +191,9 @@ export function RunDetailView({
               )}
             </h2>
           </div>
-          {status === "running" && onCancel && <CancelButton onCancel={onCancel} />}
+          {status === "running"
+            ? onCancel && <CancelButton onCancel={onCancel} />
+            : onDelete && <DeleteButton onDelete={onDelete} />}
         </div>
         <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
           <div className="flex items-baseline">
@@ -273,6 +283,41 @@ function CancelButton({ onCancel }: { onCancel: () => Promise<unknown> }) {
         className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-status-failed hover:text-status-failed focus-visible:border-status-failed focus-visible:text-status-failed focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {pending ? "cancelling…" : "cancel run"}
+      </button>
+      {error && (
+        <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DeleteButton({ onDelete }: { onDelete: () => Promise<unknown> }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleClick = async () => {
+    setError(null);
+    setPending(true);
+    try {
+      await onDelete();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="shrink-0 text-right">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={pending}
+        className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-status-failed hover:text-status-failed focus-visible:border-status-failed focus-visible:text-status-failed focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {pending ? "deleting…" : "delete"}
       </button>
       {error && (
         <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">

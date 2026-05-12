@@ -31,6 +31,8 @@ export function Dashboard() {
   prependRef.current = feed.prependRun;
   const patchRef = useRef(feed.patchRun);
   patchRef.current = feed.patchRun;
+  const removeRef = useRef(feed.removeRun);
+  removeRef.current = feed.removeRun;
   const mergePageOneRef = useRef(feed.mergePageOne);
   mergePageOneRef.current = feed.mergePageOne;
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -72,6 +74,10 @@ export function Dashboard() {
         .then((detail) => patchRef.current(detail.run))
         .catch((err: Error) => console.error(`run.updated fetch failed: ${err.message}`));
     },
+  });
+  useLiveEvent({
+    on: ["run.deleted"],
+    handler: (event) => removeRef.current(event.id),
   });
   useLiveReconnect(useCallback(() => mergePageOneRef.current(), []));
 

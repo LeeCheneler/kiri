@@ -133,6 +133,49 @@ describe("<Dashboard>", () => {
     });
   });
 
+  it("drops a row in place on run.deleted (no refetch)", async () => {
+    let pageOneCalls = 0;
+    server.use(
+      http.get("*/api/runs", () => {
+        pageOneCalls++;
+        return HttpResponse.json({
+          runs: [stubRunPayload("r1", "alpha"), stubRunPayload("r2", "beta")],
+          nextCursor: null,
+        });
+      }),
+    );
+
+    const { sources } = renderDashboard();
+    await screen.findByText(/alpha/);
+    await screen.findByText(/beta/);
+    expect(pageOneCalls).toBe(1);
+
+    act(() => sources[0]?.emit({ type: "run.deleted", id: "r1" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/alpha/)).toBeNull();
+    });
+    expect(screen.getByText(/beta/)).toBeDefined();
+    // Surgical: deletion did not retrigger the page-one fetch.
+    expect(pageOneCalls).toBe(1);
+  });
+
+  it("ignores a run.deleted event for a row that isn't on any loaded page", async () => {
+    server.use(
+      http.get("*/api/runs", () =>
+        HttpResponse.json({ runs: [stubRunPayload("r1", "alpha")], nextCursor: null }),
+      ),
+    );
+
+    const { sources } = renderDashboard();
+    await screen.findByText(/alpha/);
+
+    act(() => sources[0]?.emit({ type: "run.deleted", id: "unknown" }));
+
+    // Untouched: the loaded row is still rendered.
+    expect(screen.getByText(/alpha/)).toBeDefined();
+  });
+
   it("reconciles artefact chips when a run goes from 0 to N artefacts mid-stream", async () => {
     // First page-one fetch carries no artefacts. After a run.updated event
     // the dashboard refetches the single run; the detail endpoint now

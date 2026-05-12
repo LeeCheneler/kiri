@@ -25,6 +25,10 @@ const renderRun = (id: string) => {
 
 describe("<RunPage>", () => {
   it("shows a loading message while the run is being fetched", () => {
+    // Stall the fetch indefinitely so the loading state stays visible
+    // for the assertion. Default MSW handlers don't cover this path, so
+    // without a pending responder the request would land as unhandled.
+    server.use(http.get("*/api/runs/:id", () => new Promise<Response>(() => {})));
     renderRun("abc");
     expect(screen.getByText(/loading run/i)).toBeDefined();
   });
@@ -224,6 +228,145 @@ describe("<RunPage>", () => {
     });
 
     expect(cancelCalls).toEqual(["abc"]);
+  });
+
+  describe("delete button", () => {
+    // Capture window.confirm so each test can pre-program the answer.
+    // Restore on cleanup so a stubbed value can't leak into sibling tests.
+    const originalConfirm = window.confirm;
+    const stubConfirm = (answer: boolean) => {
+      window.confirm = () => answer;
+    };
+    afterEach(() => {
+      window.confirm = originalConfirm;
+    });
+
+    const terminalRunPayload = (id: string) => ({
+      run: {
+        id,
+        workflowName: "done",
+        status: "ok",
+        trigger: "manual",
+        startedAt: "2026-05-09T12:00:00.000Z",
+        finishedAt: "2026-05-09T12:00:01.000Z",
+        error: null,
+        summary: null,
+        definitionSnapshot: { name: "done", steps: [] },
+        isInterrupted: false,
+        artefacts: [],
+      },
+      steps: [],
+    });
+
+    const renderRunWithHistory = (id: string) => {
+      const memory = memoryLocation({ path: `/runs/${id}`, record: true });
+      const { factory } = captureEventSources();
+      const ui = render(
+        <Router hook={memory.hook}>
+          <LiveEventsProvider factory={factory}>
+            <RunPage params={{ id }} />
+          </LiveEventsProvider>
+        </Router>,
+      );
+      return { ...ui, history: memory.history };
+    };
+
+    it("confirms, calls DELETE /api/runs/:id, and navigates back to the dashboard", async () => {
+      const deleteCalls: string[] = [];
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) =>
+          HttpResponse.json(terminalRunPayload(String(params.id))),
+        ),
+        http.delete("*/api/runs/:id", ({ params }) => {
+          deleteCalls.push(String(params.id));
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      stubConfirm(true);
+      const { history } = renderRunWithHistory("abc");
+
+      const button = await screen.findByRole("button", { name: /^delete$/i });
+      await act(async () => {
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(deleteCalls).toEqual(["abc"]);
+      expect(history[history.length - 1]).toBe("/");
+    });
+
+    it("does not call the API or navigate when the user cancels the confirm prompt", async () => {
+      const deleteCalls: string[] = [];
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) =>
+          HttpResponse.json(terminalRunPayload(String(params.id))),
+        ),
+        http.delete("*/api/runs/:id", ({ params }) => {
+          deleteCalls.push(String(params.id));
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      stubConfirm(false);
+      const { history } = renderRunWithHistory("abc");
+
+      const button = await screen.findByRole("button", { name: /^delete$/i });
+      await act(async () => {
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(deleteCalls).toEqual([]);
+      // No navigation happened — the user is still on the run page.
+      expect(history[history.length - 1]).toBe("/runs/abc");
+    });
+
+    it("navigates home even when the API returns 404 (already deleted in another tab)", async () => {
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) =>
+          HttpResponse.json(terminalRunPayload(String(params.id))),
+        ),
+        http.delete("*/api/runs/:id", () =>
+          HttpResponse.json({ error: 'run "abc" not found' }, { status: 404 }),
+        ),
+      );
+
+      stubConfirm(true);
+      const { history } = renderRunWithHistory("abc");
+
+      const button = await screen.findByRole("button", { name: /^delete$/i });
+      await act(async () => {
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(history[history.length - 1]).toBe("/");
+    });
+
+    it("surfaces a non-404 API error inline without navigating", async () => {
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) =>
+          HttpResponse.json(terminalRunPayload(String(params.id))),
+        ),
+        http.delete("*/api/runs/:id", () =>
+          HttpResponse.json({ error: 'run "abc" is in flight; cancel it first' }, { status: 409 }),
+        ),
+      );
+
+      stubConfirm(true);
+      const { history } = renderRunWithHistory("abc");
+
+      const button = await screen.findByRole("button", { name: /^delete$/i });
+      await act(async () => {
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("is in flight");
+      expect(history[history.length - 1]).toBe("/runs/abc");
+    });
   });
 
   it("ignores events for other run ids", async () => {

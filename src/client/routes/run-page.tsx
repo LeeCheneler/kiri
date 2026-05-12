@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "wouter";
-import { ApiError, type RunDetail, cancelRun, fetchRun } from "../api.ts";
+import { Link, useLocation } from "wouter";
+import { ApiError, type RunDetail, cancelRun, deleteRun, fetchRun } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
 import { useLiveSync } from "../events/live.tsx";
 
@@ -19,6 +19,7 @@ type State =
  */
 export function RunPage({ params }: { params: { id: string } }) {
   const [state, setState] = useState<State>({ status: "loading" });
+  const [, navigate] = useLocation();
   const tokenRef = useRef(0);
 
   const refetch = useCallback(() => {
@@ -80,5 +81,23 @@ export function RunPage({ params }: { params: { id: string } }) {
     );
   }
 
-  return <RunDetailView detail={state.detail} onCancel={() => cancelRun(params.id)} />;
+  const handleDelete = async () => {
+    if (!window.confirm("Delete this run? This cannot be undone.")) return;
+    try {
+      await deleteRun(params.id);
+    } catch (err) {
+      // Another tab (or stale data) already removed it — the user's
+      // intent is satisfied either way; fall through to navigate home.
+      if (!(err instanceof ApiError) || err.status !== 404) throw err;
+    }
+    navigate("/");
+  };
+
+  return (
+    <RunDetailView
+      detail={state.detail}
+      onCancel={() => cancelRun(params.id)}
+      onDelete={handleDelete}
+    />
+  );
 }

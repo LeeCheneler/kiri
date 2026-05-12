@@ -49,6 +49,7 @@ const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
   "run.updated",
   "run.step.updated",
   "run.finished",
+  "run.deleted",
   "workflow.added",
   "workflow.updated",
   "workflow.removed",
