@@ -235,6 +235,42 @@ export function createApp(deps: AppDeps): Hono {
     return c.body(null, 204);
   });
 
+  app.post("/api/runs/:id/rerun", (c) => {
+    const id = c.req.param("id");
+    const run = db.select().from(runs).where(eq(runs.id, id)).get();
+    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+    if (run.status === "running") {
+      return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
+    }
+    const wf = registry.getWorkflow(run.workflowName);
+    if (!wf) {
+      return c.json(
+        { error: `workflow "${run.workflowName}" no longer exists; re-create it first` },
+        409,
+      );
+    }
+    // Cascade-wipe artefacts + step rows (mirrors the delete path, minus
+    // the final `runs` delete) so the rerun starts with a clean slate
+    // under the same run id. Scratch dir is removed too — normally already
+    // gone, but a crashed runner can leave it behind.
+    db.transaction((tx) => {
+      tx.delete(runArtefacts).where(eq(runArtefacts.runId, id)).run();
+      tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
+    });
+    rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
+    const { done } = runWorkflow(db, wf, {
+      cwd,
+      trigger: run.trigger,
+      bus,
+      cancelRegistry,
+      runId: id,
+    });
+    done.catch((cause) => {
+      console.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);
+    });
+    return c.json({ runId: id, status: "running" }, 202);
+  });
+
   app.get("/api/runs", (c) => {
     const parsed = runListQuerySchema.safeParse({
       cursor: c.req.query("cursor"),

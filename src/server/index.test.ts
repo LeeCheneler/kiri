@@ -8,7 +8,7 @@ import type { KiriDb } from "./db/index.ts";
 import { runArtefacts, runSteps, runs } from "./db/schema.ts";
 import { type KiriEvent, createEventBus } from "./events/index.ts";
 import { createApp } from "./index.ts";
-import { createCancelRegistry } from "./runner/cancel-registry.ts";
+import { type CancelRegistry, createCancelRegistry } from "./runner/cancel-registry.ts";
 import { type Registry, type WorkflowDefinition, createRegistry } from "./workflows/index.ts";
 
 describe("createApp", () => {
@@ -1362,6 +1362,206 @@ describe("createApp", () => {
       });
       expect(second.status).toBe(404);
       expect(await second.json()).toEqual({ error: `run "${id}" not found` });
+    });
+  });
+
+  describe("POST /api/runs/:id/rerun", () => {
+    const seedTerminalRun = (
+      id: string,
+      opts: {
+        workflowName?: string;
+        status?: "ok" | "failed" | "cancelled";
+        trigger?: string;
+      } = {},
+    ) => {
+      const workflowName = opts.workflowName ?? "demo";
+      db.insert(runs)
+        .values({
+          id,
+          workflowName,
+          status: opts.status ?? "failed",
+          trigger: opts.trigger ?? "manual",
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          error: { message: "first attempt failed" },
+          definitionSnapshot: { name: workflowName, steps: [{ sh: "echo old" }] },
+        })
+        .run();
+      db.insert(runSteps)
+        .values({
+          id: `${id}-step-0`,
+          runId: id,
+          index: 0,
+          kind: "sh",
+          status: "failed",
+          output: null,
+          error: { message: "first attempt failed" },
+          traces: { stdout: "", stderr: "boom", durationMs: 1 },
+        })
+        .run();
+      db.insert(runArtefacts)
+        .values({
+          id: `${id}-art`,
+          runId: id,
+          name: "leftover",
+          title: "Leftover",
+          contentMd: "stale",
+          createdAt: new Date(),
+        })
+        .run();
+    };
+
+    it("returns 404 for an unknown run id", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs/missing/rerun", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'run "missing" not found' });
+    });
+
+    it("returns 409 when the run is still running", async () => {
+      const id = "still-running";
+      db.insert(runs)
+        .values({
+          id,
+          workflowName: "demo",
+          status: "running",
+          trigger: "manual",
+          startedAt: new Date(),
+          definitionSnapshot: { name: "demo", steps: [] },
+        })
+        .run();
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request(`/api/runs/${id}/rerun`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: `run "${id}" is in flight; cancel it first` });
+    });
+
+    it("returns 409 when the source workflow no longer exists in the registry", async () => {
+      const id = "interrupted";
+      seedTerminalRun(id, { workflowName: "gone" });
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request(`/api/runs/${id}/rerun`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: 'workflow "gone" no longer exists; re-create it first',
+      });
+
+      // Nothing was wiped — the rerun was rejected before the cascade.
+      expect(db.select().from(runSteps).where(eq(runSteps.runId, id)).all()).toHaveLength(1);
+      expect(db.select().from(runArtefacts).where(eq(runArtefacts.runId, id)).all()).toHaveLength(
+        1,
+      );
+    });
+
+    it("rejects POST without the X-Kiri-Client header (CSRF gate)", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs/anything/rerun", { method: "POST" });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
+    });
+
+    it("logs and absorbs rejections from the background runner so they never go unhandled", async () => {
+      const id = "rerun-crash";
+      writeBundle("hi", "#!/bin/sh\necho hello\n");
+      const wf: WorkflowDefinition = { name: "demo", steps: [{ use: "hi" }] };
+      registry.replace(new Map([[wf.name, wf]]));
+      seedTerminalRun(id);
+
+      // Drop a cancel registry whose isCancelled throws, so the runner's
+      // pre-step check inside `done` throws and the route's `done.catch`
+      // fires. The runner still finalises the row (try/catch in the IIFE)
+      // before re-throwing.
+      const throwingRegistry: CancelRegistry = {
+        register() {},
+        setChild() {},
+        requestCancel() {
+          return false;
+        },
+        release() {},
+        isCancelled() {
+          throw new Error("cancel-registry boom");
+        },
+      };
+
+      const errors: unknown[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => {
+        errors.push(args.join(" "));
+      };
+
+      try {
+        const { bus, waitForFinished } = setupRunWaiter();
+        const app = createApp({ db, registry, cwd, bus, cancelRegistry: throwingRegistry });
+        const res = await app.request(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: CLIENT_HEADERS,
+        });
+        expect(res.status).toBe(202);
+        await waitForFinished(id);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(errors.some((line) => String(line).includes("crashed"))).toBe(true);
+    });
+
+    it("wipes prior steps + artefacts + scratch dir and re-runs under the same id", async () => {
+      const id = "to-rerun";
+      writeBundle("hi", "#!/bin/sh\necho fresh\n");
+      const wf: WorkflowDefinition = { name: "demo", steps: [{ use: "hi" }] };
+      registry.replace(new Map([[wf.name, wf]]));
+      seedTerminalRun(id, { trigger: "scheduled" });
+
+      // Scratch-dir leftover (mimicking a crashed runner). Should be removed
+      // before the rerun starts so stale files don't pollute the new run.
+      const scratch = join(cwd, ".kiri", "runs", id);
+      mkdirSync(scratch, { recursive: true });
+      writeFileSync(join(scratch, "leftover.txt"), "crash residue");
+
+      const { bus, waitForFinished } = setupRunWaiter();
+      const app = createApp({ db, registry, cwd, bus });
+      const res = await app.request(`/api/runs/${id}/rerun`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({ runId: id, status: "running" });
+
+      await waitForFinished(id);
+
+      // One row, same id, status flipped to ok, trigger preserved.
+      const allRows = db.select().from(runs).where(eq(runs.id, id)).all();
+      expect(allRows).toHaveLength(1);
+      expect(allRows[0].status).toBe("ok");
+      expect(allRows[0].trigger).toBe("scheduled");
+      expect(allRows[0].error).toBeNull();
+      expect(allRows[0].definitionSnapshot).toMatchObject({
+        name: "demo",
+        steps: [{ use: "hi" }],
+      });
+
+      // Old artefact gone; old step row replaced by the fresh run's step.
+      const steps = db.select().from(runSteps).where(eq(runSteps.runId, id)).all();
+      expect(steps).toHaveLength(1);
+      expect(steps[0].status).toBe("ok");
+      expect(steps[0].output).toBe("fresh\n");
+      expect(steps.some((s) => s.id === `${id}-step-0`)).toBe(false);
+      expect(db.select().from(runArtefacts).where(eq(runArtefacts.runId, id)).all()).toEqual([]);
+
+      // Leftover scratch file is gone.
+      expect(existsSync(join(scratch, "leftover.txt"))).toBe(false);
     });
   });
 
