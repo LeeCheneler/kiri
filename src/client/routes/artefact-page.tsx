@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ApiError, type RunArtefactDetail, fetchArtefact } from "../api.ts";
+import { CopyButton } from "../components/copy-button.tsx";
 import { Markdown } from "../components/markdown.tsx";
 import { formatRelativeTime } from "../formatters/format-time.ts";
 
@@ -88,35 +89,38 @@ export function ArtefactPage({
         ← back to run
       </Link>
 
-      <header className="mt-6">
-        <div className="text-xs tracking-widest text-ink-muted uppercase">
-          {artefact.workflowName}
+      <header className="mt-6 flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs tracking-widest text-ink-muted uppercase">
+            {artefact.workflowName}
+          </div>
+          <h2 className="mt-2 font-display text-4xl text-ink leading-tight">{artefact.title}</h2>
+          <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
+            <div className="flex items-baseline">
+              <dt className="sr-only">run</dt>
+              <dd>
+                <Link
+                  href={`/runs/${artefact.runId}`}
+                  className="font-mono text-ink-muted no-underline transition-colors hover:text-accent focus-visible:text-accent"
+                >
+                  run {artefact.runId.slice(0, 8)}
+                </Link>
+              </dd>
+            </div>
+            <span aria-hidden="true" className="text-rule">
+              ·
+            </span>
+            <div className="flex items-baseline">
+              <dt className="sr-only">created</dt>
+              <dd>
+                <time dateTime={artefact.createdAt} title={artefact.createdAt}>
+                  {formatRelativeTime(artefact.createdAt, now)}
+                </time>
+              </dd>
+            </div>
+          </dl>
         </div>
-        <h2 className="mt-2 font-display text-4xl text-ink leading-tight">{artefact.title}</h2>
-        <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
-          <div className="flex items-baseline">
-            <dt className="sr-only">run</dt>
-            <dd>
-              <Link
-                href={`/runs/${artefact.runId}`}
-                className="font-mono text-ink-muted no-underline transition-colors hover:text-accent focus-visible:text-accent"
-              >
-                run {artefact.runId.slice(0, 8)}
-              </Link>
-            </dd>
-          </div>
-          <span aria-hidden="true" className="text-rule">
-            ·
-          </span>
-          <div className="flex items-baseline">
-            <dt className="sr-only">created</dt>
-            <dd>
-              <time dateTime={artefact.createdAt} title={artefact.createdAt}>
-                {formatRelativeTime(artefact.createdAt, now)}
-              </time>
-            </dd>
-          </div>
-        </dl>
+        <CopyButton content={artefact.contentMd} />
       </header>
 
       <div className="mt-10">

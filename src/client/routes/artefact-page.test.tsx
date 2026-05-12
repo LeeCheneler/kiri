@@ -62,6 +62,8 @@ describe("<ArtefactPage>", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
     expect(screen.getByText(/First paragraph\./)).toBeDefined();
     expect(screen.getByText(/Second paragraph\./)).toBeDefined();
+    // Copy-to-clipboard button is wired in so the user can share the body.
+    expect(screen.getByRole("button", { name: /^copy$/i })).toBeDefined();
   });
 
   it("renders the not-found view when the API returns 404", async () => {
