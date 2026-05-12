@@ -295,3 +295,17 @@ export const deleteRun = async (id: string): Promise<void> => {
     throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
   }
 };
+
+/**
+ * Re-trigger a finished run under its existing id. The server wipes the
+ * prior step rows, artefacts, and scratch dir, then re-executes the
+ * workflow against the current registry + data-repo HEAD. Resolves the
+ * moment the row flips back to `"running"`; terminal transitions arrive
+ * on the SSE event stream. Throws `ApiError` on non-2xx — 404 if the run
+ * doesn't exist, 409 if it's still in flight or its workflow has been
+ * deleted from the registry.
+ */
+export const rerunRun = async (id: string): Promise<RunStartResult> =>
+  json<RunStartResult>(
+    await apiFetch(`/api/runs/${encodeURIComponent(id)}/rerun`, { method: "POST" }),
+  );

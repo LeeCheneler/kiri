@@ -8,6 +8,7 @@ import {
   fetchRun,
   fetchRunsPage,
   fetchWorkflows,
+  rerunRun,
   triggerRun,
 } from "./api.ts";
 
@@ -166,6 +167,43 @@ describe("api client", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).status).toBe(500);
+    }
+  });
+
+  it("reruns a terminal run and returns the existing runId with running status", async () => {
+    const seen: { method: string; header: string | null; id: string }[] = [];
+    server.use(
+      http.post("*/api/runs/:id/rerun", ({ request, params }) => {
+        seen.push({
+          method: request.method,
+          header: request.headers.get("X-Kiri-Client"),
+          id: String(params.id),
+        });
+        return HttpResponse.json({ runId: params.id, status: "running" }, { status: 202 });
+      }),
+    );
+
+    const result = await rerunRun("abc-123");
+
+    expect(result.runId).toBe("abc-123");
+    expect(result.status).toBe("running");
+    expect(seen).toEqual([{ method: "POST", header: "kiri-ui", id: "abc-123" }]);
+  });
+
+  it("throws an ApiError carrying 409 when rerun races an in-flight run", async () => {
+    server.use(
+      http.post("*/api/runs/:id/rerun", () =>
+        HttpResponse.json({ error: 'run "abc" is in flight; cancel it first' }, { status: 409 }),
+      ),
+    );
+
+    try {
+      await rerunRun("abc");
+      throw new Error("expected rerunRun to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(409);
+      expect((err as ApiError).message).toBe('run "abc" is in flight; cancel it first');
     }
   });
 });

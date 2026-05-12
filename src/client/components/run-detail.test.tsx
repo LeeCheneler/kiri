@@ -51,12 +51,22 @@ const stubDetail = (
 
 const renderDetail = (
   detail: RunDetail,
-  opts: { onCancel?: () => Promise<unknown>; onDelete?: () => Promise<unknown> } = {},
+  opts: {
+    onCancel?: () => Promise<unknown>;
+    onDelete?: () => Promise<unknown>;
+    onRerun?: () => Promise<unknown>;
+  } = {},
 ) => {
   const { hook } = memoryLocation({ path: `/runs/${detail.run.id}` });
   return render(
     <Router hook={hook}>
-      <RunDetailView detail={detail} now={NOW} onCancel={opts.onCancel} onDelete={opts.onDelete} />
+      <RunDetailView
+        detail={detail}
+        now={NOW}
+        onCancel={opts.onCancel}
+        onDelete={opts.onDelete}
+        onRerun={opts.onRerun}
+      />
     </Router>,
   );
 };
@@ -363,6 +373,121 @@ describe("<RunDetailView>", () => {
       const alert = screen.getByRole("alert");
       expect(alert.textContent).toContain('run "abc" is in flight; cancel it first');
       const button = screen.getByRole("button", { name: /^delete$/i });
+      expect(button.hasAttribute("disabled")).toBe(false);
+    });
+  });
+
+  describe("rerun button", () => {
+    const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it.each(["ok", "failed", "cancelled"] as const)(
+      "renders for the terminal status %s when onRerun is provided",
+      (status) => {
+        renderDetail(stubDetail({ status }), {
+          onRerun: () => Promise.resolve({ runId: "run-1", status: "running" as const }),
+        });
+        expect(screen.getByRole("button", { name: /run again/i })).toBeDefined();
+      },
+    );
+
+    it("does not render while the run is still running (cancel takes the slot)", () => {
+      renderDetail(stubDetail({ status: "running", finishedAt: null }), {
+        onCancel: () => Promise.resolve({ runId: "run-1" }),
+        onRerun: () => Promise.resolve({ runId: "run-1", status: "running" as const }),
+      });
+      expect(screen.queryByRole("button", { name: /run again/i })).toBeNull();
+    });
+
+    it("does not render when no onRerun handler is provided (presentational fallback)", () => {
+      renderDetail(stubDetail({ status: "ok" }));
+      expect(screen.queryByRole("button", { name: /run again/i })).toBeNull();
+    });
+
+    it("renders alongside delete on terminal runs", () => {
+      renderDetail(stubDetail({ status: "ok" }), {
+        onRerun: () => Promise.resolve({ runId: "run-1", status: "running" as const }),
+        onDelete: () => Promise.resolve(),
+      });
+      expect(screen.getByRole("button", { name: /run again/i })).toBeDefined();
+      expect(screen.getByRole("button", { name: /^delete$/i })).toBeDefined();
+    });
+
+    it("disables the button with an explanatory tooltip when the workflow is interrupted", () => {
+      renderDetail(stubDetail({ status: "failed", isInterrupted: true }), {
+        onRerun: () => Promise.resolve({ runId: "run-1", status: "running" as const }),
+      });
+      const button = screen.getByRole("button", { name: /run again/i });
+      expect(button.hasAttribute("disabled")).toBe(true);
+      expect(button.getAttribute("title")).toContain("no longer exists");
+    });
+
+    it("does not invoke onRerun when the button is disabled (interrupted)", () => {
+      let calls = 0;
+      const onRerun = () => {
+        calls++;
+        return Promise.resolve({ runId: "run-1", status: "running" as const });
+      };
+      renderDetail(stubDetail({ status: "failed", isInterrupted: true }), { onRerun });
+
+      act(() => {
+        fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+      });
+
+      expect(calls).toBe(0);
+    });
+
+    it("invokes onRerun exactly once on click", async () => {
+      let calls = 0;
+      const onRerun = () => {
+        calls++;
+        return Promise.resolve({ runId: "run-1", status: "running" as const });
+      };
+      renderDetail(stubDetail({ status: "ok" }), { onRerun });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+        await flushMicrotasks();
+      });
+
+      expect(calls).toBe(1);
+    });
+
+    it("shows a pending label and disables the button while the request is in flight", async () => {
+      let resolve: ((value: { runId: string; status: "running" }) => void) | undefined;
+      const onRerun = () =>
+        new Promise<{ runId: string; status: "running" }>((res) => {
+          resolve = res;
+        });
+      renderDetail(stubDetail({ status: "ok" }), { onRerun });
+
+      const button = screen.getByRole("button", { name: /run again/i });
+      act(() => {
+        fireEvent.click(button);
+      });
+
+      const pending = screen.getByRole("button", { name: /starting/i });
+      expect(pending.hasAttribute("disabled")).toBe(true);
+
+      await act(async () => {
+        resolve?.({ runId: "run-1", status: "running" });
+        await flushMicrotasks();
+      });
+
+      expect(screen.getByRole("button", { name: /run again/i })).toBeDefined();
+    });
+
+    it("surfaces the error message inline when onRerun rejects", async () => {
+      const onRerun = () => Promise.reject(new Error('run "abc" is in flight; cancel it first'));
+      renderDetail(stubDetail({ status: "ok" }), { onRerun });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+        await flushMicrotasks();
+      });
+
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toContain('run "abc" is in flight; cancel it first');
+      const button = screen.getByRole("button", { name: /run again/i });
       expect(button.hasAttribute("disabled")).toBe(false);
     });
   });

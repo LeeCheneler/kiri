@@ -369,6 +369,127 @@ describe("<RunPage>", () => {
     });
   });
 
+  describe("rerun button", () => {
+    const originalConfirm = window.confirm;
+    const stubConfirm = (answer: boolean) => {
+      window.confirm = () => answer;
+    };
+    afterEach(() => {
+      window.confirm = originalConfirm;
+    });
+
+    const terminalRunPayload = (id: string) => ({
+      run: {
+        id,
+        workflowName: "done",
+        status: "failed",
+        trigger: "manual",
+        startedAt: "2026-05-09T12:00:00.000Z",
+        finishedAt: "2026-05-09T12:00:01.000Z",
+        error: { message: "first attempt failed" },
+        summary: null,
+        definitionSnapshot: { name: "done", steps: [] },
+        isInterrupted: false,
+        artefacts: [],
+      },
+      steps: [],
+    });
+
+    const renderRunWithHistory = (id: string) => {
+      const memory = memoryLocation({ path: `/runs/${id}`, record: true });
+      const { factory } = captureEventSources();
+      const ui = render(
+        <Router hook={memory.hook}>
+          <LiveEventsProvider factory={factory}>
+            <RunPage params={{ id }} />
+          </LiveEventsProvider>
+        </Router>,
+      );
+      return { ...ui, history: memory.history };
+    };
+
+    it("confirms and POSTs /api/runs/:id/rerun without navigating", async () => {
+      const rerunCalls: string[] = [];
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) =>
+          HttpResponse.json(terminalRunPayload(String(params.id))),
+        ),
+        http.post("*/api/runs/:id/rerun", ({ params }) => {
+          rerunCalls.push(String(params.id));
+          return HttpResponse.json(
+            { runId: String(params.id), status: "running" },
+            { status: 202 },
+          );
+        }),
+      );
+
+      stubConfirm(true);
+      const { history } = renderRunWithHistory("abc");
+
+      const button = await screen.findByRole("button", { name: /run again/i });
+      await act(async () => {
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(rerunCalls).toEqual(["abc"]);
+      // Rerun stays on the page — SSE handles the live transition.
+      expect(history[history.length - 1]).toBe("/runs/abc");
+    });
+
+    it("does not call the API when the user cancels the confirm prompt", async () => {
+      const rerunCalls: string[] = [];
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) =>
+          HttpResponse.json(terminalRunPayload(String(params.id))),
+        ),
+        http.post("*/api/runs/:id/rerun", ({ params }) => {
+          rerunCalls.push(String(params.id));
+          return HttpResponse.json(
+            { runId: String(params.id), status: "running" },
+            { status: 202 },
+          );
+        }),
+      );
+
+      stubConfirm(false);
+      renderRunWithHistory("abc");
+
+      const button = await screen.findByRole("button", { name: /run again/i });
+      await act(async () => {
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(rerunCalls).toEqual([]);
+    });
+
+    it("surfaces an API error inline without navigating", async () => {
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) =>
+          HttpResponse.json(terminalRunPayload(String(params.id))),
+        ),
+        http.post("*/api/runs/:id/rerun", () =>
+          HttpResponse.json({ error: 'run "abc" is in flight; cancel it first' }, { status: 409 }),
+        ),
+      );
+
+      stubConfirm(true);
+      const { history } = renderRunWithHistory("abc");
+
+      const button = await screen.findByRole("button", { name: /run again/i });
+      await act(async () => {
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // The failed run already renders its own "Run failed" alert section, so
+      // query the rerun-button's inline error by text rather than role.
+      await screen.findByText(/run "abc" is in flight; cancel it first/i);
+      expect(history[history.length - 1]).toBe("/runs/abc");
+    });
+  });
+
   it("ignores events for other run ids", async () => {
     let calls = 0;
     server.use(

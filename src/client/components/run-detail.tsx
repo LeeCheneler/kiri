@@ -146,17 +146,25 @@ const buildActivityItems = (run: RunListEntry, steps: RunStepRow[]): ActivityIte
  * handler resolves once the run is gone and rejects with the server
  * error otherwise — the button shows a brief inline message in the
  * rejected case.
+ *
+ * `onRerun`, when supplied, surfaces a "run again" button in the header
+ * alongside delete for any non-running run. Disabled with a tooltip
+ * when the run is interrupted (workflow no longer in the registry).
+ * The handler resolves once the run flips back to `running` and rejects
+ * with the server error otherwise.
  */
 export function RunDetailView({
   detail,
   now,
   onCancel,
   onDelete,
+  onRerun,
 }: {
   detail: RunDetail;
   now?: Date;
   onCancel?: () => Promise<unknown>;
   onDelete?: () => Promise<unknown>;
+  onRerun?: () => Promise<unknown>;
 }) {
   const { run, steps } = detail;
   const { artefacts } = run;
@@ -191,9 +199,14 @@ export function RunDetailView({
               )}
             </h2>
           </div>
-          {status === "running"
-            ? onCancel && <CancelButton onCancel={onCancel} />
-            : onDelete && <DeleteButton onDelete={onDelete} />}
+          {status === "running" ? (
+            onCancel && <CancelButton onCancel={onCancel} />
+          ) : (
+            <div className="flex shrink-0 items-start gap-2">
+              {onRerun && <RerunButton onRerun={onRerun} interrupted={run.isInterrupted} />}
+              {onDelete && <DeleteButton onDelete={onDelete} />}
+            </div>
+          )}
         </div>
         <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
           <div className="flex items-baseline">
@@ -283,6 +296,49 @@ function CancelButton({ onCancel }: { onCancel: () => Promise<unknown> }) {
         className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-status-failed hover:text-status-failed focus-visible:border-status-failed focus-visible:text-status-failed focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {pending ? "cancelling…" : "cancel run"}
+      </button>
+      {error && (
+        <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RerunButton({
+  onRerun,
+  interrupted,
+}: {
+  onRerun: () => Promise<unknown>;
+  interrupted: boolean;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleClick = async () => {
+    if (interrupted) return;
+    setError(null);
+    setPending(true);
+    try {
+      await onRerun();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="shrink-0 text-right">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={pending || interrupted}
+        title={interrupted ? "the workflow no longer exists; re-create it first" : undefined}
+        className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-accent hover:text-accent focus-visible:border-accent focus-visible:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {pending ? "starting…" : "run again"}
       </button>
       {error && (
         <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">

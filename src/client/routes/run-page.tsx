@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ApiError, type RunDetail, cancelRun, deleteRun, fetchRun } from "../api.ts";
+import { ApiError, type RunDetail, cancelRun, deleteRun, fetchRun, rerunRun } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
 import { useLiveSync } from "../events/live.tsx";
 
@@ -93,11 +93,18 @@ export function RunPage({ params }: { params: { id: string } }) {
     navigate("/");
   };
 
+  const handleRerun = async () => {
+    if (!window.confirm("Run again? The previous attempt's steps and traces will be cleared."))
+      return;
+    await rerunRun(params.id);
+  };
+
   return (
     <RunDetailView
       detail={state.detail}
       onCancel={() => cancelRun(params.id)}
       onDelete={handleDelete}
+      onRerun={handleRerun}
     />
   );
 }
