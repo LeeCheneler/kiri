@@ -19,12 +19,14 @@ import { runStep } from "./run-step.ts";
 export interface RunWorkflowArgs {
   /** Repo root. Bundles resolve under `<cwd>/scripts/<name>/run.sh`; the scratch dir lives at `<cwd>/.kiri/runs/<run-id>/`. */
   cwd: string;
-  /** Where the run was triggered from — recorded on the `runs` row. Currently `"manual"`; cron and MCP triggers will use distinct values. */
+  /** Where the run was triggered from — recorded on the `runs` row. Currently `"manual"`; cron and MCP triggers will use distinct values. Ignored when `runId` is supplied — the existing row's trigger is preserved. */
   trigger: string;
   /** Optional event bus. When supplied, the runner publishes lifecycle events at run/step transitions. */
   bus?: EventBus;
   /** Optional cancel registry. When supplied, the runner registers the run, publishes the active step's child handle for SIGTERM/SIGKILL, checks for cancellation between steps, and translates a cancel-induced step failure into a `cancelled` terminal status. */
   cancelRegistry?: CancelRegistry;
+  /** When supplied, reuse this existing `runs` row instead of inserting a new one. The row's `status`, `startedAt`, `definitionSnapshot`, `gitSha`, and `gitDirty` are refreshed, and `finishedAt`/`error`/`summary` are cleared. Used by the in-place rerun path; the caller is responsible for wiping prior `runSteps` / `runArtefacts` and the scratch dir first. */
+  runId?: string;
 }
 
 export interface RunWorkflowResult {
@@ -116,11 +118,17 @@ const buildEnv = (
  * Step execution and finalisation continue in the background; await `done`
  * when the caller needs the terminal status (e.g. cron, tests).
  *
- * Lifecycle, in order: insert `runs` with the definition snapshot and
- * data-repo git ref → create the per-run scratch dir → for each step,
- * insert `run_steps` *before* spawning → execute the step → update the
- * row with the envelope → halt on first failure → finalize the `runs`
- * row → remove the scratch dir.
+ * Lifecycle, in order: insert (or update, when `args.runId` is supplied)
+ * `runs` with the definition snapshot and data-repo git ref → create the
+ * per-run scratch dir → for each step, insert `run_steps` *before*
+ * spawning → execute the step → update the row with the envelope → halt
+ * on first failure → finalize the `runs` row → remove the scratch dir.
+ *
+ * Rerun path (`args.runId` supplied): the existing `runs` row is updated
+ * back to `"running"` with a fresh `startedAt`/`definitionSnapshot`/git
+ * ref, and `finishedAt`/`error`/`summary` are cleared. Trigger is
+ * preserved. Callers must wipe prior `runSteps` / `runArtefacts` and the
+ * scratch dir before invoking so the rerun doesn't accumulate stale rows.
  *
  * Halt-on-failure: a failed step leaves later steps uncreated, and the
  * run is marked failed. `done` rejects if any non-envelope surface
@@ -132,23 +140,39 @@ export function runWorkflow(
   definition: WorkflowDefinition,
   args: RunWorkflowArgs,
 ): StartedRun {
-  const runId = crypto.randomUUID();
+  const runId = args.runId ?? crypto.randomUUID();
   const scratchDir = join(args.cwd, ".kiri", "runs", runId);
   const startedAt = new Date();
   const gitHead = resolveGitHead(args.cwd);
 
-  db.insert(runs)
-    .values({
-      id: runId,
-      workflowName: definition.name,
-      status: "running",
-      trigger: args.trigger,
-      startedAt,
-      definitionSnapshot: snapshotDefinition(definition),
-      gitSha: gitHead.sha,
-      gitDirty: gitHead.dirty,
-    })
-    .run();
+  if (args.runId === undefined) {
+    db.insert(runs)
+      .values({
+        id: runId,
+        workflowName: definition.name,
+        status: "running",
+        trigger: args.trigger,
+        startedAt,
+        definitionSnapshot: snapshotDefinition(definition),
+        gitSha: gitHead.sha,
+        gitDirty: gitHead.dirty,
+      })
+      .run();
+  } else {
+    db.update(runs)
+      .set({
+        status: "running",
+        startedAt,
+        definitionSnapshot: snapshotDefinition(definition),
+        gitSha: gitHead.sha,
+        gitDirty: gitHead.dirty,
+        finishedAt: null,
+        error: null,
+        summary: null,
+      })
+      .where(eq(runs.id, runId))
+      .run();
+  }
 
   // Register synchronously so a cancel request received between this
   // function returning and the executor's first await never sees a

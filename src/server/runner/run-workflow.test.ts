@@ -1337,4 +1337,85 @@ describe("runWorkflow", () => {
       ]);
     });
   });
+
+  describe("rerun (existing runId)", () => {
+    it("reuses the row, refreshes snapshot/git ref, preserves trigger", async () => {
+      writeBundle("boom", "#!/bin/sh\necho oops\nexit 7\n");
+      writeBundle("hi", "#!/bin/sh\necho ok\n");
+
+      const failing = makeWorkflow("rerun-target", useSteps("boom"));
+      const first = await runWorkflow(db, failing, { cwd, trigger: "scheduled" }).done;
+      expect(first.status).toBe("failed");
+
+      const original = db.select().from(runs).where(eq(runs.id, first.runId)).get();
+      if (!original) throw new Error("expected first run row to exist");
+      expect(original.trigger).toBe("scheduled");
+      expect(original.error).not.toBeNull();
+      const originalStartedAt = original.startedAt;
+
+      // The endpoint will wipe step rows before invoking; mirror that here so
+      // the rerun assertion lands on a clean post-rerun row count.
+      db.delete(runSteps).where(eq(runSteps.runId, first.runId)).run();
+
+      // Sleep a tick so the refreshed startedAt is strictly newer.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      const succeeding = makeWorkflow("rerun-target", useSteps("hi"));
+      const second = await runWorkflow(db, succeeding, {
+        cwd,
+        trigger: "manual",
+        runId: first.runId,
+      }).done;
+
+      expect(second.runId).toBe(first.runId);
+      expect(second.status).toBe("ok");
+
+      const allRowsForId = db.select().from(runs).where(eq(runs.id, first.runId)).all();
+      expect(allRowsForId).toHaveLength(1);
+
+      const refreshed = allRowsForId[0];
+      expect(refreshed.status).toBe("ok");
+      expect(refreshed.trigger).toBe("scheduled");
+      expect(refreshed.error).toBeNull();
+      expect(refreshed.startedAt.getTime()).toBeGreaterThan(originalStartedAt.getTime());
+      expect(refreshed.definitionSnapshot).toMatchObject({
+        name: "rerun-target",
+        steps: [{ use: "hi" }],
+      });
+
+      const stepRows = db.select().from(runSteps).where(eq(runSteps.runId, first.runId)).all();
+      expect(stepRows).toHaveLength(1);
+      expect(stepRows[0].status).toBe("ok");
+      expect(stepRows[0].output).toBe("ok\n");
+    });
+
+    it("clears finishedAt/error/summary on the row when rerunning", async () => {
+      writeBundle("fail", "#!/bin/sh\nexit 3\n");
+      const wf = makeWorkflow("clear-fields", useSteps("fail"));
+
+      const first = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(first.status).toBe("failed");
+
+      const before = db.select().from(runs).where(eq(runs.id, first.runId)).get();
+      expect(before?.finishedAt).toBeInstanceOf(Date);
+      expect(before?.error).not.toBeNull();
+
+      db.delete(runSteps).where(eq(runSteps.runId, first.runId)).run();
+
+      // Bundle that hangs long enough to observe the runner mid-flight,
+      // then exits ok. We assert the row is in `running` with cleared
+      // terminal fields immediately after the synchronous setup.
+      writeBundle("slow-ok", "#!/bin/sh\nsleep 0.05\necho done\n");
+      const wf2 = makeWorkflow("clear-fields", useSteps("slow-ok"));
+      const { done } = runWorkflow(db, wf2, { cwd, trigger: "manual", runId: first.runId });
+
+      const midflight = db.select().from(runs).where(eq(runs.id, first.runId)).get();
+      expect(midflight?.status).toBe("running");
+      expect(midflight?.finishedAt).toBeNull();
+      expect(midflight?.error).toBeNull();
+      expect(midflight?.summary).toBeNull();
+
+      await done;
+    });
+  });
 });
