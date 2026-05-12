@@ -279,3 +279,19 @@ export const cancelRun = async (id: string): Promise<{ runId: string }> =>
   json<{ runId: string }>(
     await apiFetch(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
   );
+
+/**
+ * Permanently delete a finished run. Resolves on 204 — the server has
+ * removed the run row, its child steps and artefacts, and any scratch
+ * directory leftover; a `run.deleted` event is published on the bus so
+ * live surfaces can drop the row without a refetch. Throws `ApiError`
+ * on non-2xx — 404 if the run doesn't exist (or was already deleted),
+ * 409 if it's still in flight (caller must cancel first).
+ */
+export const deleteRun = async (id: string): Promise<void> => {
+  const res = await apiFetch(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
+  }
+};

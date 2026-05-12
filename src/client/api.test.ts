@@ -1,7 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { server } from "../../tests/setup/msw.ts";
-import { ApiError, cancelRun, fetchRun, fetchRunsPage, fetchWorkflows, triggerRun } from "./api.ts";
+import {
+  ApiError,
+  cancelRun,
+  deleteRun,
+  fetchRun,
+  fetchRunsPage,
+  fetchWorkflows,
+  triggerRun,
+} from "./api.ts";
 
 describe("api client", () => {
   it("returns the workflow registry from the default handler", async () => {
@@ -112,6 +120,52 @@ describe("api client", () => {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).status).toBe(404);
       expect((err as ApiError).message).toBe('run "missing" not found');
+    }
+  });
+
+  it("deletes a finished run and resolves without a body on 204", async () => {
+    const seen: { method: string; header: string | null; id: string }[] = [];
+    server.use(
+      http.delete("*/api/runs/:id", ({ request, params }) => {
+        seen.push({
+          method: request.method,
+          header: request.headers.get("X-Kiri-Client"),
+          id: String(params.id),
+        });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    await expect(deleteRun("abc-123")).resolves.toBeUndefined();
+    expect(seen).toEqual([{ method: "DELETE", header: "kiri-ui", id: "abc-123" }]);
+  });
+
+  it("throws an ApiError carrying 409 when delete races an in-flight run", async () => {
+    server.use(
+      http.delete("*/api/runs/:id", () =>
+        HttpResponse.json({ error: 'run "abc" is in flight; cancel it first' }, { status: 409 }),
+      ),
+    );
+
+    try {
+      await deleteRun("abc");
+      throw new Error("expected deleteRun to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(409);
+      expect((err as ApiError).message).toBe('run "abc" is in flight; cancel it first');
+    }
+  });
+
+  it("throws an ApiError with a status-text fallback when delete fails without JSON", async () => {
+    server.use(http.delete("*/api/runs/:id", () => new HttpResponse("nope", { status: 500 })));
+
+    try {
+      await deleteRun("abc");
+      throw new Error("expected deleteRun to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(500);
     }
   });
 });

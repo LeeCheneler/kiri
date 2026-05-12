@@ -33,6 +33,12 @@ export interface RunFeed {
    */
   patchRun: (run: RunListEntry) => void;
   /**
+   * Drop a run row by `id` from whichever loaded page holds it. No-op
+   * when the run isn't on any loaded page — the next reconnect merge
+   * (or a fresh load) will reconcile.
+   */
+  removeRun: (id: string) => void;
+  /**
    * Refetch page one and merge it into the top of the feed. Pages
    * below stay loaded; any runs in the fresh page that also appear in
    * deeper pages are removed from those deeper pages so the rendered
@@ -190,6 +196,22 @@ export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
     });
   }, []);
 
+  const removeRun = useCallback((id: string) => {
+    setPages((prev) => {
+      for (let i = 0; i < prev.length; i++) {
+        const idx = prev[i].findIndex((r) => r.id === id);
+        if (idx !== -1) {
+          const next = prev.slice();
+          const page = prev[i].slice();
+          page.splice(idx, 1);
+          next[i] = page;
+          return next;
+        }
+      }
+      return prev;
+    });
+  }, []);
+
   const mergePageOne = useCallback(() => {
     // mergePageOne owns the in-flight slot the same way fetchPageOne
     // does — a parallel loadNext is cancelled when the token bumps.
@@ -243,6 +265,7 @@ export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
     loadNext,
     prependRun,
     patchRun,
+    removeRun,
     mergePageOne,
   };
 }

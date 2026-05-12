@@ -230,6 +230,41 @@ describe("useRunFeed", () => {
     expect(result.current.runs).toEqual(before);
   });
 
+  it("removes a loaded run wherever it sits in the pages", async () => {
+    const fetchPage = async (opts: { cursor?: string; limit?: number }): Promise<RunsPage> => {
+      if (opts.cursor === undefined) {
+        return { runs: [stubRun("r1"), stubRun("r2")], nextCursor: "r2" };
+      }
+      return { runs: [stubRun("r3"), stubRun("r4")], nextCursor: null };
+    };
+    const { result } = renderHook(() => useRunFeed({ fetchPage }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => result.current.loadNext());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // Drop a row in page two; the row in page one (r2) stays put.
+    act(() => result.current.removeRun("r3"));
+    expect(result.current.runs.map((r) => r.id)).toEqual(["r1", "r2", "r4"]);
+    expect(result.current.pages[1]?.map((r) => r.id)).toEqual(["r4"]);
+
+    // Drop a row in page one; pages below remain intact.
+    act(() => result.current.removeRun("r1"));
+    expect(result.current.runs.map((r) => r.id)).toEqual(["r2", "r4"]);
+    expect(result.current.pages[0]?.map((r) => r.id)).toEqual(["r2"]);
+  });
+
+  it("removeRun is a no-op when the run isn't on any loaded page", async () => {
+    const fetchPage = async () => ({ runs: [stubRun("r1")], nextCursor: null }) satisfies RunsPage;
+    const { result } = renderHook(() => useRunFeed({ fetchPage }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const before = result.current.runs;
+    act(() => result.current.removeRun("not-loaded"));
+
+    expect(result.current.runs).toEqual(before);
+  });
+
   it("mergePageOne replaces page one and dedupes against deeper pages", async () => {
     let call = 0;
     const fetchPage = async (opts: { cursor?: string; limit?: number }): Promise<RunsPage> => {
