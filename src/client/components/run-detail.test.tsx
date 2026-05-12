@@ -162,14 +162,14 @@ describe("<RunDetailView>", () => {
       expect(status?.className).toContain("text-status-ok");
     });
 
-    it("appends a (deleted) marker after the workflow name", () => {
+    it("renders a deleted marker in the byline", () => {
       renderDetail(stubDetail({ isInterrupted: true }));
-      expect(screen.getByText(/\(deleted\)/i)).toBeDefined();
+      expect(screen.getByText(/^deleted$/i)).toBeDefined();
     });
 
     it("does not render the deleted marker when the workflow still exists", () => {
       renderDetail(stubDetail({ isInterrupted: false }));
-      expect(screen.queryByText(/\(deleted\)/i)).toBeNull();
+      expect(screen.queryByText(/^deleted$/i)).toBeNull();
     });
   });
 

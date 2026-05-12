@@ -121,10 +121,12 @@ const buildActivityItems = (run: RunListEntry, steps: RunStepRow[]): ActivityIte
 
 /**
  * Editorial detail view for a single run. The header promotes the feed
- * row to page-header scale: a thicker status strip on the left, the
- * status word as a coloured kicker, the workflow name in Fraunces, and
- * a single line of metadata in mono. Run-level failures render above
- * the activity list so they're not buried in a disclosure.
+ * entry to page-header scale: a thicker status-coloured strip on the
+ * left, a mono byline (status · trigger · time · duration · git ref)
+ * as a kicker, and the workflow name in Fraunces beneath. Run-level
+ * controls (cancel / re-run / delete) sit on the headline row. Run-
+ * level failures render above the activity list so they're not buried
+ * in a disclosure.
  *
  * Everything the run intends to do — pipeline steps, publishes, the
  * summariser — appears as one ordered activity list. Declared
@@ -182,36 +184,19 @@ export function RunDetailView({
 
       <header className="relative mt-6 pl-6">
         <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${STRIP_BG[status]}`} />
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div
-              className={`text-xs tracking-widest uppercase ${STATUS_TEXT[status]}`}
-              data-status={status}
-            >
+        <dl className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-none text-ink-muted">
+          <div className="flex items-baseline">
+            <dt className="sr-only">status</dt>
+            <dd className={`tracking-wider ${STATUS_TEXT[status]}`} data-status={status}>
               {status}
-            </div>
-            <h2 className="mt-2 font-display text-4xl text-ink leading-tight">
-              {run.workflowName}
-              {run.isInterrupted && (
-                <span className="ml-3 align-middle font-mono text-sm text-ink-muted italic">
-                  (deleted)
-                </span>
-              )}
-            </h2>
+            </dd>
           </div>
-          {status === "running" ? (
-            onCancel && <CancelButton onCancel={onCancel} />
-          ) : (
-            <div className="flex shrink-0 items-start gap-2">
-              {onRerun && <RerunButton onRerun={onRerun} interrupted={run.isInterrupted} />}
-              {onDelete && <DeleteButton onDelete={onDelete} />}
-            </div>
-          )}
-        </div>
-        <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
+          <span aria-hidden="true" className="text-rule">
+            ·
+          </span>
           <div className="flex items-baseline">
             <dt className="sr-only">trigger</dt>
-            <dd className="tracking-wider lowercase">{run.trigger}</dd>
+            <dd className="tracking-wider">{run.trigger}</dd>
           </div>
           <span aria-hidden="true" className="text-rule">
             ·
@@ -229,7 +214,7 @@ export function RunDetailView({
           </span>
           <div className="flex items-baseline">
             <dt className="sr-only">duration</dt>
-            <dd className="text-ink tabular-nums">
+            <dd className="tabular-nums">
               {run.finishedAt ? (
                 formatDuration(run.startedAt, run.finishedAt)
               ) : (
@@ -250,14 +235,35 @@ export function RunDetailView({
               </span>
               <div className="flex items-baseline gap-1.5">
                 <dt className="sr-only">git ref</dt>
-                <dd className="font-mono text-ink tabular-nums" title={run.gitSha}>
+                <dd className="tabular-nums" title={run.gitSha}>
                   {run.gitSha.slice(0, 7)}
                 </dd>
-                {run.gitDirty && <span className="text-ink-muted italic">(dirty)</span>}
+                {run.gitDirty && <span className="italic">(dirty)</span>}
               </div>
             </>
           )}
+          {run.isInterrupted && (
+            <>
+              <span aria-hidden="true" className="text-rule">
+                ·
+              </span>
+              <span className="italic">deleted</span>
+            </>
+          )}
         </dl>
+        <div className="mt-3 flex items-start justify-between gap-4">
+          <h2 className="min-w-0 flex-1 font-display text-4xl text-ink leading-tight">
+            {run.workflowName}
+          </h2>
+          {status === "running" ? (
+            onCancel && <CancelButton onCancel={onCancel} />
+          ) : (
+            <div className="flex shrink-0 items-start gap-2">
+              {onRerun && <RerunButton onRerun={onRerun} interrupted={run.isInterrupted} />}
+              {onDelete && <DeleteButton onDelete={onDelete} />}
+            </div>
+          )}
+        </div>
       </header>
 
       {run.summary && <RunSummaryBlock summary={run.summary} />}
