@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "./bootstrap.ts";
 import type { KiriDb } from "./db/index.ts";
-import { runs } from "./db/schema.ts";
+import { runArtefacts, runSteps, runs } from "./db/schema.ts";
 import { type KiriEvent, createEventBus } from "./events/index.ts";
 import { createApp } from "./index.ts";
 import { createCancelRegistry } from "./runner/cancel-registry.ts";
@@ -1219,6 +1219,149 @@ describe("createApp", () => {
       });
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: `run "${interruptedId}" is not in flight` });
+    });
+  });
+
+  describe("DELETE /api/runs/:id", () => {
+    // Seed a finished run plus a step and an artefact row so each delete
+    // test exercises the full cascade rather than just the parent row.
+    const seedTerminalRun = (id: string, opts: { status?: "ok" | "failed" | "cancelled" } = {}) => {
+      db.insert(runs)
+        .values({
+          id,
+          workflowName: "demo",
+          status: opts.status ?? "ok",
+          trigger: "manual",
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          definitionSnapshot: { name: "demo", steps: [{ sh: "echo hi" }] },
+        })
+        .run();
+      db.insert(runSteps)
+        .values({
+          id: `${id}-step-0`,
+          runId: id,
+          index: 0,
+          kind: "sh",
+          status: "ok",
+          output: null,
+          error: null,
+          traces: { stdout: "hi\n", stderr: "", durationMs: 1 },
+        })
+        .run();
+      db.insert(runArtefacts)
+        .values({
+          id: `${id}-art`,
+          runId: id,
+          name: "digest",
+          title: "Digest",
+          contentMd: "# hi",
+          createdAt: new Date(),
+        })
+        .run();
+    };
+
+    it("returns 404 for an unknown run id", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs/missing", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'run "missing" not found' });
+    });
+
+    it("returns 409 when the run is still running", async () => {
+      const id = "still-running";
+      db.insert(runs)
+        .values({
+          id,
+          workflowName: "demo",
+          status: "running",
+          trigger: "manual",
+          startedAt: new Date(),
+          definitionSnapshot: { name: "demo", steps: [] },
+        })
+        .run();
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request(`/api/runs/${id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: `run "${id}" is in flight; cancel it first` });
+
+      // Nothing was deleted — caller must cancel first.
+      expect(db.select().from(runs).where(eq(runs.id, id)).get()).toBeDefined();
+    });
+
+    it("rejects DELETE without the X-Kiri-Client header (CSRF gate)", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs/anything", { method: "DELETE" });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
+    });
+
+    it("removes the run, its steps, its artefacts, and the scratch dir; publishes run.deleted", async () => {
+      const id = "to-delete";
+      seedTerminalRun(id);
+      // Simulate a scratch-dir leftover (e.g. crashed runner). A normal
+      // finished run has no scratch dir, so we create one explicitly to
+      // exercise the cleanup branch.
+      const scratch = join(cwd, ".kiri", "runs", id);
+      mkdirSync(scratch, { recursive: true });
+      writeFileSync(join(scratch, "leftover.txt"), "crash residue");
+
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((e) => seen.push(e));
+
+      const app = createApp({ db, registry, cwd, bus });
+      const res = await app.request(`/api/runs/${id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(204);
+      expect(await res.text()).toBe("");
+
+      expect(db.select().from(runs).where(eq(runs.id, id)).get()).toBeUndefined();
+      expect(db.select().from(runSteps).where(eq(runSteps.runId, id)).all()).toEqual([]);
+      expect(db.select().from(runArtefacts).where(eq(runArtefacts.runId, id)).all()).toEqual([]);
+      expect(existsSync(scratch)).toBe(false);
+      expect(seen).toContainEqual({ type: "run.deleted", id });
+    });
+
+    it("returns 204 even with no scratch dir on disk (idempotent cleanup)", async () => {
+      const id = "no-scratch";
+      seedTerminalRun(id);
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request(`/api/runs/${id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(204);
+      expect(db.select().from(runs).where(eq(runs.id, id)).get()).toBeUndefined();
+    });
+
+    it("returns 404 on a double-delete (the run is gone after the first)", async () => {
+      const id = "twice";
+      seedTerminalRun(id);
+
+      const app = createApp({ db, registry, cwd });
+      const first = await app.request(`/api/runs/${id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(first.status).toBe(204);
+
+      const second = await app.request(`/api/runs/${id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(second.status).toBe(404);
+      expect(await second.json()).toEqual({ error: `run "${id}" not found` });
     });
   });
 

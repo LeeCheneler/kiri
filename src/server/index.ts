@@ -1,3 +1,5 @@
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
@@ -209,6 +211,29 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ runId: id }, 202);
     });
   }
+
+  app.delete("/api/runs/:id", (c) => {
+    const id = c.req.param("id");
+    const run = db.select().from(runs).where(eq(runs.id, id)).get();
+    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+    if (run.status === "running") {
+      return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
+    }
+    // Explicit cascade in a transaction: artefacts and step rows hold FKs
+    // to the parent run row, so they go first. Matches the rest of the
+    // codebase's pattern of in-code cascades instead of schema-level
+    // ON DELETE CASCADE.
+    db.transaction((tx) => {
+      tx.delete(runArtefacts).where(eq(runArtefacts.runId, id)).run();
+      tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
+      tx.delete(runs).where(eq(runs.id, id)).run();
+    });
+    // Catches scratch-dir leftovers from a crashed runner; on a normal
+    // run the dir is already gone, and `force: true` makes that a no-op.
+    rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
+    bus?.publish({ type: "run.deleted", id });
+    return c.body(null, 204);
+  });
 
   app.get("/api/runs", (c) => {
     const parsed = runListQuerySchema.safeParse({
