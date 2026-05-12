@@ -42,11 +42,10 @@ describe("<ActivityFeed>", () => {
     expect(screen.getByText(/no runs yet/i)).toBeDefined();
   });
 
-  // The row wraps a real `<Link>` on the workflow name plus a `::before`
-  // overlay so clicks anywhere on the row navigate to the run page.
-  // Status / hover state live on the wrapping `<div data-status>` rather
-  // than on the link itself — query both via the link's accessible name
-  // (the workflow name).
+  // The row's header — workflow name plus the status/trigger line
+  // beneath it — is wrapped in a `<Link>`. Status / hover state live
+  // on the wrapping `<div data-status>`; query both via the link's
+  // accessible name (which contains the workflow name).
   const rowOf = (workflowName: RegExp | string) =>
     screen.getByRole("link", { name: workflowName }).closest("[data-status]");
 
@@ -143,9 +142,9 @@ describe("<ActivityFeed>", () => {
   });
 
   it("renders markdown links inside the summary as distinct, navigable anchors", () => {
-    // The row uses a stacked-link pattern (real Link on the workflow name +
-    // ::before overlay over the row). Markdown links inside the summary
-    // must remain real, separately-targetable anchors with their own href.
+    // The summary sits below the row's header link, so markdown links
+    // inside it are real, separately-targetable anchors with their own
+    // href — they're not nested inside the row link.
     renderFeed([
       stubRun({
         workflowName: "pr-review",
@@ -156,6 +155,20 @@ describe("<ActivityFeed>", () => {
     expect(rowLink.getAttribute("href")).toBe("/runs/run-1");
     const summaryLink = screen.getByRole("link", { name: /the PR/i });
     expect(summaryLink.getAttribute("href")).toBe("https://example.com/pr/42");
+  });
+
+  it("scopes the row link to the workflow headline — byline and summary sit outside it", () => {
+    renderFeed([
+      stubRun({
+        workflowName: "pr-review",
+        trigger: "scheduled",
+        summary: "this is the summary body content.",
+      }),
+    ]);
+    const rowLink = screen.getByRole("link", { name: /pr-review/i });
+    const text = rowLink.textContent ?? "";
+    expect(text).not.toContain("this is the summary body");
+    expect(text).not.toContain("scheduled");
   });
 
   describe("artefact chips", () => {
@@ -223,10 +236,9 @@ describe("<ActivityFeed>", () => {
     });
 
     it("clicking a chip targets the artefact, not the run page", () => {
-      // With the stacked-link pattern, chips paint above the row's
-      // ::before overlay, so a click on the chip never reaches the row
-      // link. Assert by hrefs: the chip's href is the artefact route,
-      // distinct from the row link's run route.
+      // Chips sit below the row's header link as independent anchors.
+      // Assert by hrefs: the chip's href is the artefact route, distinct
+      // from the row link's run route.
       renderFeed([
         stubRun({
           id: "abc",
@@ -234,7 +246,7 @@ describe("<ActivityFeed>", () => {
           artefacts: [artefact()],
         }),
       ]);
-      const rowLink = screen.getByRole("link", { name: /^pr-review$/i });
+      const rowLink = screen.getByRole("link", { name: /pr-review/i });
       expect(rowLink.getAttribute("href")).toBe("/runs/abc");
       const chip = screen.getByRole("link", { name: /^PR Review Digest$/ });
       expect(chip.getAttribute("href")).toBe("/runs/abc/published/digest");
