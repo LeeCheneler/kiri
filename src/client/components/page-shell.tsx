@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
+import { VersionInfo } from "./version-info.tsx";
 import { WorkflowsNav } from "./workflows-nav.tsx";
 
 const WORKFLOW_PATH_PREFIX = "/workflows/";
@@ -104,6 +105,7 @@ export function PageShell({ children }: { children: ReactNode }) {
               </ul>
             </nav>
           </div>
+          <VersionInfo />
         </aside>
         <main className="min-w-0 lg:max-w-240">{children}</main>
         <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start" aria-hidden="true" />

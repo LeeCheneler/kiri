@@ -5,8 +5,16 @@ import { setupServer } from "msw/node";
 const defaultHandlers = [
   http.get("*/api/workflows", () => HttpResponse.json([])),
   http.get("*/api/runs", () => HttpResponse.json({ runs: [], nextCursor: null })),
+  http.get("*/api/version", () => HttpResponse.json({ version: "dev" })),
   http.post("*/api/workflows/:name/runs", ({ params }) =>
     HttpResponse.json({ runId: `run-${String(params.name)}`, status: "running" }, { status: 202 }),
+  ),
+  // Default: pretend the GitHub releases endpoint has nothing for us, so
+  // <VersionInfo> tests don't hit the network and never see a spurious
+  // "update available" nudge unless the test explicitly opts in.
+  http.get(
+    "https://api.github.com/repos/LeeCheneler/kiri/releases/latest",
+    () => new HttpResponse(null, { status: 404 }),
   ),
 ];
 

@@ -309,3 +309,49 @@ export const rerunRun = async (id: string): Promise<RunStartResult> =>
   json<RunStartResult>(
     await apiFetch(`/api/runs/${encodeURIComponent(id)}/rerun`, { method: "POST" }),
   );
+
+/**
+ * The version string this kiri process advertises. Injected at release-time
+ * via `bun build --define KIRI_VERSION=…`; falls back to `"dev"` for local
+ * `bun start` and tests.
+ */
+export interface VersionInfo {
+  version: string;
+}
+
+/** Fetch the running kiri version. Throws on non-2xx. */
+export const fetchVersion = async (): Promise<VersionInfo> =>
+  json<VersionInfo>(await apiFetch("/api/version"));
+
+/**
+ * Minimal projection of GitHub's release object. Only the fields the SPA
+ * needs to render an "upgrade available" nudge — the tag for comparison
+ * and the html_url for the "view release" link.
+ */
+export interface LatestRelease {
+  tagName: string;
+  htmlUrl: string;
+}
+
+const LATEST_RELEASE_URL = "https://api.github.com/repos/LeeCheneler/kiri/releases/latest";
+
+/**
+ * Fetch the latest published release from kiri's GitHub repo. Calls the
+ * GitHub REST API directly from the browser (CORS-friendly, no token
+ * needed for public repos — 60 req/hr per IP is plenty for occasional
+ * page loads). Throws on non-2xx so the caller can swallow and hide the
+ * upgrade nudge silently.
+ */
+export const fetchLatestRelease = async (): Promise<LatestRelease> => {
+  const res = await fetch(LATEST_RELEASE_URL, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) {
+    throw new ApiError(`${res.status} ${res.statusText}`, res.status);
+  }
+  const body = (await res.json()) as { tag_name?: unknown; html_url?: unknown };
+  if (typeof body.tag_name !== "string" || typeof body.html_url !== "string") {
+    throw new ApiError("malformed latest-release payload", 502);
+  }
+  return { tagName: body.tag_name, htmlUrl: body.html_url };
+};

@@ -52,6 +52,14 @@ export interface AppDeps {
    * Ignored when `staticRoot` is also set — explicit disk path wins.
    */
   embeddedFiles?: Map<string, Uint8Array>;
+  /**
+   * The kiri version string surfaced on `GET /api/version`. The release
+   * pipeline injects the tag (e.g. "v0.1.0") at compile time via
+   * `bun build --define KIRI_VERSION=…`; local `bun start` / tests fall
+   * back to `"dev"`. Used by the SPA to display the running version and
+   * compare against the latest GitHub release.
+   */
+  version?: string;
 }
 
 const DEFAULT_STATIC_ROOT = "./dist/client";
@@ -136,6 +144,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  */
 export function createApp(deps: AppDeps): Hono {
   const { db, registry, cwd, bus, eventsHeartbeatMs, cancelRegistry } = deps;
+  const version = deps.version ?? "dev";
   // When the caller doesn't pin a disk path and the binary carries an
   // embedded SPA (release pipeline overwrites `embedded-assets.ts` before
   // compile), serve from memory. Otherwise fall back to disk so dev,
@@ -172,6 +181,8 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.get("/api/health", (c) => c.json({ status: "ok" }));
+
+  app.get("/api/version", (c) => c.json({ version }));
 
   app.get("/api/workflows", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
 

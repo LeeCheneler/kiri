@@ -85,7 +85,7 @@ for (const failure of initial.failures) {
 
 const watcher = watchWorkflows(workflowsDir, cwd, registry, initial, { bus });
 
-const app = createApp({ db, registry, cwd, bus, cancelRegistry });
+const app = createApp({ db, registry, cwd, bus, cancelRegistry, version: VERSION });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
 
