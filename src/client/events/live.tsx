@@ -6,6 +6,7 @@ export type KiriEventType =
   | "run.updated"
   | "run.step.updated"
   | "run.finished"
+  | "run.deleted"
   | "workflow.added"
   | "workflow.updated"
   | "workflow.removed";
@@ -26,6 +27,7 @@ export type KiriEvent =
       status: "running" | "ok" | "failed" | "cancelled";
       workflowName: string;
     }
+  | { type: "run.deleted"; id: string }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string };
