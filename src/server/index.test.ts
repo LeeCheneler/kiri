@@ -925,6 +925,22 @@ describe("createApp", () => {
       expect(res.headers.get("Access-Control-Allow-Headers")).toContain("Content-Type");
       expect(res.headers.get("Access-Control-Allow-Headers")).toContain("X-Kiri-Client");
     });
+
+    it("answers OPTIONS preflight on DELETE /api/runs/:id with 204 and permits the DELETE method", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/runs/anything", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://local.kiri.build",
+          "Access-Control-Request-Method": "DELETE",
+          "Access-Control-Request-Headers": "X-Kiri-Client",
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://local.kiri.build");
+      expect(res.headers.get("Access-Control-Allow-Methods")).toContain("DELETE");
+      expect(res.headers.get("Access-Control-Allow-Headers")).toContain("X-Kiri-Client");
+    });
   });
 
   describe("X-Kiri-Client gate", () => {
