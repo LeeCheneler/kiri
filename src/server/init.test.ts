@@ -10,6 +10,8 @@ import {
   HACKERNEWS_DIGEST_PROMPT,
   HACKERNEWS_DIGEST_WORKFLOW,
   KIRI_README,
+  LM_STUDIO_README,
+  LM_STUDIO_RUN_SCRIPT,
   PR_REVIEW_QUEUE_WORKFLOW,
   initRepo,
   writeSchemaFile,
@@ -70,6 +72,12 @@ describe("initRepo", () => {
     expect(readFileSync(join(cwd, "scripts", "claude-code-summarizer", "README.md"), "utf8")).toBe(
       CLAUDE_CODE_SUMMARIZER_README,
     );
+    expect(readFileSync(join(cwd, "scripts", "lm-studio", "run.sh"), "utf8")).toBe(
+      LM_STUDIO_RUN_SCRIPT,
+    );
+    expect(readFileSync(join(cwd, "scripts", "lm-studio", "README.md"), "utf8")).toBe(
+      LM_STUDIO_README,
+    );
     expect(readFileSync(join(cwd, "workflows", "pr-review-queue.yaml"), "utf8")).toBe(
       PR_REVIEW_QUEUE_WORKFLOW,
     );
@@ -89,6 +97,8 @@ describe("initRepo", () => {
       "scripts/claude-code/README.md",
       "scripts/claude-code-summarizer/run.sh",
       "scripts/claude-code-summarizer/README.md",
+      "scripts/lm-studio/run.sh",
+      "scripts/lm-studio/README.md",
       "workflows/pr-review-queue.yaml",
       "workflows/hackernews-digest.yaml",
       "prompts/hackernews-digest.tpl",
@@ -109,6 +119,12 @@ describe("initRepo", () => {
     expect(mode & 0o111).not.toBe(0);
   });
 
+  it("marks the scaffolded lm-studio bundle's run.sh as executable", () => {
+    initRepo(cwd);
+    const mode = statSync(join(cwd, "scripts", "lm-studio", "run.sh")).mode & 0o777;
+    expect(mode & 0o111).not.toBe(0);
+  });
+
   it("does not overwrite user-authored scaffold files on re-run", () => {
     initRepo(cwd);
     writeFileSync(join(cwd, "README.md"), "user notes");
@@ -119,6 +135,8 @@ describe("initRepo", () => {
       "#!/bin/sh\necho mine-summer\n",
     );
     writeFileSync(join(cwd, "scripts", "claude-code-summarizer", "README.md"), "user summer notes");
+    writeFileSync(join(cwd, "scripts", "lm-studio", "run.sh"), "#!/bin/sh\necho mine-lms\n");
+    writeFileSync(join(cwd, "scripts", "lm-studio", "README.md"), "user lms notes");
     writeFileSync(join(cwd, "workflows", "pr-review-queue.yaml"), "name: user-prs\nsteps: []\n");
     writeFileSync(join(cwd, "workflows", "hackernews-digest.yaml"), "name: user-hn\nsteps: []\n");
     writeFileSync(join(cwd, "prompts", "hackernews-digest.tpl"), "user prompt");
@@ -138,6 +156,12 @@ describe("initRepo", () => {
     expect(readFileSync(join(cwd, "scripts", "claude-code-summarizer", "README.md"), "utf8")).toBe(
       "user summer notes",
     );
+    expect(readFileSync(join(cwd, "scripts", "lm-studio", "run.sh"), "utf8")).toBe(
+      "#!/bin/sh\necho mine-lms\n",
+    );
+    expect(readFileSync(join(cwd, "scripts", "lm-studio", "README.md"), "utf8")).toBe(
+      "user lms notes",
+    );
     expect(readFileSync(join(cwd, "workflows", "pr-review-queue.yaml"), "utf8")).toBe(
       "name: user-prs\nsteps: []\n",
     );
@@ -152,6 +176,8 @@ describe("initRepo", () => {
       "scripts/claude-code/README.md",
       "scripts/claude-code-summarizer/run.sh",
       "scripts/claude-code-summarizer/README.md",
+      "scripts/lm-studio/run.sh",
+      "scripts/lm-studio/README.md",
       "workflows/pr-review-queue.yaml",
       "workflows/hackernews-digest.yaml",
       "prompts/hackernews-digest.tpl",
@@ -241,6 +267,16 @@ describe("checked-in init artifacts (dogfood drift guard)", () => {
       "utf8",
     );
     expect(tracked).toBe(CLAUDE_CODE_SUMMARIZER_README);
+  });
+
+  it("scripts/lm-studio/run.sh matches LM_STUDIO_RUN_SCRIPT", () => {
+    const tracked = readFileSync(join(repoRoot, "scripts", "lm-studio", "run.sh"), "utf8");
+    expect(tracked).toBe(LM_STUDIO_RUN_SCRIPT);
+  });
+
+  it("scripts/lm-studio/README.md matches LM_STUDIO_README", () => {
+    const tracked = readFileSync(join(repoRoot, "scripts", "lm-studio", "README.md"), "utf8");
+    expect(tracked).toBe(LM_STUDIO_README);
   });
 
   it("workflows/pr-review-queue.yaml matches PR_REVIEW_QUEUE_WORKFLOW", () => {

@@ -539,6 +539,251 @@ The \`claude\` CLI must be on \`PATH\` (\`awk\` and POSIX \`sh\` are assumed).
 The bundle exits non-zero with a clear error if either is missing.
 `;
 
+/** Contents of the scaffolded `scripts/lm-studio/run.sh`. */
+export const LM_STUDIO_RUN_SCRIPT = `#!/bin/sh
+# Sends a one-shot chat completion to LM Studio's OpenAI-compatible HTTP
+# server (default http://localhost:1234/v1). The prompt is taken from
+# PROMPT (inline) or PROMPT_FILE (a template path resolved against
+# KIRI_REPO_ROOT), rendered with {{VAR}} placeholders substituted from
+# the environment. When both are set, PROMPT wins and PROMPT_FILE is
+# ignored. Non-streaming, no tool use — single completion in, message
+# content out. Point BASE_URL at any OpenAI-compatible local server
+# (Ollama's compat shim, llama.cpp, vLLM, …) to repurpose the bundle.
+set -eu
+
+: "\${KIRI_REPO_ROOT:?required (kiri injects this)}"
+
+# Defaults exported so {{BASE_URL}} and {{MAX_TOKENS}} can be referenced
+# inside prompt templates even when the workflow leaves them unset.
+export BASE_URL="\${BASE_URL:-http://localhost:1234/v1}"
+export MAX_TOKENS="\${MAX_TOKENS:-2048}"
+
+for dep in curl jq awk; do
+  command -v "$dep" >/dev/null 2>&1 || {
+    echo "lm-studio bundle requires '$dep' on PATH" >&2
+    exit 1
+  }
+done
+
+# Resolve the prompt source. PROMPT wins over PROMPT_FILE when both
+# are set. Verify the file exists *before* the awk render — POSIX
+# \`set -e\` doesn't propagate failures from \`$()\` inside an
+# assignment, so a missing file would otherwise silently leave
+# \$prompt empty and we'd POST an empty completion.
+if [ -n "\${PROMPT:-}" ]; then
+  prompt_source="$PROMPT"
+elif [ -n "\${PROMPT_FILE:-}" ]; then
+  [ -f "$KIRI_REPO_ROOT/$PROMPT_FILE" ] || {
+    echo "lm-studio: prompt file not found: $PROMPT_FILE" >&2
+    exit 1
+  }
+  prompt_source=$(cat "$KIRI_REPO_ROOT/$PROMPT_FILE")
+else
+  echo "lm-studio: one of PROMPT or PROMPT_FILE is required" >&2
+  exit 1
+fi
+
+# Slurp the previous step's stdout (piped here by kiri) into KIRI_INPUT
+# so prompts can reference {{KIRI_INPUT}}. $() trims one trailing
+# newline so single-line outputs render inline; multi-line outputs
+# keep their internal newlines.
+export KIRI_INPUT="$(cat)"
+
+# Render {{VAR}} placeholders from the environment in a single
+# left-to-right pass. Same renderer as the claude-code bundle so
+# prompts are portable between the two. Unknown vars resolve to
+# empty. LC_ALL=C pins the regex character classes to ASCII so
+# non-C locales can't widen \`[A-Z]\` to accented uppercase.
+prompt=$(printf '%s\\n' "$prompt_source" | LC_ALL=C awk '
+  {
+    out = ""
+    rest = $0
+    while (match(rest, /\\{\\{[A-Z_][A-Z0-9_]*\\}\\}/)) {
+      name = substr(rest, RSTART + 2, RLENGTH - 4)
+      out = out substr(rest, 1, RSTART - 1) ENVIRON[name]
+      rest = substr(rest, RSTART + RLENGTH)
+    }
+    print out rest
+  }
+')
+
+# Build the request body with jq so the prompt is escaped correctly
+# regardless of quotes / newlines / backslashes in the text. MODEL
+# and TEMPERATURE are omitted from the body when unset, so the server
+# uses whichever model is currently loaded and its own sampling
+# default.
+body=$(jq -nc \\
+  --arg prompt "$prompt" \\
+  --arg model "\${MODEL:-}" \\
+  --arg temperature "\${TEMPERATURE:-}" \\
+  --argjson max_tokens "$MAX_TOKENS" \\
+  '{
+    messages: [{ role: "user", content: $prompt }],
+    max_tokens: $max_tokens,
+    stream: false
+  }
+  + (if $model == "" then {} else { model: $model } end)
+  + (if $temperature == "" then {} else { temperature: ($temperature | tonumber) } end)')
+
+# \`--fail-with-body\` (curl 7.76+) keeps the response body on HTTP
+# errors so the caller can see what the server actually said. Without
+# it, 4xx/5xx bodies are dropped on the floor and debugging is guesswork.
+response=$(curl -sS --fail-with-body \\
+  -H "Content-Type: application/json" \\
+  -d "$body" \\
+  "$BASE_URL/chat/completions") || {
+  echo "lm-studio: request to $BASE_URL/chat/completions failed" >&2
+  [ -n "\${response:-}" ] && echo "$response" >&2
+  exit 1
+}
+
+# Extract the assistant's message content. Fail if missing — every
+# OpenAI-compatible server returns choices[0].message.content on a
+# non-streaming completion.
+content=$(printf '%s' "$response" | jq -r '.choices[0].message.content // empty')
+if [ -z "$content" ]; then
+  echo "lm-studio: response did not contain choices[0].message.content" >&2
+  echo "$response" >&2
+  exit 1
+fi
+
+printf '%s\\n' "$content"
+`;
+
+/** Contents of the scaffolded `scripts/lm-studio/README.md`. */
+export const LM_STUDIO_README = `# lm-studio bundle
+
+A workflow step that sends a one-shot chat completion to a local
+LM Studio server (or any OpenAI-compatible HTTP endpoint). Prompt is
+rendered from an inline string (\`PROMPT\`) or a template file
+(\`PROMPT_FILE\`). Exactly one is required.
+
+Minimal usage — inline prompt:
+
+\`\`\`yaml
+- use: lm-studio
+  env:
+    PROMPT: "Summarise {{KIRI_INPUT}} in one sentence."
+\`\`\`
+
+Or from a template file:
+
+\`\`\`yaml
+- use: lm-studio
+  env:
+    PROMPT_FILE: prompts/my-prompt.tpl
+\`\`\`
+
+Full reference, all knobs explicit:
+
+\`\`\`yaml
+- use: lm-studio
+  env:
+    PROMPT: "Inline prompt text."          # one of PROMPT / PROMPT_FILE required
+    PROMPT_FILE: prompts/my-prompt.tpl     # one of PROMPT / PROMPT_FILE required
+    MODEL: gemma-3-12b                     # optional, server uses loaded model when unset
+    BASE_URL: http://localhost:1234/v1     # optional, default LM Studio HTTP server
+    MAX_TOKENS: "2048"                     # optional, default 2048
+    TEMPERATURE: "0.7"                     # optional, server default applies when unset
+\`\`\`
+
+## Env-var contract
+
+| Var | Required | Default | Description |
+| --- | --- | --- | --- |
+| \`PROMPT\` | one of \`PROMPT\` / \`PROMPT_FILE\` | — | Inline prompt text. Wins over \`PROMPT_FILE\` when both are set. |
+| \`PROMPT_FILE\` | one of \`PROMPT\` / \`PROMPT_FILE\` | — | Path to a prompt template. If relative, resolved against \`KIRI_REPO_ROOT\`; absolute paths are passed through as-is. |
+| \`MODEL\` | no | — | Model identifier. Omitted from the request when unset; the server uses whichever model is currently loaded. |
+| \`BASE_URL\` | no | \`http://localhost:1234/v1\` | OpenAI-compatible API root. Point this at Ollama's compat shim, llama.cpp's server, vLLM, etc. to repurpose the bundle. |
+| \`MAX_TOKENS\` | no | \`2048\` | Hard cap on the completion length. |
+| \`TEMPERATURE\` | no | — | Sampling temperature. Omitted from the request when unset, so the server's own default applies. |
+
+\`KIRI_REPO_ROOT\` is supplied by kiri.
+
+### Precedence
+
+When both \`PROMPT\` and \`PROMPT_FILE\` are set, \`PROMPT\` wins and
+\`PROMPT_FILE\` is ignored — its content is not read, validated, or
+concatenated. Mirrors \`claude-code\`'s precedence rule.
+
+## What \`run.sh\` does
+
+1. Reads the previous step's stdout into \`KIRI_INPUT\` and renders the
+   prompt — sourced from \`PROMPT\` or \`$KIRI_REPO_ROOT/$PROMPT_FILE\` —
+   substituting \`{{VAR}}\` placeholders from the environment (see
+   *Prompt templates* below).
+2. Builds the JSON request body via \`jq\`, so the prompt is escaped
+   correctly regardless of quotes, newlines, or backslashes.
+3. POSTs to \`$BASE_URL/chat/completions\` with \`curl --fail-with-body\`,
+   extracts \`choices[0].message.content\`, and prints it on stdout.
+
+Non-streaming, no tool use, single completion in, text out.
+
+## Prompt templates
+
+Same renderer as \`claude-code\` — prompts written for one bundle work
+in the other. \`{{VAR}}\` placeholders are substituted from the
+environment in a single left-to-right pass. Names must be uppercase
+letters, digits, or underscores. Unknown vars resolve to empty.
+Substituted values are not re-scanned, so a value containing
+\`{{X}}\` stays literal — no infinite loops on self-referential content.
+
+### Substitutable vars
+
+| Var | Source |
+| --- | --- |
+| \`{{KIRI_INPUT}}\` | Previous step's stdout (one trailing newline trimmed). |
+| \`{{KIRI_RUN_ID}}\` | Kiri-injected run identifier. |
+| \`{{KIRI_STEP_INDEX}}\` | Zero-based index of this step in the run. |
+| \`{{KIRI_REPO_ROOT}}\` | Absolute path of the workflow repo root. |
+| \`{{KIRI_BUNDLE_DIR}}\` | Absolute path of this bundle's directory. |
+| \`{{BASE_URL}}\`, \`{{MAX_TOKENS}}\` | Bundle env-var contract values, defaulted as documented above. |
+| \`{{MODEL}}\`, \`{{TEMPERATURE}}\`, \`{{PROMPT}}\`, \`{{PROMPT_FILE}}\` | Bundle env-var contract values — resolve to empty when unset. |
+| Any \`{{MY_VAR}}\` | Anything set in the workflow's \`env:\` block. |
+
+## Example: local triage in front of a cloud agent
+
+The intended use shape — a cheap local model filters input so the
+cloud step only runs on the survivors:
+
+\`\`\`yaml
+name: filtered-pr-review
+steps:
+  - sh: gh search prs --review-requested=@me --state=open --json title,url,body
+  - use: lm-studio
+    env:
+      MODEL: gemma-3-12b
+      PROMPT: |
+        From this JSON list of PRs, output only those that look
+        substantive — drop version bumps, dependabot, and lockfile
+        churn. One PR per line as "<title> — <url>", nothing else.
+
+        {{KIRI_INPUT}}
+  - use: claude-code
+    env:
+      MODEL: sonnet
+      PROMPT: |
+        Review each PR below: check out the branch, read the diff,
+        leave inline comments.
+
+        {{KIRI_INPUT}}
+\`\`\`
+
+Local handles "is this worth my attention"; cloud only runs on what
+survived the filter.
+
+## Dependencies
+
+\`curl\`, \`jq\`, and POSIX \`awk\` must be on \`PATH\`. The bundle exits
+non-zero with a clear error at the top of the run if any are missing.
+\`curl\` must be ≥ 7.76 (for \`--fail-with-body\`); macOS 12+ and recent
+Linux distros all qualify.
+
+LM Studio's HTTP server must be running and reachable at \`BASE_URL\`.
+In LM Studio: Developer tab → Server → Start Server. The default
+\`http://localhost:1234/v1\` matches LM Studio's defaults.
+`;
+
 /** Contents of the scaffolded `workflows/pr-review-queue.yaml`. */
 export const PR_REVIEW_QUEUE_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
 
@@ -621,6 +866,8 @@ const CLAUDE_CODE_RUN_REL_PATH = "scripts/claude-code/run.sh";
 const CLAUDE_CODE_README_REL_PATH = "scripts/claude-code/README.md";
 const CLAUDE_CODE_SUMMARIZER_RUN_REL_PATH = "scripts/claude-code-summarizer/run.sh";
 const CLAUDE_CODE_SUMMARIZER_README_REL_PATH = "scripts/claude-code-summarizer/README.md";
+const LM_STUDIO_RUN_REL_PATH = "scripts/lm-studio/run.sh";
+const LM_STUDIO_README_REL_PATH = "scripts/lm-studio/README.md";
 const PR_REVIEW_QUEUE_WORKFLOW_REL_PATH = "workflows/pr-review-queue.yaml";
 const HACKERNEWS_DIGEST_WORKFLOW_REL_PATH = "workflows/hackernews-digest.yaml";
 const HACKERNEWS_DIGEST_PROMPT_REL_PATH = "prompts/hackernews-digest.tpl";
@@ -689,10 +936,10 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 
 /**
  * Bootstrap a kiri-ready repo at `cwd`: create `workflows/` and `prompts/`,
- * drop in a repo README, the `claude-code` and `claude-code-summarizer`
- * bundles, the `pr-review-queue` and `hackernews-digest` starter
- * workflows, (re)write the JSON Schema file, and add `.kiri/` to
- * `.gitignore` if one exists. User-authored files are never
+ * drop in a repo README, the `claude-code`, `claude-code-summarizer`, and
+ * `lm-studio` bundles, the `pr-review-queue` and `hackernews-digest`
+ * starter workflows, (re)write the JSON Schema file, and add `.kiri/`
+ * to `.gitignore` if one exists. User-authored files are never
  * overwritten — only missing files are created. The schema file is
  * always refreshed.
  */
@@ -701,10 +948,12 @@ export function initRepo(cwd: string): InitResult {
   const promptsDir = join(cwd, "prompts");
   const claudeCodeBundleDir = join(cwd, "scripts", "claude-code");
   const claudeCodeSummarizerBundleDir = join(cwd, "scripts", "claude-code-summarizer");
+  const lmStudioBundleDir = join(cwd, "scripts", "lm-studio");
   mkdirSync(workflowsDir, { recursive: true });
   mkdirSync(promptsDir, { recursive: true });
   mkdirSync(claudeCodeBundleDir, { recursive: true });
   mkdirSync(claudeCodeSummarizerBundleDir, { recursive: true });
+  mkdirSync(lmStudioBundleDir, { recursive: true });
 
   const created: string[] = [];
   const skipped: string[] = [];
@@ -737,6 +986,21 @@ export function initRepo(cwd: string): InitResult {
     join(claudeCodeSummarizerBundleDir, "README.md"),
     CLAUDE_CODE_SUMMARIZER_README_REL_PATH,
     CLAUDE_CODE_SUMMARIZER_README,
+    created,
+    skipped,
+  );
+  writeIfMissing(
+    join(lmStudioBundleDir, "run.sh"),
+    LM_STUDIO_RUN_REL_PATH,
+    LM_STUDIO_RUN_SCRIPT,
+    created,
+    skipped,
+    0o755,
+  );
+  writeIfMissing(
+    join(lmStudioBundleDir, "README.md"),
+    LM_STUDIO_README_REL_PATH,
+    LM_STUDIO_README,
     created,
     skipped,
   );
