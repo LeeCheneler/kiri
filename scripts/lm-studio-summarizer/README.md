@@ -70,12 +70,16 @@ precedence rule.
 
 `KIRI_RUN_CONTEXT_FILE` points at a JSON file under the per-run scratch
 dir containing the workflow name, status, duration, and per-step
-kind / status / duration / stdout / stderr / error. The baked-in
-default inlines this JSON directly into the prompt. A user-supplied
-`PROMPT` or `PROMPT_FILE` replaces the *framing* only — if you want
-the envelope content in your prompt, reference `{{KIRI_RUN_CONTEXT_FILE}}`
-to get the path and read it inside the prompt, or splice the path
-into a `sh:` step that pre-processes it however you like.
+kind / status / duration / stdout / stderr / error. The bundle reads
+that file at the top of `run.sh` and exposes its content as
+`{{KIRI_RUN_CONTEXT}}` for the prompt-template substitution pass.
+
+A user-supplied `PROMPT` or `PROMPT_FILE` replaces the *framing* only.
+To bring the envelope content into a custom prompt, reference
+`{{KIRI_RUN_CONTEXT}}` directly — this is the deterministic path for
+non-agentic local models, which can't open files on their own. The
+older `{{KIRI_RUN_CONTEXT_FILE}}` (just the path) remains available
+for agentic bundles where the model can call a `read_file` tool.
 
 ## Zero config by design
 
@@ -118,7 +122,8 @@ not re-scanned, so a value that itself contains `{{X}}` stays literal
 
 | Var | Source |
 | --- | --- |
-| `{{KIRI_RUN_CONTEXT_FILE}}` | Path to the run-envelope JSON file. |
+| `{{KIRI_RUN_CONTEXT}}` | The run-envelope JSON content, inlined verbatim. Use this when the model can't open files itself (i.e. any non-agentic local model). |
+| `{{KIRI_RUN_CONTEXT_FILE}}` | Path to the run-envelope JSON file. Only useful when the model can open files on its own. |
 | `{{KIRI_RUN_ID}}` | Kiri-injected run identifier. |
 | `{{KIRI_STEP_INDEX}}` | Zero-based index of this step in the run. |
 | `{{KIRI_REPO_ROOT}}` | Absolute path of the workflow repo root. |

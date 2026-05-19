@@ -31,6 +31,13 @@ done
   exit 1
 }
 
+# Read the run-context content once and export it so prompt templates
+# can reference {{KIRI_RUN_CONTEXT}} via the awk substitution pass.
+# Non-tool-using models can't open the path in KIRI_RUN_CONTEXT_FILE on
+# their own; inlining the content into the prompt is the deterministic
+# alternative to an agentic loop.
+export KIRI_RUN_CONTEXT="$(cat "$KIRI_RUN_CONTEXT_FILE")"
+
 # Resolve the prompt source. PROMPT wins over PROMPT_FILE when both are
 # set; both fall through to a baked-in default that inlines the
 # run-context JSON so a workflow with no env vars produces a useful
@@ -47,7 +54,6 @@ elif [ -n "${PROMPT_FILE:-}" ]; then
   }
   prompt_source=$(cat "$KIRI_REPO_ROOT/$PROMPT_FILE")
 else
-  context=$(cat "$KIRI_RUN_CONTEXT_FILE")
   prompt_source="You are writing a kiri workflow run summary for an activity feed. Read the step stdout/stderr to find the substance and lead with what happened — no preamble like 'the workflow ran', no padding. Markdown is supported and encouraged.
 
 Match the shape of the output to the shape of the result:
@@ -58,7 +64,7 @@ Match the shape of the output to the shape of the result:
 The feed is glanced at, not read. Keep it dense and skimmable, with no headings.
 
 Run envelope (JSON):
-$context"
+$KIRI_RUN_CONTEXT"
 fi
 
 # Slurp stdin so prompts can reference {{KIRI_INPUT}}. Kiri pipes
