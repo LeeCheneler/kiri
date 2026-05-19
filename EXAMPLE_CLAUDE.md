@@ -170,6 +170,15 @@ Written to the scratch dir before each `publish:` and `summarize:` step. Shape:
 
 The full per-step `stdout`/`stderr` is in there too — `publish:` and `summarize:` steps don't need to re-fetch the run.
 
+### Reading the context: `KIRI_RUN_CONTEXT_FILE` vs `{{KIRI_RUN_CONTEXT}}`
+
+Two ways to bring this JSON into a prompt, picked by what the model can do:
+
+- **Agentic models that can open files** (e.g. Claude Code with the `Read` tool): reference `{{KIRI_RUN_CONTEXT_FILE}}` — the model opens the path itself. This is what `claude-code` / `claude-code-summarizer` do.
+- **Non-agentic local models** (e.g. anything routed through `lm-studio-summarizer`): reference `{{KIRI_RUN_CONTEXT}}` — bundles in this class read the context file at the top of `run.sh` and expose its **content** as an env var, so the awk substitution pass splices the JSON directly into the prompt. Without this, a non-tool-using model leaks raw tool-call tokens into the response instead of reading the context.
+
+`KIRI_RUN_CONTEXT` is a bundle-level convention, not a kiri-injected env var — only bundles that opt in (currently `lm-studio-summarizer`) expose it. If you author a bundle for a non-agentic runtime, expose the same placeholder by reading `KIRI_RUN_CONTEXT_FILE` into a `KIRI_RUN_CONTEXT` env var before the prompt-template substitution.
+
 ---
 
 ## Shipped bundles
