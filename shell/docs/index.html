@@ -214,6 +214,7 @@ summarize:
   env:
     PROMPT: "One witty sentence about this run. Context is at {{KIRI_RUN_CONTEXT_FILE}}."
     MODEL: sonnet</code></pre>
+      <p>For non-agentic local models (anything routed through <code>lm-studio-summarizer</code>, for example), reference <code>{{KIRI_RUN_CONTEXT}}</code> instead — the bundle reads the context file at the top of <code>run.sh</code> and exposes its content as that placeholder, so the JSON is spliced into the prompt directly. Pointing such a model at the file path makes it leak raw tool-call tokens into the response instead of reading the context. <code>{{KIRI_RUN_CONTEXT_FILE}}</code> stays for agentic bundles where the model can call a <code>read_file</code> tool.</p>
 
       <h3>Published artefacts — <code>publish:</code></h3>
       <p>An optional array of long-form markdown artefacts produced by the run. Each entry has the same <code>{ use | sh, env? }</code> shape as a step plus a <code>name</code> (lowercase letters, digits, hyphens — unique within the workflow) and an optional <code>title</code>. Publish steps run serially after <code>steps:</code> and before <code>summarize:</code>, with each step's stdout captured as the artefact body:</p>
