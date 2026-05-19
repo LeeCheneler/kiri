@@ -784,6 +784,291 @@ In LM Studio: Developer tab → Server → Start Server. The default
 \`http://localhost:1234/v1\` matches LM Studio's defaults.
 `;
 
+/** Contents of the scaffolded `scripts/lm-studio-summarizer/run.sh`. */
+export const LM_STUDIO_SUMMARIZER_RUN_SCRIPT = `#!/bin/sh
+# Summarises a kiri workflow run for the activity feed via LM Studio's
+# OpenAI-compatible HTTP server (default http://localhost:1234/v1).
+# Prompt is taken from PROMPT (inline), PROMPT_FILE (a template path
+# resolved against KIRI_REPO_ROOT), or a baked-in default that inlines
+# the run-context JSON. When both PROMPT and PROMPT_FILE are set,
+# PROMPT wins and PROMPT_FILE is ignored. Spawned by kiri after the
+# workflow's \`steps:\` complete on non-cancelled runs; this bundle's
+# stdout becomes the run's \`summary\` field when it exits 0. Point
+# BASE_URL at any OpenAI-compatible local server to repurpose the
+# bundle.
+set -eu
+
+: "\${KIRI_REPO_ROOT:?required (kiri injects this)}"
+: "\${KIRI_RUN_CONTEXT_FILE:?required (kiri injects this)}"
+
+# Defaults exported so {{BASE_URL}} and {{MAX_TOKENS}} can be referenced
+# inside prompt templates even when the workflow leaves them unset.
+export BASE_URL="\${BASE_URL:-http://localhost:1234/v1}"
+export MAX_TOKENS="\${MAX_TOKENS:-2048}"
+
+for dep in curl jq awk; do
+  command -v "$dep" >/dev/null 2>&1 || {
+    echo "lm-studio-summarizer bundle requires '$dep' on PATH" >&2
+    exit 1
+  }
+done
+
+[ -f "$KIRI_RUN_CONTEXT_FILE" ] || {
+  echo "lm-studio-summarizer: run-context file not found: $KIRI_RUN_CONTEXT_FILE" >&2
+  exit 1
+}
+
+# Resolve the prompt source. PROMPT wins over PROMPT_FILE when both are
+# set; both fall through to a baked-in default that inlines the
+# run-context JSON so a workflow with no env vars produces a useful
+# summary out of the box. Verify the file exists *before* the awk
+# render — POSIX \`set -e\` doesn't propagate failures from \`$()\` inside
+# an assignment, so a missing file would otherwise silently leave
+# \$prompt empty and we'd POST an empty completion.
+if [ -n "\${PROMPT:-}" ]; then
+  prompt_source="$PROMPT"
+elif [ -n "\${PROMPT_FILE:-}" ]; then
+  [ -f "$KIRI_REPO_ROOT/$PROMPT_FILE" ] || {
+    echo "lm-studio-summarizer: prompt file not found: $PROMPT_FILE" >&2
+    exit 1
+  }
+  prompt_source=$(cat "$KIRI_REPO_ROOT/$PROMPT_FILE")
+else
+  context=$(cat "$KIRI_RUN_CONTEXT_FILE")
+  prompt_source="You are writing a kiri workflow run summary for an activity feed. Read the step stdout/stderr to find the substance and lead with what happened — no preamble like 'the workflow ran', no padding. Markdown is supported and encouraged.
+
+Match the shape of the output to the shape of the result:
+- If the workflow produced a list of items (for example, 'list all open PRs I need to review'), output a markdown bullet list. Each bullet is one concrete item the reader can skim — label or title first, the smallest useful detail after.
+- If the workflow produced a single piece of news, output a single sentence or short paragraph.
+- Use bold, inline code, and links where they help the reader scan.
+
+The feed is glanced at, not read. Keep it dense and skimmable, with no headings.
+
+Run envelope (JSON):
+\$context"
+fi
+
+# Slurp stdin so prompts can reference {{KIRI_INPUT}}. Kiri pipes
+# nothing into the summariser today, but mirror the lm-studio bundle so
+# a user-supplied prompt that references {{KIRI_INPUT}} renders to
+# empty instead of leaving the placeholder literal.
+export KIRI_INPUT="$(cat)"
+
+# Render {{VAR}} placeholders from the environment in a single
+# left-to-right pass. Same renderer as the lm-studio bundle so prompts
+# are portable between the two. Unknown vars resolve to empty. LC_ALL=C
+# pins the regex character classes to ASCII so non-C locales can't
+# widen \`[A-Z]\` to accented uppercase.
+prompt=$(printf '%s\\n' "$prompt_source" | LC_ALL=C awk '
+  {
+    out = ""
+    rest = $0
+    while (match(rest, /\\{\\{[A-Z_][A-Z0-9_]*\\}\\}/)) {
+      name = substr(rest, RSTART + 2, RLENGTH - 4)
+      out = out substr(rest, 1, RSTART - 1) ENVIRON[name]
+      rest = substr(rest, RSTART + RLENGTH)
+    }
+    print out rest
+  }
+')
+
+# Build the request body with jq so the prompt is escaped correctly
+# regardless of quotes / newlines / backslashes in the text. MODEL is
+# omitted from the body when unset, so the server uses whichever model
+# is currently loaded.
+body=$(jq -nc \\
+  --arg prompt "$prompt" \\
+  --arg model "\${MODEL:-}" \\
+  --argjson max_tokens "$MAX_TOKENS" \\
+  '{
+    messages: [{ role: "user", content: $prompt }],
+    max_tokens: $max_tokens,
+    stream: false
+  }
+  + (if $model == "" then {} else { model: $model } end)')
+
+# \`--fail-with-body\` (curl 7.76+) keeps the response body on HTTP
+# errors so the caller can see what the server actually said.
+response=$(curl -sS --fail-with-body \\
+  -H "Content-Type: application/json" \\
+  -d "$body" \\
+  "$BASE_URL/chat/completions") || {
+  echo "lm-studio-summarizer: request to $BASE_URL/chat/completions failed" >&2
+  [ -n "\${response:-}" ] && echo "$response" >&2
+  exit 1
+}
+
+content=$(printf '%s' "$response" | jq -r '.choices[0].message.content // empty')
+if [ -z "$content" ]; then
+  echo "lm-studio-summarizer: response did not contain choices[0].message.content" >&2
+  echo "$response" >&2
+  exit 1
+fi
+
+printf '%s\\n' "$content"
+`;
+
+/** Contents of the scaffolded `scripts/lm-studio-summarizer/README.md`. */
+export const LM_STUDIO_SUMMARIZER_README = `# lm-studio-summarizer bundle
+
+A workflow \`summarize:\` step that produces a markdown summary of a run
+for the activity feed, using a local LM Studio server (or any
+OpenAI-compatible HTTP endpoint). Spawned by kiri after the workflow's
+\`steps:\` complete on non-cancelled runs; this bundle's stdout becomes
+the run's \`summary\` when it exits successfully. The feed renders the
+result through the SPA's sandboxed markdown component, so the baked-in
+prompt produces a single sentence for one-shot results and a bullet
+list for list-style results.
+
+## Usage
+
+Reference it from a workflow's \`summarize:\` field — no env vars
+needed:
+
+\`\`\`yaml
+name: my-workflow
+steps:
+  - sh: echo "hello"
+summarize:
+  use: lm-studio-summarizer
+\`\`\`
+
+Or override the prompt, model, base URL, or token cap directly from
+the workflow YAML:
+
+\`\`\`yaml
+summarize:
+  use: lm-studio-summarizer
+  env:
+    PROMPT: "One witty sentence about this run. Context lives at {{KIRI_RUN_CONTEXT_FILE}}."
+    MODEL: gemma-3-12b
+\`\`\`
+
+Full reference, all knobs explicit:
+
+\`\`\`yaml
+summarize:
+  use: lm-studio-summarizer
+  env:
+    PROMPT: "Inline prompt text."          # optional; wins over PROMPT_FILE
+    PROMPT_FILE: prompts/my-summary.tpl    # optional
+    MODEL: gemma-3-12b                     # optional, server uses loaded model when unset
+    BASE_URL: http://localhost:1234/v1     # optional, default LM Studio HTTP server
+    MAX_TOKENS: "2048"                     # optional, default 2048
+\`\`\`
+
+## Env-var contract
+
+| Var | Required | Default | Description |
+| --- | --- | --- | --- |
+| \`PROMPT\` | no | baked-in summariser prompt | Inline prompt text. Wins over \`PROMPT_FILE\` when both are set. |
+| \`PROMPT_FILE\` | no | baked-in summariser prompt | Path to a prompt template. If relative, resolved against \`KIRI_REPO_ROOT\`; absolute paths are passed through as-is. |
+| \`MODEL\` | no | — | Model identifier. Omitted from the request when unset; the server uses whichever model is currently loaded. |
+| \`BASE_URL\` | no | \`http://localhost:1234/v1\` | OpenAI-compatible API root. Point this at Ollama's compat shim, llama.cpp's server, vLLM, etc. to repurpose the bundle. |
+| \`MAX_TOKENS\` | no | \`2048\` | Hard cap on the summary length. |
+
+\`KIRI_REPO_ROOT\` and \`KIRI_RUN_CONTEXT_FILE\` are supplied by kiri.
+
+### Precedence
+
+When both \`PROMPT\` and \`PROMPT_FILE\` are set, \`PROMPT\` wins and
+\`PROMPT_FILE\` is ignored — its content is not read, validated, or
+concatenated. When neither is set, the bundle falls back to a baked-in
+prompt that inlines the run-context JSON. Matches \`claude-code-summarizer\`'s
+precedence rule.
+
+### Run context
+
+\`KIRI_RUN_CONTEXT_FILE\` points at a JSON file under the per-run scratch
+dir containing the workflow name, status, duration, and per-step
+kind / status / duration / stdout / stderr / error. The baked-in
+default inlines this JSON directly into the prompt. A user-supplied
+\`PROMPT\` or \`PROMPT_FILE\` replaces the *framing* only — if you want
+the envelope content in your prompt, reference \`{{KIRI_RUN_CONTEXT_FILE}}\`
+to get the path and read it inside the prompt, or splice the path
+into a \`sh:\` step that pre-processes it however you like.
+
+## Zero config by design
+
+Zero config is the default posture: a workflow declaring
+\`summarize: { use: lm-studio-summarizer }\` with no env vars uses the
+baked-in prompt and posts to the default LM Studio endpoint with
+whichever model is currently loaded. The prompt asks for a single
+sentence when the run produced one piece of news and a markdown bullet
+list when it produced a list of items. The env vars above are escape
+hatches for workflows that want to shape the summary without forking
+the bundle.
+
+If the env-var contract still isn't enough — for example you need
+custom dep handling or a different CLI entirely — fork the bundle:
+
+\`\`\`
+cp -r scripts/lm-studio-summarizer scripts/my-summarizer
+$EDITOR scripts/my-summarizer/run.sh
+\`\`\`
+
+Then reference your fork:
+
+\`\`\`yaml
+summarize:
+  use: my-summarizer
+\`\`\`
+
+## Prompt templates
+
+Same renderer as \`lm-studio\` and \`claude-code\` — prompts are portable
+across all three bundles. \`{{VAR}}\` placeholders are substituted from
+the environment in a single left-to-right pass. The same rules apply
+to whichever source produced the prompt (\`PROMPT\`, \`PROMPT_FILE\`, or
+the baked-in default). Names must be uppercase letters, digits, or
+underscores. Unknown vars resolve to empty. Substituted values are
+not re-scanned, so a value that itself contains \`{{X}}\` stays literal
+— no infinite loops on self-referential content.
+
+### Substitutable vars
+
+| Var | Source |
+| --- | --- |
+| \`{{KIRI_RUN_CONTEXT_FILE}}\` | Path to the run-envelope JSON file. |
+| \`{{KIRI_RUN_ID}}\` | Kiri-injected run identifier. |
+| \`{{KIRI_STEP_INDEX}}\` | Zero-based index of this step in the run. |
+| \`{{KIRI_REPO_ROOT}}\` | Absolute path of the workflow repo root. |
+| \`{{KIRI_BUNDLE_DIR}}\` | Absolute path of this bundle's directory. |
+| \`{{KIRI_INPUT}}\` | Stdin piped in by kiri — empty for \`summarize:\` steps today. |
+| \`{{BASE_URL}}\`, \`{{MAX_TOKENS}}\` | Bundle env-var contract values, defaulted as documented above. |
+| \`{{MODEL}}\`, \`{{PROMPT}}\`, \`{{PROMPT_FILE}}\` | Bundle env-var contract values — resolve to empty when unset. |
+| Any \`{{MY_VAR}}\` | Anything set in the step's \`env:\` block. |
+
+### Example
+
+\`\`\`yaml
+summarize:
+  use: lm-studio-summarizer
+  env:
+    PROMPT: "Read {{KIRI_RUN_CONTEXT_FILE}} and write one sentence in a {{TONE}} tone."
+    TONE: dry
+\`\`\`
+
+## Failure handling
+
+A summariser failure does not affect the run's status — \`runs.status\`
+stays \`ok\` or \`failed\` as determined by the workflow steps. The run's
+\`summary\` field stays null when the summariser fails. The summariser's
+stdout/stderr are captured on a \`run_steps\` row (with \`is_summary\`
+set) so the run detail page can surface them for debugging.
+
+## Dependencies
+
+\`curl\`, \`jq\`, and POSIX \`awk\` must be on \`PATH\`. The bundle exits
+non-zero with a clear error at the top of the run if any are missing.
+\`curl\` must be ≥ 7.76 (for \`--fail-with-body\`); macOS 12+ and recent
+Linux distros all qualify.
+
+LM Studio's HTTP server must be running and reachable at \`BASE_URL\`.
+In LM Studio: Developer tab → Server → Start Server. The default
+\`http://localhost:1234/v1\` matches LM Studio's defaults.
+`;
+
 /** Contents of the scaffolded `workflows/pr-review-queue.yaml`. */
 export const PR_REVIEW_QUEUE_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
 
@@ -868,6 +1153,8 @@ const CLAUDE_CODE_SUMMARIZER_RUN_REL_PATH = "scripts/claude-code-summarizer/run.
 const CLAUDE_CODE_SUMMARIZER_README_REL_PATH = "scripts/claude-code-summarizer/README.md";
 const LM_STUDIO_RUN_REL_PATH = "scripts/lm-studio/run.sh";
 const LM_STUDIO_README_REL_PATH = "scripts/lm-studio/README.md";
+const LM_STUDIO_SUMMARIZER_RUN_REL_PATH = "scripts/lm-studio-summarizer/run.sh";
+const LM_STUDIO_SUMMARIZER_README_REL_PATH = "scripts/lm-studio-summarizer/README.md";
 const PR_REVIEW_QUEUE_WORKFLOW_REL_PATH = "workflows/pr-review-queue.yaml";
 const HACKERNEWS_DIGEST_WORKFLOW_REL_PATH = "workflows/hackernews-digest.yaml";
 const HACKERNEWS_DIGEST_PROMPT_REL_PATH = "prompts/hackernews-digest.tpl";
@@ -936,12 +1223,12 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 
 /**
  * Bootstrap a kiri-ready repo at `cwd`: create `workflows/` and `prompts/`,
- * drop in a repo README, the `claude-code`, `claude-code-summarizer`, and
- * `lm-studio` bundles, the `pr-review-queue` and `hackernews-digest`
- * starter workflows, (re)write the JSON Schema file, and add `.kiri/`
- * to `.gitignore` if one exists. User-authored files are never
- * overwritten — only missing files are created. The schema file is
- * always refreshed.
+ * drop in a repo README, the `claude-code`, `claude-code-summarizer`,
+ * `lm-studio`, and `lm-studio-summarizer` bundles, the
+ * `pr-review-queue` and `hackernews-digest` starter workflows,
+ * (re)write the JSON Schema file, and add `.kiri/` to `.gitignore` if
+ * one exists. User-authored files are never overwritten — only
+ * missing files are created. The schema file is always refreshed.
  */
 export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
@@ -949,11 +1236,13 @@ export function initRepo(cwd: string): InitResult {
   const claudeCodeBundleDir = join(cwd, "scripts", "claude-code");
   const claudeCodeSummarizerBundleDir = join(cwd, "scripts", "claude-code-summarizer");
   const lmStudioBundleDir = join(cwd, "scripts", "lm-studio");
+  const lmStudioSummarizerBundleDir = join(cwd, "scripts", "lm-studio-summarizer");
   mkdirSync(workflowsDir, { recursive: true });
   mkdirSync(promptsDir, { recursive: true });
   mkdirSync(claudeCodeBundleDir, { recursive: true });
   mkdirSync(claudeCodeSummarizerBundleDir, { recursive: true });
   mkdirSync(lmStudioBundleDir, { recursive: true });
+  mkdirSync(lmStudioSummarizerBundleDir, { recursive: true });
 
   const created: string[] = [];
   const skipped: string[] = [];
@@ -1001,6 +1290,21 @@ export function initRepo(cwd: string): InitResult {
     join(lmStudioBundleDir, "README.md"),
     LM_STUDIO_README_REL_PATH,
     LM_STUDIO_README,
+    created,
+    skipped,
+  );
+  writeIfMissing(
+    join(lmStudioSummarizerBundleDir, "run.sh"),
+    LM_STUDIO_SUMMARIZER_RUN_REL_PATH,
+    LM_STUDIO_SUMMARIZER_RUN_SCRIPT,
+    created,
+    skipped,
+    0o755,
+  );
+  writeIfMissing(
+    join(lmStudioSummarizerBundleDir, "README.md"),
+    LM_STUDIO_SUMMARIZER_README_REL_PATH,
+    LM_STUDIO_SUMMARIZER_README,
     created,
     skipped,
   );
