@@ -5,7 +5,7 @@ Setup, development workflow, and deploy steps for working on kiri itself. For *u
 ## Prerequisites
 
 - [mise](https://mise.jdx.dev) — manages the Bun version pinned in `mise.toml`. Activate it in your shell (`eval "$(mise activate zsh)"`) so `bun` resolves to the project-pinned version automatically when you `cd` into the repo.
-- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for any workflow using the `claude-code` bundle (including the bundled `HackerNews Digest` dogfood). `claude` must be on your `PATH` and signed in.
+- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for any workflow using the `claude-code` bundle (including the bundled `Daily Briefing` dogfood). `claude` must be on your `PATH` and signed in.
 
 ## Install
 
@@ -33,18 +33,17 @@ The canonical user URL is `https://local.kiri.build` (the Pages-hosted shell). F
 
 ## Dogfood
 
-Kiri's `workflows/` directory ships a couple of real workflows the project uses on itself, so the kiri repo runs as a consumer of its own bundles. They double as manual smoke tests:
+Kiri's `workflows/` directory ships a real workflow the project uses on itself, so the kiri repo runs as a consumer of its own bundles. It doubles as a manual smoke test:
 
-- **PR Review Queue** — single `sh:` step running `gh search prs --review-requested=@me --state=open`. Exercises the bundle-less path and the summariser.
-- **HackerNews Digest** — `sh:` (curl + jq against the HN Firebase API) → `claude-code` (formats the JSON as markdown) → summariser. Exercises the `claude-code` bundle end to end.
+- **Daily Briefing** — `sh:` (curl + jq against the HackerNews and Dev.to APIs) → `claude-code` publish (formats a markdown briefing artefact) → summariser. Exercises the `claude-code` bundle, the publish path, and the summariser end to end.
 
 To smoke-test:
 
 1. `bun dev` and open the local URL.
-2. Pick a workflow and click **Run**.
+2. Click **Run** on the workflow.
 3. Refresh the feed. Click the new entry to open the run detail page — the header pins the data-repo git sha (with a dirty marker if the working tree had uncommitted changes), and each step shows its captured output and envelope traces. To reproduce a past run faithfully, `git checkout <sha>` in the data repo.
 
-The `claude-code` bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, runs that use it are marked failed and the underlying error is visible in the expanded entry. HackerNews Digest also requires `jq`.
+The `claude-code` bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, runs that use it are marked failed and the underlying error is visible in the expanded entry. Daily Briefing also requires `curl` and `jq`.
 
 ## Tests
 

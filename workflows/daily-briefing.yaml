@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=../.kiri/workflow.schema.json
+
+name: Daily Briefing
+steps:
+  - sh: |
+      set -eu
+      for dep in curl jq; do
+        command -v "$dep" >/dev/null 2>&1 || {
+          echo "daily-briefing requires '$dep' on PATH" >&2
+          exit 1
+        }
+      done
+
+      hn_limit=30
+      hn_ids=$(curl -fsSL "https://hacker-news.firebaseio.com/v0/beststories.json" \
+        | jq -r ".[:${hn_limit}][]")
+
+      printf '{"hackernews":['
+      first=1
+      for id in $hn_ids; do
+        [ "$first" = 1 ] && first=0 || printf ','
+        curl -fsSL "https://hacker-news.firebaseio.com/v0/item/${id}.json"
+      done
+      printf '],"devto":'
+
+      curl -fsSL "https://dev.to/api/articles?per_page=30&top=1"
+      printf '}'
+    description: Fetch HackerNews best stories and Dev.to top articles
+
+publish:
+  - name: briefing
+    title: Daily Briefing
+    description: Today's most important tech news, with a roundup and a thought to chew on.
+    use: claude-code
+    env:
+      PROMPT_FILE: prompts/daily-briefing.tpl
+      MODEL: haiku
+      MAX_TURNS: "10"
+
+summarize:
+  use: claude-code-summarizer
+  env:
+    MODEL: haiku

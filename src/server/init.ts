@@ -1080,79 +1080,106 @@ In LM Studio: Developer tab → Server → Start Server. The default
 \`http://localhost:1234/v1\` matches LM Studio's defaults.
 `;
 
-/** Contents of the scaffolded `workflows/pr-review-queue.yaml`. */
-export const PR_REVIEW_QUEUE_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
+/** Contents of the scaffolded `workflows/daily-briefing.yaml`. */
+export const DAILY_BRIEFING_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
 
-name: PR Review Queue
+name: Daily Briefing
 steps:
   - sh: |
       set -eu
-      prs=$(gh search prs --review-requested=@me --state=open)
-      if [ -z "$prs" ]; then
-        echo "No PRs awaiting your review."
-      else
-        echo "$prs"
-      fi
-summarize:
-  use: claude-code-summarizer
-`;
+      for dep in curl jq; do
+        command -v "$dep" >/dev/null 2>&1 || {
+          echo "daily-briefing requires '$dep' on PATH" >&2
+          exit 1
+        }
+      done
 
-/** Contents of the scaffolded `workflows/hackernews-digest.yaml`. */
-export const HACKERNEWS_DIGEST_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
+      hn_limit=30
+      hn_ids=$(curl -fsSL "https://hacker-news.firebaseio.com/v0/beststories.json" \\
+        | jq -r ".[:\${hn_limit}][]")
 
-name: HackerNews Digest
-steps:
-  - sh: |
-      set -eu
-      limit=10
-      ids=$(curl -fsSL "https://hacker-news.firebaseio.com/v0/topstories.json" \\
-        | jq -r ".[:\${limit}][]")
-      [ -n "$ids" ] || { echo "Could not fetch HackerNews top stories." >&2; exit 1; }
-      printf '['
+      printf '{"hackernews":['
       first=1
-      for id in $ids; do
+      for id in $hn_ids; do
         [ "$first" = 1 ] && first=0 || printf ','
         curl -fsSL "https://hacker-news.firebaseio.com/v0/item/\${id}.json"
       done
-      printf ']'
+      printf '],"devto":'
+
+      curl -fsSL "https://dev.to/api/articles?per_page=30&top=1"
+      printf '}'
+    description: Fetch HackerNews best stories and Dev.to top articles
+
 publish:
-  - name: article
-    title: HackerNews Top Stories
+  - name: briefing
+    title: Daily Briefing
+    description: Today's most important tech news, with a roundup and a thought to chew on.
     use: claude-code
     env:
-      PROMPT_FILE: prompts/hackernews-digest.tpl
-      MODEL: sonnet
+      PROMPT_FILE: prompts/daily-briefing.tpl
+      MODEL: haiku
+      MAX_TURNS: "10"
+
 summarize:
   use: claude-code-summarizer
+  env:
+    MODEL: haiku
 `;
 
-/** Contents of the scaffolded `prompts/hackernews-digest.tpl`. */
-export const HACKERNEWS_DIGEST_PROMPT = `You are formatting today's HackerNews top stories as a long-form
-markdown digest.
+/** Contents of the scaffolded `prompts/daily-briefing.tpl`. */
+export const DAILY_BRIEFING_PROMPT = `You are writing a daily tech briefing for a developer who wants to
+stay current on big tech news (AI, security, anything a senior
+engineer would care about) and on developer news (frontend, JS/TS,
+cloud, infra).
 
-The run envelope is at {{KIRI_RUN_CONTEXT_FILE}}. Read that file with
-the Read tool, parse it as JSON, and locate \`steps[0].stdout\` — that
-string is a JSON array of HN items you should format.
+The full run envelope is at:
+{{KIRI_RUN_CONTEXT_FILE}}
 
-Each item has fields like \`title\`, \`url\`, \`by\`, \`score\`, \`descendants\`
-(comment count), and \`id\`. Some items have no \`url\` (self-posts) — for
-those, use \`https://news.ycombinator.com/item?id=<id>\` as the link.
+Inside that JSON, \`steps[0].stdout\` is a single JSON object with two fields:
+- \`hackernews\`: an array of HackerNews items. Each has \`title\`, \`url\`, \`score\`,
+  \`by\`, \`descendants\` (comment count), \`type\` (story, job, poll, …).
+- \`devto\`: an array of Dev.to articles. Each has \`title\`, \`url\`, \`description\`,
+  \`tag_list\`, \`positive_reactions_count\`, \`user.name\`, \`published_at\`.
 
-Produce markdown with this shape:
+Read those, then write a tight markdown briefing with exactly this structure
+and these headings, no preamble, no sign-off:
 
-## HackerNews Top Stories
+## Today
 
-A one-sentence lede observing what's notable across the list as a
-whole (e.g. "AI agents and infra dominate; one curious throwback
-about ..."). Base this only on titles — do **not** pretend to have
-read the articles or fabricate per-story takes.
+One or two short paragraphs about the single most important story (or two
+if there are genuinely two distinct big stories). Pick what a thoughtful
+principal engineer would care about most — significance over virality. Link
+the primary source inline (the article itself, not the HackerNews comments
+page). End each paragraph with one short line on *why this matters* or
+*what's interesting* — under fifteen words.
 
-Then for each story, in input order:
+## Worth a scan
 
-### N. {title}
-[link]({url}) · [discussion](https://news.ycombinator.com/item?id={id}) · {score} points · {descendants} comments · by {by}
+A markdown bullet list of 6–10 other notable links, grouped lightly under
+bold-prefix categories drawn from: **AI**, **Security**, **JS/TS/Frontend**,
+**AWS/Cloud**, **Industry**. Skip any category with nothing today. Each
+bullet: title as link, then an em-dash and a 6–12 word note. One bullet per
+line. Real titles only — don't invent.
 
-Output only the markdown. No preamble, no code fences.
+## To ideate on
+
+One short, conversational prompt or open question to chew on today,
+rooted in a theme you noticed in the news. Two or three sentences max.
+Frame it as something to think about over coffee, not a homework
+assignment.
+
+Rules:
+- No preamble like "Here's your briefing".
+- Skip items that are just hiring threads, "Show HN" toys with no
+  substance, product launches with no news, or memes — unless they're
+  load-bearing.
+- Prefer primary sources. For HackerNews story items, link \`url\` (the
+  article); only link the HN discussion page when the discussion is itself
+  the news.
+- Don't pad. Brevity is the point — the whole briefing should be skimmable
+  in under two minutes.
+- If a Dev.to article and an HN story cover the same news, prefer whichever
+  source is the original or more substantive — don't list both.
 `;
 
 /** Relative paths reported by `initRepo`. */
@@ -1166,9 +1193,8 @@ const LM_STUDIO_RUN_REL_PATH = "scripts/lm-studio/run.sh";
 const LM_STUDIO_README_REL_PATH = "scripts/lm-studio/README.md";
 const LM_STUDIO_SUMMARIZER_RUN_REL_PATH = "scripts/lm-studio-summarizer/run.sh";
 const LM_STUDIO_SUMMARIZER_README_REL_PATH = "scripts/lm-studio-summarizer/README.md";
-const PR_REVIEW_QUEUE_WORKFLOW_REL_PATH = "workflows/pr-review-queue.yaml";
-const HACKERNEWS_DIGEST_WORKFLOW_REL_PATH = "workflows/hackernews-digest.yaml";
-const HACKERNEWS_DIGEST_PROMPT_REL_PATH = "prompts/hackernews-digest.tpl";
+const DAILY_BRIEFING_WORKFLOW_REL_PATH = "workflows/daily-briefing.yaml";
+const DAILY_BRIEFING_PROMPT_REL_PATH = "prompts/daily-briefing.tpl";
 const GITIGNORE_REL_PATH = ".gitignore";
 const GITIGNORE_KIRI_LINE = ".kiri/";
 
@@ -1235,11 +1261,11 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 /**
  * Bootstrap a kiri-ready repo at `cwd`: create `workflows/` and `prompts/`,
  * drop in a repo README, the `claude-code`, `claude-code-summarizer`,
- * `lm-studio`, and `lm-studio-summarizer` bundles, the
- * `pr-review-queue` and `hackernews-digest` starter workflows,
- * (re)write the JSON Schema file, and add `.kiri/` to `.gitignore` if
- * one exists. User-authored files are never overwritten — only
- * missing files are created. The schema file is always refreshed.
+ * `lm-studio`, and `lm-studio-summarizer` bundles, the `daily-briefing`
+ * starter workflow and its prompt template, (re)write the JSON Schema
+ * file, and add `.kiri/` to `.gitignore` if one exists. User-authored
+ * files are never overwritten — only missing files are created. The
+ * schema file is always refreshed.
  */
 export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
@@ -1320,23 +1346,16 @@ export function initRepo(cwd: string): InitResult {
     skipped,
   );
   writeIfMissing(
-    join(workflowsDir, "pr-review-queue.yaml"),
-    PR_REVIEW_QUEUE_WORKFLOW_REL_PATH,
-    PR_REVIEW_QUEUE_WORKFLOW,
+    join(workflowsDir, "daily-briefing.yaml"),
+    DAILY_BRIEFING_WORKFLOW_REL_PATH,
+    DAILY_BRIEFING_WORKFLOW,
     created,
     skipped,
   );
   writeIfMissing(
-    join(workflowsDir, "hackernews-digest.yaml"),
-    HACKERNEWS_DIGEST_WORKFLOW_REL_PATH,
-    HACKERNEWS_DIGEST_WORKFLOW,
-    created,
-    skipped,
-  );
-  writeIfMissing(
-    join(promptsDir, "hackernews-digest.tpl"),
-    HACKERNEWS_DIGEST_PROMPT_REL_PATH,
-    HACKERNEWS_DIGEST_PROMPT,
+    join(promptsDir, "daily-briefing.tpl"),
+    DAILY_BRIEFING_PROMPT_REL_PATH,
+    DAILY_BRIEFING_PROMPT,
     created,
     skipped,
   );

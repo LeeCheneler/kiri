@@ -42,7 +42,7 @@ Then open **https://local.kiri.build** in your browser. The hosted shell at that
 
 > **Safari / Brave note.** Both browsers block HTTP-localhost subresource loads from an HTTPS page, so the shell won't fetch kiri's bundle there. Use **http://localhost:4242** directly on those browsers. Chrome and Firefox work either way.
 
-`kiri init` scaffolds two starter workflows — **PR Review Queue** (queries `gh` for PRs awaiting your review) and **HackerNews Digest** (fetches the HN top stories and publishes them as a markdown artefact) — plus the `claude-code` and `claude-code-summarizer` bundles they use. Click **Run** on either in the UI, then watch the feed. You'll need the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your `$PATH`, signed in.
+`kiri init` scaffolds a starter **Daily Briefing** workflow (pulls the HackerNews best stories and the Dev.to top articles, publishes a markdown briefing as an artefact) plus the `claude-code` and `claude-code-summarizer` bundles it uses. Click **Run** in the UI, then watch the feed. You'll need the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your `$PATH`, signed in, and `curl` + `jq` available.
 
 ## Trust model
 

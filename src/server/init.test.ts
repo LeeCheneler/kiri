@@ -7,14 +7,13 @@ import {
   CLAUDE_CODE_RUN_SCRIPT,
   CLAUDE_CODE_SUMMARIZER_README,
   CLAUDE_CODE_SUMMARIZER_RUN_SCRIPT,
-  HACKERNEWS_DIGEST_PROMPT,
-  HACKERNEWS_DIGEST_WORKFLOW,
+  DAILY_BRIEFING_PROMPT,
+  DAILY_BRIEFING_WORKFLOW,
   KIRI_README,
   LM_STUDIO_README,
   LM_STUDIO_RUN_SCRIPT,
   LM_STUDIO_SUMMARIZER_README,
   LM_STUDIO_SUMMARIZER_RUN_SCRIPT,
-  PR_REVIEW_QUEUE_WORKFLOW,
   initRepo,
   writeSchemaFile,
 } from "./init.ts";
@@ -86,14 +85,11 @@ describe("initRepo", () => {
     expect(readFileSync(join(cwd, "scripts", "lm-studio-summarizer", "README.md"), "utf8")).toBe(
       LM_STUDIO_SUMMARIZER_README,
     );
-    expect(readFileSync(join(cwd, "workflows", "pr-review-queue.yaml"), "utf8")).toBe(
-      PR_REVIEW_QUEUE_WORKFLOW,
+    expect(readFileSync(join(cwd, "workflows", "daily-briefing.yaml"), "utf8")).toBe(
+      DAILY_BRIEFING_WORKFLOW,
     );
-    expect(readFileSync(join(cwd, "workflows", "hackernews-digest.yaml"), "utf8")).toBe(
-      HACKERNEWS_DIGEST_WORKFLOW,
-    );
-    expect(readFileSync(join(cwd, "prompts", "hackernews-digest.tpl"), "utf8")).toBe(
-      HACKERNEWS_DIGEST_PROMPT,
+    expect(readFileSync(join(cwd, "prompts", "daily-briefing.tpl"), "utf8")).toBe(
+      DAILY_BRIEFING_PROMPT,
     );
     expect(JSON.parse(readFileSync(join(cwd, ".kiri", "workflow.schema.json"), "utf8"))).toEqual(
       workflowJsonSchema(),
@@ -109,9 +105,8 @@ describe("initRepo", () => {
       "scripts/lm-studio/README.md",
       "scripts/lm-studio-summarizer/run.sh",
       "scripts/lm-studio-summarizer/README.md",
-      "workflows/pr-review-queue.yaml",
-      "workflows/hackernews-digest.yaml",
-      "prompts/hackernews-digest.tpl",
+      "workflows/daily-briefing.yaml",
+      "prompts/daily-briefing.tpl",
     ]);
     expect(result.skipped).toEqual([]);
     expect(result.schemaPath).toBe(".kiri/workflow.schema.json");
@@ -161,9 +156,11 @@ describe("initRepo", () => {
       join(cwd, "scripts", "lm-studio-summarizer", "README.md"),
       "user lms summer notes",
     );
-    writeFileSync(join(cwd, "workflows", "pr-review-queue.yaml"), "name: user-prs\nsteps: []\n");
-    writeFileSync(join(cwd, "workflows", "hackernews-digest.yaml"), "name: user-hn\nsteps: []\n");
-    writeFileSync(join(cwd, "prompts", "hackernews-digest.tpl"), "user prompt");
+    writeFileSync(
+      join(cwd, "workflows", "daily-briefing.yaml"),
+      "name: user-briefing\nsteps: []\n",
+    );
+    writeFileSync(join(cwd, "prompts", "daily-briefing.tpl"), "user prompt");
 
     const result = initRepo(cwd);
 
@@ -192,13 +189,10 @@ describe("initRepo", () => {
     expect(readFileSync(join(cwd, "scripts", "lm-studio-summarizer", "README.md"), "utf8")).toBe(
       "user lms summer notes",
     );
-    expect(readFileSync(join(cwd, "workflows", "pr-review-queue.yaml"), "utf8")).toBe(
-      "name: user-prs\nsteps: []\n",
+    expect(readFileSync(join(cwd, "workflows", "daily-briefing.yaml"), "utf8")).toBe(
+      "name: user-briefing\nsteps: []\n",
     );
-    expect(readFileSync(join(cwd, "workflows", "hackernews-digest.yaml"), "utf8")).toBe(
-      "name: user-hn\nsteps: []\n",
-    );
-    expect(readFileSync(join(cwd, "prompts", "hackernews-digest.tpl"), "utf8")).toBe("user prompt");
+    expect(readFileSync(join(cwd, "prompts", "daily-briefing.tpl"), "utf8")).toBe("user prompt");
     expect(result.created).toEqual([]);
     expect(result.skipped).toEqual([
       "README.md",
@@ -210,9 +204,8 @@ describe("initRepo", () => {
       "scripts/lm-studio/README.md",
       "scripts/lm-studio-summarizer/run.sh",
       "scripts/lm-studio-summarizer/README.md",
-      "workflows/pr-review-queue.yaml",
-      "workflows/hackernews-digest.yaml",
-      "prompts/hackernews-digest.tpl",
+      "workflows/daily-briefing.yaml",
+      "prompts/daily-briefing.tpl",
     ]);
   });
 
@@ -327,18 +320,13 @@ describe("checked-in init artifacts (dogfood drift guard)", () => {
     expect(tracked).toBe(LM_STUDIO_SUMMARIZER_README);
   });
 
-  it("workflows/pr-review-queue.yaml matches PR_REVIEW_QUEUE_WORKFLOW", () => {
-    const tracked = readFileSync(join(repoRoot, "workflows", "pr-review-queue.yaml"), "utf8");
-    expect(tracked).toBe(PR_REVIEW_QUEUE_WORKFLOW);
+  it("workflows/daily-briefing.yaml matches DAILY_BRIEFING_WORKFLOW", () => {
+    const tracked = readFileSync(join(repoRoot, "workflows", "daily-briefing.yaml"), "utf8");
+    expect(tracked).toBe(DAILY_BRIEFING_WORKFLOW);
   });
 
-  it("workflows/hackernews-digest.yaml matches HACKERNEWS_DIGEST_WORKFLOW", () => {
-    const tracked = readFileSync(join(repoRoot, "workflows", "hackernews-digest.yaml"), "utf8");
-    expect(tracked).toBe(HACKERNEWS_DIGEST_WORKFLOW);
-  });
-
-  it("prompts/hackernews-digest.tpl matches HACKERNEWS_DIGEST_PROMPT", () => {
-    const tracked = readFileSync(join(repoRoot, "prompts", "hackernews-digest.tpl"), "utf8");
-    expect(tracked).toBe(HACKERNEWS_DIGEST_PROMPT);
+  it("prompts/daily-briefing.tpl matches DAILY_BRIEFING_PROMPT", () => {
+    const tracked = readFileSync(join(repoRoot, "prompts", "daily-briefing.tpl"), "utf8");
+    expect(tracked).toBe(DAILY_BRIEFING_PROMPT);
   });
 });
