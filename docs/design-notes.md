@@ -37,7 +37,7 @@ steps:
   - use: claude-code        # script bundle: scripts/claude-code/run.sh (shipped by `kiri init`)
     env:
       PROMPT_FILE: prompts/pr-review.tpl
-      MAX_TURNS: "8"
+      MAX_TURNS: "50"
   - sh: |                   # inline shell — sugar for trivial steps
       echo "review complete"
       date
@@ -157,7 +157,7 @@ Workflow usage:
 - use: claude-code
   env:
     PROMPT_FILE: prompts/pr-review.tpl
-    MAX_TURNS: "8"
+    MAX_TURNS: "50"
     ALLOWED_TOOLS: "Read,Glob,Grep,Bash(gh pr view:*)"
     MODEL: opus              # optional
 ```

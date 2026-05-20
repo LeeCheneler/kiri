@@ -144,7 +144,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "50"]);
   });
 
   it("preserves internal newlines when {{KIRI_INPUT}} is multi-line", async () => {
@@ -152,7 +152,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Names:\nfirst\nsecond\nthird", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "Names:\nfirst\nsecond\nthird", "--max-turns", "50"]);
   });
 
   it("substitutes a custom {{VAR}} from the workflow's env block", async () => {
@@ -160,7 +160,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Be cheerful.", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "Be cheerful.", "--max-turns", "50"]);
   });
 
   it("leaves {{lowercase}} placeholders literal even when an env var with that name is set", async () => {
@@ -169,7 +169,7 @@ describe("claude-code bundle: integration", () => {
     expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
     // Regex is [A-Z_][A-Z0-9_]*; {{tone}} doesn't match so it survives untouched.
-    expect(argv).toEqual(["-p", "Be {{tone}}.", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "Be {{tone}}.", "--max-turns", "50"]);
   });
 
   it("does a single-pass substitution: a value containing {{X}} is not re-scanned", async () => {
@@ -178,7 +178,7 @@ describe("claude-code bundle: integration", () => {
     expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
     // {{X}} -> "{{Y}}" once; the result is emitted as-is, never re-scanned.
-    expect(argv).toEqual(["-p", "{{Y}}", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "{{Y}}", "--max-turns", "50"]);
   });
 
   it("renders unknown {{VARS}} as empty string", async () => {
@@ -186,7 +186,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "before--after", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "before--after", "--max-turns", "50"]);
   });
 
   it("passes --model with the configured value when MODEL is set", async () => {
@@ -194,7 +194,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Hello.", "--max-turns", "8", "--model", "opus"]);
+    expect(argv).toEqual(["-p", "Hello.", "--max-turns", "50", "--model", "opus"]);
   });
 
   it("omits the --model flag when MODEL is not set", async () => {
@@ -202,7 +202,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Hello.", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "Hello.", "--max-turns", "50"]);
     expect(argv).not.toContain("--model");
   });
 
@@ -219,7 +219,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Inline prompt, no file.", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "Inline prompt, no file.", "--max-turns", "50"]);
   });
 
   it("uses PROMPT and ignores PROMPT_FILE when both are set", async () => {
@@ -227,7 +227,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Inline wins.", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "Inline wins.", "--max-turns", "50"]);
     // PROMPT_FILE points at single-line-input.tpl ("Hello, {{KIRI_INPUT}}.")
     // — its content must not leak into the rendered prompt.
     expect(argv[1]).not.toContain("Hello");
@@ -238,7 +238,7 @@ describe("claude-code bundle: integration", () => {
 
     expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
     const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "8"]);
+    expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "50"]);
   });
 
   it("fails the step with a clear stderr when claude is not on PATH", async () => {

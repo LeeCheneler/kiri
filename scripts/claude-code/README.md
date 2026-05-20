@@ -27,7 +27,7 @@ Full reference, all knobs explicit:
   env:
     PROMPT: "Inline prompt text."        # one of PROMPT / PROMPT_FILE required
     PROMPT_FILE: prompts/my-prompt.tpl   # one of PROMPT / PROMPT_FILE required
-    MAX_TURNS: "8"                       # optional, default "8"
+    MAX_TURNS: "50"                      # optional, default "50"
     MODEL: opus                          # optional, no default — claude picks
 ```
 
@@ -37,7 +37,7 @@ Full reference, all knobs explicit:
 | --- | --- | --- | --- |
 | `PROMPT` | one of `PROMPT` / `PROMPT_FILE` | — | Inline prompt text. Wins over `PROMPT_FILE` when both are set. |
 | `PROMPT_FILE` | one of `PROMPT` / `PROMPT_FILE` | — | Path to a prompt template. If relative, resolved against `KIRI_REPO_ROOT`; absolute paths are passed through as-is. |
-| `MAX_TURNS` | no | `8` | Hard cap on the number of agent turns. |
+| `MAX_TURNS` | no | `50` | Hard cap on the number of agent turns. |
 | `MODEL` | no | — | Override the model. If unset, `claude` picks its default. |
 
 `KIRI_REPO_ROOT` is supplied by kiri.

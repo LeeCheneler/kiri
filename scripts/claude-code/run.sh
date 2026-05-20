@@ -12,7 +12,7 @@ set -eu
 
 # Default exported so {{MAX_TURNS}} can be referenced inside prompt
 # templates even when the workflow leaves it unset.
-export MAX_TURNS="${MAX_TURNS:-8}"
+export MAX_TURNS="${MAX_TURNS:-50}"
 
 for dep in claude awk; do
   command -v "$dep" >/dev/null 2>&1 || {

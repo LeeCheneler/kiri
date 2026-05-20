@@ -81,7 +81,7 @@ Mixing `use:` and `sh:` on the same step is a schema error.
 
 ### `env:` rules
 
-- Flat `string → string` map. **All values must be strings.** Numbers/booleans must be quoted: `MAX_TURNS: "8"`, not `MAX_TURNS: 8`.
+- Flat `string → string` map. **All values must be strings.** Numbers/booleans must be quoted: `MAX_TURNS: "50"`, not `MAX_TURNS: 50`.
 - Keys starting with `KIRI_` are **rejected at load time**. That namespace is reserved.
 - User env is applied **first**, then `PATH`, `HOME`, `USER`, `LOGNAME` from the kiri parent process, then `KIRI_*` overlays. A workflow can't shadow `PATH` or `KIRI_RUN_ID`.
 
@@ -192,7 +192,7 @@ Two ways to bring this JSON into a prompt, picked by what the model can do:
   env:
     PROMPT: "Summarise {{KIRI_INPUT}} in one sentence."   # one-of PROMPT/PROMPT_FILE required
     PROMPT_FILE: prompts/my-prompt.tpl                    # one-of PROMPT/PROMPT_FILE required
-    MAX_TURNS: "8"                                        # optional, default "8"
+    MAX_TURNS: "50"                                       # optional, default "50"
     MODEL: opus                                           # optional, claude picks default
 ```
 
@@ -205,7 +205,7 @@ Two ways to bring this JSON into a prompt, picked by what the model can do:
 
 ```yaml
 summarize:
-  use: claude-code-summarizer       # no env needed — uses baked-in prompt, MODEL=haiku, MAX_TURNS=3
+  use: claude-code-summarizer       # no env needed — uses baked-in prompt, MODEL=haiku, MAX_TURNS=50
 ```
 
 Override knobs when you want shape:
@@ -217,7 +217,7 @@ summarize:
     PROMPT: "One witty sentence about {{KIRI_RUN_CONTEXT_FILE}}."
     PROMPT_FILE: prompts/my-summary.tpl   # alternative; PROMPT wins if both set
     MODEL: sonnet                          # default haiku
-    MAX_TURNS: "3"                         # default 3
+    MAX_TURNS: "50"                        # default 50
 ```
 
 If no `PROMPT`/`PROMPT_FILE` is given, the bundle's baked-in prompt hands Claude the path `{{KIRI_RUN_CONTEXT_FILE}}` and asks it to `Read` the envelope agentically — the JSON is never inlined into the prompt argv, so runs that produce hundreds of KB of stdout don't push the prompt past macOS `ARG_MAX` or the model's input limit. The prompt then asks for a bullet list for list-style runs and a single sentence for one-shot runs.
@@ -470,7 +470,7 @@ steps:
 
 | Mistake | Fix |
 | --- | --- |
-| `MAX_TURNS: 8` (yaml number) | `MAX_TURNS: "8"` — `env:` values must be strings. |
+| `MAX_TURNS: 50` (yaml number) | `MAX_TURNS: "50"` — `env:` values must be strings. |
 | `env: { KIRI_MODE: "x" }` | Don't prefix keys with `KIRI_`. Reserved. |
 | Relative path `prompts/foo.tpl` from inside a step expecting cwd-relative | Resolve against `$KIRI_REPO_ROOT`. The step's cwd is the scratch dir, not the repo root. |
 | Reading the parent shell's `MY_TOKEN` | Won't work. Set it explicitly under the step's `env:` (or pull it from a mode-600 file inside the script). |

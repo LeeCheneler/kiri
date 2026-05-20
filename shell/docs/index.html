@@ -172,7 +172,7 @@ steps:
   - use: claude-code
     env:
       PROMPT_FILE: prompts/self-review.tpl
-      MAX_TURNS: "8"</code></pre>
+      MAX_TURNS: "50"</code></pre>
       <p>The shipped <code>claude-code</code> bundle reads a prompt template, renders <code>{{VAR}}</code> placeholders from the environment, and spawns the Claude Code CLI.</p>
 
       <h3>Piping output between steps</h3>
@@ -208,7 +208,7 @@ steps:
 summarize:
   use: claude-code-summarizer</code></pre>
       <p>Summarize steps additionally receive <code>KIRI_RUN_CONTEXT_FILE</code> — a path to a JSON dump of the run envelope (workflow name, status, duration, per-step kind / status / duration / stdout / stderr / error, plus any published artefacts). The summarizer formats this into its prompt.</p>
-      <p>The bundle accepts <code>PROMPT</code>, <code>PROMPT_FILE</code>, <code>MODEL</code>, and <code>MAX_TURNS</code> on its <code>env:</code> map — all optional. Defaults are the baked-in summariser prompt, <code>haiku</code>, and one turn. <code>PROMPT</code> wins over <code>PROMPT_FILE</code> when both are set, so you can override the framing inline without forking the bundle:</p>
+      <p>The bundle accepts <code>PROMPT</code>, <code>PROMPT_FILE</code>, <code>MODEL</code>, and <code>MAX_TURNS</code> on its <code>env:</code> map — all optional. Defaults are the baked-in summariser prompt, <code>haiku</code>, and 50 turns. <code>PROMPT</code> wins over <code>PROMPT_FILE</code> when both are set, so you can override the framing inline without forking the bundle:</p>
       <pre><code>summarize:
   use: claude-code-summarizer
   env:

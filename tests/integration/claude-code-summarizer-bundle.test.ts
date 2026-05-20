@@ -122,7 +122,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     teardownWorkspace(ws);
   });
 
-  it("invokes claude with -p, --max-turns 3, --model haiku", async () => {
+  it("invokes claude with -p, --max-turns 50, --model haiku", async () => {
     ws = setupWorkspace();
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
@@ -136,7 +136,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     const { argv } = readCapture(ws);
     expect(argv).toHaveLength(6);
     expect(argv[0]).toBe("-p");
-    expect(argv.slice(2)).toEqual(["--max-turns", "3", "--model", "haiku"]);
+    expect(argv.slice(2)).toEqual(["--max-turns", "50", "--model", "haiku"]);
   });
 
   it("references the run-context file path in the prompt instead of inlining the JSON", async () => {
@@ -251,7 +251,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     // Baked-in framing must not leak through when PROMPT is set.
     expect(argv[1]).not.toContain("activity feed");
     expect(argv[1]).not.toContain('"workflow"');
-    expect(argv.slice(2)).toEqual(["--max-turns", "3", "--model", "haiku"]);
+    expect(argv.slice(2)).toEqual(["--max-turns", "50", "--model", "haiku"]);
   });
 
   it("renders a PROMPT_FILE resolved against KIRI_REPO_ROOT", async () => {

@@ -41,7 +41,7 @@ summarize:
     PROMPT: "Inline prompt text."        # optional; wins over PROMPT_FILE
     PROMPT_FILE: prompts/my-summary.tpl  # optional
     MODEL: sonnet                        # optional, default haiku
-    MAX_TURNS: "3"                       # optional, default 3
+    MAX_TURNS: "50"                      # optional, default 50
 ```
 
 ## Env-var contract
@@ -51,7 +51,7 @@ summarize:
 | `PROMPT` | no | baked-in summariser prompt | Inline prompt text. Wins over `PROMPT_FILE` when both are set. |
 | `PROMPT_FILE` | no | baked-in summariser prompt | Path to a prompt template. If relative, resolved against `KIRI_REPO_ROOT`; absolute paths are passed through as-is. |
 | `MODEL` | no | `haiku` | Passed via `--model`. |
-| `MAX_TURNS` | no | `3` | Passed via `--max-turns`. Default leaves room for one Read of the envelope, the summary turn, and a follow-up Read or Grep on a large artefact. |
+| `MAX_TURNS` | no | `50` | Passed via `--max-turns`. Generous budget so the agent can Read the envelope, explore step stdout / artefacts agentically, and still have headroom on large runs. |
 
 `KIRI_REPO_ROOT` and `KIRI_RUN_CONTEXT_FILE` are supplied by kiri.
 

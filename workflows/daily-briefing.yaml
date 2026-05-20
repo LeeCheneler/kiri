@@ -35,7 +35,6 @@ publish:
     env:
       PROMPT_FILE: prompts/daily-briefing.tpl
       MODEL: haiku
-      MAX_TURNS: "10"
 
 summarize:
   use: claude-code-summarizer

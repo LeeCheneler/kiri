@@ -15,10 +15,7 @@ set -eu
 
 # Defaults exported so {{MAX_TURNS}} and {{MODEL}} can be referenced
 # inside prompt templates even when the workflow leaves them unset.
-# MAX_TURNS defaults to 3: one turn for Claude to Read the envelope,
-# one to write the summary, plus headroom for a follow-up Read or
-# Grep on a large artefact or step stdout.
-export MAX_TURNS="${MAX_TURNS:-3}"
+export MAX_TURNS="${MAX_TURNS:-50}"
 export MODEL="${MODEL:-haiku}"
 
 for dep in claude awk; do

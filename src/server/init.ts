@@ -124,7 +124,7 @@ set -eu
 
 # Default exported so {{MAX_TURNS}} can be referenced inside prompt
 # templates even when the workflow leaves it unset.
-export MAX_TURNS="\${MAX_TURNS:-8}"
+export MAX_TURNS="\${MAX_TURNS:-50}"
 
 for dep in claude awk; do
   command -v "$dep" >/dev/null 2>&1 || {
@@ -213,7 +213,7 @@ Full reference, all knobs explicit:
   env:
     PROMPT: "Inline prompt text."        # one of PROMPT / PROMPT_FILE required
     PROMPT_FILE: prompts/my-prompt.tpl   # one of PROMPT / PROMPT_FILE required
-    MAX_TURNS: "8"                       # optional, default "8"
+    MAX_TURNS: "50"                      # optional, default "50"
     MODEL: opus                          # optional, no default — claude picks
 \`\`\`
 
@@ -223,7 +223,7 @@ Full reference, all knobs explicit:
 | --- | --- | --- | --- |
 | \`PROMPT\` | one of \`PROMPT\` / \`PROMPT_FILE\` | — | Inline prompt text. Wins over \`PROMPT_FILE\` when both are set. |
 | \`PROMPT_FILE\` | one of \`PROMPT\` / \`PROMPT_FILE\` | — | Path to a prompt template. If relative, resolved against \`KIRI_REPO_ROOT\`; absolute paths are passed through as-is. |
-| \`MAX_TURNS\` | no | \`8\` | Hard cap on the number of agent turns. |
+| \`MAX_TURNS\` | no | \`50\` | Hard cap on the number of agent turns. |
 | \`MODEL\` | no | — | Override the model. If unset, \`claude\` picks its default. |
 
 \`KIRI_REPO_ROOT\` is supplied by kiri.
@@ -318,10 +318,7 @@ set -eu
 
 # Defaults exported so {{MAX_TURNS}} and {{MODEL}} can be referenced
 # inside prompt templates even when the workflow leaves them unset.
-# MAX_TURNS defaults to 3: one turn for Claude to Read the envelope,
-# one to write the summary, plus headroom for a follow-up Read or
-# Grep on a large artefact or step stdout.
-export MAX_TURNS="\${MAX_TURNS:-3}"
+export MAX_TURNS="\${MAX_TURNS:-50}"
 export MODEL="\${MODEL:-haiku}"
 
 for dep in claude awk; do
@@ -444,7 +441,7 @@ summarize:
     PROMPT: "Inline prompt text."        # optional; wins over PROMPT_FILE
     PROMPT_FILE: prompts/my-summary.tpl  # optional
     MODEL: sonnet                        # optional, default haiku
-    MAX_TURNS: "3"                       # optional, default 3
+    MAX_TURNS: "50"                      # optional, default 50
 \`\`\`
 
 ## Env-var contract
@@ -454,7 +451,7 @@ summarize:
 | \`PROMPT\` | no | baked-in summariser prompt | Inline prompt text. Wins over \`PROMPT_FILE\` when both are set. |
 | \`PROMPT_FILE\` | no | baked-in summariser prompt | Path to a prompt template. If relative, resolved against \`KIRI_REPO_ROOT\`; absolute paths are passed through as-is. |
 | \`MODEL\` | no | \`haiku\` | Passed via \`--model\`. |
-| \`MAX_TURNS\` | no | \`3\` | Passed via \`--max-turns\`. Default leaves room for one Read of the envelope, the summary turn, and a follow-up Read or Grep on a large artefact. |
+| \`MAX_TURNS\` | no | \`50\` | Passed via \`--max-turns\`. Generous budget so the agent can Read the envelope, explore step stdout / artefacts agentically, and still have headroom on large runs. |
 
 \`KIRI_REPO_ROOT\` and \`KIRI_RUN_CONTEXT_FILE\` are supplied by kiri.
 
@@ -1134,7 +1131,6 @@ publish:
     env:
       PROMPT_FILE: prompts/daily-briefing.tpl
       MODEL: haiku
-      MAX_TURNS: "10"
 
 summarize:
   use: claude-code-summarizer
