@@ -41,7 +41,7 @@ summarize:
     PROMPT: "Inline prompt text."        # optional; wins over PROMPT_FILE
     PROMPT_FILE: prompts/my-summary.tpl  # optional
     MODEL: sonnet                        # optional, default haiku
-    MAX_TURNS: "1"                       # optional, default 1
+    MAX_TURNS: "3"                       # optional, default 3
 ```
 
 ## Env-var contract
@@ -51,7 +51,7 @@ summarize:
 | `PROMPT` | no | baked-in summariser prompt | Inline prompt text. Wins over `PROMPT_FILE` when both are set. |
 | `PROMPT_FILE` | no | baked-in summariser prompt | Path to a prompt template. If relative, resolved against `KIRI_REPO_ROOT`; absolute paths are passed through as-is. |
 | `MODEL` | no | `haiku` | Passed via `--model`. |
-| `MAX_TURNS` | no | `1` | Passed via `--max-turns`. |
+| `MAX_TURNS` | no | `3` | Passed via `--max-turns`. Default leaves room for one Read of the envelope, the summary turn, and a follow-up Read or Grep on a large artefact. |
 
 `KIRI_REPO_ROOT` and `KIRI_RUN_CONTEXT_FILE` are supplied by kiri.
 
@@ -60,29 +60,34 @@ summarize:
 When both `PROMPT` and `PROMPT_FILE` are set, `PROMPT` wins and
 `PROMPT_FILE` is ignored — its content is not read, validated, or
 concatenated. When neither is set, the bundle falls back to a baked-in
-prompt that inlines the run-context JSON. Matches `claude-code`'s
+prompt that points Claude at the run-context JSON path and asks it to
+read the envelope via its `Read` tool. Matches `claude-code`'s
 precedence rule.
 
 ### Run context
 
 `KIRI_RUN_CONTEXT_FILE` points at a JSON file under the per-run scratch
-dir containing the workflow name, status, duration, and per-step
-kind / status / duration / stdout / stderr / error. The baked-in
-default inlines this JSON directly into the prompt. A user-supplied
-`PROMPT` or `PROMPT_FILE` replaces the *framing* only — if you want
-the envelope content in your prompt, reference `{{KIRI_RUN_CONTEXT_FILE}}`
-to get the path and read it inside the prompt, or splice the path
-into a `sh:` step that pre-processes it however you like.
+dir containing the workflow name, status, duration, per-step
+kind / status / duration / stdout / stderr / error, and the published
+artefacts. The baked-in default hands Claude the path (via the
+`{{KIRI_RUN_CONTEXT_FILE}}` placeholder) and lets it `Read` the file
+agentically — the envelope is never inlined into the prompt argv, so
+runs that produce hundreds of KB of stdout don't push the prompt past
+macOS `ARG_MAX` or the model's input limit. A user-supplied `PROMPT`
+or `PROMPT_FILE` replaces the *framing* only — if you want the
+envelope in your prompt, reference `{{KIRI_RUN_CONTEXT_FILE}}` to get
+the path and tell Claude (or your own bundle) what to do with it.
 
 ## Zero config by design
 
 Zero config is the default posture: a workflow declaring
 `summarize: { use: claude-code-summarizer }` with no env vars uses
-the baked-in prompt, model (`haiku`), and turn budget (`1`). The
-prompt asks for a single sentence when the run produced one piece of
-news and a markdown bullet list when it produced a list of items. The
-env vars above are escape hatches for workflows that want to shape
-the summary without forking the bundle.
+the baked-in prompt, model (`haiku`), and turn budget (`3`). The
+prompt asks Claude to read the envelope, then write a single sentence
+when the run produced one piece of news or a markdown bullet list
+when it produced a list of items. The env vars above are escape
+hatches for workflows that want to shape the summary without forking
+the bundle.
 
 If the env-var contract still isn't enough — for example you need
 custom dep handling or a different CLI entirely — fork the bundle:

@@ -122,7 +122,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     teardownWorkspace(ws);
   });
 
-  it("invokes claude with -p, --max-turns 1, --model haiku", async () => {
+  it("invokes claude with -p, --max-turns 3, --model haiku", async () => {
     ws = setupWorkspace();
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
@@ -136,10 +136,10 @@ describe("claude-code-summarizer bundle: integration", () => {
     const { argv } = readCapture(ws);
     expect(argv).toHaveLength(6);
     expect(argv[0]).toBe("-p");
-    expect(argv.slice(2)).toEqual(["--max-turns", "1", "--model", "haiku"]);
+    expect(argv.slice(2)).toEqual(["--max-turns", "3", "--model", "haiku"]);
   });
 
-  it("embeds the run-context JSON in the prompt", async () => {
+  it("references the run-context file path in the prompt instead of inlining the JSON", async () => {
     const context = {
       workflow: "pr-review",
       status: "ok",
@@ -170,11 +170,17 @@ describe("claude-code-summarizer bundle: integration", () => {
     expect(envelope.status).toBe("ok");
     const { argv } = readCapture(ws);
     const prompt = argv[1];
-    // Prompt contains the JSON envelope verbatim.
-    expect(prompt).toContain('"workflow": "pr-review"');
-    expect(prompt).toContain('"use": "fetch-pr"');
-    expect(prompt).toContain('"stdout": "PR #42 fetched"');
-    // Prompt also contains the framing instructions baked into run.sh.
+    // The envelope JSON is NOT inlined into the prompt argv — that's the
+    // whole point of the baked-in default: it keeps the prompt small
+    // regardless of run size.
+    expect(prompt).not.toContain('"workflow": "pr-review"');
+    expect(prompt).not.toContain('"use": "fetch-pr"');
+    expect(prompt).not.toContain('"stdout": "PR #42 fetched"');
+    // The prompt references the run-context file path so Claude can Read
+    // it agentically.
+    expect(prompt).toContain(ws.contextFile);
+    expect(prompt).toContain("Read it with the Read tool");
+    // Framing instructions baked into run.sh are still present.
     expect(prompt).toContain("activity feed");
     expect(prompt).toContain("Markdown is supported");
   });
@@ -245,7 +251,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     // Baked-in framing must not leak through when PROMPT is set.
     expect(argv[1]).not.toContain("activity feed");
     expect(argv[1]).not.toContain('"workflow"');
-    expect(argv.slice(2)).toEqual(["--max-turns", "1", "--model", "haiku"]);
+    expect(argv.slice(2)).toEqual(["--max-turns", "3", "--model", "haiku"]);
   });
 
   it("renders a PROMPT_FILE resolved against KIRI_REPO_ROOT", async () => {

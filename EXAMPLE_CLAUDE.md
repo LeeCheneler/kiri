@@ -205,7 +205,7 @@ Two ways to bring this JSON into a prompt, picked by what the model can do:
 
 ```yaml
 summarize:
-  use: claude-code-summarizer       # no env needed — uses baked-in prompt, MODEL=haiku, MAX_TURNS=1
+  use: claude-code-summarizer       # no env needed — uses baked-in prompt, MODEL=haiku, MAX_TURNS=3
 ```
 
 Override knobs when you want shape:
@@ -217,10 +217,10 @@ summarize:
     PROMPT: "One witty sentence about {{KIRI_RUN_CONTEXT_FILE}}."
     PROMPT_FILE: prompts/my-summary.tpl   # alternative; PROMPT wins if both set
     MODEL: sonnet                          # default haiku
-    MAX_TURNS: "1"                         # default 1
+    MAX_TURNS: "3"                         # default 3
 ```
 
-If no `PROMPT`/`PROMPT_FILE` is given, the bundle inlines the run-context JSON into a baked-in prompt that produces a bullet list for list-style runs and a single sentence for one-shot runs.
+If no `PROMPT`/`PROMPT_FILE` is given, the bundle's baked-in prompt hands Claude the path `{{KIRI_RUN_CONTEXT_FILE}}` and asks it to `Read` the envelope agentically — the JSON is never inlined into the prompt argv, so runs that produce hundreds of KB of stdout don't push the prompt past macOS `ARG_MAX` or the model's input limit. The prompt then asks for a bullet list for list-style runs and a single sentence for one-shot runs.
 
 ### Prompt templating (both bundles)
 

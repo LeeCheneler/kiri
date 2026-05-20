@@ -2,10 +2,12 @@
 # Summarises a kiri workflow run for the activity feed. Spawns Claude
 # Code with a prompt taken from PROMPT (inline), PROMPT_FILE (a template
 # path resolved against KIRI_REPO_ROOT), or a baked-in default that
-# inlines the run-context JSON. When both PROMPT and PROMPT_FILE are
-# set, PROMPT wins and PROMPT_FILE is ignored. Spawned by kiri after
-# the workflow's `steps:` complete on non-cancelled runs; this bundle's
-# stdout becomes the run's `summary` field when it exits 0.
+# points Claude at the run-context JSON file so it reads the envelope
+# via its Read tool rather than receiving it inline. When both PROMPT
+# and PROMPT_FILE are set, PROMPT wins and PROMPT_FILE is ignored.
+# Spawned by kiri after the workflow's `steps:` complete on non-
+# cancelled runs; this bundle's stdout becomes the run's `summary`
+# field when it exits 0.
 set -eu
 
 : "${KIRI_REPO_ROOT:?required (kiri injects this)}"
@@ -13,7 +15,10 @@ set -eu
 
 # Defaults exported so {{MAX_TURNS}} and {{MODEL}} can be referenced
 # inside prompt templates even when the workflow leaves them unset.
-export MAX_TURNS="${MAX_TURNS:-1}"
+# MAX_TURNS defaults to 3: one turn for Claude to Read the envelope,
+# one to write the summary, plus headroom for a follow-up Read or
+# Grep on a large artefact or step stdout.
+export MAX_TURNS="${MAX_TURNS:-3}"
 export MODEL="${MODEL:-haiku}"
 
 for dep in claude awk; do
@@ -28,13 +33,18 @@ done
   exit 1
 }
 
-# Resolve the prompt source. PROMPT wins over PROMPT_FILE when both are
-# set; both fall through to a baked-in default that inlines the
-# run-context JSON so a workflow with no env vars produces the same
-# prompt as before. Verify the file exists *before* the awk render —
-# POSIX `set -e` doesn't propagate failures from `$()` inside an
-# assignment, so a missing file would otherwise silently leave
-# $prompt empty and we'd exec `claude -p ""`.
+# Resolve the prompt source. PROMPT wins over PROMPT_FILE when both
+# are set; both fall through to a baked-in default that hands Claude
+# the path to the run-context JSON and asks it to Read the file.
+# Inlining the envelope into the prompt argv was the previous default,
+# but it scaled poorly: a workflow whose steps produce hundreds of KB
+# of stdout (e.g. an org-wide GitHub search) would push the prompt
+# past macOS ARG_MAX or the model's input limit. Reading the file
+# agentically keeps the prompt small regardless of run size. Verify
+# PROMPT_FILE exists *before* the awk render — POSIX `set -e` doesn't
+# propagate failures from `$()` inside an assignment, so a missing
+# file would otherwise silently leave $prompt empty and we'd exec
+# `claude -p ""`.
 if [ -n "${PROMPT:-}" ]; then
   prompt_source="$PROMPT"
 elif [ -n "${PROMPT_FILE:-}" ]; then
@@ -44,8 +54,7 @@ elif [ -n "${PROMPT_FILE:-}" ]; then
   }
   prompt_source=$(cat "$KIRI_REPO_ROOT/$PROMPT_FILE")
 else
-  context=$(cat "$KIRI_RUN_CONTEXT_FILE")
-  prompt_source="You are writing a kiri workflow run summary for an activity feed. Read the step stdout/stderr to find the substance and lead with what happened — no preamble like 'the workflow ran', no padding. Markdown is supported and encouraged.
+  prompt_source="You are writing a kiri workflow run summary for an activity feed. Lead with what happened — no preamble like 'the workflow ran', no padding. Markdown is supported and encouraged.
 
 Match the shape of the output to the shape of the result:
 - If the workflow produced a list of items (for example, 'list all open PRs I need to review'), output a markdown bullet list. Each bullet is one concrete item the reader can skim — label or title first, the smallest useful detail after.
@@ -54,8 +63,10 @@ Match the shape of the output to the shape of the result:
 
 The feed is glanced at, not read. Keep it dense and skimmable, with no headings.
 
-Run envelope (JSON):
-$context"
+The full run envelope is a JSON file at:
+{{KIRI_RUN_CONTEXT_FILE}}
+
+Read it with the Read tool. It contains a steps array (each with stdout and stderr) and an artefacts array (each with markdown content). Skim what the workflow actually produced and write the summary from that. If a step's stdout is very large, use Grep or read only the head — don't try to load megabytes wholesale."
 fi
 
 # Slurp stdin so prompts can reference {{KIRI_INPUT}}. Kiri pipes nothing
