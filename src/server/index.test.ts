@@ -860,6 +860,88 @@ describe("createApp", () => {
     });
   });
 
+  describe("GET /api/articles/recent", () => {
+    const seedRun = (id: string, workflowName: string) => {
+      db.insert(runs)
+        .values({
+          id,
+          workflowName,
+          status: "ok",
+          trigger: "manual",
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          definitionSnapshot: { name: workflowName, steps: [{ sh: "echo hi" }] },
+        })
+        .run();
+    };
+
+    const seedArticle = (
+      runId: string,
+      name: string,
+      opts: { title?: string; createdAt: Date },
+    ) => {
+      db.insert(articles)
+        .values({
+          id: crypto.randomUUID(),
+          runId,
+          name,
+          title: opts.title ?? name,
+          contentMd: `# ${name}`,
+          createdAt: opts.createdAt,
+        })
+        .run();
+    };
+
+    it("returns an empty array when nothing has been published", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/articles/recent");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual([]);
+    });
+
+    it("returns the 5 newest articles across runs, newest first, with the workflow name", async () => {
+      seedRun("run-a", "alpha");
+      seedRun("run-b", "beta");
+      // Six articles across two runs with distinct, increasing timestamps
+      // so the newest-first ordering is deterministic.
+      const base = Date.UTC(2026, 0, 1, 12, 0, 0);
+      seedArticle("run-a", "a1", { createdAt: new Date(base + 1000) });
+      seedArticle("run-a", "a2", { createdAt: new Date(base + 2000) });
+      seedArticle("run-b", "b1", { title: "Beta One", createdAt: new Date(base + 3000) });
+      seedArticle("run-a", "a3", { createdAt: new Date(base + 4000) });
+      seedArticle("run-b", "b2", { createdAt: new Date(base + 5000) });
+      seedArticle("run-b", "b3", { createdAt: new Date(base + 6000) });
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/articles/recent");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Array<{
+        runId: string;
+        name: string;
+        title: string;
+        createdAt: string;
+        workflowName: string;
+      }>;
+
+      // Newest first, capped at 5 — the oldest article (a1) is excluded.
+      expect(body.map((a) => a.name)).toEqual(["b3", "b2", "a3", "b1", "a2"]);
+      expect(body[0]).toEqual({
+        runId: "run-b",
+        name: "b3",
+        title: "b3",
+        createdAt: new Date(base + 6000).toISOString(),
+        workflowName: "beta",
+      });
+      // The joined workflow name travels with each entry.
+      expect(body.find((a) => a.name === "b1")?.workflowName).toBe("beta");
+      expect(body.find((a) => a.name === "a3")?.workflowName).toBe("alpha");
+      // Link metadata only — the markdown body is not in the payload.
+      for (const entry of body) {
+        expect(entry).not.toHaveProperty("contentMd");
+      }
+    });
+  });
+
   describe("Cache-Control on stable-path SPA assets", () => {
     it("sends no-store on /app.js, /app.css, /, and /index.html", async () => {
       const app = createApp({ db, registry, cwd });

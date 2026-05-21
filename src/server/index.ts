@@ -116,6 +116,10 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
 const DEFAULT_RUN_LIMIT = 25;
 const MAX_RUN_LIMIT = 100;
 
+// Size of the cross-run "recently published" list. Fixed — the rail
+// surfaces a glance-able shortlist, not a paginated archive.
+const RECENT_ARTICLES_LIMIT = 5;
+
 const runListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_RUN_LIMIT).default(DEFAULT_RUN_LIMIT),
@@ -388,6 +392,27 @@ export function createApp(deps: AppDeps): Hono {
       createdAt: article.createdAt,
       workflowName: run.workflowName,
     });
+  });
+
+  app.get("/api/articles/recent", (c) => {
+    // Cross-run shortlist for the right-rail "Recently Published" section.
+    // The articles table doesn't carry the workflow name, so join runs to
+    // surface it alongside each entry. `content_md` is omitted — the rail
+    // only needs link metadata; the body is fetched by the article page.
+    const rows = db
+      .select({
+        runId: articles.runId,
+        name: articles.name,
+        title: articles.title,
+        createdAt: articles.createdAt,
+        workflowName: runs.workflowName,
+      })
+      .from(articles)
+      .innerJoin(runs, eq(runs.id, articles.runId))
+      .orderBy(desc(articles.createdAt))
+      .limit(RECENT_ARTICLES_LIMIT)
+      .all();
+    return c.json(rows);
   });
 
   app.get("/api/runs/:id", (c) => {
