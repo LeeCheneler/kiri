@@ -7,7 +7,7 @@ import { cors } from "hono/cors";
 import { z } from "zod";
 import { resolvePublishTitle } from "../shared/publish-title.ts";
 import type { KiriDb } from "./db/index.ts";
-import { runArtefacts, runSteps, runs } from "./db/schema.ts";
+import { articles, runSteps, runs } from "./db/schema.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute } from "./events/index.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
@@ -235,7 +235,7 @@ export function createApp(deps: AppDeps): Hono {
     // codebase's pattern of in-code cascades instead of schema-level
     // ON DELETE CASCADE.
     db.transaction((tx) => {
-      tx.delete(runArtefacts).where(eq(runArtefacts.runId, id)).run();
+      tx.delete(articles).where(eq(articles.runId, id)).run();
       tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
       tx.delete(runs).where(eq(runs.id, id)).run();
     });
@@ -265,7 +265,7 @@ export function createApp(deps: AppDeps): Hono {
     // under the same run id. Scratch dir is removed too — normally already
     // gone, but a crashed runner can leave it behind.
     db.transaction((tx) => {
-      tx.delete(runArtefacts).where(eq(runArtefacts.runId, id)).run();
+      tx.delete(articles).where(eq(articles.runId, id)).run();
       tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
     });
     rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
@@ -330,19 +330,19 @@ export function createApp(deps: AppDeps): Hono {
     if (rows.length > 0) {
       const allArtefacts = db
         .select({
-          runId: runArtefacts.runId,
-          name: runArtefacts.name,
-          title: runArtefacts.title,
-          createdAt: runArtefacts.createdAt,
+          runId: articles.runId,
+          name: articles.name,
+          title: articles.title,
+          createdAt: articles.createdAt,
         })
-        .from(runArtefacts)
+        .from(articles)
         .where(
           inArray(
-            runArtefacts.runId,
+            articles.runId,
             rows.map((r) => r.id),
           ),
         )
-        .orderBy(asc(runArtefacts.createdAt))
+        .orderBy(asc(articles.createdAt))
         .all();
       for (const { runId, name, title, createdAt } of allArtefacts) {
         const list = artefactsByRunId.get(runId);
@@ -373,8 +373,8 @@ export function createApp(deps: AppDeps): Hono {
     if (!run) return c.json({ error: `run "${id}" not found` }, 404);
     const artefact = db
       .select()
-      .from(runArtefacts)
-      .where(and(eq(runArtefacts.runId, id), eq(runArtefacts.name, name)))
+      .from(articles)
+      .where(and(eq(articles.runId, id), eq(articles.name, name)))
       .get();
     if (!artefact) {
       return c.json({ error: `artefact "${name}" not found on run "${id}"` }, 404);
@@ -411,13 +411,13 @@ export function createApp(deps: AppDeps): Hono {
     // both read from one place.
     const artefacts = db
       .select({
-        name: runArtefacts.name,
-        title: runArtefacts.title,
-        createdAt: runArtefacts.createdAt,
+        name: articles.name,
+        title: articles.title,
+        createdAt: articles.createdAt,
       })
-      .from(runArtefacts)
-      .where(eq(runArtefacts.runId, id))
-      .orderBy(asc(runArtefacts.createdAt))
+      .from(articles)
+      .where(eq(articles.runId, id))
+      .orderBy(asc(articles.createdAt))
       .all();
     return c.json({
       run: { ...run, isInterrupted: !registry.getWorkflow(run.workflowName), artefacts },

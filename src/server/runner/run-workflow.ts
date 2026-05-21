@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { resolvePublishTitle } from "../../shared/publish-title.ts";
 import type { KiriDb } from "../db/index.ts";
-import { runArtefacts, runSteps, runs } from "../db/schema.ts";
+import { articles, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { resolveGitHead } from "../git/head.ts";
 import {
@@ -25,7 +25,7 @@ export interface RunWorkflowArgs {
   bus?: EventBus;
   /** Optional cancel registry. When supplied, the runner registers the run, publishes the active step's child handle for SIGTERM/SIGKILL, checks for cancellation between steps, and translates a cancel-induced step failure into a `cancelled` terminal status. */
   cancelRegistry?: CancelRegistry;
-  /** When supplied, reuse this existing `runs` row instead of inserting a new one. The row's `status`, `startedAt`, `definitionSnapshot`, `gitSha`, and `gitDirty` are refreshed, and `finishedAt`/`error`/`summary` are cleared. Used by the in-place rerun path; the caller is responsible for wiping prior `runSteps` / `runArtefacts` and the scratch dir first. */
+  /** When supplied, reuse this existing `runs` row instead of inserting a new one. The row's `status`, `startedAt`, `definitionSnapshot`, `gitSha`, and `gitDirty` are refreshed, and `finishedAt`/`error`/`summary` are cleared. Used by the in-place rerun path; the caller is responsible for wiping prior `runSteps` / `articles` and the scratch dir first. */
   runId?: string;
 }
 
@@ -127,7 +127,7 @@ const buildEnv = (
  * Rerun path (`args.runId` supplied): the existing `runs` row is updated
  * back to `"running"` with a fresh `startedAt`/`definitionSnapshot`/git
  * ref, and `finishedAt`/`error`/`summary` are cleared. Trigger is
- * preserved. Callers must wipe prior `runSteps` / `runArtefacts` and the
+ * preserved. Callers must wipe prior `runSteps` / `articles` and the
  * scratch dir before invoking so the rerun doesn't accumulate stale rows.
  *
  * Halt-on-failure: a failed step leaves later steps uncreated, and the
@@ -372,7 +372,7 @@ export function runWorkflow(
         if (envelope.status === "ok" && !cancelled) {
           const title = resolvePublishTitle(entry.name, entry.title);
           const contentMd = envelope.output.trimEnd();
-          db.insert(runArtefacts)
+          db.insert(articles)
             .values({
               id: crypto.randomUUID(),
               runId,

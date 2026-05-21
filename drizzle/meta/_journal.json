@@ -57,6 +57,13 @@
       "when": 1778532418893,
       "tag": "0007_drop_step_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1779400000000,
+      "tag": "0008_rename_run_artefacts_to_articles",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "./bootstrap.ts";
 import type { KiriDb } from "./db/index.ts";
-import { runArtefacts, runSteps, runs } from "./db/schema.ts";
+import { articles, runSteps, runs } from "./db/schema.ts";
 import { type KiriEvent, createEventBus } from "./events/index.ts";
 import { createApp } from "./index.ts";
 import { type CancelRegistry, createCancelRegistry } from "./runner/cancel-registry.ts";
@@ -1281,7 +1281,7 @@ describe("createApp", () => {
           traces: { stdout: "hi\n", stderr: "", durationMs: 1 },
         })
         .run();
-      db.insert(runArtefacts)
+      db.insert(articles)
         .values({
           id: `${id}-art`,
           runId: id,
@@ -1359,7 +1359,7 @@ describe("createApp", () => {
 
       expect(db.select().from(runs).where(eq(runs.id, id)).get()).toBeUndefined();
       expect(db.select().from(runSteps).where(eq(runSteps.runId, id)).all()).toEqual([]);
-      expect(db.select().from(runArtefacts).where(eq(runArtefacts.runId, id)).all()).toEqual([]);
+      expect(db.select().from(articles).where(eq(articles.runId, id)).all()).toEqual([]);
       expect(existsSync(scratch)).toBe(false);
       expect(seen).toContainEqual({ type: "run.deleted", id });
     });
@@ -1431,7 +1431,7 @@ describe("createApp", () => {
           traces: { stdout: "", stderr: "boom", durationMs: 1 },
         })
         .run();
-      db.insert(runArtefacts)
+      db.insert(articles)
         .values({
           id: `${id}-art`,
           runId: id,
@@ -1491,9 +1491,7 @@ describe("createApp", () => {
 
       // Nothing was wiped — the rerun was rejected before the cascade.
       expect(db.select().from(runSteps).where(eq(runSteps.runId, id)).all()).toHaveLength(1);
-      expect(db.select().from(runArtefacts).where(eq(runArtefacts.runId, id)).all()).toHaveLength(
-        1,
-      );
+      expect(db.select().from(articles).where(eq(articles.runId, id)).all()).toHaveLength(1);
     });
 
     it("rejects POST without the X-Kiri-Client header (CSRF gate)", async () => {
@@ -1590,7 +1588,7 @@ describe("createApp", () => {
       expect(steps[0].status).toBe("ok");
       expect(steps[0].output).toBe("fresh\n");
       expect(steps.some((s) => s.id === `${id}-step-0`)).toBe(false);
-      expect(db.select().from(runArtefacts).where(eq(runArtefacts.runId, id)).all()).toEqual([]);
+      expect(db.select().from(articles).where(eq(articles.runId, id)).all()).toEqual([]);
 
       // Leftover scratch file is gone.
       expect(existsSync(join(scratch, "leftover.txt"))).toBe(false);

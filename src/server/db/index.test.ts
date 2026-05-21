@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { type KiriDb, openDatabase } from "./index.ts";
 import { migrate } from "./migrate.ts";
-import { runArtefacts, runSteps, runs } from "./schema.ts";
+import { articles, runSteps, runs } from "./schema.ts";
 
 describe("db", () => {
   let dir: string;
@@ -78,8 +78,8 @@ describe("db", () => {
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
-  it("declares run_artefacts.run_id → runs.id foreign key", () => {
-    const fks = getTableConfig(runArtefacts).foreignKeys;
+  it("declares articles.run_id → runs.id foreign key", () => {
+    const fks = getTableConfig(articles).foreignKeys;
     expect(fks).toHaveLength(1);
     const fk = fks[0] as unknown as {
       reference: () => {
@@ -231,7 +231,7 @@ describe("db", () => {
     expect(stepCols).not.toContain("usage");
   });
 
-  it("round-trips run_artefacts rows", () => {
+  it("round-trips articles rows", () => {
     migrate(db);
 
     db.insert(runs)
@@ -246,7 +246,7 @@ describe("db", () => {
       .run();
 
     const createdAt = new Date(1_700_000_005_000);
-    db.insert(runArtefacts)
+    db.insert(articles)
       .values({
         id: "art-1",
         runId: "run-art",
@@ -257,7 +257,7 @@ describe("db", () => {
       })
       .run();
 
-    const row = db.select().from(runArtefacts).where(eq(runArtefacts.id, "art-1")).get();
+    const row = db.select().from(articles).where(eq(articles.id, "art-1")).get();
     expect(row).toBeDefined();
     expect(row?.runId).toBe("run-art");
     expect(row?.name).toBe("digest");
@@ -266,7 +266,7 @@ describe("db", () => {
     expect(row?.createdAt).toEqual(createdAt);
   });
 
-  it("enforces (run_id, name) uniqueness on run_artefacts", () => {
+  it("enforces (run_id, name) uniqueness on articles", () => {
     migrate(db);
 
     db.insert(runs)
@@ -280,7 +280,7 @@ describe("db", () => {
       })
       .run();
 
-    db.insert(runArtefacts)
+    db.insert(articles)
       .values({
         id: "art-a",
         runId: "run-uniq",
@@ -293,7 +293,7 @@ describe("db", () => {
 
     expect(() =>
       db
-        .insert(runArtefacts)
+        .insert(articles)
         .values({
           id: "art-b",
           runId: "run-uniq",
@@ -320,7 +320,7 @@ describe("db", () => {
           definitionSnapshot: {},
         })
         .run();
-      db.insert(runArtefacts)
+      db.insert(articles)
         .values({
           id: `${runId}-digest`,
           runId,
@@ -332,7 +332,7 @@ describe("db", () => {
         .run();
     }
 
-    const rows = db.select().from(runArtefacts).all();
+    const rows = db.select().from(articles).all();
     expect(rows).toHaveLength(2);
   });
 
@@ -379,7 +379,7 @@ describe("db", () => {
     expect(regularRow?.isPublish).toBe(false);
   });
 
-  it("adds is_publish + run_artefacts when migrating a pre-publish DB", () => {
+  it("adds is_publish + articles when migrating a pre-publish DB", () => {
     const sqlite = db.$client;
     sqlite.run(
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
@@ -427,20 +427,20 @@ describe("db", () => {
 
     const tables = sqlite
       .query<{ name: string }, []>(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='run_artefacts'",
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='articles'",
       )
       .all()
       .map((r) => r.name);
-    expect(tables).toEqual(["run_artefacts"]);
+    expect(tables).toEqual(["articles"]);
 
     const indexes = sqlite
       .query<{ name: string }, []>(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='run_artefacts' AND name NOT LIKE 'sqlite_%'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='articles' AND name NOT LIKE 'sqlite_%'",
       )
       .all()
       .map((r) => r.name)
       .sort();
-    expect(indexes).toEqual(["run_artefacts_run_id_idx", "run_artefacts_run_id_name_unique"]);
+    expect(indexes).toEqual(["articles_run_id_idx", "articles_run_id_name_unique"]);
   });
 
   it("renames run_nodes → run_steps on a pre-rename DB and preserves rows", () => {

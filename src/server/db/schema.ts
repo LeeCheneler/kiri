@@ -76,7 +76,7 @@ export const runSteps = sqliteTable(
      * Marks the row as one of the workflow's `publish:` executions rather
      * than a member of the `steps:` pipeline. Set on each publish row a
      * run produces; the UI hides these from the main step list and
-     * surfaces them via the artefact view.
+     * surfaces them via the article view.
      */
     isPublish: integer("is_publish", { mode: "boolean" }).notNull().default(false),
   },
@@ -84,14 +84,14 @@ export const runSteps = sqliteTable(
 );
 
 /**
- * One row per published artefact a run produced. Populated after `steps:`
+ * One row per published article a run produced. Populated after `steps:`
  * complete (when the workflow defines `publish:`) and read back to render
- * artefact chips on the feed and the dedicated artefact page. `title` is
+ * article chips on the feed and the dedicated article page. `title` is
  * the resolved display title — never null — so write-time titlecasing
  * doesn't leak into read paths.
  */
-export const runArtefacts = sqliteTable(
-  "run_artefacts",
+export const articles = sqliteTable(
+  "articles",
   {
     id: text("id").primaryKey(),
     runId: text("run_id")
@@ -103,7 +103,7 @@ export const runArtefacts = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [
-    uniqueIndex("run_artefacts_run_id_name_unique").on(t.runId, t.name),
-    index("run_artefacts_run_id_idx").on(t.runId),
+    uniqueIndex("articles_run_id_name_unique").on(t.runId, t.name),
+    index("articles_run_id_idx").on(t.runId),
   ],
 );

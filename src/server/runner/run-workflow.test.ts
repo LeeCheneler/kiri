@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { bootstrap } from "../bootstrap.ts";
 import type { KiriDb } from "../db/index.ts";
-import { runArtefacts, runSteps, runs } from "../db/schema.ts";
+import { articles, runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import type { WorkflowDefinition, WorkflowStep } from "../workflows/index.ts";
 import { createCancelRegistry } from "./cancel-registry.ts";
@@ -1016,16 +1016,12 @@ describe("runWorkflow", () => {
       expect(publishRows[1].status).toBe("ok");
 
       // Only the successful sibling lands as an artefact row.
-      const artefacts = db
-        .select()
-        .from(runArtefacts)
-        .where(eq(runArtefacts.runId, result.runId))
-        .all();
+      const artefacts = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
       expect(artefacts).toHaveLength(1);
       expect(artefacts[0].name).toBe("good");
     });
 
-    it("persists trimmed stdout to run_artefacts with the resolved title", async () => {
+    it("persists trimmed stdout to articles with the resolved title", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("digest", "#!/bin/sh\nprintf '# Digest\\n\\nbody\\n\\n\\n'\n");
       writeBundle("notes", "#!/bin/sh\necho notes-body\n");
@@ -1043,9 +1039,9 @@ describe("runWorkflow", () => {
 
       const artefacts = db
         .select()
-        .from(runArtefacts)
-        .where(eq(runArtefacts.runId, result.runId))
-        .orderBy(asc(runArtefacts.name))
+        .from(articles)
+        .where(eq(articles.runId, result.runId))
+        .orderBy(asc(articles.name))
         .all();
       expect(artefacts).toHaveLength(2);
 
@@ -1072,11 +1068,7 @@ describe("runWorkflow", () => {
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
       expect(result.status).toBe("ok");
 
-      const artefacts = db
-        .select()
-        .from(runArtefacts)
-        .where(eq(runArtefacts.runId, result.runId))
-        .all();
+      const artefacts = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
       expect(artefacts).toHaveLength(1);
       expect(artefacts[0].contentMd).toBe("");
       expect(artefacts[0].title).toBe("Empty");
@@ -1094,11 +1086,7 @@ describe("runWorkflow", () => {
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
       expect(result.status).toBe("failed");
 
-      const artefacts = db
-        .select()
-        .from(runArtefacts)
-        .where(eq(runArtefacts.runId, result.runId))
-        .all();
+      const artefacts = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
       expect(artefacts).toHaveLength(0);
     });
 
