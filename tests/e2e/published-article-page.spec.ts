@@ -22,7 +22,9 @@ test("clicking a published article navigates to a page rendering its markdown bo
   const publishedHeading = page.getByRole("heading", { level: 3, name: /^published$/i });
   await expect(publishedHeading).toBeVisible();
 
-  const articleLink = page.getByRole("link", { name: /published digest/i });
+  // Scope to the run page's main content — the "Recently Published" rail
+  // in the aside links to the same articles by title.
+  const articleLink = page.getByRole("main").getByRole("link", { name: /published digest/i });
   await expect(articleLink).toHaveAttribute("href", `/runs/${runId}/published/digest`);
   await articleLink.click();
 
