@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
+import { RecentlyPublished } from "./recently-published.tsx";
 import { VersionInfo } from "./version-info.tsx";
 import { WorkflowsNav } from "./workflows-nav.tsx";
 
@@ -22,8 +23,9 @@ const activeWorkflowName = (location: string): string | null => {
  * Three-column page shell: a sticky left rail with the kiri wordmark,
  * the workflows nav, and a docs nav; the route content in the centre
  * with a max-width tuned for legible single-column reading; and a
- * sticky right rail reserved for system-status / todos as those land.
- * Below the `lg` breakpoint the grid collapses to a single column.
+ * sticky right rail carrying the recently-published articles section,
+ * alongside which the todo rail will sit as it lands. Below the `lg`
+ * breakpoint the grid collapses to a single column.
  *
  * The shell owns the workflows fetch so the nav stays consistent across
  * routes; the workflows nav stays hidden until the registry resolves so
@@ -108,7 +110,9 @@ export function PageShell({ children }: { children: ReactNode }) {
           <VersionInfo />
         </aside>
         <main className="min-w-0 lg:max-w-240">{children}</main>
-        <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start" aria-hidden="true" />
+        <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start">
+          <RecentlyPublished />
+        </aside>
       </div>
     </div>
   );

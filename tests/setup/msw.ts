@@ -5,6 +5,7 @@ import { setupServer } from "msw/node";
 const defaultHandlers = [
   http.get("*/api/workflows", () => HttpResponse.json([])),
   http.get("*/api/runs", () => HttpResponse.json({ runs: [], nextCursor: null })),
+  http.get("*/api/articles/recent", () => HttpResponse.json([])),
   http.get("*/api/version", () => HttpResponse.json({ version: "dev" })),
   http.post("*/api/workflows/:name/runs", ({ params }) =>
     HttpResponse.json({ runId: `run-${String(params.name)}`, status: "running" }, { status: 202 }),

@@ -52,6 +52,12 @@ describe("<PageShell>", () => {
     await flushAsync();
   });
 
+  it("renders the recently published section in the right rail", async () => {
+    renderShell(<p>x</p>);
+    expect(await screen.findByRole("heading", { name: /recently published/i })).toBeDefined();
+    await flushAsync();
+  });
+
   it("renders the workflows nav once the registry resolves", async () => {
     server.use(
       http.get("*/api/workflows", () =>

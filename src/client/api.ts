@@ -260,6 +260,28 @@ export const fetchArticle = async (runId: string, name: string): Promise<Article
   );
 
 /**
+ * One entry in the cross-run "recently published" list. Carries only the
+ * metadata the right rail renders: the link target (`runId` + `name`),
+ * the display `title`, the originating `workflowName`, and `createdAt`
+ * for the relative timestamp. The markdown body lives on the dedicated
+ * article route.
+ */
+export interface RecentArticle {
+  runId: string;
+  name: string;
+  title: string;
+  workflowName: string;
+  createdAt: string;
+}
+
+/**
+ * Fetch the most recently published articles across all runs, newest
+ * first. The server caps the list (currently at 5). Throws on non-2xx.
+ */
+export const fetchRecentArticles = async (): Promise<RecentArticle[]> =>
+  json<RecentArticle[]>(await apiFetch("/api/articles/recent"));
+
+/**
  * Trigger a manual run for the named workflow. Resolves the moment the run
  * row is inserted server-side — the returned `status` is `"running"`, and
  * terminal transitions arrive on the SSE event stream. Throws on non-2xx.
