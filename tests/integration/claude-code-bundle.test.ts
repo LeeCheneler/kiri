@@ -29,8 +29,8 @@ interface Workspace {
 
 /**
  * Materialise a fresh workspace for one scenario: stubs claude on PATH,
- * copies the real `scripts/claude-code/run.sh` from this repo, and
- * stages every checked-in fixture workflow + prompt.
+ * copies the real `examples/scripts/claude-code/run.sh` from this repo,
+ * and stages every checked-in fixture workflow + prompt.
  */
 const setupWorkspace = (): Workspace => {
   const cwd = mkdtempSync(join(tmpdir(), "kiri-int-cc-"));
@@ -48,7 +48,7 @@ const setupWorkspace = (): Workspace => {
   const bundleDir = join(cwd, "scripts", "claude-code");
   mkdirSync(bundleDir, { recursive: true });
   const runDst = join(bundleDir, "run.sh");
-  copyFileSync(join(REPO_ROOT, "scripts", "claude-code", "run.sh"), runDst);
+  copyFileSync(join(REPO_ROOT, "examples", "scripts", "claude-code", "run.sh"), runDst);
   chmodSync(runDst, 0o755);
 
   const wfDir = join(cwd, "workflows");

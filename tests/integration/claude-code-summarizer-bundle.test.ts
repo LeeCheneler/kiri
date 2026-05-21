@@ -30,8 +30,8 @@ interface Workspace {
 
 /**
  * Materialise a fresh workspace: stubs claude on PATH, copies the real
- * `scripts/claude-code-summarizer/run.sh` from this repo, and pre-writes
- * a default run-context.json under the scratch dir.
+ * `examples/scripts/claude-code-summarizer/run.sh` from this repo, and
+ * pre-writes a default run-context.json under the scratch dir.
  */
 const setupWorkspace = (contextOverride?: unknown): Workspace => {
   const cwd = mkdtempSync(join(tmpdir(), "kiri-int-ccsum-"));
@@ -49,7 +49,7 @@ const setupWorkspace = (contextOverride?: unknown): Workspace => {
   const bundleDir = join(cwd, "scripts", "claude-code-summarizer");
   mkdirSync(bundleDir, { recursive: true });
   const runDst = join(bundleDir, "run.sh");
-  copyFileSync(join(REPO_ROOT, "scripts", "claude-code-summarizer", "run.sh"), runDst);
+  copyFileSync(join(REPO_ROOT, "examples", "scripts", "claude-code-summarizer", "run.sh"), runDst);
   chmodSync(runDst, 0o755);
 
   const contextFile = join(scratchDir, "run-context.json");
