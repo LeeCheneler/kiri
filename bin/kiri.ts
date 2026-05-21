@@ -27,12 +27,9 @@ Options:
 const INIT_HELP = `Usage: kiri init
 
 Scaffold workflow authoring assets in the current directory:
-  README.md                       DSL reference and IDE/LSP setup notes
-  workflows/example.yaml          2-step example workflow demoing {{KIRI_INPUT}}
-  prompts/example.tpl             Paired prompt template for the example
-  scripts/claude-code/run.sh      Claude Code bundle starter (executable)
-  scripts/claude-code/README.md   Bundle env-var contract reference
-  .kiri/workflow.schema.json      JSON Schema for editor validation
+  README.md                   Workflow DSL reference and IDE/LSP setup notes
+  workflows/hello-world.yaml  Minimal one-step starter workflow
+  .kiri/workflow.schema.json  JSON Schema for editor validation
 
 Existing files are never overwritten; only missing files are created.
 The schema file is always (re)written from the live Zod schema, so a
