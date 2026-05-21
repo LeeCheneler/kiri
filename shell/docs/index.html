@@ -146,9 +146,9 @@ kiri --version</code></pre>
       <h2>Quick start</h2>
       <p>Kiri runs per-directory. Each working directory is its own workspace.</p>
       <pre><code>cd ~/projects/some-workspace
-kiri init    # scaffold workflows/, scripts/, prompts/
+kiri init    # scaffold a starter workflow
 kiri         # boot on :4242</code></pre>
-      <p>Then open <a href="/">local.kiri.build</a> and click <strong>Run</strong> on the example workflow.</p>
+      <p>Then open <a href="/">local.kiri.build</a> and click <strong>Run</strong> on the starter workflow.</p>
 
       <h2>Workflows</h2>
       <p>Workflows live in <code>workflows/*.yaml</code>. Each has a name and one or more steps:</p>
@@ -173,10 +173,10 @@ steps:
     env:
       PROMPT_FILE: prompts/self-review.tpl
       MAX_TURNS: "50"</code></pre>
-      <p>The shipped <code>claude-code</code> bundle reads a prompt template, renders <code>{{VAR}}</code> placeholders from the environment, and spawns the Claude Code CLI.</p>
+      <p>An example <code>claude-code</code> bundle (kept in the project's <code>examples/</code> directory) reads a prompt template, renders <code>{{VAR}}</code> placeholders from the environment, and spawns the Claude Code CLI.</p>
 
       <h3>Piping output between steps</h3>
-      <p>Each step's stdout is piped into the next step's stdin. The first step receives empty stdin. <code>sh:</code> steps can read it with <code>cat</code>; bundles often slurp it into a variable themselves — the shipped <code>claude-code</code> bundle does <code>export KIRI_INPUT="$(cat)"</code> so prompt templates can reference <code>{{KIRI_INPUT}}</code>.</p>
+      <p>Each step's stdout is piped into the next step's stdin. The first step receives empty stdin. <code>sh:</code> steps can read it with <code>cat</code>; bundles often slurp it into a variable themselves — the example <code>claude-code</code> bundle does <code>export KIRI_INPUT="$(cat)"</code> so prompt templates can reference <code>{{KIRI_INPUT}}</code>.</p>
       <pre><code>name: greet
 steps:
   - sh: echo "Lee"
@@ -201,7 +201,7 @@ steps:
       <p>Keys starting with <code>KIRI_</code> in your workflow's <code>env:</code> map are rejected at load time — the prefix is reserved.</p>
 
       <h3>Summaries — <code>summarize:</code></h3>
-      <p>An optional post-run step whose stdout becomes the run's one-or-two-sentence feed-entry summary. Same shape as a step. Kiri ships a <code>claude-code-summarizer</code> bundle with the prompt baked in — drop it in and forget about it:</p>
+      <p>An optional post-run step whose stdout becomes the run's one-or-two-sentence feed-entry summary. Same shape as a step. The project provides an example <code>claude-code-summarizer</code> bundle with the prompt baked in — copy it into <code>scripts/</code> and forget about it:</p>
       <pre><code>name: hello
 steps:
   - sh: echo "hello world"

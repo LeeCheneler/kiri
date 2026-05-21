@@ -5,7 +5,7 @@ Setup, development workflow, and deploy steps for working on kiri itself. For *u
 ## Prerequisites
 
 - [mise](https://mise.jdx.dev) — manages the Bun version pinned in `mise.toml`. Activate it in your shell (`eval "$(mise activate zsh)"`) so `bun` resolves to the project-pinned version automatically when you `cd` into the repo.
-- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for any workflow using the `claude-code` bundle (including the bundled `Daily Briefing` dogfood). `claude` must be on your `PATH` and signed in.
+- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) — required for any workflow using the `claude-code` example bundle, including the `Daily Briefing` dogfood under `examples/`. `claude` must be on your `PATH` and signed in.
 
 ## Install
 
@@ -33,15 +33,15 @@ The canonical user URL is `https://local.kiri.build` (the Pages-hosted shell). F
 
 ## Dogfood
 
-Kiri's `workflows/` directory ships a real workflow the project uses on itself, so the kiri repo runs as a consumer of its own bundles. It doubles as a manual smoke test:
+`examples/` is a complete kiri workspace the project keeps as both a reference and a manual smoke test. It carries the four example bundles and one real workflow:
 
 - **Daily Briefing** — `sh:` (curl + jq against the HackerNews and Dev.to APIs) → `claude-code` publish (formats a markdown briefing artefact) → summariser. Exercises the `claude-code` bundle, the publish path, and the summariser end to end.
 
-To smoke-test:
+To smoke-test it, run the orchestrator with `examples/` as its workspace while Vite serves the UI:
 
-1. `bun dev` and open the local URL.
-2. Click **Run** on the workflow.
-3. Refresh the feed. Click the new entry to open the run detail page — the header pins the data-repo git sha (with a dirty marker if the working tree had uncommitted changes), and each step shows its captured output and envelope traces. To reproduce a past run faithfully, `git checkout <sha>` in the data repo.
+1. `vite` — serves the UI on http://localhost:5173.
+2. `cd examples && bun --watch ../bin/kiri.ts` — the orchestrator, workspace `examples/`, API on :4242 (Vite proxies to it).
+3. Open http://localhost:5173 and click **Run** on Daily Briefing. Refresh the feed, then click the new entry to open the run detail page — the header pins the data-repo git sha (with a dirty marker if the working tree had uncommitted changes), and each step shows its captured output and envelope traces. To reproduce a past run faithfully, `git checkout <sha>` in the data repo.
 
 The `claude-code` bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, runs that use it are marked failed and the underlying error is visible in the expanded entry. Daily Briefing also requires `curl` and `jq`.
 
@@ -82,6 +82,7 @@ src/server/            Hono app + tests
 src/client/            Vite + React SPA (kebab-case filenames)
 shell/                 static shell deployed to https://local.kiri.build
 docs/                  design notes & milestones — read these before substantive work
+examples/              reference kiri workspace — example bundles + the dogfood workflow
 .kiri/                 repo-scoped runtime state (gitignored, created on launch)
 ```
 

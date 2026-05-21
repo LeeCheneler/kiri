@@ -15,10 +15,10 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
   workflows/                  # YAML workflow definitions (in git)
     my-workflow.yaml
   scripts/                    # script bundles (in git)
-    claude-code/              # shipped by `kiri init`
+    claude-code/
       run.sh
       README.md
-    claude-code-summarizer/   # shipped by `kiri init`
+    claude-code-summarizer/
     <your-bundle>/
       run.sh                  # required, executable
       README.md               # documents the env-var contract
@@ -181,9 +181,9 @@ Two ways to bring this JSON into a prompt, picked by what the model can do:
 
 ---
 
-## Shipped bundles
+## Example bundles
 
-`kiri init` drops two bundles in `scripts/`. Both spawn the Claude Code CLI under the hood, both use the same `{{VAR}}` templating, both are plain bash you can read and edit.
+Two bundles that show the common shape for an AI step — both spawn the Claude Code CLI, both use the same `{{VAR}}` templating, both are plain bash you can read and edit. They aren't created by `kiri init` (which scaffolds only a hello-world workflow); you author bundles yourself under `scripts/<name>/` — see *Authoring a custom bundle* below.
 
 ### `claude-code` — general-purpose CC step
 

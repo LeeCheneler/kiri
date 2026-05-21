@@ -34,7 +34,7 @@ Kiri runs per-directory: each working directory is its own workspace.
 
 ```sh
 cd ~/projects/some-workspace
-kiri init    # scaffold workflows/, scripts/, prompts/
+kiri init    # scaffold a starter workflow
 kiri         # boot the orchestrator on :4242
 ```
 
@@ -42,7 +42,9 @@ Then open **https://local.kiri.build** in your browser. The hosted shell at that
 
 > **Safari / Brave note.** Both browsers block HTTP-localhost subresource loads from an HTTPS page, so the shell won't fetch kiri's bundle there. Use **http://localhost:4242** directly on those browsers. Chrome and Firefox work either way.
 
-`kiri init` scaffolds a starter **Daily Briefing** workflow (pulls the HackerNews best stories and the Dev.to top articles, publishes a markdown briefing as an artefact) plus the `claude-code` and `claude-code-summarizer` bundles it uses. Click **Run** in the UI, then watch the feed. You'll need the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your `$PATH`, signed in, and `curl` + `jq` available.
+`kiri init` scaffolds a minimal **Hello World** workflow — a single inline shell step that runs on first launch with no external tools or LLM provider installed. Click **Run** in the UI, then watch the feed.
+
+Richer worked examples — bundles that spawn the Claude Code CLI or a local LM Studio model, and a Daily Briefing workflow that composes a fetch step, a published markdown artefact, and a summary — live in [`examples/`](./examples/). Copy a bundle into your workspace's `scripts/` when you want it.
 
 ## Trust model
 

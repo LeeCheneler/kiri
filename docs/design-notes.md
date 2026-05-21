@@ -34,7 +34,7 @@ steps:
   - use: fetch-pr           # script bundle: scripts/fetch-pr/run.sh
     env:
       PR_NUMBER: "42"
-  - use: claude-code        # script bundle: scripts/claude-code/run.sh (shipped by `kiri init`)
+  - use: claude-code        # script bundle: scripts/claude-code/run.sh (example, see examples/)
     env:
       PROMPT_FILE: prompts/pr-review.tpl
       MAX_TURNS: "50"
@@ -60,12 +60,12 @@ A step is one of two shapes:
 
 Two workflow-level sibling fields run alongside `steps:`:
 
-- **`summarize:`** — a single `{ use | sh, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The shipped `claude-code-summarizer` bundle ships with a baked-in prompt and `MODEL=haiku` so the default `kiri init` experience produces summaries out of the box. M4 makes prompt and model configurable via `env:` without forking the bundle.
+- **`summarize:`** — a single `{ use | sh, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The `claude-code-summarizer` example bundle ships with a baked-in prompt and `MODEL=haiku` so it produces summaries out of the box once copied into a workspace. M4 makes prompt and model configurable via `env:` without forking the bundle.
 - **`publish:`** — an array of named long-form markdown artefacts (M6). Each entry has the shape `{ name, title?, use | sh, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference artefacts in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Artefacts are stored as rows in `run_artefacts`, surfaced as chips on the activity feed, listed under a "Published" section on the run detail page, and rendered on dedicated `/runs/:id/published/:name` pages via a sandboxed markdown parser.
 
 Both fields share the same load-time validation as `steps:` (`use:` / `sh:` mutually exclusive, `KIRI_` prefix banned on `env:` keys, missing `use:` bundle is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing publish flips `runs.status` to `failed`.
 
-This single primitive — the script bundle — supports every runtime kiri will ever care about. `kiri init` ships a `scripts/claude-code/` starter; LM Studio support is `cp -r scripts/claude-code scripts/lm-studio` and editing the script. Kiri itself stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way.
+This single primitive — the script bundle — supports every runtime kiri will ever care about. The repo's `examples/` carries `claude-code` and `lm-studio` starter bundles; LM Studio support is `cp -r examples/scripts/claude-code scripts/lm-studio` and editing the script. Kiri itself stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way.
 
 Rationale for YAML over TS: workflow files live in arbitrary user repos, but kiri ships as a single Bun-compiled binary. Resolving a TS `import { defineWorkflow } from "kiri"` from those repos would require both a Bun plugin baked into the binary to intercept the import *and* generated `.d.ts` files dropped into each repo for IDE support — both maintenance costs that compound forever. YAML is pure data, validated at load time, and a JSON schema can be published alongside the binary for editor LSP integration with no per-repo footprint.
 
@@ -141,12 +141,12 @@ Workflows can produce todos. A todo is a proposed workflow invocation waiting fo
 
 ### Claude Code via the `claude-code` bundle
 
-Kiri integrates with Claude Code by shipping a `scripts/claude-code/` bundle via `kiri init` — a starter the user owns once written. Kiri itself has no CC-specific code; the bundle does the spawning, config translation, transcript parsing, and meta emission. Spawning CC's CLI directly keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
+Kiri integrates with Claude Code through a `claude-code` script bundle — a worked example carried in the repo's `examples/` that the user copies into their workspace's `scripts/` and owns from then on. Kiri itself has no CC-specific code; the bundle does the spawning, config translation, transcript parsing, and meta emission. Spawning CC's CLI directly keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
 
-Bundle layout shipped by `kiri init`:
+Bundle layout (`examples/scripts/claude-code/`):
 
 ```
-scripts/claude-code/
+claude-code/
   run.sh         # spawns `claude` CLI with the resolved prompt + allowlist
   README.md      # documents the env-var contract: PROMPT_FILE, MAX_TURNS, ALLOWED_TOOLS, MODEL
 ```
@@ -169,7 +169,7 @@ What `run.sh` does at spawn time:
 - Loads the prompt from `PROMPT_FILE` (resolved against `KIRI_REPO_ROOT`) and **prepends the allowlist as positive framing** ("You have access to: …. If you need anything else, end the session with a final message describing what you needed and why.") so the agent doesn't burn turns on denied tools.
 - Spawns `claude -p "$PROMPT" --max-turns "$MAX_TURNS"` and forwards its stdout/stderr to kiri's standard step envelope.
 
-The bundle is plain bash — readable, modifiable, replaceable. Adding LM Studio support is `cp -r scripts/claude-code scripts/lm-studio` and editing. Kiri ships the starter, the user owns it from there.
+The bundle is plain bash — readable, modifiable, replaceable. Adding LM Studio support is `cp -r examples/scripts/claude-code scripts/lm-studio` and editing. The example lives in the repo; the user owns their copy from there.
 
 ### Output validation (for LLM steps producing structured output)
 
@@ -224,7 +224,7 @@ Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
 <repo-root>/
   workflows/                  # YAML workflow definitions (in git)
   scripts/                    # script bundles (in git)
-    claude-code/              # `kiri init` ships this; user owns from then on
+    claude-code/              # an example bundle copied in; user owns it
       run.sh
       README.md
     <other-bundles>/...
@@ -318,7 +318,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 
 1. **Spine** (M0). YAML-defined linear pipeline of script steps. Standard envelope, traces captured, run history persisted to SQLite via Drizzle. Feed UI renders run history.
 2. **Step schema migration** (M1). YAML moved to `steps:` with `use:` (bundle reference) or `sh:` (inline shell), plus per-step `env:` with precedence and reserved-namespace rules.
-3. **`claude-code` bundle starter** (M2). `kiri init` ships `scripts/claude-code/`; a working CC runner that translates `env:` keys to CC flags, spawns `claude`, captures the session.
+3. **`claude-code` bundle starter** (M2). A working CC runner bundle that translates `env:` keys to CC flags, spawns `claude`, and captures the session.
 4. **Hosted shell** (M2.5). `https://local.kiri.build` — a static Cloudflare Pages shell that loads the locally-running kiri's bundle. Stable bundle paths, CORS allow-list.
 5. **Security baseline** (M3). Bind to `127.0.0.1` only; require `X-Kiri-Client` header on state-changing endpoints — shuts down cross-origin attacks from other browser tabs.
 6. **UX foundation + test infra** (M3.5). Tailwind v4; `wouter` router with `/` and `/runs/:id`; `bun:test` + `happy-dom` + `@testing-library/react`; Playwright golden-path e2e.

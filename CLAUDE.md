@@ -64,7 +64,7 @@ When completing a ticket, before considering it done, sweep the project's docume
 - **Repo markdown docs** — the project README, the contributor guide, the architecture/design notes, and the milestone/roadmap docs.
 - **The workflow-authoring reference for AI assistants** — the standalone guide that teaches an assistant to author workflows for this project.
 - **Bundle and script READMEs** — the env-var contract docs shipped alongside each bundle.
-- **Anything `kiri init` scaffolds** — the README, example workflow and prompt written into a fresh user repo, plus the generated workflow JSON Schema.
+- **Anything `kiri init` scaffolds** — the README and starter workflow written into a fresh user repo, plus the generated workflow JSON Schema.
 - **Schema descriptions** — the descriptions on the workflow Zod schema, which surface as editor autocomplete and validation hints.
 - **In-app UI copy** — documentation links, empty-state explanations, and onboarding or explanatory text rendered inside the app.
 
