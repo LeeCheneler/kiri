@@ -74,19 +74,19 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.queryByText(/\*/)).toBeNull();
     });
 
-    it("surfaces the artefact count in the header when the workflow publishes", () => {
+    it("surfaces the article count in the header when the workflow publishes", () => {
       renderDetail(
         stubWorkflow({
           publish: [{ name: "digest", title: "Digest", use: "claude-code" }],
         }),
       );
       // Both the header dl and the publish section header carry the count.
-      expect(screen.getAllByText(/^1 artefact$/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/^1 article$/i).length).toBeGreaterThan(0);
     });
 
-    it("omits the artefact slot when the workflow has no publish entries", () => {
+    it("omits the article slot when the workflow has no publish entries", () => {
       renderDetail(stubWorkflow());
-      expect(screen.queryByText(/artefact/i)).toBeNull();
+      expect(screen.queryByText(/article/i)).toBeNull();
     });
 
     it("surfaces a 'summarised' indicator in the header when the workflow summarises", () => {
@@ -231,17 +231,17 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.getByText(/^sh: echo line 1$/)).toBeDefined();
     });
 
-    it("shows the singular artefact count for a single publish entry", () => {
+    it("shows the singular article count for a single publish entry", () => {
       renderDetail(
         stubWorkflow({
           publish: [{ name: "digest", title: "Digest", use: "claude-code" }],
         }),
       );
       // Header summary + publish section header both surface the count.
-      expect(screen.getAllByText(/^1 artefact$/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/^1 article$/).length).toBeGreaterThan(0);
     });
 
-    it("shows the plural artefact count for multiple publish entries", () => {
+    it("shows the plural article count for multiple publish entries", () => {
       renderDetail(
         stubWorkflow({
           publish: [
@@ -251,7 +251,7 @@ describe("<WorkflowDetailView>", () => {
           ],
         }),
       );
-      expect(screen.getAllByText(/^3 artefacts$/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/^3 articles$/).length).toBeGreaterThan(0);
     });
 
     it("renders inline source for sh: publish entries", () => {

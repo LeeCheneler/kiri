@@ -823,17 +823,17 @@ describe("runWorkflow", () => {
         }),
       ]);
       // Stable shape: the field is always present, empty when no publishes ran.
-      expect(parsed.artefacts).toEqual([]);
+      expect(parsed.articles).toEqual([]);
     });
 
-    it("includes successful artefacts in the summariser run-context envelope", async () => {
+    it("includes successful articles in the summariser run-context envelope", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
-      writeBundle("art", "#!/bin/sh\necho artefact-body\n");
+      writeBundle("art", "#!/bin/sh\necho article-body\n");
       writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
       const wf: WorkflowDefinition = {
         name: "summer-sees-art",
         steps: [{ use: "step" }],
-        publish: [{ name: "art", title: "Artefact", use: "art" }],
+        publish: [{ name: "art", title: "Article", use: "art" }],
         summarize: { use: "context-dump" },
       };
 
@@ -842,8 +842,8 @@ describe("runWorkflow", () => {
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       const parsed = JSON.parse(run?.summary as string);
-      expect(parsed.artefacts).toEqual([
-        { name: "art", title: "Artefact", content_md: "artefact-body" },
+      expect(parsed.articles).toEqual([
+        { name: "art", title: "Article", content_md: "article-body" },
       ]);
     });
 
@@ -940,7 +940,7 @@ describe("runWorkflow", () => {
 
     it("places publish rows between steps and summarise in the index sequence", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
-      writeBundle("art", "#!/bin/sh\necho artefact\n");
+      writeBundle("art", "#!/bin/sh\necho article\n");
       writeBundle("summer", "#!/bin/sh\necho summary\n");
       const wf: WorkflowDefinition = {
         name: "full",
@@ -967,7 +967,7 @@ describe("runWorkflow", () => {
 
     it("snapshots publish onto definitionSnapshot", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
-      writeBundle("art", "#!/bin/sh\necho artefact\n");
+      writeBundle("art", "#!/bin/sh\necho article\n");
       const wf: WorkflowDefinition = {
         name: "snap-pub",
         steps: [{ use: "step" }],
@@ -1015,10 +1015,10 @@ describe("runWorkflow", () => {
       expect(publishRows[0].error).not.toBeNull();
       expect(publishRows[1].status).toBe("ok");
 
-      // Only the successful sibling lands as an artefact row.
-      const artefacts = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
-      expect(artefacts).toHaveLength(1);
-      expect(artefacts[0].name).toBe("good");
+      // Only the successful sibling lands as an article row.
+      const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
+      expect(articleRows).toHaveLength(1);
+      expect(articleRows[0].name).toBe("good");
     });
 
     it("persists trimmed stdout to articles with the resolved title", async () => {
@@ -1037,27 +1037,27 @@ describe("runWorkflow", () => {
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
       expect(result.status).toBe("ok");
 
-      const artefacts = db
+      const articleRows = db
         .select()
         .from(articles)
         .where(eq(articles.runId, result.runId))
         .orderBy(asc(articles.name))
         .all();
-      expect(artefacts).toHaveLength(2);
+      expect(articleRows).toHaveLength(2);
 
-      const digest = artefacts.find((a) => a.name === "digest");
+      const digest = articleRows.find((a) => a.name === "digest");
       expect(digest?.title).toBe("PR Review Digest");
       // Trailing whitespace stripped; interior newlines preserved.
       expect(digest?.contentMd).toBe("# Digest\n\nbody");
       expect(digest?.createdAt).toBeInstanceOf(Date);
 
-      const notes = artefacts.find((a) => a.name === "release-notes");
+      const notes = articleRows.find((a) => a.name === "release-notes");
       // Title defaults via resolvePublishTitle when omitted.
       expect(notes?.title).toBe("Release Notes");
       expect(notes?.contentMd).toBe("notes-body");
     });
 
-    it("inserts an artefact row even when the publish writes nothing", async () => {
+    it("inserts an article row even when the publish writes nothing", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       const wf: WorkflowDefinition = {
         name: "empty-pub",
@@ -1068,13 +1068,13 @@ describe("runWorkflow", () => {
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
       expect(result.status).toBe("ok");
 
-      const artefacts = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
-      expect(artefacts).toHaveLength(1);
-      expect(artefacts[0].contentMd).toBe("");
-      expect(artefacts[0].title).toBe("Empty");
+      const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
+      expect(articleRows).toHaveLength(1);
+      expect(articleRows[0].contentMd).toBe("");
+      expect(articleRows[0].title).toBe("Empty");
     });
 
-    it("does not insert an artefact row for a publish that fails", async () => {
+    it("does not insert an article row for a publish that fails", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("bad", "#!/bin/sh\nexit 2\n");
       const wf: WorkflowDefinition = {
@@ -1086,11 +1086,11 @@ describe("runWorkflow", () => {
       const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
       expect(result.status).toBe("failed");
 
-      const artefacts = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
-      expect(artefacts).toHaveLength(0);
+      const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
+      expect(articleRows).toHaveLength(0);
     });
 
-    it("exposes earlier successful artefacts to later publishes via KIRI_RUN_CONTEXT_FILE", async () => {
+    it("exposes earlier successful articles to later publishes via KIRI_RUN_CONTEXT_FILE", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("first-art", "#!/bin/sh\necho first-content\n");
       writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
@@ -1098,7 +1098,7 @@ describe("runWorkflow", () => {
         name: "sibling-ctx",
         steps: [{ use: "step" }],
         publish: [
-          { name: "first", title: "First Artefact", use: "first-art" },
+          { name: "first", title: "First Article", use: "first-art" },
           { name: "second", use: "context-dump" },
         ],
       };
@@ -1114,8 +1114,8 @@ describe("runWorkflow", () => {
         .all()
         .find((s) => s.isPublish && s.index === 2);
       const parsed = JSON.parse(secondRow?.output as string);
-      expect(parsed.artefacts).toEqual([
-        { name: "first", title: "First Artefact", content_md: "first-content" },
+      expect(parsed.articles).toEqual([
+        { name: "first", title: "First Article", content_md: "first-content" },
       ]);
     });
 
@@ -1123,7 +1123,7 @@ describe("runWorkflow", () => {
       writeBundle("boom", "#!/bin/sh\nexit 4\n");
       writeBundle(
         "pub-marker",
-        '#!/bin/sh\necho pub-ran > "$KIRI_REPO_ROOT/pub-marker"\necho artefact\n',
+        '#!/bin/sh\necho pub-ran > "$KIRI_REPO_ROOT/pub-marker"\necho article\n',
       );
       const wf: WorkflowDefinition = {
         name: "pub-after-fail",
@@ -1144,7 +1144,7 @@ describe("runWorkflow", () => {
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
       writeBundle(
         "pub-marker",
-        '#!/bin/sh\necho pub-ran > "$KIRI_REPO_ROOT/pub-marker"\necho artefact\n',
+        '#!/bin/sh\necho pub-ran > "$KIRI_REPO_ROOT/pub-marker"\necho article\n',
       );
       const wf: WorkflowDefinition = {
         name: "cancel-skip-pub",
@@ -1302,7 +1302,7 @@ describe("runWorkflow", () => {
 
     it("publishes run.step.updated events for each publish step", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
-      writeBundle("art", "#!/bin/sh\necho artefact\n");
+      writeBundle("art", "#!/bin/sh\necho article\n");
       const wf: WorkflowDefinition = {
         name: "pub-events",
         steps: [{ use: "step" }],

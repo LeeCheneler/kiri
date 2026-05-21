@@ -59,7 +59,7 @@ describe("<Dashboard>", () => {
     id: string,
     workflowName: string,
     status = "ok",
-    artefacts: Array<{ name: string; title: string; createdAt: string }> = [],
+    articles: Array<{ name: string; title: string; createdAt: string }> = [],
   ) => ({
     id,
     workflowName,
@@ -71,7 +71,7 @@ describe("<Dashboard>", () => {
     summary: null,
     definitionSnapshot: { name: workflowName, steps: [] },
     isInterrupted: false,
-    artefacts,
+    articles,
   });
 
   it("prepends a freshly-started run via a single-row fetch on run.started", async () => {
@@ -176,10 +176,10 @@ describe("<Dashboard>", () => {
     expect(screen.getByText(/alpha/)).toBeDefined();
   });
 
-  it("reconciles artefact chips when a run goes from 0 to N artefacts mid-stream", async () => {
-    // First page-one fetch carries no artefacts. After a run.updated event
+  it("reconciles article chips when a run goes from 0 to N articles mid-stream", async () => {
+    // First page-one fetch carries no articles. After a run.updated event
     // the dashboard refetches the single run; the detail endpoint now
-    // returns artefacts on run.artefacts, and the feed row patches in place
+    // returns articles on run.articles, and the feed row patches in place
     // to show the chip without a page-one reload.
     server.use(
       http.get("*/api/runs", () =>
@@ -200,14 +200,14 @@ describe("<Dashboard>", () => {
 
     const { sources } = renderDashboard();
     await screen.findByText(/with-publish/);
-    // No chip yet — the initial page-one payload carried no artefacts.
+    // No chip yet — the initial page-one payload carried no articles.
     expect(screen.queryByRole("link", { name: /^PR Review Digest$/ })).toBeNull();
 
     act(() => {
       sources[0]?.emit({ type: "run.updated", id: "r1", status: "running" });
     });
 
-    // The refetched run now ships an artefact on run.artefacts; the chip
+    // The refetched run now ships an article on run.articles; the chip
     // surfaces without a page-one reload.
     const chip = await screen.findByRole("link", { name: /^PR Review Digest$/ });
     expect(chip.getAttribute("href")).toBe("/runs/r1/published/digest");

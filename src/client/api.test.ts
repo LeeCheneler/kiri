@@ -39,13 +39,13 @@ describe("api client", () => {
     expect(seen).toEqual([{ cursor: "abc-123", limit: "10" }]);
   });
 
-  it("fetches a single run with its steps and run.artefacts", async () => {
+  it("fetches a single run with its steps and run.articles", async () => {
     server.use(
       http.get("*/api/runs/:id", ({ params }) =>
         HttpResponse.json({
           run: {
             id: params.id,
-            artefacts: [{ name: "digest", title: "Digest", createdAt: "2026-05-09T12:00:00.000Z" }],
+            articles: [{ name: "digest", title: "Digest", createdAt: "2026-05-09T12:00:00.000Z" }],
           },
           steps: [],
         }),
@@ -56,7 +56,7 @@ describe("api client", () => {
 
     expect(detail.run.id).toBe("abc");
     expect(detail.steps).toEqual([]);
-    expect(detail.run.artefacts).toEqual([
+    expect(detail.run.articles).toEqual([
       { name: "digest", title: "Digest", createdAt: "2026-05-09T12:00:00.000Z" },
     ]);
   });

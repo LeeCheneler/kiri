@@ -25,8 +25,8 @@ const shStepSchema = z
 const stepSchema = z.union([useStepSchema, shStepSchema]);
 
 /**
- * Pattern that constrains a published artefact's `name`. Re-used by the
- * HTTP route that fetches artefacts by name so the regex lives once and
+ * Pattern that constrains a published article's `name`. Re-used by the
+ * HTTP route that fetches articles by name so the regex lives once and
  * the validation surface matches the schema exactly.
  */
 export const publishNameSchema = z.string().regex(/^[a-z0-9-]+$/, {
@@ -76,10 +76,10 @@ export const workflowSchema = z
      */
     summarize: stepSchema.optional(),
     /**
-     * Optional list of artefacts the workflow publishes after `steps:`
+     * Optional list of articles the workflow publishes after `steps:`
      * terminates with `ok` or `failed`. Each entry runs through the same
      * executor path as a step; its trimmed stdout is stored as a markdown
-     * artefact keyed by `name`. Names must be unique within a workflow.
+     * article keyed by `name`. Names must be unique within a workflow.
      */
     publish: publishArraySchema.optional(),
   })

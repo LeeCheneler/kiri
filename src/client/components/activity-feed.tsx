@@ -1,13 +1,13 @@
 import type { Ref } from "react";
 import { Link } from "wouter";
-import type { RunArtefactSummary, RunListEntry } from "../api.ts";
+import type { ArticleSummary, RunListEntry } from "../api.ts";
 import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
 import { Markdown } from "./markdown.tsx";
 
-// Beyond this count the chip list collapses to a single "N artefacts"
-// chip so a run that publishes a lot of small artefacts doesn't blow
+// Beyond this count the chip list collapses to a single "N articles"
+// chip so a run that publishes a lot of small articles doesn't blow
 // the row layout. The collapsed chip routes to the run page instead of
-// a specific artefact — its Published section lists them all.
+// a specific article — its Published section lists them all.
 const CHIPS_COLLAPSE_AT = 4;
 
 type RunStatusKind = "running" | "ok" | "failed" | "cancelled" | "interrupted";
@@ -44,7 +44,7 @@ const statusFor = (run: RunListEntry): RunStatusKind => run.status;
  *    accent gold.
  *  - The optional summary renders below as prose; markdown links
  *    inside it stay independent.
- *  - Artefact chips sit at the foot of the entry as separate links.
+ *  - Article chips sit at the foot of the entry as separate links.
  *
  * Runs in flight show a pulsing dot in place of a duration. Rows
  * stagger in on first paint. Empty state is a single italic sentence.
@@ -132,9 +132,9 @@ export function ActivityFeed({
                     <Markdown content={run.summary} />
                   </div>
                 )}
-                {run.artefacts.length > 0 && (
+                {run.articles.length > 0 && (
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <ArtefactChips runId={run.id} artefacts={run.artefacts} />
+                    <ArticleChips runId={run.id} articles={run.articles} />
                   </div>
                 )}
               </div>
@@ -163,39 +163,39 @@ const CHIP_CLASSES =
   "inline-flex items-baseline gap-1.5 rounded-sm border border-ink-muted bg-paper px-2.5 py-1 font-mono text-xs text-ink normal-case no-underline transition-colors hover:border-accent hover:bg-paper hover:text-accent focus-visible:border-accent focus-visible:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1";
 
 /**
- * Artefact chips for a feed row. Renders one chip per artefact when
- * there are 1–3, collapsing to a single "N artefacts" chip at 4 or
+ * Article chips for a feed row. Renders one chip per article when
+ * there are 1–3, collapsing to a single "N articles" chip at 4 or
  * more so a chatty workflow doesn't blow the row layout.
  *
  * Returns a fragment rather than a wrapping div — the caller's flex
  * row owns gap and wrapping.
  *
- * Each chip routes to its artefact; the collapsed chip routes to the
+ * Each chip routes to its article; the collapsed chip routes to the
  * run page, whose Published section enumerates the full list.
  */
-function ArtefactChips({
+function ArticleChips({
   runId,
-  artefacts,
+  articles,
 }: {
   runId: string;
-  artefacts: RunArtefactSummary[];
+  articles: ArticleSummary[];
 }) {
-  if (artefacts.length >= CHIPS_COLLAPSE_AT) {
+  if (articles.length >= CHIPS_COLLAPSE_AT) {
     return (
       <Link href={`/runs/${runId}`} className={CHIP_CLASSES}>
-        {artefacts.length} artefacts
+        {articles.length} articles
       </Link>
     );
   }
   return (
     <>
-      {artefacts.map((artefact) => (
+      {articles.map((article) => (
         <Link
-          key={artefact.name}
-          href={`/runs/${runId}/published/${artefact.name}`}
+          key={article.name}
+          href={`/runs/${runId}/published/${article.name}`}
           className={CHIP_CLASSES}
         >
-          {artefact.title}
+          {article.title}
         </Link>
       ))}
     </>

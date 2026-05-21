@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { resolvePublishTitle } from "../../shared/publish-title.ts";
 import type {
-  RunArtefactSummary,
+  ArticleSummary,
   RunDetail,
   RunListEntry,
   RunStepRow,
@@ -169,7 +169,7 @@ export function RunDetailView({
   onRerun?: () => Promise<unknown>;
 }) {
   const { run, steps } = detail;
-  const { artefacts } = run;
+  const { articles } = run;
   const status = runStatus(run);
   const activity = buildActivityItems(run, steps);
 
@@ -268,7 +268,7 @@ export function RunDetailView({
 
       {run.summary && <RunSummaryBlock summary={run.summary} />}
 
-      {artefacts.length > 0 && <PublishedSection runId={run.id} artefacts={artefacts} now={now} />}
+      {articles.length > 0 && <PublishedSection runId={run.id} articles={articles} now={now} />}
 
       {run.error && <RunFailureBlock error={run.error} />}
 
@@ -493,11 +493,11 @@ function ActivityRow({ item }: { item: ActivityItem }) {
 
 function PublishedSection({
   runId,
-  artefacts,
+  articles,
   now,
 }: {
   runId: string;
-  artefacts: RunArtefactSummary[];
+  articles: ArticleSummary[];
   now?: Date;
 }) {
   return (
@@ -505,25 +505,25 @@ function PublishedSection({
       <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
         <h3 className="text-xs tracking-widest text-ink-muted uppercase">Published</h3>
         <span className="font-mono text-xs text-ink-muted tabular-nums">
-          {artefacts.length === 1 ? "1 artefact" : `${artefacts.length} artefacts`}
+          {articles.length === 1 ? "1 article" : `${articles.length} articles`}
         </span>
       </header>
       <ul className="space-y-2">
-        {artefacts.map((artefact) => (
-          <li key={artefact.name}>
+        {articles.map((article) => (
+          <li key={article.name}>
             <Link
-              href={`/runs/${runId}/published/${artefact.name}`}
+              href={`/runs/${runId}/published/${article.name}`}
               className="group flex items-center gap-4 border border-ink-muted bg-paper px-5 py-4 no-underline outline-none transition-colors duration-150 hover:border-accent focus-visible:border-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
             >
               <span className="min-w-0 flex-1 truncate font-display text-lg text-ink transition-colors group-hover:text-accent group-focus-visible:text-accent">
-                {artefact.title}
+                {article.title}
               </span>
               <time
-                dateTime={artefact.createdAt}
-                title={artefact.createdAt}
+                dateTime={article.createdAt}
+                title={article.createdAt}
                 className="shrink-0 font-mono text-xs text-ink-muted tabular-nums"
               >
-                {formatRelativeTime(artefact.createdAt, now)}
+                {formatRelativeTime(article.createdAt, now)}
               </time>
               <span
                 aria-hidden="true"

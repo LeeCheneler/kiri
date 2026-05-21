@@ -230,7 +230,7 @@ export function createApp(deps: AppDeps): Hono {
     if (run.status === "running") {
       return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
     }
-    // Explicit cascade in a transaction: artefacts and step rows hold FKs
+    // Explicit cascade in a transaction: articles and step rows hold FKs
     // to the parent run row, so they go first. Matches the rest of the
     // codebase's pattern of in-code cascades instead of schema-level
     // ON DELETE CASCADE.
@@ -260,7 +260,7 @@ export function createApp(deps: AppDeps): Hono {
         409,
       );
     }
-    // Cascade-wipe artefacts + step rows (mirrors the delete path, minus
+    // Cascade-wipe articles + step rows (mirrors the delete path, minus
     // the final `runs` delete) so the rerun starts with a clean slate
     // under the same run id. Scratch dir is removed too — normally already
     // gone, but a crashed runner can leave it behind.
@@ -324,11 +324,11 @@ export function createApp(deps: AppDeps): Hono {
     const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
 
     // Single aggregation across the page rather than per-row N+1. Empty page
-    // skips the query entirely so the common no-artefacts feed pays nothing.
-    type ArtefactProjection = { name: string; title: string; createdAt: Date };
-    const artefactsByRunId = new Map<string, ArtefactProjection[]>();
+    // skips the query entirely so the common no-articles feed pays nothing.
+    type ArticleProjection = { name: string; title: string; createdAt: Date };
+    const articlesByRunId = new Map<string, ArticleProjection[]>();
     if (rows.length > 0) {
-      const allArtefacts = db
+      const allArticles = db
         .select({
           runId: articles.runId,
           name: articles.name,
@@ -344,11 +344,11 @@ export function createApp(deps: AppDeps): Hono {
         )
         .orderBy(asc(articles.createdAt))
         .all();
-      for (const { runId, name, title, createdAt } of allArtefacts) {
-        const list = artefactsByRunId.get(runId);
-        const entry: ArtefactProjection = { name, title, createdAt };
+      for (const { runId, name, title, createdAt } of allArticles) {
+        const list = articlesByRunId.get(runId);
+        const entry: ArticleProjection = { name, title, createdAt };
         if (list) list.push(entry);
-        else artefactsByRunId.set(runId, [entry]);
+        else articlesByRunId.set(runId, [entry]);
       }
     }
 
@@ -356,7 +356,7 @@ export function createApp(deps: AppDeps): Hono {
       runs: rows.map((row) => ({
         ...row,
         isInterrupted: !registry.getWorkflow(row.workflowName),
-        artefacts: artefactsByRunId.get(row.id) ?? [],
+        articles: articlesByRunId.get(row.id) ?? [],
       })),
       nextCursor,
     });
@@ -367,25 +367,25 @@ export function createApp(deps: AppDeps): Hono {
     const name = c.req.param("name");
     const parsedName = publishNameSchema.safeParse(name);
     if (!parsedName.success) {
-      return c.json({ error: parsedName.error.issues[0]?.message ?? "invalid artefact name" }, 400);
+      return c.json({ error: parsedName.error.issues[0]?.message ?? "invalid article name" }, 400);
     }
     const run = db.select().from(runs).where(eq(runs.id, id)).get();
     if (!run) return c.json({ error: `run "${id}" not found` }, 404);
-    const artefact = db
+    const article = db
       .select()
       .from(articles)
       .where(and(eq(articles.runId, id), eq(articles.name, name)))
       .get();
-    if (!artefact) {
-      return c.json({ error: `artefact "${name}" not found on run "${id}"` }, 404);
+    if (!article) {
+      return c.json({ error: `article "${name}" not found on run "${id}"` }, 404);
     }
     return c.json({
-      id: artefact.id,
-      runId: artefact.runId,
-      name: artefact.name,
-      title: artefact.title,
-      contentMd: artefact.contentMd,
-      createdAt: artefact.createdAt,
+      id: article.id,
+      runId: article.runId,
+      name: article.name,
+      title: article.title,
+      contentMd: article.contentMd,
+      createdAt: article.createdAt,
       workflowName: run.workflowName,
     });
   });
@@ -397,19 +397,19 @@ export function createApp(deps: AppDeps): Hono {
     // Publish and summary rows ship alongside pipeline steps; clients
     // separate them by the `isPublish` / `isSummary` flags. This is what
     // lets the run detail page render in-flight publish indicators while
-    // an artefact row hasn't yet been written.
+    // an article row hasn't yet been written.
     const steps = db
       .select()
       .from(runSteps)
       .where(eq(runSteps.runId, id))
       .orderBy(asc(runSteps.index))
       .all();
-    // `content_md` is deliberately omitted — the artefact body is fetched
-    // by the dedicated artefact page so the run-detail payload stays small.
-    // Lives on `run.artefacts` so every RunListEntry — list or detail —
+    // `content_md` is deliberately omitted — the article body is fetched
+    // by the dedicated article page so the run-detail payload stays small.
+    // Lives on `run.articles` so every RunListEntry — list or detail —
     // shares the same shape; chip rendering and the published-section row
     // both read from one place.
-    const artefacts = db
+    const articleRows = db
       .select({
         name: articles.name,
         title: articles.title,
@@ -420,7 +420,11 @@ export function createApp(deps: AppDeps): Hono {
       .orderBy(asc(articles.createdAt))
       .all();
     return c.json({
-      run: { ...run, isInterrupted: !registry.getWorkflow(run.workflowName), artefacts },
+      run: {
+        ...run,
+        isInterrupted: !registry.getWorkflow(run.workflowName),
+        articles: articleRows,
+      },
       steps,
     });
   });

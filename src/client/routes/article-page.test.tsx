@@ -4,29 +4,29 @@ import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../tests/setup/msw.ts";
-import { ArtefactPage } from "./artefact-page.tsx";
+import { ArticlePage } from "./article-page.tsx";
 
 afterEach(() => cleanup());
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 
-const renderArtefact = (id: string, name: string) => {
+const renderArticle = (id: string, name: string) => {
   const { hook } = memoryLocation({ path: `/runs/${id}/published/${name}` });
   return render(
     <Router hook={hook}>
-      <ArtefactPage params={{ id, name }} now={NOW} />
+      <ArticlePage params={{ id, name }} now={NOW} />
     </Router>,
   );
 };
 
-describe("<ArtefactPage>", () => {
-  it("shows a loading message while the artefact is being fetched", () => {
+describe("<ArticlePage>", () => {
+  it("shows a loading message while the article is being fetched", () => {
     // A never-resolving handler keeps the page in the loading state while
     // we make the synchronous assertion. Avoids MSW's "no matching handler"
     // warning that the default-route fallback would otherwise emit.
     server.use(http.get("*/api/runs/:id/published/:name", () => new Promise(() => {})));
-    renderArtefact("abc", "digest");
-    expect(screen.getByText(/loading artefact/i)).toBeDefined();
+    renderArticle("abc", "digest");
+    expect(screen.getByText(/loading article/i)).toBeDefined();
   });
 
   it("renders the title, workflow, run link, created-at, and markdown body on the happy path", async () => {
@@ -44,7 +44,7 @@ describe("<ArtefactPage>", () => {
       ),
     );
 
-    renderArtefact("abc12345-0000-0000-0000-000000000000", "digest");
+    renderArticle("abc12345-0000-0000-0000-000000000000", "digest");
 
     expect(
       await screen.findByRole("heading", { level: 2, name: "PR Review Digest" }),
@@ -69,18 +69,18 @@ describe("<ArtefactPage>", () => {
   it("renders the not-found view when the API returns 404", async () => {
     server.use(
       http.get("*/api/runs/:id/published/:name", () =>
-        HttpResponse.json({ error: "artefact not found" }, { status: 404 }),
+        HttpResponse.json({ error: "article not found" }, { status: 404 }),
       ),
     );
 
-    renderArtefact("missing-run", "missing-art");
+    renderArticle("missing-run", "missing-art");
 
-    expect(await screen.findByRole("heading", { name: /artefact not found/i })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: /article not found/i })).toBeDefined();
     // The names are shown so the user can spot a typo in the URL.
     expect(screen.getByText("missing-run")).toBeDefined();
     expect(screen.getByText("missing-art")).toBeDefined();
     // Even on 404, the back link points at the run page rather than home —
-    // the run might still exist; only the artefact is missing.
+    // the run might still exist; only the article is missing.
     const backLink = screen.getByRole("link", { name: /back to run/i });
     expect(backLink.getAttribute("href")).toBe("/runs/missing-run");
   });
@@ -90,18 +90,18 @@ describe("<ArtefactPage>", () => {
       http.get("*/api/runs/:id/published/:name", () => new HttpResponse("boom", { status: 500 })),
     );
 
-    renderArtefact("abc", "digest");
+    renderArticle("abc", "digest");
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeDefined();
     });
-    expect(screen.getByRole("alert").textContent).toMatch(/failed to load artefact/i);
+    expect(screen.getByRole("alert").textContent).toMatch(/failed to load article/i);
   });
 
   it("ignores a stale response when params change mid-flight", async () => {
     // First request: never resolves — second request must still be the
     // one that paints. Without the token guard the late first response
-    // would clobber the freshly-loaded second artefact.
+    // would clobber the freshly-loaded second article.
     const responders: Array<(value: Response) => void> = [];
     server.use(
       http.get(
@@ -117,7 +117,7 @@ describe("<ArtefactPage>", () => {
                 id: "art-2",
                 runId: params.id,
                 name: params.name,
-                title: "Second Artefact",
+                title: "Second Article",
                 contentMd: "second body\n",
                 createdAt: NOW.toISOString(),
                 workflowName: "wf",
@@ -127,13 +127,13 @@ describe("<ArtefactPage>", () => {
       ),
     );
 
-    const { rerender } = renderArtefact("abc", "first");
+    const { rerender } = renderArticle("abc", "first");
     rerender(
       <Router hook={memoryLocation({ path: "/runs/abc/published/second" }).hook}>
-        <ArtefactPage params={{ id: "abc", name: "second" }} now={NOW} />
+        <ArticlePage params={{ id: "abc", name: "second" }} now={NOW} />
       </Router>,
     );
-    expect(await screen.findByRole("heading", { name: "Second Artefact" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "Second Article" })).toBeDefined();
 
     // Late response for "first" — should be ignored.
     responders[0]?.(
@@ -141,14 +141,14 @@ describe("<ArtefactPage>", () => {
         id: "art-1",
         runId: "abc",
         name: "first",
-        title: "First Artefact",
+        title: "First Article",
         contentMd: "stale\n",
         createdAt: NOW.toISOString(),
         workflowName: "wf",
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(screen.queryByRole("heading", { name: "First Artefact" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Second Artefact" })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "First Article" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Second Article" })).toBeDefined();
   });
 });

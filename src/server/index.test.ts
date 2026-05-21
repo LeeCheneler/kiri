@@ -416,7 +416,7 @@ describe("createApp", () => {
       expect(await res.json()).toEqual({ error: 'cursor "does-not-exist" not found' });
     });
 
-    it("attaches each run's artefacts to its row in a single aggregation across the page", async () => {
+    it("attaches each run's articles to its row in a single aggregation across the page", async () => {
       writeBundle("step", "#!/bin/sh\necho s\n");
       writeBundle("digest", "#!/bin/sh\necho digest-body\n");
       writeBundle("notes", "#!/bin/sh\necho notes-body\n");
@@ -462,25 +462,25 @@ describe("createApp", () => {
       const body = (await res.json()) as {
         runs: Array<{
           id: string;
-          artefacts: Array<{ name: string; title: string; createdAt: string }>;
+          articles: Array<{ name: string; title: string; createdAt: string }>;
         }>;
       };
       const byId = new Map(body.runs.map((r) => [r.id, r]));
-      expect(byId.get(noPubId)?.artefacts).toEqual([]);
-      expect(byId.get(onePubId)?.artefacts.map((a) => a.name)).toEqual(["digest"]);
-      expect(byId.get(onePubId)?.artefacts[0]).toMatchObject({
+      expect(byId.get(noPubId)?.articles).toEqual([]);
+      expect(byId.get(onePubId)?.articles.map((a) => a.name)).toEqual(["digest"]);
+      expect(byId.get(onePubId)?.articles[0]).toMatchObject({
         name: "digest",
         title: "Digest Title",
       });
       // Declared order matches created_at order (publishes run serially).
-      expect(byId.get(twoPubId)?.artefacts.map((a) => a.name)).toEqual(["digest", "release-notes"]);
+      expect(byId.get(twoPubId)?.articles.map((a) => a.name)).toEqual(["digest", "release-notes"]);
       // ISO timestamp round-trip via Date.toJSON.
       for (const r of body.runs) {
-        for (const a of r.artefacts) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+        for (const a of r.articles) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       }
     });
 
-    it("scopes artefacts to the page — cursor pages don't leak the previous page's artefacts", async () => {
+    it("scopes articles to the page — cursor pages don't leak the previous page's articles", async () => {
       writeBundle("step", "#!/bin/sh\necho s\n");
       writeBundle("digest", "#!/bin/sh\necho digest-body\n");
       const wfA: WorkflowDefinition = {
@@ -515,22 +515,22 @@ describe("createApp", () => {
       const newRunId = await triggerAndAwait("wf-b");
 
       type RunsBody = {
-        runs: Array<{ id: string; artefacts: Array<{ name: string }> }>;
+        runs: Array<{ id: string; articles: Array<{ name: string }> }>;
         nextCursor: string | null;
       };
       const page1 = (await (await app.request("/api/runs?limit=1")).json()) as RunsBody;
       expect(page1.runs.map((r) => r.id)).toEqual([newRunId]);
-      expect(page1.runs[0]?.artefacts.map((a) => a.name)).toEqual(["digest-b"]);
+      expect(page1.runs[0]?.articles.map((a) => a.name)).toEqual(["digest-b"]);
 
       const page2 = (await (
         await app.request(`/api/runs?limit=1&cursor=${page1.nextCursor}`)
       ).json()) as RunsBody;
       expect(page2.runs.map((r) => r.id)).toEqual([oldRunId]);
-      // Page 2 only carries page 2's artefacts; page 1's digest-b doesn't leak.
-      expect(page2.runs[0]?.artefacts.map((a) => a.name)).toEqual(["digest-a"]);
+      // Page 2 only carries page 2's articles; page 1's digest-b doesn't leak.
+      expect(page2.runs[0]?.articles.map((a) => a.name)).toEqual(["digest-a"]);
     });
 
-    it("returns each run with an empty artefacts array when none of the page's runs have published", async () => {
+    it("returns each run with an empty articles array when none of the page's runs have published", async () => {
       writeBundle("step", "#!/bin/sh\necho s\n");
       const wf: WorkflowDefinition = { name: "plain", steps: [{ use: "step" }] };
       registry.replace(new Map([[wf.name, wf]]));
@@ -545,10 +545,10 @@ describe("createApp", () => {
       await waitForFinished(runId);
 
       const body = (await (await app.request("/api/runs")).json()) as {
-        runs: Array<{ id: string; artefacts: unknown[] }>;
+        runs: Array<{ id: string; articles: unknown[] }>;
       };
       expect(body.runs).toHaveLength(1);
-      expect(body.runs[0]?.artefacts).toEqual([]);
+      expect(body.runs[0]?.articles).toEqual([]);
     });
   });
 
@@ -618,7 +618,7 @@ describe("createApp", () => {
       expect(body.run.isInterrupted).toBe(true);
     });
 
-    it("returns an empty artefacts array and unchanged step list when the run has no publishes", async () => {
+    it("returns an empty articles array and unchanged step list when the run has no publishes", async () => {
       writeBundle("one", "#!/bin/sh\necho one\n");
       const wf: WorkflowDefinition = {
         name: "plain",
@@ -638,14 +638,14 @@ describe("createApp", () => {
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        run: { artefacts: unknown[] };
+        run: { articles: unknown[] };
         steps: Array<{ index: number }>;
       };
-      expect(body.run.artefacts).toEqual([]);
+      expect(body.run.articles).toEqual([]);
       expect(body.steps.map((s) => s.index)).toEqual([0]);
     });
 
-    it("returns artefacts ordered by created_at on run.artefacts and includes publish rows tagged isPublish in the step list", async () => {
+    it("returns articles ordered by created_at on run.articles and includes publish rows tagged isPublish in the step list", async () => {
       writeBundle("one", "#!/bin/sh\necho one\n");
       writeBundle("digest", "#!/bin/sh\necho digest-body\n");
       writeBundle("notes", "#!/bin/sh\necho notes-body\n");
@@ -671,7 +671,7 @@ describe("createApp", () => {
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        run: { artefacts: Array<{ name: string; title: string; createdAt: string }> };
+        run: { articles: Array<{ name: string; title: string; createdAt: string }> };
         steps: Array<{ index: number; kind: string; isPublish: boolean; isSummary: boolean }>;
       };
       // Pipeline step plus both publish rows in declared/index order; the
@@ -682,18 +682,18 @@ describe("createApp", () => {
         [2, true, false],
       ]);
       // Declared order matches created_at order (publishes run serially).
-      const artefacts = body.run.artefacts;
-      expect(artefacts.map((a) => a.name)).toEqual(["digest", "release-notes"]);
+      const articleRows = body.run.articles;
+      expect(articleRows.map((a) => a.name)).toEqual(["digest", "release-notes"]);
       // Resolved title travels with each row; defaulted via titlecase when omitted.
-      expect(artefacts[0]).toMatchObject({ name: "digest", title: "Digest Title" });
-      expect(artefacts[1]).toMatchObject({ name: "release-notes", title: "Release Notes" });
+      expect(articleRows[0]).toMatchObject({ name: "digest", title: "Digest Title" });
+      expect(articleRows[1]).toMatchObject({ name: "release-notes", title: "Release Notes" });
       // content_md is intentionally absent on this payload.
-      for (const a of artefacts) expect(a).not.toHaveProperty("contentMd");
+      for (const a of articleRows) expect(a).not.toHaveProperty("contentMd");
       // createdAt round-trips as an ISO timestamp (Date.toJSON in the response).
-      for (const a of artefacts) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      for (const a of articleRows) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
-    it("exposes a failed publish row alongside the ok sibling's artefact", async () => {
+    it("exposes a failed publish row alongside the ok sibling's article", async () => {
       writeBundle("one", "#!/bin/sh\necho one\n");
       writeBundle("bad", "#!/bin/sh\nexit 2\n");
       writeBundle("good", "#!/bin/sh\necho good-body\n");
@@ -719,7 +719,7 @@ describe("createApp", () => {
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        run: { artefacts: Array<{ name: string }> };
+        run: { articles: Array<{ name: string }> };
         steps: Array<{ index: number; status: string; isPublish: boolean }>;
       };
       // Pipeline step, failed publish, ok publish — all three rows ship.
@@ -728,11 +728,11 @@ describe("createApp", () => {
         [1, "failed", true],
         [2, "ok", true],
       ]);
-      // The failed publish produced no artefact row; the ok sibling did.
-      expect(body.run.artefacts.map((a) => a.name)).toEqual(["good"]);
+      // The failed publish produced no article row; the ok sibling did.
+      expect(body.run.articles.map((a) => a.name)).toEqual(["good"]);
     });
 
-    it("surfaces a running publish row before its artefact has been written", async () => {
+    it("surfaces a running publish row before its article has been written", async () => {
       writeBundle("one", "#!/bin/sh\necho one\n");
       // Long-running publish so we can observe the in-flight row mid-execution.
       // `exec 1>&- 2>&-` closes stdio before sleep is forked so cancel readers
@@ -767,15 +767,15 @@ describe("createApp", () => {
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        run: { artefacts: Array<{ name: string }> };
+        run: { articles: Array<{ name: string }> };
         steps: Array<{ index: number; status: string; isPublish: boolean }>;
       };
       // The publish row exists in `steps[]` tagged isPublish=true, status=running.
       const publishRow = body.steps.find((s) => s.isPublish);
       expect(publishRow).toMatchObject({ index: 1, status: "running", isPublish: true });
-      // Artefact row isn't written until the publish exits ok, so the array
+      // Article row isn't written until the publish exits ok, so the array
       // stays empty while the publish is in flight.
-      expect(body.run.artefacts).toEqual([]);
+      expect(body.run.articles).toEqual([]);
 
       // Tear down the in-flight publish so afterEach doesn't close the DB
       // mid-write. Cancel and wait for the row to flip terminal.
@@ -811,7 +811,7 @@ describe("createApp", () => {
       return { app, runId };
     };
 
-    it("returns the artefact body and metadata on the happy path", async () => {
+    it("returns the article body and metadata on the happy path", async () => {
       const { app, runId } = await setupPublishingRun();
 
       const res = await app.request(`/api/runs/${runId}/published/digest`);
@@ -842,16 +842,16 @@ describe("createApp", () => {
       expect(await res.json()).toEqual({ error: 'run "missing-run" not found' });
     });
 
-    it("returns 404 when the artefact name is unknown on an existing run", async () => {
+    it("returns 404 when the article name is unknown on an existing run", async () => {
       const { app, runId } = await setupPublishingRun();
       const res = await app.request(`/api/runs/${runId}/published/nope`);
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({
-        error: `artefact "nope" not found on run "${runId}"`,
+        error: `article "nope" not found on run "${runId}"`,
       });
     });
 
-    it("returns 400 when the artefact name fails the schema regex", async () => {
+    it("returns 400 when the article name fails the schema regex", async () => {
       const app = createApp({ db, registry, cwd });
       const res = await app.request("/api/runs/any-id/published/Bad_Name");
       expect(res.status).toBe(400);
@@ -1255,7 +1255,7 @@ describe("createApp", () => {
   });
 
   describe("DELETE /api/runs/:id", () => {
-    // Seed a finished run plus a step and an artefact row so each delete
+    // Seed a finished run plus a step and an article row so each delete
     // test exercises the full cascade rather than just the parent row.
     const seedTerminalRun = (id: string, opts: { status?: "ok" | "failed" | "cancelled" } = {}) => {
       db.insert(runs)
@@ -1335,7 +1335,7 @@ describe("createApp", () => {
       expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
     });
 
-    it("removes the run, its steps, its artefacts, and the scratch dir; publishes run.deleted", async () => {
+    it("removes the run, its steps, its articles, and the scratch dir; publishes run.deleted", async () => {
       const id = "to-delete";
       seedTerminalRun(id);
       // Simulate a scratch-dir leftover (e.g. crashed runner). A normal
@@ -1547,7 +1547,7 @@ describe("createApp", () => {
       expect(errors.some((line) => String(line).includes("crashed"))).toBe(true);
     });
 
-    it("wipes prior steps + artefacts + scratch dir and re-runs under the same id", async () => {
+    it("wipes prior steps + articles + scratch dir and re-runs under the same id", async () => {
       const id = "to-rerun";
       writeBundle("hi", "#!/bin/sh\necho fresh\n");
       const wf: WorkflowDefinition = { name: "demo", steps: [{ use: "hi" }] };
@@ -1582,7 +1582,7 @@ describe("createApp", () => {
         steps: [{ use: "hi" }],
       });
 
-      // Old artefact gone; old step row replaced by the fresh run's step.
+      // Old article gone; old step row replaced by the fresh run's step.
       const steps = db.select().from(runSteps).where(eq(runSteps.runId, id)).all();
       expect(steps).toHaveLength(1);
       expect(steps[0].status).toBe("ok");

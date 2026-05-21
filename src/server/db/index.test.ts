@@ -306,7 +306,7 @@ describe("db", () => {
     ).toThrow();
   });
 
-  it("allows the same artefact name across different runs", () => {
+  it("allows the same article name across different runs", () => {
     migrate(db);
 
     for (const runId of ["run-x", "run-y"] as const) {

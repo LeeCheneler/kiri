@@ -19,13 +19,13 @@ const hasEnv = (env: Record<string, string> | undefined): env is Record<string, 
 
 const stepCountLabel = (count: number): string => (count === 1 ? "1 step" : `${count} steps`);
 
-const artefactCountLabel = (count: number): string =>
-  count === 1 ? "1 artefact" : `${count} artefacts`;
+const articleCountLabel = (count: number): string =>
+  count === 1 ? "1 article" : `${count} articles`;
 
 /**
  * Editorial detail view for one workflow definition. Header carries the
  * name in Fraunces with a trigger affordance set in the accent token.
- * Step count, artefact count (when the workflow publishes), summariser
+ * Step count, article count (when the workflow publishes), summariser
  * presence, gating, and schedule are listed alongside it in mono small
  * caps so the reader sees the run shape at a glance.
  *
@@ -66,7 +66,7 @@ export function WorkflowDetailView({
           {publishCount > 0 && (
             <>
               <HeaderSeparator />
-              <HeaderFact label="artefacts" value={artefactCountLabel(publishCount)} />
+              <HeaderFact label="articles" value={articleCountLabel(publishCount)} />
             </>
           )}
           {workflow.summarize && (
@@ -182,7 +182,7 @@ function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
       <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
         <h3 className="text-xs tracking-widest text-ink-muted uppercase">Publish</h3>
         <span className="font-mono text-xs text-ink-muted tabular-nums">
-          {artefactCountLabel(entries.length)}
+          {articleCountLabel(entries.length)}
         </span>
       </header>
       <ul className="divide-y divide-rule">

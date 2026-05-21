@@ -47,7 +47,7 @@ describe("<RunPage>", () => {
             error: null,
             definitionSnapshot: { name: "kiri-self-review", steps: [] },
             isInterrupted: false,
-            artefacts: [],
+            articles: [],
           },
           steps: [],
         }),
@@ -104,7 +104,7 @@ describe("<RunPage>", () => {
             error: null,
             definitionSnapshot: { name: `wf-${calls}`, steps: [] },
             isInterrupted: false,
-            artefacts: [],
+            articles: [],
           },
           steps: [],
         });
@@ -140,15 +140,15 @@ describe("<RunPage>", () => {
     await screen.findByRole("heading", { level: 2, name: /wf-4/i });
   });
 
-  it("refreshes the artefact list in place when a run event arrives mid-run", async () => {
-    // First fetch: pipeline running, no artefacts yet. After a run.updated
-    // event the next fetch reflects the artefact the publish step just
+  it("refreshes the article list in place when a run event arrives mid-run", async () => {
+    // First fetch: pipeline running, no articles yet. After a run.updated
+    // event the next fetch reflects the article the publish step just
     // produced — the Published section appears without a page reload.
     let calls = 0;
     server.use(
       http.get("*/api/runs/:id", ({ params }) => {
         calls++;
-        const artefacts =
+        const articles =
           calls === 1
             ? []
             : [
@@ -170,7 +170,7 @@ describe("<RunPage>", () => {
             summary: null,
             definitionSnapshot: { name: "with-publish", steps: [] },
             isInterrupted: false,
-            artefacts,
+            articles,
           },
           steps: [],
         });
@@ -179,14 +179,14 @@ describe("<RunPage>", () => {
 
     const { sources } = renderRun("abc");
     await screen.findByRole("heading", { level: 2, name: /with-publish/i });
-    // No Published section yet — initial fetch returned no artefacts.
+    // No Published section yet — initial fetch returned no articles.
     expect(screen.queryByRole("heading", { name: /^published$/i })).toBeNull();
 
     act(() => {
       sources[0]?.emit({ type: "run.updated", id: "abc", status: "running" });
     });
 
-    // The refetch driven by the event surfaces the new artefact row in place.
+    // The refetch driven by the event surfaces the new article row in place.
     expect(await screen.findByRole("heading", { name: /^published$/i })).toBeDefined();
     expect(screen.getByRole("link", { name: /PR Review Digest/i }).getAttribute("href")).toBe(
       "/runs/abc/published/digest",
@@ -208,7 +208,7 @@ describe("<RunPage>", () => {
             error: null,
             definitionSnapshot: { name: "long", steps: [] },
             isInterrupted: false,
-            artefacts: [],
+            articles: [],
           },
           steps: [],
         }),
@@ -253,7 +253,7 @@ describe("<RunPage>", () => {
         summary: null,
         definitionSnapshot: { name: "done", steps: [] },
         isInterrupted: false,
-        artefacts: [],
+        articles: [],
       },
       steps: [],
     });
@@ -390,7 +390,7 @@ describe("<RunPage>", () => {
         summary: null,
         definitionSnapshot: { name: "done", steps: [] },
         isInterrupted: false,
-        artefacts: [],
+        articles: [],
       },
       steps: [],
     });
@@ -506,7 +506,7 @@ describe("<RunPage>", () => {
             error: null,
             definitionSnapshot: { name: `wf-${calls}`, steps: [] },
             isInterrupted: false,
-            artefacts: [],
+            articles: [],
           },
           steps: [],
         });

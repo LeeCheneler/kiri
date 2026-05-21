@@ -23,7 +23,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   gitSha: null,
   gitDirty: null,
   isInterrupted: false,
-  artefacts: [],
+  articles: [],
   ...overrides,
 });
 
@@ -171,8 +171,8 @@ describe("<ActivityFeed>", () => {
     expect(text).not.toContain("scheduled");
   });
 
-  describe("artefact chips", () => {
-    const artefact = (
+  describe("article chips", () => {
+    const article = (
       overrides: Partial<{ name: string; title: string; createdAt: string }> = {},
     ) => ({
       name: "digest",
@@ -181,19 +181,19 @@ describe("<ActivityFeed>", () => {
       ...overrides,
     });
 
-    it("renders no chips when the run has no artefacts", () => {
-      renderFeed([stubRun({ id: "abc", artefacts: [] })]);
-      // The row's primary link is the only one — no extra artefact links.
+    it("renders no chips when the run has no articles", () => {
+      renderFeed([stubRun({ id: "abc", articles: [] })]);
+      // The row's primary link is the only one — no extra article links.
       expect(screen.getAllByRole("link")).toHaveLength(1);
     });
 
-    it("renders one chip per artefact when there are 1–3", () => {
+    it("renders one chip per article when there are 1–3", () => {
       renderFeed([
         stubRun({
           id: "abc",
-          artefacts: [
-            artefact({ name: "digest", title: "PR Review Digest" }),
-            artefact({ name: "release-notes", title: "Release Notes" }),
+          articles: [
+            article({ name: "digest", title: "PR Review Digest" }),
+            article({ name: "release-notes", title: "Release Notes" }),
           ],
         }),
       ]);
@@ -203,11 +203,11 @@ describe("<ActivityFeed>", () => {
       expect(notesChip.getAttribute("href")).toBe("/runs/abc/published/release-notes");
     });
 
-    it("renders the artefact title as the chip label (no name leakage)", () => {
+    it("renders the article title as the chip label (no name leakage)", () => {
       renderFeed([
         stubRun({
           id: "abc",
-          artefacts: [artefact({ name: "weekly-digest", title: "Weekly Digest" })],
+          articles: [article({ name: "weekly-digest", title: "Weekly Digest" })],
         }),
       ]);
       // The label is the resolved title — the URL-safe slug stays in the
@@ -217,33 +217,33 @@ describe("<ActivityFeed>", () => {
       expect(screen.queryByText("weekly-digest")).toBeNull();
     });
 
-    it("collapses to a single chip at 4 or more artefacts", () => {
+    it("collapses to a single chip at 4 or more articles", () => {
       renderFeed([
         stubRun({
           id: "abc",
-          artefacts: [
-            artefact({ name: "a", title: "A" }),
-            artefact({ name: "b", title: "B" }),
-            artefact({ name: "c", title: "C" }),
-            artefact({ name: "d", title: "D" }),
+          articles: [
+            article({ name: "a", title: "A" }),
+            article({ name: "b", title: "B" }),
+            article({ name: "c", title: "C" }),
+            article({ name: "d", title: "D" }),
           ],
         }),
       ]);
       // Individual chip labels are gone — replaced by a single counted chip.
       expect(screen.queryByRole("link", { name: /^A$/ })).toBeNull();
-      const collapsed = screen.getByRole("link", { name: /4 artefacts/i });
+      const collapsed = screen.getByRole("link", { name: /4 articles/i });
       expect(collapsed.getAttribute("href")).toBe("/runs/abc");
     });
 
-    it("clicking a chip targets the artefact, not the run page", () => {
+    it("clicking a chip targets the article, not the run page", () => {
       // Chips sit below the row's header link as independent anchors.
-      // Assert by hrefs: the chip's href is the artefact route, distinct
+      // Assert by hrefs: the chip's href is the article route, distinct
       // from the row link's run route.
       renderFeed([
         stubRun({
           id: "abc",
           workflowName: "pr-review",
-          artefacts: [artefact()],
+          articles: [article()],
         }),
       ]);
       const rowLink = screen.getByRole("link", { name: /pr-review/i });

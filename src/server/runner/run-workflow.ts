@@ -186,7 +186,7 @@ export function runWorkflow(
     let caughtThrow: unknown;
     let summaryText: string | null = null;
     const executed: ExecutedStep[] = [];
-    const publishedArtefacts: { name: string; title: string; content_md: string }[] = [];
+    const publishedArticles: { name: string; title: string; content_md: string }[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
@@ -277,7 +277,7 @@ export function runWorkflow(
       }
 
       // Publishes only run when the steps pipeline is still `ok`. A failed
-      // or cancelled pipeline skips them: artefacts describe a successful
+      // or cancelled pipeline skips them: articles describe a successful
       // run, and emitting them off the back of a broken pipeline produces
       // misleading output. The `stepsOk` snapshot is captured before the
       // loop so a failing publish flipping `status` to `failed` doesn't
@@ -327,7 +327,7 @@ export function runWorkflow(
               startedAt: startedAt.toISOString(),
               durationMs: Date.now() - startedAt.getTime(),
               steps: executed,
-              artefacts: publishedArtefacts,
+              articles: publishedArticles,
             },
             null,
             2,
@@ -382,7 +382,7 @@ export function runWorkflow(
               createdAt: new Date(),
             })
             .run();
-          publishedArtefacts.push({ name: entry.name, title, content_md: contentMd });
+          publishedArticles.push({ name: entry.name, title, content_md: contentMd });
         }
 
         // Cancel mid-publish flips the run terminal status and halts.
@@ -417,7 +417,7 @@ export function runWorkflow(
               startedAt: startedAt.toISOString(),
               durationMs: Date.now() - startedAt.getTime(),
               steps: executed,
-              artefacts: publishedArtefacts,
+              articles: publishedArticles,
             },
             null,
             2,

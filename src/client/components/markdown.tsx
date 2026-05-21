@@ -347,7 +347,7 @@ const components: Components = {
  * `rel="noopener noreferrer"`; same-origin and fragment links pass
  * through untouched.
  *
- * Used by every surface that renders markdown — published artefacts,
+ * Used by every surface that renders markdown — published articles,
  * activity-feed summaries, the run-detail summary block — so each one
  * inherits the same sandboxing and editorial styling.
  */

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import type { RunArtefactSummary, RunDetail, RunListEntry, RunStepRow } from "../api.ts";
+import type { ArticleSummary, RunDetail, RunListEntry, RunStepRow } from "../api.ts";
 import { RunDetailView } from "./run-detail.tsx";
 
 afterEach(() => cleanup());
@@ -22,7 +22,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   gitSha: null,
   gitDirty: null,
   isInterrupted: false,
-  artefacts: [],
+  articles: [],
   ...overrides,
 });
 
@@ -43,9 +43,9 @@ const stubStep = (overrides: Partial<RunStepRow> = {}): RunStepRow => ({
 const stubDetail = (
   run: Partial<RunListEntry> = {},
   steps: RunStepRow[] = [],
-  artefacts: RunArtefactSummary[] = [],
+  articles: ArticleSummary[] = [],
 ): RunDetail => ({
-  run: stubRun({ ...run, artefacts }),
+  run: stubRun({ ...run, articles }),
   steps,
 });
 
@@ -796,53 +796,53 @@ describe("<RunDetailView>", () => {
   });
 
   describe("published section", () => {
-    const stubArtefact = (overrides: Partial<RunArtefactSummary> = {}): RunArtefactSummary => ({
+    const stubArticle = (overrides: Partial<ArticleSummary> = {}): ArticleSummary => ({
       name: "digest",
       title: "PR Review Digest",
       createdAt: new Date(NOW.getTime() - 60 * 1000).toISOString(),
       ...overrides,
     });
 
-    it("does not render the section when there are no artefacts", () => {
+    it("does not render the section when there are no articles", () => {
       renderDetail(stubDetail({}, [], []));
       expect(screen.queryByRole("heading", { name: /^published$/i })).toBeNull();
     });
 
-    it("renders the section heading and a row per artefact when present", () => {
+    it("renders the section heading and a row per article when present", () => {
       renderDetail(
-        stubDetail({}, [], [stubArtefact({ name: "digest", title: "PR Review Digest" })]),
+        stubDetail({}, [], [stubArticle({ name: "digest", title: "PR Review Digest" })]),
       );
       expect(screen.getByRole("heading", { level: 3, name: /^published$/i })).toBeDefined();
       expect(screen.getByText("PR Review Digest")).toBeDefined();
     });
 
-    it("renders the artefact count in the section header", () => {
+    it("renders the article count in the section header", () => {
       renderDetail(
         stubDetail(
           {},
           [],
           [
-            stubArtefact({ name: "digest", title: "Digest" }),
-            stubArtefact({ name: "notes", title: "Notes" }),
+            stubArticle({ name: "digest", title: "Digest" }),
+            stubArticle({ name: "notes", title: "Notes" }),
           ],
         ),
       );
-      expect(screen.getByText(/^2 artefacts$/)).toBeDefined();
+      expect(screen.getByText(/^2 articles$/)).toBeDefined();
     });
 
-    it("uses the singular form for a single artefact", () => {
-      renderDetail(stubDetail({}, [], [stubArtefact()]));
-      expect(screen.getByText(/^1 artefact$/)).toBeDefined();
+    it("uses the singular form for a single article", () => {
+      renderDetail(stubDetail({}, [], [stubArticle()]));
+      expect(screen.getByText(/^1 article$/)).toBeDefined();
     });
 
-    it("links each artefact to /runs/:id/published/:name", () => {
+    it("links each article to /runs/:id/published/:name", () => {
       renderDetail(
         stubDetail(
           { id: "run-1" },
           [],
           [
-            stubArtefact({ name: "digest", title: "Digest" }),
-            stubArtefact({ name: "release-notes", title: "Release Notes" }),
+            stubArticle({ name: "digest", title: "Digest" }),
+            stubArticle({ name: "release-notes", title: "Release Notes" }),
           ],
         ),
       );
@@ -854,14 +854,14 @@ describe("<RunDetailView>", () => {
 
     it("renders the created-at as a relative timestamp with absolute hover title", () => {
       const createdAt = new Date(NOW.getTime() - 45 * 1000).toISOString();
-      renderDetail(stubDetail({}, [], [stubArtefact({ createdAt })]));
+      renderDetail(stubDetail({}, [], [stubArticle({ createdAt })]));
       const time = screen.getByText(/45 seconds ago/i);
       expect(time.getAttribute("title")).toBe(createdAt);
     });
 
     it("renders above the activity list so the long-form output is reached first", () => {
       renderDetail(
-        stubDetail({}, [stubStep()], [stubArtefact({ name: "digest", title: "Digest" })]),
+        stubDetail({}, [stubStep()], [stubArticle({ name: "digest", title: "Digest" })]),
       );
       const published = screen.getByRole("heading", { name: /^published$/i });
       const activity = screen.getByRole("heading", { name: /^activity$/i });
@@ -875,7 +875,7 @@ describe("<RunDetailView>", () => {
         stubDetail(
           { summary: "Top-line summary." },
           [],
-          [stubArtefact({ name: "digest", title: "Digest" })],
+          [stubArticle({ name: "digest", title: "Digest" })],
         ),
       );
       const summary = screen.getByText(/^summary$/i);
@@ -891,7 +891,7 @@ describe("<RunDetailView>", () => {
         stubDetail(
           { status: "failed", error: { message: "boom" } },
           [],
-          [stubArtefact({ name: "digest", title: "Digest" })],
+          [stubArticle({ name: "digest", title: "Digest" })],
         ),
       );
       const published = screen.getByRole("heading", { name: /^published$/i });

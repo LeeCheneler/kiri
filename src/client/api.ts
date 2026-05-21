@@ -75,7 +75,7 @@ export type RunPublishSnapshot =
  * `publish:` array at run-start; absent otherwise. The run detail page
  * uses it to resolve each publish step row's display title by index.
  *
- * `artefacts` lists the run's published artefacts ordered by creation
+ * `articles` lists the run's published articles ordered by creation
  * time, populated by the server in a single aggregation across the
  * page. Empty for runs that didn't publish anything. The same field
  * powers both feed-row chips and the run detail's Published section
@@ -106,7 +106,7 @@ export interface RunListEntry {
   gitSha: string | null;
   gitDirty: boolean | null;
   isInterrupted: boolean;
-  artefacts: RunArtefactSummary[];
+  articles: ArticleSummary[];
 }
 
 /**
@@ -134,11 +134,11 @@ export interface RunStepRow {
 }
 
 /**
- * A run's published artefact as seen by the run-detail consumer. The
- * markdown body lives on the dedicated artefact route — only metadata
+ * A run's published article as seen by the run-detail consumer. The
+ * markdown body lives on the dedicated article route — only metadata
  * needed to render the "Published" section row travels with the run.
  */
-export interface RunArtefactSummary {
+export interface ArticleSummary {
   name: string;
   title: string;
   createdAt: string;
@@ -146,7 +146,7 @@ export interface RunArtefactSummary {
 
 /**
  * Full run as returned by `GET /api/runs/:id`: the run row (which
- * carries its artefacts on `run.artefacts`, ordered by creation time)
+ * carries its articles on `run.articles`, ordered by creation time)
  * and its pipeline steps ordered by index.
  */
 export interface RunDetail {
@@ -235,11 +235,11 @@ export const fetchRun = async (id: string): Promise<RunDetail> =>
   json<RunDetail>(await apiFetch(`/api/runs/${id}`));
 
 /**
- * One run's published artefact, fetched by `(runId, name)`. Carries the
- * full markdown body for the dedicated artefact page; the run detail
+ * One run's published article, fetched by `(runId, name)`. Carries the
+ * full markdown body for the dedicated article page; the run detail
  * payload only carries summary metadata so its size stays bounded.
  */
-export interface RunArtefactDetail {
+export interface ArticleDetail {
   id: string;
   runId: string;
   name: string;
@@ -250,12 +250,12 @@ export interface RunArtefactDetail {
 }
 
 /**
- * Fetch a single published artefact by run id and name. Throws on
+ * Fetch a single published article by run id and name. Throws on
  * non-2xx — 400 for a malformed name, 404 when either the run or the
- * named artefact is missing.
+ * named article is missing.
  */
-export const fetchArtefact = async (runId: string, name: string): Promise<RunArtefactDetail> =>
-  json<RunArtefactDetail>(
+export const fetchArticle = async (runId: string, name: string): Promise<ArticleDetail> =>
+  json<ArticleDetail>(
     await apiFetch(`/api/runs/${encodeURIComponent(runId)}/published/${encodeURIComponent(name)}`),
   );
 
@@ -282,7 +282,7 @@ export const cancelRun = async (id: string): Promise<{ runId: string }> =>
 
 /**
  * Permanently delete a finished run. Resolves on 204 — the server has
- * removed the run row, its child steps and artefacts, and any scratch
+ * removed the run row, its child steps and articles, and any scratch
  * directory leftover; a `run.deleted` event is published on the bus so
  * live surfaces can drop the row without a refetch. Throws `ApiError`
  * on non-2xx — 404 if the run doesn't exist (or was already deleted),
@@ -298,7 +298,7 @@ export const deleteRun = async (id: string): Promise<void> => {
 
 /**
  * Re-trigger a finished run under its existing id. The server wipes the
- * prior step rows, artefacts, and scratch dir, then re-executes the
+ * prior step rows, articles, and scratch dir, then re-executes the
  * workflow against the current registry + data-repo HEAD. Resolves the
  * moment the row flips back to `"running"`; terminal transitions arrive
  * on the SSE event stream. Throws `ApiError` on non-2xx — 404 if the run

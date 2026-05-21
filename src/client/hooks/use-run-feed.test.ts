@@ -18,7 +18,7 @@ const stubRun = (id: string, workflowName = "wf"): RunListEntry => ({
   gitSha: null,
   gitDirty: null,
   isInterrupted: false,
-  artefacts: [],
+  articles: [],
 });
 
 const deferred = <T>() => {
