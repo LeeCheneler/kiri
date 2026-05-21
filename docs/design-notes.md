@@ -41,7 +41,7 @@ steps:
   - sh: |                   # inline shell — sugar for trivial steps
       echo "review complete"
       date
-publish:                   # optional, M6: long-form markdown artefacts
+publish:                   # optional, M6: long-form markdown articles
   - name: digest
     title: "PR Review Digest"
     use: claude-code
@@ -61,7 +61,7 @@ A step is one of two shapes:
 Two workflow-level sibling fields run alongside `steps:`:
 
 - **`summarize:`** — a single `{ use | sh, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The `claude-code-summarizer` example bundle ships with a baked-in prompt and `MODEL=haiku` so it produces summaries out of the box once copied into a workspace. M4 makes prompt and model configurable via `env:` without forking the bundle.
-- **`publish:`** — an array of named long-form markdown artefacts (M6). Each entry has the shape `{ name, title?, use | sh, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference artefacts in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Artefacts are stored as rows in `run_artefacts`, surfaced as chips on the activity feed, listed under a "Published" section on the run detail page, and rendered on dedicated `/runs/:id/published/:name` pages via a sandboxed markdown parser.
+- **`publish:`** — an array of named long-form markdown articles (M6). Each entry has the shape `{ name, title?, use | sh, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference articles in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Articles are stored as rows in `articles`, surfaced as chips on the activity feed, listed under a "Published" section on the run detail page, and rendered on dedicated `/runs/:id/published/:name` pages via a sandboxed markdown parser.
 
 Both fields share the same load-time validation as `steps:` (`use:` / `sh:` mutually exclusive, `KIRI_` prefix banned on `env:` keys, missing `use:` bundle is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing publish flips `runs.status` to `failed`.
 
@@ -194,7 +194,7 @@ For workflows using broad `Bash(*)` permissions, the load-bearing defence is the
 Two regions today (right rail and top-right pause land with todos and polish):
 
 - **Left rail: workflows nav.** Lists workflows from the registry, each linking to its detail page.
-- **Center: feed.** Reverse-chronological activity log. Each row shows workflow name, status, trigger, duration, and (when present) the run's one-or-two-sentence summary plus a chip-list of published artefacts. Clicking a row opens the run detail page (`/runs/:id`) with full traces; clicking an artefact chip opens its dedicated page (`/runs/:id/published/:name`).
+- **Center: feed.** Reverse-chronological activity log. Each row shows workflow name, status, trigger, duration, and (when present) the run's one-or-two-sentence summary plus a chip-list of published articles. Clicking a row opens the run detail page (`/runs/:id`) with full traces; clicking an article chip opens its dedicated page (`/runs/:id/published/:name`).
 - **Right rail: todos.** Pending proposals + active items. Approve/reject inline. (Lands with M8.)
 - **Top right: global pause.** Halts new invocations. Modifier to also kill in-flight runs. (Lands with M10.)
 
@@ -327,7 +327,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 9. **Onboarding & docs** (M3.97). Hosted-shell fallback when no local kiri is running, one-sheet docs site at `/docs`, in-app link.
 10. **Configurable summariser** (M4). `PROMPT` / `PROMPT_FILE` / `MODEL` / `MAX_TURNS` env support on `claude-code-summarizer` with defaults preserved; `PROMPT` added to `claude-code` with precedence over `PROMPT_FILE`.
 11. **Cursor-based feed pagination** (M5). Infinite-scroll feed; live updates and cold-load cost decoupled from total run count.
-12. **Artefact publishing** (M6). `publish: [...]` array on workflows. Markdown artefacts stored in `run_artefacts`, surfaced as chips on the feed and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:name` pages via a sandboxed renderer.
+12. **Article publishing** (M6). `publish: [...]` array on workflows. Markdown articles stored in `articles`, surfaced as chips on the feed and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:name` pages via a sandboxed renderer.
 
 **Next up (M7 onwards):**
 

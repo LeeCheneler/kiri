@@ -44,7 +44,7 @@ Then open **https://local.kiri.build** in your browser. The hosted shell at that
 
 `kiri init` scaffolds a minimal **Hello World** workflow — a single inline shell step that runs on first launch with no external tools or LLM provider installed. Click **Run** in the UI, then watch the feed.
 
-Richer worked examples — bundles that spawn the Claude Code CLI or a local LM Studio model, and a Daily Briefing workflow that composes a fetch step, a published markdown artefact, and a summary — live in [`examples/`](./examples/). Copy a bundle into your workspace's `scripts/` when you want it.
+Richer worked examples — bundles that spawn the Claude Code CLI or a local LM Studio model, and a Daily Briefing workflow that composes a fetch step, a published markdown article, and a summary — live in [`examples/`](./examples/). Copy a bundle into your workspace's `scripts/` when you want it.
 
 ## Trust model
 

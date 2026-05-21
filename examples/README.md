@@ -15,7 +15,7 @@ examples/
     lm-studio/                # one-shot completion against an OpenAI-compatible local server
     lm-studio-summarizer/     # summarise: step backed by LM Studio
   workflows/
-    daily-briefing.yaml       # composes a sh: fetch, a publish: artefact, and a summary
+    daily-briefing.yaml       # composes a sh: fetch, a publish: article, and a summary
   prompts/
     daily-briefing.tpl        # prompt template for the briefing
 ```

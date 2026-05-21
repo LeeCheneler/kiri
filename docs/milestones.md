@@ -15,7 +15,7 @@ These are constraints, not work items. They hold for every milestone below.
 - Every run snapshots the resolved workflow definition and the data-repo git ref (HEAD + dirty flag) at start; feed entries reflect the workflow shape that ran, and the sha pins the working tree for reproduction
 - Per-run scratch directory; steps never run with cwd of repo or home
 - Per-step env scope; user `env:` applied first, kiri- and OS-controlled vars overwrite on collision; `KIRI_` prefix reserved
-- Step output rendered as plain text in the UI. Markdown rendering is reserved for surfaces with explicit content semantics — `publish:` artefacts (M6) and `summarize:` summaries — routed through the same sandboxed renderer. Raw step stdout/stderr stays plain text.
+- Step output rendered as plain text in the UI. Markdown rendering is reserved for surfaces with explicit content semantics — `publish:` articles (M6) and `summarize:` summaries — routed through the same sandboxed renderer. Raw step stdout/stderr stays plain text.
 
 ## M7 — Triggers
 
@@ -76,4 +76,4 @@ Security (deliberately not built — single-user ephemeral local tool):
 - Kernel sandboxing of step execution (e.g. macOS Seatbelt). Revisit if a bundle-install mechanism ever lands; until then bundles are user-authored and trusted as such.
 - Secret store mechanism (use env vars; revisit if it becomes painful)
 - Output secret-pattern scrubbing
-- UI sanitisation beyond plain-text rendering for step output. Markdown rendering for `publish:` artefacts and `summarize:` summaries is the documented exception, gated to a hardened parser.
+- UI sanitisation beyond plain-text rendering for step output. Markdown rendering for `publish:` articles and `summarize:` summaries is the documented exception, gated to a hardened parser.

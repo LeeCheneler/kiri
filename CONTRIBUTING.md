@@ -35,7 +35,7 @@ The canonical user URL is `https://local.kiri.build` (the Pages-hosted shell). F
 
 `examples/` is a complete kiri workspace the project keeps as both a reference and a manual smoke test. It carries the four example bundles and one real workflow:
 
-- **Daily Briefing** — `sh:` (curl + jq against the HackerNews and Dev.to APIs) → `claude-code` publish (formats a markdown briefing artefact) → summariser. Exercises the `claude-code` bundle, the publish path, and the summariser end to end.
+- **Daily Briefing** — `sh:` (curl + jq against the HackerNews and Dev.to APIs) → `claude-code` publish (formats a markdown briefing article) → summariser. Exercises the `claude-code` bundle, the publish path, and the summariser end to end.
 
 To smoke-test it, run the orchestrator with `examples/` as its workspace while Vite serves the UI:
 
@@ -100,7 +100,7 @@ To preview a shell change locally before merging, `bunx wrangler pages deploy --
 
 ### One-time setup
 
-**Bootstrap the Pages project (CLI).** Cloudflare doesn't auto-create Pages projects on deploy, and creating one via the dashboard requires uploading an initial artefact. Easiest path is to bootstrap from your machine — this creates the project on first run, ships the initial deploy, and CI takes over for subsequent deploys.
+**Bootstrap the Pages project (CLI).** Cloudflare doesn't auto-create Pages projects on deploy, and creating one via the dashboard requires uploading an initial article. Easiest path is to bootstrap from your machine — this creates the project on first run, ships the initial deploy, and CI takes over for subsequent deploys.
 
 ```sh
 bunx wrangler login                                       # once per machine

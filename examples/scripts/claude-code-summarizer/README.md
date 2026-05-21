@@ -51,7 +51,7 @@ summarize:
 | `PROMPT` | no | baked-in summariser prompt | Inline prompt text. Wins over `PROMPT_FILE` when both are set. |
 | `PROMPT_FILE` | no | baked-in summariser prompt | Path to a prompt template. If relative, resolved against `KIRI_REPO_ROOT`; absolute paths are passed through as-is. |
 | `MODEL` | no | `haiku` | Passed via `--model`. |
-| `MAX_TURNS` | no | `50` | Passed via `--max-turns`. Generous budget so the agent can Read the envelope, explore step stdout / artefacts agentically, and still have headroom on large runs. |
+| `MAX_TURNS` | no | `50` | Passed via `--max-turns`. Generous budget so the agent can Read the envelope, explore step stdout / articles agentically, and still have headroom on large runs. |
 
 `KIRI_REPO_ROOT` and `KIRI_RUN_CONTEXT_FILE` are supplied by kiri.
 
@@ -69,7 +69,7 @@ precedence rule.
 `KIRI_RUN_CONTEXT_FILE` points at a JSON file under the per-run scratch
 dir containing the workflow name, status, duration, per-step
 kind / status / duration / stdout / stderr / error, and the published
-artefacts. The baked-in default hands Claude the path (via the
+articles. The baked-in default hands Claude the path (via the
 `{{KIRI_RUN_CONTEXT_FILE}}` placeholder) and lets it `Read` the file
 agentically — the envelope is never inlined into the prompt argv, so
 runs that produce hundreds of KB of stdout don't push the prompt past

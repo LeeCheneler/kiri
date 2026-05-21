@@ -63,7 +63,7 @@ The feed is glanced at, not read. Keep it dense and skimmable, with no headings.
 The full run envelope is a JSON file at:
 {{KIRI_RUN_CONTEXT_FILE}}
 
-Read it with the Read tool. It contains a steps array (each with stdout and stderr) and an artefacts array (each with markdown content). Skim what the workflow actually produced and write the summary from that. If a step's stdout is very large, use Grep or read only the head — don't try to load megabytes wholesale."
+Read it with the Read tool. It contains a steps array (each with stdout and stderr) and an articles array (each with markdown content). Skim what the workflow actually produced and write the summary from that. If a step's stdout is very large, use Grep or read only the head — don't try to load megabytes wholesale."
 fi
 
 # Slurp stdin so prompts can reference {{KIRI_INPUT}}. Kiri pipes nothing

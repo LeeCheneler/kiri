@@ -56,7 +56,7 @@ steps:                       # required, ≥1
     env:
       OTHER: "value"
 
-publish:                     # optional, M6 — long-form markdown artefacts
+publish:                     # optional, M6 — long-form markdown articles
   - name: digest             # required, kebab-case-only ([a-z0-9-]+), unique within workflow
     title: "Friendly Title"  # optional, shown on feed/run page (defaults to a humanised name)
     description: "..."       # optional
@@ -88,7 +88,7 @@ Mixing `use:` and `sh:` on the same step is a schema error.
 ### `publish:` rules
 
 - Each entry runs after `steps:` complete (on `ok` and `failed` runs, not `cancelled`). One after another, serially.
-- Each entry's **trimmed stdout** is stored as a markdown artefact, keyed by `name`. It appears as a chip on the feed and a "Published" entry on the run detail page, with its own `/runs/:id/published/:name` view rendered through a sandboxed markdown parser.
+- Each entry's **trimmed stdout** is stored as a markdown article, keyed by `name`. It appears as a chip on the feed and a "Published" entry on the run detail page, with its own `/runs/:id/published/:name` view rendered through a sandboxed markdown parser.
 - `name` must match `^[a-z0-9-]+$` and be unique within the workflow.
 - A failing publish step does **not** fail the run — siblings still run. (Exception: cancel mid-publish flips the run to `cancelled` and halts further publishes.)
 
@@ -156,17 +156,17 @@ Written to the scratch dir before each `publish:` and `summarize:` step. Shape:
       "error": null
     }
   ],
-  "artefacts": [
+  "articles": [
     { "name": "digest", "title": "...", "content_md": "..." }
   ]
 }
 ```
 
-`artefacts` is the **list of publish artefacts already produced when this step starts.** So:
+`articles` is the **list of publish articles already produced when this step starts.** So:
 
-- The first `publish:` entry sees `artefacts: []`.
-- The Nth `publish:` entry sees artefacts 0..N-1.
-- `summarize:` sees all artefacts.
+- The first `publish:` entry sees `articles: []`.
+- The Nth `publish:` entry sees articles 0..N-1.
+- `summarize:` sees all articles.
 
 The full per-step `stdout`/`stderr` is in there too — `publish:` and `summarize:` steps don't need to re-fetch the run.
 
@@ -276,7 +276,7 @@ set -eu
 # Read previous step's output (empty for first step)
 input="$(cat)"
 
-# Do the thing; stdout goes to the next step / artefact / summary
+# Do the thing; stdout goes to the next step / article / summary
 printf 'processed %s for %s\n' "$TARGET" "$input"
 ```
 
@@ -346,7 +346,7 @@ summarize:
   use: claude-code-summarizer
 ```
 
-### 2. Shell → AI pipeline with a markdown artefact
+### 2. Shell → AI pipeline with a markdown article
 
 ```yaml
 # workflows/hackernews-digest.yaml
@@ -375,7 +375,7 @@ summarize:
   use: claude-code-summarizer
 ```
 
-The `publish:` step's prompt reads `KIRI_RUN_CONTEXT_FILE`, parses `steps[0].stdout` (the JSON array of HN items), and formats markdown. Stdout becomes the artefact.
+The `publish:` step's prompt reads `KIRI_RUN_CONTEXT_FILE`, parses `steps[0].stdout` (the JSON array of HN items), and formats markdown. Stdout becomes the article.
 
 ### 3. AI step consuming the previous step's stdout via `{{KIRI_INPUT}}`
 
@@ -418,7 +418,7 @@ summarize:
   use: claude-code-summarizer
 ```
 
-The `full` publish step's `artefacts` array in the context file already contains the `summary` artefact — useful if you want one publish to build on another.
+The `full` publish step's `articles` array in the context file already contains the `summary` article — useful if you want one publish to build on another.
 
 ### 5. Custom bundle with a typed env contract
 
@@ -477,7 +477,7 @@ steps:
 | Two `publish:` entries with the same `name` | Names must be unique within a workflow. |
 | `publish:` step that depends on the previous step's stdout via stdin | `publish:` and `summarize:` get empty stdin. Read `KIRI_RUN_CONTEXT_FILE` instead. |
 | Multi-line `sh:` without `set -eu` | `sh -c` doesn't stop on first failure by default. Start every non-trivial `sh:` with `set -eu`. |
-| Using `dangerouslySetInnerHTML` in custom UI that renders artefacts | Don't. Artefacts render through a sandboxed markdown parser. AI/script output is untrusted. |
+| Using `dangerouslySetInnerHTML` in custom UI that renders articles | Don't. Articles render through a sandboxed markdown parser. AI/script output is untrusted. |
 
 ---
 
