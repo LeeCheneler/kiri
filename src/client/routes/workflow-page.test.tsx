@@ -4,6 +4,7 @@ import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
+import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { WorkflowPage } from "./workflow-page.tsx";
@@ -24,9 +25,10 @@ const renderWorkflow = (name: string, initialPath = `/workflows/${name}`) => {
 };
 
 describe("<WorkflowPage>", () => {
-  it("shows a loading message while the registry is being fetched", () => {
+  it("shows a loading message while the registry is being fetched", async () => {
     renderWorkflow("kiri-self-review");
     expect(screen.getByText(/loading workflow/i)).toBeDefined();
+    await flushAsync();
   });
 
   it("delegates to the detail view when the workflow is in the registry", async () => {

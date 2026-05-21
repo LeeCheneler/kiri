@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
+import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { PageShell } from "./page-shell.tsx";
@@ -25,18 +26,20 @@ const renderShell = (children: ReactNode, path = "/") => {
 };
 
 describe("<PageShell>", () => {
-  it("renders children inside the main landmark", () => {
+  it("renders children inside the main landmark", async () => {
     renderShell(<p>route content here</p>);
     expect(screen.getByRole("main").textContent).toContain("route content here");
+    await flushAsync();
   });
 
-  it("renders a kiri wordmark linking back to the dashboard", () => {
+  it("renders a kiri wordmark linking back to the dashboard", async () => {
     renderShell(<p>x</p>);
     const wordmark = screen.getByRole("link", { name: /kiri/i });
     expect(wordmark.getAttribute("href")).toBe("/");
+    await flushAsync();
   });
 
-  it("renders a documentation link that opens the hosted docs in a new tab", () => {
+  it("renders a documentation link that opens the hosted docs in a new tab", async () => {
     renderShell(<p>x</p>);
     const docsNav = screen.getByRole("navigation", { name: /docs/i });
     expect(docsNav).toBeDefined();
@@ -46,6 +49,7 @@ describe("<PageShell>", () => {
     const rel = link.getAttribute("rel") ?? "";
     expect(rel).toContain("noopener");
     expect(rel).toContain("noreferrer");
+    await flushAsync();
   });
 
   it("renders the workflows nav once the registry resolves", async () => {
@@ -63,11 +67,13 @@ describe("<PageShell>", () => {
     expect(screen.getByRole("link", { name: /alpha/i }).getAttribute("href")).toBe(
       "/workflows/alpha",
     );
+    await flushAsync();
   });
 
   it("falls through to the empty-state nav copy when the registry is empty", async () => {
     renderShell(<p>x</p>);
     expect(await screen.findByText(/no workflows yet/i)).toBeDefined();
+    await flushAsync();
   });
 
   it("highlights the workflow that matches the current location", async () => {
@@ -86,6 +92,7 @@ describe("<PageShell>", () => {
     expect(beta.getAttribute("aria-current")).toBe("page");
     const alpha = screen.getByRole("link", { name: /alpha/i });
     expect(alpha.getAttribute("aria-current")).toBeNull();
+    await flushAsync();
   });
 
   it("decodes percent-encoded names from the URL when matching the active row", async () => {
@@ -99,6 +106,7 @@ describe("<PageShell>", () => {
 
     const link = await screen.findByRole("link", { name: /flow with space/i });
     expect(link.getAttribute("aria-current")).toBe("page");
+    await flushAsync();
   });
 
   it("falls back to the raw segment if the location has malformed escapes", async () => {
@@ -110,6 +118,7 @@ describe("<PageShell>", () => {
 
     const link = await screen.findByRole("link", { name: /alpha%ZZ/i });
     expect(link.getAttribute("aria-current")).toBe("page");
+    await flushAsync();
   });
 
   it("hides the workflows nav when the registry fetch fails", async () => {
@@ -117,8 +126,8 @@ describe("<PageShell>", () => {
 
     renderShell(<p>x</p>);
 
-    // Wait long enough for the rejected fetch to have settled.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Let the rejected fetch (and the rail's other on-mount fetches) settle.
+    await flushAsync();
     expect(screen.queryByRole("navigation", { name: /workflows/i })).toBeNull();
     expect(screen.queryByText(/no workflows yet/i)).toBeNull();
   });
@@ -143,5 +152,6 @@ describe("<PageShell>", () => {
 
     await screen.findByRole("link", { name: /beta/i });
     expect(screen.queryByRole("link", { name: /alpha/i })).toBeNull();
+    await flushAsync();
   });
 });

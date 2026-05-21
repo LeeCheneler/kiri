@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import type { WorkflowSummary } from "../api.ts";
 import { WorkflowDetailView } from "./workflow-detail.tsx";
 
@@ -370,11 +371,12 @@ describe("<WorkflowDetailView>", () => {
   });
 
   describe("trigger", () => {
-    it("calls onTrigger with the workflow name on click", () => {
+    it("calls onTrigger with the workflow name on click", async () => {
       const onTrigger = mock(() => Promise.resolve({}));
       renderDetail(stubWorkflow({ name: "pr-review" }), onTrigger);
       fireEvent.click(screen.getByRole("button", { name: /run/i }));
       expect(onTrigger).toHaveBeenCalledWith("pr-review");
+      await flushAsync();
     });
 
     it("shows a running indicator while the trigger is in flight", async () => {

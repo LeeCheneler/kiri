@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../tests/setup/fake-event-source.ts";
+import { flushAsync } from "../../tests/setup/flush-async.ts";
 import { App } from "./app.tsx";
 
 afterEach(() => cleanup());
@@ -18,34 +19,39 @@ const renderAt = (path: string) => {
 };
 
 describe("<App>", () => {
-  it("renders the kiri wordmark from the page shell", () => {
+  it("renders the kiri wordmark from the page shell", async () => {
     renderAt("/");
     expect(screen.getByRole("link", { name: /kiri/i })).toBeDefined();
+    await flushAsync();
   });
 
-  it("routes / to the dashboard", () => {
+  it("routes / to the dashboard", async () => {
     renderAt("/");
     // Dashboard's loading state is what we'll see synchronously before the
     // mocked fetch resolves; either way, the "Page not found" copy must
     // not appear when the route matched.
     expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
   });
 
-  it("routes /workflows/:name to the workflow page", () => {
+  it("routes /workflows/:name to the workflow page", async () => {
     renderAt("/workflows/example");
     expect(screen.getByText(/loading workflow/i)).toBeDefined();
     expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
   });
 
-  it("renders 'page not found' for an unmatched path", () => {
+  it("renders 'page not found' for an unmatched path", async () => {
     renderAt("/totally-unknown");
     expect(screen.getByText(/page not found/i)).toBeDefined();
+    await flushAsync();
   });
 
-  it("mounts the toast container so completion notifications surface app-wide", () => {
+  it("mounts the toast container so completion notifications surface app-wide", async () => {
     renderAt("/");
     // The container exposes itself as a polite live region; presence is
     // enough — toast behaviour is covered in toast-container.test.tsx.
     expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
+    await flushAsync();
   });
 });

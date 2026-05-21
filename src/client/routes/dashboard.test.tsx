@@ -5,6 +5,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { FakeIntersectionObserver } from "../../../tests/setup/fake-intersection-observer.ts";
+import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { Dashboard } from "./dashboard.tsx";
@@ -28,14 +29,16 @@ const renderDashboard = () => {
 };
 
 describe("<Dashboard>", () => {
-  it("renders the activity section heading", () => {
+  it("renders the activity section heading", async () => {
     renderDashboard();
     expect(screen.getByRole("heading", { name: /activity/i })).toBeDefined();
+    await flushAsync();
   });
 
-  it("shows a loading message while runs are being fetched", () => {
+  it("shows a loading message while runs are being fetched", async () => {
     renderDashboard();
     expect(screen.getByText(/loading runs/i)).toBeDefined();
+    await flushAsync();
   });
 
   it("delegates rendering to the activity feed once runs load", async () => {
