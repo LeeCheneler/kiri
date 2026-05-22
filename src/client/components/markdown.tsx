@@ -1,15 +1,24 @@
-import type {
-  AnchorHTMLAttributes,
-  BlockquoteHTMLAttributes,
-  HTMLAttributes,
-  ImgHTMLAttributes,
-  OlHTMLAttributes,
-  TableHTMLAttributes,
-  TdHTMLAttributes,
-  ThHTMLAttributes,
+import {
+  type AnchorHTMLAttributes,
+  type BlockquoteHTMLAttributes,
+  type HTMLAttributes,
+  type ImgHTMLAttributes,
+  type OlHTMLAttributes,
+  Suspense,
+  type TableHTMLAttributes,
+  type TdHTMLAttributes,
+  type ThHTMLAttributes,
+  isValidElement,
+  lazy,
 } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+// Vega and its dependencies weigh ~290 KB gzipped. Loading the chart
+// component lazily keeps them in a separate chunk fetched only when an
+// article actually contains a `chart` block — chart-free pages pay
+// nothing.
+const Chart = lazy(() => import("./chart.tsx").then((m) => ({ default: m.Chart })));
 
 const isExternalHref = (href: string): boolean => {
   if (href.length === 0) return false;
@@ -246,6 +255,26 @@ function Code({
 }
 
 function Pre({ node: _node, children, ...rest }: HTMLAttributes<HTMLPreElement> & ExtraProps) {
+  // A fenced ```chart block reaches `Pre` as a single `<code>` child
+  // tagged `language-chart`. Route those to the lazy chart renderer;
+  // every other fence renders as an ordinary code block.
+  if (isValidElement<{ className?: string; children?: string }>(children)) {
+    const language = children.props.className ?? "";
+    if (language.split(" ").includes("language-chart")) {
+      const source = typeof children.props.children === "string" ? children.props.children : "";
+      return (
+        <Suspense
+          fallback={
+            <p className="mt-4 border border-rule bg-paper p-4 font-mono text-sm text-ink-muted">
+              Loading chart…
+            </p>
+          }
+        >
+          <Chart source={source} />
+        </Suspense>
+      );
+    }
+  }
   return (
     <pre
       className="mt-4 overflow-x-auto border border-rule bg-paper p-4 font-mono text-sm text-ink"

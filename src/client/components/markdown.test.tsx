@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
+import { mockReactVega } from "../../../tests/setup/react-vega-mock.tsx";
 import { Markdown } from "./markdown.tsx";
+
+mockReactVega();
 
 afterEach(() => cleanup());
 
@@ -187,5 +190,49 @@ describe("<Markdown>", () => {
     // through markdown syntax, but the branch matters for coverage.
     const { container } = render(<Markdown content={"[ext](https://news.ycombinator.com/x)"} />);
     expect(container.querySelector("a")?.className).toContain("text-accent");
+  });
+
+  it("routes a ```chart fence to the chart component", async () => {
+    const { container } = render(<Markdown content={["```chart", "{}", "```"].join("\n")} />);
+
+    // The chart chunk loads lazily — a placeholder shows first.
+    expect(screen.getByText(/loading chart/i)).toBeDefined();
+    // Once the lazy chunk resolves the chart figure replaces it.
+    expect(await screen.findByRole("figure")).toBeDefined();
+    // The chart fence is not also rendered as a code block.
+    expect(container.querySelector("pre")).toBeNull();
+  });
+
+  it("leaves non-chart fenced blocks as code blocks alongside a chart", async () => {
+    const { container } = render(
+      <Markdown
+        content={["```chart", "{}", "```", "", "```js", "const x = 1;", "```"].join("\n")}
+      />,
+    );
+
+    await screen.findByRole("figure");
+    // The ```js fence still renders as an ordinary <pre><code> block.
+    expect(container.querySelector("pre code")?.textContent).toMatch(/const x = 1/);
+  });
+
+  it("degrades a malformed chart spec without breaking the surrounding article", async () => {
+    render(
+      <Markdown
+        content={[
+          "Before the chart.",
+          "",
+          "```chart",
+          "{ not json",
+          "```",
+          "",
+          "After the chart.",
+        ].join("\n")}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toBeDefined();
+    // Prose on both sides of the broken chart still renders.
+    expect(screen.getByText("Before the chart.")).toBeDefined();
+    expect(screen.getByText("After the chart.")).toBeDefined();
   });
 });
