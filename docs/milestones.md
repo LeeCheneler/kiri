@@ -24,15 +24,15 @@ Workflows are fully pre-specified in YAML until this lands — every run does ex
 - `inputs:` array on workflow definitions; each entry is `{ name, description?, required?, default? }`. Values are strings — env vars are strings anyway
 - A workflow with no `inputs:` runs immediately on invoke, exactly as today; one with `inputs:` collects values via a form before the run starts
 - `required` inputs must be filled before the run can start; `default` pre-fills the field
-- Resolved input values are injected into every step's `env:` at spawn, under the existing reserved-namespace and precedence rules
+- Step `env:` accepts `{ input: <name> }` references alongside literal strings; the ref form is resolved to the input's value at spawn, then kiri-scoped vars and OS essentials overlay as before
 - Input values are snapshotted onto the `runs` row, so the feed and run-detail show what a run was invoked with, and a re-run can pre-fill the form
 - One `pr-review` workflow with a `pr_number` input reviews any PR — replacing the one-file-per-target pattern
 
-Open questions to settle when this milestone starts:
+Locked decisions:
 
-- **Env injection mechanism.** How a resolved input reaches a step's `env:` — e.g. `KIRI_PARAM_<NAME>` injected into every step's env, vs. `${{ inputs.x }}` interpolation inside `env:` values. `KIRI_INPUT_<NAME>` is ruled out: it collides with the `claude-code` bundle's existing `{{KIRI_INPUT}}` template var (the previous step's stdout).
-- **Form placement.** A modal on invoke vs. an inline form on the workflow detail page.
-- **Trust posture.** Whether typed input values count as untrusted input — lean yes, to stay consistent once todos (M8) can carry upstream data into a run.
+- **Env injection: structured refs.** `env:` values are either a literal string or `{ input: <name> }` pointing at a declared input. No string interpolation, no templating mini-DSL — definitions stay pure data, and the security posture stays consistent with the existing no-shell-interpolation invariant.
+- **Form placement: modal on invoke**, prefilled with defaults. Preserves the click-Run gesture from any invocation surface — the workflow nav row, the run-detail re-run button, and (later) todo approval — without requiring a workflow-detail page as the primary entry point.
+- **Trust posture: untrusted, env-only.** Input values flow through env vars only; no shell expansion ever touches them. Consistent with the existing no-shell-interpolation invariant and prepared for todos piping upstream data into inputs.
 
 Out of scope for M7: typed inputs beyond string, select/enum dropdowns, file inputs.
 
