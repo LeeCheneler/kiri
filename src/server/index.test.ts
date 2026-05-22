@@ -295,6 +295,171 @@ describe("createApp", () => {
         workflowName: "greeter",
       });
     });
+
+    describe("inputs validation", () => {
+      const writePassthroughBundle = () =>
+        writeBundle("echo-env", '#!/bin/sh\necho "pr=$PR_NUMBER owner=$OWNER branch=$BRANCH"\n');
+
+      const inputsWorkflow: WorkflowDefinition = {
+        name: "with-inputs",
+        inputs: [
+          { name: "pr_number", required: true },
+          { name: "owner" },
+          { name: "branch", default: "main" },
+        ],
+        steps: [
+          {
+            use: "echo-env",
+            env: {
+              PR_NUMBER: { input: "pr_number" },
+              OWNER: { input: "owner" },
+              BRANCH: { input: "branch" },
+            },
+          },
+        ],
+      };
+
+      const noInputsWorkflow: WorkflowDefinition = {
+        name: "no-inputs",
+        steps: [{ use: "echo-env" }],
+      };
+
+      it("accepts a payload with required, optional, and default-applied inputs and snapshots the resolved values", async () => {
+        writePassthroughBundle();
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+
+        const { bus, waitForFinished } = setupRunWaiter();
+        const app = createApp({ db, registry, cwd, bus });
+        const res = await app.request("/api/workflows/with-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: "42", owner: "kiri" } }),
+        });
+        expect(res.status).toBe(202);
+        const { runId } = (await res.json()) as { runId: string };
+        await waitForFinished(runId);
+
+        const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+        // Optional + supplied is kept; required is kept; default fills in for
+        // the omitted entry — what `runs.inputs` records is the resolved map.
+        expect(run?.inputs).toEqual({ pr_number: "42", owner: "kiri", branch: "main" });
+        expect(run?.status).toBe("ok");
+      });
+
+      it("returns 400 when a required input is missing", async () => {
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request("/api/workflows/with-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { owner: "kiri" } }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: 'input "pr_number" is required' });
+        expect(db.select().from(runs).all()).toHaveLength(0);
+      });
+
+      it("returns 400 when a required input is supplied as an empty string", async () => {
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request("/api/workflows/with-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: "" } }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: 'input "pr_number" is required' });
+      });
+
+      it("returns 400 when the payload contains an unknown key", async () => {
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request("/api/workflows/with-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: "42", surprise: "x" } }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: 'unknown input "surprise"' });
+      });
+
+      it("returns 400 when an input value is not a string", async () => {
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request("/api/workflows/with-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: 42 } }),
+        });
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { error: string };
+        expect(body.error).toBeTruthy();
+      });
+
+      it("returns 400 when the body is malformed JSON", async () => {
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request("/api/workflows/with-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: "{ not json",
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: "invalid JSON body" });
+      });
+
+      it("returns 400 when a no-inputs workflow receives a non-empty payload", async () => {
+        writePassthroughBundle();
+        registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request("/api/workflows/no-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: "42" } }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({
+          error: 'workflow "no-inputs" declares no inputs; received: pr_number',
+        });
+      });
+
+      it("invokes a no-inputs workflow with no body, preserving current behaviour", async () => {
+        writePassthroughBundle();
+        registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
+
+        const { bus, waitForFinished } = setupRunWaiter();
+        const app = createApp({ db, registry, cwd, bus });
+        const res = await app.request("/api/workflows/no-inputs/runs", {
+          method: "POST",
+          headers: CLIENT_HEADERS,
+        });
+        expect(res.status).toBe(202);
+        const { runId } = (await res.json()) as { runId: string };
+        await waitForFinished(runId);
+
+        const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+        expect(run?.inputs).toBeNull();
+        expect(run?.status).toBe("ok");
+      });
+
+      it("invokes a no-inputs workflow with an empty inputs payload", async () => {
+        writePassthroughBundle();
+        registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
+
+        const { bus, waitForFinished } = setupRunWaiter();
+        const app = createApp({ db, registry, cwd, bus });
+        const res = await app.request("/api/workflows/no-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: {} }),
+        });
+        expect(res.status).toBe(202);
+        const { runId } = (await res.json()) as { runId: string };
+        await waitForFinished(runId);
+        const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+        expect(run?.status).toBe("ok");
+      });
+    });
   });
 
   describe("GET /api/runs", () => {

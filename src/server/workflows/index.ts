@@ -21,4 +21,5 @@ export {
 } from "./loader.ts";
 export { workflowJsonSchema } from "./json-schema.ts";
 export { type Registry, createRegistry } from "./registry.ts";
+export { type ValidateInputsResult, validateInputs } from "./validate-inputs.ts";
 export { type WatchOptions, type WorkflowWatcher, watchWorkflows } from "./watcher.ts";

@@ -12,7 +12,7 @@ import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute } from "./events/index.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
-import type { Registry, WorkflowDefinition } from "./workflows/index.ts";
+import { type Registry, type WorkflowDefinition, validateInputs } from "./workflows/index.ts";
 import { publishNameSchema } from "./workflows/schema.ts";
 
 /**
@@ -124,6 +124,12 @@ const runListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_RUN_LIMIT).default(DEFAULT_RUN_LIMIT),
 });
 
+// Shape of the invoke endpoint's optional JSON body. Values must be strings —
+// inputs flow into env vars verbatim, and env vars are strings. The
+// workflow-aware checks (unknown keys, required-and-missing, no-inputs-with-
+// payload) live in `validateInputs` since they need the workflow definition.
+const invokeBodySchema = z.object({ inputs: z.record(z.string(), z.string()).optional() }).strict();
+
 const NO_STORE_PATHS = new Set(["/", "/index.html", "/app.js", "/app.css"]);
 
 const ALLOWED_ORIGINS = [
@@ -189,15 +195,38 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get("/api/workflows", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
 
-  app.post("/api/workflows/:name/runs", (c) => {
+  app.post("/api/workflows/:name/runs", async (c) => {
     const name = c.req.param("name");
     const wf = registry.getWorkflow(name);
     if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
+
+    // Body is optional — a workflow with no inputs invokes with no body, same
+    // as before. Empty body == `{}`; anything non-empty must parse as JSON
+    // matching `invokeBodySchema`. The workflow-aware checks then run against
+    // the resolved payload.
+    const raw = await c.req.text();
+    let parsedBody: unknown = {};
+    if (raw.length > 0) {
+      try {
+        parsedBody = JSON.parse(raw);
+      } catch {
+        return c.json({ error: "invalid JSON body" }, 400);
+      }
+    }
+    const shape = invokeBodySchema.safeParse(parsedBody);
+    if (!shape.success) {
+      return c.json({ error: shape.error.issues[0]?.message ?? "invalid body" }, 400);
+    }
+    const inputs = shape.data.inputs ?? {};
+    const check = validateInputs(wf, inputs);
+    if (!check.ok) return c.json({ error: check.error }, 400);
+
     const { runId, done } = runWorkflow(db, wf, {
       cwd,
       trigger: "manual",
       bus,
       cancelRegistry,
+      inputs,
     });
     // Background execution: log unhandled rejections so they don't trip the
     // process-wide handler. The run row is finalised inside `done` before any
