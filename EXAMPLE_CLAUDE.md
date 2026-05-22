@@ -457,6 +457,50 @@ steps:
 
 ---
 
+## Charts in published articles
+
+The markdown a `publish:` step emits can embed charts. Fence a block as
+`chart` and put a [Vega-Lite](https://vega.github.io/vega-lite/) JSON spec
+in the body; kiri renders it inline through the same sandboxed renderer as
+the rest of the article. One spec format covers every chart type — bar,
+line, area, scatter, arc (pie/donut), heatmap, and more.
+
+````markdown
+```chart
+{
+  "width": "container",
+  "height": 200,
+  "data": {
+    "values": [
+      { "day": "Mon", "runs": 12 },
+      { "day": "Tue", "runs": 19 },
+      { "day": "Wed", "runs": 8 }
+    ]
+  },
+  "mark": "bar",
+  "encoding": {
+    "x": { "field": "day", "type": "nominal" },
+    "y": { "field": "runs", "type": "quantitative" }
+  }
+}
+```
+````
+
+- **Data is inline only.** Put the numbers in `data.values`. A spec that
+  fetches remote data (`data: { url: ... }`) is rejected and degrades to a
+  notice — a publish step should compute its data and write it into the
+  spec.
+- **Theming is automatic.** Background, fonts, axis/legend colours, and the
+  palette come from the site theme. Don't hand-set `config` or colours
+  unless an encoding genuinely needs a specific one.
+- **`"width": "container"`** makes a chart fill the article column; pair it
+  with an explicit `"height"`.
+- **Bad specs degrade, they don't crash.** Invalid JSON, or a spec
+  Vega-Lite rejects, renders an inline error notice; the surrounding
+  article is unaffected.
+
+---
+
 ## Trust model & guardrails
 
 - Bundles and `sh:` steps run with **your user's permissions**. There's no sandbox. Read scripts before you run them, same as you'd read any shell script.
@@ -478,6 +522,7 @@ steps:
 | `publish:` step that depends on the previous step's stdout via stdin | `publish:` and `summarize:` get empty stdin. Read `KIRI_RUN_CONTEXT_FILE` instead. |
 | Multi-line `sh:` without `set -eu` | `sh -c` doesn't stop on first failure by default. Start every non-trivial `sh:` with `set -eu`. |
 | Using `dangerouslySetInnerHTML` in custom UI that renders articles | Don't. Articles render through a sandboxed markdown parser. AI/script output is untrusted. |
+| A `chart` block whose spec fetches remote data (`data: { url }`) | Inline the data under `data.values`. Remote-data specs are rejected and degrade to a notice. |
 
 ---
 

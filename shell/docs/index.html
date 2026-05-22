@@ -233,6 +233,7 @@ publish:
 summarize:
   use: claude-code-summarizer</code></pre>
       <p>Articles surface as chips on the activity feed row, in a <strong>Recently Published</strong> list in the right-hand column, and under a <strong>Published</strong> section on the run page. Clicking a chip opens a dedicated <code>/runs/:id/published/:name</code> page that renders the markdown through a sandboxed parser (no raw-HTML pass-through). The summariser's <code>KIRI_RUN_CONTEXT_FILE</code> envelope includes the published articles, so the summary can reference them — perfect for highlighting a top story in the feed while linking to the full digest.</p>
+      <p>Article markdown can embed charts: fence a block as <code>chart</code> with a <a href="https://vega.github.io/vega-lite/">Vega-Lite</a> JSON spec and kiri renders it inline as a chart — bar, line, area, scatter, pie, heatmap, and more. The data must be inline in the spec; a chart that fetches a remote URL is rejected, and an invalid spec degrades to an inline notice without breaking the article.</p>
       <p>A failed publish step does not affect the run's status; it's captured for debugging on the run page and filtered from the main step list.</p>
 
       <h2>Trust model</h2>
