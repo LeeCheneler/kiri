@@ -4,7 +4,7 @@
 
 ## Concept
 
-A local-first, git-based workflow orchestrator for personal automation. Scripts and AI workflows triggered by cron or manual invocation. A feed UI streams activity, a todo list captures gated proposals, and a global pause provides a panic button. Single user (me), running while the app is active.
+A local-first, git-based workflow orchestrator for personal automation. Scripts and AI workflows invoked by hand. A feed UI streams activity, a todo list captures gated proposals, and a global pause provides a panic button. Single user (me), running while the app is active.
 
 What sets kiri apart from Windmill, Kestra, n8n, Inngest et al. is the **feed-first UI** — activity stream as the primary surface, not a node-graph canvas.
 
@@ -14,7 +14,7 @@ What sets kiri apart from Windmill, Kestra, n8n, Inngest et al. is the **feed-fi
 - **Single user.** No auth, no multi-tenancy, no scaling.
 - **Git as source of truth.** Workflow definitions, prompts, and scripts live in a git repo.
 - **Linear pipelines only.** No branches, no conditionals, no fan-out/fan-in. `script → ai → script` covers most real cases.
-- **Everything is a workflow.** A workflow is N≥1 steps. Single-step workflows wrap "just run a script" cases. Cron triggers workflows. Todos invoke workflows. Manual menu items are workflows. One concept, uniform treatment everywhere.
+- **Everything is a workflow.** A workflow is N≥1 steps. Single-step workflows wrap "just run a script" cases. Todos invoke workflows. Manual menu items are workflows. One concept, uniform treatment everywhere.
 
 ## Architecture
 
@@ -24,11 +24,10 @@ YAML files validated against a Zod schema. No custom DSL.
 
 ```yaml
 name: pr-review
-triggers:                  # optional, M7 — cron + file watch
-  - type: cron
-    schedule: "*/15 * * * *"
-  - type: watch
-    paths: ["~/notes/**/*.md"]
+inputs:                    # optional, M7 — parameters collected at invocation
+  - name: pr_number
+    description: The PR to review
+    required: true
 gating: auto               # or "propose" (M8)
 steps:
   - use: fetch-pr           # script bundle: scripts/fetch-pr/run.sh
@@ -56,7 +55,7 @@ A step is one of two shapes:
 - `{ use: <name>, env?: { ... } }` — references a **script bundle** at `scripts/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
 - `{ sh: <string>, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
 
-`env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`, `KIRI_TRIGGER`, plus `KIRI_TRIGGER_FILE` and `KIRI_TRIGGER_EVENT` on watch-triggered runs) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
+`env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
 
 Two workflow-level sibling fields run alongside `steps:`:
 
@@ -90,28 +89,25 @@ Full I/O captured at every step. Linked from the corresponding feed entry for de
 - **Errors:** step fails → workflow halts → run marked failed → feed entry shows error → manual re-run from the feed entry.
 - **No auto-retry, no DLQ, no fan-out** in v1.
 
-### Triggers
+### Invocation & inputs
 
-Three kinds, declared on the workflow as a `triggers:` array (cron, watch) or invoked imperatively (manual):
+Runs are invoked manually — from the workflows nav, by re-running an existing run, or (M8) by approving a todo. There is no time-based or file-based triggering: under the app-active scope a scheduler would only ever fire while the user is already at the keyboard, where clicking Run is the same gesture for no extra capability. Polling shapes (webhooks, inboxes) are served by a workflow whose first step does the poll, invoked when the user wants it.
 
-- **Cron** — `{ type: cron, schedule: <expr> }`. In-process tick loop while the app is active.
-- **Watch** — `{ type: watch, paths: [<glob>], events?, debounceMs? }`. chokidar-backed; `events` defaults to `[add, change, unlink]`; `debounceMs` defaults to 500 to coalesce editor save bursts. Runs receive `KIRI_TRIGGER_FILE` (absolute path) and `KIRI_TRIGGER_EVENT` so the step can read what changed.
-- **Manual** — invoked from the UI (menu, feed, todo). No declaration needed.
+A workflow optionally declares `inputs:` — named parameters collected at invocation time, so one definition can be aimed at many targets (one `pr-review` workflow with a `pr_number` input reviews any PR, instead of one YAML file per PR).
 
-Every step receives `KIRI_TRIGGER` (`cron` | `watch` | `manual`) so bundles can branch on origin.
+- `inputs:` is an array of `{ name, description?, required?, default? }`. Values are strings.
+- A workflow with no `inputs:` runs immediately on invoke. One with `inputs:` collects values via a form before the run starts — `required` inputs must be filled, `default` pre-fills the field.
+- Resolved input values are injected into every step's `env:` at spawn, under the same reserved-namespace and precedence rules as kiri's other scoped vars. The exact injection mechanism is unsettled — see `milestones.md` § M7.
+- Input values are snapshotted onto the `runs` row, so the feed shows what a run was invoked with and a re-run can pre-fill the form.
 
-**Coalescing.** Each workflow has at most one in-flight + one pending run. The pending slot is last-event-wins — a queued cron tick or file event is overwritten by a newer one, not stacked. A burst of 50 file changes during a long-running run lands as one follow-up run carrying the most recent event. The global cap of 1 in-flight run across all workflows is unchanged; per-workflow pending slots wait on the global slot.
-
-**Missed events.** While paused or app-down, events are dropped, not replayed. Matches the "while the app is active" invariant.
-
-No webhooks or inbox polling — polling-via-cron-workflow handles those shapes.
+Every run records a `trigger` origin on its `runs` row — `manual` today, with todo-approved runs distinguished when M8 lands. It is feed-display metadata and is not exposed to step env.
 
 ### State storage
 
 State lives in three tiers, by what kind of state it is:
 
 - **In git** — workflow definitions (`.yaml` files), script bundles (`scripts/<name>/`), prompt files, sandbox profiles. Everything that benefits from review and version history.
-- **In SQLite** — runtime state: runs, todos, schedules, app state (paused/running, in-flight counter), run metadata + envelopes. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
+- **In SQLite** — runtime state: runs, todos, app state (paused/running, in-flight counter), run metadata + envelopes. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
 - **On disk (data dir)** — large blob payloads referenced by path from SQLite rows: full CC transcripts, big stdout dumps, anything that'd bloat the DB. Same pattern CI systems use to keep the DB lean.
 
 Pragmatic v1 simplification: skip the disk-blob split initially. Put traces straight into SQLite TEXT columns. Move to disk-backed blobs only when a "last 50 runs" feed query starts dragging on trace payloads — probably won't for months.
@@ -122,7 +118,7 @@ Workflow definitions are YAML files in `workflows/` — the single source of tru
 
 When a run starts, the executor captures two things to pin the run's context:
 
-- The resolved workflow definition (name, steps, env, gating, schedule, summarize, publish) onto the `runs` row as `definitionSnapshot`. Feed entries always show the workflow shape that ran, even if the YAML file is later edited or deleted (UI shows a "(deleted)" badge when the registry no longer has the name).
+- The resolved workflow definition (name, steps, env, gating, summarize, publish) onto the `runs` row as `definitionSnapshot`. Feed entries always show the workflow shape that ran, even if the YAML file is later edited or deleted (UI shows a "(deleted)" badge when the registry no longer has the name).
 - The data repo's git ref at run-start: the HEAD commit (`runs.gitSha`) plus a `runs.gitDirty` flag for uncommitted changes. The data dir is already a git repo by convention, so a single SHA pins every file the run could possibly have read — bundle scripts, prompts, anything `run.sh` resolves at runtime. The UI renders the short sha (with a dirty marker when applicable) in the run header.
 
 Kiri does not snapshot individual bundle files or prompts into the database. Reproducing what ran means `git checkout <sha>` in the data repo. Both `gitSha` and `gitDirty` are nullable so a non-git data dir is a first-class state, not an error — the run loses the reproducibility affordance but everything else works.
@@ -271,7 +267,7 @@ Script execution is the central capability of this system, which means security 
 
 - **No shell interpolation of inputs.** Workflow inputs are passed via env vars or argv arrays, never spliced into shell command strings. The orchestrator constructs argument lists, the OS handles them, no shell parsing of user-controlled strings.
 - **Per-step working directory.** Each workflow run gets a scratch directory; the step's cwd is set there, not the user's home or the orchestrator repo.
-- **Per-step env scope.** Steps only see env vars from the step's `env:` block plus a small kiri-controlled set (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`, `KIRI_TRIGGER`, plus `KIRI_TRIGGER_FILE` / `KIRI_TRIGGER_EVENT` on watch-triggered runs) and the OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`). No other parent-process env leaks through.
+- **Per-step env scope.** Steps only see env vars from the step's `env:` block plus a small kiri-controlled set (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and the OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`). No other parent-process env leaks through.
 - **Env precedence at spawn.** User-declared `env:` is applied first; kiri- and OS-controlled vars overwrite on key collision. A workflow can't redirect `PATH` to inject a malicious binary or shadow `KIRI_RUN_ID` to confuse run identity.
 - **Reserved namespace.** `env:` keys starting with `KIRI_` are rejected at workflow load time as a schema error. Typos and accidental collisions surface as load failures, not silent overwrites at spawn.
 - **Resource limits.** ulimits on CPU time, memory, file descriptors, and disk writes. A runaway script halts cleanly rather than degrading the system.
@@ -332,7 +328,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 
 **Next up (M7 onwards):**
 
-13. **Triggers** (M7). `triggers:` block on workflows: `cron` (in-process tick loop) and `watch` (chokidar globs). Per-workflow depth-1 pending slot plus global cap of 1 in-flight. Watch-triggered runs get `KIRI_TRIGGER_FILE` / `KIRI_TRIGGER_EVENT`; every run gets `KIRI_TRIGGER`.
+13. **Workflow inputs** (M7). `inputs:` block on workflows — named parameters collected via a form at manual invocation and injected into every step's `env:`. One definition, many targets.
 14. **Todos + gating** (M8). `gating:` field, dedup keys, propose vs auto, right-rail UI.
 15. **Generic step meta** (M9). Deferred. The original design used a `KIRI_META_FILE` file channel for steps to emit cost/tokens/model; that wiring was retired without ever being read back. Re-introducing this needs both a transport and the UI promotion to feed-entry headers.
 16. **Polish** (M10). Feed filtering and scoping, global pause control with kill-in-flight modifier.

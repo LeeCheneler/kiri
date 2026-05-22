@@ -40,7 +40,6 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
 # yaml-language-server: $schema=../.kiri/workflow.schema.json   # editor LSP
 
 name: My Workflow            # required, unique across workflows/
-schedule: "*/15 * * * *"     # optional, cron expression (M7 — not wired yet)
 gating: auto                 # optional: "auto" | "propose" (M8 — not wired yet)
 
 steps:                       # required, ≥1
@@ -290,12 +289,12 @@ printf 'processed %s for %s\n' "$TARGET" "$input"
 
 ---
 
-## Triggers
+## Invoking a workflow
 
 - **Manual** — click *Run* in the UI on `https://local.kiri.build` (or `http://localhost:4242`).
-- **Cron** — `schedule:` field accepts a cron expression. (Wired in M7 — currently parsed but no in-process tick loop yet; check `docs/milestones.md` for current status.)
+- **Re-run** — an existing run can be re-triggered in place from its run detail page.
 
-There are no file watches, webhooks, or inbox polling. Build polling on top of a cron-scheduled `sh:` step instead.
+There is no cron, file watch, webhook, or inbox polling. For polling shapes, write a workflow whose first step does the poll and run it when you want it.
 
 ---
 

@@ -7,7 +7,7 @@ Companion to `design-notes.md`. M0–M6 are shipped — see `git log` for the hi
 These are constraints, not work items. They hold for every milestone below.
 
 - Standard step envelope (`status`, `output`, `error`, `traces`, `meta`) — established in M0, never deferred
-- Workflow YAML validated against a Zod schema; the top-level shape is fixed (`steps`, `summarize`, `publish`, `triggers`, `gating`) but step `env:` contents are bundle-defined and not validated by kiri
+- Workflow YAML validated against a Zod schema; the top-level shape is fixed (`steps`, `inputs`, `summarize`, `publish`, `gating`) but step `env:` contents are bundle-defined and not validated by kiri
 - No shell interpolation of inputs anywhere — argv arrays and env vars only
 - Kiri is a CLI launched per-repo; workflow definitions live in `<cwd>/workflows/` of whichever repo Kiri is running against. No global cross-repo store
 - Repo-scoped runtime state lives in `<cwd>/.kiri/` (gitignored)
@@ -17,17 +17,24 @@ These are constraints, not work items. They hold for every milestone below.
 - Per-step env scope; user `env:` applied first, kiri- and OS-controlled vars overwrite on collision; `KIRI_` prefix reserved
 - Step output rendered as plain text in the UI. Markdown rendering is reserved for surfaces with explicit content semantics — `publish:` articles (M6) and `summarize:` summaries — routed through the same sandboxed renderer. Raw step stdout/stderr stays plain text.
 
-## M7 — Triggers
+## M7 — Workflow inputs
 
-Workflows are manually triggered until this lands. M7 introduces a declarative `triggers:` block supporting two kinds — cron and file-watch — both feeding the same executor path as manual runs.
+Workflows are fully pre-specified in YAML until this lands — every run does exactly what the file says, and `env:` is baked in. M7 makes a workflow *aimable*: an optional `inputs:` block declares parameters collected at invocation time, so one definition can target many things.
 
-- `triggers:` array on workflow definitions; entries are `{ type: "cron", schedule }` or `{ type: "watch", paths, events?, debounceMs? }`. `paths` is a list of globs (chokidar semantics); `events` defaults to `["add", "change", "unlink"]`; `debounceMs` defaults to 500
-- In-process tick loop drives cron; chokidar drives file watches; both run while Hono is up
-- Trigger registry rebuilt on workflow def reload — cron schedules re-registered, file watcher subscriptions torn down and re-bound
-- Per-workflow concurrency: at most one in-flight + one pending run; the pending slot is last-event-wins (a queued cron tick or file event is overwritten by a newer one, not stacked)
-- Global concurrency cap stays at 1 in-flight run across all workflows
-- Missed events while paused or app-down are dropped, not queued (matches app-active scope)
-- Every step receives `KIRI_TRIGGER` (`"cron"` | `"watch"` | `"manual"`). Watch-triggered runs additionally receive `KIRI_TRIGGER_FILE` (absolute path of the file that fired the run) and `KIRI_TRIGGER_EVENT` (`"add"` | `"change"` | `"unlink"`). Reserved-namespace rules apply — workflow `env:` keys can't shadow them.
+- `inputs:` array on workflow definitions; each entry is `{ name, description?, required?, default? }`. Values are strings — env vars are strings anyway
+- A workflow with no `inputs:` runs immediately on invoke, exactly as today; one with `inputs:` collects values via a form before the run starts
+- `required` inputs must be filled before the run can start; `default` pre-fills the field
+- Resolved input values are injected into every step's `env:` at spawn, under the existing reserved-namespace and precedence rules
+- Input values are snapshotted onto the `runs` row, so the feed and run-detail show what a run was invoked with, and a re-run can pre-fill the form
+- One `pr-review` workflow with a `pr_number` input reviews any PR — replacing the one-file-per-target pattern
+
+Open questions to settle when this milestone starts:
+
+- **Env injection mechanism.** How a resolved input reaches a step's `env:` — e.g. `KIRI_PARAM_<NAME>` injected into every step's env, vs. `${{ inputs.x }}` interpolation inside `env:` values. `KIRI_INPUT_<NAME>` is ruled out: it collides with the `claude-code` bundle's existing `{{KIRI_INPUT}}` template var (the previous step's stdout).
+- **Form placement.** A modal on invoke vs. an inline form on the workflow detail page.
+- **Trust posture.** Whether typed input values count as untrusted input — lean yes, to stay consistent once todos (M8) can carry upstream data into a run.
+
+Out of scope for M7: typed inputs beyond string, select/enum dropdowns, file inputs.
 
 ## M8 — Todos + gating
 
@@ -58,7 +65,7 @@ Capability:
 
 - Branching, conditionals, fan-out/fan-in
 - Auto-retry, DLQ
-- Webhooks, inbox polling (use polling-via-cron-workflow instead)
+- Webhooks, inbox polling (poll inside a manually-invoked workflow step instead)
 - Multi-user, auth, sharing
 - Tool-granular gating (workflow-level only)
 - Dynamic per-call permission policy (static per step only)

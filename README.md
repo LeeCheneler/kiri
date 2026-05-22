@@ -2,7 +2,7 @@
 
 **キリト** — short for Kirito, the protagonist of *Sword Art Online*.
 
-A local-first, git-based workflow orchestrator for personal automation. Triggered by cron, manual invocation, or AI agents via MCP. Activity feed as the main UI surface, not a node-graph canvas. Single user, app-active scope — workflows run while kiri is open, no daemons.
+A local-first, git-based workflow orchestrator for personal automation. Workflows are linear pipelines of scripts and AI steps, invoked by hand. Activity feed as the main UI surface, not a node-graph canvas. Single user, app-active scope — workflows run while kiri is open, no daemons.
 
 ## Install
 
@@ -54,6 +54,6 @@ The defences kiri *does* provide are external: the HTTP API binds to `127.0.0.1`
 
 ## Learn more
 
-- [`docs/design-notes.md`](./docs/design-notes.md) — architecture, workflows, script bundles, MCP, todos.
+- [`docs/design-notes.md`](./docs/design-notes.md) — architecture, workflows, script bundles, todos.
 - [`docs/milestones.md`](./docs/milestones.md) — what's shipped and what's next.
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — repo setup, dev workflow, deploying the shell.
