@@ -69,6 +69,80 @@ describe("workflowJsonSchema", () => {
     expect(shVariant).toBeDefined();
   });
 
+  it("optionally permits an inputs array of named input declarations", () => {
+    type Item = {
+      type: string;
+      required?: string[];
+      properties: {
+        name?: { type: string; pattern?: string };
+        description?: { type: string };
+        required?: { type: string };
+        default?: { type: string };
+      };
+    };
+    const schema = workflowJsonSchema() as {
+      required: string[];
+      properties: {
+        inputs: {
+          type: string;
+          minItems?: number;
+          items: Item;
+        };
+      };
+    };
+    expect(schema.required).not.toContain("inputs");
+    const inputs = schema.properties.inputs;
+    expect(inputs.type).toBe("array");
+    expect(inputs.minItems).toBe(1);
+    expect(inputs.items.type).toBe("object");
+    expect(inputs.items.required).toEqual(expect.arrayContaining(["name"]));
+    expect(inputs.items.properties.name?.type).toBe("string");
+    expect(inputs.items.properties.name?.pattern).toBe("^[a-z_][a-z0-9_]*$");
+    expect(inputs.items.properties.description?.type).toBe("string");
+    expect(inputs.items.properties.required?.type).toBe("boolean");
+    expect(inputs.items.properties.default?.type).toBe("string");
+  });
+
+  it("step env values accept a string or a structured input reference", () => {
+    type EnvBranch =
+      | { type: "string" }
+      | {
+          type: "object";
+          properties: { input?: { type: string; minLength?: number } };
+          required?: string[];
+          additionalProperties?: false;
+        };
+    type StepVariant = {
+      properties: {
+        env?: {
+          type: string;
+          additionalProperties: { anyOf: EnvBranch[] };
+        };
+      };
+    };
+    const schema = workflowJsonSchema() as {
+      properties: {
+        steps: {
+          items: StepVariant | { oneOf: StepVariant[] } | { anyOf: StepVariant[] };
+        };
+      };
+    };
+    const items = schema.properties.steps.items;
+    const variants = "oneOf" in items ? items.oneOf : "anyOf" in items ? items.anyOf : [items];
+    const useVariant = variants.find((v) => v.properties.env !== undefined);
+    expect(useVariant?.properties.env?.type).toBe("object");
+    const branches = useVariant?.properties.env?.additionalProperties.anyOf ?? [];
+    const stringBranch = branches.find((b) => b.type === "string");
+    const refBranch = branches.find(
+      (b): b is Extract<EnvBranch, { type: "object" }> => b.type === "object",
+    );
+    expect(stringBranch).toBeDefined();
+    expect(refBranch).toBeDefined();
+    expect(refBranch?.properties.input?.type).toBe("string");
+    expect(refBranch?.required).toEqual(expect.arrayContaining(["input"]));
+    expect(refBranch?.additionalProperties).toBe(false);
+  });
+
   it("optionally permits a publish array of named use/sh entries", () => {
     type Variant = {
       properties: {

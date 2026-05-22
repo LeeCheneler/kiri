@@ -1,7 +1,17 @@
 import { z } from "zod";
 
+const envValueSchema = z.union([
+  z.string(),
+  z
+    .object({ input: z.string().min(1) })
+    .strict()
+    .describe(
+      "Reference to a workflow input by name. Resolved to the input's string value at spawn time.",
+    ),
+]);
+
 const envSchema = z
-  .record(z.string(), z.string())
+  .record(z.string(), envValueSchema)
   .refine((env) => Object.keys(env).every((key) => !key.startsWith("KIRI_")), {
     message: "env keys starting with 'KIRI_' are reserved",
   });
@@ -61,10 +71,55 @@ const publishArraySchema = z
     message: "publish names must be unique within a workflow",
   });
 
-/** Zod schema for a YAML workflow definition. */
-export const workflowSchema = z
+const inputSchema = z
+  .object({
+    name: z
+      .string()
+      .regex(/^[a-z_][a-z0-9_]*$/, {
+        message: "input name must match ^[a-z_][a-z0-9_]*$",
+      })
+      .describe(
+        "Identifier used to reference the input from a step's env. Lowercase letters, digits, and underscores; must start with a letter or underscore.",
+      ),
+    description: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Help text shown next to the field in the invoke modal."),
+    required: z
+      .boolean()
+      .optional()
+      .describe(
+        "When true, the input must be supplied at invoke. When false or omitted, the input is optional and `default` (if any) pre-fills the modal.",
+      ),
+    default: z
+      .string()
+      .optional()
+      .describe("Value pre-filled into the modal field when no value is supplied at invoke."),
+  })
+  .strict();
+
+const inputsArraySchema = z
+  .array(inputSchema)
+  .min(1)
+  .refine((inputs) => new Set(inputs.map((i) => i.name)).size === inputs.length, {
+    message: "input names must be unique within a workflow",
+  });
+
+const baseWorkflowSchema = z
   .object({
     name: z.string().min(1),
+    /**
+     * Optional named parameters collected via a modal at invocation time.
+     * A workflow with no `inputs:` runs immediately on invoke; one with
+     * `inputs:` collects values via a form before the run starts. Steps
+     * reference an input from their `env:` using `{ input: <name> }`.
+     */
+    inputs: inputsArraySchema
+      .optional()
+      .describe(
+        "Named parameters collected via a modal at invocation time. Each input is a string. Reference an input from a step's env using `{ input: <name> }`.",
+      ),
     steps: z.array(stepSchema).min(1),
     gating: z.enum(["auto", "propose"]).optional(),
     /**
@@ -84,6 +139,34 @@ export const workflowSchema = z
   })
   .strict();
 
+/**
+ * Zod schema for a YAML workflow definition. Beyond the base shape,
+ * cross-validates that every `{ input: <name> }` env reference points
+ * at a declared input — unknown names fail at load time.
+ */
+export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
+  const declared = new Set((wf.inputs ?? []).map((i) => i.name));
+  const checkEnv = (
+    env: Record<string, z.infer<typeof envValueSchema>> | undefined,
+    path: Array<string | number>,
+  ): void => {
+    if (!env) return;
+    for (const [key, value] of Object.entries(env)) {
+      if (typeof value === "string") continue;
+      if (!declared.has(value.input)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [...path, "env", key, "input"],
+          message: `env "${key}" references undeclared input "${value.input}"`,
+        });
+      }
+    }
+  };
+  wf.steps.forEach((step, i) => checkEnv(step.env, ["steps", i]));
+  if (wf.summarize) checkEnv(wf.summarize.env, ["summarize"]);
+  wf.publish?.forEach((entry, i) => checkEnv(entry.env, ["publish", i]));
+});
+
 export type WorkflowDefinition = z.infer<typeof workflowSchema>;
 export type WorkflowStep = z.infer<typeof stepSchema>;
 export type UseStep = z.infer<typeof useStepSchema>;
@@ -92,6 +175,8 @@ export type PublishEntry = z.infer<typeof publishEntrySchema>;
 export type UsePublish = z.infer<typeof usePublishSchema>;
 export type ShPublish = z.infer<typeof shPublishSchema>;
 export type Gating = "auto" | "propose";
+export type WorkflowInput = z.infer<typeof inputSchema>;
+export type EnvValue = z.infer<typeof envValueSchema>;
 
 /** Type guard: a step is a `use:` bundle reference. */
 export const isUseStep = (step: WorkflowStep): step is UseStep => "use" in step;

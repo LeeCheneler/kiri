@@ -313,6 +313,29 @@ describe("runWorkflow", () => {
     );
   });
 
+  it("fails the run when a step env value references an input the runner cannot resolve", async () => {
+    writeBundle("hello", "#!/bin/sh\necho hi\n");
+    const wf: WorkflowDefinition = {
+      name: "needs-input",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ use: "hello", env: { PR: { input: "pr_number" } } }],
+    };
+
+    const { runId, done } = runWorkflow(db, wf, { cwd, trigger: "manual" });
+    const thrown = await done.catch((e: unknown) => e);
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toMatch(/references input "pr_number"/);
+
+    const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+    expect(run?.status).toBe("failed");
+    expect(run?.error).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('references input "pr_number"'),
+      }),
+    );
+  });
+
   it("publishes the run lifecycle event sequence for an ok run", async () => {
     writeBundle("a", "#!/bin/sh\necho a\n");
     writeBundle("b", "#!/bin/sh\necho b\n");

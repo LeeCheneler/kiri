@@ -347,6 +347,242 @@ describe("workflowSchema", () => {
       }),
     ).toThrow();
   });
+
+  it("parses a workflow with a single minimal input", () => {
+    const result = workflowSchema.parse({
+      name: "with-inputs",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ use: "x" }],
+    });
+    expect(result.inputs).toEqual([{ name: "pr_number" }]);
+  });
+
+  it("parses an input with all optional fields", () => {
+    const result = workflowSchema.parse({
+      name: "full-input",
+      inputs: [
+        {
+          name: "pr_number",
+          description: "PR to review",
+          required: true,
+          default: "1",
+        },
+      ],
+      steps: [{ use: "x" }],
+    });
+    expect(result.inputs?.[0]).toEqual({
+      name: "pr_number",
+      description: "PR to review",
+      required: true,
+      default: "1",
+    });
+  });
+
+  it("treats inputs as optional", () => {
+    const result = workflowSchema.parse({
+      name: "no-inputs",
+      steps: [{ use: "x" }],
+    });
+    expect(result.inputs).toBeUndefined();
+  });
+
+  it("rejects an empty inputs array when the key is present", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "empty-inputs",
+        inputs: [],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects duplicate input names", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "dup-input",
+        inputs: [{ name: "pr_number" }, { name: "pr_number" }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("accepts input names that start with an underscore and contain digits", () => {
+    const result = workflowSchema.parse({
+      name: "underscore-input",
+      inputs: [{ name: "_my_input_42" }],
+      steps: [{ use: "x" }],
+    });
+    expect(result.inputs?.[0].name).toBe("_my_input_42");
+  });
+
+  it("rejects an input name that starts with a digit", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "bad-input-name",
+        inputs: [{ name: "1pr" }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an input name with uppercase letters", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "uppercase-input",
+        inputs: [{ name: "PrNumber" }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an input name containing a dash", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "dashed-input",
+        inputs: [{ name: "pr-number" }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an input with unknown extra keys", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "extras-input",
+        inputs: [{ name: "pr_number", type: "string" }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an input with empty description", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "empty-desc-input",
+        inputs: [{ name: "pr_number", description: "" }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("parses a step env that references a declared input", () => {
+    const result = workflowSchema.parse({
+      name: "ref-env",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ use: "x", env: { PR_NUMBER: { input: "pr_number" } } }],
+    });
+    expect(result.steps[0].env).toEqual({ PR_NUMBER: { input: "pr_number" } });
+  });
+
+  it("parses a step env mixing string values and input refs", () => {
+    const result = workflowSchema.parse({
+      name: "mixed-env",
+      inputs: [{ name: "pr_number" }],
+      steps: [
+        {
+          use: "x",
+          env: {
+            PR_NUMBER: { input: "pr_number" },
+            MAX_RETRIES: "3",
+          },
+        },
+      ],
+    });
+    expect(result.steps[0].env).toEqual({
+      PR_NUMBER: { input: "pr_number" },
+      MAX_RETRIES: "3",
+    });
+  });
+
+  it("rejects an env input ref with an empty name", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "empty-ref",
+        inputs: [{ name: "pr_number" }],
+        steps: [{ use: "x", env: { PR_NUMBER: { input: "" } } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an env input ref with unknown extra keys", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "ref-extras",
+        inputs: [{ name: "pr_number" }],
+        steps: [{ use: "x", env: { PR_NUMBER: { input: "pr_number", default: "1" } } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a step env that references an undeclared input", () => {
+    const result = workflowSchema.safeParse({
+      name: "undeclared-step-ref",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ use: "x", env: { TARGET: { input: "ghost" } } }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("undeclared input");
+      expect(result.error.message).toContain("ghost");
+    }
+  });
+
+  it("rejects an env ref when no inputs are declared at all", () => {
+    const result = workflowSchema.safeParse({
+      name: "no-inputs-but-ref",
+      steps: [{ use: "x", env: { TARGET: { input: "ghost" } } }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("ghost");
+    }
+  });
+
+  it("rejects a summarize env that references an undeclared input", () => {
+    const result = workflowSchema.safeParse({
+      name: "undeclared-summarize-ref",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ use: "x" }],
+      summarize: { use: "summer", env: { LABEL: { input: "ghost" } } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("ghost");
+    }
+  });
+
+  it("rejects a publish env that references an undeclared input", () => {
+    const result = workflowSchema.safeParse({
+      name: "undeclared-publish-ref",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ use: "x" }],
+      publish: [{ name: "digest", use: "writer", env: { LABEL: { input: "ghost" } } }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("ghost");
+    }
+  });
+
+  it("parses a workflow whose summarize env references a declared input", () => {
+    const result = workflowSchema.parse({
+      name: "summarize-ref",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ use: "x" }],
+      summarize: { use: "summer", env: { LABEL: { input: "pr_number" } } },
+    });
+    expect(result.summarize?.env).toEqual({ LABEL: { input: "pr_number" } });
+  });
+
+  it("parses a workflow whose publish env references a declared input", () => {
+    const result = workflowSchema.parse({
+      name: "publish-ref",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ use: "x" }],
+      publish: [{ name: "digest", use: "writer", env: { LABEL: { input: "pr_number" } } }],
+    });
+    expect(result.publish?.[0].env).toEqual({ LABEL: { input: "pr_number" } });
+  });
 });
 
 describe("isUsePublish / isShPublish", () => {

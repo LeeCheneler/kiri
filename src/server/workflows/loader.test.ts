@@ -330,6 +330,59 @@ nodes:
     expect(result.failures[0].reason.length).toBeGreaterThan(0);
   });
 
+  it("loads a workflow declaring inputs and referencing them from a step env", async () => {
+    writeBundle(cwd, "fetch");
+    writeFileSync(
+      join(dir, "pr-review.yaml"),
+      `name: pr-review
+inputs:
+  - name: pr_number
+    description: PR to review
+    required: true
+steps:
+  - use: fetch
+    env:
+      PR_NUMBER:
+        input: pr_number
+      MAX_RETRIES: "3"
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(result.failures).toEqual([]);
+    const wf = result.workflows.get("pr-review");
+    expect(wf?.inputs).toEqual([
+      { name: "pr_number", description: "PR to review", required: true },
+    ]);
+    expect(wf?.steps[0].env).toEqual({
+      PR_NUMBER: { input: "pr_number" },
+      MAX_RETRIES: "3",
+    });
+  });
+
+  it("records a failure when a step env references an undeclared input", async () => {
+    writeBundle(cwd, "fetch");
+    writeFileSync(
+      join(dir, "undeclared-ref.yaml"),
+      `name: undeclared-ref
+inputs:
+  - name: pr_number
+steps:
+  - use: fetch
+    env:
+      TARGET:
+        input: ghost
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "undeclared-ref.yaml"));
+    expect(result.failures[0].reason).toContain("ghost");
+    expect(result.failures[0].reason).toContain("undeclared input");
+  });
+
   it("records a failure when YAML parses but isn't an object", async () => {
     writeFileSync(join(dir, "scalar.yaml"), "just a string\n");
 

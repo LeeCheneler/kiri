@@ -89,7 +89,16 @@ const buildEnv = (
 ): Record<string, string> => {
   // User env is applied first; kiri- and OS-controlled vars overwrite on
   // collision so a workflow can't redirect PATH or shadow KIRI_ identity.
-  const env: Record<string, string> = { ...(step.env ?? {}) };
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(step.env ?? {})) {
+    if (typeof value === "string") {
+      env[key] = value;
+      continue;
+    }
+    throw new Error(
+      `env "${key}" references input "${value.input}", which the runner cannot resolve`,
+    );
+  }
   env.PATH = process.env.PATH ?? "";
   env.HOME = process.env.HOME ?? "";
   // USER/LOGNAME are POSIX user-identity vars; tools that authenticate as
