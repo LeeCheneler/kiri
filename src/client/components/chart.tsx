@@ -16,6 +16,25 @@ const offlineLoader = {
   file: rejectRemoteFetch,
 } as unknown as EmbedOptions["loader"];
 
+// True if any `data` block in the spec names a remote `url`. A spec that
+// only carries inline `data.values` returns false — and a data row that
+// happens to have a field called `url` is not mistaken for a data source,
+// since the `url` there sits under `values`, not directly on `data`.
+function referencesRemoteData(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(referencesRemoteData);
+  }
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const data = record.data;
+  if (typeof data === "object" && data !== null && "url" in data) {
+    return true;
+  }
+  return Object.values(record).some(referencesRemoteData);
+}
+
 function ChartError({ message }: { message: string }) {
   return (
     <p
@@ -115,6 +134,14 @@ export function Chart({ source }: { source: string }) {
     spec = JSON.parse(source) as VisualizationSpec;
   } catch {
     return <ChartError message="Chart spec is not valid JSON." />;
+  }
+
+  // Refuse remote data before rendering: Vega would otherwise draw an
+  // empty chart scaffold and fetch the URL asynchronously. Catching it
+  // here degrades cleanly to a notice instead. The loader above is the
+  // backstop for any other fetch vector (image marks, etc.).
+  if (referencesRemoteData(spec)) {
+    return <ChartError message="Charts may not load remote data." />;
   }
 
   if (renderError !== null) {

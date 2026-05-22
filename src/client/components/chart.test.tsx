@@ -38,6 +38,8 @@ const VALID_SPEC = {
   },
 };
 
+const REMOTE_DATA_SPEC = { data: { url: "https://example.com/d.json" }, mark: "bar" };
+
 interface VegaConfigShape {
   background: string;
   axis: { titleColor: string; labelColor: string };
@@ -89,6 +91,14 @@ describe("<Chart>", () => {
 
     const loader = embed.options.loader as { load: (uri: string) => Promise<unknown> };
     await expect(loader.load("https://example.com/data.json")).rejects.toThrow(/remote data/i);
+  });
+
+  it("degrades to an inline alert when the spec names a remote data source", () => {
+    render(<Chart source={JSON.stringify(REMOTE_DATA_SPEC)} />);
+
+    expect(screen.getByRole("alert").textContent).toMatch(/remote data/i);
+    // The spec is refused before VegaEmbed is ever reached.
+    expect(lastEmbed()).toBeNull();
   });
 
   it("builds the chart config from the site design tokens", () => {
