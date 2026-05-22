@@ -151,9 +151,10 @@ kiri --version</code></pre>
       <p>Homebrew auto-taps <a href="https://github.com/LeeCheneler/homebrew-kiri">LeeCheneler/homebrew-kiri</a> on first install. To upgrade later, <code>brew upgrade kiri</code>.</p>
       <details>
         <summary>Without Homebrew</summary>
-        <p>Download the macOS ARM64 binary from the <a href="https://github.com/LeeCheneler/kiri/releases/latest">latest release</a> and put it on your <code>$PATH</code>:</p>
+        <p>Download the macOS ARM64 binary from the <a href="https://github.com/LeeCheneler/kiri/releases/latest">latest release</a>, make it executable, clear the macOS quarantine flag, and put it on your <code>$PATH</code>:</p>
         <pre><code>chmod +x ~/Downloads/kiri
-mv ~/Downloads/kiri /usr/local/bin/kiri
+xattr -d com.apple.quarantine ~/Downloads/kiri
+sudo mv ~/Downloads/kiri /usr/local/bin/kiri
 kiri --version</code></pre>
       </details>
       <p>Building from source? See <a href="https://github.com/LeeCheneler/kiri/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p>

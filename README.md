@@ -18,11 +18,12 @@ Homebrew auto-taps [`LeeCheneler/homebrew-kiri`](https://github.com/LeeCheneler/
 <details>
 <summary>Without Homebrew</summary>
 
-Download the macOS ARM64 binary from the [latest release](https://github.com/LeeCheneler/kiri/releases/latest), make it executable, and put it on your `$PATH`:
+Download the macOS ARM64 binary from the [latest release](https://github.com/LeeCheneler/kiri/releases/latest), make it executable, clear the macOS quarantine flag, and put it on your `$PATH`:
 
 ```sh
 chmod +x ~/Downloads/kiri
-mv ~/Downloads/kiri /usr/local/bin/kiri
+xattr -d com.apple.quarantine ~/Downloads/kiri
+sudo mv ~/Downloads/kiri /usr/local/bin/kiri
 kiri --version
 ```
 
