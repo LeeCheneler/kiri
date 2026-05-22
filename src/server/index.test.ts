@@ -92,12 +92,11 @@ describe("createApp", () => {
       expect(await res.json()).toEqual([]);
     });
 
-    it("summarizes registry entries with name, steps, gating, and schedule", async () => {
+    it("summarizes registry entries with name, steps, and gating", async () => {
       const wf: WorkflowDefinition = {
         name: "demo",
         steps: [{ use: "demo" }],
         gating: "auto",
-        schedule: "*/5 * * * *",
       };
       registry.replace(new Map([[wf.name, wf]]));
 
@@ -110,7 +109,6 @@ describe("createApp", () => {
         name: "demo",
         steps: [{ use: "demo" }],
         gating: "auto",
-        schedule: "*/5 * * * *",
       });
     });
 

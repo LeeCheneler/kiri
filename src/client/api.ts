@@ -23,7 +23,6 @@ export interface WorkflowSummary {
   name: string;
   steps: WorkflowStepSummary[];
   gating?: "auto" | "propose";
-  schedule?: string;
   /** Defined when the workflow has at least one `publish:` entry. */
   publish?: WorkflowPublishSummary[];
   /** Defined when the workflow has a `summarize:` step. */
@@ -94,7 +93,6 @@ export interface RunListEntry {
     name: string;
     steps: WorkflowStepSummary[];
     gating?: "auto" | "propose";
-    schedule?: string;
     summarize?: WorkflowStepSummary;
     publish?: RunPublishSnapshot[];
   };

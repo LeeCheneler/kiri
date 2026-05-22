@@ -26,8 +26,8 @@ const articleCountLabel = (count: number): string =>
  * Editorial detail view for one workflow definition. Header carries the
  * name in Fraunces with a trigger affordance set in the accent token.
  * Step count, article count (when the workflow publishes), summariser
- * presence, gating, and schedule are listed alongside it in mono small
- * caps so the reader sees the run shape at a glance.
+ * presence, and gating are listed alongside it in mono small caps so
+ * the reader sees the run shape at a glance.
  *
  * Every entry — step, publish, summariser — renders the same config
  * blocks (description, source, env) using one shared component so the
@@ -79,15 +79,6 @@ export function WorkflowDetailView({
             <>
               <HeaderSeparator />
               <HeaderFact label="gating" value={`gating: ${workflow.gating}`} />
-            </>
-          )}
-          {workflow.schedule && (
-            <>
-              <HeaderSeparator />
-              <div className="flex items-baseline">
-                <dt className="sr-only">schedule</dt>
-                <dd className="text-ink italic">{workflow.schedule}</dd>
-              </div>
             </>
           )}
         </dl>

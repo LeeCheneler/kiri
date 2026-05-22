@@ -180,7 +180,6 @@ describe("runWorkflow", () => {
       name: "snapshot",
       steps: [{ use: "n", env: { FOO: "bar" } }],
       gating: "auto",
-      schedule: "*/5 * * * *",
     };
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
@@ -190,7 +189,6 @@ describe("runWorkflow", () => {
       name: "snapshot",
       steps: [{ use: "n", env: { FOO: "bar" } }],
       gating: "auto",
-      schedule: "*/5 * * * *",
     });
   });
 

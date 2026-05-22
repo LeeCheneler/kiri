@@ -19,7 +19,7 @@ import { runStep } from "./run-step.ts";
 export interface RunWorkflowArgs {
   /** Repo root. Bundles resolve under `<cwd>/scripts/<name>/run.sh`; the scratch dir lives at `<cwd>/.kiri/runs/<run-id>/`. */
   cwd: string;
-  /** Where the run was triggered from — recorded on the `runs` row. Currently `"manual"`; cron and MCP triggers will use distinct values. Ignored when `runId` is supplied — the existing row's trigger is preserved. */
+  /** Where the run was triggered from — recorded on the `runs` row. Currently always `"manual"`. Ignored when `runId` is supplied — the existing row's trigger is preserved. */
   trigger: string;
   /** Optional event bus. When supplied, the runner publishes lifecycle events at run/step transitions. */
   bus?: EventBus;
@@ -52,7 +52,6 @@ interface DefinitionSnapshot {
   name: string;
   steps: WorkflowStep[];
   gating?: "auto" | "propose";
-  schedule?: string;
   summarize?: WorkflowStep;
   publish?: PublishEntry[];
 }
@@ -75,7 +74,6 @@ const snapshotDefinition = (def: WorkflowDefinition): DefinitionSnapshot => ({
   name: def.name,
   steps: def.steps.map((s) => ({ ...s })),
   gating: def.gating,
-  schedule: def.schedule,
   summarize: def.summarize ? { ...def.summarize } : undefined,
   publish: def.publish ? def.publish.map((p) => ({ ...p })) : undefined,
 });

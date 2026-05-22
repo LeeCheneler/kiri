@@ -100,7 +100,6 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
   name: def.name,
   steps: def.steps,
   gating: def.gating,
-  schedule: def.schedule,
   // Absence (no `publish:` / `summarize:` field, or `publish: []`) collapses
   // to `undefined` so the client has a single "section not present" signal.
   publish:

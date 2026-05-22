@@ -40,18 +40,15 @@ describe("workflowJsonSchema", () => {
     expect(shVariant?.properties.sh?.type).toBe("string");
   });
 
-  it("optionally permits gating and schedule fields", () => {
+  it("optionally permits a gating field", () => {
     const schema = workflowJsonSchema() as {
       required: string[];
       properties: {
         gating: { enum?: string[] };
-        schedule: { type?: string };
       };
     };
     expect(schema.required).not.toContain("gating");
-    expect(schema.required).not.toContain("schedule");
     expect(schema.properties.gating.enum).toEqual(expect.arrayContaining(["auto", "propose"]));
-    expect(schema.properties.schedule.type).toBe("string");
   });
 
   it("optionally permits a summarize field with the step variant shape", () => {

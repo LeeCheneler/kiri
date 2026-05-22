@@ -64,17 +64,6 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.queryByText(/gating:/i)).toBeNull();
     });
 
-    it("renders the schedule expression in italic when present", () => {
-      renderDetail(stubWorkflow({ schedule: "*/15 * * * *" }));
-      const cron = screen.getByText("*/15 * * * *");
-      expect(cron.className).toContain("italic");
-    });
-
-    it("omits the schedule slot when the workflow has no schedule", () => {
-      renderDetail(stubWorkflow({ schedule: undefined }));
-      expect(screen.queryByText(/\*/)).toBeNull();
-    });
-
     it("surfaces the article count in the header when the workflow publishes", () => {
       renderDetail(
         stubWorkflow({

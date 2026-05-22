@@ -32,13 +32,11 @@ describe("workflowSchema", () => {
 
   it("preserves optional fields when present", () => {
     const result = workflowSchema.parse({
-      name: "scheduled",
+      name: "optionals",
       steps: [{ use: "x" }],
       gating: "propose",
-      schedule: "*/15 * * * *",
     });
     expect(result.gating).toBe("propose");
-    expect(result.schedule).toBe("*/15 * * * *");
   });
 
   it("rejects empty name", () => {
@@ -124,16 +122,6 @@ describe("workflowSchema", () => {
         name: "bad-gating",
         steps: [{ use: "x" }],
         gating: "manual",
-      }),
-    ).toThrow();
-  });
-
-  it("rejects empty schedule string", () => {
-    expect(() =>
-      workflowSchema.parse({
-        name: "bad-sched",
-        steps: [{ use: "x" }],
-        schedule: "",
       }),
     ).toThrow();
   });
