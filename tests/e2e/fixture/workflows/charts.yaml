@@ -1,0 +1,24 @@
+name: charts
+steps:
+  - sh: echo "chart pipeline step"
+publish:
+  - name: chart-report
+    title: Chart Report
+    sh: |
+      cat <<'EOF'
+      # Chart Report
+
+      A bar chart rendered from an inline Vega-Lite spec:
+
+      ```chart
+      {"data":{"values":[{"name":"A","count":4},{"name":"B","count":7},{"name":"C","count":2}]},"mark":"bar","encoding":{"x":{"field":"name","type":"nominal"},"y":{"field":"count","type":"quantitative"}}}
+      ```
+
+      The next chart reaches for remote data and must not render:
+
+      ```chart
+      {"data":{"url":"https://example.com/data.json"},"mark":"bar","encoding":{"x":{"field":"a","type":"nominal"},"y":{"field":"b","type":"quantitative"}}}
+      ```
+
+      End of report.
+      EOF
