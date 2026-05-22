@@ -39,6 +39,14 @@ export const runs = sqliteTable("runs", {
    * Null when `gitSha` is null (no repo to compare against).
    */
   gitDirty: integer("git_dirty", { mode: "boolean" }),
+  /**
+   * Resolved input values captured at run-start. Null when the workflow
+   * declared no `inputs:` block; otherwise a `Record<string, string>` with
+   * one entry per declared input that resolved to a value (supplied at
+   * invoke, or via the input's `default`). Step `env:` references of the
+   * form `{ input: <name> }` resolve against this snapshot at spawn.
+   */
+  inputs: text("inputs", { mode: "json" }),
 });
 
 /**

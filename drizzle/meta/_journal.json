@@ -64,6 +64,13 @@
       "when": 1779400000000,
       "tag": "0008_rename_run_artefacts_to_articles",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1779492508105,
+      "tag": "0009_add_run_inputs",
+      "breakpoints": true
     }
   ]
 }
