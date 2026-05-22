@@ -313,7 +313,7 @@ describe("runWorkflow", () => {
     );
   });
 
-  it("fails the run when a step env value references an input the runner cannot resolve", async () => {
+  it("fails the run when a step env value references an input absent from the run snapshot", async () => {
     writeBundle("hello", "#!/bin/sh\necho hi\n");
     const wf: WorkflowDefinition = {
       name: "needs-input",
@@ -321,17 +321,25 @@ describe("runWorkflow", () => {
       steps: [{ use: "hello", env: { PR: { input: "pr_number" } } }],
     };
 
+    // No supplied value, no default — the snapshot omits the input, so
+    // step env build can't resolve the ref. The invoke API enforces
+    // required-but-missing earlier; reaching the runner is an invariant
+    // violation we still surface clearly.
     const { runId, done } = runWorkflow(db, wf, { cwd, trigger: "manual" });
     const thrown = await done.catch((e: unknown) => e);
 
     expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toMatch(/references input "pr_number"/);
+    expect((thrown as Error).message).toMatch(
+      /env "PR" references input "pr_number", which is not present on the run snapshot/,
+    );
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get();
     expect(run?.status).toBe("failed");
     expect(run?.error).toEqual(
       expect.objectContaining({
-        message: expect.stringContaining('references input "pr_number"'),
+        message: expect.stringContaining(
+          'references input "pr_number", which is not present on the run snapshot',
+        ),
       }),
     );
   });
@@ -1425,6 +1433,240 @@ describe("runWorkflow", () => {
       expect(midflight?.summary).toBeNull();
 
       await done;
+    });
+  });
+
+  describe("inputs", () => {
+    it("snapshots null on runs.inputs when the workflow declares no inputs:", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      const wf = makeWorkflow("no-inputs", useSteps("hello"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.inputs).toBeNull();
+    });
+
+    it("snapshots the supplied values onto runs.inputs verbatim", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      const wf: WorkflowDefinition = {
+        name: "snapshot-supplied",
+        inputs: [{ name: "pr_number" }, { name: "owner" }],
+        steps: [{ use: "hello" }],
+      };
+
+      const result = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        inputs: { pr_number: "42", owner: "kiri" },
+      }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.inputs).toEqual({ pr_number: "42", owner: "kiri" });
+    });
+
+    it("falls back to each input's default when no value is supplied", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      const wf: WorkflowDefinition = {
+        name: "default-only",
+        inputs: [
+          { name: "branch", default: "main" },
+          { name: "owner", default: "kiri" },
+        ],
+        steps: [{ use: "hello" }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.inputs).toEqual({ branch: "main", owner: "kiri" });
+    });
+
+    it("prefers a supplied value over the input's default", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      const wf: WorkflowDefinition = {
+        name: "supplied-wins",
+        inputs: [{ name: "branch", default: "main" }],
+        steps: [{ use: "hello" }],
+      };
+
+      const result = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        inputs: { branch: "release" },
+      }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.inputs).toEqual({ branch: "release" });
+    });
+
+    it("omits declared inputs that resolved to neither a value nor a default", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      // `pr_number` is unsupplied and has no default; `owner` defaults to
+      // "kiri". The snapshot records only the resolvable entry — required-
+      // input enforcement lives on the invoke API, not the runner.
+      const wf: WorkflowDefinition = {
+        name: "partial",
+        inputs: [{ name: "pr_number" }, { name: "owner", default: "kiri" }],
+        steps: [{ use: "hello" }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.inputs).toEqual({ owner: "kiri" });
+    });
+
+    it("resolves a ref-only env entry on a regular step", async () => {
+      writeBundle("dump", '#!/bin/sh\necho "PR=$PR"\n');
+      const wf: WorkflowDefinition = {
+        name: "ref-only",
+        inputs: [{ name: "pr_number" }],
+        steps: [{ use: "dump", env: { PR: { input: "pr_number" } } }],
+      };
+
+      const result = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        inputs: { pr_number: "42" },
+      }).done;
+
+      expect(result.status).toBe("ok");
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+      expect(step?.output).toBe("PR=42\n");
+    });
+
+    it("resolves a mix of literal and ref env entries on the same step", async () => {
+      writeBundle("dump", '#!/bin/sh\necho "STATIC=$STATIC PR=$PR"\n');
+      const wf: WorkflowDefinition = {
+        name: "mixed-env",
+        inputs: [{ name: "pr_number" }],
+        steps: [
+          {
+            use: "dump",
+            env: { STATIC: "literal", PR: { input: "pr_number" } },
+          },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        inputs: { pr_number: "7" },
+      }).done;
+
+      expect(result.status).toBe("ok");
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+      expect(step?.output).toBe("STATIC=literal PR=7\n");
+    });
+
+    it("resolves env refs from the input's default when no value is supplied", async () => {
+      writeBundle("dump", '#!/bin/sh\necho "BRANCH=$BRANCH"\n');
+      const wf: WorkflowDefinition = {
+        name: "default-resolves",
+        inputs: [{ name: "branch", default: "main" }],
+        steps: [{ use: "dump", env: { BRANCH: { input: "branch" } } }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      expect(result.status).toBe("ok");
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+      expect(step?.output).toBe("BRANCH=main\n");
+    });
+
+    it("kiri-injected vars still win when an input ref aliases a reserved key", async () => {
+      // KIRI_-prefixed keys are blocked by the schema, so PATH is the
+      // cleanest user-controllable collision target: a step can declare a
+      // PATH env entry that resolves from an input, but the kiri overlay
+      // still wins.
+      writeBundle("path", '#!/bin/sh\necho "PATH=$PATH"\n');
+      const wf: WorkflowDefinition = {
+        name: "ref-collision",
+        inputs: [{ name: "evil_path", default: "/sneaky/bin" }],
+        steps: [{ use: "path", env: { PATH: { input: "evil_path" } } }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+      expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
+    });
+
+    it("resolves env refs on a summarize: entry", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("summer", '#!/bin/sh\necho "SUMMARY-BRANCH=$BRANCH"\n');
+      const wf: WorkflowDefinition = {
+        name: "summer-ref",
+        inputs: [{ name: "branch" }],
+        steps: [{ use: "step" }],
+        summarize: { use: "summer", env: { BRANCH: { input: "branch" } } },
+      };
+
+      const result = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        inputs: { branch: "release" },
+      }).done;
+
+      expect(result.status).toBe("ok");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("SUMMARY-BRANCH=release");
+    });
+
+    it("resolves env refs on a publish: entry", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("digest", '#!/bin/sh\necho "DIGEST-PR=$PR"\n');
+      const wf: WorkflowDefinition = {
+        name: "pub-ref",
+        inputs: [{ name: "pr_number" }],
+        steps: [{ use: "step" }],
+        publish: [{ name: "digest", use: "digest", env: { PR: { input: "pr_number" } } }],
+      };
+
+      const result = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        inputs: { pr_number: "9" },
+      }).done;
+
+      expect(result.status).toBe("ok");
+      const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
+      expect(articleRows).toHaveLength(1);
+      expect(articleRows[0].contentMd).toBe("DIGEST-PR=9");
+    });
+
+    it("re-snapshots runs.inputs on the rerun path from the supplied values", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      const wf: WorkflowDefinition = {
+        name: "rerun-inputs",
+        inputs: [{ name: "pr_number" }],
+        steps: [{ use: "hello" }],
+      };
+
+      const first = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        inputs: { pr_number: "1" },
+      }).done;
+      expect(first.status).toBe("ok");
+
+      const before = db.select().from(runs).where(eq(runs.id, first.runId)).get();
+      expect(before?.inputs).toEqual({ pr_number: "1" });
+
+      db.delete(runSteps).where(eq(runSteps.runId, first.runId)).run();
+
+      const second = await runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        runId: first.runId,
+        inputs: { pr_number: "2" },
+      }).done;
+      expect(second.runId).toBe(first.runId);
+      expect(second.status).toBe("ok");
+
+      const after = db.select().from(runs).where(eq(runs.id, first.runId)).get();
+      expect(after?.inputs).toEqual({ pr_number: "2" });
     });
   });
 });

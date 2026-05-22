@@ -97,7 +97,7 @@ A workflow optionally declares `inputs:` — named parameters collected at invoc
 
 - `inputs:` is an array of `{ name, description?, required?, default? }`. Values are strings.
 - A workflow with no `inputs:` runs immediately on invoke. One with `inputs:` collects values via a form before the run starts — `required` inputs must be filled, `default` pre-fills the field.
-- Resolved input values are injected into every step's `env:` at spawn, under the same reserved-namespace and precedence rules as kiri's other scoped vars. The exact injection mechanism is unsettled — see `milestones.md` § M7.
+- Step `env:` values are either a literal string or a structured `{ input: <name> }` reference pointing at a declared input. At run-start the runner resolves each declared input to a final value (supplied at invoke, otherwise the input's `default`) and snapshots the resolved `Record<string, string>` onto `runs.inputs`. At spawn the runner walks each step's, summarise's, and publish's `env:`, replacing every `{ input: <name> }` entry with the snapshotted value; kiri-scoped vars and OS essentials overlay afterwards, so user env never wins on collision.
 - Input values are snapshotted onto the `runs` row, so the feed shows what a run was invoked with and a re-run can pre-fill the form.
 
 Every run records a `trigger` origin on its `runs` row — `manual` today, with todo-approved runs distinguished when M8 lands. It is feed-display metadata and is not exposed to step env.
@@ -116,9 +116,10 @@ Pragmatic v1 simplification: skip the disk-blob split initially. Put traces stra
 
 Workflow definitions are YAML files in `workflows/` — the single source of truth, with no SQL representation. There is **no `workflows` table**. On startup (and on file change in dev) the loader scans the directory, parses each file, validates it against the workflow Zod schema, and hydrates an in-memory registry; runs reference workflows by name only.
 
-When a run starts, the executor captures two things to pin the run's context:
+When a run starts, the executor captures three things to pin the run's context:
 
 - The resolved workflow definition (name, steps, env, gating, summarize, publish) onto the `runs` row as `definitionSnapshot`. Feed entries always show the workflow shape that ran, even if the YAML file is later edited or deleted (UI shows a "(deleted)" badge when the registry no longer has the name).
+- The resolved input values onto `runs.inputs`. Null when the workflow declared no `inputs:` block; otherwise a `Record<string, string>` with one entry per declared input that resolved to a value (supplied at invoke or via the input's `default`). The same snapshot is consulted when resolving `{ input: <name> }` env references at every step's, summarise's, and publish's spawn.
 - The data repo's git ref at run-start: the HEAD commit (`runs.gitSha`) plus a `runs.gitDirty` flag for uncommitted changes. The data dir is already a git repo by convention, so a single SHA pins every file the run could possibly have read — bundle scripts, prompts, anything `run.sh` resolves at runtime. The UI renders the short sha (with a dirty marker when applicable) in the run header.
 
 Kiri does not snapshot individual bundle files or prompts into the database. Reproducing what ran means `git checkout <sha>` in the data repo. Both `gitSha` and `gitDirty` are nullable so a non-git data dir is a first-class state, not an error — the run loses the reproducibility affordance but everything else works.

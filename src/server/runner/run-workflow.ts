@@ -25,8 +25,10 @@ export interface RunWorkflowArgs {
   bus?: EventBus;
   /** Optional cancel registry. When supplied, the runner registers the run, publishes the active step's child handle for SIGTERM/SIGKILL, checks for cancellation between steps, and translates a cancel-induced step failure into a `cancelled` terminal status. */
   cancelRegistry?: CancelRegistry;
-  /** When supplied, reuse this existing `runs` row instead of inserting a new one. The row's `status`, `startedAt`, `definitionSnapshot`, `gitSha`, and `gitDirty` are refreshed, and `finishedAt`/`error`/`summary` are cleared. Used by the in-place rerun path; the caller is responsible for wiping prior `runSteps` / `articles` and the scratch dir first. */
+  /** When supplied, reuse this existing `runs` row instead of inserting a new one. The row's `status`, `startedAt`, `definitionSnapshot`, `inputs`, `gitSha`, and `gitDirty` are refreshed, and `finishedAt`/`error`/`summary` are cleared. Used by the in-place rerun path; the caller is responsible for wiping prior `runSteps` / `articles` and the scratch dir first. */
   runId?: string;
+  /** Explicit input values supplied at invocation. Used together with each declared input's `default` to produce the resolved snapshot persisted on `runs.inputs` and consulted when resolving `{ input: <name> }` env references. Ignored when the workflow declares no `inputs:` block. */
+  inputs?: Record<string, string>;
 }
 
 export interface RunWorkflowResult {
@@ -78,6 +80,24 @@ const snapshotDefinition = (def: WorkflowDefinition): DefinitionSnapshot => ({
   publish: def.publish ? def.publish.map((p) => ({ ...p })) : undefined,
 });
 
+// Workflows without an `inputs:` block snapshot null — they have nothing
+// to record and no env refs can point at an input. Workflows with one
+// snapshot only the declared inputs that resolved to a value (supplied
+// at invoke or via the input's `default`); validation of required-but-
+// missing values is the invoke API's job, not the runner's.
+const resolveInputs = (
+  def: WorkflowDefinition,
+  supplied: Record<string, string> | undefined,
+): Record<string, string> | null => {
+  if (!def.inputs) return null;
+  const resolved: Record<string, string> = {};
+  for (const input of def.inputs) {
+    const value = supplied?.[input.name] ?? input.default;
+    if (value !== undefined) resolved[input.name] = value;
+  }
+  return resolved;
+};
+
 const publishAsStep = (entry: PublishEntry): WorkflowStep =>
   isUsePublish(entry) ? { use: entry.use, env: entry.env } : { sh: entry.sh, env: entry.env };
 
@@ -86,6 +106,7 @@ const buildEnv = (
   runId: string,
   stepIndex: number,
   cwd: string,
+  inputs: Record<string, string> | null,
 ): Record<string, string> => {
   // User env is applied first; kiri- and OS-controlled vars overwrite on
   // collision so a workflow can't redirect PATH or shadow KIRI_ identity.
@@ -95,9 +116,18 @@ const buildEnv = (
       env[key] = value;
       continue;
     }
-    throw new Error(
-      `env "${key}" references input "${value.input}", which the runner cannot resolve`,
-    );
+    // The schema guarantees every `{ input: <name> }` ref points at a
+    // declared input, and run-start snapshots every declared input that
+    // resolved to a value (arg-supplied or default). Reaching this branch
+    // means a declared input had neither a supplied value nor a default —
+    // an invocation-time invariant the invoke API is meant to enforce.
+    const resolved = inputs?.[value.input];
+    if (resolved === undefined) {
+      throw new Error(
+        `env "${key}" references input "${value.input}", which is not present on the run snapshot`,
+      );
+    }
+    env[key] = resolved;
   }
   env.PATH = process.env.PATH ?? "";
   env.HOME = process.env.HOME ?? "";
@@ -126,16 +156,18 @@ const buildEnv = (
  * when the caller needs the terminal status (e.g. cron, tests).
  *
  * Lifecycle, in order: insert (or update, when `args.runId` is supplied)
- * `runs` with the definition snapshot and data-repo git ref → create the
- * per-run scratch dir → for each step, insert `run_steps` *before*
- * spawning → execute the step → update the row with the envelope → halt
- * on first failure → finalize the `runs` row → remove the scratch dir.
+ * `runs` with the definition snapshot, resolved inputs, and data-repo git
+ * ref → create the per-run scratch dir → for each step, insert `run_steps`
+ * *before* spawning → execute the step → update the row with the envelope
+ * → halt on first failure → finalize the `runs` row → remove the scratch
+ * dir.
  *
  * Rerun path (`args.runId` supplied): the existing `runs` row is updated
- * back to `"running"` with a fresh `startedAt`/`definitionSnapshot`/git
- * ref, and `finishedAt`/`error`/`summary` are cleared. Trigger is
- * preserved. Callers must wipe prior `runSteps` / `articles` and the
- * scratch dir before invoking so the rerun doesn't accumulate stale rows.
+ * back to `"running"` with a fresh `startedAt`/`definitionSnapshot`/
+ * `inputs`/git ref, and `finishedAt`/`error`/`summary` are cleared.
+ * Trigger is preserved. Callers must wipe prior `runSteps` / `articles`
+ * and the scratch dir before invoking so the rerun doesn't accumulate
+ * stale rows.
  *
  * Halt-on-failure: a failed step leaves later steps uncreated, and the
  * run is marked failed. `done` rejects if any non-envelope surface
@@ -151,6 +183,7 @@ export function runWorkflow(
   const scratchDir = join(args.cwd, ".kiri", "runs", runId);
   const startedAt = new Date();
   const gitHead = resolveGitHead(args.cwd);
+  const resolvedInputs = resolveInputs(definition, args.inputs);
 
   if (args.runId === undefined) {
     db.insert(runs)
@@ -161,6 +194,7 @@ export function runWorkflow(
         trigger: args.trigger,
         startedAt,
         definitionSnapshot: snapshotDefinition(definition),
+        inputs: resolvedInputs,
         gitSha: gitHead.sha,
         gitDirty: gitHead.dirty,
       })
@@ -171,6 +205,7 @@ export function runWorkflow(
         status: "running",
         startedAt,
         definitionSnapshot: snapshotDefinition(definition),
+        inputs: resolvedInputs,
         gitSha: gitHead.sha,
         gitDirty: gitHead.dirty,
         finishedAt: null,
@@ -221,7 +256,7 @@ export function runWorkflow(
           cwd: args.cwd,
           scratchDir,
           input,
-          env: buildEnv(step, runId, i, args.cwd),
+          env: buildEnv(step, runId, i, args.cwd, resolvedInputs),
           onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
         });
 
@@ -341,7 +376,7 @@ export function runWorkflow(
           ),
         );
 
-        const env = buildEnv(publishStep, runId, publishIndex, args.cwd);
+        const env = buildEnv(publishStep, runId, publishIndex, args.cwd, resolvedInputs);
         env.KIRI_RUN_CONTEXT_FILE = contextFile;
 
         const envelope = await runStep({
@@ -450,7 +485,7 @@ export function runWorkflow(
           status: "running",
         });
 
-        const env = buildEnv(summarizeStep, runId, summaryIndex, args.cwd);
+        const env = buildEnv(summarizeStep, runId, summaryIndex, args.cwd, resolvedInputs);
         env.KIRI_RUN_CONTEXT_FILE = contextFile;
 
         const envelope = await runStep({
