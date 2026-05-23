@@ -2,13 +2,21 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { FakeIntersectionObserver } from "./fake-intersection-observer.ts";
 
 // happy-dom registers DOM globals (window, document, navigator, …) but also
-// replaces fetch primitives with browser-spec implementations. Two of those
+// replaces fetch primitives with browser-spec implementations. Three of those
 // implementations break us: its Request strips the Origin header (Hono CORS
-// tests), and its AbortSignal/EventTarget aren't recognised by MSW's
-// interceptor. Hono's `streamSSE` also needs the WHATWG stream classes
-// (Bun's natives have `getWriter` etc.; happy-dom's polyfills don't).
-// Stash the natives, register happy-dom, then put the natives back so
-// server tests and MSW continue to work.
+// tests), its AbortSignal/EventTarget aren't recognised by MSW's
+// interceptor, and Hono's `streamSSE` needs the WHATWG stream classes
+// (Bun's natives have `getWriter` etc.; happy-dom's polyfills don't). Stash
+// the natives, register happy-dom, then put the natives back so server
+// tests and MSW continue to work.
+//
+// `Event` and `MessageEvent` stay as happy-dom's classes: happy-dom's
+// EventTarget.dispatchEvent does an `instanceof Event` check against its
+// own Event class, and component tests that drive DOM nodes (via
+// @testing-library/user-event, fireEvent, etc.) construct events from
+// `globalThis.Event`. If we restored native Event, every keystroke or
+// blur would fail that check. MSW's interceptor operates on its own
+// native AbortSignal — not on DOM nodes — so it doesn't touch this path.
 const nativeKeys = [
   "fetch",
   "Request",
@@ -18,8 +26,6 @@ const nativeKeys = [
   "AbortController",
   "AbortSignal",
   "EventTarget",
-  "Event",
-  "MessageEvent",
   "TransformStream",
 ] as const;
 

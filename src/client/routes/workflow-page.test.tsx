@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -92,6 +93,45 @@ describe("<WorkflowPage>", () => {
     await waitFor(() => {
       expect(history[history.length - 1]).toBe("/runs/run-kiri-self-review-fresh");
     });
+  });
+
+  it("collects inputs via the modal and forwards them as the invoke body", async () => {
+    const user = userEvent.setup();
+    const seenBodies: string[] = [];
+    server.use(
+      http.get("*/api/workflows", () =>
+        HttpResponse.json([
+          {
+            name: "pr-review",
+            inputs: [
+              { name: "pr_number", description: "PR to review", required: true },
+              { name: "owner", default: "kiri" },
+            ],
+            steps: [{ use: "claude-code" }],
+          },
+        ]),
+      ),
+      http.post("*/api/workflows/:name/runs", async ({ request, params }) => {
+        seenBodies.push(await request.text());
+        return HttpResponse.json(
+          { runId: `run-${String(params.name)}-with-inputs`, status: "running" },
+          { status: 202 },
+        );
+      }),
+    );
+
+    const { history } = renderWorkflow("pr-review");
+
+    fireEvent.click(await screen.findByRole("button", { name: /^run/i }));
+    expect(screen.getByRole("dialog")).toBeDefined();
+
+    await user.type(screen.getByLabelText(/pr_number/i), "42");
+    await user.click(screen.getAllByRole("button", { name: /^run/i }).at(-1) as HTMLElement);
+
+    await waitFor(() => {
+      expect(history[history.length - 1]).toBe("/runs/run-pr-review-with-inputs");
+    });
+    expect(seenBodies).toEqual([JSON.stringify({ inputs: { pr_number: "42", owner: "kiri" } })]);
   });
 
   it("refetches when the matching workflow is updated", async () => {

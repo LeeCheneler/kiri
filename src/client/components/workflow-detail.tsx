@@ -1,6 +1,12 @@
 import { type ReactNode, useState } from "react";
 import { Link } from "wouter";
-import type { WorkflowPublishSummary, WorkflowStepSummary, WorkflowSummary } from "../api.ts";
+import type {
+  EnvValue,
+  WorkflowPublishSummary,
+  WorkflowStepSummary,
+  WorkflowSummary,
+} from "../api.ts";
+import { InvokeModal } from "./invoke-modal.tsx";
 
 const SH_LABEL_LIMIT = 60;
 
@@ -14,8 +20,14 @@ const sourceLabel = (entry: LabelSource): string => {
   return `sh: ${truncated}`;
 };
 
-const hasEnv = (env: Record<string, string> | undefined): env is Record<string, string> =>
+const hasEnv = (env: Record<string, EnvValue> | undefined): env is Record<string, EnvValue> =>
   env !== undefined && Object.keys(env).length > 0;
+
+// Render a single env value: literal strings pass through; structured
+// `{ input: <name> }` refs render in YAML-flavoured form so the reader
+// sees the same shape they wrote in the workflow file.
+const renderEnvValue = (value: EnvValue): ReactNode =>
+  typeof value === "string" ? value : `{ input: ${value.input} }`;
 
 const stepCountLabel = (count: number): string => (count === 1 ? "1 step" : `${count} steps`);
 
@@ -35,14 +47,16 @@ const articleCountLabel = (count: number): string =>
  *
  * `onTrigger` returns a promise so the button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
- * detail on success.
+ * detail on success. Workflows declaring `inputs:` collect values via
+ * a modal before invoking — the second argument carries that map; it
+ * is omitted on workflows without an `inputs:` block.
  */
 export function WorkflowDetailView({
   workflow,
   onTrigger,
 }: {
   workflow: WorkflowSummary;
-  onTrigger: (name: string) => Promise<unknown>;
+  onTrigger: (name: string, inputs?: Record<string, string>) => Promise<unknown>;
 }) {
   const stepCount = workflow.steps.length;
   const publishCount = workflow.publish?.length ?? 0;
@@ -59,7 +73,7 @@ export function WorkflowDetailView({
         <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-rule" />
         <div className="flex items-baseline justify-between gap-4">
           <h2 className="font-display text-4xl text-ink leading-tight">{workflow.name}</h2>
-          <TriggerButton name={workflow.name} onTrigger={onTrigger} />
+          <TriggerButton workflow={workflow} onTrigger={onTrigger} />
         </div>
         <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
           <HeaderFact label="steps" value={stepCountLabel(stepCount)} />
@@ -199,25 +213,37 @@ function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
 }
 
 function TriggerButton({
-  name,
+  workflow,
   onTrigger,
 }: {
-  name: string;
-  onTrigger: (name: string) => Promise<unknown>;
+  workflow: WorkflowSummary;
+  onTrigger: (name: string, inputs?: Record<string, string>) => Promise<unknown>;
 }) {
+  const hasInputs = workflow.inputs && workflow.inputs.length > 0;
   const [state, setState] = useState<"idle" | "running">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   const handleClick = async () => {
+    if (hasInputs) {
+      setModalOpen(true);
+      return;
+    }
     setState("running");
     setErrorMessage(null);
     try {
-      await onTrigger(name);
+      await onTrigger(workflow.name);
       setState("idle");
     } catch (err) {
       setState("idle");
       setErrorMessage(err instanceof Error ? err.message : "trigger failed");
     }
+  };
+
+  const handleModalSubmit = async (values: Record<string, string>) => {
+    await onTrigger(workflow.name, values);
+    // Stay open until the parent unmounts us via navigation; on error
+    // the modal handles its own inline error state and re-enables submit.
   };
 
   return (
@@ -245,11 +271,19 @@ function TriggerButton({
           {errorMessage}
         </p>
       )}
+      {modalOpen && workflow.inputs && (
+        <InvokeModal
+          workflowName={workflow.name}
+          inputs={workflow.inputs}
+          onSubmit={handleModalSubmit}
+          onCancel={() => setModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
-type EntryShape = { description?: string; env?: Record<string, string> } & (
+type EntryShape = { description?: string; env?: Record<string, EnvValue> } & (
   | { use: string }
   | { sh: string }
 );
@@ -306,12 +340,12 @@ function EntryConfig({ entry }: { entry: EntryShape }) {
       {showEnv && (
         <Block label="env">
           <dl className="space-y-1 font-mono text-xs">
-            {Object.entries(entry.env as Record<string, string>)
+            {Object.entries(entry.env as Record<string, EnvValue>)
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([k, v]) => (
                 <div key={k} className="flex items-baseline gap-4">
                   <dt className="w-40 shrink-0 text-ink-muted">{k}</dt>
-                  <dd className="min-w-0 flex-1 break-words text-ink">{v}</dd>
+                  <dd className="min-w-0 flex-1 break-words text-ink">{renderEnvValue(v)}</dd>
                 </div>
               ))}
           </dl>

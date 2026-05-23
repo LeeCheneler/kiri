@@ -1,7 +1,14 @@
+/**
+ * One value in a step / publish / summariser `env:` map. Either a literal
+ * string or a structured reference to a declared workflow input. The
+ * runner resolves refs against the run's `inputs` snapshot at spawn time.
+ */
+export type EnvValue = string | { input: string };
+
 /** A single workflow step as seen by the client. */
 export type WorkflowStepSummary =
-  | { use: string; description?: string; env?: Record<string, string> }
-  | { sh: string; description?: string; env?: Record<string, string> };
+  | { use: string; description?: string; env?: Record<string, EnvValue> }
+  | { sh: string; description?: string; env?: Record<string, EnvValue> };
 
 /**
  * One `publish:` entry on a workflow summary. `title` is always present —
@@ -9,13 +16,19 @@ export type WorkflowStepSummary =
  * re-implement it.
  */
 export type WorkflowPublishSummary =
-  | { name: string; title: string; description?: string; use: string; env?: Record<string, string> }
+  | {
+      name: string;
+      title: string;
+      description?: string;
+      use: string;
+      env?: Record<string, EnvValue>;
+    }
   | {
       name: string;
       title: string;
       description?: string;
       sh: string;
-      env?: Record<string, string>;
+      env?: Record<string, EnvValue>;
     };
 
 /**
@@ -66,14 +79,14 @@ export type RunPublishSnapshot =
       title?: string;
       description?: string;
       use: string;
-      env?: Record<string, string>;
+      env?: Record<string, EnvValue>;
     }
   | {
       name: string;
       title?: string;
       description?: string;
       sh: string;
-      env?: Record<string, string>;
+      env?: Record<string, EnvValue>;
     };
 
 /**

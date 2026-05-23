@@ -55,8 +55,8 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
     refetch,
   });
 
-  const handleTrigger = async (name: string) => {
-    const result = await triggerRun(name);
+  const handleTrigger = async (name: string, inputs?: Record<string, string>) => {
+    const result = await triggerRun(name, inputs);
     navigate(`/runs/${result.runId}`);
     return result;
   };

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
@@ -159,6 +160,17 @@ describe("<WorkflowDetailView>", () => {
     it("omits the env block when a use: step's env is empty", () => {
       renderDetail(stubWorkflow({ steps: [{ use: "claude-code", env: {} }] }));
       expect(screen.queryByText(/^env$/i)).toBeNull();
+    });
+
+    it("renders an env value pointing at a workflow input in YAML ref form", () => {
+      renderDetail(
+        stubWorkflow({
+          inputs: [{ name: "pr_number", required: true }],
+          steps: [{ use: "claude-code", env: { PR_NUMBER: { input: "pr_number" } } }],
+        }),
+      );
+      expect(screen.getByText("PR_NUMBER")).toBeDefined();
+      expect(screen.getByText("{ input: pr_number }")).toBeDefined();
     });
 
     it("renders both source and env for sh: steps that declare env", () => {
@@ -360,7 +372,7 @@ describe("<WorkflowDetailView>", () => {
   });
 
   describe("trigger", () => {
-    it("calls onTrigger with the workflow name on click", async () => {
+    it("calls onTrigger with just the workflow name when the workflow has no inputs", async () => {
       const onTrigger = mock(() => Promise.resolve({}));
       renderDetail(stubWorkflow({ name: "pr-review" }), onTrigger);
       fireEvent.click(screen.getByRole("button", { name: /run/i }));
@@ -407,6 +419,72 @@ describe("<WorkflowDetailView>", () => {
 
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toMatch(/trigger failed/i);
+    });
+  });
+
+  describe("trigger with inputs", () => {
+    it("opens the invoke modal on click instead of triggering immediately", async () => {
+      const onTrigger = mock(() => Promise.resolve({}));
+      renderDetail(
+        stubWorkflow({
+          name: "pr-review",
+          inputs: [{ name: "pr_number", required: true }],
+        }),
+        onTrigger,
+      );
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /run/i }));
+
+      // Modal opens; onTrigger is not called until the user submits.
+      expect(screen.getByRole("dialog")).toBeDefined();
+      expect(onTrigger).not.toHaveBeenCalled();
+    });
+
+    it("submits the modal values to onTrigger and lands on the run", async () => {
+      const user = userEvent.setup();
+      const seen: Array<[string, Record<string, string> | undefined]> = [];
+      const onTrigger = (name: string, inputs?: Record<string, string>) => {
+        seen.push([name, inputs]);
+        return Promise.resolve({});
+      };
+      renderDetail(
+        stubWorkflow({
+          name: "pr-review",
+          inputs: [
+            { name: "pr_number", required: true },
+            { name: "branch", default: "main" },
+          ],
+        }),
+        onTrigger,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /^run/i }));
+      await user.type(screen.getByLabelText(/pr_number/i), "42");
+      await user.click(screen.getAllByRole("button", { name: /^run/i }).at(-1) as HTMLElement);
+
+      expect(seen).toEqual([["pr-review", { pr_number: "42", branch: "main" }]]);
+    });
+
+    it("closes the modal without invoking onTrigger when the user cancels", async () => {
+      const user = userEvent.setup();
+      const onTrigger = mock(() => Promise.resolve({}));
+      renderDetail(
+        stubWorkflow({
+          inputs: [{ name: "pr_number", required: true }],
+        }),
+        onTrigger,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /^run/i }));
+      expect(screen.getByRole("dialog")).toBeDefined();
+
+      await user.click(screen.getByRole("button", { name: /cancel/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
+      expect(onTrigger).not.toHaveBeenCalled();
     });
   });
 });
