@@ -105,6 +105,48 @@ describe("api client", () => {
     expect(result.status).toBe("running");
   });
 
+  it("posts the inputs map as JSON when supplied to triggerRun", async () => {
+    const seen: { body: string; contentType: string | null }[] = [];
+    server.use(
+      http.post("*/api/workflows/:name/runs", async ({ request, params }) => {
+        seen.push({
+          body: await request.text(),
+          contentType: request.headers.get("Content-Type"),
+        });
+        return HttpResponse.json(
+          { runId: `run-${String(params.name)}`, status: "running" },
+          { status: 202 },
+        );
+      }),
+    );
+
+    await triggerRun("pr-review", { pr_number: "42", owner: "kiri" });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].contentType).toBe("application/json");
+    expect(JSON.parse(seen[0].body)).toEqual({
+      inputs: { pr_number: "42", owner: "kiri" },
+    });
+  });
+
+  it("omits the body entirely when no inputs are passed", async () => {
+    const seen: { body: string }[] = [];
+    server.use(
+      http.post("*/api/workflows/:name/runs", async ({ request, params }) => {
+        seen.push({ body: await request.text() });
+        return HttpResponse.json(
+          { runId: `run-${String(params.name)}`, status: "running" },
+          { status: 202 },
+        );
+      }),
+    );
+
+    await triggerRun("no-inputs-workflow");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].body).toBe("");
+  });
+
   it("falls back to status text when the error body is not JSON", async () => {
     server.use(http.get("*/api/runs/:id", () => new HttpResponse("not json", { status: 503 })));
 

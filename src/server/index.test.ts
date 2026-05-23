@@ -124,6 +124,27 @@ describe("createApp", () => {
       // empty-collection ambiguity.
       expect("publish" in body[0]).toBe(false);
       expect("summarize" in body[0]).toBe(false);
+      expect("inputs" in body[0]).toBe(false);
+    });
+
+    it("projects the inputs array as-is when the workflow declares one", async () => {
+      const wf: WorkflowDefinition = {
+        name: "with-inputs",
+        inputs: [
+          { name: "pr_number", description: "PR to review", required: true },
+          { name: "branch", default: "main" },
+        ],
+        steps: [{ sh: "echo hi" }],
+      };
+      registry.replace(new Map([[wf.name, wf]]));
+
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/workflows");
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      expect(body[0].inputs).toEqual([
+        { name: "pr_number", description: "PR to review", required: true },
+        { name: "branch", default: "main" },
+      ]);
     });
 
     it("projects publish entries with title resolved from the schema fallback", async () => {

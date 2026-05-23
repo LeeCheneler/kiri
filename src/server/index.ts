@@ -98,6 +98,10 @@ const cacheControlFor = (path: string): string =>
 
 const summarizeWorkflow = (def: WorkflowDefinition) => ({
   name: def.name,
+  // The invoke modal renders one field per declared input; the field's
+  // metadata (description, required, default) lives on each entry.
+  // Absent when the workflow declares no `inputs:` block.
+  inputs: def.inputs,
   steps: def.steps,
   gating: def.gating,
   // Absence (no `publish:` / `summarize:` field, or `publish: []`) collapses
