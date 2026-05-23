@@ -172,7 +172,7 @@ export function InvokeModal({
                   onChange={(event) => handleChange(event.target.value)}
                   aria-describedby={helpId}
                   aria-required={input.required ? true : undefined}
-                  className="border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent"
+                  className="border border-rule bg-canvas py-2 pr-10 pl-3 font-mono text-sm text-ink outline-none focus-visible:border-accent"
                 >
                   {input.options.map((option) => (
                     <option key={option} value={option}>

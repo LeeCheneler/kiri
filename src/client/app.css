@@ -100,3 +100,15 @@
 dialog[open]::backdrop {
   animation: modal-backdrop-in 180ms ease-out;
 }
+
+/* Custom chevron for <select>: the user-agent chevron sits flush against
+   the right border with no breathing room. Replace with a muted-ink
+   chevron positioned 0.75rem off the right edge. Selects pair this with
+   `pr-10` so the selected value never runs under the chevron. */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%238b8579' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 0.75rem auto;
+}
