@@ -148,11 +148,20 @@ Safe — existing files are never overwritten; only the schema is refreshed.
 export const HELLO_WORLD_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
 
 name: Hello World
+
+inputs:
+  - name: name
+    description: Who to greet — try your name, or a project name.
+    required: true
+
 steps:
   - sh: |
-      echo "Hello from kiri."
+      echo "\${GREETING}, \${NAME}."
       echo "Edit workflows/hello-world.yaml or drop new workflows alongside it."
     description: A one-step workflow. Trigger it from the activity feed.
+    env:
+      GREETING: Hello
+      NAME: { input: name }
 `;
 
 /** Relative paths reported by `initRepo`. */
