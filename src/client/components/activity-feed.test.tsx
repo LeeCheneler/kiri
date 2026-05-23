@@ -22,6 +22,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   definitionSnapshot: { name: "kiri-self-review", steps: [] },
   gitSha: null,
   gitDirty: null,
+  inputs: null,
   isInterrupted: false,
   articles: [],
   ...overrides,

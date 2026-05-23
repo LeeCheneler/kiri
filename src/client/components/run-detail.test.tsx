@@ -21,6 +21,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   definitionSnapshot: { name: "kiri-self-review", steps: [{ sh: "echo hello, world" }] },
   gitSha: null,
   gitDirty: null,
+  inputs: null,
   isInterrupted: false,
   articles: [],
   ...overrides,
@@ -759,6 +760,64 @@ describe("<RunDetailView>", () => {
       expect(within(list).queryAllByText(/publishing/i)).toHaveLength(0);
       // step + summariser, no publishing rows.
       expect(within(list).queryAllByRole("listitem")).toHaveLength(2);
+    });
+  });
+
+  describe("inputs section", () => {
+    it("renders a name/value row per input with the section heading and count", () => {
+      renderDetail(
+        stubDetail({
+          inputs: { pr_number: "42", owner: "kiri", branch: "main" },
+        }),
+      );
+      const heading = screen.getByRole("heading", { level: 3, name: /^inputs$/i });
+      expect(heading).toBeDefined();
+      expect(screen.getByText(/^3 inputs$/)).toBeDefined();
+
+      const section = heading.closest("section");
+      expect(section).not.toBeNull();
+      const labels = within(section as HTMLElement)
+        .getAllByRole("term")
+        .map((el) => el.textContent);
+      const values = within(section as HTMLElement)
+        .getAllByRole("definition")
+        .map((el) => el.textContent);
+      expect(labels).toEqual(["pr_number", "owner", "branch"]);
+      expect(values).toEqual(["42", "kiri", "main"]);
+    });
+
+    it("uses the singular form for a single input", () => {
+      renderDetail(stubDetail({ inputs: { pr_number: "42" } }));
+      expect(screen.getByText(/^1 input$/)).toBeDefined();
+    });
+
+    it("renders values as plain text — HTML-like content is not interpreted", () => {
+      renderDetail(stubDetail({ inputs: { note: "<script>alert(1)</script>" } }));
+      const section = screen.getByRole("heading", { name: /^inputs$/i }).closest("section");
+      const value = within(section as HTMLElement).getByRole("definition");
+      expect(value.textContent).toBe("<script>alert(1)</script>");
+      // Defence-in-depth: nothing inside the value should have become a real
+      // element. React already escapes text children, but assert explicitly.
+      expect(value.querySelector("script")).toBeNull();
+    });
+
+    it("does not render the section when run.inputs is null", () => {
+      renderDetail(stubDetail({ inputs: null }));
+      expect(screen.queryByRole("heading", { name: /^inputs$/i })).toBeNull();
+    });
+
+    it("does not render the section when run.inputs is an empty object", () => {
+      renderDetail(stubDetail({ inputs: {} }));
+      expect(screen.queryByRole("heading", { name: /^inputs$/i })).toBeNull();
+    });
+
+    it("renders above the summary section when both are visible", () => {
+      renderDetail(stubDetail({ inputs: { pr_number: "42" }, summary: "Reviewed PR #42." }));
+      const inputs = screen.getByRole("heading", { name: /^inputs$/i });
+      const summary = screen.getByRole("heading", { name: /^summary$/i });
+      expect(inputs.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
     });
   });
 

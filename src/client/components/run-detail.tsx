@@ -128,6 +128,11 @@ const buildActivityItems = (run: RunListEntry, steps: RunStepRow[]): ActivityIte
  * level failures render above the activity list so they're not buried
  * in a disclosure.
  *
+ * When the run was invoked with inputs, the resolved snapshot renders
+ * as an Inputs section directly under the header — name/value pairs in
+ * a `<dl>` so values stay plain text. Hidden entirely when the run
+ * carried no inputs.
+ *
  * Everything the run intends to do — pipeline steps, publishes, the
  * summariser — appears as one ordered activity list. Declared
  * activities show as pending until the runner reaches them; running
@@ -265,6 +270,8 @@ export function RunDetailView({
           )}
         </div>
       </header>
+
+      {run.inputs && Object.keys(run.inputs).length > 0 && <InputsSection inputs={run.inputs} />}
 
       {run.summary && <RunSummaryBlock summary={run.summary} />}
 
@@ -535,6 +542,30 @@ function PublishedSection({
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function InputsSection({ inputs }: { inputs: Record<string, string> }) {
+  const entries = Object.entries(inputs);
+  return (
+    <section className="mt-12">
+      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
+        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Inputs</h3>
+        <span className="font-mono text-xs text-ink-muted tabular-nums">
+          {entries.length === 1 ? "1 input" : `${entries.length} inputs`}
+        </span>
+      </header>
+      <dl className="divide-y divide-rule">
+        {entries.map(([name, value]) => (
+          <div key={name} className="flex items-baseline gap-5 px-5 py-3">
+            <dt className="w-40 shrink-0 font-mono text-xs text-ink-muted">{name}</dt>
+            <dd className="min-w-0 flex-1 font-mono text-sm break-words whitespace-pre-wrap text-ink">
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

@@ -132,6 +132,13 @@ export interface RunListEntry {
    */
   gitSha: string | null;
   gitDirty: boolean | null;
+  /**
+   * Resolved input values captured at run-start. Null when the workflow
+   * declared no `inputs:` block; otherwise a `Record<string, string>` with
+   * one entry per declared input that resolved to a value (supplied at
+   * invoke, or via the input's `default`).
+   */
+  inputs: Record<string, string> | null;
   isInterrupted: boolean;
   articles: ArticleSummary[];
 }
