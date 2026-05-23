@@ -24,7 +24,7 @@ YAML files validated against a Zod schema. No custom DSL.
 
 ```yaml
 name: pr-review
-inputs:                    # optional, M7 — parameters collected at invocation
+inputs:                    # optional — parameters collected via a modal at invocation
   - name: pr_number
     description: The PR to review
     required: true
@@ -313,7 +313,7 @@ Non-goals to resist scope creep:
 
 Sequenced for fastest path to dogfooding, then layering capability outward. Each phase a usable artifact. Detailed work items per milestone live in `milestones.md`.
 
-**Shipped (M0 – M6):**
+**Shipped (M0 – M7):**
 
 1. **Spine** (M0). YAML-defined linear pipeline of script steps. Standard envelope, traces captured, run history persisted to SQLite via Drizzle. Feed UI renders run history.
 2. **Step schema migration** (M1). YAML moved to `steps:` with `use:` (bundle reference) or `sh:` (inline shell), plus per-step `env:` with precedence and reserved-namespace rules.
@@ -327,10 +327,10 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 10. **Configurable summariser** (M4). `PROMPT` / `PROMPT_FILE` / `MODEL` / `MAX_TURNS` env support on `claude-code-summarizer` with defaults preserved; `PROMPT` added to `claude-code` with precedence over `PROMPT_FILE`.
 11. **Cursor-based feed pagination** (M5). Infinite-scroll feed; live updates and cold-load cost decoupled from total run count.
 12. **Article publishing** (M6). `publish: [...]` array on workflows. Markdown articles stored in `articles`, surfaced as chips on the feed and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:name` pages via a sandboxed renderer.
+13. **Workflow inputs** (M7). `inputs:` block on workflows — named parameters collected via a modal on invoke, snapshotted onto the run, and injected into step `env:` via `{ input: <name> }` refs. One definition, many targets.
 
-**Next up (M7 onwards):**
+**Next up (M8 onwards):**
 
-13. **Workflow inputs** (M7). `inputs:` block on workflows — named parameters collected via a form at manual invocation and injected into every step's `env:`. One definition, many targets.
 14. **Todos + gating** (M8). `gating:` field, dedup keys, propose vs auto, right-rail UI.
 15. **Generic step meta** (M9). Deferred. The original design used a `KIRI_META_FILE` file channel for steps to emit cost/tokens/model; that wiring was retired without ever being read back. Re-introducing this needs both a transport and the UI promotion to feed-entry headers.
 16. **Polish** (M10). Feed filtering and scoping, global pause control with kill-in-flight modifier.
