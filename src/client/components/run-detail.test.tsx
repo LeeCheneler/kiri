@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import type { ArticleSummary, RunDetail, RunListEntry, RunStepRow } from "../api.ts";
+import type {
+  ArticleSummary,
+  RunDetail,
+  RunListEntry,
+  RunStepRow,
+  WorkflowInputSummary,
+} from "../api.ts";
 import { RunDetailView } from "./run-detail.tsx";
 
 afterEach(() => cleanup());
@@ -55,7 +62,8 @@ const renderDetail = (
   opts: {
     onCancel?: () => Promise<unknown>;
     onDelete?: () => Promise<unknown>;
-    onRerun?: () => Promise<unknown>;
+    onRerun?: (inputs?: Record<string, string>) => Promise<unknown>;
+    workflowInputs?: WorkflowInputSummary[];
   } = {},
 ) => {
   const { hook } = memoryLocation({ path: `/runs/${detail.run.id}` });
@@ -67,6 +75,7 @@ const renderDetail = (
         onCancel={opts.onCancel}
         onDelete={opts.onDelete}
         onRerun={opts.onRerun}
+        workflowInputs={opts.workflowInputs}
       />
     </Router>,
   );
@@ -490,6 +499,212 @@ describe("<RunDetailView>", () => {
       expect(alert.textContent).toContain('run "abc" is in flight; cancel it first');
       const button = screen.getByRole("button", { name: /run again/i });
       expect(button.hasAttribute("disabled")).toBe(false);
+    });
+
+    describe("with workflow inputs", () => {
+      const inputs: WorkflowInputSummary[] = [
+        { name: "pr_number", required: true },
+        { name: "branch", default: "main" },
+      ];
+
+      it("renders a warning in the modal that the prior attempt will be cleared", () => {
+        renderDetail(
+          stubDetail({
+            status: "ok",
+            inputs: { pr_number: "42", branch: "release" },
+          }),
+          {
+            onRerun: () => Promise.resolve({ runId: "run-1", status: "running" as const }),
+            workflowInputs: inputs,
+          },
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+        const dialog = screen.getByRole("dialog");
+        // Same wording as the no-inputs path's window.confirm so users see
+        // the same caveat regardless of which re-run path the workflow uses.
+        const note = within(dialog).getByRole("note");
+        expect(note.textContent).toContain(
+          "The previous attempt's steps and traces will be cleared.",
+        );
+      });
+
+      it("opens the invoke modal pre-filled from prior run.inputs when the workflow has inputs", async () => {
+        renderDetail(
+          stubDetail({
+            status: "ok",
+            inputs: { pr_number: "42", branch: "release" },
+          }),
+          {
+            onRerun: () => Promise.resolve({ runId: "run-1", status: "running" as const }),
+            workflowInputs: inputs,
+          },
+        );
+
+        // Clicking "run again" opens the modal instead of firing immediately.
+        fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+
+        const dialog = screen.getByRole("dialog");
+        expect(dialog).toBeDefined();
+        expect(
+          within(dialog).getByRole("heading", { level: 2, name: /run kiri-self-review/i }),
+        ).toBeDefined();
+        expect((within(dialog).getByLabelText(/pr_number/i) as HTMLInputElement).value).toBe("42");
+        expect((within(dialog).getByLabelText(/branch/i) as HTMLInputElement).value).toBe(
+          "release",
+        );
+      });
+
+      it("falls back to declared defaults for inputs added since the original run", () => {
+        renderDetail(
+          stubDetail({
+            status: "ok",
+            // Prior run only knew about pr_number; branch is new on the workflow.
+            inputs: { pr_number: "42" },
+          }),
+          {
+            onRerun: () => Promise.resolve({ runId: "run-1", status: "running" as const }),
+            workflowInputs: inputs,
+          },
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+        const dialog = screen.getByRole("dialog");
+        expect((within(dialog).getByLabelText(/pr_number/i) as HTMLInputElement).value).toBe("42");
+        // `branch` falls through to the workflow's declared default.
+        expect((within(dialog).getByLabelText(/branch/i) as HTMLInputElement).value).toBe("main");
+      });
+
+      it("silently drops prior values for inputs no longer declared on the workflow", () => {
+        renderDetail(
+          stubDetail({
+            status: "ok",
+            // Prior run had a `legacy` input that the workflow no longer declares.
+            inputs: { pr_number: "42", legacy: "obsolete" },
+          }),
+          {
+            onRerun: () => Promise.resolve({ runId: "run-1", status: "running" as const }),
+            workflowInputs: inputs,
+          },
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+        const dialog = screen.getByRole("dialog");
+        // Only the currently-declared fields are rendered; `legacy` doesn't appear.
+        expect(within(dialog).queryByLabelText(/legacy/i)).toBeNull();
+        expect((within(dialog).getByLabelText(/pr_number/i) as HTMLInputElement).value).toBe("42");
+      });
+
+      it("forwards the (possibly tweaked) values to onRerun on submit", async () => {
+        const seen: Array<Record<string, string> | undefined> = [];
+        const onRerun = (values?: Record<string, string>) => {
+          seen.push(values);
+          return Promise.resolve({ runId: "run-1", status: "running" as const });
+        };
+        renderDetail(
+          stubDetail({
+            status: "ok",
+            inputs: { pr_number: "42", branch: "release" },
+          }),
+          { onRerun, workflowInputs: inputs },
+        );
+
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: /run again/i }));
+        const dialog = screen.getByRole("dialog");
+        // Tweak just the required field; branch stays on the prior snapshot.
+        const pr = within(dialog).getByLabelText(/pr_number/i);
+        await user.clear(pr);
+        await user.type(pr, "99");
+        await user.click(within(dialog).getByRole("button", { name: /^run/i }));
+
+        expect(seen).toEqual([{ pr_number: "99", branch: "release" }]);
+      });
+
+      it("closes the modal when the user cancels without firing onRerun", async () => {
+        let calls = 0;
+        const onRerun = () => {
+          calls++;
+          return Promise.resolve({ runId: "run-1", status: "running" as const });
+        };
+        renderDetail(stubDetail({ status: "ok", inputs: { pr_number: "42", branch: "release" } }), {
+          onRerun,
+          workflowInputs: inputs,
+        });
+
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: /run again/i }));
+        const dialog = screen.getByRole("dialog");
+        await user.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+
+        expect(screen.queryByRole("dialog")).toBeNull();
+        expect(calls).toBe(0);
+      });
+
+      it("closes the modal after a successful submit", async () => {
+        const onRerun = () => Promise.resolve({ runId: "run-1", status: "running" as const });
+        renderDetail(
+          stubDetail({
+            status: "ok",
+            inputs: { pr_number: "42", branch: "release" },
+          }),
+          { onRerun, workflowInputs: inputs },
+        );
+
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: /run again/i }));
+        const dialog = screen.getByRole("dialog");
+        await user.click(within(dialog).getByRole("button", { name: /^run/i }));
+
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
+
+      it("surfaces the API error inside the modal so the user can retry without losing values", async () => {
+        const onRerun = () => Promise.reject(new Error("workflow no longer exists"));
+        renderDetail(
+          stubDetail({
+            status: "ok",
+            inputs: { pr_number: "42", branch: "release" },
+          }),
+          { onRerun, workflowInputs: inputs },
+        );
+
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: /run again/i }));
+        const dialog = screen.getByRole("dialog");
+        await user.click(within(dialog).getByRole("button", { name: /^run/i }));
+
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain("workflow no longer exists");
+        // Dialog stays open with the user's tweaks intact.
+        expect(screen.getByRole("dialog")).toBeDefined();
+        expect(
+          (within(screen.getByRole("dialog")).getByLabelText(/branch/i) as HTMLInputElement).value,
+        ).toBe("release");
+      });
+
+      it("keeps the bare confirm-then-fire path when workflowInputs is empty", async () => {
+        let calls = 0;
+        const onRerun = (values?: Record<string, string>) => {
+          calls++;
+          // No-inputs path: caller invokes without an args object.
+          expect(values).toBeUndefined();
+          return Promise.resolve({ runId: "run-1", status: "running" as const });
+        };
+        renderDetail(stubDetail({ status: "ok" }), {
+          onRerun,
+          workflowInputs: [],
+        });
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+          await flushMicrotasks();
+        });
+
+        // Modal is *not* opened on the no-inputs path.
+        expect(screen.queryByRole("dialog")).toBeNull();
+        expect(calls).toBe(1);
+      });
     });
   });
 

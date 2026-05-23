@@ -8,6 +8,19 @@ const triggerRun = async (request: APIRequestContext, name: string) => {
   return (await res.json()) as { runId: string };
 };
 
+const triggerRunWithInputs = async (
+  request: APIRequestContext,
+  name: string,
+  inputs: Record<string, string>,
+) => {
+  const res = await request.post(`/api/workflows/${name}/runs`, {
+    headers: { "X-Kiri-Client": "kiri-e2e", "Content-Type": "application/json" },
+    data: JSON.stringify({ inputs }),
+  });
+  expect(res.status()).toBe(202);
+  return (await res.json()) as { runId: string };
+};
+
 test("clicking 'run again' re-executes a terminal run under the same id and url", async ({
   page,
   request,
@@ -60,6 +73,45 @@ test("rerunning does not create a duplicate row on the dashboard feed", async ({
   const rows = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
   await expect(rows).toHaveCount(1);
   await expect(rows).toHaveAttribute("data-status", "ok");
+});
+
+test("re-running a workflow with inputs opens a pre-filled modal and forwards tweaks", async ({
+  page,
+  request,
+}) => {
+  // First attempt with one set of values.
+  const { runId } = await triggerRunWithInputs(request, "with-inputs", {
+    pr_number: "42",
+    branch: "release",
+  });
+  await page.goto(`/runs/${runId}`);
+  await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
+  const url = page.url();
+
+  // Click "run again" — the modal opens pre-filled from the prior snapshot.
+  await page.getByRole("button", { name: /run again/i }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel(/pr_number/i)).toHaveValue("42");
+  await expect(dialog.getByLabel(/branch/i)).toHaveValue("release");
+  // Warning text matches the bare path's confirm copy.
+  await expect(dialog.getByRole("note")).toContainText(
+    "The previous attempt's steps and traces will be cleared.",
+  );
+
+  // Tweak just the pr_number and submit.
+  await dialog.getByLabel(/pr_number/i).fill("99");
+  await dialog.getByRole("button", { name: /^run/i }).click();
+
+  // Same run id and url — in-place rerun. Modal closes once accepted.
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
+  expect(page.url()).toBe(url);
+
+  // The step echoes the resolved env — confirm the tweaked value flowed through.
+  const step = page.getByRole("button", { name: /sh:/i });
+  await step.click();
+  await expect(page.getByText("pr=99 branch=release", { exact: true })).toBeVisible();
 });
 
 test("'run again' is hidden while a run is still in flight", async ({ page, request }) => {

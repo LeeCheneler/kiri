@@ -6,9 +6,11 @@ import type {
   RunDetail,
   RunListEntry,
   RunStepRow,
+  WorkflowInputSummary,
   WorkflowStepSummary,
 } from "../api.ts";
 import { formatDuration, formatDurationMs, formatRelativeTime } from "../formatters/format-time.ts";
+import { InvokeModal } from "./invoke-modal.tsx";
 import { Markdown } from "./markdown.tsx";
 
 type StatusKind = "pending" | "running" | "ok" | "failed" | "cancelled" | "interrupted";
@@ -159,6 +161,14 @@ const buildActivityItems = (run: RunListEntry, steps: RunStepRow[]): ActivityIte
  * when the run is interrupted (workflow no longer in the registry).
  * The handler resolves once the run flips back to `running` and rejects
  * with the server error otherwise.
+ *
+ * `workflowInputs`, when supplied with at least one entry, switches the
+ * re-run path through the `InvokeModal` pre-filled from the prior run's
+ * snapshotted `run.inputs` (falling back to each input's declared
+ * `default` for newly added entries; entries no longer declared are
+ * silently dropped). `onRerun` then receives the (possibly tweaked)
+ * values map. Workflows without declared inputs keep today's bare
+ * confirm-then-fire path.
  */
 export function RunDetailView({
   detail,
@@ -166,12 +176,14 @@ export function RunDetailView({
   onCancel,
   onDelete,
   onRerun,
+  workflowInputs,
 }: {
   detail: RunDetail;
   now?: Date;
   onCancel?: () => Promise<unknown>;
   onDelete?: () => Promise<unknown>;
-  onRerun?: () => Promise<unknown>;
+  onRerun?: (inputs?: Record<string, string>) => Promise<unknown>;
+  workflowInputs?: WorkflowInputSummary[];
 }) {
   const { run, steps } = detail;
   const { articles } = run;
@@ -264,7 +276,15 @@ export function RunDetailView({
             onCancel && <CancelButton onCancel={onCancel} />
           ) : (
             <div className="flex shrink-0 items-start gap-2">
-              {onRerun && <RerunButton onRerun={onRerun} interrupted={run.isInterrupted} />}
+              {onRerun && (
+                <RerunButton
+                  onRerun={onRerun}
+                  interrupted={run.isInterrupted}
+                  workflowName={run.workflowName}
+                  workflowInputs={workflowInputs}
+                  priorInputs={run.inputs}
+                />
+              )}
               {onDelete && <DeleteButton onDelete={onDelete} />}
             </div>
           )}
@@ -322,15 +342,31 @@ function CancelButton({ onCancel }: { onCancel: () => Promise<unknown> }) {
 function RerunButton({
   onRerun,
   interrupted,
+  workflowName,
+  workflowInputs,
+  priorInputs,
 }: {
-  onRerun: () => Promise<unknown>;
+  onRerun: (inputs?: Record<string, string>) => Promise<unknown>;
   interrupted: boolean;
+  workflowName: string;
+  workflowInputs?: WorkflowInputSummary[];
+  priorInputs: Record<string, string> | null;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const hasInputs = (workflowInputs?.length ?? 0) > 0;
 
   const handleClick = async () => {
     if (interrupted) return;
+    if (hasInputs) {
+      // Modal is the confirmation gesture for the inputs path — user has
+      // to fill the form and click submit. No window.confirm gate here.
+      setError(null);
+      setModalOpen(true);
+      return;
+    }
     setError(null);
     setPending(true);
     try {
@@ -340,6 +376,13 @@ function RerunButton({
     } finally {
       setPending(false);
     }
+  };
+
+  const handleModalSubmit = async (values: Record<string, string>) => {
+    // Successful rerun closes the dialog; a rejection propagates to the
+    // modal's inline error UI so the user can retry without losing values.
+    await onRerun(values);
+    setModalOpen(false);
   };
 
   return (
@@ -357,6 +400,16 @@ function RerunButton({
         <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">
           {error}
         </p>
+      )}
+      {modalOpen && workflowInputs && (
+        <InvokeModal
+          workflowName={workflowName}
+          inputs={workflowInputs}
+          initialValues={priorInputs ?? undefined}
+          notice="The previous attempt's steps and traces will be cleared."
+          onSubmit={handleModalSubmit}
+          onCancel={() => setModalOpen(false)}
+        />
       )}
     </div>
   );

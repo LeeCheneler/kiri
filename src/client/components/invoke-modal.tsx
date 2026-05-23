@@ -7,6 +7,16 @@ import type { WorkflowInputSummary } from "../api.ts";
  * input's name, help text is the description (when present), required
  * inputs are marked, and `default` pre-fills the field at open time.
  *
+ * `initialValues`, when supplied, overrides the per-input default on a
+ * key-by-key basis (the re-run flow uses this to pre-fill from a prior
+ * run's snapshotted inputs). Keys not present in the map still fall
+ * back to the input's `default`, so callers can hand a partial map.
+ *
+ * `notice`, when supplied, renders a short caution line under the
+ * heading — the re-run flow uses this to warn that the prior attempt's
+ * steps and traces will be cleared, mirroring the bare path's confirm
+ * prompt.
+ *
  * Submit is gated until every required input is non-empty. On submit
  * the dialog calls `onSubmit(values)` and stays mounted while the run
  * is in flight; the caller (the workflow page) closes the dialog by
@@ -22,21 +32,25 @@ import type { WorkflowInputSummary } from "../api.ts";
 export function InvokeModal({
   workflowName,
   inputs,
+  initialValues: initialOverrides,
+  notice,
   onSubmit,
   onCancel,
 }: {
   workflowName: string;
   inputs: WorkflowInputSummary[];
+  initialValues?: Record<string, string>;
+  notice?: string;
   onSubmit: (values: Record<string, string>) => Promise<unknown>;
   onCancel: () => void;
 }) {
   const initialValues = useMemo(() => {
     const map: Record<string, string> = {};
     for (const input of inputs) {
-      map[input.name] = input.default ?? "";
+      map[input.name] = initialOverrides?.[input.name] ?? input.default ?? "";
     }
     return map;
-  }, [inputs]);
+  }, [inputs, initialOverrides]);
 
   const [values, setValues] = useState<Record<string, string>>(initialValues);
   const [state, setState] = useState<"idle" | "submitting">("idle");
@@ -93,11 +107,23 @@ export function InvokeModal({
       // what natively centers an open <dialog>; restore it explicitly. The
       // entrance keyframe lives in app.css alongside the backdrop one — both
       // play once when `showModal()` adds the `open` attribute on mount.
-      className="m-auto w-full max-w-md animate-[modal-in_180ms_ease-out] border border-rule bg-paper p-6 text-ink shadow-xl backdrop:bg-canvas/80"
+      // `text-left` anchors content alignment so the dialog is unaffected
+      // by any `text-right` (or RTL) inherited from the mount point's
+      // ancestors — the dialog opens in the top layer visually but stays
+      // a DOM child where it's rendered, and `text-align` inherits.
+      className="m-auto w-full max-w-md animate-[modal-in_180ms_ease-out] border border-rule bg-paper p-6 text-left text-ink shadow-xl backdrop:bg-canvas/80"
     >
       <h2 id={headingId} className="font-display text-2xl text-ink leading-tight">
         run {workflowName}
       </h2>
+      {notice && (
+        <p
+          role="note"
+          className="mt-3 border-l-2 border-status-failed py-1 pl-3 font-mono text-xs text-ink-muted normal-case"
+        >
+          {notice}
+        </p>
+      )}
       <form
         onSubmit={(event) => {
           event.preventDefault();

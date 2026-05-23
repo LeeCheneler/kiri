@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ApiError, type RunDetail, cancelRun, deleteRun, fetchRun, rerunRun } from "../api.ts";
+import {
+  ApiError,
+  type RunDetail,
+  type WorkflowInputSummary,
+  cancelRun,
+  deleteRun,
+  fetchRun,
+  fetchWorkflows,
+  rerunRun,
+} from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
 import { useLiveSync } from "../events/live.tsx";
 
@@ -16,31 +25,46 @@ type State =
  * detail view. Owns only the fetch states; the populated case delegates
  * to `<RunDetailView>`. Refetches whenever a run/step event for the
  * matching id fires so step transitions surface live without reload.
+ *
+ * Also resolves the run's *current* workflow definition from the
+ * registry so the re-run path knows whether to pre-fill the invoke
+ * modal. Both fetches are issued in parallel and joined before the
+ * "ready" state flips, so the modal-armed signal arrives with the
+ * rest of the page. A workflow registry fetch failure is swallowed —
+ * the run renders without the modal-aware re-run.
  */
 export function RunPage({ params }: { params: { id: string } }) {
   const [state, setState] = useState<State>({ status: "loading" });
+  const [workflowInputs, setWorkflowInputs] = useState<WorkflowInputSummary[] | undefined>(
+    undefined,
+  );
   const [, navigate] = useLocation();
   const tokenRef = useRef(0);
 
   const refetch = useCallback(() => {
     const token = ++tokenRef.current;
-    fetchRun(params.id)
-      .then((detail) => {
-        if (tokenRef.current !== token) return;
-        setState({ status: "ready", detail });
-      })
-      .catch((err: Error) => {
-        if (tokenRef.current !== token) return;
+    Promise.allSettled([fetchRun(params.id), fetchWorkflows()]).then(([runResult, wfResult]) => {
+      if (tokenRef.current !== token) return;
+      if (runResult.status === "rejected") {
+        const err = runResult.reason as Error;
         if (err instanceof ApiError && err.status === 404) {
           setState({ status: "not-found" });
         } else {
           setState({ status: "error", message: err.message });
         }
-      });
+        return;
+      }
+      const detail = runResult.value;
+      const workflows = wfResult.status === "fulfilled" ? wfResult.value : [];
+      const wf = workflows.find((w) => w.name === detail.run.workflowName);
+      setWorkflowInputs(wf?.inputs);
+      setState({ status: "ready", detail });
+    });
   }, [params.id]);
 
   useEffect(() => {
     setState({ status: "loading" });
+    setWorkflowInputs(undefined);
     refetch();
     return () => {
       tokenRef.current++;
@@ -51,6 +75,12 @@ export function RunPage({ params }: { params: { id: string } }) {
     on: ["run.updated", "run.step.updated", "run.finished"],
     filter: (event) =>
       event.type === "run.step.updated" ? event.runId === params.id : event.id === params.id,
+    refetch,
+  });
+
+  useLiveSync({
+    on: ["workflow.updated", "workflow.removed"],
+    filter: (event) => state.status === "ready" && event.name === state.detail.run.workflowName,
     refetch,
   });
 
@@ -93,10 +123,16 @@ export function RunPage({ params }: { params: { id: string } }) {
     navigate("/");
   };
 
-  const handleRerun = async () => {
-    if (!window.confirm("Run again? The previous attempt's steps and traces will be cleared."))
-      return;
-    await rerunRun(params.id);
+  const handleRerun = async (inputs?: Record<string, string>) => {
+    // The modal is the confirmation gesture when inputs are involved —
+    // the user has filled the form and pressed Run. The bare path keeps
+    // the explicit window.confirm so an accidental click doesn't wipe a
+    // prior attempt without warning.
+    if (inputs === undefined) {
+      if (!window.confirm("Run again? The previous attempt's steps and traces will be cleared."))
+        return;
+    }
+    await rerunRun(params.id, inputs);
   };
 
   return (
@@ -105,6 +141,7 @@ export function RunPage({ params }: { params: { id: string } }) {
       onCancel={() => cancelRun(params.id)}
       onDelete={handleDelete}
       onRerun={handleRerun}
+      workflowInputs={workflowInputs}
     />
   );
 }

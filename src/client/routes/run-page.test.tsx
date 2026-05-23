@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -378,19 +379,23 @@ describe("<RunPage>", () => {
       window.confirm = originalConfirm;
     });
 
-    const terminalRunPayload = (id: string) => ({
+    const terminalRunPayload = (
+      id: string,
+      runOverrides: { workflowName?: string; inputs?: Record<string, string> | null } = {},
+    ) => ({
       run: {
         id,
-        workflowName: "done",
+        workflowName: runOverrides.workflowName ?? "done",
         status: "failed",
         trigger: "manual",
         startedAt: "2026-05-09T12:00:00.000Z",
         finishedAt: "2026-05-09T12:00:01.000Z",
         error: { message: "first attempt failed" },
         summary: null,
-        definitionSnapshot: { name: "done", steps: [] },
+        definitionSnapshot: { name: runOverrides.workflowName ?? "done", steps: [] },
         isInterrupted: false,
         articles: [],
+        inputs: runOverrides.inputs ?? null,
       },
       steps: [],
     });
@@ -487,6 +492,109 @@ describe("<RunPage>", () => {
       // query the rerun-button's inline error by text rather than role.
       await screen.findByText(/run "abc" is in flight; cancel it first/i);
       expect(history[history.length - 1]).toBe("/runs/abc");
+    });
+
+    describe("with workflow inputs", () => {
+      // The registry handler returns a workflow declaring an `inputs:` block
+      // so the run-page resolves it and switches the re-run path through the
+      // modal. The prior run snapshot has `pr_number` + `branch` set; the
+      // modal should pre-fill from them.
+      const useInputsRegistry = () => {
+        server.use(
+          http.get("*/api/workflows", () =>
+            HttpResponse.json([
+              {
+                name: "with-inputs",
+                inputs: [
+                  { name: "pr_number", required: true },
+                  { name: "branch", default: "main" },
+                ],
+                steps: [{ sh: "echo hi" }],
+              },
+            ]),
+          ),
+        );
+      };
+
+      it("opens the modal pre-filled and POSTs the values to /rerun on submit", async () => {
+        const rerunCalls: { id: string; body: string }[] = [];
+        useInputsRegistry();
+        server.use(
+          http.get("*/api/runs/:id", ({ params }) =>
+            HttpResponse.json(
+              terminalRunPayload(String(params.id), {
+                workflowName: "with-inputs",
+                inputs: { pr_number: "42", branch: "release" },
+              }),
+            ),
+          ),
+          http.post("*/api/runs/:id/rerun", async ({ request, params }) => {
+            rerunCalls.push({ id: String(params.id), body: await request.text() });
+            return HttpResponse.json(
+              { runId: String(params.id), status: "running" },
+              { status: 202 },
+            );
+          }),
+        );
+
+        const { history } = renderRunWithHistory("abc");
+
+        const user = userEvent.setup();
+        const trigger = await screen.findByRole("button", { name: /run again/i });
+        // Modal-aware path doesn't gate on window.confirm — pre-program it to
+        // false to prove the click still opens the modal.
+        stubConfirm(false);
+        await user.click(trigger);
+
+        const dialog = await screen.findByRole("dialog");
+        expect((within(dialog).getByLabelText(/pr_number/i) as HTMLInputElement).value).toBe("42");
+        expect((within(dialog).getByLabelText(/branch/i) as HTMLInputElement).value).toBe(
+          "release",
+        );
+
+        const pr = within(dialog).getByLabelText(/pr_number/i);
+        await user.clear(pr);
+        await user.type(pr, "99");
+        await user.click(within(dialog).getByRole("button", { name: /^run/i }));
+
+        expect(rerunCalls).toHaveLength(1);
+        expect(rerunCalls[0].id).toBe("abc");
+        expect(JSON.parse(rerunCalls[0].body)).toEqual({
+          inputs: { pr_number: "99", branch: "release" },
+        });
+        // Rerun keeps the user on the run page — no navigation.
+        expect(history[history.length - 1]).toBe("/runs/abc");
+      });
+
+      it("does not call window.confirm on the inputs path", async () => {
+        let confirmCalls = 0;
+        window.confirm = () => {
+          confirmCalls++;
+          return false;
+        };
+
+        useInputsRegistry();
+        server.use(
+          http.get("*/api/runs/:id", ({ params }) =>
+            HttpResponse.json(
+              terminalRunPayload(String(params.id), {
+                workflowName: "with-inputs",
+                inputs: { pr_number: "42" },
+              }),
+            ),
+          ),
+          http.post("*/api/runs/:id/rerun", ({ params }) =>
+            HttpResponse.json({ runId: String(params.id), status: "running" }, { status: 202 }),
+          ),
+        );
+
+        renderRunWithHistory("abc");
+        const user = userEvent.setup();
+        const trigger = await screen.findByRole("button", { name: /run again/i });
+        await user.click(trigger);
+        await screen.findByRole("dialog");
+        expect(confirmCalls).toBe(0);
+      });
     });
   });
 

@@ -15,6 +15,8 @@ const renderModal = (
   props: Partial<{
     workflowName: string;
     inputs: WorkflowInputSummary[];
+    initialValues: Record<string, string>;
+    notice: string;
     onSubmit: (values: Record<string, string>) => Promise<unknown>;
     onCancel: () => void;
   }> = {},
@@ -23,6 +25,8 @@ const renderModal = (
     <InvokeModal
       workflowName={props.workflowName ?? "pr-review"}
       inputs={props.inputs ?? stubInputs()}
+      initialValues={props.initialValues}
+      notice={props.notice}
       onSubmit={props.onSubmit ?? (() => Promise.resolve({}))}
       onCancel={props.onCancel ?? (() => {})}
     />,
@@ -91,6 +95,42 @@ describe("<InvokeModal>", () => {
     it("leaves fields without a default empty", () => {
       renderModal({ inputs: [{ name: "pr_number", required: true }] });
       expect((screen.getByLabelText(/pr_number/i) as HTMLInputElement).value).toBe("");
+    });
+
+    it("uses initialValues to override per-input defaults when supplied", () => {
+      renderModal({
+        inputs: [
+          { name: "pr_number", required: true },
+          { name: "branch", default: "main" },
+        ],
+        initialValues: { pr_number: "42", branch: "release" },
+      });
+      expect((screen.getByLabelText(/pr_number/i) as HTMLInputElement).value).toBe("42");
+      expect((screen.getByLabelText(/branch/i) as HTMLInputElement).value).toBe("release");
+    });
+
+    it("falls back to the per-input default for keys missing from initialValues", () => {
+      renderModal({
+        inputs: [
+          { name: "pr_number", required: true },
+          { name: "branch", default: "main" },
+        ],
+        // Only `pr_number` is overridden; `branch` keeps its declared default.
+        initialValues: { pr_number: "42" },
+      });
+      expect((screen.getByLabelText(/pr_number/i) as HTMLInputElement).value).toBe("42");
+      expect((screen.getByLabelText(/branch/i) as HTMLInputElement).value).toBe("main");
+    });
+
+    it("renders the notice line when supplied", () => {
+      renderModal({ notice: "The previous attempt's steps and traces will be cleared." });
+      const note = screen.getByRole("note");
+      expect(note.textContent).toBe("The previous attempt's steps and traces will be cleared.");
+    });
+
+    it("omits the notice line when not supplied", () => {
+      renderModal();
+      expect(screen.queryByRole("note")).toBeNull();
     });
   });
 
