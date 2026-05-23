@@ -369,14 +369,24 @@ export const deleteRun = async (id: string): Promise<void> => {
  * prior step rows, articles, and scratch dir, then re-executes the
  * workflow against the current registry + data-repo HEAD. Resolves the
  * moment the row flips back to `"running"`; terminal transitions arrive
- * on the SSE event stream. Throws `ApiError` on non-2xx — 404 if the run
- * doesn't exist, 409 if it's still in flight or its workflow has been
- * deleted from the registry.
+ * on the SSE event stream. Pass `inputs` to supply values for a workflow
+ * declaring an `inputs:` block — the rerun modal pre-fills from the prior
+ * run's snapshot and forwards the (possibly tweaked) map verbatim. Omit
+ * for workflows without declared inputs. Throws `ApiError` on non-2xx —
+ * 404 if the run doesn't exist, 409 if it's still in flight or its
+ * workflow has been deleted from the registry.
  */
-export const rerunRun = async (id: string): Promise<RunStartResult> =>
-  json<RunStartResult>(
-    await apiFetch(`/api/runs/${encodeURIComponent(id)}/rerun`, { method: "POST" }),
-  );
+export const rerunRun = async (
+  id: string,
+  inputs?: Record<string, string>,
+): Promise<RunStartResult> => {
+  const init: RequestInit = { method: "POST" };
+  if (inputs !== undefined) {
+    init.body = JSON.stringify({ inputs });
+    init.headers = { "Content-Type": "application/json" };
+  }
+  return json<RunStartResult>(await apiFetch(`/api/runs/${encodeURIComponent(id)}/rerun`, init));
+};
 
 /**
  * The version string this kiri process advertises. Injected at release-time

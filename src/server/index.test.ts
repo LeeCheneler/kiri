@@ -1813,6 +1813,162 @@ describe("createApp", () => {
       expect(errors.some((line) => String(line).includes("crashed"))).toBe(true);
     });
 
+    describe("inputs validation", () => {
+      const writePassthroughBundle = () =>
+        writeBundle("echo-env", '#!/bin/sh\necho "pr=$PR_NUMBER owner=$OWNER branch=$BRANCH"\n');
+
+      const inputsWorkflow: WorkflowDefinition = {
+        name: "with-inputs",
+        inputs: [
+          { name: "pr_number", required: true },
+          { name: "owner" },
+          { name: "branch", default: "main" },
+        ],
+        steps: [
+          {
+            use: "echo-env",
+            env: {
+              PR_NUMBER: { input: "pr_number" },
+              OWNER: { input: "owner" },
+              BRANCH: { input: "branch" },
+            },
+          },
+        ],
+      };
+
+      const noInputsWorkflow: WorkflowDefinition = {
+        name: "no-inputs-rerun",
+        steps: [{ use: "echo-env" }],
+      };
+
+      it("accepts a payload and snapshots the resolved values onto the rerun", async () => {
+        const id = "to-rerun-with-inputs";
+        writePassthroughBundle();
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        seedTerminalRun(id, { workflowName: inputsWorkflow.name });
+
+        const { bus, waitForFinished } = setupRunWaiter();
+        const app = createApp({ db, registry, cwd, bus });
+        const res = await app.request(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: "42", owner: "kiri" } }),
+        });
+        expect(res.status).toBe(202);
+        await waitForFinished(id);
+
+        const run = db.select().from(runs).where(eq(runs.id, id)).get();
+        // Resolved snapshot reflects the rerun payload (supplied + default-applied),
+        // not the prior attempt's values.
+        expect(run?.inputs).toEqual({ pr_number: "42", owner: "kiri", branch: "main" });
+        expect(run?.status).toBe("ok");
+      });
+
+      it("returns 400 when a required input is missing", async () => {
+        const id = "rerun-missing-required";
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        seedTerminalRun(id, { workflowName: inputsWorkflow.name });
+
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { owner: "kiri" } }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: 'input "pr_number" is required' });
+
+        // Validation rejects before the cascade — prior step rows + articles
+        // are still intact for retry.
+        expect(db.select().from(runSteps).where(eq(runSteps.runId, id)).all()).toHaveLength(1);
+        expect(db.select().from(articles).where(eq(articles.runId, id)).all()).toHaveLength(1);
+      });
+
+      it("returns 400 when the payload contains an unknown key", async () => {
+        const id = "rerun-unknown-key";
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        seedTerminalRun(id, { workflowName: inputsWorkflow.name });
+
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: "42", surprise: "x" } }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: 'unknown input "surprise"' });
+      });
+
+      it("returns 400 when an input value is not a string", async () => {
+        const id = "rerun-non-string";
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        seedTerminalRun(id, { workflowName: inputsWorkflow.name });
+
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: 42 } }),
+        });
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { error: string };
+        expect(body.error).toBeTruthy();
+      });
+
+      it("returns 400 when the body is malformed JSON", async () => {
+        const id = "rerun-bad-json";
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        seedTerminalRun(id, { workflowName: inputsWorkflow.name });
+
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: "{ not json",
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: "invalid JSON body" });
+      });
+
+      it("returns 400 when a no-inputs workflow receives a non-empty payload", async () => {
+        const id = "rerun-no-inputs-with-payload";
+        writePassthroughBundle();
+        registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
+        seedTerminalRun(id, { workflowName: noInputsWorkflow.name });
+
+        const app = createApp({ db, registry, cwd });
+        const res = await app.request(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { pr_number: "42" } }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({
+          error: `workflow "${noInputsWorkflow.name}" declares no inputs; received: pr_number`,
+        });
+      });
+
+      it("reruns a no-inputs workflow with no body, preserving current behaviour", async () => {
+        const id = "rerun-no-inputs-no-body";
+        writePassthroughBundle();
+        registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
+        seedTerminalRun(id, { workflowName: noInputsWorkflow.name });
+
+        const { bus, waitForFinished } = setupRunWaiter();
+        const app = createApp({ db, registry, cwd, bus });
+        const res = await app.request(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: CLIENT_HEADERS,
+        });
+        expect(res.status).toBe(202);
+        await waitForFinished(id);
+
+        const run = db.select().from(runs).where(eq(runs.id, id)).get();
+        expect(run?.inputs).toBeNull();
+        expect(run?.status).toBe("ok");
+      });
+    });
+
     it("wipes prior steps + articles + scratch dir and re-runs under the same id", async () => {
       const id = "to-rerun";
       writeBundle("hi", "#!/bin/sh\necho fresh\n");

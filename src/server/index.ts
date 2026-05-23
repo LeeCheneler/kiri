@@ -282,7 +282,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.body(null, 204);
   });
 
-  app.post("/api/runs/:id/rerun", (c) => {
+  app.post("/api/runs/:id/rerun", async (c) => {
     const id = c.req.param("id");
     const run = db.select().from(runs).where(eq(runs.id, id)).get();
     if (!run) return c.json({ error: `run "${id}" not found` }, 404);
@@ -296,6 +296,27 @@ export function createApp(deps: AppDeps): Hono {
         409,
       );
     }
+
+    // Same optional-body contract as `POST /api/workflows/:name/runs`: empty
+    // body preserves today's no-inputs path; a JSON object is validated
+    // against the *current* workflow (the same one the rerun will execute).
+    const raw = await c.req.text();
+    let parsedBody: unknown = {};
+    if (raw.length > 0) {
+      try {
+        parsedBody = JSON.parse(raw);
+      } catch {
+        return c.json({ error: "invalid JSON body" }, 400);
+      }
+    }
+    const shape = invokeBodySchema.safeParse(parsedBody);
+    if (!shape.success) {
+      return c.json({ error: shape.error.issues[0]?.message ?? "invalid body" }, 400);
+    }
+    const inputs = shape.data.inputs ?? {};
+    const check = validateInputs(wf, inputs);
+    if (!check.ok) return c.json({ error: check.error }, 400);
+
     // Cascade-wipe articles + step rows (mirrors the delete path, minus
     // the final `runs` delete) so the rerun starts with a clean slate
     // under the same run id. Scratch dir is removed too — normally already
@@ -311,6 +332,7 @@ export function createApp(deps: AppDeps): Hono {
       bus,
       cancelRegistry,
       runId: id,
+      inputs,
     });
     done.catch((cause) => {
       console.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);

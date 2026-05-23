@@ -269,6 +269,42 @@ describe("api client", () => {
     expect(seen).toEqual([{ method: "POST", header: "kiri-ui", id: "abc-123" }]);
   });
 
+  it("posts the inputs map as JSON when supplied to rerunRun", async () => {
+    const seen: { body: string; contentType: string | null }[] = [];
+    server.use(
+      http.post("*/api/runs/:id/rerun", async ({ request, params }) => {
+        seen.push({
+          body: await request.text(),
+          contentType: request.headers.get("Content-Type"),
+        });
+        return HttpResponse.json({ runId: String(params.id), status: "running" }, { status: 202 });
+      }),
+    );
+
+    await rerunRun("abc-123", { pr_number: "42", owner: "kiri" });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].contentType).toBe("application/json");
+    expect(JSON.parse(seen[0].body)).toEqual({
+      inputs: { pr_number: "42", owner: "kiri" },
+    });
+  });
+
+  it("omits the body entirely when rerunRun is called without inputs", async () => {
+    const seen: { body: string }[] = [];
+    server.use(
+      http.post("*/api/runs/:id/rerun", async ({ request, params }) => {
+        seen.push({ body: await request.text() });
+        return HttpResponse.json({ runId: String(params.id), status: "running" }, { status: 202 });
+      }),
+    );
+
+    await rerunRun("abc-123");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].body).toBe("");
+  });
+
   it("throws an ApiError carrying 409 when rerun races an in-flight run", async () => {
     server.use(
       http.post("*/api/runs/:id/rerun", () =>
