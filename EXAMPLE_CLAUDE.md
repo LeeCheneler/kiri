@@ -42,11 +42,20 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
 name: My Workflow            # required, unique across workflows/
 gating: auto                 # optional: "auto" | "propose" (M8 — not wired yet)
 
+inputs:                      # optional — parameters collected via a modal at invoke
+  - name: pr_number          # identifier referenced from a step's env (`{ input: pr_number }`)
+    description: "..."       # optional, shown as help text next to the field
+    required: true           # optional; required inputs gate the modal's submit
+  - name: branch
+    default: main            # optional, pre-fills the modal field
+
 steps:                       # required, ≥1
   - use: <bundle-name>       # references scripts/<bundle-name>/run.sh
     description: "..."       # optional, surfaced in UI
-    env:                     # optional, flat string→string map
+    env:                     # optional, flat key→value map (value is string or `{ input: <name> }`)
       KEY: "value"
+      PR_NUMBER:
+        input: pr_number     # resolved at spawn from the run's `inputs` snapshot
 
   - sh: |                    # OR inline shell — sugar for one-shots
       set -eu
@@ -80,9 +89,20 @@ Mixing `use:` and `sh:` on the same step is a schema error.
 
 ### `env:` rules
 
-- Flat `string → string` map. **All values must be strings.** Numbers/booleans must be quoted: `MAX_TURNS: "50"`, not `MAX_TURNS: 50`.
+- Flat `key → value` map. Each value is **either** a literal string **or** a structured `{ input: <name> }` reference to a declared workflow input.
+- **String values must be strings.** Numbers/booleans must be quoted: `MAX_TURNS: "50"`, not `MAX_TURNS: 50`.
+- `{ input: <name> }` refs point at the workflow's `inputs:` block — unknown names are caught at load time. The runner resolves each ref at spawn from the run's snapshotted `inputs`; refs to inputs that weren't supplied and have no default fail the spawn.
 - Keys starting with `KIRI_` are **rejected at load time**. That namespace is reserved.
 - User env is applied **first**, then `PATH`, `HOME`, `USER`, `LOGNAME` from the kiri parent process, then `KIRI_*` overlays. A workflow can't shadow `PATH` or `KIRI_RUN_ID`.
+
+### `inputs:` rules
+
+- Optional. Declares **named parameters collected via a modal** at invoke time. A workflow with no `inputs:` runs immediately on click, exactly as today; one with `inputs:` opens the modal first.
+- Each entry is `{ name, description?, required?, default? }`. **Values are strings** — env vars are strings anyway.
+- `name` must match `^[a-z_][a-z0-9_]*$` and is unique within the workflow.
+- `required: true` gates the modal's submit until the field is non-empty. `default` pre-fills the field at open.
+- Wire an input into a step / publish / summarise `env:` with `{ input: <name> }`. No string interpolation, no templating — keep the YAML pure data.
+- The resolved input map is snapshotted onto the run's row, so the feed shows what a run was invoked with and a future re-run can pre-fill from the same snapshot.
 
 ### `publish:` rules
 
@@ -291,7 +311,7 @@ printf 'processed %s for %s\n' "$TARGET" "$input"
 
 ## Invoking a workflow
 
-- **Manual** — click *Run* in the UI on `https://local.kiri.build` (or `http://localhost:4242`).
+- **Manual** — click *Run* in the UI on `https://local.kiri.build` (or `http://localhost:4242`). Workflows with `inputs:` open a modal first (one field per declared input, defaults pre-filled, required inputs gate submit); workflows without `inputs:` invoke on a single click.
 - **Re-run** — an existing run can be re-triggered in place from its run detail page.
 
 There is no cron, file watch, webhook, or inbox polling. For polling shapes, write a workflow whose first step does the poll and run it when you want it.
@@ -391,7 +411,33 @@ steps:
       MAX_TURNS: "1"
 ```
 
-### 4. Multi-publish workflow
+### 4. Parameterised workflow with `inputs:`
+
+```yaml
+# workflows/pr-review.yaml
+name: PR Review
+inputs:
+  - name: pr_number
+    description: GitHub PR to review (number, not URL)
+    required: true
+  - name: owner
+    default: LeeCheneler
+steps:
+  - sh: gh pr view "$PR_NUMBER" --repo "$OWNER/kiri" --json title,body,files
+    env:
+      PR_NUMBER:
+        input: pr_number
+      OWNER:
+        input: owner
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/pr-review.tpl
+      MODEL: sonnet
+```
+
+Clicking *Run* on this workflow opens a modal with two text fields: `pr_number` (required, blank) and `owner` (pre-filled with the default). The runner snapshots the submitted values onto the run's row before spawning step 0, where the `{ input: <name> }` refs in `env:` resolve to the snapshotted values.
+
+### 5. Multi-publish workflow
 
 ```yaml
 name: Daily Briefing
@@ -419,7 +465,7 @@ summarize:
 
 The `full` publish step's `articles` array in the context file already contains the `summary` article — useful if you want one publish to build on another.
 
-### 5. Custom bundle with a typed env contract
+### 6. Custom bundle with a typed env contract
 
 ```
 scripts/post-to-slack/

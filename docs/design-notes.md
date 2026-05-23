@@ -32,7 +32,8 @@ gating: auto               # or "propose" (M8)
 steps:
   - use: fetch-pr           # script bundle: scripts/fetch-pr/run.sh
     env:
-      PR_NUMBER: "42"
+      PR_NUMBER:
+        input: pr_number    # resolved at spawn from the run's inputs snapshot
   - use: claude-code        # script bundle: scripts/claude-code/run.sh (example, see examples/)
     env:
       PROMPT_FILE: prompts/pr-review.tpl

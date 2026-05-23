@@ -240,6 +240,24 @@ steps:
       </table>
       <p>Keys starting with <code>KIRI_</code> in your workflow's <code>env:</code> map are rejected at load time — the prefix is reserved.</p>
 
+      <h3>Workflow inputs — <code>inputs:</code></h3>
+      <p>An optional list of <strong>named parameters collected via a modal</strong> when you click <em>Run</em>. One definition can target many things — a single <code>pr-review</code> workflow with a <code>pr_number</code> input reviews any PR, instead of one YAML file per PR. Workflows with no <code>inputs:</code> invoke on a single click as before.</p>
+      <pre><code>name: pr-review
+inputs:
+  - name: pr_number
+    description: GitHub PR to review
+    required: true
+  - name: branch
+    default: main
+steps:
+  - sh: echo "pr=$PR_NUMBER branch=$BRANCH"
+    env:
+      PR_NUMBER:
+        input: pr_number
+      BRANCH:
+        input: branch</code></pre>
+      <p>Each input is <code>{ name, description?, required?, default? }</code>. <code>required: true</code> gates the modal's submit until the field is non-empty; <code>default</code> pre-fills it. Wire an input into any step / publish / summarise <code>env:</code> with <code>{ input: &lt;name&gt; }</code> — refs to undeclared inputs fail at load. The resolved input map is snapshotted onto the run, so the activity feed and run page both reflect what the run was invoked with.</p>
+
       <h3>Summaries — <code>summarize:</code></h3>
       <p>An optional post-run step whose stdout becomes the run's one-or-two-sentence summary, shown on the feed row and at the top of the run page. It has the same <code>{ use | sh, env? }</code> shape as a step and runs after <code>steps:</code> and <code>publish:</code>. A failing summariser does not change the run's status.</p>
       <pre><code>name: hello

@@ -59,9 +59,10 @@ deserve their own bundle. Multi-line via YAML's \`|\` block scalar.
 
 ### Environment variables
 
-\`env:\` is an optional flat string-to-string map passed to the step. Each
-bundle defines its own contract for the keys it expects; kiri doesn't
-validate values.
+\`env:\` is an optional flat map passed to the step. Each value is either
+a literal string or a structured \`{ input: <name> }\` reference to a
+declared workflow input. Each bundle defines its own contract for the
+keys it expects; kiri doesn't validate values.
 
 Kiri injects its own scoped vars on every step — \`KIRI_RUN_ID\`,
 \`KIRI_STEP_INDEX\`, \`KIRI_REPO_ROOT\` — plus OS
@@ -74,6 +75,40 @@ at load time.
 bundle's source directory. Steps run with their cwd set to a per-run
 scratch dir, so bundles must read sidecar files via this env var
 (\`cat "$KIRI_BUNDLE_DIR/prompt.tpl"\`) rather than relative paths.
+
+## Inputs
+
+A workflow can declare \`inputs:\` — named parameters collected via a
+modal when you click *Run*. One definition can target many things (e.g.
+a single \`pr-review\` workflow with a \`pr_number\` input, instead of
+one YAML file per PR). Workflows with no \`inputs:\` invoke on a single
+click as today.
+
+\`\`\`yaml
+name: pr-review
+inputs:
+  - name: pr_number
+    description: GitHub PR to review
+    required: true
+  - name: branch
+    default: main
+steps:
+  - sh: echo "pr=$PR_NUMBER branch=$BRANCH"
+    env:
+      PR_NUMBER:
+        input: pr_number
+      BRANCH:
+        input: branch
+\`\`\`
+
+- Each input is \`{ name, description?, required?, default? }\`. Values
+  are strings.
+- \`required: true\` gates the modal's submit until the field is
+  non-empty. \`default\` pre-fills the field.
+- Wire an input into a step / publish / summarise \`env:\` with
+  \`{ input: <name> }\` — refs to undeclared inputs fail at load time.
+- The resolved input map is snapshotted onto the run, so the feed shows
+  what a run was invoked with.
 
 ## IDE / LSP integration
 
