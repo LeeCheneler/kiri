@@ -113,3 +113,37 @@ test("triggering a workflow from the side nav lands on the run detail", async ({
   await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
   await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
 });
+
+test("invoking a workflow with inputs opens a modal, collects values, and lands on the run", async ({
+  page,
+}) => {
+  await page.goto("/workflows/with-inputs");
+  await expect(page.getByRole("heading", { level: 2, name: /with-inputs/i })).toBeVisible();
+
+  // Clicking the workflow's run affordance opens the modal rather than
+  // invoking immediately. The dialog is labelled by its heading so the
+  // role query is sufficient.
+  await page.getByRole("button", { name: /^run/i }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { level: 2, name: /with-inputs/i })).toBeVisible();
+
+  // Default is pre-filled; required field is empty so submit is disabled.
+  await expect(dialog.getByLabel(/branch/i)).toHaveValue("main");
+  await expect(dialog.getByRole("button", { name: /^run/i })).toBeDisabled();
+
+  // Filling the required field enables submit, which routes to the run.
+  await dialog.getByLabel(/pr_number/i).fill("42");
+  await expect(dialog.getByRole("button", { name: /^run/i })).toBeEnabled();
+  await dialog.getByRole("button", { name: /^run/i }).click();
+
+  await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
+  await expect(page.getByRole("heading", { level: 2, name: /with-inputs/i })).toBeVisible();
+
+  // The step echoes the resolved env, confirming the inputs flowed through
+  // the API → snapshot → spawn env path. The disclosure has to be expanded
+  // to reveal stdout; the kind label disambiguates from any future button.
+  const step = page.getByRole("button", { name: /sh:/i });
+  await step.click();
+  await expect(page.getByText("pr=42 branch=main", { exact: true })).toBeVisible();
+});

@@ -1,0 +1,14 @@
+name: with-inputs
+inputs:
+  - name: pr_number
+    description: PR to review
+    required: true
+  - name: branch
+    default: main
+steps:
+  - sh: echo "pr=$PR_NUMBER branch=$BRANCH"
+    env:
+      PR_NUMBER:
+        input: pr_number
+      BRANCH:
+        input: branch
