@@ -3,9 +3,12 @@ import type { WorkflowInputSummary } from "../api.ts";
 
 /**
  * Modal that collects values for a workflow's declared `inputs:` before
- * invoking it. One single-line text field per input — label is the
- * input's name, help text is the description (when present), required
- * inputs are marked, and `default` pre-fills the field at open time.
+ * invoking it. One field per input — label is the input's name, help
+ * text is the description (when present), required inputs are marked,
+ * and `default` pre-fills the field at open time. Free-text inputs
+ * render as a single-line `<input type="text">`; picklist inputs
+ * (those declaring `options`) render as a `<select>` constrained to
+ * the declared values.
  *
  * `initialValues`, when supplied, overrides the per-input default on a
  * key-by-key basis (the re-run flow uses this to pre-fill from a prior
@@ -47,7 +50,12 @@ export function InvokeModal({
   const initialValues = useMemo(() => {
     const map: Record<string, string> = {};
     for (const input of inputs) {
-      map[input.name] = initialOverrides?.[input.name] ?? input.default ?? "";
+      // Picklist inputs never sit "empty" — a `<select>` always reports
+      // its first <option> as value, so fall back to options[0] when
+      // neither an override nor a declared default applies. This keeps
+      // the gathered payload always-valid against the input's options.
+      const picklistFallback = input.options?.[0];
+      map[input.name] = initialOverrides?.[input.name] ?? input.default ?? picklistFallback ?? "";
     }
     return map;
   }, [inputs, initialOverrides]);
@@ -57,6 +65,7 @@ export function InvokeModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const firstSelectRef = useRef<HTMLSelectElement>(null);
   const headingId = useId();
 
   // Open as a true modal dialog: background becomes inert, focus is
@@ -64,7 +73,7 @@ export function InvokeModal({
   // returns to the previously-focused element on close.
   useEffect(() => {
     dialogRef.current?.showModal();
-    firstFieldRef.current?.focus();
+    (firstFieldRef.current ?? firstSelectRef.current)?.focus();
   }, []);
 
   const allRequiredFilled = inputs.every(
@@ -134,6 +143,9 @@ export function InvokeModal({
         {inputs.map((input, index) => {
           const fieldId = `invoke-input-${input.name}`;
           const helpId = input.description ? `${fieldId}-help` : undefined;
+          const isFirstField = index === 0;
+          const handleChange = (next: string) =>
+            setValues((prev) => ({ ...prev, [input.name]: next }));
           return (
             <div key={input.name} className="flex flex-col gap-1.5">
               <label
@@ -152,18 +164,34 @@ export function InvokeModal({
                   {input.description}
                 </p>
               )}
-              <input
-                ref={index === 0 ? firstFieldRef : undefined}
-                id={fieldId}
-                type="text"
-                value={values[input.name] ?? ""}
-                onChange={(event) =>
-                  setValues((prev) => ({ ...prev, [input.name]: event.target.value }))
-                }
-                aria-describedby={helpId}
-                aria-required={input.required ? true : undefined}
-                className="border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent"
-              />
+              {input.options ? (
+                <select
+                  ref={isFirstField ? firstSelectRef : undefined}
+                  id={fieldId}
+                  value={values[input.name] ?? ""}
+                  onChange={(event) => handleChange(event.target.value)}
+                  aria-describedby={helpId}
+                  aria-required={input.required ? true : undefined}
+                  className="border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent"
+                >
+                  {input.options.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  ref={isFirstField ? firstFieldRef : undefined}
+                  id={fieldId}
+                  type="text"
+                  value={values[input.name] ?? ""}
+                  onChange={(event) => handleChange(event.target.value)}
+                  aria-describedby={helpId}
+                  aria-required={input.required ? true : undefined}
+                  className="border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent"
+                />
+              )}
             </div>
           );
         })}

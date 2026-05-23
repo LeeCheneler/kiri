@@ -36,13 +36,16 @@ export type WorkflowPublishSummary =
  * `name` is the identifier referenced from a step's `env:` via
  * `{ input: <name> }`; `description` (when present) renders as help text
  * next to the field; `required` gates submit; `default` pre-fills the
- * modal field at open time.
+ * modal field at open time. When `options` is defined, the input is a
+ * picklist — the modal renders a `<select>` constrained to those values
+ * and `default` (if set) is guaranteed to be one of them.
  */
 export interface WorkflowInputSummary {
   name: string;
   description?: string;
   required?: boolean;
   default?: string;
+  options?: string[];
 }
 
 /** Workflow summary as returned by `GET /api/workflows`. */

@@ -179,6 +179,72 @@ describe("<InvokeModal>", () => {
     });
   });
 
+  describe("picklist inputs", () => {
+    it("renders a select instead of a text field when options are declared", () => {
+      renderModal({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }],
+      });
+      const field = screen.getByLabelText(/env_target/i);
+      expect(field.tagName).toBe("SELECT");
+    });
+
+    it("renders one option per declared value", () => {
+      renderModal({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }],
+      });
+      const labels = screen
+        .getAllByRole("option")
+        .map((option) => (option as HTMLOptionElement).value);
+      expect(labels).toEqual(["dev", "staging", "prod"]);
+    });
+
+    it("pre-selects the declared default when present", () => {
+      renderModal({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"], default: "staging" }],
+      });
+      expect((screen.getByLabelText(/env_target/i) as HTMLSelectElement).value).toBe("staging");
+    });
+
+    it("pre-selects the first option when no default and no initial value is supplied", () => {
+      renderModal({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }],
+      });
+      expect((screen.getByLabelText(/env_target/i) as HTMLSelectElement).value).toBe("dev");
+    });
+
+    it("uses initialValues to override the declared default on a picklist", () => {
+      renderModal({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"], default: "staging" }],
+        initialValues: { env_target: "prod" },
+      });
+      expect((screen.getByLabelText(/env_target/i) as HTMLSelectElement).value).toBe("prod");
+    });
+
+    it("submits the picklist's selected value", async () => {
+      const seen: Record<string, string>[] = [];
+      const onSubmit = (values: Record<string, string>) => {
+        seen.push(values);
+        return Promise.resolve({});
+      };
+      const { user } = renderModal({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }],
+        onSubmit,
+      });
+
+      await user.selectOptions(screen.getByLabelText(/env_target/i), "prod");
+      await user.click(screen.getByRole("button", { name: /^run/i }));
+
+      expect(seen).toEqual([{ env_target: "prod" }]);
+    });
+
+    it("auto-focuses the picklist when it is the first field", () => {
+      renderModal({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }, { name: "owner" }],
+      });
+      expect(document.activeElement).toBe(screen.getByLabelText(/env_target/i));
+    });
+  });
+
   describe("validation & submit", () => {
     it("disables submit until every required input has a value", async () => {
       const { user } = renderModal({
