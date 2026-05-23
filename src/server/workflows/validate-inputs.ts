@@ -11,6 +11,8 @@ export type ValidateInputsResult = { ok: true } | { ok: false; error: string };
  *   (defensive: the UI shouldn't send one).
  * - Unknown keys (not in `def.inputs`) are rejected.
  * - Inputs declared `required: true` must be present and non-empty.
+ * - For inputs declaring `options:`, any supplied value must be one of
+ *   the declared options.
  *
  * First failure wins so the returned message stays readable; the modal does
  * the multi-field UX, so aggregating here would duplicate that surface.
@@ -42,6 +44,18 @@ export const validateInputs = (
     const value = supplied[input.name];
     if (value === undefined || value.length === 0) {
       return { ok: false, error: `input "${input.name}" is required` };
+    }
+  }
+
+  for (const input of declared) {
+    if (!input.options) continue;
+    const value = supplied[input.name];
+    if (value === undefined) continue;
+    if (!input.options.includes(value)) {
+      return {
+        ok: false,
+        error: `input "${input.name}" value "${value}" is not one of the declared options`,
+      };
     }
   }
 

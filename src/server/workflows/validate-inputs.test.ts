@@ -92,4 +92,53 @@ describe("validateInputs", () => {
       });
     });
   });
+
+  describe("inputs with declared options", () => {
+    it("accepts a supplied value that matches one of the declared options", () => {
+      const def = wf({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }],
+      });
+      expect(validateInputs(def, { env_target: "staging" })).toEqual({ ok: true });
+    });
+
+    it("rejects a supplied value that isn't one of the declared options", () => {
+      const def = wf({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }],
+      });
+      expect(validateInputs(def, { env_target: "qa" })).toEqual({
+        ok: false,
+        error: 'input "env_target" value "qa" is not one of the declared options',
+      });
+    });
+
+    it("accepts an optional picklist input omitted from the payload", () => {
+      const def = wf({
+        inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }],
+      });
+      expect(validateInputs(def, {})).toEqual({ ok: true });
+    });
+
+    it("reports the missing-required failure before the out-of-options failure", () => {
+      const def = wf({
+        inputs: [
+          { name: "pr_number", required: true },
+          { name: "env_target", options: ["dev", "staging", "prod"] },
+        ],
+      });
+      expect(validateInputs(def, { env_target: "qa" })).toEqual({
+        ok: false,
+        error: 'input "pr_number" is required',
+      });
+    });
+
+    it("rejects an empty-string value on a required picklist input as missing, not out-of-options", () => {
+      const def = wf({
+        inputs: [{ name: "env_target", required: true, options: ["dev", "staging", "prod"] }],
+      });
+      expect(validateInputs(def, { env_target: "" })).toEqual({
+        ok: false,
+        error: 'input "env_target" is required',
+      });
+    });
+  });
 });
