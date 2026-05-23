@@ -78,6 +78,11 @@ describe("workflowJsonSchema", () => {
         description?: { type: string };
         required?: { type: string };
         default?: { type: string };
+        options?: {
+          type: string;
+          minItems?: number;
+          items?: { type: string; minLength?: number };
+        };
       };
     };
     const schema = workflowJsonSchema() as {
@@ -96,11 +101,15 @@ describe("workflowJsonSchema", () => {
     expect(inputs.minItems).toBe(1);
     expect(inputs.items.type).toBe("object");
     expect(inputs.items.required).toEqual(expect.arrayContaining(["name"]));
+    expect(inputs.items.required).not.toContain("options");
     expect(inputs.items.properties.name?.type).toBe("string");
     expect(inputs.items.properties.name?.pattern).toBe("^[a-z_][a-z0-9_]*$");
     expect(inputs.items.properties.description?.type).toBe("string");
     expect(inputs.items.properties.required?.type).toBe("boolean");
     expect(inputs.items.properties.default?.type).toBe("string");
+    expect(inputs.items.properties.options?.type).toBe("array");
+    expect(inputs.items.properties.options?.minItems).toBe(1);
+    expect(inputs.items.properties.options?.items?.type).toBe("string");
   });
 
   it("step env values accept a string or a structured input reference", () => {

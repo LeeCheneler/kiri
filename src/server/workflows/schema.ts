@@ -96,6 +96,13 @@ const inputSchema = z
       .string()
       .optional()
       .describe("Value pre-filled into the modal field when no value is supplied at invoke."),
+    options: z
+      .array(z.string().min(1))
+      .min(1)
+      .optional()
+      .describe(
+        "Fixed list of allowed values. When present, the invoke modal renders a picker instead of a text field, `default` (if set) must be one of the entries, and values supplied at invoke must be one of the entries.",
+      ),
   })
   .strict();
 
@@ -145,6 +152,29 @@ const baseWorkflowSchema = z
  * at a declared input — unknown names fail at load time.
  */
 export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
+  wf.inputs?.forEach((input, i) => {
+    if (!input.options) return;
+    const seen = new Set<string>();
+    for (const option of input.options) {
+      if (seen.has(option)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["inputs", i, "options"],
+          message: `input "${input.name}" options contain duplicate value "${option}"`,
+        });
+        break;
+      }
+      seen.add(option);
+    }
+    if (input.default !== undefined && !input.options.includes(input.default)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["inputs", i, "default"],
+        message: `input "${input.name}" default "${input.default}" is not one of the declared options`,
+      });
+    }
+  });
+
   const declared = new Set((wf.inputs ?? []).map((i) => i.name));
   const checkEnv = (
     env: Record<string, z.infer<typeof envValueSchema>> | undefined,

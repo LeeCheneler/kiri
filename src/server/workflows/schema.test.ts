@@ -465,6 +465,84 @@ describe("workflowSchema", () => {
     ).toThrow();
   });
 
+  it("parses an input declaring a list of allowed options", () => {
+    const result = workflowSchema.parse({
+      name: "picklist",
+      inputs: [{ name: "env_target", options: ["dev", "staging", "prod"] }],
+      steps: [{ use: "x" }],
+    });
+    expect(result.inputs?.[0].options).toEqual(["dev", "staging", "prod"]);
+  });
+
+  it("parses a picklist input whose default is one of the declared options", () => {
+    const result = workflowSchema.parse({
+      name: "picklist-default",
+      inputs: [{ name: "env_target", options: ["dev", "staging", "prod"], default: "staging" }],
+      steps: [{ use: "x" }],
+    });
+    expect(result.inputs?.[0]).toEqual({
+      name: "env_target",
+      options: ["dev", "staging", "prod"],
+      default: "staging",
+    });
+  });
+
+  it("rejects an empty options array", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "empty-options",
+        inputs: [{ name: "env_target", options: [] }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an options entry that isn't a string", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "non-string-option",
+        inputs: [{ name: "env_target", options: ["dev", 42] }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an empty-string options entry", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "empty-string-option",
+        inputs: [{ name: "env_target", options: ["dev", ""] }],
+        steps: [{ use: "x" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects duplicate values within an input's options", () => {
+    const result = workflowSchema.safeParse({
+      name: "dup-options",
+      inputs: [{ name: "env_target", options: ["dev", "prod", "dev"] }],
+      steps: [{ use: "x" }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("duplicate");
+      expect(result.error.message).toContain("dev");
+    }
+  });
+
+  it("rejects a default value that isn't one of the declared options", () => {
+    const result = workflowSchema.safeParse({
+      name: "default-out-of-options",
+      inputs: [{ name: "env_target", options: ["dev", "staging", "prod"], default: "qa" }],
+      steps: [{ use: "x" }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("not one of the declared options");
+      expect(result.error.message).toContain("qa");
+    }
+  });
+
   it("parses a step env that references a declared input", () => {
     const result = workflowSchema.parse({
       name: "ref-env",
