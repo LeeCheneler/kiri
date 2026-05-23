@@ -96,8 +96,9 @@ Runs are invoked manually — from the workflows nav, by re-running an existing 
 
 A workflow optionally declares `inputs:` — named parameters collected at invocation time, so one definition can be aimed at many targets (one `pr-review` workflow with a `pr_number` input reviews any PR, instead of one YAML file per PR).
 
-- `inputs:` is an array of `{ name, description?, required?, default? }`. Values are strings.
+- `inputs:` is an array of `{ name, description?, required?, default?, options? }`. Values are strings.
 - A workflow with no `inputs:` runs immediately on invoke. One with `inputs:` collects values via a form before the run starts — `required` inputs must be filled, `default` pre-fills the field.
+- An input can declare a fixed list of allowed strings via `options:`. The invoke modal then renders a picker constrained to those values instead of a text field, the declared `default` (if any) must be one of the entries — enforced at load time — and any value supplied at invoke must also be one of them.
 - Step `env:` values are either a literal string or a structured `{ input: <name> }` reference pointing at a declared input. At run-start the runner resolves each declared input to a final value (supplied at invoke, otherwise the input's `default`) and snapshots the resolved `Record<string, string>` onto `runs.inputs`. At spawn the runner walks each step's, summarise's, and publish's `env:`, replacing every `{ input: <name> }` entry with the snapshotted value; kiri-scoped vars and OS essentials overlay afterwards, so user env never wins on collision.
 - Input values are snapshotted onto the `runs` row, so the feed shows what a run was invoked with and a re-run can pre-fill the form.
 

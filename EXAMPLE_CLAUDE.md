@@ -98,9 +98,10 @@ Mixing `use:` and `sh:` on the same step is a schema error.
 ### `inputs:` rules
 
 - Optional. Declares **named parameters collected via a modal** at invoke time. A workflow with no `inputs:` runs immediately on click, exactly as today; one with `inputs:` opens the modal first.
-- Each entry is `{ name, description?, required?, default? }`. **Values are strings** — env vars are strings anyway.
+- Each entry is `{ name, description?, required?, default?, options? }`. **Values are strings** — env vars are strings anyway.
 - `name` must match `^[a-z_][a-z0-9_]*$` and is unique within the workflow.
 - `required: true` gates the modal's submit until the field is non-empty. `default` pre-fills the field at open.
+- `options: [...]` constrains the input to a fixed list of allowed strings. The modal renders a picker (not a text field), the declared `default` (if any) must be one of the entries — failures are caught at load time — and values supplied at invoke are rejected if they aren't in the list. Useful for "pick one of these environments / models / regions" inputs.
 - Wire an input into a step / publish / summarise `env:` with `{ input: <name> }`. No string interpolation, no templating — keep the YAML pure data.
 - The resolved input map is snapshotted onto the run's row, so the feed shows what a run was invoked with and a future re-run can pre-fill from the same snapshot.
 
@@ -422,6 +423,10 @@ inputs:
     required: true
   - name: owner
     default: LeeCheneler
+  - name: model
+    description: Claude model to use for the review
+    options: [haiku, sonnet, opus]
+    default: sonnet
 steps:
   - sh: gh pr view "$PR_NUMBER" --repo "$OWNER/kiri" --json title,body,files
     env:
@@ -432,10 +437,11 @@ steps:
   - use: claude-code
     env:
       PROMPT_FILE: prompts/pr-review.tpl
-      MODEL: sonnet
+      MODEL:
+        input: model
 ```
 
-Clicking *Run* on this workflow opens a modal with two text fields: `pr_number` (required, blank) and `owner` (pre-filled with the default). The runner snapshots the submitted values onto the run's row before spawning step 0, where the `{ input: <name> }` refs in `env:` resolve to the snapshotted values.
+Clicking *Run* on this workflow opens a modal with three fields: `pr_number` (required text, blank), `owner` (text, pre-filled with the default), and `model` (picker constrained to `haiku | sonnet | opus`, pre-selected on `sonnet`). The runner snapshots the submitted values onto the run's row before spawning step 0, where the `{ input: <name> }` refs in `env:` resolve to the snapshotted values.
 
 ### 5. Multi-publish workflow
 

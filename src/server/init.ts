@@ -101,10 +101,14 @@ steps:
         input: branch
 \`\`\`
 
-- Each input is \`{ name, description?, required?, default? }\`. Values
-  are strings.
+- Each input is \`{ name, description?, required?, default?, options? }\`.
+  Values are strings.
 - \`required: true\` gates the modal's submit until the field is
   non-empty. \`default\` pre-fills the field.
+- \`options: [...]\` constrains an input to a fixed list of allowed
+  strings — the modal renders a picker, the declared \`default\` (if
+  any) must be one of the entries, and values supplied at invoke must
+  also be in the list.
 - Wire an input into a step / publish / summarise \`env:\` with
   \`{ input: <name> }\` — refs to undeclared inputs fail at load time.
 - The resolved input map is snapshotted onto the run, so the feed shows
