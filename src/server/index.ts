@@ -1,13 +1,12 @@
-import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import type { KiriDb } from "./db/index.ts";
-import { articles, runs } from "./db/schema.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute } from "./events/index.ts";
+import { articlesRoutes } from "./routes/articles.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { systemRoutes } from "./routes/system.ts";
 import { workflowsRoutes } from "./routes/workflows.ts";
@@ -94,10 +93,6 @@ const contentTypeFor = (path: string): string => {
 const isHashedAsset = (path: string): boolean => path.startsWith("/assets/");
 const cacheControlFor = (path: string): string =>
   isHashedAsset(path) ? "public, max-age=31536000, immutable" : "no-store";
-
-// Size of the cross-run "recently published" list. Fixed — the rail
-// surfaces a glance-able shortlist, not a paginated archive.
-const RECENT_ARTICLES_LIMIT = 5;
 
 // Upper bound on request body size. Invoke bodies are
 // `Record<string, string>` headed for env vars — real-world inputs fit
@@ -198,26 +193,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route("/api/runs", runsRoutes({ db, registry, cwd, bus, cancelRegistry }));
 
-  app.get("/api/articles/recent", (c) => {
-    // Cross-run shortlist for the right-rail "Recently Published" section.
-    // The articles table doesn't carry the workflow name, so join runs to
-    // surface it alongside each entry. `content_md` is omitted — the rail
-    // only needs link metadata; the body is fetched by the article page.
-    const rows = db
-      .select({
-        runId: articles.runId,
-        name: articles.name,
-        title: articles.title,
-        createdAt: articles.createdAt,
-        workflowName: runs.workflowName,
-      })
-      .from(articles)
-      .innerJoin(runs, eq(runs.id, articles.runId))
-      .orderBy(desc(articles.createdAt))
-      .limit(RECENT_ARTICLES_LIMIT)
-      .all();
-    return c.json(rows);
-  });
+  app.route("/api/articles", articlesRoutes({ db }));
 
   if (bus) {
     mountEventsRoute(
