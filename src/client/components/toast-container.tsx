@@ -104,7 +104,7 @@ function ToastCard({
 
   return (
     <div className="pointer-events-auto relative w-80 border border-rule bg-paper shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-      <StatusStrip status={toast.status} weight="header" />
+      <StatusStrip status={toast.status} />
       <Link
         href={`/runs/${toast.runId}`}
         className="block py-3 pr-12 pl-5 no-underline outline-none transition-colors duration-150 hover:bg-canvas focus-visible:bg-canvas focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"

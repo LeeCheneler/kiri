@@ -70,7 +70,7 @@ export function ActivityFeed({
               className="animate-[feed-row-in_320ms_ease-out_backwards]"
             >
               <div data-status={status} className="relative px-5 py-5">
-                <StatusStrip status={status} weight="row" />
+                <StatusStrip status={status} />
                 <div className="flex flex-wrap items-center gap-x-2 text-xs leading-none text-ink-muted">
                   <span className="tracking-wider">
                     <StatusLabel status={status} />

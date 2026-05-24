@@ -184,7 +184,7 @@ export function RunDetailView({
       </Link>
 
       <header className="relative mt-6 pl-6">
-        <StatusStrip status={status} weight="header" />
+        <StatusStrip status={status} />
         <dl className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-none text-ink-muted">
           <div className="flex items-baseline">
             <dt className="sr-only">status</dt>
@@ -450,7 +450,7 @@ function ActivityRow({ item }: { item: ActivityItem }) {
 
   const rowContent = (
     <>
-      <StatusStrip status={status} weight="row" hoverGrow={!!row} />
+      <StatusStrip status={status} hoverGrow={!!row} />
       <span className={`shrink-0 font-mono text-xs tabular-nums ${metaClass}`}>{ordinalText}</span>
       <span
         className={`w-20 shrink-0 font-mono text-[10px] tracking-widest uppercase ${metaClass}`}
