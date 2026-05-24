@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { resolvePublishTitle } from "../shared/publish-title.ts";
 import type { KiriDb } from "./db/index.ts";
@@ -224,6 +225,21 @@ export function createApp(deps: AppDeps): Hono {
     }
     return next();
   });
+
+  // Honour the `{ error: string }` contract for unmatched routes and uncaught
+  // throws. `HTTPException` carries its own status/message verbatim so handlers
+  // can `throw new HTTPException(404, …)` instead of catching defensively;
+  // anything else is logged and surfaced as an opaque 500 so internal detail
+  // (SQL fragments, stack frames) doesn't leak to the client.
+  app.onError((err, c) => {
+    if (err instanceof HTTPException) {
+      return c.json({ error: err.message }, err.status);
+    }
+    console.error(err);
+    return c.json({ error: "internal server error" }, 500);
+  });
+
+  app.notFound((c) => c.json({ error: "not found" }, 404));
 
   app.get("/api/health", (c) => c.json({ status: "ok" }));
 

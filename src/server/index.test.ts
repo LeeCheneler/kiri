@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import { HTTPException } from "hono/http-exception";
 import { bootstrap } from "./bootstrap.ts";
 import type { KiriDb } from "./db/index.ts";
 import { articles, runSteps, runs } from "./db/schema.ts";
@@ -2139,6 +2140,58 @@ describe("createApp", () => {
         workflowName: "long",
       });
       expect(seen).toContainEqual({ type: "run.updated", id: runId, status: "cancelled" });
+    });
+  });
+
+  describe("global error handling", () => {
+    it("returns JSON 404 honouring the { error } contract for unmatched /api/* routes", async () => {
+      const app = createApp({ db, registry, cwd });
+      const res = await app.request("/api/does-not-exist");
+      expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toContain("application/json");
+      expect(await res.json()).toEqual({ error: "not found" });
+    });
+
+    it("translates HTTPException thrown from a handler into its status and message", async () => {
+      const app = createApp({ db, registry, cwd });
+      app.get("/api/teapot", () => {
+        throw new HTTPException(418, { message: "i am a teapot" });
+      });
+      const res = await app.request("/api/teapot");
+      expect(res.status).toBe(418);
+      expect(await res.json()).toEqual({ error: "i am a teapot" });
+    });
+
+    it("returns an opaque JSON 500 for uncaught throws and logs the cause", async () => {
+      const app = createApp({ db, registry, cwd });
+      app.get("/api/boom", () => {
+        throw new Error("secret internal detail");
+      });
+
+      const errors: unknown[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => {
+        errors.push(args);
+      };
+
+      let res: Response;
+      try {
+        res = await app.request("/api/boom");
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error: string };
+      expect(body).toEqual({ error: "internal server error" });
+      expect(body.error).not.toContain("secret internal detail");
+      expect(
+        errors.some((args) =>
+          (args as unknown[]).some(
+            (a) => a instanceof Error && a.message === "secret internal detail",
+          ),
+        ),
+      ).toBe(true);
     });
   });
 });
