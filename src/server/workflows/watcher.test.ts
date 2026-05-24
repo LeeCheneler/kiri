@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import {
   type FSWatcher,
@@ -30,17 +30,35 @@ const writeBundle = (cwd: string, name: string): void => {
   chmodSync(path, 0o755);
 };
 
-// fs.watch on macOS (FSEvents) has variable latency that spikes when bun
-// runs test files in parallel — 2s margins flaked at ~2020ms in the wild.
-// 10s waitFor under a 15s per-test deadline keeps the predicate-specific
-// error message ("waitFor timed out") visible without racing the harness.
-setDefaultTimeout(15000);
+// Drive watcher rebuilds through an injected fs.watch fake so tests
+// don't depend on real fs notification latency (FSEvents on macOS
+// spikes under parallel test load). The captured listener mirrors
+// node:fs.watch's contract — close() clears it, so a trigger after
+// stop() is a no-op exactly as the real watcher would be.
+const createFakeWatcher = () => {
+  let listener: ((event: string, filename: string | null) => void) | null = null;
+  const emitter = Object.assign(new EventEmitter(), {
+    close: () => {
+      listener = null;
+    },
+  }) as unknown as FSWatcher;
+  const watchFn = ((
+    _path: string,
+    _opts: unknown,
+    cb?: (event: string, filename: string | null) => void,
+  ) => {
+    listener = cb ?? null;
+    return emitter;
+  }) as unknown as typeof watch;
+  const triggerChange = () => listener?.("change", null);
+  return { watchFn, watcher: emitter, triggerChange };
+};
 
-const waitFor = async (predicate: () => boolean, timeoutMs = 10000): Promise<void> => {
+const waitFor = async (predicate: () => boolean, timeoutMs = 500): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error("waitFor timed out");
-    await Bun.sleep(10);
+    await Bun.sleep(5);
   }
 };
 
@@ -80,9 +98,11 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     writeFileSync(join(dir, "new.yaml"), yamlSource("new"));
+    triggerChange();
     await waitFor(() => registry.getWorkflow("new") !== undefined);
 
     expect(logs.some((m) => m.includes('added "new"'))).toBe(true);
@@ -97,11 +117,13 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     // Ensure mtime ticks even on coarse-grained filesystems.
     await Bun.sleep(20);
     writeFileSync(join(dir, "foo.yaml"), yamlSource("foo", "v2"));
+    triggerChange();
 
     await waitFor(() => {
       const wf = registry.getWorkflow("foo");
@@ -121,9 +143,11 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     unlinkSync(join(dir, "alpha.yaml"));
+    triggerChange();
     await waitFor(() => registry.getWorkflow("alpha") === undefined);
 
     expect(logs.some((m) => m.includes('removed "alpha"'))).toBe(true);
@@ -139,9 +163,11 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     writeFileSync(join(dir, "bad.yaml"), "name: foo\nsteps: [\n");
+    triggerChange();
     await waitFor(() => errs.length > 0);
 
     expect(errs[0]).toContain("failed to load");
@@ -160,18 +186,21 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     // Touching an unrelated file forces a rebuild but should not re-log
     // the still-failing bad.yaml.
     await Bun.sleep(20);
     writeFileSync(join(dir, "ok.yaml"), yamlSource("ok", "ok-v2"));
+    triggerChange();
     await waitFor(() => logs.some((m) => m.includes('changed "ok"')));
     expect(errs).toEqual([]);
 
     // Fixing the broken file should log a recovery message and add the
     // workflow to the registry.
     writeFileSync(join(dir, "bad.yaml"), yamlSource("bad"));
+    triggerChange();
     await waitFor(() => registry.getWorkflow("bad") !== undefined);
 
     expect(logs.some((m) => m.includes("no longer failing"))).toBe(true);
@@ -187,13 +216,14 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    // Long debounce so the event-driven timer is comfortably pending when
-    // we delete the dir; the timer then fires rebuild() against a missing
-    // directory and exercises the catch.
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 100 });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    // Long debounce so the event-driven timer is comfortably pending
+    // when we delete the dir; the timer then fires rebuild() against a
+    // missing directory and exercises the catch.
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 100, watchFn });
 
     writeFileSync(join(dir, "trigger.yaml"), yamlSource("trigger"));
-    await Bun.sleep(30);
+    triggerChange();
     rmSync(dir, { recursive: true, force: true });
 
     await waitFor(() => errs.some((m) => m.includes("rebuild failed")));
@@ -209,11 +239,7 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const fakeWatcher = Object.assign(new EventEmitter(), {
-      close: () => {},
-    }) as unknown as FSWatcher;
-    const watchFn = (() => fakeWatcher) as unknown as typeof watch;
-
+    const { watchFn, watcher: fakeWatcher } = createFakeWatcher();
     const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     unlinkSync(join(dir, "alpha.yaml"));
@@ -231,11 +257,7 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const fakeWatcher = Object.assign(new EventEmitter(), {
-      close: () => {},
-    }) as unknown as FSWatcher;
-    const watchFn = (() => fakeWatcher) as unknown as typeof watch;
-
+    const { watchFn, watcher: fakeWatcher } = createFakeWatcher();
     const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
 
     fakeWatcher.emit("error", "raw string");
@@ -255,9 +277,15 @@ describe("watchWorkflows", () => {
     const seen: KiriEvent[] = [];
     bus.subscribe((e) => seen.push(e));
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, bus });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, {
+      debounceMs: 10,
+      bus,
+      watchFn,
+    });
 
     writeFileSync(join(dir, "evt-add.yaml"), yamlSource("evt-add"));
+    triggerChange();
     await waitFor(() => registry.getWorkflow("evt-add") !== undefined);
 
     expect(seen).toContainEqual({ type: "workflow.added", name: "evt-add" });
@@ -276,10 +304,16 @@ describe("watchWorkflows", () => {
     const seen: KiriEvent[] = [];
     bus.subscribe((e) => seen.push(e));
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, bus });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, {
+      debounceMs: 10,
+      bus,
+      watchFn,
+    });
 
     await Bun.sleep(20);
     writeFileSync(join(dir, "evt-upd.yaml"), yamlSource("evt-upd", "v2"));
+    triggerChange();
     await waitFor(() => {
       const wf = registry.getWorkflow("evt-upd");
       return wf !== undefined && "use" in wf.steps[0] && wf.steps[0].use === "v2";
@@ -300,9 +334,15 @@ describe("watchWorkflows", () => {
     const seen: KiriEvent[] = [];
     bus.subscribe((e) => seen.push(e));
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, bus });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, {
+      debounceMs: 10,
+      bus,
+      watchFn,
+    });
 
     unlinkSync(join(dir, "evt-rm.yaml"));
+    triggerChange();
     await waitFor(() => registry.getWorkflow("evt-rm") === undefined);
 
     expect(seen).toContainEqual({ type: "workflow.removed", name: "evt-rm" });
@@ -315,11 +355,14 @@ describe("watchWorkflows", () => {
     const initial = await loadWorkflows(dir, cwd);
     registry.replace(initial.workflows);
 
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10 });
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
     watcher.stop();
 
     writeFileSync(join(dir, "late.yaml"), yamlSource("late"));
-    await Bun.sleep(80);
+    // After stop(), the fake's close() has cleared the captured listener,
+    // so this trigger is a no-op — exactly as fs.watch would behave.
+    triggerChange();
 
     expect(registry.getWorkflow("late")).toBeUndefined();
     expect(logs).toEqual([]);
