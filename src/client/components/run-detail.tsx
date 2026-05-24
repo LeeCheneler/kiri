@@ -12,6 +12,8 @@ import type {
 import { formatDuration, formatDurationMs, formatRelativeTime } from "../formatters/format-time.ts";
 import { InvokeModal } from "./invoke-modal.tsx";
 import { Markdown } from "./markdown.tsx";
+import { Actions } from "./ui/actions.tsx";
+import { Button } from "./ui/button.tsx";
 
 type StatusKind = "pending" | "running" | "ok" | "failed" | "cancelled" | "interrupted";
 
@@ -272,22 +274,18 @@ export function RunDetailView({
           <h2 className="min-w-0 flex-1 font-display text-4xl text-ink leading-tight">
             {run.workflowName}
           </h2>
-          {status === "running" ? (
-            onCancel && <CancelButton onCancel={onCancel} />
-          ) : (
-            <div className="flex shrink-0 items-start gap-2">
-              {onRerun && (
-                <RerunButton
+          {status === "running"
+            ? onCancel && <CancelButton onCancel={onCancel} />
+            : (onRerun || onDelete) && (
+                <TerminalActions
                   onRerun={onRerun}
+                  onDelete={onDelete}
                   interrupted={run.isInterrupted}
                   workflowName={run.workflowName}
                   workflowInputs={workflowInputs}
                   priorInputs={run.inputs}
                 />
               )}
-              {onDelete && <DeleteButton onDelete={onDelete} />}
-            </div>
-          )}
         </div>
       </header>
 
@@ -321,45 +319,38 @@ function CancelButton({ onCancel }: { onCancel: () => Promise<unknown> }) {
   };
 
   return (
-    <div className="shrink-0 text-right">
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={pending}
-        className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-status-failed hover:text-status-failed focus-visible:border-status-failed focus-visible:text-status-failed focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {pending ? "cancelling…" : "cancel run"}
-      </button>
-      {error && (
-        <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">
-          {error}
-        </p>
-      )}
-    </div>
+    <Actions errorMessage={error}>
+      <Button variant="danger" pending={pending} pendingLabel="cancelling…" onClick={handleClick}>
+        cancel run
+      </Button>
+    </Actions>
   );
 }
 
-function RerunButton({
+function TerminalActions({
   onRerun,
+  onDelete,
   interrupted,
   workflowName,
   workflowInputs,
   priorInputs,
 }: {
-  onRerun: (inputs?: Record<string, string>) => Promise<unknown>;
+  onRerun?: (inputs?: Record<string, string>) => Promise<unknown>;
+  onDelete?: () => Promise<unknown>;
   interrupted: boolean;
   workflowName: string;
   workflowInputs?: WorkflowInputSummary[];
   priorInputs: Record<string, string> | null;
 }) {
-  const [pending, setPending] = useState(false);
+  const [rerunPending, setRerunPending] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
   const hasInputs = (workflowInputs?.length ?? 0) > 0;
 
-  const handleClick = async () => {
-    if (interrupted) return;
+  const handleRerun = async () => {
+    if (!onRerun || interrupted) return;
     if (hasInputs) {
       // Modal is the confirmation gesture for the inputs path — user has
       // to fill the form and click submit. No window.confirm gate here.
@@ -368,17 +359,31 @@ function RerunButton({
       return;
     }
     setError(null);
-    setPending(true);
+    setRerunPending(true);
     try {
       await onRerun();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setPending(false);
+      setRerunPending(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    setError(null);
+    setDeletePending(true);
+    try {
+      await onDelete();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeletePending(false);
     }
   };
 
   const handleModalSubmit = async (values: Record<string, string>) => {
+    if (!onRerun) return;
     // Successful rerun closes the dialog; a rejection propagates to the
     // modal's inline error UI so the user can retry without losing values.
     await onRerun(values);
@@ -386,21 +391,30 @@ function RerunButton({
   };
 
   return (
-    <div className="shrink-0 text-right">
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={pending || interrupted}
-        title={interrupted ? "the workflow no longer exists; re-create it first" : undefined}
-        className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-accent hover:text-accent focus-visible:border-accent focus-visible:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {pending ? "starting…" : "run again"}
-      </button>
-      {error && (
-        <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">
-          {error}
-        </p>
-      )}
+    <>
+      <Actions errorMessage={error}>
+        {onRerun && (
+          <Button
+            pending={rerunPending}
+            pendingLabel="starting…"
+            disabled={interrupted}
+            title={interrupted ? "the workflow no longer exists; re-create it first" : undefined}
+            onClick={handleRerun}
+          >
+            run again
+          </Button>
+        )}
+        {onDelete && (
+          <Button
+            variant="danger"
+            pending={deletePending}
+            pendingLabel="deleting…"
+            onClick={handleDelete}
+          >
+            delete
+          </Button>
+        )}
+      </Actions>
       {modalOpen && workflowInputs && (
         <InvokeModal
           workflowName={workflowName}
@@ -411,42 +425,7 @@ function RerunButton({
           onCancel={() => setModalOpen(false)}
         />
       )}
-    </div>
-  );
-}
-
-function DeleteButton({ onDelete }: { onDelete: () => Promise<unknown> }) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleClick = async () => {
-    setError(null);
-    setPending(true);
-    try {
-      await onDelete();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPending(false);
-    }
-  };
-
-  return (
-    <div className="shrink-0 text-right">
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={pending}
-        className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-status-failed hover:text-status-failed focus-visible:border-status-failed focus-visible:text-status-failed focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {pending ? "deleting…" : "delete"}
-      </button>
-      {error && (
-        <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">
-          {error}
-        </p>
-      )}
-    </div>
+    </>
   );
 }
 
