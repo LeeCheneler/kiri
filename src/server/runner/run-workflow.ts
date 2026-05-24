@@ -14,7 +14,7 @@ import {
   isUseStep,
 } from "../workflows/index.ts";
 import type { CancelRegistry } from "./cancel-registry.ts";
-import { runStep } from "./run-step.ts";
+import { type StepEnvelope, runStep } from "./run-step.ts";
 
 export interface RunWorkflowArgs {
   /** Repo root. Bundles resolve under `<cwd>/scripts/<name>/run.sh`; the scratch dir lives at `<cwd>/.kiri/runs/<run-id>/`. */
@@ -222,6 +222,75 @@ export function runWorkflow(
   args.cancelRegistry?.register(runId);
   args.bus?.publish({ type: "run.started", id: runId });
 
+  // Insert → publish "running" → spawn → translate envelope → update →
+  // publish terminal. Every phase (steps, publish, summarise) reimplements
+  // this same envelope; the helper captures it so each phase only expresses
+  // its own pre/post policy.
+  const executePhase = async (opts: {
+    step: WorkflowStep;
+    index: number;
+    flag?: "publish" | "summary";
+    input: string;
+    envExtras?: Record<string, string>;
+  }): Promise<{
+    envelope: StepEnvelope;
+    cancelled: boolean;
+    stepStatus: "ok" | "failed" | "cancelled";
+    stepError: { message: string; stack?: string } | null;
+  }> => {
+    const stepId = crypto.randomUUID();
+    db.insert(runSteps)
+      .values({
+        id: stepId,
+        runId,
+        index: opts.index,
+        kind: isUseStep(opts.step) ? "use" : "sh",
+        status: "running",
+        isPublish: opts.flag === "publish" ? true : undefined,
+        isSummary: opts.flag === "summary" ? true : undefined,
+      })
+      .run();
+
+    args.bus?.publish({ type: "run.step.updated", runId, step: opts.index, status: "running" });
+
+    const env = buildEnv(opts.step, runId, opts.index, args.cwd, resolvedInputs);
+    if (opts.envExtras) Object.assign(env, opts.envExtras);
+
+    const envelope = await runStep({
+      step: opts.step,
+      cwd: args.cwd,
+      scratchDir,
+      input: opts.input,
+      env,
+      onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
+    });
+
+    // A `failed` envelope produced after cancel was requested is the child
+    // reacting to our SIGTERM/SIGKILL — surface it as `cancelled` on the
+    // step row so the UI distinguishes "we stopped this" from "the script
+    // broke". An `ok` envelope is left as-is even if cancel was requested
+    // mid-execution: the step actually finished.
+    const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
+    const stepStatus: "ok" | "failed" | "cancelled" =
+      cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
+    const stepError =
+      cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
+
+    db.update(runSteps)
+      .set({
+        status: stepStatus,
+        output: envelope.output,
+        error: stepError,
+        traces: envelope.traces,
+      })
+      .where(eq(runSteps.id, stepId))
+      .run();
+
+    args.bus?.publish({ type: "run.step.updated", runId, step: opts.index, status: stepStatus });
+
+    return { envelope, cancelled, stepStatus, stepError };
+  };
+
   const done = (async (): Promise<RunWorkflowResult> => {
     let status: "ok" | "failed" | "cancelled" = "ok";
     let runError: { message: string; stack?: string } | undefined;
@@ -237,55 +306,10 @@ export function runWorkflow(
         if (args.cancelRegistry?.isCancelled(runId)) break;
 
         const step = definition.steps[i];
-
-        const stepId = crypto.randomUUID();
-        db.insert(runSteps)
-          .values({
-            id: stepId,
-            runId,
-            index: i,
-            kind: isUseStep(step) ? "use" : "sh",
-            status: "running",
-          })
-          .run();
-
-        args.bus?.publish({ type: "run.step.updated", runId, step: i, status: "running" });
-
-        const envelope = await runStep({
+        const { envelope, cancelled, stepStatus, stepError } = await executePhase({
           step,
-          cwd: args.cwd,
-          scratchDir,
+          index: i,
           input,
-          env: buildEnv(step, runId, i, args.cwd, resolvedInputs),
-          onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
-        });
-
-        // A `failed` envelope produced after cancel was requested is the
-        // child reacting to our SIGTERM/SIGKILL — surface it as `cancelled`
-        // on the step row so the UI distinguishes "we stopped this" from
-        // "the script broke". An `ok` envelope is left as-is even if
-        // cancel was requested mid-execution: the step actually finished.
-        const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
-        const stepStatus =
-          cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
-        const stepError =
-          cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
-
-        db.update(runSteps)
-          .set({
-            status: stepStatus,
-            output: envelope.output,
-            error: stepError,
-            traces: envelope.traces,
-          })
-          .where(eq(runSteps.id, stepId))
-          .run();
-
-        args.bus?.publish({
-          type: "run.step.updated",
-          runId,
-          step: i,
-          status: stepStatus,
         });
 
         const stepIdent: { kind: "use"; use: string } | { kind: "sh"; sh: string } = isUseStep(step)
@@ -340,25 +364,6 @@ export function runWorkflow(
         const publishStep = publishAsStep(entry);
         const publishIndex = definition.steps.length + pi;
 
-        const stepId = crypto.randomUUID();
-        db.insert(runSteps)
-          .values({
-            id: stepId,
-            runId,
-            index: publishIndex,
-            kind: isUseStep(publishStep) ? "use" : "sh",
-            status: "running",
-            isPublish: true,
-          })
-          .run();
-
-        args.bus?.publish({
-          type: "run.step.updated",
-          runId,
-          step: publishIndex,
-          status: "running",
-        });
-
         const contextFile = join(scratchDir, `publish-context-${pi}.json`);
         writeFileSync(
           contextFile,
@@ -376,39 +381,12 @@ export function runWorkflow(
           ),
         );
 
-        const env = buildEnv(publishStep, runId, publishIndex, args.cwd, resolvedInputs);
-        env.KIRI_RUN_CONTEXT_FILE = contextFile;
-
-        const envelope = await runStep({
+        const { envelope, cancelled } = await executePhase({
           step: publishStep,
-          cwd: args.cwd,
-          scratchDir,
+          index: publishIndex,
+          flag: "publish",
           input: "",
-          env,
-          onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
-        });
-
-        const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
-        const publishStatus =
-          cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
-        const publishError =
-          cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
-
-        db.update(runSteps)
-          .set({
-            status: publishStatus,
-            output: envelope.output,
-            error: publishError,
-            traces: envelope.traces,
-          })
-          .where(eq(runSteps.id, stepId))
-          .run();
-
-        args.bus?.publish({
-          type: "run.step.updated",
-          runId,
-          step: publishIndex,
-          status: publishStatus,
+          envExtras: { KIRI_RUN_CONTEXT_FILE: contextFile },
         });
 
         if (envelope.status === "ok" && !cancelled) {
@@ -466,58 +444,12 @@ export function runWorkflow(
           ),
         );
 
-        const stepId = crypto.randomUUID();
-        db.insert(runSteps)
-          .values({
-            id: stepId,
-            runId,
-            index: summaryIndex,
-            kind: isUseStep(summarizeStep) ? "use" : "sh",
-            status: "running",
-            isSummary: true,
-          })
-          .run();
-
-        args.bus?.publish({
-          type: "run.step.updated",
-          runId,
-          step: summaryIndex,
-          status: "running",
-        });
-
-        const env = buildEnv(summarizeStep, runId, summaryIndex, args.cwd, resolvedInputs);
-        env.KIRI_RUN_CONTEXT_FILE = contextFile;
-
-        const envelope = await runStep({
+        const { envelope, cancelled } = await executePhase({
           step: summarizeStep,
-          cwd: args.cwd,
-          scratchDir,
+          index: summaryIndex,
+          flag: "summary",
           input: "",
-          env,
-          onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
-        });
-
-        const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
-        const summaryStatus =
-          cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
-        const summaryError =
-          cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
-
-        db.update(runSteps)
-          .set({
-            status: summaryStatus,
-            output: envelope.output,
-            error: summaryError,
-            traces: envelope.traces,
-          })
-          .where(eq(runSteps.id, stepId))
-          .run();
-
-        args.bus?.publish({
-          type: "run.step.updated",
-          runId,
-          step: summaryIndex,
-          status: summaryStatus,
+          envExtras: { KIRI_RUN_CONTEXT_FILE: contextFile },
         });
 
         if (envelope.status === "ok" && !cancelled) {
