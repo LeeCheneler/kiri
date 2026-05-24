@@ -90,7 +90,12 @@ describe("<Chart>", () => {
     if (embed === null) throw new Error("VegaEmbed was not rendered");
 
     const loader = embed.options.loader as { load: (uri: string) => Promise<unknown> };
-    await expect(loader.load("https://example.com/data.json")).rejects.toThrow(/remote data/i);
+    try {
+      await loader.load("https://example.com/data.json");
+      throw new Error("expected loader.load to throw");
+    } catch (err) {
+      expect((err as Error).message).toMatch(/remote data/i);
+    }
   });
 
   it("degrades to an inline alert when the spec names a remote data source", () => {

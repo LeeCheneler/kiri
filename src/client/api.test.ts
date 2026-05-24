@@ -95,7 +95,12 @@ describe("api client", () => {
     ]);
 
     server.use(http.get("*/api/articles/recent", () => new HttpResponse("boom", { status: 500 })));
-    await expect(fetchRecentArticles()).rejects.toBeInstanceOf(ApiError);
+    try {
+      await fetchRecentArticles();
+      throw new Error("expected fetchRecentArticles to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+    }
   });
 
   it("triggers a manual run and returns the runId with running status", async () => {
@@ -150,7 +155,12 @@ describe("api client", () => {
   it("falls back to status text when the error body is not JSON", async () => {
     server.use(http.get("*/api/runs/:id", () => new HttpResponse("not json", { status: 503 })));
 
-    await expect(fetchRun("missing")).rejects.toThrow(/503/);
+    try {
+      await fetchRun("missing");
+      throw new Error("expected fetchRun to throw");
+    } catch (err) {
+      expect((err as Error).message).toMatch(/503/);
+    }
   });
 
   it("cancels an in-flight run and returns the runId", async () => {
@@ -216,7 +226,8 @@ describe("api client", () => {
       }),
     );
 
-    await expect(deleteRun("abc-123")).resolves.toBeUndefined();
+    const result = await deleteRun("abc-123");
+    expect(result).toBeUndefined();
     expect(seen).toEqual([{ method: "DELETE", header: "kiri-ui", id: "abc-123" }]);
   });
 
