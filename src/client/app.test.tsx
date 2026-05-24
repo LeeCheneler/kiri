@@ -49,9 +49,11 @@ describe("<App>", () => {
 
   it("mounts the toast container so completion notifications surface app-wide", async () => {
     renderAt("/");
-    // The container exposes itself as a polite live region; presence is
-    // enough — toast behaviour is covered in toast-container.test.tsx.
-    expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
+    // The container exposes itself as a named polite live region; presence
+    // is enough — toast behaviour is covered in toast-container.test.tsx.
+    expect(screen.getByRole("status", { name: /notifications/i }).getAttribute("aria-live")).toBe(
+      "polite",
+    );
     await flushAsync();
   });
 });

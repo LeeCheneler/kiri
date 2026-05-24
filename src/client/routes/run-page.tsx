@@ -11,6 +11,7 @@ import {
   rerunRun,
 } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
+import { LoadingState } from "../components/ui/loading-state.tsx";
 import { useLiveSync } from "../events/live.tsx";
 
 type State =
@@ -85,7 +86,7 @@ export function RunPage({ params }: { params: { id: string } }) {
   });
 
   if (state.status === "loading") {
-    return <p className="font-display text-base text-ink-muted italic">Loading run…</p>;
+    return <LoadingState>Loading run…</LoadingState>;
   }
   if (state.status === "not-found") {
     return (

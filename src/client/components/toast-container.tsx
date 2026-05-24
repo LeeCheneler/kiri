@@ -72,7 +72,10 @@ export function ToastContainer({
   return (
     // <output> carries implicit role="status"; aria-live is set explicitly so
     // assistive tech announces arrivals politely without stealing focus.
+    // aria-label names the live region so it's distinguishable from other
+    // role="status" elements on the page (e.g. route-level loading state).
     <output
+      aria-label="notifications"
       aria-live="polite"
       className="pointer-events-none fixed right-6 bottom-6 z-50 flex flex-col gap-3"
     >

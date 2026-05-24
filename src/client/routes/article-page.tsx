@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { ApiError, type ArticleDetail, fetchArticle } from "../api.ts";
 import { CopyButton } from "../components/copy-button.tsx";
 import { Markdown } from "../components/markdown.tsx";
+import { LoadingState } from "../components/ui/loading-state.tsx";
 import { formatRelativeTime } from "../formatters/format-time.ts";
 
 type State =
@@ -52,7 +53,7 @@ export function ArticlePage({
   }, [params.id, params.name]);
 
   if (state.status === "loading") {
-    return <p className="font-display text-base text-ink-muted italic">Loading article…</p>;
+    return <LoadingState>Loading article…</LoadingState>;
   }
   if (state.status === "not-found") {
     return (

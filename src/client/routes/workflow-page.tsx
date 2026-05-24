@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows, triggerRun } from "../api.ts";
+import { LoadingState } from "../components/ui/loading-state.tsx";
 import { WorkflowDetailView } from "../components/workflow-detail.tsx";
 import { useLiveSync } from "../events/live.tsx";
 
@@ -62,7 +63,7 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
   };
 
   if (state.status === "loading") {
-    return <p className="font-display text-base text-ink-muted italic">Loading workflow…</p>;
+    return <LoadingState>Loading workflow…</LoadingState>;
   }
   if (state.status === "not-found") {
     return (

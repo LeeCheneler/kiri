@@ -176,9 +176,9 @@ describe("<ToastContainer>", () => {
     expect(screen.queryByText("deploy")).toBeNull();
   });
 
-  it("exposes the stack region as a polite live region", () => {
+  it("exposes the stack region as a polite live region named 'notifications'", () => {
     renderToasts({ path: "/" });
-    const region = screen.getByRole("status");
+    const region = screen.getByRole("status", { name: /notifications/i });
     expect(region.getAttribute("aria-live")).toBe("polite");
   });
 });

@@ -14,6 +14,7 @@ import { InvokeModal } from "./invoke-modal.tsx";
 import { Markdown } from "./markdown.tsx";
 import { Actions } from "./ui/actions.tsx";
 import { Button } from "./ui/button.tsx";
+import { EmptyState } from "./ui/empty-state.tsx";
 import { PulseDot } from "./ui/pulse-dot.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
 import { StatusLabel } from "./ui/status-label.tsx";
@@ -419,7 +420,7 @@ function ActivitySection({ items }: { items: ActivityItem[] }) {
         headingId={headingId}
       />
       {items.length === 0 ? (
-        <p className="font-display text-base text-ink-muted italic">no activity recorded.</p>
+        <EmptyState>no activity recorded.</EmptyState>
       ) : (
         <ol aria-labelledby={headingId} className="divide-y divide-rule">
           {items.map((item, index) => (

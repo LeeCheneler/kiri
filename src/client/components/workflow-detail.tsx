@@ -9,6 +9,7 @@ import type {
 import { InvokeModal } from "./invoke-modal.tsx";
 import { Actions } from "./ui/actions.tsx";
 import { Button } from "./ui/button.tsx";
+import { EmptyState } from "./ui/empty-state.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
 
 const SH_LABEL_LIMIT = 60;
@@ -104,7 +105,7 @@ export function WorkflowDetailView({
       <section className="mt-12">
         <SectionHeader title="Steps" meta={stepCountLabel(stepCount)} />
         {stepCount === 0 ? (
-          <p className="font-display text-base text-ink-muted italic">no steps defined.</p>
+          <EmptyState>no steps defined.</EmptyState>
         ) : (
           <ol className="divide-y divide-rule">
             {workflow.steps.map((step, index) => (

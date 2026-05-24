@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import type { ArticleSummary, RunListEntry } from "../api.ts";
 import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
 import { Markdown } from "./markdown.tsx";
+import { EmptyState } from "./ui/empty-state.tsx";
 import { PulseDot } from "./ui/pulse-dot.tsx";
 import { StatusLabel } from "./ui/status-label.tsx";
 import { StatusStrip } from "./ui/status-strip.tsx";
@@ -55,7 +56,7 @@ export function ActivityFeed({
   endReached?: boolean;
 }) {
   if (runs.length === 0) {
-    return <p className="font-display text-base text-ink-muted italic">no runs yet.</p>;
+    return <EmptyState>no runs yet.</EmptyState>;
   }
 
   return (

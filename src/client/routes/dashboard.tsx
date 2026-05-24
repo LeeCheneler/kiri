@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { fetchRun } from "../api.ts";
 import { ActivityFeed } from "../components/activity-feed.tsx";
+import { LoadingState } from "../components/ui/loading-state.tsx";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 import { useRunFeed } from "../hooks/use-run-feed.ts";
 
@@ -91,7 +92,7 @@ export function Dashboard() {
           Failed to load runs: {feed.error.message}
         </p>
       ) : feed.isLoading && feed.runs.length === 0 ? (
-        <p className="text-ink-muted italic">Loading runs…</p>
+        <LoadingState>Loading runs…</LoadingState>
       ) : (
         <ActivityFeed
           runs={feed.runs}

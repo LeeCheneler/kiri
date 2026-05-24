@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import type { WorkflowSummary } from "../api.ts";
+import { EmptyState } from "./ui/empty-state.tsx";
 
 /**
  * Workflows nav for the page shell's left rail. Each entry is a Link to
@@ -18,11 +19,11 @@ export function WorkflowsNav({
 }) {
   if (workflows.length === 0) {
     return (
-      <p className="font-display text-sm leading-snug text-ink-muted italic">
+      <EmptyState>
         no workflows yet. run{" "}
         <code className="font-mono text-xs not-italic text-ink">kiri init</code> and add YAML to{" "}
         <code className="font-mono text-xs not-italic text-ink">workflows/</code>.
-      </p>
+      </EmptyState>
     );
   }
   return (

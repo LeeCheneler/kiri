@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { type RecentArticle, fetchRecentArticles } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
 import { formatRelativeTime } from "../formatters/format-time.ts";
+import { EmptyState } from "./ui/empty-state.tsx";
 
 /**
  * Right-rail "Recently Published" section: a glance-able shortlist of the
@@ -60,9 +61,7 @@ export function RecentlyPublished({ now }: { now?: Date }) {
         Recently Published
       </h2>
       {articles.length === 0 ? (
-        <p className="font-display text-sm leading-snug text-ink-muted italic">
-          no articles published yet.
-        </p>
+        <EmptyState>no articles published yet.</EmptyState>
       ) : (
         <ul>
           {articles.map((article, index) => (
