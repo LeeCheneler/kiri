@@ -21,8 +21,8 @@ const article = (overrides: Partial<Record<string, string>> = {}) => ({
   ...overrides,
 });
 
-const renderRail = () => {
-  const { hook } = memoryLocation({ path: "/" });
+const renderRail = (path = "/") => {
+  const { hook } = memoryLocation({ path });
   const { factory, sources } = captureEventSources();
   const ui = render(
     <Router hook={hook}>
@@ -119,6 +119,23 @@ describe("<RecentlyPublished>", () => {
     });
 
     expect(await screen.findByRole("link", { name: /PR Review Digest/i })).toBeDefined();
+  });
+
+  it("marks the row matching the current location with aria-current='page'", async () => {
+    server.use(
+      http.get("*/api/articles/recent", () =>
+        HttpResponse.json([
+          article(),
+          article({ runId: "run-2", name: "notes", title: "Release Notes" }),
+        ]),
+      ),
+    );
+    renderRail("/runs/run-2/published/notes");
+
+    const active = await screen.findByRole("link", { name: /release notes/i });
+    expect(active.getAttribute("aria-current")).toBe("page");
+    const inactive = screen.getByRole("link", { name: /pr review digest/i });
+    expect(inactive.getAttribute("aria-current")).toBeNull();
   });
 
   it("renders nothing when the fetch fails", async () => {

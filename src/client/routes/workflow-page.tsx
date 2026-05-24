@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows, triggerRun } from "../api.ts";
+import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { WorkflowDetailView } from "../components/workflow-detail.tsx";
 import { useLiveSync } from "../events/live.tsx";
@@ -68,12 +69,7 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
   if (state.status === "not-found") {
     return (
       <section>
-        <Link
-          href="/"
-          className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
-        >
-          ← all activity
-        </Link>
+        <BackLink href="/">all activity</BackLink>
         <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Workflow not found</h2>
         <p className="mt-3 font-mono text-sm text-ink-muted">
           No workflow named <code className="text-ink">{params.name}</code>.

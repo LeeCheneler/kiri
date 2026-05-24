@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { ApiError, type ArticleDetail, fetchArticle } from "../api.ts";
 import { CopyButton } from "../components/copy-button.tsx";
 import { Markdown } from "../components/markdown.tsx";
+import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { formatRelativeTime } from "../formatters/format-time.ts";
 
@@ -58,12 +59,7 @@ export function ArticlePage({
   if (state.status === "not-found") {
     return (
       <section>
-        <Link
-          href={`/runs/${params.id}`}
-          className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
-        >
-          ← back to run
-        </Link>
+        <BackLink href={`/runs/${params.id}`}>back to run</BackLink>
         <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Article not found</h2>
         <p className="mt-3 font-mono text-sm text-ink-muted">
           No article named <code className="text-ink">{params.name}</code> on run{" "}
@@ -83,12 +79,7 @@ export function ArticlePage({
   const { article } = state;
   return (
     <article>
-      <Link
-        href={`/runs/${article.runId}`}
-        className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
-      >
-        ← back to run
-      </Link>
+      <BackLink href={`/runs/${article.runId}`}>back to run</BackLink>
 
       <header className="mt-6 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">

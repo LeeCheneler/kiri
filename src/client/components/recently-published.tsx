@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "wouter";
+import { useLocation } from "wouter";
 import { type RecentArticle, fetchRecentArticles } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
 import { formatRelativeTime } from "../formatters/format-time.ts";
 import { EmptyState } from "./ui/empty-state.tsx";
+import { RailLink } from "./ui/rail-link.tsx";
 
 /**
  * Right-rail "Recently Published" section: a glance-able shortlist of the
@@ -21,6 +22,7 @@ import { EmptyState } from "./ui/empty-state.tsx";
  */
 export function RecentlyPublished({ now }: { now?: Date }) {
   const [articles, setArticles] = useState<RecentArticle[] | null>(null);
+  const [location] = useLocation();
   // Bumped on every fetch so a stale resolution — overlapping live-event
   // refetches, or an unmount mid-flight — can't clobber fresher state.
   const tokenRef = useRef(0);
@@ -64,29 +66,23 @@ export function RecentlyPublished({ now }: { now?: Date }) {
         <EmptyState>no articles published yet.</EmptyState>
       ) : (
         <ul>
-          {articles.map((article, index) => (
-            <li
-              key={`${article.runId}/${article.name}`}
-              style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
-              className="animate-[feed-row-in_320ms_ease-out_backwards]"
-            >
-              <Link
-                href={`/runs/${article.runId}/published/${article.name}`}
-                className="group relative block py-2 pl-4 no-underline outline-none transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+          {articles.map((article, index) => {
+            const href = `/runs/${article.runId}/published/${article.name}`;
+            return (
+              <li
+                key={`${article.runId}/${article.name}`}
+                style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
+                className="animate-[feed-row-in_320ms_ease-out_backwards]"
               >
-                <span
-                  aria-hidden="true"
-                  className="absolute inset-y-1 left-0 w-0.5 bg-rule transition-colors duration-150 group-hover:bg-accent"
-                />
-                <span className="block font-display text-base leading-snug text-ink transition-colors duration-150 group-hover:text-accent group-focus-visible:text-accent">
+                <RailLink href={href} active={location === href}>
                   {article.title}
-                </span>
-                <span className="mt-1 block font-mono text-xs text-ink-muted">
-                  {article.workflowName} · {formatRelativeTime(article.createdAt, now)}
-                </span>
-              </Link>
-            </li>
-          ))}
+                  <span className="mt-1 block font-mono text-xs text-ink-muted">
+                    {article.workflowName} · {formatRelativeTime(article.createdAt, now)}
+                  </span>
+                </RailLink>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

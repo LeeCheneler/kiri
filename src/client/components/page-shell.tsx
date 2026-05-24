@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
 import { RecentlyPublished } from "./recently-published.tsx";
+import { RailLink } from "./ui/rail-link.tsx";
 import { VersionInfo } from "./version-info.tsx";
 import { WorkflowsNav } from "./workflows-nav.tsx";
 
@@ -89,20 +90,9 @@ export function PageShell({ children }: { children: ReactNode }) {
             <nav aria-label="docs">
               <ul>
                 <li>
-                  <a
-                    href="https://local.kiri.build/docs"
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="group relative block py-2 pl-4 no-underline outline-none transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="absolute inset-y-1 left-0 w-0.5 bg-rule transition-colors duration-150 group-hover:bg-accent"
-                    />
-                    <span className="font-display text-base leading-tight text-ink-muted transition-colors duration-150 group-hover:text-ink">
-                      Documentation
-                    </span>
-                  </a>
+                  <RailLink href="https://local.kiri.build/docs" external>
+                    Documentation
+                  </RailLink>
                 </li>
               </ul>
             </nav>

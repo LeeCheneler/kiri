@@ -1,6 +1,6 @@
-import { Link } from "wouter";
 import type { WorkflowSummary } from "../api.ts";
 import { EmptyState } from "./ui/empty-state.tsx";
+import { RailLink } from "./ui/rail-link.tsx";
 
 /**
  * Workflows nav for the page shell's left rail. Each entry is a Link to
@@ -29,28 +29,16 @@ export function WorkflowsNav({
   return (
     <nav aria-label="workflows">
       <ul>
-        {workflows.map((workflow) => {
-          const active = workflow.name === activeName;
-          return (
-            <li key={workflow.name}>
-              <Link
-                href={`/workflows/${encodeURIComponent(workflow.name)}`}
-                aria-current={active ? "page" : undefined}
-                className="group relative block py-2 pl-4 no-underline outline-none transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`absolute inset-y-1 left-0 w-0.5 transition-colors duration-150 group-hover:bg-accent ${active ? "bg-accent" : "bg-rule"}`}
-                />
-                <span
-                  className={`font-display text-base leading-tight transition-colors duration-150 group-hover:text-ink ${active ? "text-ink" : "text-ink-muted"}`}
-                >
-                  {workflow.name}
-                </span>
-              </Link>
-            </li>
-          );
-        })}
+        {workflows.map((workflow) => (
+          <li key={workflow.name}>
+            <RailLink
+              href={`/workflows/${encodeURIComponent(workflow.name)}`}
+              active={workflow.name === activeName}
+            >
+              {workflow.name}
+            </RailLink>
+          </li>
+        ))}
       </ul>
     </nav>
   );

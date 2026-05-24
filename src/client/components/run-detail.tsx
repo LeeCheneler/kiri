@@ -13,6 +13,7 @@ import { formatDuration, formatDurationMs, formatRelativeTime } from "../formatt
 import { InvokeModal } from "./invoke-modal.tsx";
 import { Markdown } from "./markdown.tsx";
 import { Actions } from "./ui/actions.tsx";
+import { BackLink } from "./ui/back-link.tsx";
 import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
 import { PulseDot } from "./ui/pulse-dot.tsx";
@@ -178,12 +179,7 @@ export function RunDetailView({
 
   return (
     <article>
-      <Link
-        href="/"
-        className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
-      >
-        ← all activity
-      </Link>
+      <BackLink href="/">all activity</BackLink>
 
       <header className="relative mt-6 pl-6">
         <StatusStrip status={status} />

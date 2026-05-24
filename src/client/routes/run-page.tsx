@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import {
   ApiError,
   type RunDetail,
@@ -11,6 +11,7 @@ import {
   rerunRun,
 } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
+import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { useLiveSync } from "../events/live.tsx";
 
@@ -91,12 +92,7 @@ export function RunPage({ params }: { params: { id: string } }) {
   if (state.status === "not-found") {
     return (
       <section>
-        <Link
-          href="/"
-          className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
-        >
-          ← all activity
-        </Link>
+        <BackLink href="/">all activity</BackLink>
         <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Run not found</h2>
         <p className="mt-3 font-mono text-sm text-ink-muted">
           No run with id <code className="text-ink">{params.id}</code>.

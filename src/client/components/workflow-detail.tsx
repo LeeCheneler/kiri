@@ -1,5 +1,4 @@
 import { type ReactNode, useState } from "react";
-import { Link } from "wouter";
 import type {
   EnvValue,
   WorkflowPublishSummary,
@@ -8,6 +7,7 @@ import type {
 } from "../api.ts";
 import { InvokeModal } from "./invoke-modal.tsx";
 import { Actions } from "./ui/actions.tsx";
+import { BackLink } from "./ui/back-link.tsx";
 import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
@@ -66,12 +66,7 @@ export function WorkflowDetailView({
   const publishCount = workflow.publish?.length ?? 0;
   return (
     <article>
-      <Link
-        href="/"
-        className="font-mono text-xs tracking-widest text-ink-muted uppercase no-underline transition-colors duration-150 hover:text-accent focus-visible:text-accent focus-visible:outline-none"
-      >
-        ← all activity
-      </Link>
+      <BackLink href="/">all activity</BackLink>
 
       <header className="relative mt-6 pl-6">
         <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-rule" />
