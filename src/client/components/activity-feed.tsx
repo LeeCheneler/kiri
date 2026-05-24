@@ -3,32 +3,15 @@ import { Link } from "wouter";
 import type { ArticleSummary, RunListEntry } from "../api.ts";
 import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
 import { Markdown } from "./markdown.tsx";
+import { PulseDot } from "./ui/pulse-dot.tsx";
+import { StatusLabel } from "./ui/status-label.tsx";
+import { StatusStrip } from "./ui/status-strip.tsx";
 
 // Beyond this count the chip list collapses to a single "N articles"
 // chip so a run that publishes a lot of small articles doesn't blow
 // the row layout. The collapsed chip routes to the run page instead of
 // a specific article — its Published section lists them all.
 const CHIPS_COLLAPSE_AT = 4;
-
-type RunStatusKind = "running" | "ok" | "failed" | "cancelled" | "interrupted";
-
-const STRIP_BG: Record<RunStatusKind, string> = {
-  running: "bg-status-running",
-  ok: "bg-status-ok",
-  failed: "bg-status-failed",
-  cancelled: "bg-status-cancelled",
-  interrupted: "bg-status-interrupted",
-};
-
-const STATUS_TEXT: Record<RunStatusKind, string> = {
-  running: "text-status-running",
-  ok: "text-status-ok",
-  failed: "text-status-failed",
-  cancelled: "text-status-cancelled",
-  interrupted: "text-status-interrupted",
-};
-
-const statusFor = (run: RunListEntry): RunStatusKind => run.status;
 
 /**
  * Activity feed: each run is one editorial entry, prefaced by a thin
@@ -79,7 +62,7 @@ export function ActivityFeed({
     <>
       <ul className="divide-y divide-rule">
         {runs.map((run, index) => {
-          const status = statusFor(run);
+          const status = run.status;
           return (
             <li
               key={run.id}
@@ -87,12 +70,11 @@ export function ActivityFeed({
               className="animate-[feed-row-in_320ms_ease-out_backwards]"
             >
               <div data-status={status} className="relative px-5 py-5">
-                <span
-                  aria-hidden="true"
-                  className={`absolute inset-y-2 left-1 w-0.5 ${STRIP_BG[status]}`}
-                />
+                <StatusStrip status={status} weight="row" />
                 <div className="flex flex-wrap items-center gap-x-2 text-xs leading-none text-ink-muted">
-                  <span className={`tracking-wider ${STATUS_TEXT[status]}`}>{status}</span>
+                  <span className="tracking-wider">
+                    <StatusLabel status={status} />
+                  </span>
                   <span className="text-rule">·</span>
                   <span className="tracking-wider">{run.trigger}</span>
                   <span className="text-rule">·</span>
@@ -103,10 +85,7 @@ export function ActivityFeed({
                       {formatDuration(run.startedAt, run.finishedAt)}
                     </span>
                   ) : (
-                    <span
-                      aria-hidden="true"
-                      className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-status-running"
-                    />
+                    <PulseDot />
                   )}
                   {run.isInterrupted && (
                     <>
