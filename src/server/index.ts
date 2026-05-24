@@ -8,7 +8,6 @@ import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { resolvePublishTitle } from "../shared/publish-title.ts";
 import type { KiriDb } from "./db/index.ts";
 import { articles, runSteps, runs } from "./db/schema.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
@@ -18,12 +17,12 @@ import {
   optionalInvokeBody,
   publishedArticleParamSchema,
   runIdParamSchema,
-  workflowNameParamSchema,
 } from "./routes/shared.ts";
 import { systemRoutes } from "./routes/system.ts";
+import { workflowsRoutes } from "./routes/workflows.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
-import { type Registry, type WorkflowDefinition, validateInputs } from "./workflows/index.ts";
+import { type Registry, validateInputs } from "./workflows/index.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
@@ -105,26 +104,6 @@ const contentTypeFor = (path: string): string => {
 const isHashedAsset = (path: string): boolean => path.startsWith("/assets/");
 const cacheControlFor = (path: string): string =>
   isHashedAsset(path) ? "public, max-age=31536000, immutable" : "no-store";
-
-const summarizeWorkflow = (def: WorkflowDefinition) => ({
-  name: def.name,
-  // The invoke modal renders one field per declared input; the field's
-  // metadata (description, required, default) lives on each entry.
-  // Absent when the workflow declares no `inputs:` block.
-  inputs: def.inputs,
-  steps: def.steps,
-  gating: def.gating,
-  // Absence (no `publish:` / `summarize:` field, or `publish: []`) collapses
-  // to `undefined` so the client has a single "section not present" signal.
-  publish:
-    def.publish && def.publish.length > 0
-      ? def.publish.map((entry) => ({
-          ...entry,
-          title: resolvePublishTitle(entry.name, entry.title),
-        }))
-      : undefined,
-  summarize: def.summarize,
-});
 
 const DEFAULT_RUN_LIMIT = 25;
 const MAX_RUN_LIMIT = 100;
@@ -233,37 +212,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route("/api", systemRoutes({ version }));
 
-  app.get("/api/workflows", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
-
-  app.post(
-    "/api/workflows/:name/runs",
-    zValidator("param", workflowNameParamSchema, onZodFail("invalid workflow name")),
-    optionalInvokeBody,
-    async (c) => {
-      const { name } = c.req.valid("param");
-      const wf = registry.getWorkflow(name);
-      if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
-
-      const { inputs = {} } = c.get("invokeBody");
-      const check = validateInputs(wf, inputs);
-      if (!check.ok) return c.json({ error: check.error }, 400);
-
-      const { runId, done } = runWorkflow(db, wf, {
-        cwd,
-        trigger: "manual",
-        bus,
-        cancelRegistry,
-        inputs,
-      });
-      // Background execution: log unhandled rejections so they don't trip the
-      // process-wide handler. The run row is finalised inside `done` before any
-      // re-throw, so the DB stays consistent regardless.
-      done.catch((cause) => {
-        console.error(`run ${runId} crashed: ${cause instanceof Error ? cause.message : cause}`);
-      });
-      return c.json({ runId, status: "running" }, 202);
-    },
-  );
+  app.route("/api/workflows", workflowsRoutes({ db, registry, cwd, bus, cancelRegistry }));
 
   if (cancelRegistry) {
     app.post(
