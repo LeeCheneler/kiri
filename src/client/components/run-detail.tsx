@@ -14,30 +14,12 @@ import { InvokeModal } from "./invoke-modal.tsx";
 import { Markdown } from "./markdown.tsx";
 import { Actions } from "./ui/actions.tsx";
 import { Button } from "./ui/button.tsx";
-
-type StatusKind = "pending" | "running" | "ok" | "failed" | "cancelled" | "interrupted";
-
-const STRIP_BG: Record<StatusKind, string> = {
-  pending: "bg-status-pending",
-  running: "bg-status-running",
-  ok: "bg-status-ok",
-  failed: "bg-status-failed",
-  cancelled: "bg-status-cancelled",
-  interrupted: "bg-status-interrupted",
-};
-
-const STATUS_TEXT: Record<StatusKind, string> = {
-  pending: "text-status-pending",
-  running: "text-status-running",
-  ok: "text-status-ok",
-  failed: "text-status-failed",
-  cancelled: "text-status-cancelled",
-  interrupted: "text-status-interrupted",
-};
+import { PulseDot } from "./ui/pulse-dot.tsx";
+import { StatusLabel } from "./ui/status-label.tsx";
+import { StatusStrip } from "./ui/status-strip.tsx";
+import type { StatusKind } from "./ui/status-style.ts";
 
 const SHELL_PREVIEW_LIMIT = 60;
-
-const runStatus = (run: RunListEntry): StatusKind => run.status;
 
 // Activity-list item kinds; every row carries one so the unified list
 // still tells you which phase of the run produced each entry.
@@ -189,7 +171,7 @@ export function RunDetailView({
 }) {
   const { run, steps } = detail;
   const { articles } = run;
-  const status = runStatus(run);
+  const status: StatusKind = run.status;
   const activity = buildActivityItems(run, steps);
 
   return (
@@ -202,12 +184,12 @@ export function RunDetailView({
       </Link>
 
       <header className="relative mt-6 pl-6">
-        <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${STRIP_BG[status]}`} />
+        <StatusStrip status={status} weight="header" />
         <dl className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-none text-ink-muted">
           <div className="flex items-baseline">
             <dt className="sr-only">status</dt>
-            <dd className={`tracking-wider ${STATUS_TEXT[status]}`} data-status={status}>
-              {status}
+            <dd className="tracking-wider">
+              <StatusLabel status={status} />
             </dd>
           </div>
           <span aria-hidden="true" className="text-rule">
@@ -238,10 +220,7 @@ export function RunDetailView({
                 formatDuration(run.startedAt, run.finishedAt)
               ) : (
                 <span className="inline-flex items-baseline gap-1.5">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-1.5 w-1.5 animate-pulse self-center rounded-full bg-status-running"
-                  />
+                  <PulseDot />
                   in flight
                 </span>
               )}
@@ -471,10 +450,7 @@ function ActivityRow({ item }: { item: ActivityItem }) {
 
   const rowContent = (
     <>
-      <span
-        aria-hidden="true"
-        className={`absolute inset-y-2 left-1 w-0.5 ${row ? "transition-all duration-150 group-hover:w-[3px] " : ""}${STRIP_BG[status]}`}
-      />
+      <StatusStrip status={status} weight="row" hoverGrow={!!row} />
       <span className={`shrink-0 font-mono text-xs tabular-nums ${metaClass}`}>{ordinalText}</span>
       <span
         className={`w-20 shrink-0 font-mono text-[10px] tracking-widest uppercase ${metaClass}`}
@@ -482,18 +458,8 @@ function ActivityRow({ item }: { item: ActivityItem }) {
         {KIND_LABEL[kind]}
       </span>
       <span className={`min-w-0 flex-1 truncate font-mono text-sm ${titleClass}`}>{title}</span>
-      <span className={`shrink-0 text-xs tracking-widest uppercase ${STATUS_TEXT[status]}`}>
-        {status === "running" ? (
-          <span className="inline-flex items-baseline gap-1.5">
-            <span
-              aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 animate-pulse self-center rounded-full bg-status-running"
-            />
-            running
-          </span>
-        ) : (
-          status
-        )}
+      <span className="shrink-0 text-xs tracking-widest uppercase">
+        <StatusLabel status={status} />
       </span>
       <span className={`w-16 shrink-0 text-right font-mono text-xs tabular-nums ${metaClass}`}>
         {row?.traces ? formatDurationMs(row.traces.durationMs) : "—"}

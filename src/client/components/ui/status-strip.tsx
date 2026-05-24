@@ -31,7 +31,6 @@ export function StatusStrip({
     <span
       aria-hidden="true"
       data-weight={weight}
-      data-status={status}
       className={`absolute ${SIZING[weight]} ${STATUS_STRIP_BG[status]}${hover}`}
     />
   );

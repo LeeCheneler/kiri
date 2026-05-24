@@ -10,11 +10,6 @@ describe("<StatusStrip>", () => {
     expect(container.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("tags the rendered element with the status via data-status", () => {
-    const { container } = render(<StatusStrip status="failed" weight="row" />);
-    expect(container.querySelector("[data-status='failed']")).not.toBeNull();
-  });
-
   it("exposes the header weight via data-weight for size selection", () => {
     const { container } = render(<StatusStrip status="ok" weight="header" />);
     expect(container.querySelector("[data-weight='header']")).not.toBeNull();
