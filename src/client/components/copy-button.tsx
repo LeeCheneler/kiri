@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Actions } from "./ui/actions.tsx";
+import { Button } from "./ui/button.tsx";
 
 /**
  * Copies `content` to the system clipboard on click. Briefly swaps the
@@ -36,19 +38,8 @@ export function CopyButton({
   };
 
   return (
-    <div className="shrink-0 text-right">
-      <button
-        type="button"
-        onClick={handleClick}
-        className="cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs tracking-widest text-ink uppercase no-underline outline-none transition-colors duration-150 hover:border-accent hover:text-accent focus-visible:border-accent focus-visible:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
-      >
-        {status === "copied" ? "copied" : "copy"}
-      </button>
-      {error && (
-        <p role="alert" className="mt-2 max-w-xs font-mono text-xs text-status-failed normal-case">
-          {error}
-        </p>
-      )}
-    </div>
+    <Actions errorMessage={error}>
+      <Button onClick={handleClick}>{status === "copied" ? "copied" : "copy"}</Button>
+    </Actions>
   );
 }
