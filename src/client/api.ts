@@ -207,11 +207,14 @@ export class ApiError extends Error {
   }
 }
 
+const assertOk = async (res: Response): Promise<void> => {
+  if (res.ok) return;
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
+};
+
 const json = async <T>(res: Response): Promise<T> => {
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
-  }
+  await assertOk(res);
   return (await res.json()) as T;
 };
 
@@ -362,11 +365,7 @@ export const cancelRun = async (id: string): Promise<{ runId: string }> =>
  * 409 if it's still in flight (caller must cancel first).
  */
 export const deleteRun = async (id: string): Promise<void> => {
-  const res = await apiFetch(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
-  }
+  await assertOk(await apiFetch(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }));
 };
 
 /**
