@@ -137,6 +137,30 @@ const runListQuerySchema = z.object({
 // payload) live in `validateInputs` since they need the workflow definition.
 const invokeBodySchema = z.object({ inputs: z.record(z.string(), z.string()).optional() }).strict();
 
+// Structural shape shared by `z.ZodError` (used by `safeParse`) and
+// `$ZodError` (handed back by `@hono/zod-validator`'s callback). Both
+// carry an `issues` array of `{ path, message }`; structurally typing
+// the helper avoids picking one concrete class at the boundary.
+type ZodIssueLike = { path: ReadonlyArray<PropertyKey>; message: string };
+type ZodErrorLike = { issues: readonly ZodIssueLike[] };
+
+/**
+ * Build the 400 response body for a failed Zod parse: the existing
+ * first-issue `error` summary plus a structured `issues` array carrying
+ * each failure's field path. Modal callers can keep displaying `error`;
+ * non-modal callers (CLI, debug tooling, future API clients) read
+ * `issues` for the full diagnostic.
+ */
+const zodErrorBody = (err: ZodErrorLike, fallback: string) => ({
+  error: err.issues[0]?.message ?? fallback,
+  issues: err.issues.map((issue) => ({
+    // Zod's TS type allows symbol path segments; none of our schemas
+    // produce them, but coerce defensively so the JSON is always plain.
+    path: issue.path.map((seg) => (typeof seg === "symbol" ? seg.toString() : seg)),
+    message: issue.message,
+  })),
+});
+
 declare module "hono" {
   interface ContextVariableMap {
     invokeBody: z.infer<typeof invokeBodySchema>;
@@ -161,7 +185,7 @@ const optionalInvokeBody = createMiddleware(async (c, next) => {
   }
   const result = invokeBodySchema.safeParse(parsed);
   if (!result.success) {
-    return c.json({ error: result.error.issues[0]?.message ?? "invalid body" }, 400);
+    return c.json(zodErrorBody(result.error, "invalid body"), 400);
   }
   c.set("invokeBody", result.data);
   return next();
@@ -359,7 +383,7 @@ export function createApp(deps: AppDeps): Hono {
     "/api/runs",
     zValidator("query", runListQuerySchema, (result, c) => {
       if (!result.success) {
-        return c.json({ error: result.error.issues[0]?.message ?? "invalid query" }, 400);
+        return c.json(zodErrorBody(result.error, "invalid query"), 400);
       }
     }),
     (c) => {
@@ -443,7 +467,7 @@ export function createApp(deps: AppDeps): Hono {
       z.object({ id: z.string().min(1), name: publishNameSchema }),
       (result, c) => {
         if (!result.success) {
-          return c.json({ error: result.error.issues[0]?.message ?? "invalid article name" }, 400);
+          return c.json(zodErrorBody(result.error, "invalid article name"), 400);
         }
       },
     ),

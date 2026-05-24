@@ -414,8 +414,16 @@ describe("createApp", () => {
           body: JSON.stringify({ inputs: { pr_number: 42 } }),
         });
         expect(res.status).toBe(400);
-        const body = (await res.json()) as { error: string };
+        const body = (await res.json()) as {
+          error: string;
+          issues: { path: (string | number)[]; message: string }[];
+        };
         expect(body.error).toBeTruthy();
+        // Field path travels alongside the human-readable summary so
+        // non-modal callers (CLI, debug) can pinpoint the offending input.
+        expect(body.issues).toHaveLength(1);
+        expect(body.issues[0]?.path).toEqual(["inputs", "pr_number"]);
+        expect(body.issues[0]?.message).toBeTruthy();
       });
 
       it("returns 400 when the body is malformed JSON", async () => {
@@ -586,6 +594,14 @@ describe("createApp", () => {
 
       const tooSmall = await app.request("/api/runs?limit=0");
       expect(tooSmall.status).toBe(400);
+      // Field path travels alongside the human-readable summary so
+      // non-modal callers can pinpoint the offending query param.
+      const tooSmallBody = (await tooSmall.json()) as {
+        error: string;
+        issues: { path: (string | number)[]; message: string }[];
+      };
+      expect(tooSmallBody.issues).toHaveLength(1);
+      expect(tooSmallBody.issues[0]?.path).toEqual(["limit"]);
 
       const tooBig = await app.request("/api/runs?limit=101");
       expect(tooBig.status).toBe(400);
@@ -1040,8 +1056,15 @@ describe("createApp", () => {
       const app = createApp({ db, registry, cwd });
       const res = await app.request("/api/runs/any-id/published/Bad_Name");
       expect(res.status).toBe(400);
-      const body = (await res.json()) as { error: string };
+      const body = (await res.json()) as {
+        error: string;
+        issues: { path: (string | number)[]; message: string }[];
+      };
       expect(body.error).toMatch(/publish name must match/);
+      // Field path travels alongside the human-readable summary so
+      // non-modal callers can pinpoint the offending path param.
+      expect(body.issues).toHaveLength(1);
+      expect(body.issues[0]?.path).toEqual(["name"]);
     });
   });
 
