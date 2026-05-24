@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useLiveEvent } from "../events/live.tsx";
+import { StatusLabel } from "./ui/status-label.tsx";
+import { StatusStrip } from "./ui/status-strip.tsx";
 
 const DEFAULT_AUTO_DISMISS_MS = 6000;
 const RUN_PATH_PREFIX = "/runs/";
 
+// Toasts only render for runs that have actually terminated — the
+// running/pending/interrupted states never reach the stack.
 type ToastStatus = "ok" | "failed" | "cancelled";
 
 interface ToastEntry {
@@ -13,18 +17,6 @@ interface ToastEntry {
   workflowName: string;
   status: ToastStatus;
 }
-
-const STRIP_BG: Record<ToastStatus, string> = {
-  ok: "bg-status-ok",
-  failed: "bg-status-failed",
-  cancelled: "bg-status-cancelled",
-};
-
-const STATUS_TEXT: Record<ToastStatus, string> = {
-  ok: "text-status-ok",
-  failed: "text-status-failed",
-  cancelled: "text-status-cancelled",
-};
 
 const activeRunIdFor = (location: string): string | null => {
   if (!location.startsWith(RUN_PATH_PREFIX)) return null;
@@ -112,16 +104,13 @@ function ToastCard({
 
   return (
     <div className="pointer-events-auto relative w-80 border border-rule bg-paper shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-      <span
-        aria-hidden="true"
-        className={`absolute inset-y-0 left-0 w-1 ${STRIP_BG[toast.status]}`}
-      />
+      <StatusStrip status={toast.status} weight="header" />
       <Link
         href={`/runs/${toast.runId}`}
         className="block py-3 pr-12 pl-5 no-underline outline-none transition-colors duration-150 hover:bg-canvas focus-visible:bg-canvas focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
       >
-        <div className={`text-xs tracking-widest uppercase ${STATUS_TEXT[toast.status]}`}>
-          {toast.status}
+        <div className="text-xs tracking-widest uppercase">
+          <StatusLabel status={toast.status} />
         </div>
         <div className="mt-1.5 font-display text-lg text-ink leading-tight">
           {toast.workflowName}
