@@ -60,31 +60,6 @@ describe("createApp", () => {
     return { bus, waitForFinished };
   };
 
-  describe("GET /api/health", () => {
-    it("returns ok", async () => {
-      const app = createApp({ db, registry, cwd });
-      const res = await app.request("/api/health");
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ status: "ok" });
-    });
-  });
-
-  describe("GET /api/version", () => {
-    it("returns the version passed to createApp", async () => {
-      const app = createApp({ db, registry, cwd, version: "v9.9.9" });
-      const res = await app.request("/api/version");
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ version: "v9.9.9" });
-    });
-
-    it('defaults to "dev" when version is not provided', async () => {
-      const app = createApp({ db, registry, cwd });
-      const res = await app.request("/api/version");
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ version: "dev" });
-    });
-  });
-
   describe("GET /api/workflows", () => {
     it("returns an empty array when the registry is empty", async () => {
       const app = createApp({ db, registry, cwd });

@@ -20,6 +20,7 @@ import {
   runIdParamSchema,
   workflowNameParamSchema,
 } from "./routes/shared.ts";
+import { systemRoutes } from "./routes/system.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
 import { type Registry, type WorkflowDefinition, validateInputs } from "./workflows/index.ts";
@@ -230,9 +231,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
 
-  app.get("/api/health", (c) => c.json({ status: "ok" }));
-
-  app.get("/api/version", (c) => c.json({ version }));
+  app.route("/api", systemRoutes({ version }));
 
   app.get("/api/workflows", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
 
