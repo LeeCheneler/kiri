@@ -15,6 +15,7 @@ import { Markdown } from "./markdown.tsx";
 import { Actions } from "./ui/actions.tsx";
 import { Button } from "./ui/button.tsx";
 import { PulseDot } from "./ui/pulse-dot.tsx";
+import { SectionHeader } from "./ui/section-header.tsx";
 import { StatusLabel } from "./ui/status-label.tsx";
 import { StatusStrip } from "./ui/status-strip.tsx";
 import type { StatusKind } from "./ui/status-style.ts";
@@ -412,14 +413,11 @@ function ActivitySection({ items }: { items: ActivityItem[] }) {
   const headingId = "activity-heading";
   return (
     <section className="mt-12">
-      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
-        <h3 id={headingId} className="text-xs tracking-widest text-ink-muted uppercase">
-          Activity
-        </h3>
-        <span className="font-mono text-xs text-ink-muted tabular-nums">
-          {items.length === 1 ? "1 item" : `${items.length} items`}
-        </span>
-      </header>
+      <SectionHeader
+        title="Activity"
+        meta={items.length === 1 ? "1 item" : `${items.length} items`}
+        headingId={headingId}
+      />
       {items.length === 0 ? (
         <p className="font-display text-base text-ink-muted italic">no activity recorded.</p>
       ) : (
@@ -507,12 +505,10 @@ function PublishedSection({
 }) {
   return (
     <section className="mt-12">
-      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
-        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Published</h3>
-        <span className="font-mono text-xs text-ink-muted tabular-nums">
-          {articles.length === 1 ? "1 article" : `${articles.length} articles`}
-        </span>
-      </header>
+      <SectionHeader
+        title="Published"
+        meta={articles.length === 1 ? "1 article" : `${articles.length} articles`}
+      />
       <ul className="space-y-2">
         {articles.map((article) => (
           <li key={article.name}>
@@ -548,12 +544,10 @@ function InputsSection({ inputs }: { inputs: Record<string, string> }) {
   const entries = Object.entries(inputs);
   return (
     <section className="mt-12">
-      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
-        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Inputs</h3>
-        <span className="font-mono text-xs text-ink-muted tabular-nums">
-          {entries.length === 1 ? "1 input" : `${entries.length} inputs`}
-        </span>
-      </header>
+      <SectionHeader
+        title="Inputs"
+        meta={entries.length === 1 ? "1 input" : `${entries.length} inputs`}
+      />
       <dl className="divide-y divide-rule">
         {entries.map(([name, value]) => (
           <div key={name} className="flex items-baseline gap-5 px-5 py-3">
@@ -571,9 +565,7 @@ function InputsSection({ inputs }: { inputs: Record<string, string> }) {
 function RunSummaryBlock({ summary }: { summary: string }) {
   return (
     <section className="mt-12">
-      <header className="mb-6 flex items-baseline border-b border-rule pb-3">
-        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summary</h3>
-      </header>
+      <SectionHeader title="Summary" />
       <div className="text-ink [&_p]:mt-2 [&_p]:text-sm [&_p]:leading-snug [&_p]:first:mt-0 [&_ul]:mt-2 [&_ol]:mt-2 [&_li]:text-sm">
         <Markdown content={summary} />
       </div>

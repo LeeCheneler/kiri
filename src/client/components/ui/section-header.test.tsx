@@ -10,12 +10,12 @@ describe("<SectionHeader>", () => {
     expect(screen.getByRole("heading", { name: "Activity" })).toBeDefined();
   });
 
-  it("renders the count string verbatim when supplied", () => {
-    render(<SectionHeader title="Inputs" count="3 inputs" />);
+  it("renders the meta string verbatim when supplied", () => {
+    render(<SectionHeader title="Inputs" meta="3 inputs" />);
     expect(screen.getByText("3 inputs")).toBeDefined();
   });
 
-  it("omits the count element when count is undefined", () => {
+  it("omits the meta element when meta is undefined", () => {
     const { container } = render(<SectionHeader title="Summary" />);
     expect(container.querySelector("span")).toBeNull();
   });

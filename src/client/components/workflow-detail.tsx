@@ -9,6 +9,7 @@ import type {
 import { InvokeModal } from "./invoke-modal.tsx";
 import { Actions } from "./ui/actions.tsx";
 import { Button } from "./ui/button.tsx";
+import { SectionHeader } from "./ui/section-header.tsx";
 
 const SH_LABEL_LIMIT = 60;
 
@@ -101,12 +102,7 @@ export function WorkflowDetailView({
       </header>
 
       <section className="mt-12">
-        <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
-          <h3 className="text-xs tracking-widest text-ink-muted uppercase">Steps</h3>
-          <span className="font-mono text-xs text-ink-muted tabular-nums">
-            {stepCountLabel(stepCount)}
-          </span>
-        </header>
+        <SectionHeader title="Steps" meta={stepCountLabel(stepCount)} />
         {stepCount === 0 ? (
           <p className="font-display text-base text-ink-muted italic">no steps defined.</p>
         ) : (
@@ -168,9 +164,7 @@ function HeaderSeparator() {
 function SummariseSection({ step }: { step: WorkflowStepSummary }) {
   return (
     <section className="mt-12">
-      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
-        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Summarise</h3>
-      </header>
+      <SectionHeader title="Summarise" />
       <EntryRow
         entry={step}
         identityLines={[
@@ -186,12 +180,7 @@ function SummariseSection({ step }: { step: WorkflowStepSummary }) {
 function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
   return (
     <section className="mt-12">
-      <header className="mb-6 flex items-baseline justify-between border-b border-rule pb-3">
-        <h3 className="text-xs tracking-widest text-ink-muted uppercase">Publish</h3>
-        <span className="font-mono text-xs text-ink-muted tabular-nums">
-          {articleCountLabel(entries.length)}
-        </span>
-      </header>
+      <SectionHeader title="Publish" meta={articleCountLabel(entries.length)} />
       <ul className="divide-y divide-rule">
         {entries.map((entry) => (
           <li key={entry.name}>
