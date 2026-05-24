@@ -1,5 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { WorkflowInputSummary } from "../api.ts";
+import { Actions } from "./ui/actions.tsx";
+import { Button } from "./ui/button.tsx";
+import { TextButton } from "./ui/text-button.tsx";
 
 /**
  * Modal that collects values for a workflow's declared `inputs:` before
@@ -195,38 +198,18 @@ export function InvokeModal({
             </div>
           );
         })}
-        <div className="mt-2 flex flex-col items-end gap-2">
-          <div className="flex items-baseline gap-4">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="cursor-pointer font-mono text-xs tracking-widest text-ink-muted uppercase transition-colors duration-150 hover:text-ink focus-visible:text-ink focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
-            >
-              cancel
-            </button>
-            <button
+        <div className="mt-2">
+          <Actions errorMessage={errorMessage}>
+            <TextButton onClick={onCancel}>cancel</TextButton>
+            <Button
               type="submit"
-              disabled={!allRequiredFilled || state === "submitting"}
-              className="cursor-pointer font-mono text-xs tracking-widest text-accent uppercase transition-colors duration-150 hover:text-ink focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:text-ink-muted"
+              pending={state === "submitting"}
+              pendingLabel="running…"
+              disabled={!allRequiredFilled}
             >
-              {state === "submitting" ? (
-                <span className="inline-flex items-baseline gap-1.5">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-1.5 w-1.5 animate-pulse self-center rounded-full bg-status-running"
-                  />
-                  running…
-                </span>
-              ) : (
-                "run →"
-              )}
-            </button>
-          </div>
-          {errorMessage && (
-            <p role="alert" className="font-mono text-xs text-status-failed">
-              {errorMessage}
-            </p>
-          )}
+              run →
+            </Button>
+          </Actions>
         </div>
       </form>
     </dialog>
