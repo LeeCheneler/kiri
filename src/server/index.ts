@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
+import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
@@ -338,113 +339,121 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ runId: id, status: "running" }, 202);
   });
 
-  app.get("/api/runs", (c) => {
-    const parsed = runListQuerySchema.safeParse({
-      cursor: c.req.query("cursor"),
-      limit: c.req.query("limit"),
-    });
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.issues[0]?.message ?? "invalid query" }, 400);
-    }
-    const { cursor, limit } = parsed.data;
-
-    // Keyset pagination on the compound key (started_at DESC, id DESC). The
-    // cursor is the last seen run's id; we look it up to resolve its
-    // started_at and then page strictly after that point.
-    let anchor: { startedAt: Date; id: string } | undefined;
-    if (cursor !== undefined) {
-      const found = db
-        .select({ startedAt: runs.startedAt, id: runs.id })
-        .from(runs)
-        .where(eq(runs.id, cursor))
-        .get();
-      if (!found) return c.json({ error: `cursor "${cursor}" not found` }, 400);
-      anchor = found;
-    }
-
-    const rows = db
-      .select()
-      .from(runs)
-      .where(
-        anchor
-          ? or(
-              lt(runs.startedAt, anchor.startedAt),
-              and(eq(runs.startedAt, anchor.startedAt), lt(runs.id, anchor.id)),
-            )
-          : undefined,
-      )
-      .orderBy(desc(runs.startedAt), desc(runs.id))
-      .limit(limit)
-      .all();
-
-    const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
-
-    // Single aggregation across the page rather than per-row N+1. Empty page
-    // skips the query entirely so the common no-articles feed pays nothing.
-    type ArticleProjection = { name: string; title: string; createdAt: Date };
-    const articlesByRunId = new Map<string, ArticleProjection[]>();
-    if (rows.length > 0) {
-      const allArticles = db
-        .select({
-          runId: articles.runId,
-          name: articles.name,
-          title: articles.title,
-          createdAt: articles.createdAt,
-        })
-        .from(articles)
-        .where(
-          inArray(
-            articles.runId,
-            rows.map((r) => r.id),
-          ),
-        )
-        .orderBy(asc(articles.createdAt))
-        .all();
-      for (const { runId, name, title, createdAt } of allArticles) {
-        const list = articlesByRunId.get(runId);
-        const entry: ArticleProjection = { name, title, createdAt };
-        if (list) list.push(entry);
-        else articlesByRunId.set(runId, [entry]);
+  app.get(
+    "/api/runs",
+    zValidator("query", runListQuerySchema, (result, c) => {
+      if (!result.success) {
+        return c.json({ error: result.error.issues[0]?.message ?? "invalid query" }, 400);
       }
-    }
+    }),
+    (c) => {
+      const { cursor, limit } = c.req.valid("query");
 
-    return c.json({
-      runs: rows.map((row) => ({
-        ...row,
-        isInterrupted: !registry.getWorkflow(row.workflowName),
-        articles: articlesByRunId.get(row.id) ?? [],
-      })),
-      nextCursor,
-    });
-  });
+      // Keyset pagination on the compound key (started_at DESC, id DESC). The
+      // cursor is the last seen run's id; we look it up to resolve its
+      // started_at and then page strictly after that point.
+      let anchor: { startedAt: Date; id: string } | undefined;
+      if (cursor !== undefined) {
+        const found = db
+          .select({ startedAt: runs.startedAt, id: runs.id })
+          .from(runs)
+          .where(eq(runs.id, cursor))
+          .get();
+        if (!found) return c.json({ error: `cursor "${cursor}" not found` }, 400);
+        anchor = found;
+      }
 
-  app.get("/api/runs/:id/published/:name", (c) => {
-    const id = c.req.param("id");
-    const name = c.req.param("name");
-    const parsedName = publishNameSchema.safeParse(name);
-    if (!parsedName.success) {
-      return c.json({ error: parsedName.error.issues[0]?.message ?? "invalid article name" }, 400);
-    }
-    const run = db.select().from(runs).where(eq(runs.id, id)).get();
-    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
-    const article = db
-      .select()
-      .from(articles)
-      .where(and(eq(articles.runId, id), eq(articles.name, name)))
-      .get();
-    if (!article) {
-      return c.json({ error: `article "${name}" not found on run "${id}"` }, 404);
-    }
-    return c.json({
-      id: article.id,
-      runId: article.runId,
-      name: article.name,
-      title: article.title,
-      contentMd: article.contentMd,
-      createdAt: article.createdAt,
-      workflowName: run.workflowName,
-    });
-  });
+      const rows = db
+        .select()
+        .from(runs)
+        .where(
+          anchor
+            ? or(
+                lt(runs.startedAt, anchor.startedAt),
+                and(eq(runs.startedAt, anchor.startedAt), lt(runs.id, anchor.id)),
+              )
+            : undefined,
+        )
+        .orderBy(desc(runs.startedAt), desc(runs.id))
+        .limit(limit)
+        .all();
+
+      const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
+
+      // Single aggregation across the page rather than per-row N+1. Empty page
+      // skips the query entirely so the common no-articles feed pays nothing.
+      type ArticleProjection = { name: string; title: string; createdAt: Date };
+      const articlesByRunId = new Map<string, ArticleProjection[]>();
+      if (rows.length > 0) {
+        const allArticles = db
+          .select({
+            runId: articles.runId,
+            name: articles.name,
+            title: articles.title,
+            createdAt: articles.createdAt,
+          })
+          .from(articles)
+          .where(
+            inArray(
+              articles.runId,
+              rows.map((r) => r.id),
+            ),
+          )
+          .orderBy(asc(articles.createdAt))
+          .all();
+        for (const { runId, name, title, createdAt } of allArticles) {
+          const list = articlesByRunId.get(runId);
+          const entry: ArticleProjection = { name, title, createdAt };
+          if (list) list.push(entry);
+          else articlesByRunId.set(runId, [entry]);
+        }
+      }
+
+      return c.json({
+        runs: rows.map((row) => ({
+          ...row,
+          isInterrupted: !registry.getWorkflow(row.workflowName),
+          articles: articlesByRunId.get(row.id) ?? [],
+        })),
+        nextCursor,
+      });
+    },
+  );
+
+  app.get(
+    "/api/runs/:id/published/:name",
+    zValidator(
+      "param",
+      z.object({ id: z.string().min(1), name: publishNameSchema }),
+      (result, c) => {
+        if (!result.success) {
+          return c.json({ error: result.error.issues[0]?.message ?? "invalid article name" }, 400);
+        }
+      },
+    ),
+    (c) => {
+      const { id, name } = c.req.valid("param");
+      const run = db.select().from(runs).where(eq(runs.id, id)).get();
+      if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+      const article = db
+        .select()
+        .from(articles)
+        .where(and(eq(articles.runId, id), eq(articles.name, name)))
+        .get();
+      if (!article) {
+        return c.json({ error: `article "${name}" not found on run "${id}"` }, 404);
+      }
+      return c.json({
+        id: article.id,
+        runId: article.runId,
+        name: article.name,
+        title: article.title,
+        contentMd: article.contentMd,
+        createdAt: article.createdAt,
+        workflowName: run.workflowName,
+      });
+    },
+  );
 
   app.get("/api/articles/recent", (c) => {
     // Cross-run shortlist for the right-rail "Recently Published" section.
