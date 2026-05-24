@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
@@ -161,6 +161,31 @@ const zodErrorBody = (err: ZodErrorLike, fallback: string) => ({
   })),
 });
 
+/**
+ * Build the `@hono/zod-validator` failure hook that mirrors `zodErrorBody`'s
+ * `{ error, issues }` response shape. Used at every `zValidator(...)` call site
+ * (body, query, param) so validation 400s are uniform regardless of which
+ * surface the failure came from.
+ */
+const onZodFail =
+  (fallback: string) =>
+  (result: { success: true } | { success: false; error: ZodErrorLike }, c: Context) => {
+    if (!result.success) {
+      return c.json(zodErrorBody(result.error, fallback), 400);
+    }
+  };
+
+// Path-param schemas, shared across routes so the accepted shape for a
+// run id or workflow name is declared once. `z.string().min(1)` matches
+// the existing published-article validator — every legit id/name passes,
+// and unknown values continue to 404 from their respective lookups.
+const runIdParamSchema = z.object({ id: z.string().min(1) });
+const workflowNameParamSchema = z.object({ name: z.string().min(1) });
+const publishedArticleParamSchema = z.object({
+  id: z.string().min(1),
+  name: publishNameSchema,
+});
+
 declare module "hono" {
   interface ContextVariableMap {
     invokeBody: z.infer<typeof invokeBodySchema>;
@@ -271,206 +296,208 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get("/api/workflows", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
 
-  app.post("/api/workflows/:name/runs", optionalInvokeBody, async (c) => {
-    const name = c.req.param("name");
-    const wf = registry.getWorkflow(name);
-    if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
+  app.post(
+    "/api/workflows/:name/runs",
+    zValidator("param", workflowNameParamSchema, onZodFail("invalid workflow name")),
+    optionalInvokeBody,
+    async (c) => {
+      const { name } = c.req.valid("param");
+      const wf = registry.getWorkflow(name);
+      if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
 
-    const { inputs = {} } = c.get("invokeBody");
-    const check = validateInputs(wf, inputs);
-    if (!check.ok) return c.json({ error: check.error }, 400);
+      const { inputs = {} } = c.get("invokeBody");
+      const check = validateInputs(wf, inputs);
+      if (!check.ok) return c.json({ error: check.error }, 400);
 
-    const { runId, done } = runWorkflow(db, wf, {
-      cwd,
-      trigger: "manual",
-      bus,
-      cancelRegistry,
-      inputs,
-    });
-    // Background execution: log unhandled rejections so they don't trip the
-    // process-wide handler. The run row is finalised inside `done` before any
-    // re-throw, so the DB stays consistent regardless.
-    done.catch((cause) => {
-      console.error(`run ${runId} crashed: ${cause instanceof Error ? cause.message : cause}`);
-    });
-    return c.json({ runId, status: "running" }, 202);
-  });
-
-  if (cancelRegistry) {
-    app.post("/api/runs/:id/cancel", (c) => {
-      const id = c.req.param("id");
-      const run = db.select().from(runs).where(eq(runs.id, id)).get();
-      if (!run) return c.json({ error: `run "${id}" not found` }, 404);
-      if (run.status !== "running") {
-        return c.json({ error: `run "${id}" is not in flight` }, 409);
-      }
-      // requestCancel returns false only if the registry has no entry — i.e.
-      // the runner already released it in the small window between our DB
-      // read above and this call. Treat as already-terminal.
-      if (!cancelRegistry.requestCancel(id)) {
-        return c.json({ error: `run "${id}" is not in flight` }, 409);
-      }
-      return c.json({ runId: id }, 202);
-    });
-  }
-
-  app.delete("/api/runs/:id", (c) => {
-    const id = c.req.param("id");
-    const run = db.select().from(runs).where(eq(runs.id, id)).get();
-    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
-    if (run.status === "running") {
-      return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
-    }
-    // Explicit cascade in a transaction: articles and step rows hold FKs
-    // to the parent run row, so they go first. Matches the rest of the
-    // codebase's pattern of in-code cascades instead of schema-level
-    // ON DELETE CASCADE.
-    db.transaction((tx) => {
-      tx.delete(articles).where(eq(articles.runId, id)).run();
-      tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
-      tx.delete(runs).where(eq(runs.id, id)).run();
-    });
-    // Catches scratch-dir leftovers from a crashed runner; on a normal
-    // run the dir is already gone, and `force: true` makes that a no-op.
-    rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
-    bus?.publish({ type: "run.deleted", id });
-    return c.body(null, 204);
-  });
-
-  app.post("/api/runs/:id/rerun", optionalInvokeBody, async (c) => {
-    const id = c.req.param("id");
-    const run = db.select().from(runs).where(eq(runs.id, id)).get();
-    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
-    if (run.status === "running") {
-      return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
-    }
-    const wf = registry.getWorkflow(run.workflowName);
-    if (!wf) {
-      return c.json(
-        { error: `workflow "${run.workflowName}" no longer exists; re-create it first` },
-        409,
-      );
-    }
-
-    const { inputs = {} } = c.get("invokeBody");
-    const check = validateInputs(wf, inputs);
-    if (!check.ok) return c.json({ error: check.error }, 400);
-
-    // Cascade-wipe articles + step rows (mirrors the delete path, minus
-    // the final `runs` delete) so the rerun starts with a clean slate
-    // under the same run id. Scratch dir is removed too — normally already
-    // gone, but a crashed runner can leave it behind.
-    db.transaction((tx) => {
-      tx.delete(articles).where(eq(articles.runId, id)).run();
-      tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
-    });
-    rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
-    const { done } = runWorkflow(db, wf, {
-      cwd,
-      trigger: run.trigger,
-      bus,
-      cancelRegistry,
-      runId: id,
-      inputs,
-    });
-    done.catch((cause) => {
-      console.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);
-    });
-    return c.json({ runId: id, status: "running" }, 202);
-  });
-
-  app.get(
-    "/api/runs",
-    zValidator("query", runListQuerySchema, (result, c) => {
-      if (!result.success) {
-        return c.json(zodErrorBody(result.error, "invalid query"), 400);
-      }
-    }),
-    (c) => {
-      const { cursor, limit } = c.req.valid("query");
-
-      // Keyset pagination on the compound key (started_at DESC, id DESC). The
-      // cursor is the last seen run's id; we look it up to resolve its
-      // started_at and then page strictly after that point.
-      let anchor: { startedAt: Date; id: string } | undefined;
-      if (cursor !== undefined) {
-        const found = db
-          .select({ startedAt: runs.startedAt, id: runs.id })
-          .from(runs)
-          .where(eq(runs.id, cursor))
-          .get();
-        if (!found) return c.json({ error: `cursor "${cursor}" not found` }, 400);
-        anchor = found;
-      }
-
-      const rows = db
-        .select()
-        .from(runs)
-        .where(
-          anchor
-            ? or(
-                lt(runs.startedAt, anchor.startedAt),
-                and(eq(runs.startedAt, anchor.startedAt), lt(runs.id, anchor.id)),
-              )
-            : undefined,
-        )
-        .orderBy(desc(runs.startedAt), desc(runs.id))
-        .limit(limit)
-        .all();
-
-      const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
-
-      // Single aggregation across the page rather than per-row N+1. Empty page
-      // skips the query entirely so the common no-articles feed pays nothing.
-      type ArticleProjection = { name: string; title: string; createdAt: Date };
-      const articlesByRunId = new Map<string, ArticleProjection[]>();
-      if (rows.length > 0) {
-        const allArticles = db
-          .select({
-            runId: articles.runId,
-            name: articles.name,
-            title: articles.title,
-            createdAt: articles.createdAt,
-          })
-          .from(articles)
-          .where(
-            inArray(
-              articles.runId,
-              rows.map((r) => r.id),
-            ),
-          )
-          .orderBy(asc(articles.createdAt))
-          .all();
-        for (const { runId, name, title, createdAt } of allArticles) {
-          const list = articlesByRunId.get(runId);
-          const entry: ArticleProjection = { name, title, createdAt };
-          if (list) list.push(entry);
-          else articlesByRunId.set(runId, [entry]);
-        }
-      }
-
-      return c.json({
-        runs: rows.map((row) => ({
-          ...row,
-          isInterrupted: !registry.getWorkflow(row.workflowName),
-          articles: articlesByRunId.get(row.id) ?? [],
-        })),
-        nextCursor,
+      const { runId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        bus,
+        cancelRegistry,
+        inputs,
       });
+      // Background execution: log unhandled rejections so they don't trip the
+      // process-wide handler. The run row is finalised inside `done` before any
+      // re-throw, so the DB stays consistent regardless.
+      done.catch((cause) => {
+        console.error(`run ${runId} crashed: ${cause instanceof Error ? cause.message : cause}`);
+      });
+      return c.json({ runId, status: "running" }, 202);
     },
   );
 
+  if (cancelRegistry) {
+    app.post(
+      "/api/runs/:id/cancel",
+      zValidator("param", runIdParamSchema, onZodFail("invalid run id")),
+      (c) => {
+        const { id } = c.req.valid("param");
+        const run = db.select().from(runs).where(eq(runs.id, id)).get();
+        if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+        if (run.status !== "running") {
+          return c.json({ error: `run "${id}" is not in flight` }, 409);
+        }
+        // requestCancel returns false only if the registry has no entry — i.e.
+        // the runner already released it in the small window between our DB
+        // read above and this call. Treat as already-terminal.
+        if (!cancelRegistry.requestCancel(id)) {
+          return c.json({ error: `run "${id}" is not in flight` }, 409);
+        }
+        return c.json({ runId: id }, 202);
+      },
+    );
+  }
+
+  app.delete(
+    "/api/runs/:id",
+    zValidator("param", runIdParamSchema, onZodFail("invalid run id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const run = db.select().from(runs).where(eq(runs.id, id)).get();
+      if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+      if (run.status === "running") {
+        return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
+      }
+      // Explicit cascade in a transaction: articles and step rows hold FKs
+      // to the parent run row, so they go first. Matches the rest of the
+      // codebase's pattern of in-code cascades instead of schema-level
+      // ON DELETE CASCADE.
+      db.transaction((tx) => {
+        tx.delete(articles).where(eq(articles.runId, id)).run();
+        tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
+        tx.delete(runs).where(eq(runs.id, id)).run();
+      });
+      // Catches scratch-dir leftovers from a crashed runner; on a normal
+      // run the dir is already gone, and `force: true` makes that a no-op.
+      rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
+      bus?.publish({ type: "run.deleted", id });
+      return c.body(null, 204);
+    },
+  );
+
+  app.post(
+    "/api/runs/:id/rerun",
+    zValidator("param", runIdParamSchema, onZodFail("invalid run id")),
+    optionalInvokeBody,
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const run = db.select().from(runs).where(eq(runs.id, id)).get();
+      if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+      if (run.status === "running") {
+        return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
+      }
+      const wf = registry.getWorkflow(run.workflowName);
+      if (!wf) {
+        return c.json(
+          { error: `workflow "${run.workflowName}" no longer exists; re-create it first` },
+          409,
+        );
+      }
+
+      const { inputs = {} } = c.get("invokeBody");
+      const check = validateInputs(wf, inputs);
+      if (!check.ok) return c.json({ error: check.error }, 400);
+
+      // Cascade-wipe articles + step rows (mirrors the delete path, minus
+      // the final `runs` delete) so the rerun starts with a clean slate
+      // under the same run id. Scratch dir is removed too — normally already
+      // gone, but a crashed runner can leave it behind.
+      db.transaction((tx) => {
+        tx.delete(articles).where(eq(articles.runId, id)).run();
+        tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
+      });
+      rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
+      const { done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: run.trigger,
+        bus,
+        cancelRegistry,
+        runId: id,
+        inputs,
+      });
+      done.catch((cause) => {
+        console.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);
+      });
+      return c.json({ runId: id, status: "running" }, 202);
+    },
+  );
+
+  app.get("/api/runs", zValidator("query", runListQuerySchema, onZodFail("invalid query")), (c) => {
+    const { cursor, limit } = c.req.valid("query");
+
+    // Keyset pagination on the compound key (started_at DESC, id DESC). The
+    // cursor is the last seen run's id; we look it up to resolve its
+    // started_at and then page strictly after that point.
+    let anchor: { startedAt: Date; id: string } | undefined;
+    if (cursor !== undefined) {
+      const found = db
+        .select({ startedAt: runs.startedAt, id: runs.id })
+        .from(runs)
+        .where(eq(runs.id, cursor))
+        .get();
+      if (!found) return c.json({ error: `cursor "${cursor}" not found` }, 400);
+      anchor = found;
+    }
+
+    const rows = db
+      .select()
+      .from(runs)
+      .where(
+        anchor
+          ? or(
+              lt(runs.startedAt, anchor.startedAt),
+              and(eq(runs.startedAt, anchor.startedAt), lt(runs.id, anchor.id)),
+            )
+          : undefined,
+      )
+      .orderBy(desc(runs.startedAt), desc(runs.id))
+      .limit(limit)
+      .all();
+
+    const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
+
+    // Single aggregation across the page rather than per-row N+1. Empty page
+    // skips the query entirely so the common no-articles feed pays nothing.
+    type ArticleProjection = { name: string; title: string; createdAt: Date };
+    const articlesByRunId = new Map<string, ArticleProjection[]>();
+    if (rows.length > 0) {
+      const allArticles = db
+        .select({
+          runId: articles.runId,
+          name: articles.name,
+          title: articles.title,
+          createdAt: articles.createdAt,
+        })
+        .from(articles)
+        .where(
+          inArray(
+            articles.runId,
+            rows.map((r) => r.id),
+          ),
+        )
+        .orderBy(asc(articles.createdAt))
+        .all();
+      for (const { runId, name, title, createdAt } of allArticles) {
+        const list = articlesByRunId.get(runId);
+        const entry: ArticleProjection = { name, title, createdAt };
+        if (list) list.push(entry);
+        else articlesByRunId.set(runId, [entry]);
+      }
+    }
+
+    return c.json({
+      runs: rows.map((row) => ({
+        ...row,
+        isInterrupted: !registry.getWorkflow(row.workflowName),
+        articles: articlesByRunId.get(row.id) ?? [],
+      })),
+      nextCursor,
+    });
+  });
+
   app.get(
     "/api/runs/:id/published/:name",
-    zValidator(
-      "param",
-      z.object({ id: z.string().min(1), name: publishNameSchema }),
-      (result, c) => {
-        if (!result.success) {
-          return c.json(zodErrorBody(result.error, "invalid article name"), 400);
-        }
-      },
-    ),
+    zValidator("param", publishedArticleParamSchema, onZodFail("invalid article name")),
     (c) => {
       const { id, name } = c.req.valid("param");
       const run = db.select().from(runs).where(eq(runs.id, id)).get();
@@ -516,44 +543,48 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(rows);
   });
 
-  app.get("/api/runs/:id", (c) => {
-    const id = c.req.param("id");
-    const run = db.select().from(runs).where(eq(runs.id, id)).get();
-    if (!run) return c.json({ error: `run "${id}" not found` }, 404);
-    // Publish and summary rows ship alongside pipeline steps; clients
-    // separate them by the `isPublish` / `isSummary` flags. This is what
-    // lets the run detail page render in-flight publish indicators while
-    // an article row hasn't yet been written.
-    const steps = db
-      .select()
-      .from(runSteps)
-      .where(eq(runSteps.runId, id))
-      .orderBy(asc(runSteps.index))
-      .all();
-    // `content_md` is deliberately omitted — the article body is fetched
-    // by the dedicated article page so the run-detail payload stays small.
-    // Lives on `run.articles` so every RunListEntry — list or detail —
-    // shares the same shape; chip rendering and the published-section row
-    // both read from one place.
-    const articleRows = db
-      .select({
-        name: articles.name,
-        title: articles.title,
-        createdAt: articles.createdAt,
-      })
-      .from(articles)
-      .where(eq(articles.runId, id))
-      .orderBy(asc(articles.createdAt))
-      .all();
-    return c.json({
-      run: {
-        ...run,
-        isInterrupted: !registry.getWorkflow(run.workflowName),
-        articles: articleRows,
-      },
-      steps,
-    });
-  });
+  app.get(
+    "/api/runs/:id",
+    zValidator("param", runIdParamSchema, onZodFail("invalid run id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const run = db.select().from(runs).where(eq(runs.id, id)).get();
+      if (!run) return c.json({ error: `run "${id}" not found` }, 404);
+      // Publish and summary rows ship alongside pipeline steps; clients
+      // separate them by the `isPublish` / `isSummary` flags. This is what
+      // lets the run detail page render in-flight publish indicators while
+      // an article row hasn't yet been written.
+      const steps = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, id))
+        .orderBy(asc(runSteps.index))
+        .all();
+      // `content_md` is deliberately omitted — the article body is fetched
+      // by the dedicated article page so the run-detail payload stays small.
+      // Lives on `run.articles` so every RunListEntry — list or detail —
+      // shares the same shape; chip rendering and the published-section row
+      // both read from one place.
+      const articleRows = db
+        .select({
+          name: articles.name,
+          title: articles.title,
+          createdAt: articles.createdAt,
+        })
+        .from(articles)
+        .where(eq(articles.runId, id))
+        .orderBy(asc(articles.createdAt))
+        .all();
+      return c.json({
+        run: {
+          ...run,
+          isInterrupted: !registry.getWorkflow(run.workflowName),
+          articles: articleRows,
+        },
+        steps,
+      });
+    },
+  );
 
   if (bus) {
     mountEventsRoute(
