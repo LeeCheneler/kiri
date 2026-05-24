@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
+import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { resolvePublishTitle } from "../shared/publish-title.ts";
 import type { KiriDb } from "./db/index.ts";
@@ -134,6 +135,36 @@ const runListQuerySchema = z.object({
 // payload) live in `validateInputs` since they need the workflow definition.
 const invokeBodySchema = z.object({ inputs: z.record(z.string(), z.string()).optional() }).strict();
 
+declare module "hono" {
+  interface ContextVariableMap {
+    invokeBody: z.infer<typeof invokeBodySchema>;
+  }
+}
+
+/**
+ * Parse and validate an optional JSON request body against `invokeBodySchema`.
+ * Empty body resolves to `{}`; malformed JSON returns 400; shape mismatch
+ * returns 400 with the first Zod issue. On success the validated value is
+ * exposed to the route handler via `c.get("invokeBody")`.
+ */
+const optionalInvokeBody = createMiddleware(async (c, next) => {
+  const raw = await c.req.text();
+  let parsed: unknown = {};
+  if (raw.length > 0) {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+  }
+  const result = invokeBodySchema.safeParse(parsed);
+  if (!result.success) {
+    return c.json({ error: result.error.issues[0]?.message ?? "invalid body" }, 400);
+  }
+  c.set("invokeBody", result.data);
+  return next();
+});
+
 const NO_STORE_PATHS = new Set(["/", "/index.html", "/app.js", "/app.css"]);
 
 const ALLOWED_ORIGINS = [
@@ -199,29 +230,12 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get("/api/workflows", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
 
-  app.post("/api/workflows/:name/runs", async (c) => {
+  app.post("/api/workflows/:name/runs", optionalInvokeBody, async (c) => {
     const name = c.req.param("name");
     const wf = registry.getWorkflow(name);
     if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
 
-    // Body is optional — a workflow with no inputs invokes with no body, same
-    // as before. Empty body == `{}`; anything non-empty must parse as JSON
-    // matching `invokeBodySchema`. The workflow-aware checks then run against
-    // the resolved payload.
-    const raw = await c.req.text();
-    let parsedBody: unknown = {};
-    if (raw.length > 0) {
-      try {
-        parsedBody = JSON.parse(raw);
-      } catch {
-        return c.json({ error: "invalid JSON body" }, 400);
-      }
-    }
-    const shape = invokeBodySchema.safeParse(parsedBody);
-    if (!shape.success) {
-      return c.json({ error: shape.error.issues[0]?.message ?? "invalid body" }, 400);
-    }
-    const inputs = shape.data.inputs ?? {};
+    const { inputs = {} } = c.get("invokeBody");
     const check = validateInputs(wf, inputs);
     if (!check.ok) return c.json({ error: check.error }, 400);
 
@@ -282,7 +296,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.body(null, 204);
   });
 
-  app.post("/api/runs/:id/rerun", async (c) => {
+  app.post("/api/runs/:id/rerun", optionalInvokeBody, async (c) => {
     const id = c.req.param("id");
     const run = db.select().from(runs).where(eq(runs.id, id)).get();
     if (!run) return c.json({ error: `run "${id}" not found` }, 404);
@@ -297,23 +311,7 @@ export function createApp(deps: AppDeps): Hono {
       );
     }
 
-    // Same optional-body contract as `POST /api/workflows/:name/runs`: empty
-    // body preserves today's no-inputs path; a JSON object is validated
-    // against the *current* workflow (the same one the rerun will execute).
-    const raw = await c.req.text();
-    let parsedBody: unknown = {};
-    if (raw.length > 0) {
-      try {
-        parsedBody = JSON.parse(raw);
-      } catch {
-        return c.json({ error: "invalid JSON body" }, 400);
-      }
-    }
-    const shape = invokeBodySchema.safeParse(parsedBody);
-    if (!shape.success) {
-      return c.json({ error: shape.error.issues[0]?.message ?? "invalid body" }, 400);
-    }
-    const inputs = shape.data.inputs ?? {};
+    const { inputs = {} } = c.get("invokeBody");
     const check = validateInputs(wf, inputs);
     if (!check.ok) return c.json({ error: check.error }, 400);
 
