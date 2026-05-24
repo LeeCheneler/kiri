@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import type { WorkflowSummary } from "../api.ts";
 import { WorkflowDetailView } from "./workflow-detail.tsx";
 
@@ -373,14 +372,15 @@ describe("<WorkflowDetailView>", () => {
 
   describe("trigger", () => {
     it("calls onTrigger with just the workflow name when the workflow has no inputs", async () => {
+      const user = userEvent.setup();
       const onTrigger = mock(() => Promise.resolve({}));
       renderDetail(stubWorkflow({ name: "pr-review" }), onTrigger);
-      fireEvent.click(screen.getByRole("button", { name: /run/i }));
+      await user.click(screen.getByRole("button", { name: /run/i }));
       expect(onTrigger).toHaveBeenCalledWith("pr-review");
-      await flushAsync();
     });
 
     it("shows a running indicator while the trigger is in flight", async () => {
+      const user = userEvent.setup();
       let resolve: ((value: unknown) => void) | undefined;
       const onTrigger = () =>
         new Promise<unknown>((r) => {
@@ -388,23 +388,22 @@ describe("<WorkflowDetailView>", () => {
         });
       renderDetail(stubWorkflow(), onTrigger);
 
-      fireEvent.click(screen.getByRole("button", { name: /run/i }));
+      await user.click(screen.getByRole("button", { name: /run/i }));
       expect(screen.getByRole("button", { name: /running/i })).toBeDefined();
       expect(screen.getByRole("button").hasAttribute("disabled")).toBe(true);
 
-      await act(async () => {
-        resolve?.({});
-      });
+      resolve?.({});
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /^run/i })).toBeDefined();
       });
     });
 
     it("surfaces a trigger error inline and re-enables the button", async () => {
+      const user = userEvent.setup();
       const onTrigger = () => Promise.reject(new Error("kaboom"));
       renderDetail(stubWorkflow(), onTrigger);
 
-      fireEvent.click(screen.getByRole("button", { name: /run/i }));
+      await user.click(screen.getByRole("button", { name: /run/i }));
 
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain("kaboom");
@@ -412,10 +411,11 @@ describe("<WorkflowDetailView>", () => {
     });
 
     it("falls back to a generic error message when the rejection isn't an Error", async () => {
+      const user = userEvent.setup();
       const onTrigger = () => Promise.reject("not an Error instance");
       renderDetail(stubWorkflow(), onTrigger);
 
-      fireEvent.click(screen.getByRole("button", { name: /run/i }));
+      await user.click(screen.getByRole("button", { name: /run/i }));
 
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toMatch(/trigger failed/i);
@@ -424,6 +424,7 @@ describe("<WorkflowDetailView>", () => {
 
   describe("trigger with inputs", () => {
     it("opens the invoke modal on click instead of triggering immediately", async () => {
+      const user = userEvent.setup();
       const onTrigger = mock(() => Promise.resolve({}));
       renderDetail(
         stubWorkflow({
@@ -434,7 +435,7 @@ describe("<WorkflowDetailView>", () => {
       );
 
       expect(screen.queryByRole("dialog")).toBeNull();
-      fireEvent.click(screen.getByRole("button", { name: /run/i }));
+      await user.click(screen.getByRole("button", { name: /run/i }));
 
       // Modal opens; onTrigger is not called until the user submits.
       expect(screen.getByRole("dialog")).toBeDefined();
@@ -459,7 +460,7 @@ describe("<WorkflowDetailView>", () => {
         onTrigger,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: /^run/i }));
+      await user.click(screen.getByRole("button", { name: /^run/i }));
       await user.type(screen.getByLabelText(/pr_number/i), "42");
       await user.click(screen.getAllByRole("button", { name: /^run/i }).at(-1) as HTMLElement);
 
@@ -476,7 +477,7 @@ describe("<WorkflowDetailView>", () => {
         onTrigger,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: /^run/i }));
+      await user.click(screen.getByRole("button", { name: /^run/i }));
       expect(screen.getByRole("dialog")).toBeDefined();
 
       await user.click(screen.getByRole("button", { name: /cancel/i }));

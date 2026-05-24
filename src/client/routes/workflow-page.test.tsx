@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
@@ -86,9 +86,10 @@ describe("<WorkflowPage>", () => {
       ),
     );
 
+    const user = userEvent.setup();
     const { history } = renderWorkflow("kiri-self-review");
 
-    fireEvent.click(await screen.findByRole("button", { name: /^run/i }));
+    await user.click(await screen.findByRole("button", { name: /^run/i }));
 
     await waitFor(() => {
       expect(history[history.length - 1]).toBe("/runs/run-kiri-self-review-fresh");
@@ -122,7 +123,7 @@ describe("<WorkflowPage>", () => {
 
     const { history } = renderWorkflow("pr-review");
 
-    fireEvent.click(await screen.findByRole("button", { name: /^run/i }));
+    await user.click(await screen.findByRole("button", { name: /^run/i }));
     expect(screen.getByRole("dialog")).toBeDefined();
 
     await user.type(screen.getByLabelText(/pr_number/i), "42");
