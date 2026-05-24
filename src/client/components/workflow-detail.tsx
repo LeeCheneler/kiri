@@ -7,6 +7,8 @@ import type {
   WorkflowSummary,
 } from "../api.ts";
 import { InvokeModal } from "./invoke-modal.tsx";
+import { Actions } from "./ui/actions.tsx";
+import { Button } from "./ui/button.tsx";
 
 const SH_LABEL_LIMIT = 60;
 
@@ -247,30 +249,12 @@ function TriggerButton({
   };
 
   return (
-    <div className="flex shrink-0 flex-col items-end gap-1">
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={state === "running"}
-        className="cursor-pointer font-mono text-xs tracking-widest text-accent uppercase no-underline outline-none transition-colors duration-150 hover:text-ink focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:text-ink-muted"
-      >
-        {state === "running" ? (
-          <span className="inline-flex items-baseline gap-1.5">
-            <span
-              aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 animate-pulse self-center rounded-full bg-status-running"
-            />
-            running…
-          </span>
-        ) : (
-          "run →"
-        )}
-      </button>
-      {errorMessage && (
-        <p role="alert" className="font-mono text-xs text-status-failed">
-          {errorMessage}
-        </p>
-      )}
+    <>
+      <Actions errorMessage={errorMessage}>
+        <Button pending={state === "running"} pendingLabel="running…" onClick={handleClick}>
+          run →
+        </Button>
+      </Actions>
       {modalOpen && workflow.inputs && (
         <InvokeModal
           workflowName={workflow.name}
@@ -279,7 +263,7 @@ function TriggerButton({
           onCancel={() => setModalOpen(false)}
         />
       )}
-    </div>
+    </>
   );
 }
 
