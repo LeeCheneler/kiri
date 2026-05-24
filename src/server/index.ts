@@ -2,11 +2,10 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
-import { type Context, Hono } from "hono";
+import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
-import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { resolvePublishTitle } from "../shared/publish-title.ts";
@@ -14,10 +13,16 @@ import type { KiriDb } from "./db/index.ts";
 import { articles, runSteps, runs } from "./db/schema.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute } from "./events/index.ts";
+import {
+  onZodFail,
+  optionalInvokeBody,
+  publishedArticleParamSchema,
+  runIdParamSchema,
+  workflowNameParamSchema,
+} from "./routes/shared.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { runWorkflow } from "./runner/index.ts";
 import { type Registry, type WorkflowDefinition, validateInputs } from "./workflows/index.ts";
-import { publishNameSchema } from "./workflows/schema.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
@@ -136,91 +141,6 @@ const BODY_LIMIT_BYTES = 256 * 1024;
 const runListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_RUN_LIMIT).default(DEFAULT_RUN_LIMIT),
-});
-
-// Shape of the invoke endpoint's optional JSON body. Values must be strings —
-// inputs flow into env vars verbatim, and env vars are strings. The
-// workflow-aware checks (unknown keys, required-and-missing, no-inputs-with-
-// payload) live in `validateInputs` since they need the workflow definition.
-const invokeBodySchema = z.object({ inputs: z.record(z.string(), z.string()).optional() }).strict();
-
-// Structural shape shared by `z.ZodError` (used by `safeParse`) and
-// `$ZodError` (handed back by `@hono/zod-validator`'s callback). Both
-// carry an `issues` array of `{ path, message }`; structurally typing
-// the helper avoids picking one concrete class at the boundary.
-type ZodIssueLike = { path: ReadonlyArray<PropertyKey>; message: string };
-type ZodErrorLike = { issues: readonly ZodIssueLike[] };
-
-/**
- * Build the 400 response body for a failed Zod parse: the existing
- * first-issue `error` summary plus a structured `issues` array carrying
- * each failure's field path. Modal callers can keep displaying `error`;
- * non-modal callers (CLI, debug tooling, future API clients) read
- * `issues` for the full diagnostic.
- */
-const zodErrorBody = (err: ZodErrorLike, fallback: string) => ({
-  error: err.issues[0]?.message ?? fallback,
-  issues: err.issues.map((issue) => ({
-    // Zod's TS type allows symbol path segments; none of our schemas
-    // produce them, but coerce defensively so the JSON is always plain.
-    path: issue.path.map((seg) => (typeof seg === "symbol" ? seg.toString() : seg)),
-    message: issue.message,
-  })),
-});
-
-/**
- * Build the `@hono/zod-validator` failure hook that mirrors `zodErrorBody`'s
- * `{ error, issues }` response shape. Used at every `zValidator(...)` call site
- * (body, query, param) so validation 400s are uniform regardless of which
- * surface the failure came from.
- */
-const onZodFail =
-  (fallback: string) =>
-  (result: { success: true } | { success: false; error: ZodErrorLike }, c: Context) => {
-    if (!result.success) {
-      return c.json(zodErrorBody(result.error, fallback), 400);
-    }
-  };
-
-// Path-param schemas, shared across routes so the accepted shape for a
-// run id or workflow name is declared once. `z.string().min(1)` matches
-// the existing published-article validator — every legit id/name passes,
-// and unknown values continue to 404 from their respective lookups.
-const runIdParamSchema = z.object({ id: z.string().min(1) });
-const workflowNameParamSchema = z.object({ name: z.string().min(1) });
-const publishedArticleParamSchema = z.object({
-  id: z.string().min(1),
-  name: publishNameSchema,
-});
-
-declare module "hono" {
-  interface ContextVariableMap {
-    invokeBody: z.infer<typeof invokeBodySchema>;
-  }
-}
-
-/**
- * Parse and validate an optional JSON request body against `invokeBodySchema`.
- * Empty body resolves to `{}`; malformed JSON returns 400; shape mismatch
- * returns 400 with the first Zod issue. On success the validated value is
- * exposed to the route handler via `c.get("invokeBody")`.
- */
-const optionalInvokeBody = createMiddleware(async (c, next) => {
-  const raw = await c.req.text();
-  let parsed: unknown = {};
-  if (raw.length > 0) {
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-  }
-  const result = invokeBodySchema.safeParse(parsed);
-  if (!result.success) {
-    return c.json(zodErrorBody(result.error, "invalid body"), 400);
-  }
-  c.set("invokeBody", result.data);
-  return next();
 });
 
 const NO_STORE_PATHS = new Set(["/", "/index.html", "/app.js", "/app.css"]);
