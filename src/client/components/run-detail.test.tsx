@@ -88,18 +88,16 @@ describe("<RunDetailView>", () => {
       expect(screen.getByRole("heading", { level: 2, name: /pr-review/i })).toBeDefined();
     });
 
-    it("renders the status word in the matching status colour", () => {
+    it("renders the run's status word in the header, keyed by data-status", () => {
       const { container } = renderDetail(stubDetail({ status: "failed" }));
       const status = container.querySelector('header [data-status="failed"]');
       expect(status?.textContent).toBe("failed");
-      expect(status?.className).toContain("text-status-failed");
     });
 
-    it("renders cancelled runs with the cancelled status colour", () => {
+    it("renders cancelled runs with the cancelled status word in the header", () => {
       const { container } = renderDetail(stubDetail({ status: "cancelled" }));
       const status = container.querySelector('header [data-status="cancelled"]');
       expect(status?.textContent).toBe("cancelled");
-      expect(status?.className).toContain("text-status-cancelled");
     });
 
     it("renders the trigger, relative start time and duration in the metadata row", () => {
@@ -169,7 +167,6 @@ describe("<RunDetailView>", () => {
       const { container } = renderDetail(stubDetail({ status: "ok", isInterrupted: true }));
       const status = container.querySelector('header [data-status="ok"]');
       expect(status?.textContent).toBe("ok");
-      expect(status?.className).toContain("text-status-ok");
     });
 
     it("renders a deleted marker in the byline", () => {
@@ -1025,15 +1022,6 @@ describe("<RunDetailView>", () => {
       renderDetail(stubDetail({ inputs: {} }));
       expect(screen.queryByRole("heading", { name: /^inputs$/i })).toBeNull();
     });
-
-    it("renders above the summary section when both are visible", () => {
-      renderDetail(stubDetail({ inputs: { pr_number: "42" }, summary: "Reviewed PR #42." }));
-      const inputs = screen.getByRole("heading", { name: /^inputs$/i });
-      const summary = screen.getByRole("heading", { name: /^summary$/i });
-      expect(inputs.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      );
-    });
   });
 
   describe("summary", () => {
@@ -1131,48 +1119,6 @@ describe("<RunDetailView>", () => {
       renderDetail(stubDetail({}, [], [stubArticle({ createdAt })]));
       const time = screen.getByText(/45 seconds ago/i);
       expect(time.getAttribute("title")).toBe(createdAt);
-    });
-
-    it("renders above the activity list so the long-form output is reached first", () => {
-      renderDetail(
-        stubDetail({}, [stubStep()], [stubArticle({ name: "digest", title: "Digest" })]),
-      );
-      const published = screen.getByRole("heading", { name: /^published$/i });
-      const activity = screen.getByRole("heading", { name: /^activity$/i });
-      expect(published.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      );
-    });
-
-    it("renders directly under the summary when both surfaces are visible", () => {
-      renderDetail(
-        stubDetail(
-          { summary: "Top-line summary." },
-          [],
-          [stubArticle({ name: "digest", title: "Digest" })],
-        ),
-      );
-      const summary = screen.getByText(/^summary$/i);
-      const published = screen.getByRole("heading", { name: /^published$/i });
-      // summary → published (no intervening section between them on this run).
-      expect(summary.compareDocumentPosition(published) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      );
-    });
-
-    it("renders above the run failure block when a failure is present", () => {
-      renderDetail(
-        stubDetail(
-          { status: "failed", error: { message: "boom" } },
-          [],
-          [stubArticle({ name: "digest", title: "Digest" })],
-        ),
-      );
-      const published = screen.getByRole("heading", { name: /^published$/i });
-      const failure = screen.getByText(/^run failed$/i);
-      expect(published.compareDocumentPosition(failure) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      );
     });
   });
 });

@@ -56,15 +56,4 @@ describe("<WorkflowsNav>", () => {
     renderNav([wf("alpha"), wf("beta")], null);
     expect(screen.queryByRole("link", { current: "page" })).toBeNull();
   });
-
-  it("applies the accent colour to the active row's strip", () => {
-    const { container } = renderNav([wf("alpha"), wf("beta")], "beta");
-    const beta = screen.getByRole("link", { name: /beta/i });
-    const strip = beta.querySelector("span[aria-hidden='true']");
-    expect(strip?.className).toContain("bg-accent");
-
-    const alpha = container.querySelector("a[href='/workflows/alpha']");
-    const inactiveStrip = alpha?.querySelector("span[aria-hidden='true']");
-    expect(inactiveStrip?.className).toContain("bg-rule");
-  });
 });

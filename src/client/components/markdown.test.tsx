@@ -108,12 +108,11 @@ describe("<Markdown>", () => {
     }
   });
 
-  it("applies editorial styling classes to every supported element", () => {
-    // One big tree exercises every branch in the components map so the
-    // styled wrappers carry real coverage. Class assertions check a
-    // single anchor class per element — the precise utility set can
-    // evolve without churning the test, but the styling contract stays
-    // self-documenting.
+  it("renders every supported markdown element through its styled wrapper", () => {
+    // Exercises every entry in the components map so each wrapper runs at
+    // least once. No styling assertions — see CLAUDE.md on not testing
+    // class names; we only assert that the element type made it into the
+    // DOM at all.
     const { container } = render(
       <Markdown
         content={[
@@ -148,48 +147,38 @@ describe("<Markdown>", () => {
         ].join("\n")}
       />,
     );
-    expect(container.querySelector("h1")?.className).toContain("font-display");
-    expect(container.querySelector("h2")?.className).toContain("font-display");
-    expect(container.querySelector("h3")?.className).toContain("font-display");
-    expect(container.querySelector("h4")?.className).toContain("font-display");
-    expect(container.querySelector("h5")?.className).toContain("font-display");
-    expect(container.querySelector("h6")?.className).toContain("tracking-widest");
-    expect(container.querySelector("p")?.className).toContain("leading-relaxed");
-    expect(container.querySelector("strong")?.className).toContain("font-semibold");
-    expect(container.querySelector("em")?.className).toContain("italic");
-    expect(container.querySelector("del")?.className).toContain("line-through");
-    expect(container.querySelector("blockquote")?.className).toContain("border-l-2");
-    expect(container.querySelector("ul")?.className).toContain("list-disc");
-    expect(container.querySelector("ol")?.className).toContain("list-decimal");
-    expect(container.querySelector("li")?.className).toContain("leading-relaxed");
-    expect(container.querySelector("hr")?.className).toContain("border-rule");
-    // Inline code carries the chip treatment; fenced code inside <pre>
-    // skips the chip styling so the wrapping pre owns the block look.
-    const inlineCode = container.querySelector("p code");
-    expect(inlineCode?.className).toContain("bg-paper");
-    const fencedCode = container.querySelector("pre code");
-    expect(fencedCode?.className ?? "").not.toContain("bg-paper");
-    expect(container.querySelector("pre")?.className).toContain("overflow-x-auto");
-    expect(container.querySelector("img")?.className).toContain("max-w-full");
-    expect(container.querySelector("table")?.className).toContain("border-collapse");
-    expect(container.querySelector("th")?.className).toContain("font-semibold");
-    expect(container.querySelector("td")?.className).toContain("border-rule");
+    for (const tag of [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "p",
+      "strong",
+      "em",
+      "del",
+      "blockquote",
+      "ul",
+      "ol",
+      "li",
+      "hr",
+      "code",
+      "pre",
+      "img",
+      "table",
+      "th",
+      "td",
+    ]) {
+      expect(container.querySelector(tag)).not.toBeNull();
+    }
   });
 
-  it("respects an explicit className on an image", () => {
+  it("does not crash when the markdown source contains a raw <img> tag", () => {
+    // react-markdown skips raw HTML, so the literal <img> doesn't reach
+    // the components map — the renderer must still produce a valid tree.
     const { container } = render(<Markdown content={'<img src="x" class="custom-img" />'} />);
-    // The raw HTML img isn't parsed (react-markdown skips raw HTML); only
-    // markdown-syntax images go through the Image component. This asserts
-    // the renderer doesn't crash on an empty result.
     expect(container.querySelector("img")).toBeNull();
-  });
-
-  it("preserves a caller-provided className on rendered anchors", () => {
-    // Defensive: if a future override passes a className via custom props
-    // it should win over the default. We can't easily express that
-    // through markdown syntax, but the branch matters for coverage.
-    const { container } = render(<Markdown content={"[ext](https://news.ycombinator.com/x)"} />);
-    expect(container.querySelector("a")?.className).toContain("text-accent");
   });
 
   it("routes a ```chart fence to the chart component", async () => {
