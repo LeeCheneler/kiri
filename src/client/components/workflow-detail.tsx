@@ -10,6 +10,7 @@ import { Actions } from "./ui/actions.tsx";
 import { BackLink } from "./ui/back-link.tsx";
 import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
+import { LabelledBlock } from "./ui/labelled-block.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
 
 const SH_LABEL_LIMIT = 60;
@@ -295,19 +296,19 @@ function EntryConfig({ entry }: { entry: EntryShape }) {
   return (
     <div className="space-y-4">
       {showDescription && (
-        <Block label="description">
+        <LabelledBlock label="description">
           <p className="font-display text-base text-ink italic">{entry.description}</p>
-        </Block>
+        </LabelledBlock>
       )}
       {showSource && (
-        <Block label="source">
+        <LabelledBlock label="source">
           <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink">
             {(entry as { sh: string }).sh}
           </pre>
-        </Block>
+        </LabelledBlock>
       )}
       {showEnv && (
-        <Block label="env">
+        <LabelledBlock label="env">
           <dl className="space-y-1 font-mono text-xs">
             {Object.entries(entry.env as Record<string, EnvValue>)
               .sort(([a], [b]) => a.localeCompare(b))
@@ -318,17 +319,8 @@ function EntryConfig({ entry }: { entry: EntryShape }) {
                 </div>
               ))}
           </dl>
-        </Block>
+        </LabelledBlock>
       )}
-    </div>
-  );
-}
-
-function Block({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <h4 className="text-xs tracking-widest text-ink-muted uppercase">{label}</h4>
-      <div className="mt-2 border-l-2 border-rule py-1 pl-3">{children}</div>
     </div>
   );
 }

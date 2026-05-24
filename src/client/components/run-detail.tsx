@@ -16,6 +16,7 @@ import { Actions } from "./ui/actions.tsx";
 import { BackLink } from "./ui/back-link.tsx";
 import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
+import { LabelledBlock } from "./ui/labelled-block.tsx";
 import { PulseDot } from "./ui/pulse-dot.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
 import { StatusLabel } from "./ui/status-label.tsx";
@@ -482,9 +483,28 @@ function ActivityRow({ item }: { item: ActivityItem }) {
       )}
       {open && row && (
         <div id={panelId} className="space-y-6 px-5 pt-2 pb-6 pl-12">
-          <Trace label="stdout" body={row.traces?.stdout ?? ""} />
-          <Trace label="stderr" body={row.traces?.stderr ?? ""} />
-          {row.error && <StepError error={row.error} />}
+          <LabelledBlock label="stdout">
+            <TraceBody body={row.traces?.stdout ?? ""} />
+          </LabelledBlock>
+          <LabelledBlock label="stderr">
+            <TraceBody body={row.traces?.stderr ?? ""} />
+          </LabelledBlock>
+          {row.error && (
+            <LabelledBlock label="error" tone="danger">
+              <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink">
+                {row.error.message}
+              </pre>
+              {row.error.stack && (
+                <div className="mt-4">
+                  <LabelledBlock label="stack">
+                    <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink-muted">
+                      {row.error.stack}
+                    </pre>
+                  </LabelledBlock>
+                </div>
+              )}
+            </LabelledBlock>
+          )}
         </div>
       )}
     </div>
@@ -599,32 +619,15 @@ function RunFailureBlock({ error }: { error: { message: string; stack?: string }
   );
 }
 
-function Trace({ label, body }: { label: string; body: string }) {
+// Renders a captured stdout/stderr body. Empty bodies show "(empty)"
+// in muted italic; populated bodies render as preformatted mono text.
+function TraceBody({ body }: { body: string }) {
   const isEmpty = body.length === 0;
   return (
-    <div>
-      <h4 className="text-xs tracking-widest text-ink-muted uppercase">{label}</h4>
-      <pre
-        className={`mt-2 border-l-2 border-rule py-1 pl-3 font-mono text-xs break-words whitespace-pre-wrap ${isEmpty ? "text-ink-muted italic" : "text-ink"}`}
-      >
-        {isEmpty ? "(empty)" : body}
-      </pre>
-    </div>
-  );
-}
-
-function StepError({ error }: { error: { message: string; stack?: string } }) {
-  return (
-    <div>
-      <h4 className="text-xs tracking-widest text-status-failed uppercase">error</h4>
-      <pre className="mt-2 border-l-2 border-status-failed py-1 pl-3 font-mono text-xs break-words whitespace-pre-wrap text-ink">
-        {error.message}
-      </pre>
-      {error.stack && (
-        <pre className="mt-2 border-l-2 border-rule py-1 pl-3 font-mono text-xs break-words whitespace-pre-wrap text-ink-muted">
-          {error.stack}
-        </pre>
-      )}
-    </div>
+    <pre
+      className={`font-mono text-xs break-words whitespace-pre-wrap ${isEmpty ? "text-ink-muted italic" : "text-ink"}`}
+    >
+      {isEmpty ? "(empty)" : body}
+    </pre>
   );
 }
