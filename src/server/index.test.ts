@@ -438,6 +438,21 @@ describe("createApp", () => {
         expect(await res.json()).toEqual({ error: "invalid JSON body" });
       });
 
+      it("returns 413 when the request body exceeds the size limit", async () => {
+        registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
+        const app = createApp({ db, registry, cwd });
+        // 256 KB + 1 — the bodyLimit middleware reads Content-Length and
+        // rejects before optionalInvokeBody ever touches the payload.
+        const oversized = "a".repeat(256 * 1024 + 1);
+        const res = await app.request("/api/workflows/with-inputs/runs", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: oversized,
+        });
+        expect(res.status).toBe(413);
+        expect(await res.json()).toEqual({ error: "request body too large" });
+      });
+
       it("returns 400 when a no-inputs workflow receives a non-empty payload", async () => {
         writePassthroughBundle();
         registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { type Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
@@ -125,6 +126,12 @@ const MAX_RUN_LIMIT = 100;
 // Size of the cross-run "recently published" list. Fixed — the rail
 // surfaces a glance-able shortlist, not a paginated archive.
 const RECENT_ARTICLES_LIMIT = 5;
+
+// Upper bound on request body size. Invoke bodies are
+// `Record<string, string>` headed for env vars — real-world inputs fit
+// comfortably below 1 KB, so 256 KB is generous insurance against a
+// runaway local client hammering `c.req.text()` with an unbounded payload.
+const BODY_LIMIT_BYTES = 256 * 1024;
 
 const runListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
@@ -259,6 +266,19 @@ export function createApp(deps: AppDeps): Hono {
       origin: ALLOWED_ORIGINS,
       allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", REQUIRED_CLIENT_HEADER],
+    }),
+  );
+
+  // Cheap insurance against a runaway local client hammering `c.req.text()`
+  // with an unbounded payload. `bodyLimit` short-circuits on bodyless
+  // requests (GET/HEAD/OPTIONS), so scoping to `/api/*` is for clarity, not
+  // necessity. The custom `onError` keeps the 413 body on the same
+  // `{ error }` contract every other 4xx in the app honours.
+  app.use(
+    "/api/*",
+    bodyLimit({
+      maxSize: BODY_LIMIT_BYTES,
+      onError: (c) => c.json({ error: "request body too large" }, 413),
     }),
   );
 
