@@ -1,63 +1,47 @@
+import type { z } from "zod";
+import { buildInputSchema } from "./build-input-schema.ts";
 import type { WorkflowDefinition } from "./schema.ts";
 
 export type ValidateInputsResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Validate a `Record<string, string>` invoke payload against a workflow's
- * declared inputs. Static shape (object whose values are strings) is the
- * caller's job — this layer enforces the workflow-aware rules:
+ * declared inputs. Thin wrapper over `buildInputSchema(def).safeParse(...)`
+ * that picks the highest-priority issue and returns its message as the
+ * `error` string, preserving the legacy single-string contract.
  *
- * - A workflow with no `inputs:` block rejects any non-empty payload
- *   (defensive: the UI shouldn't send one).
- * - Unknown keys (not in `def.inputs`) are rejected.
- * - Inputs declared `required: true` must be present and non-empty.
- * - For inputs declaring `options:`, any supplied value must be one of
- *   the declared options.
- *
- * First failure wins so the returned message stays readable; the modal does
- * the multi-field UX, so aggregating here would duplicate that surface.
+ * Precedence (unknown key → missing required → out-of-options) is enforced
+ * in `formatError` so the message a caller sees stays stable as the schema
+ * grows.
  */
 export const validateInputs = (
   def: WorkflowDefinition,
   supplied: Record<string, string>,
 ): ValidateInputsResult => {
-  const declared = def.inputs;
+  const result = buildInputSchema(def).safeParse(supplied);
+  if (result.success) return { ok: true };
+  return { ok: false, error: formatError(def, result.error) };
+};
 
-  if (!declared) {
-    const keys = Object.keys(supplied);
-    if (keys.length === 0) return { ok: true };
-    return {
-      ok: false,
-      error: `workflow "${def.name}" declares no inputs; received: ${keys.join(", ")}`,
-    };
-  }
+// Lower number = higher priority. `unrecognized_keys` from `.strict()`
+// wins over field-level invalid_type/too_small ("is required"), which
+// wins over custom checks (options).
+const priority = (code: string): number => {
+  if (code === "unrecognized_keys") return 0;
+  if (code === "custom") return 2;
+  return 1;
+};
 
-  const declaredNames = new Set(declared.map((i) => i.name));
-  for (const key of Object.keys(supplied)) {
-    if (!declaredNames.has(key)) {
-      return { ok: false, error: `unknown input "${key}"` };
+const formatError = (def: WorkflowDefinition, err: z.ZodError): string => {
+  const sorted = [...err.issues].sort((a, b) => priority(a.code) - priority(b.code));
+  const issue = sorted[0];
+  if (!issue) return "invalid inputs";
+  if (issue.code === "unrecognized_keys") {
+    const keys = (issue as { keys?: readonly string[] }).keys ?? [];
+    if (!def.inputs) {
+      return `workflow "${def.name}" declares no inputs; received: ${keys.join(", ")}`;
     }
+    return `unknown input "${keys[0]}"`;
   }
-
-  for (const input of declared) {
-    if (!input.required) continue;
-    const value = supplied[input.name];
-    if (value === undefined || value.length === 0) {
-      return { ok: false, error: `input "${input.name}" is required` };
-    }
-  }
-
-  for (const input of declared) {
-    if (!input.options) continue;
-    const value = supplied[input.name];
-    if (value === undefined) continue;
-    if (!input.options.includes(value)) {
-      return {
-        ok: false,
-        error: `input "${input.name}" value "${value}" is not one of the declared options`,
-      };
-    }
-  }
-
-  return { ok: true };
+  return issue.message;
 };
