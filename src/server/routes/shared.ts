@@ -6,7 +6,8 @@ import { publishNameSchema } from "../workflows/schema.ts";
 // Shape of the invoke endpoint's optional JSON body. Values must be strings —
 // inputs flow into env vars verbatim, and env vars are strings. The
 // workflow-aware checks (unknown keys, required-and-missing, no-inputs-with-
-// payload) live in `validateInputs` since they need the workflow definition.
+// payload) live in the schema returned by `buildInputSchema` since they
+// need the workflow definition.
 export const invokeBodySchema = z
   .object({ inputs: z.record(z.string(), z.string()).optional() })
   .strict();

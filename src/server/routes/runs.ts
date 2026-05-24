@@ -9,12 +9,13 @@ import { articles, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow } from "../runner/index.ts";
-import { type Registry, validateInputs } from "../workflows/index.ts";
+import { type Registry, buildInputSchema } from "../workflows/index.ts";
 import {
   onZodFail,
   optionalInvokeBody,
   publishedArticleParamSchema,
   runIdParamSchema,
+  zodErrorBody,
 } from "./shared.ts";
 
 export interface RunsRoutesDeps {
@@ -229,8 +230,8 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       }
 
       const { inputs = {} } = c.get("invokeBody");
-      const check = validateInputs(wf, inputs);
-      if (!check.ok) return c.json({ error: check.error }, 400);
+      const check = buildInputSchema(wf).safeParse(inputs);
+      if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
 
       // Cascade-wipe articles + step rows (mirrors the delete path, minus
       // the final `runs` delete) so the rerun starts with a clean slate

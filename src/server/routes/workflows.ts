@@ -5,8 +5,8 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow } from "../runner/index.ts";
-import { type Registry, type WorkflowDefinition, validateInputs } from "../workflows/index.ts";
-import { onZodFail, optionalInvokeBody, workflowNameParamSchema } from "./shared.ts";
+import { type Registry, type WorkflowDefinition, buildInputSchema } from "../workflows/index.ts";
+import { onZodFail, optionalInvokeBody, workflowNameParamSchema, zodErrorBody } from "./shared.ts";
 
 export interface WorkflowsRoutesDeps {
   db: KiriDb;
@@ -57,8 +57,8 @@ export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
       if (!wf) return c.json({ error: `workflow "${name}" not found` }, 404);
 
       const { inputs = {} } = c.get("invokeBody");
-      const check = validateInputs(wf, inputs);
-      if (!check.ok) return c.json({ error: check.error }, 400);
+      const check = buildInputSchema(wf).safeParse(inputs);
+      if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
 
       const { runId, done } = runWorkflow(db, wf, {
         cwd,

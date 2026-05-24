@@ -319,7 +319,17 @@ describe("workflows routes", () => {
           body: JSON.stringify({ inputs: { owner: "kiri" } }),
         });
         expect(res.status).toBe(400);
-        expect(await res.json()).toEqual({ error: 'input "pr_number" is required' });
+        const body = (await res.json()) as {
+          error: string;
+          issues: { path: (string | number)[]; message: string }[];
+        };
+        expect(body.error).toBe('input "pr_number" is required');
+        expect(body.issues).toContainEqual(
+          expect.objectContaining({
+            path: ["pr_number"],
+            message: 'input "pr_number" is required',
+          }),
+        );
         expect(env.db.select().from(runs).all()).toHaveLength(0);
       });
 
@@ -332,7 +342,11 @@ describe("workflows routes", () => {
           body: JSON.stringify({ inputs: { pr_number: "" } }),
         });
         expect(res.status).toBe(400);
-        expect(await res.json()).toEqual({ error: 'input "pr_number" is required' });
+        const body = (await res.json()) as {
+          error: string;
+          issues: { path: (string | number)[]; message: string }[];
+        };
+        expect(body.error).toBe('input "pr_number" is required');
       });
 
       it("returns 400 when the payload contains an unknown key", async () => {
@@ -344,7 +358,17 @@ describe("workflows routes", () => {
           body: JSON.stringify({ inputs: { pr_number: "42", surprise: "x" } }),
         });
         expect(res.status).toBe(400);
-        expect(await res.json()).toEqual({ error: 'unknown input "surprise"' });
+        const body = (await res.json()) as {
+          error: string;
+          issues: { path: (string | number)[]; message: string }[];
+        };
+        // Unknown keys are reported via Zod's strict-object check; the
+        // issue carries no field path since the violation is at the
+        // object level, and the headline message identifies the offender.
+        expect(body.error).toContain("surprise");
+        expect(body.issues).toContainEqual(
+          expect.objectContaining({ path: [], message: expect.stringContaining("surprise") }),
+        );
       });
 
       it("returns 400 when an input value is not a string", async () => {
@@ -405,9 +429,14 @@ describe("workflows routes", () => {
           body: JSON.stringify({ inputs: { pr_number: "42" } }),
         });
         expect(res.status).toBe(400);
-        expect(await res.json()).toEqual({
-          error: 'workflow "no-inputs" declares no inputs; received: pr_number',
-        });
+        const body = (await res.json()) as {
+          error: string;
+          issues: { path: (string | number)[]; message: string }[];
+        };
+        expect(body.error).toContain("pr_number");
+        expect(body.issues).toContainEqual(
+          expect.objectContaining({ path: [], message: expect.stringContaining("pr_number") }),
+        );
       });
 
       it("invokes a no-inputs workflow with no body, preserving current behaviour", async () => {
