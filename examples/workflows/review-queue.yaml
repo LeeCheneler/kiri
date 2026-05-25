@@ -1,0 +1,62 @@
+# yaml-language-server: $schema=../.kiri/workflow.schema.json
+#
+# Requires `gh` (signed in) and `jq` on PATH.
+#
+# Finds every open PR where you are involved as a reviewer or assignee
+# across all repos you have access to, then emits one PR Review
+# recommendation per PR. Three sources of involvement are merged and
+# deduped:
+#   1. PRs requesting your review directly (`review-requested:@me`)
+#   2. PRs requesting review from any team you're a member of
+#      (`team-review-requested:<org>/<team>`)
+#   3. PRs where you are the assignee (`assignee:@me`)
+
+name: Review Queue
+steps:
+  - sh: |
+      set -eu
+      for dep in gh jq; do
+        command -v "$dep" >/dev/null 2>&1 || {
+          echo "review-queue requires '$dep' on PATH" >&2
+          exit 1
+        }
+      done
+
+      fields="number,title,repository,author"
+
+      direct=$(gh search prs --review-requested=@me --state=open --json "$fields" --limit 100)
+      assigned=$(gh search prs --assignee=@me --state=open --json "$fields" --limit 100)
+
+      team_prs="[]"
+      for team in $(gh api /user/teams --paginate --jq '.[] | "\(.organization.login)/\(.slug)"'); do
+        more=$(gh search prs "team-review-requested:$team" --state=open --json "$fields" --limit 100)
+        team_prs=$(jq -nc --argjson a "$team_prs" --argjson b "$more" '$a + $b')
+      done
+
+      all=$(jq -nc \
+        --argjson a "$direct" \
+        --argjson b "$assigned" \
+        --argjson c "$team_prs" \
+        '($a + $b + $c) | unique_by(.repository.nameWithOwner + "#" + (.number|tostring))')
+
+      echo "$all" | jq -c '.[]' | while read -r pr; do
+        number=$(echo "$pr" | jq -r .number)
+        title=$(echo "$pr" | jq -r .title)
+        author=$(echo "$pr" | jq -r .author.login)
+        repo=$(echo "$pr" | jq -r .repository.nameWithOwner)
+        jq -nc \
+          --arg t "Review pull request ${repo} #${number}" \
+          --arg d "${title} (by @${author})" \
+          --arg n "${number}" \
+          --arg r "${repo}" \
+          '{title: $t, description: $d, workflow: "PR Review", inputs: {pr_number: $n, repo: $r}}' \
+          >> "$KIRI_RECOMMENDATIONS_FILE"
+      done
+
+      echo "$all" | jq -r 'length as $n | "Found \($n) open PR(s) awaiting your review."'
+    description: Aggregate open PRs awaiting your review across all repos.
+
+summarize:
+  use: claude-code-summarizer
+  env:
+    MODEL: haiku

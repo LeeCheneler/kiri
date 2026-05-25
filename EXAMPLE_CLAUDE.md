@@ -135,14 +135,19 @@ Example (a step that aggregates open PRs and recommends a per-PR review):
 name: open-prs
 steps:
   - sh: |
-      gh pr list --json number,title | jq -c '.[]' | while read -r pr; do
+      # gh pr list is scoped to a single repo, so resolve owner/name once.
+      repo=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"')
+      gh pr list --json number,title,author | jq -c '.[]' | while read -r pr; do
         number=$(echo "$pr" | jq -r .number)
         title=$(echo "$pr" | jq -r .title)
-        jq -n --arg n "$number" --arg t "$title" \
-          '{title: ("Review PR #" + $n + ": " + $t), workflow: "pr-review", inputs: {pr_number: $n}}' \
+        author=$(echo "$pr" | jq -r .author.login)
+        jq -nc --arg n "$number" --arg t "$title" --arg a "$author" --arg r "$repo" \
+          '{title: ("Review pull request " + $r + " #" + $n), description: ($t + " (by @" + $a + ")"), workflow: "pr-review", inputs: {pr_number: $n, repo: $r}}' \
           >> "$KIRI_RECOMMENDATIONS_FILE"
       done
 ```
+
+Putting the action + `owner/repo` + PR number in the title and saving the PR's own title for the description keeps recommendations scannable across repos — without the repo qualifier a feed mixing runs against different repos would show indistinguishable "Review PR #5" entries.
 
 ---
 

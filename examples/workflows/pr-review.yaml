@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=../.kiri/workflow.schema.json
+#
+# Requires `gh` (signed in) and `claude` (signed in) on PATH. Invoke
+# manually with a repo + PR number, or trigger via the recommendation
+# produced by the Review Queue workflow.
+
+name: PR Review
+inputs:
+  - name: repo
+    description: GitHub repo as owner/name (e.g. LeeCheneler/kiri).
+    required: true
+  - name: pr_number
+    description: GitHub PR number to review.
+    required: true
+
+steps:
+  - sh: |
+      set -eu
+      command -v gh >/dev/null 2>&1 || {
+        echo "pr-review requires 'gh' on PATH" >&2
+        exit 1
+      }
+      gh pr view "$PR_NUMBER" --repo "$REPO" \
+        --json number,title,body,additions,deletions,files,author,url
+    description: Fetch the PR JSON for the requested PR.
+    env:
+      REPO:
+        input: repo
+      PR_NUMBER:
+        input: pr_number
+
+publish:
+  - name: review
+    title: PR Review
+    description: A short code review for the requested PR.
+    use: claude-code
+    env:
+      PROMPT_FILE: prompts/pr-review.tpl
+      MODEL: haiku
+
+summarize:
+  use: claude-code-summarizer
+  env:
+    MODEL: haiku
