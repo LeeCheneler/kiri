@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { bootstrap } from "../bootstrap.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, runSteps, runs } from "../db/schema.ts";
+import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import type { WorkflowDefinition, WorkflowStep } from "../workflows/index.ts";
 import { createCancelRegistry } from "./cancel-registry.ts";
@@ -1665,6 +1665,305 @@ describe("runWorkflow", () => {
 
       const after = db.select().from(runs).where(eq(runs.id, first.runId)).get();
       expect(after?.inputs).toEqual({ pr_number: "2" });
+    });
+  });
+
+  describe("recommendations", () => {
+    const withSilencedWarn = async <T>(
+      fn: () => Promise<T>,
+    ): Promise<{ result: T; warnings: string[] }> => {
+      const warnings: string[] = [];
+      const original = console.warn;
+      console.warn = (msg: unknown) => {
+        warnings.push(String(msg));
+      };
+      try {
+        const result = await fn();
+        return { result, warnings };
+      } finally {
+        console.warn = original;
+      }
+    };
+
+    it("ingests a single recommendation line emitted by a main step", async () => {
+      writeBundle(
+        "emit-one",
+        `#!/bin/sh
+echo '{"title":"Review PR #1","workflow":"pr-review","description":"+10/-2","inputs":{"pr_number":"1"}}' > "$KIRI_RECOMMENDATIONS_FILE"
+`,
+      );
+      const wf = makeWorkflow("single", useSteps("emit-one"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        runId: result.runId,
+        index: 0,
+        title: "Review PR #1",
+        description: "+10/-2",
+        workflow: "pr-review",
+        inputs: { pr_number: "1" },
+        actionedRunId: null,
+        actionedAt: null,
+      });
+    });
+
+    it("ingests multiple lines preserving emission order", async () => {
+      writeBundle(
+        "emit-many",
+        `#!/bin/sh
+cat > "$KIRI_RECOMMENDATIONS_FILE" <<'EOF'
+{"title":"A","workflow":"w","description":"first","inputs":{"x":"1"}}
+{"title":"B","workflow":"w"}
+{"title":"C","workflow":"w"}
+EOF
+`,
+      );
+      const wf = makeWorkflow("many", useSteps("emit-many"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .orderBy(asc(recommendations.index))
+        .all();
+      expect(
+        rows.map((r) => ({
+          index: r.index,
+          title: r.title,
+          description: r.description,
+          inputs: r.inputs,
+        })),
+      ).toEqual([
+        { index: 0, title: "A", description: "first", inputs: { x: "1" } },
+        { index: 1, title: "B", description: null, inputs: null },
+        { index: 2, title: "C", description: null, inputs: null },
+      ]);
+    });
+
+    it("is a no-op when the step does not write a recommendations file", async () => {
+      writeBundle("no-emit", "#!/bin/sh\necho nothing\n");
+      const wf = makeWorkflow("silent", useSteps("no-emit"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .all();
+      expect(rows).toHaveLength(0);
+    });
+
+    it("skips the recommendations file of a failed step", async () => {
+      writeBundle(
+        "emit-then-fail",
+        `#!/bin/sh
+echo '{"title":"X","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
+exit 1
+`,
+      );
+      const wf = makeWorkflow("failer", useSteps("emit-then-fail"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("failed");
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .all();
+      expect(rows).toHaveLength(0);
+    });
+
+    it("skips the recommendations file of a cancelled step", async () => {
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      // exec 1>&- 2>&- closes sh's stdio before sleep is forked so the
+      // pipe readers get EOF when sh dies — without this the orphaned
+      // sleep holds stdout open and the runner hangs on macOS/Linux CI.
+      const wf: WorkflowDefinition = {
+        name: "cancelled-emit",
+        steps: [
+          {
+            sh: `echo '{"title":"X","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"; exec 1>&- 2>&-; sleep 5`,
+          },
+        ],
+      };
+
+      const { runId, done } = runWorkflow(db, wf, { cwd, trigger: "manual", cancelRegistry });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(cancelRegistry.requestCancel(runId)).toBe(true);
+      const result = await done;
+
+      expect(result.status).toBe("cancelled");
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .all();
+      expect(rows).toHaveLength(0);
+    });
+
+    it("skips a malformed JSON line and ingests the surrounding valid lines", async () => {
+      writeBundle(
+        "emit-mixed-json",
+        `#!/bin/sh
+cat > "$KIRI_RECOMMENDATIONS_FILE" <<'EOF'
+{"title":"Good","workflow":"w"}
+not-json-at-all
+{"title":"Also good","workflow":"w"}
+EOF
+`,
+      );
+      const wf = makeWorkflow("malformed", useSteps("emit-mixed-json"));
+
+      const { result, warnings } = await withSilencedWarn(
+        () => runWorkflow(db, wf, { cwd, trigger: "manual" }).done,
+      );
+      expect(result.status).toBe("ok");
+      expect(warnings.some((w) => w.includes("malformed recommendation"))).toBe(true);
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .orderBy(asc(recommendations.index))
+        .all();
+      expect(rows.map((r) => ({ index: r.index, title: r.title }))).toEqual([
+        { index: 0, title: "Good" },
+        { index: 1, title: "Also good" },
+      ]);
+    });
+
+    it("skips a schema-failing line and ingests the surrounding valid lines", async () => {
+      writeBundle(
+        "emit-mixed-schema",
+        `#!/bin/sh
+cat > "$KIRI_RECOMMENDATIONS_FILE" <<'EOF'
+{"title":"Good","workflow":"w"}
+{"title":"Missing workflow"}
+{"title":"Also good","workflow":"w"}
+EOF
+`,
+      );
+      const wf = makeWorkflow("schemafail", useSteps("emit-mixed-schema"));
+
+      const { result, warnings } = await withSilencedWarn(
+        () => runWorkflow(db, wf, { cwd, trigger: "manual" }).done,
+      );
+      expect(result.status).toBe("ok");
+      expect(warnings.some((w) => w.includes("failing schema"))).toBe(true);
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .orderBy(asc(recommendations.index))
+        .all();
+      expect(rows.map((r) => ({ index: r.index, title: r.title }))).toEqual([
+        { index: 0, title: "Good" },
+        { index: 1, title: "Also good" },
+      ]);
+    });
+
+    it("does not inject KIRI_RECOMMENDATIONS_FILE on publish steps", async () => {
+      writeBundle("source", "#!/bin/sh\necho hi\n");
+      writeBundle("pub-echo-env", '#!/bin/sh\necho "REC=$KIRI_RECOMMENDATIONS_FILE"\n');
+      const wf: WorkflowDefinition = {
+        name: "pub-no-rec",
+        steps: useSteps("source"),
+        publish: [{ name: "article", use: "pub-echo-env" }],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const stepRows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      const publishStep = stepRows.find((s) => s.isPublish);
+      // Empty expansion of the missing var produces a bare "REC=" line.
+      expect(publishStep?.output).toBe("REC=\n");
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .all();
+      expect(rows).toHaveLength(0);
+    });
+
+    it("does not inject KIRI_RECOMMENDATIONS_FILE on the summariser", async () => {
+      writeBundle("source", "#!/bin/sh\necho hi\n");
+      writeBundle("sum-echo-env", '#!/bin/sh\necho "REC=$KIRI_RECOMMENDATIONS_FILE"\n');
+      const wf: WorkflowDefinition = {
+        name: "sum-no-rec",
+        steps: useSteps("source"),
+        summarize: { use: "sum-echo-env" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      // Summary captures the trimmed stdout of the summariser step.
+      expect(run?.summary).toBe("REC=");
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .all();
+      expect(rows).toHaveLength(0);
+    });
+
+    it("preserves emission order across multiple emitting steps", async () => {
+      writeBundle(
+        "emit-ab",
+        `#!/bin/sh
+cat > "$KIRI_RECOMMENDATIONS_FILE" <<'EOF'
+{"title":"A","workflow":"w"}
+{"title":"B","workflow":"w"}
+EOF
+`,
+      );
+      writeBundle(
+        "emit-c",
+        `#!/bin/sh
+echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
+`,
+      );
+      const wf = makeWorkflow("cross-step", useSteps("emit-ab", "emit-c"));
+
+      const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
+      expect(result.status).toBe("ok");
+
+      const rows = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .orderBy(asc(recommendations.index))
+        .all();
+      expect(rows.map((r) => ({ index: r.index, title: r.title }))).toEqual([
+        { index: 0, title: "A" },
+        { index: 1, title: "B" },
+        { index: 2, title: "C" },
+      ]);
     });
   });
 });

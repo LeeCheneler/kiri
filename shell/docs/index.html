@@ -232,6 +232,11 @@ steps:
             <td>Path to a JSON file describing the run so far — workflow name, status, per-step traces, and any published articles.</td>
           </tr>
           <tr>
+            <td><code>KIRI_RECOMMENDATIONS_FILE</code></td>
+            <td>main <code>steps:</code> only</td>
+            <td>Path the step may write JSON Lines to — one proposed follow-up workflow per line. Ingested as <code>recommendations</code> rows on the producing run after the step succeeds. See <a href="#recommendations">Recommendations</a> below.</td>
+          </tr>
+          <tr>
             <td><code>PATH</code>, <code>HOME</code>, <code>USER</code>, <code>LOGNAME</code></td>
             <td>every step</td>
             <td>Passed through from the kiri process so tools that authenticate as you (Keychain, ssh-agent, gpg) keep working.</td>
@@ -282,6 +287,23 @@ publish:
       <p>Articles surface as chips on the activity feed row, in a <strong>Recently Published</strong> list in the right-hand column, and under a <strong>Published</strong> section on the run page. Clicking a chip opens a dedicated <code>/runs/:id/published/:name</code> page that renders the markdown through a sandboxed parser (no raw-HTML pass-through).</p>
       <p>Article markdown can embed charts: fence a block as <code>chart</code> with a <a href="https://vega.github.io/vega-lite/">Vega-Lite</a> JSON spec and kiri renders it inline as a chart — bar, line, area, scatter, pie, heatmap, and more. The data must be inline in the spec; a chart that fetches a remote URL is rejected, and an invalid spec degrades to an inline notice without breaking the article.</p>
       <p>A failed publish step does not affect the run's status; it's captured for debugging on the run page and filtered from the main step list.</p>
+
+      <h3 id="recommendations">Recommendations — proposed follow-ups</h3>
+      <p>A main step can propose follow-up workflow invocations attached to the run that produced them. A run that aggregates open PRs, for example, can recommend one <code>pr-review</code> invocation per PR with <code>pr_number</code> pre-filled — turning the aggregator's output into a launch pad for one-click follow-ups. Recommendations surface on the run detail page under a <strong>Recommended</strong> section, each as a trigger button that opens the standard invoke modal with the proposed inputs pre-filled.</p>
+      <p>To emit recommendations, write JSON Lines to the path in <code>$KIRI_RECOMMENDATIONS_FILE</code> — one object per line:</p>
+      <pre><code>name: open-prs
+steps:
+  - sh: |
+      gh pr list --json number,title --jq '.[]' | while read -r pr; do
+        number=$(echo "$pr" | jq -r .number)
+        title=$(echo "$pr" | jq -r .title)
+        jq -n --arg n "$number" --arg t "$title" \
+          '{title: ("Review PR #" + $n + ": " + $t), workflow: "pr-review", inputs: {pr_number: $n}}' \
+          >> "$KIRI_RECOMMENDATIONS_FILE"
+      done</code></pre>
+      <p>Each line has <code>title</code> (required), <code>workflow</code> (required — the workflow name to invoke), <code>description</code> (optional, shown under the title), and <code>inputs</code> (optional <code>{ string: string }</code> map pre-filled into the invoke modal). Malformed JSON or schema-failing lines are skipped with a warning; the rest of the file still ingests.</p>
+      <p><code>KIRI_RECOMMENDATIONS_FILE</code> is set on main <code>steps:</code> only — not on <code>publish:</code> or <code>summarize:</code>. A failed or cancelled step's file is discarded, even if it wrote lines before failing.</p>
+      <p>Acting on a recommendation spawns the proposed workflow and pins the spawned run's id to the recommendation row. If the spawned run is later deleted the recommendation becomes triggerable again; if the named workflow is removed from your repo the trigger button disables with a "workflow not found" tooltip.</p>
 
       <h2>Trust model</h2>
       <p>Kiri runs scripts with your user's permissions. <code>scripts/&lt;name&gt;/run.sh</code> and inline <code>sh:</code> steps are shell scripts you wrote into your own repo — kiri does not sandbox them. Treat them like any shell script you'd run yourself: read it before you use it.</p>
