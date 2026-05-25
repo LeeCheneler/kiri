@@ -18,9 +18,9 @@ const CHIPS_COLLAPSE_AT = 4;
  * status-coloured strip at the left edge. The entry is a single
  * column laid out as kicker → headline → body → chips:
  *
- *  - A small mono byline (status · trigger · time · duration) sits at
- *    the top as a kicker. The status word is the only colour in the
- *    line, making the row's outcome scannable from the top down.
+ *  - A small mono byline (status · time · duration) sits at the top
+ *    as a kicker. The status word is the only colour in the line,
+ *    making the row's outcome scannable from the top down.
  *  - The Fraunces workflow name follows as the headline, with a
  *    trailing `→` glyph. The headline is the row's sole click target;
  *    hovering tints its background and slides the arrow toward the
@@ -76,8 +76,6 @@ export function ActivityFeed({
                   <span className="tracking-wider">
                     <StatusLabel status={status} />
                   </span>
-                  <span className="text-rule">·</span>
-                  <span className="tracking-wider">{run.trigger}</span>
                   <span className="text-rule">·</span>
                   <span>{formatRelativeTime(run.startedAt, now)}</span>
                   {run.finishedAt && (

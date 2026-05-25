@@ -113,8 +113,8 @@ const buildActivityItems = (run: RunListEntry, steps: RunStepRow[]): ActivityIte
 /**
  * Editorial detail view for a single run. The header promotes the feed
  * entry to page-header scale: a thicker status-coloured strip on the
- * left, a mono byline (status · trigger · time · duration · git ref)
- * as a kicker, and the workflow name in Fraunces beneath. Run-level
+ * left, a mono byline (status · time · duration · git ref) as a
+ * kicker, and the workflow name in Fraunces beneath. Run-level
  * controls (cancel / re-run / delete) sit on the headline row. Run-
  * level failures render above the activity list so they're not buried
  * in a disclosure.
@@ -207,13 +207,6 @@ export function RunDetailView({
             <dd className="tracking-wider">
               <StatusLabel status={status} />
             </dd>
-          </div>
-          <span aria-hidden="true" className="text-rule">
-            ·
-          </span>
-          <div className="flex items-baseline">
-            <dt className="sr-only">trigger</dt>
-            <dd className="tracking-wider">{run.trigger}</dd>
           </div>
           <span aria-hidden="true" className="text-rule">
             ·

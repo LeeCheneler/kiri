@@ -92,19 +92,17 @@ describe("<ActivityFeed>", () => {
     expect(screen.queryByText(/deleted/i)).toBeNull();
   });
 
-  it("renders the workflow name, trigger, status, relative start time and duration", () => {
+  it("renders the workflow name, status, relative start time and duration", () => {
     renderFeed([
       stubRun({
         workflowName: "pr-review",
         status: "failed",
-        trigger: "scheduled",
         startedAt: new Date(NOW.getTime() - 3 * 60 * 1000).toISOString(),
         finishedAt: new Date(NOW.getTime() - 3 * 60 * 1000 + 12_000).toISOString(),
       }),
     ]);
 
     expect(screen.getByText(/pr-review/i)).toBeDefined();
-    expect(screen.getByText(/scheduled/i)).toBeDefined();
     expect(screen.getByText(/failed/i)).toBeDefined();
     expect(screen.getByText(/3 minutes ago/i)).toBeDefined();
     expect(screen.getByText(/12s/i)).toBeDefined();
@@ -163,14 +161,12 @@ describe("<ActivityFeed>", () => {
     renderFeed([
       stubRun({
         workflowName: "pr-review",
-        trigger: "scheduled",
         summary: "this is the summary body content.",
       }),
     ]);
     const rowLink = screen.getByRole("link", { name: /pr-review/i });
     const text = rowLink.textContent ?? "";
     expect(text).not.toContain("this is the summary body");
-    expect(text).not.toContain("scheduled");
   });
 
   describe("article chips", () => {
