@@ -1913,6 +1913,60 @@ EOF
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
     });
+
+    it("logs and absorbs rejections from the background runner so they never go unhandled", async () => {
+      writeBundle(env.cwd, "noop", "#!/bin/sh\necho hi\n");
+      const target: WorkflowDefinition = { name: "target", steps: [{ use: "noop" }] };
+      env.registry.replace(new Map([[target.name, target]]));
+
+      const producerId = "producer-crash";
+      const recId = "rec-crash";
+      seedProducerRun(producerId);
+      seedUntriggeredRec(recId, { runId: producerId });
+
+      // Throwing isCancelled trips the runner's pre-step check so the
+      // route's `done.catch` fires. Same pattern as the rerun-crash test.
+      const throwingRegistry: CancelRegistry = {
+        register() {},
+        setChild() {},
+        requestCancel() {
+          return false;
+        },
+        release() {},
+        isCancelled() {
+          throw new Error("cancel-registry boom");
+        },
+      };
+
+      const errors: unknown[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => {
+        errors.push(args.join(" "));
+      };
+
+      try {
+        const { bus, waitForFinished } = createRunWaiter();
+        const app = createApp({
+          db: env.db,
+          registry: env.registry,
+          cwd: env.cwd,
+          bus,
+          cancelRegistry: throwingRegistry,
+        });
+        const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
+          method: "POST",
+          headers: CLIENT_HEADERS,
+        });
+        expect(res.status).toBe(202);
+        const { runId: spawnedId } = (await res.json()) as { runId: string };
+        await waitForFinished(spawnedId);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        console.error = originalError;
+      }
+
+      expect(errors.some((line) => String(line).includes("crashed"))).toBe(true);
+    });
   });
 
   describe("cancelled runs surfaced through the API", () => {
