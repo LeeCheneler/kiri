@@ -9,7 +9,7 @@ export interface ArticlesRoutesDeps {
 
 // Size of the cross-run "recently published" list. Fixed — the rail
 // surfaces a glance-able shortlist, not a paginated archive.
-const RECENT_ARTICLES_LIMIT = 5;
+const RECENT_ARTICLES_LIMIT = 10;
 
 /**
  * Build the Hono sub-app for `/api/articles/*`: the right-rail
