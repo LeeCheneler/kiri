@@ -10,6 +10,12 @@ export type KiriEvent =
   | { type: "run.step.updated"; runId: string; step: number; status: StepStatus }
   | { type: "run.finished"; id: string; status: RunStatus; workflowName: string }
   | { type: "run.deleted"; id: string }
+  | {
+      type: "recommendation.actioned";
+      runId: string;
+      recommendationId: string;
+      actionedRunId: string;
+    }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string };

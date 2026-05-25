@@ -1677,6 +1677,244 @@ EOF
     });
   });
 
+  describe("POST /api/runs/:runId/recommendations/:recId/action", () => {
+    // Seed a finished producing run and a single untriggered rec on it
+    // pointing at the named target workflow. Tests can then customise the
+    // registry to control whether the target workflow resolves.
+    const seedProducerRun = (id: string) => {
+      env.db
+        .insert(runs)
+        .values({
+          id,
+          workflowName: "producer",
+          status: "ok",
+          trigger: "manual",
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          definitionSnapshot: { name: "producer", steps: [] },
+        })
+        .run();
+    };
+    const seedUntriggeredRec = (
+      id: string,
+      opts: { runId: string; workflow?: string; inputs?: Record<string, string> },
+    ) => {
+      env.db
+        .insert(recommendations)
+        .values({
+          id,
+          runId: opts.runId,
+          index: 0,
+          title: "Spawn it",
+          workflow: opts.workflow ?? "target",
+          inputs: opts.inputs ?? null,
+        })
+        .run();
+    };
+
+    it("spawns the target workflow, pins it onto the rec row, and publishes recommendation.actioned", async () => {
+      writeBundle(env.cwd, "noop", "#!/bin/sh\necho hi\n");
+      const target: WorkflowDefinition = { name: "target", steps: [{ use: "noop" }] };
+      env.registry.replace(new Map([[target.name, target]]));
+
+      const producerId = "producer-1";
+      const recId = "rec-1";
+      seedProducerRun(producerId);
+      seedUntriggeredRec(recId, { runId: producerId });
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((e) => seen.push(e));
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const before = Date.now();
+      const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(202);
+      const body = (await res.json()) as { runId: string; status: string };
+      expect(body.status).toBe("running");
+      expect(body.runId).not.toBe(producerId);
+      await waitForFinished(body.runId);
+
+      const updated = env.db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.id, recId))
+        .get();
+      expect(updated?.actionedRunId).toBe(body.runId);
+      // actionedAt was stamped at the action site — guard against time
+      // drift but assert it lands inside the request window.
+      expect(updated?.actionedAt?.getTime()).toBeGreaterThanOrEqual(before);
+      expect(updated?.actionedAt?.getTime()).toBeLessThanOrEqual(Date.now());
+
+      expect(seen).toContainEqual({
+        type: "recommendation.actioned",
+        runId: producerId,
+        recommendationId: recId,
+        actionedRunId: body.runId,
+      });
+    });
+
+    it("forwards user-edited inputs to the spawned run instead of the rec's stored inputs", async () => {
+      writeBundle(env.cwd, "echo-env", '#!/bin/sh\necho "pr=$PR_NUMBER"\n');
+      const target: WorkflowDefinition = {
+        name: "target",
+        inputs: [{ name: "pr_number", required: true }],
+        steps: [{ use: "echo-env", env: { PR_NUMBER: { input: "pr_number" } } }],
+      };
+      env.registry.replace(new Map([[target.name, target]]));
+
+      const producerId = "producer-inputs";
+      const recId = "rec-inputs";
+      seedProducerRun(producerId);
+      seedUntriggeredRec(recId, { runId: producerId, inputs: { pr_number: "1" } });
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: { pr_number: "42" } }),
+      });
+      expect(res.status).toBe(202);
+      const body = (await res.json()) as { runId: string };
+      await waitForFinished(body.runId);
+
+      // Resolved inputs on the spawned run reflect what was sent, not the
+      // rec's stored value — the user may have edited in the modal.
+      const spawned = env.db.select().from(runs).where(eq(runs.id, body.runId)).get();
+      expect(spawned?.inputs).toEqual({ pr_number: "42" });
+    });
+
+    it("returns 404 when no rec with that id exists on the given run", async () => {
+      const producerId = "producer-404";
+      seedProducerRun(producerId);
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request(`/api/runs/${producerId}/recommendations/missing-rec/action`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: `recommendation "missing-rec" not found on run "${producerId}"`,
+      });
+    });
+
+    it("returns 404 when the rec exists but belongs to a different run", async () => {
+      const producerA = "producer-a";
+      const producerB = "producer-b";
+      const recId = "rec-on-a";
+      seedProducerRun(producerA);
+      seedProducerRun(producerB);
+      seedUntriggeredRec(recId, { runId: producerA });
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request(`/api/runs/${producerB}/recommendations/${recId}/action`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: `recommendation "${recId}" not found on run "${producerB}"`,
+      });
+    });
+
+    it("returns 409 when the rec has already been actioned", async () => {
+      const producerId = "producer-409";
+      const spawnedId = "spawned-409";
+      const recId = "rec-already";
+      seedProducerRun(producerId);
+      seedProducerRun(spawnedId);
+      env.db
+        .insert(recommendations)
+        .values({
+          id: recId,
+          runId: producerId,
+          index: 0,
+          title: "Already actioned",
+          workflow: "target",
+          actionedRunId: spawnedId,
+          actionedAt: new Date(),
+        })
+        .run();
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: `recommendation "${recId}" has already been actioned`,
+      });
+    });
+
+    it("returns 409 when the rec's workflow is no longer in the registry", async () => {
+      const producerId = "producer-missing-wf";
+      const recId = "rec-missing-wf";
+      seedProducerRun(producerId);
+      seedUntriggeredRec(recId, { runId: producerId, workflow: "deleted-target" });
+      // Registry intentionally empty.
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: `workflow "deleted-target" no longer exists; re-create it first`,
+      });
+
+      // Rec row stays untriggered — caller must recover.
+      const rec = env.db.select().from(recommendations).where(eq(recommendations.id, recId)).get();
+      expect(rec?.actionedRunId).toBeNull();
+      expect(rec?.actionedAt).toBeNull();
+    });
+
+    it("returns 400 with zod issues when a required input is missing", async () => {
+      const target: WorkflowDefinition = {
+        name: "target",
+        inputs: [{ name: "pr_number", required: true }],
+        steps: [{ sh: "echo hi" }],
+      };
+      env.registry.replace(new Map([[target.name, target]]));
+
+      const producerId = "producer-400";
+      const recId = "rec-400";
+      seedProducerRun(producerId);
+      seedUntriggeredRec(recId, { runId: producerId });
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: {} }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: string;
+        issues: { path: (string | number)[]; message: string }[];
+      };
+      expect(body.error).toBe('input "pr_number" is required');
+      expect(body.issues).toContainEqual(expect.objectContaining({ path: ["pr_number"] }));
+
+      // Rec is untouched on validation failure.
+      const rec = env.db.select().from(recommendations).where(eq(recommendations.id, recId)).get();
+      expect(rec?.actionedRunId).toBeNull();
+    });
+
+    it("rejects action without the X-Kiri-Client header (CSRF gate)", async () => {
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request("/api/runs/any/recommendations/any/action", { method: "POST" });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
+    });
+  });
+
   describe("cancelled runs surfaced through the API", () => {
     // `exec 1>&- 2>&-` closes sh's stdout/stderr before sleep is forked so
     // Bun's pipe readers get EOF immediately on cancel; otherwise the

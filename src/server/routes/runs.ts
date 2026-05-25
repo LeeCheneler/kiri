@@ -40,6 +40,11 @@ const runListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_RUN_LIMIT).default(DEFAULT_RUN_LIMIT),
 });
 
+const recommendationActionParamSchema = z.object({
+  runId: z.string().min(1),
+  recId: z.string().min(1),
+});
+
 /**
  * Build the Hono sub-app for `/api/runs/*`: paginated list, detail
  * fetch, delete, rerun, optional cancel, and the per-run published-article
@@ -290,6 +295,61 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         console.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);
       });
       return c.json({ runId: id, status: "running" }, 202);
+    },
+  );
+
+  app.post(
+    "/:runId/recommendations/:recId/action",
+    zValidator("param", recommendationActionParamSchema, onZodFail("invalid recommendation id")),
+    optionalInvokeBody,
+    async (c) => {
+      const { runId, recId } = c.req.valid("param");
+      const rec = db
+        .select()
+        .from(recommendations)
+        .where(and(eq(recommendations.id, recId), eq(recommendations.runId, runId)))
+        .get();
+      if (!rec) {
+        return c.json({ error: `recommendation "${recId}" not found on run "${runId}"` }, 404);
+      }
+      if (rec.actionedRunId !== null) {
+        return c.json({ error: `recommendation "${recId}" has already been actioned` }, 409);
+      }
+      const wf = registry.getWorkflow(rec.workflow);
+      if (!wf) {
+        return c.json(
+          { error: `workflow "${rec.workflow}" no longer exists; re-create it first` },
+          409,
+        );
+      }
+
+      const { inputs = {} } = c.get("invokeBody");
+      const check = buildInputSchema(wf).safeParse(inputs);
+      if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
+
+      const { runId: actionedRunId, done } = runWorkflow(db, wf, {
+        cwd,
+        trigger: "manual",
+        bus,
+        cancelRegistry,
+        inputs,
+      });
+      done.catch((cause) => {
+        console.error(
+          `run ${actionedRunId} crashed: ${cause instanceof Error ? cause.message : cause}`,
+        );
+      });
+      db.update(recommendations)
+        .set({ actionedRunId, actionedAt: new Date() })
+        .where(eq(recommendations.id, recId))
+        .run();
+      bus?.publish({
+        type: "recommendation.actioned",
+        runId,
+        recommendationId: recId,
+        actionedRunId,
+      });
+      return c.json({ runId: actionedRunId, status: "running" }, 202);
     },
   );
 

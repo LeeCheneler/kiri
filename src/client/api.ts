@@ -418,6 +418,33 @@ export const rerunRun = async (
 };
 
 /**
+ * Action a recommendation: spawn the recommendation's workflow and pin
+ * the spawned run id onto the rec row. Resolves on 202 with the new
+ * run id; terminal transitions arrive on the SSE event stream. Pass
+ * `inputs` to forward the user's (possibly edited) modal values. Throws
+ * `ApiError` on non-2xx — 404 if the recommendation isn't on this run,
+ * 409 if it has already been actioned or its workflow has been removed
+ * from the registry, 400 if the inputs fail the workflow's schema.
+ */
+export const actionRecommendation = async (
+  runId: string,
+  recId: string,
+  inputs?: Record<string, string>,
+): Promise<RunStartResult> => {
+  const init: RequestInit = { method: "POST" };
+  if (inputs !== undefined) {
+    init.body = JSON.stringify({ inputs });
+    init.headers = { "Content-Type": "application/json" };
+  }
+  return json<RunStartResult>(
+    await apiFetch(
+      `/api/runs/${encodeURIComponent(runId)}/recommendations/${encodeURIComponent(recId)}/action`,
+      init,
+    ),
+  );
+};
+
+/**
  * The version string this kiri process advertises. Injected at release-time
  * via `bun build --define KIRI_VERSION=…`; falls back to `"dev"` for local
  * `bun start` and tests.
