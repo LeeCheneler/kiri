@@ -128,7 +128,6 @@ const baseWorkflowSchema = z
         "Named parameters collected via a modal at invocation time. Each input is a string. Reference an input from a step's env using `{ input: <name> }`.",
       ),
     steps: z.array(stepSchema).min(1),
-    gating: z.enum(["auto", "propose"]).optional(),
     /**
      * Optional post-run step whose stdout becomes the run's feed-entry
      * summary. Same shape, validation rules, and reserved-namespace
@@ -204,7 +203,6 @@ export type ShStep = z.infer<typeof shStepSchema>;
 export type PublishEntry = z.infer<typeof publishEntrySchema>;
 export type UsePublish = z.infer<typeof usePublishSchema>;
 export type ShPublish = z.infer<typeof shPublishSchema>;
-export type Gating = "auto" | "propose";
 export type WorkflowInput = z.infer<typeof inputSchema>;
 export type EnvValue = z.infer<typeof envValueSchema>;
 

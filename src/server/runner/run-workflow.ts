@@ -53,7 +53,6 @@ export interface StartedRun {
 interface DefinitionSnapshot {
   name: string;
   steps: WorkflowStep[];
-  gating?: "auto" | "propose";
   summarize?: WorkflowStep;
   publish?: PublishEntry[];
 }
@@ -75,7 +74,6 @@ type ExecutedStep = ({ kind: "use"; use: string } | { kind: "sh"; sh: string }) 
 const snapshotDefinition = (def: WorkflowDefinition): DefinitionSnapshot => ({
   name: def.name,
   steps: def.steps.map((s) => ({ ...s })),
-  gating: def.gating,
   summarize: def.summarize ? { ...def.summarize } : undefined,
   publish: def.publish ? def.publish.map((p) => ({ ...p })) : undefined,
 });

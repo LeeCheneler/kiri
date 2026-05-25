@@ -30,15 +30,6 @@ describe("workflowSchema", () => {
     expect(isShStep(second)).toBe(true);
   });
 
-  it("preserves optional fields when present", () => {
-    const result = workflowSchema.parse({
-      name: "optionals",
-      steps: [{ use: "x" }],
-      gating: "propose",
-    });
-    expect(result.gating).toBe("propose");
-  });
-
   it("rejects empty name", () => {
     expect(() => workflowSchema.parse({ name: "", steps: [{ use: "x" }] })).toThrow();
   });
@@ -112,16 +103,6 @@ describe("workflowSchema", () => {
       workflowSchema.parse({
         name: "empty-desc",
         steps: [{ use: "x", description: "" }],
-      }),
-    ).toThrow();
-  });
-
-  it("rejects invalid gating value", () => {
-    expect(() =>
-      workflowSchema.parse({
-        name: "bad-gating",
-        steps: [{ use: "x" }],
-        gating: "manual",
       }),
     ).toThrow();
   });

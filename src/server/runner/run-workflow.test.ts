@@ -179,7 +179,6 @@ describe("runWorkflow", () => {
     const wf: WorkflowDefinition = {
       name: "snapshot",
       steps: [{ use: "n", env: { FOO: "bar" } }],
-      gating: "auto",
     };
 
     const result = await runWorkflow(db, wf, { cwd, trigger: "manual" }).done;
@@ -188,7 +187,6 @@ describe("runWorkflow", () => {
     expect(run?.definitionSnapshot).toEqual({
       name: "snapshot",
       steps: [{ use: "n", env: { FOO: "bar" } }],
-      gating: "auto",
     });
   });
 

@@ -23,7 +23,6 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
   // Absent when the workflow declares no `inputs:` block.
   inputs: def.inputs,
   steps: def.steps,
-  gating: def.gating,
   // Absence (no `publish:` / `summarize:` field, or `publish: []`) collapses
   // to `undefined` so the client has a single "section not present" signal.
   publish:

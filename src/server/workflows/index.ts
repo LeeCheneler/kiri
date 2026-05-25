@@ -1,5 +1,4 @@
 export {
-  type Gating,
   type PublishEntry,
   type ShPublish,
   type ShStep,

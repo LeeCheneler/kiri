@@ -33,11 +33,10 @@ describe("workflows routes", () => {
       expect(await res.json()).toEqual([]);
     });
 
-    it("summarizes registry entries with name, steps, and gating", async () => {
+    it("summarizes registry entries with name and steps", async () => {
       const wf: WorkflowDefinition = {
         name: "demo",
         steps: [{ use: "demo" }],
-        gating: "auto",
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
@@ -49,7 +48,6 @@ describe("workflows routes", () => {
       expect(body[0]).toEqual({
         name: "demo",
         steps: [{ use: "demo" }],
-        gating: "auto",
       });
     });
 

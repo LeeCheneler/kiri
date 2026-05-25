@@ -54,16 +54,6 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.getAllByText(/^3 steps$/i).length).toBeGreaterThan(0);
     });
 
-    it("renders gating when the workflow declares it", () => {
-      renderDetail(stubWorkflow({ gating: "auto" }));
-      expect(screen.getByText(/gating: auto/i)).toBeDefined();
-    });
-
-    it("omits gating when the workflow does not declare it", () => {
-      renderDetail(stubWorkflow({ gating: undefined }));
-      expect(screen.queryByText(/gating:/i)).toBeNull();
-    });
-
     it("surfaces the article count in the header when the workflow publishes", () => {
       renderDetail(
         stubWorkflow({

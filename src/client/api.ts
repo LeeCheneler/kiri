@@ -56,7 +56,6 @@ export interface WorkflowSummary {
   /** Defined when the workflow declares an `inputs:` block; absent otherwise. */
   inputs?: WorkflowInputSummary[];
   steps: WorkflowStepSummary[];
-  gating?: "auto" | "propose";
   /** Defined when the workflow has at least one `publish:` entry. */
   publish?: WorkflowPublishSummary[];
   /** Defined when the workflow has a `summarize:` step. */
@@ -126,7 +125,6 @@ export interface RunListEntry {
   definitionSnapshot: {
     name: string;
     steps: WorkflowStepSummary[];
-    gating?: "auto" | "propose";
     summarize?: WorkflowStepSummary;
     publish?: RunPublishSnapshot[];
   };
