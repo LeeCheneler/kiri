@@ -114,6 +114,35 @@ steps:
 - The resolved input map is snapshotted onto the run, so the feed shows
   what a run was invoked with.
 
+## Recommendations
+
+A workflow's main step can propose follow-up workflow invocations
+attached to the producing run. The activity feed marks each run with
+a small "N recommendations" count in its byline; the run detail page
+surfaces them under a **Recommended** section as trigger buttons that
+open the standard invoke modal pre-filled with the proposed inputs.
+
+To emit recommendations, write JSON Lines to the path in
+\`$KIRI_RECOMMENDATIONS_FILE\` — one object per line:
+
+\`\`\`json
+{ "title": "Review pull request owner/repo #42", "description": "<short context>", "workflow": "PR Review", "inputs": { "pr_number": "42", "repo": "owner/repo" } }
+\`\`\`
+
+- \`title\` and \`workflow\` are required; \`description\` and \`inputs\` are
+  optional. \`inputs\` is a flat \`{ string: string }\` map keyed by the
+  target workflow's declared input names.
+- \`KIRI_RECOMMENDATIONS_FILE\` is set on main \`steps:\` only — not on
+  \`publish:\` or \`summarize:\`.
+- Only \`ok\` steps' files are ingested; failed and cancelled steps'
+  files are discarded entirely.
+- Malformed JSON or schema-failing lines are logged and skipped without
+  failing the step — surrounding valid lines still ingest.
+
+Use this when a run *enumerates* things a follow-up could act on —
+open PRs, failing tests, queued items — so each enumerated thing
+becomes a one-click launch.
+
 ## IDE / LSP integration
 
 Kiri publishes the workflow JSON Schema at \`.kiri/workflow.schema.json\` and
