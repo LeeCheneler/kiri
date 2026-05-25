@@ -2,7 +2,7 @@
 
 **キリト** — short for Kirito, the protagonist of *Sword Art Online*.
 
-A local-first, git-based workflow orchestrator for personal automation. Workflows are linear pipelines of scripts and AI steps, invoked by hand. Activity feed as the main UI surface, not a node-graph canvas. Single user, app-active scope — workflows run while kiri is open, no daemons.
+A local-first, git-based workflow orchestrator for personal automation. Workflows are linear pipelines of scripts and AI steps, invoked by hand. Activity feed as the main UI surface, not a node-graph canvas. Each run can surface recommended follow-up workflows as one-click trigger buttons on its detail page, so an aggregator workflow turns into a launch pad for per-item follow-ups. Single user, app-active scope — workflows run while kiri is open, no daemons.
 
 ## Install
 
