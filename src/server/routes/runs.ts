@@ -218,13 +218,20 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     if (run.status === "running") {
       return c.json({ error: `run "${id}" is in flight; cancel it first` }, 409);
     }
-    // Explicit cascade in a transaction: articles and step rows hold FKs
-    // to the parent run row, so they go first. Matches the rest of the
-    // codebase's pattern of in-code cascades instead of schema-level
-    // ON DELETE CASCADE.
+    // Explicit cascade in a transaction: articles, step rows, and
+    // recommendations all hold FKs to the parent run, so they go first.
+    // Inbound `actionedRunId` references from other runs' recs are
+    // nulled (with `actionedAt`) so those recs flip back to triggerable
+    // — same row, link cleared. Matches the rest of the codebase's
+    // pattern of in-code cascades instead of schema-level ON DELETE.
     db.transaction((tx) => {
       tx.delete(articles).where(eq(articles.runId, id)).run();
       tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
+      tx.delete(recommendations).where(eq(recommendations.runId, id)).run();
+      tx.update(recommendations)
+        .set({ actionedRunId: null, actionedAt: null })
+        .where(eq(recommendations.actionedRunId, id))
+        .run();
       tx.delete(runs).where(eq(runs.id, id)).run();
     });
     // Catches scratch-dir leftovers from a crashed runner; on a normal
@@ -257,13 +264,18 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       const check = buildInputSchema(wf).safeParse(inputs);
       if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
 
-      // Cascade-wipe articles + step rows (mirrors the delete path, minus
-      // the final `runs` delete) so the rerun starts with a clean slate
-      // under the same run id. Scratch dir is removed too — normally already
-      // gone, but a crashed runner can leave it behind.
+      // Cascade-wipe articles, step rows, and the rerun's own
+      // recommendations (mirrors the delete path, minus the final `runs`
+      // delete) so the rerun starts with a clean slate under the same
+      // run id. Inbound `actionedRunId` references from other runs are
+      // deliberately left intact: the id persists, so the link still
+      // resolves to a real run — same as everywhere else. Scratch dir
+      // is removed too — normally already gone, but a crashed runner
+      // can leave it behind.
       db.transaction((tx) => {
         tx.delete(articles).where(eq(articles.runId, id)).run();
         tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
+        tx.delete(recommendations).where(eq(recommendations.runId, id)).run();
       });
       rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
       const { done } = runWorkflow(db, wf, {

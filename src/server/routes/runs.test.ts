@@ -1113,6 +1113,111 @@ EOF
       expect(second.status).toBe(404);
       expect(await second.json()).toEqual({ error: `run "${id}" not found` });
     });
+
+    // Seeds a recommendation row directly so cascade tests don't need to
+    // drive the runner's emission path. The triggered/untriggered split is
+    // controlled by `actionedRunId` + `actionedAt`.
+    const seedRecommendation = (
+      id: string,
+      opts: {
+        runId: string;
+        index?: number;
+        actionedRunId?: string | null;
+        actionedAt?: Date | null;
+      },
+    ) => {
+      env.db
+        .insert(recommendations)
+        .values({
+          id,
+          runId: opts.runId,
+          index: opts.index ?? 0,
+          title: "rec",
+          workflow: "target",
+          actionedRunId: opts.actionedRunId ?? null,
+          actionedAt: opts.actionedAt ?? null,
+        })
+        .run();
+    };
+
+    it("removes the deleted run's own recommendations alongside its other rows", async () => {
+      const id = "owns-recs";
+      seedTerminalRun(id);
+      seedRecommendation("rec-a", { runId: id, index: 0 });
+      seedRecommendation("rec-b", { runId: id, index: 1 });
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request(`/api/runs/${id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(204);
+
+      expect(
+        env.db.select().from(recommendations).where(eq(recommendations.runId, id)).all(),
+      ).toEqual([]);
+    });
+
+    it("nulls actionedRunId + actionedAt on other runs' recs pointing at the deleted run", async () => {
+      const deletedId = "deleted-target";
+      const producerId = "producer";
+      seedTerminalRun(deletedId);
+      seedTerminalRun(producerId);
+      seedRecommendation("rec-inbound", {
+        runId: producerId,
+        actionedRunId: deletedId,
+        actionedAt: new Date("2026-05-09T13:00:00.000Z"),
+      });
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request(`/api/runs/${deletedId}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(204);
+
+      // The rec row survives on the producer; its link is cleared so the
+      // trigger button flips back to actionable.
+      const inbound = env.db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.id, "rec-inbound"))
+        .get();
+      expect(inbound).toMatchObject({
+        runId: producerId,
+        actionedRunId: null,
+        actionedAt: null,
+      });
+    });
+
+    it("cascades own recs and nulls inbound rec links in a single delete", async () => {
+      const deletedId = "mixed-delete";
+      const producerId = "mixed-producer";
+      seedTerminalRun(deletedId);
+      seedTerminalRun(producerId);
+      seedRecommendation("rec-own", { runId: deletedId, index: 0 });
+      seedRecommendation("rec-inbound", {
+        runId: producerId,
+        actionedRunId: deletedId,
+        actionedAt: new Date(),
+      });
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request(`/api/runs/${deletedId}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(204);
+
+      // Own rec is gone.
+      expect(
+        env.db.select().from(recommendations).where(eq(recommendations.id, "rec-own")).get(),
+      ).toBeUndefined();
+      // Inbound rec survives with its link cleared.
+      expect(
+        env.db.select().from(recommendations).where(eq(recommendations.id, "rec-inbound")).get(),
+      ).toMatchObject({ actionedRunId: null, actionedAt: null });
+    });
   });
 
   describe("POST /api/runs/:id/rerun", () => {
@@ -1502,6 +1607,73 @@ EOF
 
       // Leftover scratch file is gone.
       expect(existsSync(join(scratch, "leftover.txt"))).toBe(false);
+    });
+
+    it("wipes the rerun's own recs but leaves inbound rec links pointing at it intact", async () => {
+      const id = "rerun-with-recs";
+      writeBundle(env.cwd, "hi", "#!/bin/sh\necho fresh\n");
+      const wf: WorkflowDefinition = { name: "demo", steps: [{ use: "hi" }] };
+      env.registry.replace(new Map([[wf.name, wf]]));
+      seedTerminalRun(id, { trigger: "manual" });
+
+      // Producer run with a rec pointing at the run we're about to rerun.
+      // The id persists across rerun so the link should still resolve.
+      const producerId = "rerun-producer";
+      env.db
+        .insert(runs)
+        .values({
+          id: producerId,
+          workflowName: "producer",
+          status: "ok",
+          trigger: "manual",
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          definitionSnapshot: { name: "producer", steps: [] },
+        })
+        .run();
+      const actionedAt = new Date("2026-05-09T13:00:00.000Z");
+      env.db
+        .insert(recommendations)
+        .values({
+          id: "rec-inbound",
+          runId: producerId,
+          index: 0,
+          title: "Points at the rerun target",
+          workflow: "demo",
+          actionedRunId: id,
+          actionedAt,
+        })
+        .run();
+      // The rerun target's own prior rec — should be wiped.
+      env.db
+        .insert(recommendations)
+        .values({
+          id: "rec-own",
+          runId: id,
+          index: 0,
+          title: "Own prior rec",
+          workflow: "anything",
+        })
+        .run();
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const res = await app.request(`/api/runs/${id}/rerun`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(202);
+      await waitForFinished(id);
+
+      // Own rec gone.
+      expect(
+        env.db.select().from(recommendations).where(eq(recommendations.id, "rec-own")).get(),
+      ).toBeUndefined();
+      // Inbound rec retained with its actionedRunId + actionedAt intact —
+      // the rerun reused the same id, so the link still resolves.
+      expect(
+        env.db.select().from(recommendations).where(eq(recommendations.id, "rec-inbound")).get(),
+      ).toMatchObject({ actionedRunId: id, actionedAt });
     });
   });
 
