@@ -132,9 +132,11 @@ describe("<RunDetailView>", () => {
       expect(time.getAttribute("title")).toBe(startedAt);
     });
 
-    it("renders an in-flight indicator instead of a duration when the run hasn't finished", () => {
+    it("omits the duration segment when the run hasn't finished", () => {
       renderDetail(stubDetail({ status: "running", finishedAt: null }));
-      expect(screen.getByText(/in flight/i)).toBeDefined();
+      // The `running` status label already conveys live state; the
+      // duration slot only appears once the run has a finishedAt.
+      expect(screen.queryByText("duration")).toBeNull();
     });
 
     it("renders the back link to the activity feed", () => {

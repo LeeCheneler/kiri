@@ -19,7 +19,6 @@ import { BackLink } from "./ui/back-link.tsx";
 import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
 import { LabelledBlock } from "./ui/labelled-block.tsx";
-import { PulseDot } from "./ui/pulse-dot.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
 import { StatusLabel } from "./ui/status-label.tsx";
 import { StatusStrip } from "./ui/status-strip.tsx";
@@ -227,22 +226,17 @@ export function RunDetailView({
               </time>
             </dd>
           </div>
-          <span aria-hidden="true" className="text-rule">
-            ·
-          </span>
-          <div className="flex items-baseline">
-            <dt className="sr-only">duration</dt>
-            <dd className="tabular-nums">
-              {run.finishedAt ? (
-                formatDuration(run.startedAt, run.finishedAt)
-              ) : (
-                <span className="inline-flex items-baseline gap-1.5">
-                  <PulseDot />
-                  in flight
-                </span>
-              )}
-            </dd>
-          </div>
+          {run.finishedAt && (
+            <>
+              <span aria-hidden="true" className="text-rule">
+                ·
+              </span>
+              <div className="flex items-baseline">
+                <dt className="sr-only">duration</dt>
+                <dd className="tabular-nums">{formatDuration(run.startedAt, run.finishedAt)}</dd>
+              </div>
+            </>
+          )}
           {run.gitSha && (
             <>
               <span aria-hidden="true" className="text-rule">

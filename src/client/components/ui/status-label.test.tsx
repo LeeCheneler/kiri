@@ -29,16 +29,4 @@ describe("<StatusLabel>", () => {
     render(<StatusLabel status="ok" />);
     expect(screen.queryByTestId("pulse-dot")).toBeNull();
   });
-
-  it("renders runningLabel in place of the keyword for the running status", () => {
-    render(<StatusLabel status="running" runningLabel="in flight" />);
-    expect(screen.getByText("in flight")).toBeDefined();
-    expect(screen.queryByText("running")).toBeNull();
-  });
-
-  it("ignores runningLabel for non-running statuses", () => {
-    render(<StatusLabel status="ok" runningLabel="in flight" />);
-    expect(screen.getByText("ok")).toBeDefined();
-    expect(screen.queryByText("in flight")).toBeNull();
-  });
 });

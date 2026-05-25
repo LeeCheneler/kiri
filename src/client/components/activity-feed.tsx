@@ -4,7 +4,6 @@ import type { ArticleSummary, RunListEntry } from "../api.ts";
 import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
 import { Markdown } from "./markdown.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
-import { PulseDot } from "./ui/pulse-dot.tsx";
 import { StatusLabel } from "./ui/status-label.tsx";
 import { StatusStrip } from "./ui/status-strip.tsx";
 
@@ -30,8 +29,9 @@ const CHIPS_COLLAPSE_AT = 4;
  *    inside it stay independent.
  *  - Article chips sit at the foot of the entry as separate links.
  *
- * Runs in flight show a pulsing dot in place of a duration. Rows
- * stagger in on first paint. Empty state is a single italic sentence.
+ * Runs in flight omit the duration entirely — the `running` status
+ * label already pulses live. Rows stagger in on first paint. Empty
+ * state is a single italic sentence.
  *
  * `sentinelRef` marks the bottom of the list so an
  * `IntersectionObserver` can trigger the next page load. `isLoadingMore`
@@ -80,13 +80,13 @@ export function ActivityFeed({
                   <span className="tracking-wider">{run.trigger}</span>
                   <span className="text-rule">·</span>
                   <span>{formatRelativeTime(run.startedAt, now)}</span>
-                  <span className="text-rule">·</span>
-                  {run.finishedAt ? (
-                    <span className="tabular-nums">
-                      {formatDuration(run.startedAt, run.finishedAt)}
-                    </span>
-                  ) : (
-                    <PulseDot />
+                  {run.finishedAt && (
+                    <>
+                      <span className="text-rule">·</span>
+                      <span className="tabular-nums">
+                        {formatDuration(run.startedAt, run.finishedAt)}
+                      </span>
+                    </>
                   )}
                   {run.recommendationsCount > 0 && (
                     <>
