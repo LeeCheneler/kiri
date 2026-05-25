@@ -212,6 +212,20 @@ describe("<WorkflowPage>", () => {
     await screen.findByText(/sh: echo v1/);
   });
 
+  it("falls back to the raw param when the URL contains a malformed escape", async () => {
+    server.use(
+      http.get("*/api/workflows", () => HttpResponse.json([{ name: "alpha", steps: [] }])),
+    );
+
+    // `%E0` is an incomplete UTF-8 byte and makes decodeURIComponent throw.
+    // The route must still render (not crash) — typically as not-found.
+    const malformed = "alpha%E0";
+    renderWorkflow(malformed, `/workflows/${malformed}`);
+
+    expect(await screen.findByRole("heading", { name: /workflow not found/i })).toBeDefined();
+    expect(screen.getByText(malformed)).toBeDefined();
+  });
+
   it("transitions to not-found when the matching workflow is removed", async () => {
     let calls = 0;
     server.use(
