@@ -12,6 +12,7 @@ import migration0008 from "../../../drizzle/0008_rename_run_artefacts_to_article
   type: "text",
 };
 import migration0009 from "../../../drizzle/0009_add_run_inputs.sql" with { type: "text" };
+import migration0010 from "../../../drizzle/0010_add_recommendations.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -43,6 +44,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0007_drop_step_usage", sql: migration0007 },
   { name: "0008_rename_run_artefacts_to_articles", sql: migration0008 },
   { name: "0009_add_run_inputs", sql: migration0009 },
+  { name: "0010_add_recommendations", sql: migration0010 },
 ];
 
 /**

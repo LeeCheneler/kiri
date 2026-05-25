@@ -115,3 +115,34 @@ export const articles = sqliteTable(
     index("articles_run_id_idx").on(t.runId),
   ],
 );
+
+/**
+ * One proposed follow-up workflow invocation emitted by a run. Rows are
+ * created at step-completion time from the step's recommendations file
+ * channel; reads power the run detail page's "Recommended" section.
+ * `actionedRunId` + `actionedAt` move from null to populated when the
+ * user triggers the recommendation and link to the spawned run.
+ */
+export const recommendations = sqliteTable(
+  "recommendations",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    /** Emission order within the producing run. */
+    index: integer("index").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    /** Name of the workflow to invoke when the recommendation is actioned. */
+    workflow: text("workflow").notNull(),
+    /** Pre-fills for the invoke modal. `Record<string, string>` keyed by input name. */
+    inputs: text("inputs", { mode: "json" }),
+    actionedRunId: text("actioned_run_id").references(() => runs.id),
+    actionedAt: integer("actioned_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    index("recommendations_run_id_idx").on(t.runId),
+    index("recommendations_actioned_run_id_idx").on(t.actionedRunId),
+  ],
+);

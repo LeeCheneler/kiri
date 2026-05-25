@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { type KiriDb, openDatabase } from "./index.ts";
 import { migrate } from "./migrate.ts";
-import { articles, runSteps, runs } from "./schema.ts";
+import { articles, recommendations, runSteps, runs } from "./schema.ts";
 
 describe("db", () => {
   let dir: string;
@@ -510,5 +510,206 @@ describe("db", () => {
     // The rename preserved the row through 0002; later migrations
     // (0006) drop the `materials` column. The row still survives.
     expect(preserved).toEqual({ id: "n1", kind: "script", status: "ok" });
+  });
+
+  it("round-trips a fully-populated recommendation row", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-src",
+        workflowName: "aggregator",
+        status: "ok",
+        trigger: "manual",
+        startedAt: new Date(1_700_000_000_000),
+        definitionSnapshot: {},
+      })
+      .run();
+    db.insert(runs)
+      .values({
+        id: "run-actioned",
+        workflowName: "pr-review",
+        status: "ok",
+        trigger: "manual",
+        startedAt: new Date(1_700_000_005_000),
+        definitionSnapshot: {},
+      })
+      .run();
+
+    const actionedAt = new Date(1_700_000_010_000);
+    db.insert(recommendations)
+      .values({
+        id: "rec-1",
+        runId: "run-src",
+        index: 0,
+        title: "Review PR #123",
+        description: "+500/-200, refactor user auth",
+        workflow: "pr-review",
+        inputs: { pr_number: "123" },
+        actionedRunId: "run-actioned",
+        actionedAt,
+      })
+      .run();
+
+    const row = db.select().from(recommendations).where(eq(recommendations.id, "rec-1")).get();
+    expect(row).toEqual({
+      id: "rec-1",
+      runId: "run-src",
+      index: 0,
+      title: "Review PR #123",
+      description: "+500/-200, refactor user auth",
+      workflow: "pr-review",
+      inputs: { pr_number: "123" },
+      actionedRunId: "run-actioned",
+      actionedAt,
+    });
+  });
+
+  it("defaults nullable recommendation fields to null when omitted", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-min",
+        workflowName: "x",
+        status: "ok",
+        trigger: "manual",
+        startedAt: new Date(),
+        definitionSnapshot: {},
+      })
+      .run();
+
+    db.insert(recommendations)
+      .values({
+        id: "rec-min",
+        runId: "run-min",
+        index: 0,
+        title: "Do the thing",
+        workflow: "do-thing",
+      })
+      .run();
+
+    const row = db.select().from(recommendations).where(eq(recommendations.id, "rec-min")).get();
+    expect(row?.description).toBeNull();
+    expect(row?.inputs).toBeNull();
+    expect(row?.actionedRunId).toBeNull();
+    expect(row?.actionedAt).toBeNull();
+  });
+
+  it("declares recommendations.run_id and actioned_run_id foreign keys to runs.id", () => {
+    const fks = getTableConfig(recommendations).foreignKeys;
+    expect(fks).toHaveLength(2);
+    const refs = fks.map((fk) =>
+      (
+        fk as unknown as {
+          reference: () => {
+            columns: { name: string }[];
+            foreignColumns: { name: string }[];
+          };
+        }
+      ).reference(),
+    );
+    const columnNames = refs.map((r) => r.columns.map((c) => c.name).join(",")).sort();
+    expect(columnNames).toEqual(["actioned_run_id", "run_id"]);
+    for (const ref of refs) {
+      expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+    }
+  });
+
+  it("adds the recommendations table when migrating a pre-recommendations DB", () => {
+    const sqlite = db.$client;
+    sqlite.run(
+      "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
+    );
+    sqlite.run(`CREATE TABLE runs (
+      id TEXT PRIMARY KEY NOT NULL,
+      workflow_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      error TEXT,
+      definition_snapshot TEXT NOT NULL,
+      summary TEXT,
+      git_sha TEXT,
+      git_dirty INTEGER,
+      inputs TEXT
+    )`);
+    sqlite.run(`CREATE TABLE run_steps (
+      id TEXT PRIMARY KEY NOT NULL,
+      run_id TEXT NOT NULL,
+      "index" INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      output TEXT,
+      error TEXT,
+      traces TEXT,
+      is_summary INTEGER DEFAULT 0 NOT NULL,
+      is_publish INTEGER DEFAULT 0 NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES runs(id)
+    )`);
+    sqlite.run("CREATE INDEX run_steps_run_id_idx ON run_steps (run_id)");
+    sqlite.run(`CREATE TABLE articles (
+      id TEXT PRIMARY KEY NOT NULL,
+      run_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content_md TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES runs(id)
+    )`);
+    sqlite.run("CREATE UNIQUE INDEX articles_run_id_name_unique ON articles (run_id, name)");
+    sqlite.run("CREATE INDEX articles_run_id_idx ON articles (run_id)");
+    sqlite.run(
+      `INSERT INTO __kiri_migrations (name, applied_at) VALUES
+        ('0000_initial', 0),
+        ('0001_index_run_nodes_run_id', 0),
+        ('0002_rename_run_nodes_to_run_steps', 0),
+        ('0003_add_run_summary_columns', 0),
+        ('0004_add_publish_support', 0),
+        ('0005_add_run_git_columns', 0),
+        ('0006_drop_step_materials', 0),
+        ('0007_drop_step_usage', 0),
+        ('0008_rename_run_artefacts_to_articles', 0),
+        ('0009_add_run_inputs', 0)`,
+    );
+
+    migrate(db);
+
+    const tables = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='recommendations'",
+      )
+      .all()
+      .map((r) => r.name);
+    expect(tables).toEqual(["recommendations"]);
+
+    const columns = sqlite
+      .query<{ name: string }, []>("PRAGMA table_info(recommendations)")
+      .all()
+      .map((r) => r.name)
+      .sort();
+    expect(columns).toEqual(
+      [
+        "actioned_at",
+        "actioned_run_id",
+        "description",
+        "id",
+        "index",
+        "inputs",
+        "run_id",
+        "title",
+        "workflow",
+      ].sort(),
+    );
+
+    const indexes = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='recommendations' AND name NOT LIKE 'sqlite_%'",
+      )
+      .all()
+      .map((r) => r.name)
+      .sort();
+    expect(indexes).toEqual(["recommendations_actioned_run_id_idx", "recommendations_run_id_idx"]);
   });
 });
