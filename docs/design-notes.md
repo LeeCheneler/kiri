@@ -101,8 +101,6 @@ A workflow optionally declares `inputs:` — named parameters collected at invoc
 - Step `env:` values are either a literal string or a structured `{ input: <name> }` reference pointing at a declared input. At run-start the runner resolves each declared input to a final value (supplied at invoke, otherwise the input's `default`) and snapshots the resolved `Record<string, string>` onto `runs.inputs`. At spawn the runner walks each step's, summarise's, and publish's `env:`, replacing every `{ input: <name> }` entry with the snapshotted value; kiri-scoped vars and OS essentials overlay afterwards, so user env never wins on collision.
 - Input values are snapshotted onto the `runs` row, so the feed shows what a run was invoked with and a re-run can pre-fill the form.
 
-Every run records a `trigger` origin on its `runs` row — `manual` today. It is feed-display metadata and is not exposed to step env.
-
 ### State storage
 
 State lives in three tiers, by what kind of state it is:
@@ -213,7 +211,7 @@ For workflows using broad `Bash(*)` permissions, the load-bearing defence is the
 ## UI
 
 - **Left rail: workflows nav.** Lists workflows from the registry, each linking to its detail page.
-- **Center: feed.** Reverse-chronological activity log. Each row shows workflow name, status, trigger, duration, and (when present) the run's one-or-two-sentence summary plus a chip-list of published articles. A small count signals when a run carries recommendations. Clicking a row opens the run detail page (`/runs/:id`) with full traces, the run's recommendations, and its published articles; clicking an article chip opens its dedicated page (`/runs/:id/published/:name`).
+- **Center: feed.** Reverse-chronological activity log. Each row shows workflow name, status, duration, and (when present) the run's one-or-two-sentence summary plus a chip-list of published articles. A small count signals when a run carries recommendations. Clicking a row opens the run detail page (`/runs/:id`) with full traces, the run's recommendations, and its published articles; clicking an article chip opens its dedicated page (`/runs/:id/published/:name`).
 - **Right rail: recently published.** Lists the most recent articles across all runs, each linking to its article page; live-updates as runs publish.
 
 Cost visibility is deferred (see *Cost tracking* above).

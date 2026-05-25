@@ -22,7 +22,6 @@ describe("ingestStepRecommendations", () => {
         id: runId,
         workflowName: "wf",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(),
         definitionSnapshot: {},
       })

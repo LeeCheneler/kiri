@@ -15,7 +15,6 @@ export const runs = sqliteTable("runs", {
    * handle all four states — in-flight rows render as live runs.
    */
   status: text("status").notNull(),
-  trigger: text("trigger").notNull(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   error: text("error", { mode: "json" }),

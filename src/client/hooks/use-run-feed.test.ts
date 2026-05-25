@@ -9,7 +9,6 @@ const stubRun = (id: string, workflowName = "wf"): RunListEntry => ({
   id,
   workflowName,
   status: "ok",
-  trigger: "manual",
   startedAt: "2026-05-09T12:00:00.000Z",
   finishedAt: "2026-05-09T12:00:01.000Z",
   error: null,

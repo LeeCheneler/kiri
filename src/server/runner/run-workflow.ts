@@ -20,8 +20,6 @@ import { type StepEnvelope, runStep } from "./run-step.ts";
 export interface RunWorkflowArgs {
   /** Repo root. Bundles resolve under `<cwd>/scripts/<name>/run.sh`; the scratch dir lives at `<cwd>/.kiri/runs/<run-id>/`. */
   cwd: string;
-  /** Where the run was triggered from — recorded on the `runs` row. Currently always `"manual"`. Ignored when `runId` is supplied — the existing row's trigger is preserved. */
-  trigger: string;
   /** Optional event bus. When supplied, the runner publishes lifecycle events at run/step transitions. */
   bus?: EventBus;
   /** Optional cancel registry. When supplied, the runner registers the run, publishes the active step's child handle for SIGTERM/SIGKILL, checks for cancellation between steps, and translates a cancel-induced step failure into a `cancelled` terminal status. */
@@ -190,7 +188,6 @@ export function runWorkflow(
         id: runId,
         workflowName: definition.name,
         status: "running",
-        trigger: args.trigger,
         startedAt,
         definitionSnapshot: snapshotDefinition(definition),
         inputs: resolvedInputs,

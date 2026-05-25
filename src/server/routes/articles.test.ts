@@ -22,7 +22,6 @@ describe("articles routes", () => {
           id,
           workflowName,
           status: "ok",
-          trigger: "manual",
           startedAt: new Date(),
           finishedAt: new Date(),
           definitionSnapshot: { name: workflowName, steps: [{ sh: "echo hi" }] },

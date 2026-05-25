@@ -1064,7 +1064,6 @@ EOF
           id: interruptedId,
           workflowName: "ghost",
           status: "running",
-          trigger: "manual",
           startedAt: new Date(),
           definitionSnapshot: { name: "ghost", steps: [] },
         })
@@ -1096,7 +1095,6 @@ EOF
           id,
           workflowName: "demo",
           status: opts.status ?? "ok",
-          trigger: "manual",
           startedAt: new Date(),
           finishedAt: new Date(),
           definitionSnapshot: { name: "demo", steps: [{ sh: "echo hi" }] },
@@ -1146,7 +1144,6 @@ EOF
           id,
           workflowName: "demo",
           status: "running",
-          trigger: "manual",
           startedAt: new Date(),
           definitionSnapshot: { name: "demo", steps: [] },
         })
@@ -1344,7 +1341,6 @@ EOF
       opts: {
         workflowName?: string;
         status?: "ok" | "failed" | "cancelled";
-        trigger?: string;
       } = {},
     ) => {
       const workflowName = opts.workflowName ?? "demo";
@@ -1354,7 +1350,6 @@ EOF
           id,
           workflowName,
           status: opts.status ?? "failed",
-          trigger: opts.trigger ?? "manual",
           startedAt: new Date(),
           finishedAt: new Date(),
           error: { message: "first attempt failed" },
@@ -1405,7 +1400,6 @@ EOF
           id,
           workflowName: "demo",
           status: "running",
-          trigger: "manual",
           startedAt: new Date(),
           definitionSnapshot: { name: "demo", steps: [] },
         })
@@ -1685,7 +1679,7 @@ EOF
       writeBundle(env.cwd, "hi", "#!/bin/sh\necho fresh\n");
       const wf: WorkflowDefinition = { name: "demo", steps: [{ use: "hi" }] };
       env.registry.replace(new Map([[wf.name, wf]]));
-      seedTerminalRun(id, { trigger: "scheduled" });
+      seedTerminalRun(id);
 
       // Scratch-dir leftover (mimicking a crashed runner). Should be removed
       // before the rerun starts so stale files don't pollute the new run.
@@ -1704,11 +1698,10 @@ EOF
 
       await waitForFinished(id);
 
-      // One row, same id, status flipped to ok, trigger preserved.
+      // One row, same id, status flipped to ok.
       const allRows = env.db.select().from(runs).where(eq(runs.id, id)).all();
       expect(allRows).toHaveLength(1);
       expect(allRows[0].status).toBe("ok");
-      expect(allRows[0].trigger).toBe("scheduled");
       expect(allRows[0].error).toBeNull();
       expect(allRows[0].definitionSnapshot).toMatchObject({
         name: "demo",
@@ -1732,7 +1725,7 @@ EOF
       writeBundle(env.cwd, "hi", "#!/bin/sh\necho fresh\n");
       const wf: WorkflowDefinition = { name: "demo", steps: [{ use: "hi" }] };
       env.registry.replace(new Map([[wf.name, wf]]));
-      seedTerminalRun(id, { trigger: "manual" });
+      seedTerminalRun(id);
 
       // Producer run with a rec pointing at the run we're about to rerun.
       // The id persists across rerun so the link should still resolve.
@@ -1743,7 +1736,6 @@ EOF
           id: producerId,
           workflowName: "producer",
           status: "ok",
-          trigger: "manual",
           startedAt: new Date(),
           finishedAt: new Date(),
           definitionSnapshot: { name: "producer", steps: [] },
@@ -1806,7 +1798,6 @@ EOF
           id,
           workflowName: "producer",
           status: "ok",
-          trigger: "manual",
           startedAt: new Date(),
           finishedAt: new Date(),
           definitionSnapshot: { name: "producer", steps: [] },

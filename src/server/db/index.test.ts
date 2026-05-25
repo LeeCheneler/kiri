@@ -31,7 +31,6 @@ describe("db", () => {
         id: "run-1",
         workflowName: "self-review",
         status: "ok",
-        trigger: "manual",
         startedAt,
         definitionSnapshot: { name: "self-review", nodes: [] },
       })
@@ -101,7 +100,6 @@ describe("db", () => {
         id: "run-1",
         workflowName: "x",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(),
         definitionSnapshot: {},
       })
@@ -121,7 +119,6 @@ describe("db", () => {
         id: "run-2",
         workflowName: "summed",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(1_700_000_000_000),
         definitionSnapshot: { name: "summed", steps: [] },
         summary: "two steps ran cleanly.",
@@ -154,7 +151,6 @@ describe("db", () => {
         id: "run-3",
         workflowName: "plain",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(),
         definitionSnapshot: {},
       })
@@ -239,7 +235,6 @@ describe("db", () => {
         id: "run-art",
         workflowName: "digester",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(1_700_000_000_000),
         definitionSnapshot: { name: "digester", steps: [] },
       })
@@ -274,7 +269,6 @@ describe("db", () => {
         id: "run-uniq",
         workflowName: "x",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(),
         definitionSnapshot: {},
       })
@@ -315,7 +309,6 @@ describe("db", () => {
           id: runId,
           workflowName: "x",
           status: "ok",
-          trigger: "manual",
           startedAt: new Date(),
           definitionSnapshot: {},
         })
@@ -344,7 +337,6 @@ describe("db", () => {
         id: "run-pub",
         workflowName: "x",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(),
         definitionSnapshot: {},
       })
@@ -520,7 +512,6 @@ describe("db", () => {
         id: "run-src",
         workflowName: "aggregator",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(1_700_000_000_000),
         definitionSnapshot: {},
       })
@@ -530,7 +521,6 @@ describe("db", () => {
         id: "run-actioned",
         workflowName: "pr-review",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(1_700_000_005_000),
         definitionSnapshot: {},
       })
@@ -573,7 +563,6 @@ describe("db", () => {
         id: "run-min",
         workflowName: "x",
         status: "ok",
-        trigger: "manual",
         startedAt: new Date(),
         definitionSnapshot: {},
       })

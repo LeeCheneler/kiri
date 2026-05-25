@@ -124,7 +124,6 @@ export interface RunListEntry {
   id: string;
   workflowName: string;
   status: "running" | "ok" | "failed" | "cancelled";
-  trigger: string;
   startedAt: string;
   finishedAt: string | null;
   error: { message: string; stack?: string } | null;

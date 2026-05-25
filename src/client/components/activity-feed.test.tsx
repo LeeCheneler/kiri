@@ -14,7 +14,6 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   id: "run-1",
   workflowName: "kiri-self-review",
   status: "ok",
-  trigger: "manual",
   startedAt: new Date(NOW.getTime() - 3 * 60 * 1000).toISOString(),
   finishedAt: new Date(NOW.getTime() - 3 * 60 * 1000 + 12_000).toISOString(),
   error: null,

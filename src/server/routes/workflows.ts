@@ -61,7 +61,6 @@ export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
 
       const { runId, done } = runWorkflow(db, wf, {
         cwd,
-        trigger: "manual",
         bus,
         cancelRegistry,
         inputs,

@@ -28,7 +28,6 @@ describe("reconcileInterruptedRuns", () => {
         id,
         workflowName: "wf",
         status,
-        trigger: "manual",
         startedAt: new Date(0),
         finishedAt: status === "running" ? null : new Date(0),
         definitionSnapshot: { name: "wf", nodes: [] },

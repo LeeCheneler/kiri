@@ -297,7 +297,6 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
       const { done } = runWorkflow(db, wf, {
         cwd,
-        trigger: run.trigger,
         bus,
         cancelRegistry,
         runId: id,
@@ -341,7 +340,6 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
 
       const { runId: actionedRunId, done } = runWorkflow(db, wf, {
         cwd,
-        trigger: "manual",
         bus,
         cancelRegistry,
         inputs,

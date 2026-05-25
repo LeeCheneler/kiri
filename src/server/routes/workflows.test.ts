@@ -175,7 +175,6 @@ describe("workflows routes", () => {
       // Run row exists immediately, still in `running` state.
       const initial = env.db.select().from(runs).where(eq(runs.id, body.runId)).get();
       expect(initial?.workflowName).toBe("greeter");
-      expect(initial?.trigger).toBe("manual");
       expect(initial?.status).toBe("running");
       expect(initial?.finishedAt).toBeNull();
 
