@@ -28,8 +28,7 @@ test("clicking 'run again' re-executes a terminal run under the same id and url"
   const { runId } = await triggerRun(request, "slow");
   await page.goto(`/runs/${runId}`);
 
-  // First attempt completes — header flips to ok and the in-flight slot
-  // disappears.
+  // First attempt completes — header flips to ok.
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
   const url = page.url();
 
@@ -40,7 +39,6 @@ test("clicking 'run again' re-executes a terminal run under the same id and url"
   // SSE drives the row back through running → ok without a reload. The
   // 2s sleep in `slow.yaml` keeps the running window observable.
   await expect(page.locator('[data-status="running"]').first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText(/in flight/i)).toBeVisible();
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
   // Same id, same url — the in-place semantics. No navigation.

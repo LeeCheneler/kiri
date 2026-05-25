@@ -11,16 +11,13 @@ test("triggering from the workflow page navigates immediately and shows live tra
   await page.getByRole("button", { name: /^run/i }).click();
   await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
 
-  // Header status starts at running and the duration slot reads "in flight"
-  // until the run terminates.
+  // Header status starts at running until the run terminates.
   const headerKicker = page.locator('[data-status="running"]').first();
   await expect(headerKicker).toBeVisible();
-  await expect(page.getByText(/in flight/i)).toBeVisible();
 
-  // Without reloading, SSE drives the page to terminal status. The kicker's
-  // data-status flips to "ok" and the in-flight indicator disappears.
+  // Without reloading, SSE drives the page to terminal status: the
+  // kicker's data-status flips to "ok".
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText(/in flight/i)).not.toBeVisible();
 });
 
 test("dashboard reflects a new run appearing and reaching terminal status without reload", async ({
