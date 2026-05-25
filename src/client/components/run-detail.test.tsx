@@ -6,7 +6,7 @@ import { memoryLocation } from "wouter/memory-location";
 import type {
   ArticleSummary,
   RunDetail,
-  RunListEntry,
+  RunDetailRun,
   RunStepRow,
   WorkflowInputSummary,
 } from "../api.ts";
@@ -16,7 +16,7 @@ afterEach(() => cleanup());
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 
-const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
+const stubRun = (overrides: Partial<RunDetailRun> = {}): RunDetailRun => ({
   id: "run-1",
   workflowName: "kiri-self-review",
   status: "ok",
@@ -31,6 +31,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   inputs: null,
   isInterrupted: false,
   articles: [],
+  recommendations: [],
   ...overrides,
 });
 
@@ -49,7 +50,7 @@ const stubStep = (overrides: Partial<RunStepRow> = {}): RunStepRow => ({
 });
 
 const stubDetail = (
-  run: Partial<RunListEntry> = {},
+  run: Partial<RunDetailRun> = {},
   steps: RunStepRow[] = [],
   articles: ArticleSummary[] = [],
 ): RunDetail => ({
@@ -681,7 +682,7 @@ describe("<RunDetailView>", () => {
     // A representative run definition: two pipeline steps, two publishes,
     // and a summariser. Tests below populate per-row state to exercise
     // pending / running / terminal transitions across kinds.
-    const definitionWithEverything: RunListEntry["definitionSnapshot"] = {
+    const definitionWithEverything: RunDetailRun["definitionSnapshot"] = {
       name: "everything",
       steps: [{ sh: "echo one" }, { use: "linter" }],
       publish: [

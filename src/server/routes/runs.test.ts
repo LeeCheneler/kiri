@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
-import { articles, runSteps, runs } from "../db/schema.ts";
+import { and, eq } from "drizzle-orm";
+import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
@@ -508,6 +508,240 @@ describe("runs routes", () => {
       });
       cancelRegistry.requestCancel(runId);
       await finished;
+    });
+
+    it("returns an empty recommendations array when the run emitted none", async () => {
+      writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
+      const wf: WorkflowDefinition = { name: "no-recs", steps: [{ use: "one" }] };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const trigger = await app.request("/api/workflows/no-recs/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
+
+      const res = await app.request(`/api/runs/${runId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { run: { recommendations: unknown[] } };
+      expect(body.run.recommendations).toEqual([]);
+    });
+
+    it("returns a single emitted recommendation as untriggered with null actioned fields", async () => {
+      writeBundle(
+        env.cwd,
+        "emit-one",
+        `#!/bin/sh
+echo '{"title":"Review PR #1","workflow":"pr-review","description":"+10/-2","inputs":{"pr_number":"1"}}' > "$KIRI_RECOMMENDATIONS_FILE"
+`,
+      );
+      const wf: WorkflowDefinition = { name: "single-rec", steps: [{ use: "emit-one" }] };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const trigger = await app.request("/api/workflows/single-rec/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
+
+      const res = await app.request(`/api/runs/${runId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        run: {
+          recommendations: Array<{
+            id: string;
+            index: number;
+            title: string;
+            description: string | null;
+            workflow: string;
+            inputs: Record<string, string> | null;
+            actionedRunId: string | null;
+            actionedAt: string | null;
+            actionedRunStatus: string | null;
+          }>;
+        };
+      };
+      expect(body.run.recommendations).toHaveLength(1);
+      const [rec] = body.run.recommendations;
+      expect(rec).toMatchObject({
+        index: 0,
+        title: "Review PR #1",
+        description: "+10/-2",
+        workflow: "pr-review",
+        inputs: { pr_number: "1" },
+        actionedRunId: null,
+        actionedAt: null,
+        actionedRunStatus: null,
+      });
+      // `id` is the rec row's uuid — needed by the future action endpoint.
+      expect(typeof rec?.id).toBe("string");
+      expect(rec?.id.length).toBeGreaterThan(0);
+    });
+
+    it("returns multiple recommendations in emission index order", async () => {
+      writeBundle(
+        env.cwd,
+        "emit-many",
+        `#!/bin/sh
+cat > "$KIRI_RECOMMENDATIONS_FILE" <<'EOF'
+{"title":"A","workflow":"w","description":"first"}
+{"title":"B","workflow":"w"}
+{"title":"C","workflow":"w"}
+EOF
+`,
+      );
+      const wf: WorkflowDefinition = { name: "multi-rec", steps: [{ use: "emit-many" }] };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const trigger = await app.request("/api/workflows/multi-rec/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await trigger.json()) as { runId: string };
+      await waitForFinished(runId);
+
+      const res = await app.request(`/api/runs/${runId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        run: { recommendations: Array<{ index: number; title: string }> };
+      };
+      expect(body.run.recommendations.map((r) => [r.index, r.title])).toEqual([
+        [0, "A"],
+        [1, "B"],
+        [2, "C"],
+      ]);
+    });
+
+    it("includes the actioned run's status on a triggered recommendation", async () => {
+      writeBundle(
+        env.cwd,
+        "emit-one",
+        `#!/bin/sh
+echo '{"title":"Spawn","workflow":"target"}' > "$KIRI_RECOMMENDATIONS_FILE"
+`,
+      );
+      writeBundle(env.cwd, "noop", "#!/bin/sh\necho ok\n");
+      const producer: WorkflowDefinition = { name: "producer", steps: [{ use: "emit-one" }] };
+      const target: WorkflowDefinition = { name: "target", steps: [{ use: "noop" }] };
+      env.registry.replace(
+        new Map([
+          [producer.name, producer],
+          [target.name, target],
+        ]),
+      );
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const producerRes = await app.request("/api/workflows/producer/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId: producerRunId } = (await producerRes.json()) as { runId: string };
+      await waitForFinished(producerRunId);
+
+      const targetRes = await app.request("/api/workflows/target/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId: targetRunId } = (await targetRes.json()) as { runId: string };
+      await waitForFinished(targetRunId);
+
+      // Simulate the action endpoint (#189) wiring the rec to the spawned run.
+      const actionedAt = new Date("2026-05-09T13:00:00.000Z");
+      env.db
+        .update(recommendations)
+        .set({ actionedRunId: targetRunId, actionedAt })
+        .where(eq(recommendations.runId, producerRunId))
+        .run();
+
+      const res = await app.request(`/api/runs/${producerRunId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        run: {
+          recommendations: Array<{
+            actionedRunId: string | null;
+            actionedAt: string | null;
+            actionedRunStatus: string | null;
+          }>;
+        };
+      };
+      expect(body.run.recommendations).toHaveLength(1);
+      expect(body.run.recommendations[0]).toMatchObject({
+        actionedRunId: targetRunId,
+        actionedAt: actionedAt.toISOString(),
+        actionedRunStatus: "ok",
+      });
+    });
+
+    it("returns null actioned fields for untriggered rows when others on the same run are actioned", async () => {
+      writeBundle(
+        env.cwd,
+        "emit-two",
+        `#!/bin/sh
+cat > "$KIRI_RECOMMENDATIONS_FILE" <<'EOF'
+{"title":"First","workflow":"w"}
+{"title":"Second","workflow":"w"}
+EOF
+`,
+      );
+      writeBundle(env.cwd, "noop", "#!/bin/sh\necho ok\n");
+      const producer: WorkflowDefinition = { name: "mixed", steps: [{ use: "emit-two" }] };
+      const target: WorkflowDefinition = { name: "target", steps: [{ use: "noop" }] };
+      env.registry.replace(
+        new Map([
+          [producer.name, producer],
+          [target.name, target],
+        ]),
+      );
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const producerRes = await app.request("/api/workflows/mixed/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId: producerRunId } = (await producerRes.json()) as { runId: string };
+      await waitForFinished(producerRunId);
+
+      const targetRes = await app.request("/api/workflows/target/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId: targetRunId } = (await targetRes.json()) as { runId: string };
+      await waitForFinished(targetRunId);
+
+      // Action only the first rec; the second remains untriggered.
+      env.db
+        .update(recommendations)
+        .set({ actionedRunId: targetRunId, actionedAt: new Date() })
+        .where(and(eq(recommendations.runId, producerRunId), eq(recommendations.index, 0)))
+        .run();
+
+      const res = await app.request(`/api/runs/${producerRunId}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        run: {
+          recommendations: Array<{
+            index: number;
+            actionedRunId: string | null;
+            actionedRunStatus: string | null;
+          }>;
+        };
+      };
+      expect(
+        body.run.recommendations.map((r) => [r.index, r.actionedRunId, r.actionedRunStatus]),
+      ).toEqual([
+        [0, targetRunId, "ok"],
+        [1, null, null],
+      ]);
     });
   });
 

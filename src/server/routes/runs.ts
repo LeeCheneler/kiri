@@ -2,10 +2,11 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
-import { articles, runSteps, runs } from "../db/schema.ts";
+import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow } from "../runner/index.ts";
@@ -177,11 +178,34 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       .where(eq(articles.runId, id))
       .orderBy(asc(articles.createdAt))
       .all();
+    // Self-join `runs` aliased to the actioned target so a triggered
+    // recommendation ships the destination run's status with it — the UI
+    // renders it as a status-badged link without a follow-up round-trip.
+    // Untriggered rows leave `actionedRunStatus` null via the left join.
+    const actionedRuns = alias(runs, "actioned_runs");
+    const recommendationRows = db
+      .select({
+        id: recommendations.id,
+        index: recommendations.index,
+        title: recommendations.title,
+        description: recommendations.description,
+        workflow: recommendations.workflow,
+        inputs: recommendations.inputs,
+        actionedRunId: recommendations.actionedRunId,
+        actionedAt: recommendations.actionedAt,
+        actionedRunStatus: actionedRuns.status,
+      })
+      .from(recommendations)
+      .leftJoin(actionedRuns, eq(recommendations.actionedRunId, actionedRuns.id))
+      .where(eq(recommendations.runId, id))
+      .orderBy(asc(recommendations.index))
+      .all();
     return c.json({
       run: {
         ...run,
         isInterrupted: !registry.getWorkflow(run.workflowName),
         articles: articleRows,
+        recommendations: recommendationRows,
       },
       steps,
     });

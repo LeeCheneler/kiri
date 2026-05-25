@@ -182,12 +182,39 @@ export interface ArticleSummary {
 }
 
 /**
+ * One follow-up workflow invocation a run has proposed, as seen by the
+ * run-detail consumer. `actionedRunId` + `actionedAt` are null until the
+ * user triggers the recommendation; `actionedRunStatus` ships the target
+ * run's lifecycle status so the trigger button can render as a
+ * status-badged link without an extra round-trip.
+ */
+export interface RecommendationSummary {
+  id: string;
+  index: number;
+  title: string;
+  description: string | null;
+  workflow: string;
+  inputs: Record<string, string> | null;
+  actionedRunId: string | null;
+  actionedAt: string | null;
+  actionedRunStatus: "running" | "ok" | "failed" | "cancelled" | null;
+}
+
+/**
+ * The run row as returned on `GET /api/runs/:id`. Extends the feed-row
+ * shape with the per-run `recommendations` array (the list endpoint
+ * omits this — only the count travels with feed rows).
+ */
+export type RunDetailRun = RunListEntry & { recommendations: RecommendationSummary[] };
+
+/**
  * Full run as returned by `GET /api/runs/:id`: the run row (which
- * carries its articles on `run.articles`, ordered by creation time)
- * and its pipeline steps ordered by index.
+ * carries its articles and recommendations, ordered by creation time
+ * and emission index respectively) and its pipeline steps ordered by
+ * index.
  */
 export interface RunDetail {
-  run: RunListEntry;
+  run: RunDetailRun;
   steps: RunStepRow[];
 }
 
