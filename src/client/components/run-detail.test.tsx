@@ -33,6 +33,7 @@ const stubRun = (overrides: Partial<RunDetailRun> = {}): RunDetailRun => ({
   inputs: null,
   isInterrupted: false,
   articles: [],
+  recommendationsCount: 0,
   recommendations: [],
   ...overrides,
 });

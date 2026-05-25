@@ -1,7 +1,7 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -92,7 +92,9 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     // skips the query entirely so the common no-articles feed pays nothing.
     type ArticleProjection = { name: string; title: string; createdAt: Date };
     const articlesByRunId = new Map<string, ArticleProjection[]>();
+    const recommendationCountByRunId = new Map<string, number>();
     if (rows.length > 0) {
+      const runIds = rows.map((r) => r.id);
       const allArticles = db
         .select({
           runId: articles.runId,
@@ -101,12 +103,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
           createdAt: articles.createdAt,
         })
         .from(articles)
-        .where(
-          inArray(
-            articles.runId,
-            rows.map((r) => r.id),
-          ),
-        )
+        .where(inArray(articles.runId, runIds))
         .orderBy(asc(articles.createdAt))
         .all();
       for (const { runId, name, title, createdAt } of allArticles) {
@@ -115,6 +112,17 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         if (list) list.push(entry);
         else articlesByRunId.set(runId, [entry]);
       }
+      // Single grouped count across the page; runs with no recs are simply
+      // absent from the map and fall back to 0 below.
+      const recCounts = db
+        .select({ runId: recommendations.runId, count: count() })
+        .from(recommendations)
+        .where(inArray(recommendations.runId, runIds))
+        .groupBy(recommendations.runId)
+        .all();
+      for (const { runId, count: n } of recCounts) {
+        recommendationCountByRunId.set(runId, n);
+      }
     }
 
     return c.json({
@@ -122,6 +130,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         ...row,
         isInterrupted: !registry.getWorkflow(row.workflowName),
         articles: articlesByRunId.get(row.id) ?? [],
+        recommendationsCount: recommendationCountByRunId.get(row.id) ?? 0,
       })),
       nextCursor,
     });
@@ -210,6 +219,9 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         ...run,
         isInterrupted: !registry.getWorkflow(run.workflowName),
         articles: articleRows,
+        // Shared with the feed-list shape; derived for free from the rows we
+        // already fetched, no second query.
+        recommendationsCount: recommendationRows.length,
         recommendations: recommendationRows,
       },
       steps,

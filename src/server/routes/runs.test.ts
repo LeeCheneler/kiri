@@ -276,6 +276,124 @@ describe("runs routes", () => {
       expect(body.runs).toHaveLength(1);
       expect(body.runs[0]?.articles).toEqual([]);
     });
+
+    it("attaches each run's recommendation count to its row in a single aggregation across the page", async () => {
+      writeBundle(env.cwd, "no-recs", "#!/bin/sh\necho s\n");
+      writeBundle(
+        env.cwd,
+        "one-rec",
+        `#!/bin/sh
+echo '{"title":"A","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
+`,
+      );
+      writeBundle(
+        env.cwd,
+        "three-recs",
+        `#!/bin/sh
+cat > "$KIRI_RECOMMENDATIONS_FILE" <<'EOF'
+{"title":"A","workflow":"w"}
+{"title":"B","workflow":"w"}
+{"title":"C","workflow":"w"}
+EOF
+`,
+      );
+      const noRec: WorkflowDefinition = { name: "no-rec", steps: [{ use: "no-recs" }] };
+      const oneRec: WorkflowDefinition = { name: "one-rec", steps: [{ use: "one-rec" }] };
+      const threeRec: WorkflowDefinition = {
+        name: "three-rec",
+        steps: [{ use: "three-recs" }],
+      };
+      env.registry.replace(
+        new Map([
+          [noRec.name, noRec],
+          [oneRec.name, oneRec],
+          [threeRec.name, threeRec],
+        ]),
+      );
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const trigger = async (name: string) => {
+        const res = await app.request(`/api/workflows/${name}/runs`, {
+          method: "POST",
+          headers: CLIENT_HEADERS,
+        });
+        const { runId } = (await res.json()) as { runId: string };
+        await waitForFinished(runId);
+        return runId;
+      };
+      const noRecId = await trigger("no-rec");
+      const oneRecId = await trigger("one-rec");
+      const threeRecId = await trigger("three-rec");
+
+      const res = await app.request("/api/runs");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        runs: Array<{ id: string; recommendationsCount: number }>;
+      };
+      const byId = new Map(body.runs.map((r) => [r.id, r.recommendationsCount]));
+      // A run with no recs reports zero, not absent — the field is always present.
+      expect(byId.get(noRecId)).toBe(0);
+      expect(byId.get(oneRecId)).toBe(1);
+      expect(byId.get(threeRecId)).toBe(3);
+    });
+
+    it("scopes recommendation counts to the page — cursor pages don't leak the previous page's counts", async () => {
+      writeBundle(
+        env.cwd,
+        "emit-a",
+        `#!/bin/sh
+echo '{"title":"A","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
+`,
+      );
+      writeBundle(
+        env.cwd,
+        "emit-b",
+        `#!/bin/sh
+cat > "$KIRI_RECOMMENDATIONS_FILE" <<'EOF'
+{"title":"B1","workflow":"w"}
+{"title":"B2","workflow":"w"}
+EOF
+`,
+      );
+      const wfA: WorkflowDefinition = { name: "wf-a", steps: [{ use: "emit-a" }] };
+      const wfB: WorkflowDefinition = { name: "wf-b", steps: [{ use: "emit-b" }] };
+      env.registry.replace(
+        new Map([
+          [wfA.name, wfA],
+          [wfB.name, wfB],
+        ]),
+      );
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const trigger = async (name: string) => {
+        const res = await app.request(`/api/workflows/${name}/runs`, {
+          method: "POST",
+          headers: CLIENT_HEADERS,
+        });
+        const { runId } = (await res.json()) as { runId: string };
+        await waitForFinished(runId);
+        return runId;
+      };
+      const oldRunId = await trigger("wf-a");
+      const newRunId = await trigger("wf-b");
+
+      type RunsBody = {
+        runs: Array<{ id: string; recommendationsCount: number }>;
+        nextCursor: string | null;
+      };
+      const page1 = (await (await app.request("/api/runs?limit=1")).json()) as RunsBody;
+      expect(page1.runs.map((r) => r.id)).toEqual([newRunId]);
+      expect(page1.runs[0]?.recommendationsCount).toBe(2);
+
+      const page2 = (await (
+        await app.request(`/api/runs?limit=1&cursor=${page1.nextCursor}`)
+      ).json()) as RunsBody;
+      expect(page2.runs.map((r) => r.id)).toEqual([oldRunId]);
+      // Page 2 only carries its own count; page 1's 2 doesn't leak.
+      expect(page2.runs[0]?.recommendationsCount).toBe(1);
+    });
   });
 
   describe("GET /api/runs/:id", () => {

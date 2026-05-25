@@ -25,6 +25,7 @@ const stubRun = (overrides: Partial<RunListEntry> = {}): RunListEntry => ({
   inputs: null,
   isInterrupted: false,
   articles: [],
+  recommendationsCount: 0,
   ...overrides,
 });
 

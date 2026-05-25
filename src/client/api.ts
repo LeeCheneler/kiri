@@ -112,6 +112,12 @@ export type RunPublishSnapshot =
  * page. Empty for runs that didn't publish anything. The same field
  * powers both feed-row chips and the run detail's Published section
  * so consumers read from one place.
+ *
+ * `recommendationsCount` is the run's emitted-recommendation total,
+ * populated by the server in a single grouped aggregation across the
+ * page. The feed renders a small "N recommended" indicator when it's
+ * greater than zero. The full array lives on the detail response under
+ * `recommendations` — only the count travels with feed rows.
  */
 export interface RunListEntry {
   id: string;
@@ -144,6 +150,7 @@ export interface RunListEntry {
   inputs: Record<string, string> | null;
   isInterrupted: boolean;
   articles: ArticleSummary[];
+  recommendationsCount: number;
 }
 
 /**

@@ -20,6 +20,7 @@ const stubRun = (id: string, workflowName = "wf"): RunListEntry => ({
   inputs: null,
   isInterrupted: false,
   articles: [],
+  recommendationsCount: 0,
 });
 
 const deferred = <T>() => {
