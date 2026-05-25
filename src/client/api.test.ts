@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../tests/setup/msw.ts";
 import {
   ApiError,
+  actionRecommendation,
   cancelRun,
   deleteRun,
   fetchRecentArticles,
@@ -330,6 +331,67 @@ describe("api client", () => {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).status).toBe(409);
       expect((err as ApiError).message).toBe('run "abc" is in flight; cancel it first');
+    }
+  });
+
+  it("posts to the action endpoint with the runId and recId path-encoded and returns the spawned run id", async () => {
+    const seen: { method: string; header: string | null; runId: string; recId: string }[] = [];
+    server.use(
+      http.post("*/api/runs/:runId/recommendations/:recId/action", ({ request, params }) => {
+        seen.push({
+          method: request.method,
+          header: request.headers.get("X-Kiri-Client"),
+          runId: String(params.runId),
+          recId: String(params.recId),
+        });
+        return HttpResponse.json({ runId: "spawned-1", status: "running" }, { status: 202 });
+      }),
+    );
+
+    const result = await actionRecommendation("producer-1", "rec-1");
+
+    expect(result).toEqual({ runId: "spawned-1", status: "running" });
+    expect(seen).toEqual([
+      { method: "POST", header: "kiri-ui", runId: "producer-1", recId: "rec-1" },
+    ]);
+  });
+
+  it("posts the user-edited inputs as JSON when supplied to actionRecommendation", async () => {
+    const seen: { body: string; contentType: string | null }[] = [];
+    server.use(
+      http.post("*/api/runs/:runId/recommendations/:recId/action", async ({ request }) => {
+        seen.push({
+          body: await request.text(),
+          contentType: request.headers.get("Content-Type"),
+        });
+        return HttpResponse.json({ runId: "spawned-2", status: "running" }, { status: 202 });
+      }),
+    );
+
+    await actionRecommendation("producer-1", "rec-1", { pr_number: "42" });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].contentType).toBe("application/json");
+    expect(JSON.parse(seen[0].body)).toEqual({ inputs: { pr_number: "42" } });
+  });
+
+  it("throws an ApiError carrying 409 when the recommendation has already been actioned", async () => {
+    server.use(
+      http.post("*/api/runs/:runId/recommendations/:recId/action", () =>
+        HttpResponse.json(
+          { error: 'recommendation "rec-1" has already been actioned' },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    try {
+      await actionRecommendation("producer-1", "rec-1");
+      throw new Error("expected actionRecommendation to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(409);
+      expect((err as ApiError).message).toBe('recommendation "rec-1" has already been actioned');
     }
   });
 });
