@@ -156,7 +156,7 @@ If the actioned run is later deleted, `actionedRunId` and `actionedAt` are nulle
 
 A recommendation whose `workflow` is no longer in the registry renders the trigger button disabled with a "workflow not found" tooltip — same affordance as the "deleted" badge on feed rows for missing workflows.
 
-The feed entry surfaces a small count when a run has recommendations ("3 recommended"), signalling to click through to the detail page.
+The feed entry surfaces a small count when a run has recommendations ("3 recommendations" in the row's byline), signalling to click through to the detail page.
 
 ## AI integration
 

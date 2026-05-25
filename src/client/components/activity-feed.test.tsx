@@ -255,6 +255,33 @@ describe("<ActivityFeed>", () => {
     });
   });
 
+  describe("recommendation count", () => {
+    it("omits the marker when the count is zero", () => {
+      renderFeed([stubRun({ recommendationsCount: 0 })]);
+      expect(screen.queryByText(/recommendation/i)).toBeNull();
+    });
+
+    it("renders 'N recommendations' in the byline when the count is greater than one", () => {
+      renderFeed([stubRun({ recommendationsCount: 10 })]);
+      expect(screen.getByText(/^10 recommendations$/)).toBeDefined();
+    });
+
+    it("renders the singular '1 recommendation' when the count is exactly one", () => {
+      renderFeed([stubRun({ recommendationsCount: 1 })]);
+      expect(screen.getByText(/^1 recommendation$/)).toBeDefined();
+    });
+
+    it("renders the marker as plain text — not a link or button", () => {
+      renderFeed([stubRun({ id: "abc", workflowName: "pr-review", recommendationsCount: 2 })]);
+      // The only link on the row is the headline; the marker carries no
+      // own navigation target.
+      const links = screen.getAllByRole("link");
+      expect(links).toHaveLength(1);
+      expect(links[0]?.getAttribute("href")).toBe("/runs/abc");
+      expect(screen.queryByRole("button", { name: /recommendation/i })).toBeNull();
+    });
+  });
+
   it("omits the duration text for runs that haven't finished", () => {
     renderFeed([
       stubRun({

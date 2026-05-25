@@ -29,7 +29,7 @@ Workflows surface proposed follow-up workflow invocations attached to the produc
 - Triggering a recommendation opens the standard invoke modal pre-filled with `workflow` + `inputs` — the user can edit before confirming. On confirm, the runner spawns the workflow, and the recommendation row is updated with `actionedRunId` + `actionedAt`. The trigger button flips into a status-badged link to the spawned run.
 - Run delete cascade: the deleted run's own recommendations are removed; recommendations from other runs whose `actionedRunId` points at the deleted run have it nulled (`actionedAt` nulled with it), restoring them to triggerable.
 - Rerun semantics: the rerun's own recommendations are wiped (mirrors articles + steps); recommendations from other runs pointing at the rerun via `actionedRunId` are left untouched — the link still resolves to a real run, even if the run's content has changed.
-- Feed entry surfaces a small count when a run has recommendations ("3 recommended").
+- Feed entry surfaces a small count when a run has recommendations ("3 recommendations").
 - A recommendation whose `workflow` is no longer in the registry renders the trigger button disabled with a "workflow not found" tooltip.
 
 ## Out of scope (v1)

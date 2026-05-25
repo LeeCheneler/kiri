@@ -88,6 +88,16 @@ export function ActivityFeed({
                   ) : (
                     <PulseDot />
                   )}
+                  {run.recommendationsCount > 0 && (
+                    <>
+                      <span className="text-rule">·</span>
+                      <span>
+                        {run.recommendationsCount === 1
+                          ? "1 recommendation"
+                          : `${run.recommendationsCount} recommendations`}
+                      </span>
+                    </>
+                  )}
                   {run.isInterrupted && (
                     <>
                       <span className="text-rule">·</span>

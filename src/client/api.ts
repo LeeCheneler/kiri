@@ -115,9 +115,10 @@ export type RunPublishSnapshot =
  *
  * `recommendationsCount` is the run's emitted-recommendation total,
  * populated by the server in a single grouped aggregation across the
- * page. The feed renders a small "N recommended" indicator when it's
- * greater than zero. The full array lives on the detail response under
- * `recommendations` — only the count travels with feed rows.
+ * page. The feed surfaces it as a "N recommendations" marker in the
+ * row's byline when greater than zero. The full array lives on the
+ * detail response under `recommendations` — only the count travels
+ * with feed rows.
  */
 export interface RunListEntry {
   id: string;
