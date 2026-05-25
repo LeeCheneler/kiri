@@ -12,6 +12,16 @@ type State =
   | { status: "error"; message: string }
   | { status: "ready"; workflow: WorkflowSummary };
 
+const decodeName = (raw: string): string => {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    // Malformed escape sequence: fall back to the raw param so the route
+    // still resolves (typically to not-found) rather than crashing.
+    return raw;
+  }
+};
+
 /**
  * Workflow detail route. Loads the workflow registry, finds the entry by
  * name, and renders one of: loading, not-found, error, or the editorial
@@ -25,12 +35,17 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
   const [, navigate] = useLocation();
   const tokenRef = useRef(0);
 
+  // wouter leaves `%2F` alone (it uses `decodeURI`, not `decodeURIComponent`),
+  // so a name with `/` arrives still encoded. Decode here once to match the
+  // raw name returned by the API.
+  const workflowName = decodeName(params.name);
+
   const refetch = useCallback(() => {
     const token = ++tokenRef.current;
     fetchWorkflows()
       .then((all) => {
         if (tokenRef.current !== token) return;
-        const workflow = all.find((w) => w.name === params.name);
+        const workflow = all.find((w) => w.name === workflowName);
         if (!workflow) {
           setState({ status: "not-found" });
         } else {
@@ -41,7 +56,7 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
         if (tokenRef.current !== token) return;
         setState({ status: "error", message: err.message });
       });
-  }, [params.name]);
+  }, [workflowName]);
 
   useEffect(() => {
     setState({ status: "loading" });
@@ -53,7 +68,7 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
 
   useLiveSync({
     on: ["workflow.updated", "workflow.removed"],
-    filter: (event) => event.name === params.name,
+    filter: (event) => event.name === workflowName,
     refetch,
   });
 
@@ -72,7 +87,7 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
         <BackLink href="/">all activity</BackLink>
         <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Workflow not found</h2>
         <p className="mt-3 font-mono text-sm text-ink-muted">
-          No workflow named <code className="text-ink">{params.name}</code>.
+          No workflow named <code className="text-ink">{workflowName}</code>.
         </p>
       </section>
     );
