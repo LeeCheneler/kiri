@@ -3,11 +3,13 @@ import { Link } from "wouter";
 import { resolvePublishTitle } from "../../shared/publish-title.ts";
 import type {
   ArticleSummary,
+  RecommendationSummary,
   RunDetail,
   RunListEntry,
   RunStepRow,
   WorkflowInputSummary,
   WorkflowStepSummary,
+  WorkflowSummary,
 } from "../api.ts";
 import { formatDuration, formatDurationMs, formatRelativeTime } from "../formatters/format-time.ts";
 import { InvokeModal } from "./invoke-modal.tsx";
@@ -157,6 +159,14 @@ const buildActivityItems = (run: RunListEntry, steps: RunStepRow[]): ActivityIte
  * silently dropped). `onRerun` then receives the (possibly tweaked)
  * values map. Workflows without declared inputs keep today's bare
  * confirm-then-fire path.
+ *
+ * `workflows`, when supplied, provides the live registry projection used
+ * by the Recommended section to (a) decide whether each recommendation's
+ * target workflow still exists (controls the disabled / "workflow not
+ * found" affordance) and (b) source the input schema for the invoke
+ * modal that opens on trigger. Pair with `onActionRecommendation`; the
+ * Recommended section is omitted entirely when the run carries no
+ * recommendations.
  */
 export function RunDetailView({
   detail,
@@ -165,6 +175,8 @@ export function RunDetailView({
   onDelete,
   onRerun,
   workflowInputs,
+  workflows,
+  onActionRecommendation,
 }: {
   detail: RunDetail;
   now?: Date;
@@ -172,9 +184,15 @@ export function RunDetailView({
   onDelete?: () => Promise<unknown>;
   onRerun?: (inputs?: Record<string, string>) => Promise<unknown>;
   workflowInputs?: WorkflowInputSummary[];
+  workflows?: WorkflowSummary[];
+  onActionRecommendation?: (
+    recommendationId: string,
+    inputs?: Record<string, string>,
+  ) => Promise<unknown>;
 }) {
   const { run, steps } = detail;
   const { articles } = run;
+  const recommendations = run.recommendations ?? [];
   const status: StatusKind = run.status;
   const activity = buildActivityItems(run, steps);
 
@@ -276,6 +294,14 @@ export function RunDetailView({
       {run.error && <RunFailureBlock error={run.error} />}
 
       <ActivitySection items={activity} />
+
+      {recommendations.length > 0 && (
+        <RecommendedSection
+          recommendations={recommendations}
+          workflows={workflows ?? []}
+          onAction={onActionRecommendation}
+        />
+      )}
     </article>
   );
 }
@@ -554,6 +580,160 @@ function PublishedSection({
         ))}
       </ul>
     </section>
+  );
+}
+
+function RecommendedSection({
+  recommendations,
+  workflows,
+  onAction,
+}: {
+  recommendations: RecommendationSummary[];
+  workflows: WorkflowSummary[];
+  onAction?: (recommendationId: string, inputs?: Record<string, string>) => Promise<unknown>;
+}) {
+  return (
+    <section className="mt-12">
+      <SectionHeader
+        title="Recommended"
+        meta={
+          recommendations.length === 1
+            ? "1 recommendation"
+            : `${recommendations.length} recommendations`
+        }
+      />
+      <ul className="space-y-2">
+        {recommendations.map((rec) => (
+          <li key={rec.id}>
+            <RecommendationRow
+              rec={rec}
+              workflow={workflows.find((w) => w.name === rec.workflow)}
+              onAction={onAction}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RecommendationRow({
+  rec,
+  workflow,
+  onAction,
+}: {
+  rec: RecommendationSummary;
+  workflow: WorkflowSummary | undefined;
+  onAction?: (recommendationId: string, inputs?: Record<string, string>) => Promise<unknown>;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const hasInputs = (workflow?.inputs?.length ?? 0) > 0;
+  const workflowMissing = !workflow;
+
+  const handleClick = async () => {
+    if (!onAction || workflowMissing) return;
+    if (hasInputs) {
+      setError(null);
+      setModalOpen(true);
+      return;
+    }
+    setError(null);
+    setPending(true);
+    try {
+      await onAction(rec.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleModalSubmit = async (values: Record<string, string>) => {
+    if (!onAction) return;
+    await onAction(rec.id, values);
+    setModalOpen(false);
+  };
+
+  const isActioned = rec.actionedRunId !== null && rec.actionedRunStatus !== null;
+
+  return (
+    <>
+      {isActioned ? (
+        <Link
+          href={`/runs/${rec.actionedRunId}`}
+          className="group flex items-start gap-4 border border-ink-muted bg-paper px-5 py-4 no-underline outline-none transition-colors duration-150 hover:border-accent focus-visible:border-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+        >
+          <RecommendationBody rec={rec} accentOnHover />
+          <span className="shrink-0 self-center text-xs tracking-widest uppercase">
+            <StatusLabel
+              status={
+                rec.actionedRunStatus as Exclude<RecommendationSummary["actionedRunStatus"], null>
+              }
+            />
+          </span>
+          <span
+            aria-hidden="true"
+            className="shrink-0 self-center font-mono text-sm text-ink-muted transition-colors group-hover:text-accent group-focus-visible:text-accent"
+          >
+            →
+          </span>
+        </Link>
+      ) : (
+        <div className="flex items-start gap-4 border border-ink-muted bg-paper px-5 py-4">
+          <RecommendationBody rec={rec} />
+          <div className="shrink-0 self-center">
+            <Actions errorMessage={error}>
+              <Button
+                pending={pending}
+                pendingLabel="starting…"
+                disabled={workflowMissing}
+                title={workflowMissing ? "workflow not found" : undefined}
+                onClick={handleClick}
+              >
+                run →
+              </Button>
+            </Actions>
+          </div>
+        </div>
+      )}
+      {modalOpen && workflow?.inputs && (
+        <InvokeModal
+          workflowName={workflow.name}
+          inputs={workflow.inputs}
+          initialValues={rec.inputs ?? undefined}
+          onSubmit={handleModalSubmit}
+          onCancel={() => setModalOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function RecommendationBody({
+  rec,
+  accentOnHover = false,
+}: {
+  rec: RecommendationSummary;
+  accentOnHover?: boolean;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <p
+        className={`font-display text-lg text-ink leading-tight ${
+          accentOnHover
+            ? "transition-colors group-hover:text-accent group-focus-visible:text-accent"
+            : ""
+        }`}
+      >
+        {rec.title}
+      </p>
+      {rec.description && (
+        <p className="mt-1 font-mono text-xs leading-relaxed text-ink-muted">{rec.description}</p>
+      )}
+    </div>
   );
 }
 

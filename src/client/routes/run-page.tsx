@@ -3,7 +3,8 @@ import { useLocation } from "wouter";
 import {
   ApiError,
   type RunDetail,
-  type WorkflowInputSummary,
+  type WorkflowSummary,
+  actionRecommendation,
   cancelRun,
   deleteRun,
   fetchRun,
@@ -37,11 +38,15 @@ type State =
  */
 export function RunPage({ params }: { params: { id: string } }) {
   const [state, setState] = useState<State>({ status: "loading" });
-  const [workflowInputs, setWorkflowInputs] = useState<WorkflowInputSummary[] | undefined>(
-    undefined,
-  );
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [, navigate] = useLocation();
   const tokenRef = useRef(0);
+  // Spawned run ids whose lifecycle events should refetch this page.
+  // Populated eagerly when the user actions a recommendation (so very
+  // short spawned workflows can race their run.finished event ahead of
+  // our refetch landing the actionedRunId into state) and refreshed from
+  // state whenever the run reloads.
+  const actionedRunIdsRef = useRef<Set<string>>(new Set());
 
   const refetch = useCallback(() => {
     const token = ++tokenRef.current;
@@ -57,26 +62,43 @@ export function RunPage({ params }: { params: { id: string } }) {
         return;
       }
       const detail = runResult.value;
-      const workflows = wfResult.status === "fulfilled" ? wfResult.value : [];
-      const wf = workflows.find((w) => w.name === detail.run.workflowName);
-      setWorkflowInputs(wf?.inputs);
+      for (const r of detail.run.recommendations ?? []) {
+        if (r.actionedRunId) actionedRunIdsRef.current.add(r.actionedRunId);
+      }
+      setWorkflows(wfResult.status === "fulfilled" ? wfResult.value : []);
       setState({ status: "ready", detail });
     });
   }, [params.id]);
 
   useEffect(() => {
     setState({ status: "loading" });
-    setWorkflowInputs(undefined);
+    setWorkflows([]);
+    actionedRunIdsRef.current = new Set();
     refetch();
     return () => {
       tokenRef.current++;
     };
   }, [refetch]);
 
+  // Run lifecycle events: keep the page fresh for both this run and any
+  // run a recommendation on this page has actioned (so the rec row's
+  // status badge tracks the spawned run live).
   useLiveSync({
     on: ["run.updated", "run.step.updated", "run.finished"],
-    filter: (event) =>
-      event.type === "run.step.updated" ? event.runId === params.id : event.id === params.id,
+    filter: (event) => {
+      const targetId = event.type === "run.step.updated" ? event.runId : event.id;
+      if (targetId === params.id) return true;
+      return actionedRunIdsRef.current.has(targetId);
+    },
+    refetch,
+  });
+
+  // Server-side rec actioning emits this so the row flips to its
+  // status-badged link without waiting for the spawned run's first
+  // run.updated event.
+  useLiveSync({
+    on: ["recommendation.actioned"],
+    filter: (event) => event.runId === params.id,
     refetch,
   });
 
@@ -132,6 +154,19 @@ export function RunPage({ params }: { params: { id: string } }) {
     await rerunRun(params.id, inputs);
   };
 
+  const handleActionRecommendation = async (
+    recommendationId: string,
+    inputs?: Record<string, string>,
+  ) => {
+    const result = await actionRecommendation(params.id, recommendationId, inputs);
+    // Register the spawned run id synchronously so its lifecycle events
+    // (which can fire before the refetch below lands) pass the filter.
+    actionedRunIdsRef.current.add(result.runId);
+    refetch();
+  };
+
+  const workflowInputs = workflows.find((w) => w.name === state.detail.run.workflowName)?.inputs;
+
   return (
     <RunDetailView
       detail={state.detail}
@@ -139,6 +174,8 @@ export function RunPage({ params }: { params: { id: string } }) {
       onDelete={handleDelete}
       onRerun={handleRerun}
       workflowInputs={workflowInputs}
+      workflows={workflows}
+      onActionRecommendation={handleActionRecommendation}
     />
   );
 }

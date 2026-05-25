@@ -1,0 +1,7 @@
+name: recommends
+steps:
+  - sh: |
+      printf '%s\n' \
+        '{"title":"Review PR #42","description":"+500/-200, refactor auth","workflow":"with-inputs","inputs":{"pr_number":"42","branch":"main"}}' \
+        '{"title":"Just a quick one","workflow":"quick"}' \
+        > "$KIRI_RECOMMENDATIONS_FILE"

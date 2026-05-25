@@ -663,6 +663,202 @@ describe("<RunPage>", () => {
     });
   });
 
+  describe("recommendation action", () => {
+    const runPayload = (
+      id: string,
+      recommendations: Array<{
+        id: string;
+        index: number;
+        title: string;
+        description: string | null;
+        workflow: string;
+        inputs: Record<string, string> | null;
+        actionedRunId: string | null;
+        actionedAt: string | null;
+        actionedRunStatus: "running" | "ok" | "failed" | "cancelled" | null;
+      }>,
+    ) => ({
+      run: {
+        id,
+        workflowName: "producer",
+        status: "ok",
+        trigger: "manual",
+        startedAt: "2026-05-09T12:00:00.000Z",
+        finishedAt: "2026-05-09T12:00:01.000Z",
+        error: null,
+        summary: null,
+        definitionSnapshot: { name: "producer", steps: [] },
+        gitSha: null,
+        gitDirty: null,
+        inputs: null,
+        isInterrupted: false,
+        articles: [],
+        recommendations,
+      },
+      steps: [],
+    });
+
+    it("POSTs the user-edited inputs to /api/runs/:runId/recommendations/:recId/action", async () => {
+      const seen: Array<{ runId: string; recId: string; body: string }> = [];
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) =>
+          HttpResponse.json(
+            runPayload(String(params.id), [
+              {
+                id: "rec-1",
+                index: 0,
+                title: "Review PR #1",
+                description: null,
+                workflow: "pr-review",
+                inputs: { pr_number: "1" },
+                actionedRunId: null,
+                actionedAt: null,
+                actionedRunStatus: null,
+              },
+            ]),
+          ),
+        ),
+        http.get("*/api/workflows", () =>
+          HttpResponse.json([
+            {
+              name: "pr-review",
+              inputs: [{ name: "pr_number", required: true }],
+              steps: [{ sh: "echo review" }],
+            },
+          ]),
+        ),
+        http.post(
+          "*/api/runs/:runId/recommendations/:recId/action",
+          async ({ params, request }) => {
+            seen.push({
+              runId: String(params.runId),
+              recId: String(params.recId),
+              body: await request.text(),
+            });
+            return HttpResponse.json({ runId: "spawned-1", status: "running" }, { status: 202 });
+          },
+        ),
+      );
+
+      renderRun("producer-1");
+      const user = userEvent.setup();
+      // Page header carries "run again"; the rec row's button reads "run →".
+      const recSection = (
+        await screen.findByRole("heading", {
+          name: /^recommended$/i,
+        })
+      ).closest("section");
+      const trigger = within(recSection as HTMLElement).getByRole("button", { name: /^run →$/i });
+      await user.click(trigger);
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: /^run →$/i }));
+
+      await waitFor(() => {
+        expect(seen).toHaveLength(1);
+      });
+      expect(seen[0].runId).toBe("producer-1");
+      expect(seen[0].recId).toBe("rec-1");
+      expect(JSON.parse(seen[0].body)).toEqual({ inputs: { pr_number: "1" } });
+    });
+
+    it("refetches on a recommendation.actioned event for this run", async () => {
+      let calls = 0;
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) => {
+          calls++;
+          return HttpResponse.json(
+            runPayload(String(params.id), [
+              {
+                id: "rec-1",
+                index: 0,
+                title: calls === 1 ? "untriggered" : "actioned",
+                description: null,
+                workflow: "pr-review",
+                inputs: null,
+                actionedRunId: calls === 1 ? null : "spawned-1",
+                actionedAt: calls === 1 ? null : "2026-05-09T12:00:30.000Z",
+                actionedRunStatus: calls === 1 ? null : "running",
+              },
+            ]),
+          );
+        }),
+      );
+
+      const { sources } = renderRun("producer-1");
+      await screen.findByText("untriggered");
+      expect(calls).toBe(1);
+
+      // Event for a different producing run is filtered out.
+      act(() => {
+        sources[0]?.emit({
+          type: "recommendation.actioned",
+          runId: "someone-else",
+          recommendationId: "rec-x",
+          actionedRunId: "x",
+        });
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(calls).toBe(1);
+
+      // Event for *this* run triggers a refetch — the row flips to its
+      // status-badged link.
+      act(() => {
+        sources[0]?.emit({
+          type: "recommendation.actioned",
+          runId: "producer-1",
+          recommendationId: "rec-1",
+          actionedRunId: "spawned-1",
+        });
+      });
+
+      await screen.findByText("actioned");
+    });
+
+    it("refetches on run.updated events for any actioned run id on this page", async () => {
+      let calls = 0;
+      server.use(
+        http.get("*/api/runs/:id", ({ params }) => {
+          calls++;
+          return HttpResponse.json(
+            runPayload(String(params.id), [
+              {
+                id: "rec-1",
+                index: 0,
+                title: "Review",
+                description: null,
+                workflow: "pr-review",
+                inputs: null,
+                actionedRunId: "spawned-7",
+                actionedAt: "2026-05-09T12:00:30.000Z",
+                actionedRunStatus: calls <= 1 ? "running" : "ok",
+              },
+            ]),
+          );
+        }),
+      );
+
+      const { sources } = renderRun("producer-1");
+      await screen.findByRole("link", { name: /review/i });
+      expect(calls).toBe(1);
+
+      // Unrelated run id: filtered out, no refetch.
+      act(() => {
+        sources[0]?.emit({ type: "run.updated", id: "totally-other", status: "ok" });
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(calls).toBe(1);
+
+      // The actioned run id: matches the filter, refetch fires and the
+      // status badge updates to the new terminal status.
+      act(() => {
+        sources[0]?.emit({ type: "run.updated", id: "spawned-7", status: "ok" });
+      });
+      await waitFor(() => {
+        expect(calls).toBe(2);
+      });
+    });
+  });
+
   it("ignores events for other run ids", async () => {
     let calls = 0;
     server.use(

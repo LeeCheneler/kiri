@@ -5,10 +5,12 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type {
   ArticleSummary,
+  RecommendationSummary,
   RunDetail,
   RunDetailRun,
   RunStepRow,
   WorkflowInputSummary,
+  WorkflowSummary,
 } from "../api.ts";
 import { RunDetailView } from "./run-detail.tsx";
 
@@ -65,6 +67,11 @@ const renderDetail = (
     onDelete?: () => Promise<unknown>;
     onRerun?: (inputs?: Record<string, string>) => Promise<unknown>;
     workflowInputs?: WorkflowInputSummary[];
+    workflows?: WorkflowSummary[];
+    onActionRecommendation?: (
+      recommendationId: string,
+      inputs?: Record<string, string>,
+    ) => Promise<unknown>;
   } = {},
 ) => {
   const { hook } = memoryLocation({ path: `/runs/${detail.run.id}` });
@@ -77,6 +84,8 @@ const renderDetail = (
         onDelete={opts.onDelete}
         onRerun={opts.onRerun}
         workflowInputs={opts.workflowInputs}
+        workflows={opts.workflows}
+        onActionRecommendation={opts.onActionRecommendation}
       />
     </Router>,
   );
@@ -1095,6 +1104,316 @@ describe("<RunDetailView>", () => {
       renderDetail(stubDetail({}, [], [stubArticle({ createdAt })]));
       const time = screen.getByText(/45 seconds ago/i);
       expect(time.getAttribute("title")).toBe(createdAt);
+    });
+  });
+
+  describe("recommended section", () => {
+    const stubRec = (overrides: Partial<RecommendationSummary> = {}): RecommendationSummary => ({
+      id: "rec-1",
+      index: 0,
+      title: "Review PR #123",
+      description: null,
+      workflow: "pr-review",
+      inputs: null,
+      actionedRunId: null,
+      actionedAt: null,
+      actionedRunStatus: null,
+      ...overrides,
+    });
+
+    const stubPrReviewWorkflow = (overrides: Partial<WorkflowSummary> = {}): WorkflowSummary => ({
+      name: "pr-review",
+      inputs: [{ name: "pr_number", required: true }],
+      steps: [{ sh: "echo review" }],
+      ...overrides,
+    });
+
+    it("omits the section entirely when the run carries no recommendations", () => {
+      renderDetail(stubDetail({ recommendations: [] }));
+      expect(screen.queryByRole("heading", { name: /^recommended$/i })).toBeNull();
+    });
+
+    it("renders one row per recommendation in emission order", () => {
+      renderDetail(
+        stubDetail({
+          recommendations: [
+            stubRec({ id: "rec-a", index: 0, title: "Review PR #1" }),
+            stubRec({ id: "rec-b", index: 1, title: "Review PR #2" }),
+            stubRec({ id: "rec-c", index: 2, title: "Review PR #3" }),
+          ],
+        }),
+        { workflows: [stubPrReviewWorkflow()] },
+      );
+
+      const heading = screen.getByRole("heading", { level: 3, name: /^recommended$/i });
+      const section = heading.closest("section");
+      const titles = within(section as HTMLElement)
+        .getAllByRole("listitem")
+        .map((li) => within(li).getByText(/^Review PR #\d+$/).textContent);
+      expect(titles).toEqual(["Review PR #1", "Review PR #2", "Review PR #3"]);
+      expect(screen.getByText(/^3 recommendations$/)).toBeDefined();
+    });
+
+    it("uses the singular form for a single recommendation", () => {
+      renderDetail(stubDetail({ recommendations: [stubRec()] }), {
+        workflows: [stubPrReviewWorkflow()],
+      });
+      expect(screen.getByText(/^1 recommendation$/)).toBeDefined();
+    });
+
+    it("renders the description under the title when present", () => {
+      renderDetail(
+        stubDetail({
+          recommendations: [stubRec({ description: "+500/-200, refactor user auth" })],
+        }),
+        { workflows: [stubPrReviewWorkflow()] },
+      );
+      expect(screen.getByText(/\+500\/-200, refactor user auth/)).toBeDefined();
+    });
+
+    it("disables the trigger with a 'workflow not found' tooltip when the target workflow is missing", () => {
+      renderDetail(
+        stubDetail({
+          recommendations: [stubRec({ workflow: "ghost-workflow" })],
+        }),
+        { workflows: [] },
+      );
+      const button = screen.getByRole("button", { name: /run/i });
+      expect(button.hasAttribute("disabled")).toBe(true);
+      expect(button.getAttribute("title")).toBe("workflow not found");
+    });
+
+    it("does not invoke the action handler when the trigger is disabled", async () => {
+      const user = userEvent.setup();
+      let calls = 0;
+      renderDetail(stubDetail({ recommendations: [stubRec({ workflow: "ghost-workflow" })] }), {
+        workflows: [],
+        onActionRecommendation: () => {
+          calls++;
+          return Promise.resolve({ runId: "spawned", status: "running" as const });
+        },
+      });
+      await user.click(screen.getByRole("button", { name: /run/i }));
+      expect(calls).toBe(0);
+    });
+
+    it("opens the invoke modal pre-filled with the recommendation's inputs", async () => {
+      const user = userEvent.setup();
+      renderDetail(
+        stubDetail({
+          recommendations: [
+            stubRec({
+              workflow: "pr-review",
+              inputs: { pr_number: "123" },
+            }),
+          ],
+        }),
+        {
+          workflows: [stubPrReviewWorkflow()],
+          onActionRecommendation: () =>
+            Promise.resolve({ runId: "spawned", status: "running" as const }),
+        },
+      );
+
+      await user.click(screen.getByRole("button", { name: /run/i }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByRole("heading", { name: /run pr-review/i })).toBeDefined();
+      expect((within(dialog).getByLabelText(/pr_number/i) as HTMLInputElement).value).toBe("123");
+    });
+
+    it("forwards the (possibly tweaked) modal values to the action handler", async () => {
+      const seen: Array<[string, Record<string, string> | undefined]> = [];
+      const onActionRecommendation = (
+        recId: string,
+        inputs?: Record<string, string>,
+      ): Promise<unknown> => {
+        seen.push([recId, inputs]);
+        return Promise.resolve({ runId: "spawned", status: "running" as const });
+      };
+      renderDetail(
+        stubDetail({
+          recommendations: [
+            stubRec({
+              id: "rec-x",
+              workflow: "pr-review",
+              inputs: { pr_number: "123" },
+            }),
+          ],
+        }),
+        { workflows: [stubPrReviewWorkflow()], onActionRecommendation },
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /run/i }));
+      const dialog = await screen.findByRole("dialog");
+      const pr = within(dialog).getByLabelText(/pr_number/i);
+      await user.clear(pr);
+      await user.type(pr, "456");
+      await user.click(within(dialog).getByRole("button", { name: /^run/i }));
+
+      expect(seen).toEqual([["rec-x", { pr_number: "456" }]]);
+    });
+
+    it("closes the modal after a successful submit", async () => {
+      renderDetail(
+        stubDetail({
+          recommendations: [stubRec({ workflow: "pr-review", inputs: { pr_number: "123" } })],
+        }),
+        {
+          workflows: [stubPrReviewWorkflow()],
+          onActionRecommendation: () =>
+            Promise.resolve({ runId: "spawned", status: "running" as const }),
+        },
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /run/i }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: /^run/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
+    });
+
+    it("closes the modal on cancel without firing the action handler", async () => {
+      let calls = 0;
+      renderDetail(
+        stubDetail({
+          recommendations: [stubRec({ workflow: "pr-review", inputs: { pr_number: "123" } })],
+        }),
+        {
+          workflows: [stubPrReviewWorkflow()],
+          onActionRecommendation: () => {
+            calls++;
+            return Promise.resolve({ runId: "spawned", status: "running" as const });
+          },
+        },
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /run/i }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(calls).toBe(0);
+    });
+
+    it("surfaces a submit error inside the modal so the user can retry without losing values", async () => {
+      const onActionRecommendation = () => Promise.reject(new Error("workflow no longer exists"));
+      renderDetail(
+        stubDetail({
+          recommendations: [stubRec({ workflow: "pr-review", inputs: { pr_number: "123" } })],
+        }),
+        { workflows: [stubPrReviewWorkflow()], onActionRecommendation },
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /run/i }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: /^run/i }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("workflow no longer exists");
+      expect(screen.getByRole("dialog")).toBeDefined();
+      expect(
+        (within(screen.getByRole("dialog")).getByLabelText(/pr_number/i) as HTMLInputElement).value,
+      ).toBe("123");
+    });
+
+    it("fires the action handler directly without a modal when the target workflow has no inputs", async () => {
+      const seen: Array<[string, Record<string, string> | undefined]> = [];
+      const onActionRecommendation = (
+        recId: string,
+        inputs?: Record<string, string>,
+      ): Promise<unknown> => {
+        seen.push([recId, inputs]);
+        return Promise.resolve({ runId: "spawned", status: "running" as const });
+      };
+      renderDetail(
+        stubDetail({
+          recommendations: [stubRec({ id: "rec-z", workflow: "no-inputs" })],
+        }),
+        {
+          workflows: [{ name: "no-inputs", steps: [{ sh: "echo hi" }] }],
+          onActionRecommendation,
+        },
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /run/i }));
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(seen).toEqual([["rec-z", undefined]]);
+    });
+
+    it("surfaces an inline error when the bare action handler rejects", async () => {
+      const onActionRecommendation = () =>
+        Promise.reject(new Error('workflow "no-inputs" no longer exists'));
+      renderDetail(
+        stubDetail({
+          recommendations: [stubRec({ workflow: "no-inputs" })],
+        }),
+        {
+          workflows: [{ name: "no-inputs", steps: [{ sh: "echo hi" }] }],
+          onActionRecommendation,
+        },
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /run/i }));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain('workflow "no-inputs" no longer exists');
+    });
+
+    it("renders an actioned recommendation as a status-badged link to the spawned run", () => {
+      renderDetail(
+        stubDetail({
+          id: "producer-1",
+          recommendations: [
+            stubRec({
+              id: "rec-actioned",
+              title: "Review PR #777",
+              workflow: "pr-review",
+              actionedRunId: "spawned-1",
+              actionedAt: "2026-05-09T12:00:30.000Z",
+              actionedRunStatus: "running",
+            }),
+          ],
+        }),
+        { workflows: [stubPrReviewWorkflow()] },
+      );
+
+      // The trigger button is replaced with a link to the spawned run.
+      const link = screen.getByRole("link", { name: /review pr #777/i });
+      expect(link.getAttribute("href")).toBe("/runs/spawned-1");
+      // The spawned run's status renders inside that row.
+      const heading = screen.getByRole("heading", { level: 3, name: /^recommended$/i });
+      const section = heading.closest("section");
+      const status = (section as HTMLElement).querySelector('[data-status="running"]');
+      expect(status?.textContent).toContain("running");
+      // And the trigger button is gone for this actioned row.
+      expect(within(section as HTMLElement).queryByRole("button", { name: /run/i })).toBeNull();
+    });
+
+    it("renders the actioned link with the spawned run's terminal status word", () => {
+      renderDetail(
+        stubDetail({
+          recommendations: [
+            stubRec({
+              actionedRunId: "spawned-2",
+              actionedAt: "2026-05-09T12:00:30.000Z",
+              actionedRunStatus: "ok",
+            }),
+          ],
+        }),
+        { workflows: [stubPrReviewWorkflow()] },
+      );
+      const heading = screen.getByRole("heading", { level: 3, name: /^recommended$/i });
+      const section = heading.closest("section");
+      const status = (section as HTMLElement).querySelector('[data-status="ok"]');
+      expect(status?.textContent).toBe("ok");
     });
   });
 });
