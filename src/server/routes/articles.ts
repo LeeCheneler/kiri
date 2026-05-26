@@ -1,5 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, runs } from "../db/schema.ts";
 
@@ -22,13 +23,16 @@ export function articlesRoutes(deps: ArticlesRoutesDeps): Hono {
 
   app.get("/recent", (c) => {
     // The articles table doesn't carry the workflow name, so join runs to
-    // surface it alongside each entry. `content_md` is omitted — the rail
-    // only needs link metadata; the body is fetched by the article page.
+    // surface it alongside each entry. `content_md` is pulled to derive the
+    // article's first h1 (rendered as the rail byline so identically-titled
+    // articles from the same workflow are distinguishable) but not echoed
+    // back — the body itself is fetched by the article page.
     const rows = db
       .select({
         runId: articles.runId,
         name: articles.name,
         title: articles.title,
+        contentMd: articles.contentMd,
         createdAt: articles.createdAt,
         workflowName: runs.workflowName,
       })
@@ -37,7 +41,12 @@ export function articlesRoutes(deps: ArticlesRoutesDeps): Hono {
       .orderBy(desc(articles.createdAt))
       .limit(RECENT_ARTICLES_LIMIT)
       .all();
-    return c.json(rows);
+    return c.json(
+      rows.map(({ contentMd, ...row }) => ({
+        ...row,
+        heading: extractFirstHeading(contentMd),
+      })),
+    );
   });
 
   return app;

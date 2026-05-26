@@ -336,14 +336,16 @@ export const fetchArticle = async (runId: string, name: string): Promise<Article
 /**
  * One entry in the cross-run "recently published" list. Carries only the
  * metadata the right rail renders: the link target (`runId` + `name`),
- * the display `title`, the originating `workflowName`, and `createdAt`
- * for the relative timestamp. The markdown body lives on the dedicated
- * article route.
+ * the display `title`, the article body's first markdown `# heading` (or
+ * null when the body has none) for use as a sub-byline, the originating
+ * `workflowName`, and `createdAt` for the relative timestamp. The full
+ * markdown body lives on the dedicated article route.
  */
 export interface RecentArticle {
   runId: string;
   name: string;
   title: string;
+  heading: string | null;
   workflowName: string;
   createdAt: string;
 }

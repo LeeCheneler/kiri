@@ -12,10 +12,20 @@ afterEach(() => cleanup());
 
 const NOW = new Date("2026-05-21T12:00:00.000Z");
 
-const article = (overrides: Partial<Record<string, string>> = {}) => ({
+const article = (
+  overrides: Partial<{
+    runId: string;
+    name: string;
+    title: string;
+    heading: string | null;
+    workflowName: string;
+    createdAt: string;
+  }> = {},
+) => ({
   runId: "run-1",
   name: "digest",
   title: "PR Review Digest",
+  heading: null as string | null,
   workflowName: "pr-review",
   createdAt: new Date(NOW.getTime() - 5 * 60_000).toISOString(),
   ...overrides,
@@ -72,6 +82,28 @@ describe("<RecentlyPublished>", () => {
     const notes = screen.getByRole("link", { name: /Release Notes/i });
     expect(notes.getAttribute("href")).toBe("/runs/run-2/published/notes");
     expect(screen.getByText(/release · 2 hours ago/)).toBeDefined();
+  });
+
+  it("renders the article's first markdown heading as a byline when present", async () => {
+    server.use(
+      http.get("*/api/articles/recent", () =>
+        HttpResponse.json([
+          article({ heading: "This Week in PRs" }),
+          article({
+            runId: "run-2",
+            name: "notes",
+            title: "Release Notes",
+            heading: null,
+          }),
+        ]),
+      ),
+    );
+    renderRail();
+
+    const headingLink = await screen.findByRole("link", { name: /pr review digest/i });
+    expect(headingLink.textContent).toContain("This Week in PRs");
+    const noHeadingLink = screen.getByRole("link", { name: /release notes/i });
+    expect(noHeadingLink.textContent).not.toContain("This Week in PRs");
   });
 
   it("refetches and surfaces a new article when a run finishes", async () => {

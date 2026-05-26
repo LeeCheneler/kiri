@@ -76,6 +76,9 @@ export function RecentlyPublished({ now }: { now?: Date }) {
               >
                 <RailLink href={href} active={location === href}>
                   {article.title}
+                  {article.heading !== null && (
+                    <span className="mt-1 block text-xs text-ink-muted">{article.heading}</span>
+                  )}
                   <span className="mt-1 block font-mono text-xs text-ink-muted">
                     {article.workflowName} · {formatRelativeTime(article.createdAt, now)}
                   </span>

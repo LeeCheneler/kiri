@@ -32,7 +32,7 @@ describe("articles routes", () => {
     const seedArticle = (
       runId: string,
       name: string,
-      opts: { title?: string; createdAt: Date },
+      opts: { title?: string; contentMd?: string; createdAt: Date },
     ) => {
       env.db
         .insert(articles)
@@ -41,7 +41,7 @@ describe("articles routes", () => {
           runId,
           name,
           title: opts.title ?? name,
-          contentMd: `# ${name}`,
+          contentMd: opts.contentMd ?? `# ${name}`,
           createdAt: opts.createdAt,
         })
         .run();
@@ -79,6 +79,7 @@ describe("articles routes", () => {
         runId: string;
         name: string;
         title: string;
+        heading: string | null;
         createdAt: string;
         workflowName: string;
       }>;
@@ -100,6 +101,7 @@ describe("articles routes", () => {
         runId: "run-a",
         name: "a6",
         title: "a6",
+        heading: "a6",
         createdAt: new Date(base + 11000).toISOString(),
         workflowName: "alpha",
       });
@@ -110,6 +112,31 @@ describe("articles routes", () => {
       for (const entry of body) {
         expect(entry).not.toHaveProperty("contentMd");
       }
+    });
+
+    it("projects the first h1 from the markdown body as the entry heading", async () => {
+      seedRun("run-a", "alpha");
+      const base = Date.UTC(2026, 0, 1, 12, 0, 0);
+      seedArticle("run-a", "with-h1", {
+        contentMd: "# This Week in PRs\n\nBody copy.",
+        createdAt: new Date(base + 1000),
+      });
+      seedArticle("run-a", "no-h1", {
+        contentMd: "just a paragraph, no heading.",
+        createdAt: new Date(base + 2000),
+      });
+      seedArticle("run-a", "fenced", {
+        contentMd: "```\n# fenced not a heading\n```\n\n# Real Heading",
+        createdAt: new Date(base + 3000),
+      });
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request("/api/articles/recent");
+      const body = (await res.json()) as Array<{ name: string; heading: string | null }>;
+
+      expect(body.find((a) => a.name === "with-h1")?.heading).toBe("This Week in PRs");
+      expect(body.find((a) => a.name === "no-h1")?.heading).toBeNull();
+      expect(body.find((a) => a.name === "fenced")?.heading).toBe("Real Heading");
     });
   });
 });
