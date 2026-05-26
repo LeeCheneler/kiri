@@ -55,4 +55,50 @@ describe("extractFirstHeading", () => {
   it("ignores leading indentation on the heading line", () => {
     expect(extractFirstHeading("   # indented")).toBe("indented");
   });
+
+  describe("inline markdown stripping", () => {
+    it("strips a plain link, keeping the link text", () => {
+      expect(extractFirstHeading("# [Repo - fix: thing (#42)](https://example.com/pr/42)")).toBe(
+        "Repo - fix: thing (#42)",
+      );
+    });
+
+    it("strips multiple links on the same heading", () => {
+      expect(extractFirstHeading("# [one](https://a) and [two](https://b)")).toBe("one and two");
+    });
+
+    it("strips an image to its alt text", () => {
+      expect(extractFirstHeading("# ![logo](https://example.com/logo.png) Brand")).toBe(
+        "logo Brand",
+      );
+    });
+
+    it("strips inline code", () => {
+      expect(extractFirstHeading("# Upgrade `lodash` to v5")).toBe("Upgrade lodash to v5");
+    });
+
+    it("strips bold (asterisks and underscores)", () => {
+      expect(extractFirstHeading("# **Hot** release")).toBe("Hot release");
+      expect(extractFirstHeading("# __Hot__ release")).toBe("Hot release");
+    });
+
+    it("strips italic (asterisks and underscores)", () => {
+      expect(extractFirstHeading("# *Hot* release")).toBe("Hot release");
+      expect(extractFirstHeading("# _Hot_ release")).toBe("Hot release");
+    });
+
+    it("strips emphasis nested inside a link", () => {
+      expect(extractFirstHeading("# [**bold link**](https://example.com)")).toBe("bold link");
+    });
+
+    it("strips bold-italic combined syntax", () => {
+      expect(extractFirstHeading("# ***intense*** release")).toBe("intense release");
+    });
+
+    it("leaves plain text untouched", () => {
+      expect(extractFirstHeading("# Just plain text, no syntax")).toBe(
+        "Just plain text, no syntax",
+      );
+    });
+  });
 });
