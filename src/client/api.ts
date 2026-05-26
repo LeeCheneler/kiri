@@ -181,10 +181,16 @@ export interface RunStepRow {
  * A run's published article as seen by the run-detail consumer. The
  * markdown body lives on the dedicated article route — only metadata
  * needed to render the "Published" section row travels with the run.
+ *
+ * `heading` is the article body's first markdown `# heading`, derived
+ * server-side, or null when the body has no top-level heading. Surfaces
+ * that list articles use it as a sub-byline so identically-titled
+ * articles from the same workflow are distinguishable.
  */
 export interface ArticleSummary {
   name: string;
   title: string;
+  heading: string | null;
   createdAt: string;
 }
 

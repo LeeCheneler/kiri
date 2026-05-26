@@ -5,6 +5,7 @@ import { and, asc, count, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 import { z } from "zod";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
@@ -90,7 +91,14 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
 
     // Single aggregation across the page rather than per-row N+1. Empty page
     // skips the query entirely so the common no-articles feed pays nothing.
-    type ArticleProjection = { name: string; title: string; createdAt: Date };
+    // `content_md` is pulled to derive each entry's first-h1 byline but not
+    // echoed back — the body itself is fetched by the article page.
+    type ArticleProjection = {
+      name: string;
+      title: string;
+      heading: string | null;
+      createdAt: Date;
+    };
     const articlesByRunId = new Map<string, ArticleProjection[]>();
     const recommendationCountByRunId = new Map<string, number>();
     if (rows.length > 0) {
@@ -100,15 +108,21 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
           runId: articles.runId,
           name: articles.name,
           title: articles.title,
+          contentMd: articles.contentMd,
           createdAt: articles.createdAt,
         })
         .from(articles)
         .where(inArray(articles.runId, runIds))
         .orderBy(asc(articles.createdAt))
         .all();
-      for (const { runId, name, title, createdAt } of allArticles) {
+      for (const { runId, name, title, contentMd, createdAt } of allArticles) {
         const list = articlesByRunId.get(runId);
-        const entry: ArticleProjection = { name, title, createdAt };
+        const entry: ArticleProjection = {
+          name,
+          title,
+          heading: extractFirstHeading(contentMd),
+          createdAt,
+        };
         if (list) list.push(entry);
         else articlesByRunId.set(runId, [entry]);
       }
@@ -186,12 +200,17 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       .select({
         name: articles.name,
         title: articles.title,
+        contentMd: articles.contentMd,
         createdAt: articles.createdAt,
       })
       .from(articles)
       .where(eq(articles.runId, id))
       .orderBy(asc(articles.createdAt))
-      .all();
+      .all()
+      .map(({ contentMd, ...row }) => ({
+        ...row,
+        heading: extractFirstHeading(contentMd),
+      }));
     // Self-join `runs` aliased to the actioned target so a triggered
     // recommendation ships the destination run's status with it — the UI
     // renders it as a status-badged link without a follow-up round-trip.

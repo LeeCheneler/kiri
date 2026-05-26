@@ -1046,6 +1046,7 @@ describe("<RunDetailView>", () => {
     const stubArticle = (overrides: Partial<ArticleSummary> = {}): ArticleSummary => ({
       name: "digest",
       title: "PR Review Digest",
+      heading: null,
       createdAt: new Date(NOW.getTime() - 60 * 1000).toISOString(),
       ...overrides,
     });

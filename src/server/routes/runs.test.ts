@@ -188,7 +188,12 @@ describe("runs routes", () => {
       const body = (await res.json()) as {
         runs: Array<{
           id: string;
-          articles: Array<{ name: string; title: string; createdAt: string }>;
+          articles: Array<{
+            name: string;
+            title: string;
+            heading: string | null;
+            createdAt: string;
+          }>;
         }>;
       };
       const byId = new Map(body.runs.map((r) => [r.id, r]));
@@ -197,6 +202,8 @@ describe("runs routes", () => {
       expect(byId.get(onePubId)?.articles[0]).toMatchObject({
         name: "digest",
         title: "Digest Title",
+        // digest bundle echoes "digest-body" — no markdown heading.
+        heading: null,
       });
       // Declared order matches created_at order (publishes run serially).
       expect(byId.get(twoPubId)?.articles.map((a) => a.name)).toEqual(["digest", "release-notes"]);
@@ -204,6 +211,41 @@ describe("runs routes", () => {
       for (const r of body.runs) {
         for (const a of r.articles) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       }
+    });
+
+    it("projects the article body's first h1 as the entry heading", async () => {
+      writeBundle(env.cwd, "step", "#!/bin/sh\necho s\n");
+      writeBundle(env.cwd, "with-h1", "#!/bin/sh\nprintf '# Top Story\\n\\nbody copy\\n'\n");
+      writeBundle(env.cwd, "no-h1", "#!/bin/sh\necho plain-paragraph\n");
+      const wf: WorkflowDefinition = {
+        name: "headings",
+        steps: [{ use: "step" }],
+        publish: [
+          { name: "with-h1", use: "with-h1" },
+          { name: "no-h1", use: "no-h1" },
+        ],
+      };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const res = await app.request(`/api/workflows/${wf.name}/runs`, {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      const { runId } = (await res.json()) as { runId: string };
+      await waitForFinished(runId);
+
+      const feed = await app.request("/api/runs");
+      const body = (await feed.json()) as {
+        runs: Array<{
+          id: string;
+          articles: Array<{ name: string; heading: string | null }>;
+        }>;
+      };
+      const articles = body.runs.find((r) => r.id === runId)?.articles ?? [];
+      expect(articles.find((a) => a.name === "with-h1")?.heading).toBe("Top Story");
+      expect(articles.find((a) => a.name === "no-h1")?.heading).toBeNull();
     });
 
     it("scopes articles to the page — cursor pages don't leak the previous page's articles", async () => {
@@ -481,7 +523,11 @@ EOF
 
     it("returns articles ordered by created_at on run.articles and includes publish rows tagged isPublish in the step list", async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
-      writeBundle(env.cwd, "digest", "#!/bin/sh\necho digest-body\n");
+      writeBundle(
+        env.cwd,
+        "digest",
+        "#!/bin/sh\nprintf '# Digest Body Heading\\n\\nbody copy\\n'\n",
+      );
       writeBundle(env.cwd, "notes", "#!/bin/sh\necho notes-body\n");
       const wf: WorkflowDefinition = {
         name: "with-publish",
@@ -505,7 +551,14 @@ EOF
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        run: { articles: Array<{ name: string; title: string; createdAt: string }> };
+        run: {
+          articles: Array<{
+            name: string;
+            title: string;
+            heading: string | null;
+            createdAt: string;
+          }>;
+        };
         steps: Array<{ index: number; kind: string; isPublish: boolean; isSummary: boolean }>;
       };
       // Pipeline step plus both publish rows in declared/index order; the
@@ -519,8 +572,17 @@ EOF
       const articleRows = body.run.articles;
       expect(articleRows.map((a) => a.name)).toEqual(["digest", "release-notes"]);
       // Resolved title travels with each row; defaulted via titlecase when omitted.
-      expect(articleRows[0]).toMatchObject({ name: "digest", title: "Digest Title" });
-      expect(articleRows[1]).toMatchObject({ name: "release-notes", title: "Release Notes" });
+      expect(articleRows[0]).toMatchObject({
+        name: "digest",
+        title: "Digest Title",
+        heading: "Digest Body Heading",
+      });
+      expect(articleRows[1]).toMatchObject({
+        name: "release-notes",
+        title: "Release Notes",
+        // notes bundle echoes plain text — no markdown heading.
+        heading: null,
+      });
       // content_md is intentionally absent on this payload.
       for (const a of articleRows) expect(a).not.toHaveProperty("contentMd");
       // createdAt round-trips as an ISO timestamp (Date.toJSON in the response).

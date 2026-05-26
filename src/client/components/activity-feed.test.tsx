@@ -170,10 +170,16 @@ describe("<ActivityFeed>", () => {
 
   describe("article chips", () => {
     const article = (
-      overrides: Partial<{ name: string; title: string; createdAt: string }> = {},
+      overrides: Partial<{
+        name: string;
+        title: string;
+        heading: string | null;
+        createdAt: string;
+      }> = {},
     ) => ({
       name: "digest",
       title: "PR Review Digest",
+      heading: null as string | null,
       createdAt: "2026-05-09T11:59:00.000Z",
       ...overrides,
     });

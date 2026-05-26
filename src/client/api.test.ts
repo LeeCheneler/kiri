@@ -47,7 +47,14 @@ describe("api client", () => {
         HttpResponse.json({
           run: {
             id: params.id,
-            articles: [{ name: "digest", title: "Digest", createdAt: "2026-05-09T12:00:00.000Z" }],
+            articles: [
+              {
+                name: "digest",
+                title: "Digest",
+                heading: "Digest body heading",
+                createdAt: "2026-05-09T12:00:00.000Z",
+              },
+            ],
           },
           steps: [],
         }),
@@ -59,7 +66,12 @@ describe("api client", () => {
     expect(detail.run.id).toBe("abc");
     expect(detail.steps).toEqual([]);
     expect(detail.run.articles).toEqual([
-      { name: "digest", title: "Digest", createdAt: "2026-05-09T12:00:00.000Z" },
+      {
+        name: "digest",
+        title: "Digest",
+        heading: "Digest body heading",
+        createdAt: "2026-05-09T12:00:00.000Z",
+      },
     ]);
   });
 
