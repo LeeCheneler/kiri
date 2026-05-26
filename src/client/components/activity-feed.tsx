@@ -7,16 +7,10 @@ import { EmptyState } from "./ui/empty-state.tsx";
 import { StatusLabel } from "./ui/status-label.tsx";
 import { StatusStrip } from "./ui/status-strip.tsx";
 
-// Beyond this count the chip list collapses to a single "N articles"
-// chip so a run that publishes a lot of small articles doesn't blow
-// the row layout. The collapsed chip routes to the run page instead of
-// a specific article — its Published section lists them all.
-const CHIPS_COLLAPSE_AT = 4;
-
 /**
  * Activity feed: each run is one editorial entry, prefaced by a thin
  * status-coloured strip at the left edge. The entry is a single
- * column laid out as kicker → headline → body → chips:
+ * column laid out as kicker → headline → body → articles:
  *
  *  - A small mono byline (status · time · duration) sits at the top
  *    as a kicker. The status word is the only colour in the line,
@@ -27,7 +21,11 @@ const CHIPS_COLLAPSE_AT = 4;
  *    accent gold.
  *  - The optional summary renders below as prose; markdown links
  *    inside it stay independent.
- *  - Article chips sit at the foot of the entry as separate links.
+ *  - Published articles are a stacked list at the foot of the entry —
+ *    one row per article — each link carrying the publish-entry title
+ *    plus, when present, the article body's first markdown heading as
+ *    a sub-byline so identically-titled articles from the same
+ *    workflow are distinguishable.
  *
  * Runs in flight omit the duration entirely — the `running` status
  * label already pulses live. Rows stagger in on first paint. Empty
@@ -120,11 +118,7 @@ export function ActivityFeed({
                     <Markdown content={run.summary} />
                   </div>
                 )}
-                {run.articles.length > 0 && (
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <ArticleChips runId={run.id} articles={run.articles} />
-                  </div>
-                )}
+                {run.articles.length > 0 && <ArticleList runId={run.id} articles={run.articles} />}
               </div>
             </li>
           );
@@ -147,45 +141,39 @@ export function ActivityFeed({
   );
 }
 
-const CHIP_CLASSES =
-  "inline-flex items-baseline gap-1.5 rounded-sm border border-ink-muted bg-paper px-2.5 py-1 font-mono text-xs text-ink normal-case no-underline transition-colors hover:border-accent hover:bg-paper hover:text-accent focus-visible:border-accent focus-visible:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1";
-
 /**
- * Article chips for a feed row. Renders one chip per article when
- * there are 1–3, collapsing to a single "N articles" chip at 4 or
- * more so a chatty workflow doesn't blow the row layout.
+ * Stacked list of published articles for a feed row. One link per
+ * article, each carrying the publish-entry title and (when present)
+ * the article body's first markdown heading as a muted sub-byline.
  *
- * Returns a fragment rather than a wrapping div — the caller's flex
- * row owns gap and wrapping.
- *
- * Each chip routes to its article; the collapsed chip routes to the
- * run page, whose Published section enumerates the full list.
+ * No collapse: a vertical list just grows the row's height, it
+ * doesn't blow the layout the way a chip row did, and the heading
+ * byline is the whole point of the change — collapsing would hide it.
  */
-function ArticleChips({
+function ArticleList({
   runId,
   articles,
 }: {
   runId: string;
   articles: ArticleSummary[];
 }) {
-  if (articles.length >= CHIPS_COLLAPSE_AT) {
-    return (
-      <Link href={`/runs/${runId}`} className={CHIP_CLASSES}>
-        {articles.length} articles
-      </Link>
-    );
-  }
   return (
-    <>
+    <ul className="mt-3 space-y-1.5">
       {articles.map((article) => (
-        <Link
-          key={article.name}
-          href={`/runs/${runId}/published/${article.name}`}
-          className={CHIP_CLASSES}
-        >
-          {article.title}
-        </Link>
+        <li key={article.name}>
+          <Link
+            href={`/runs/${runId}/published/${article.name}`}
+            className="group/article -mx-2 block rounded-sm px-2 py-1 no-underline outline-none transition-colors hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+          >
+            <span className="block font-mono text-sm text-ink transition-colors group-hover/article:text-accent group-focus-visible/article:text-accent">
+              {article.title}
+            </span>
+            {article.heading !== null && (
+              <span className="mt-0.5 block text-xs text-ink-muted">{article.heading}</span>
+            )}
+          </Link>
+        </li>
       ))}
-    </>
+    </ul>
   );
 }

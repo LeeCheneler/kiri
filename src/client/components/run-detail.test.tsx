@@ -1106,6 +1106,23 @@ describe("<RunDetailView>", () => {
       const time = screen.getByText(/45 seconds ago/i);
       expect(time.getAttribute("title")).toBe(createdAt);
     });
+
+    it("renders the article's first markdown heading as a sub-byline when present", () => {
+      renderDetail(
+        stubDetail(
+          { id: "run-1" },
+          [],
+          [
+            stubArticle({ name: "digest", title: "Digest", heading: "This Week in PRs" }),
+            stubArticle({ name: "notes", title: "Notes", heading: null }),
+          ],
+        ),
+      );
+      const digestLink = screen.getByRole("link", { name: /digest/i });
+      expect(digestLink.textContent).toContain("This Week in PRs");
+      const notesLink = screen.getByRole("link", { name: /^Notes/ });
+      expect(notesLink.textContent).not.toContain("This Week in PRs");
+    });
   });
 
   describe("recommended section", () => {

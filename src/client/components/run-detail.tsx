@@ -546,8 +546,15 @@ function PublishedSection({
               href={`/runs/${runId}/published/${article.name}`}
               className="group flex items-center gap-4 border border-ink-muted bg-paper px-5 py-4 no-underline outline-none transition-colors duration-150 hover:border-accent focus-visible:border-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
             >
-              <span className="min-w-0 flex-1 truncate font-display text-lg text-ink transition-colors group-hover:text-accent group-focus-visible:text-accent">
-                {article.title}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-display text-lg text-ink transition-colors group-hover:text-accent group-focus-visible:text-accent">
+                  {article.title}
+                </span>
+                {article.heading !== null && (
+                  <span className="mt-1 block truncate text-xs text-ink-muted">
+                    {article.heading}
+                  </span>
+                )}
               </span>
               <time
                 dateTime={article.createdAt}

@@ -168,7 +168,7 @@ describe("<ActivityFeed>", () => {
     expect(text).not.toContain("this is the summary body");
   });
 
-  describe("article chips", () => {
+  describe("article list", () => {
     const article = (
       overrides: Partial<{
         name: string;
@@ -184,13 +184,13 @@ describe("<ActivityFeed>", () => {
       ...overrides,
     });
 
-    it("renders no chips when the run has no articles", () => {
+    it("renders no article links when the run has no articles", () => {
       renderFeed([stubRun({ id: "abc", articles: [] })]);
       // The row's primary link is the only one — no extra article links.
       expect(screen.getAllByRole("link")).toHaveLength(1);
     });
 
-    it("renders one chip per article when there are 1–3", () => {
+    it("renders one entry per article", () => {
       renderFeed([
         stubRun({
           id: "abc",
@@ -200,13 +200,13 @@ describe("<ActivityFeed>", () => {
           ],
         }),
       ]);
-      const digestChip = screen.getByRole("link", { name: /^PR Review Digest$/ });
-      expect(digestChip.getAttribute("href")).toBe("/runs/abc/published/digest");
-      const notesChip = screen.getByRole("link", { name: /^Release Notes$/ });
-      expect(notesChip.getAttribute("href")).toBe("/runs/abc/published/release-notes");
+      const digestEntry = screen.getByRole("link", { name: /PR Review Digest/ });
+      expect(digestEntry.getAttribute("href")).toBe("/runs/abc/published/digest");
+      const notesEntry = screen.getByRole("link", { name: /Release Notes/ });
+      expect(notesEntry.getAttribute("href")).toBe("/runs/abc/published/release-notes");
     });
 
-    it("renders the article title as the chip label (no name leakage)", () => {
+    it("renders the article title as the link label (no name leakage)", () => {
       renderFeed([
         stubRun({
           id: "abc",
@@ -215,32 +215,52 @@ describe("<ActivityFeed>", () => {
       ]);
       // The label is the resolved title — the URL-safe slug stays in the
       // href, not in the visible text.
-      const chip = screen.getByRole("link", { name: /^Weekly Digest$/ });
-      expect(chip.getAttribute("href")).toBe("/runs/abc/published/weekly-digest");
+      const entry = screen.getByRole("link", { name: /Weekly Digest/ });
+      expect(entry.getAttribute("href")).toBe("/runs/abc/published/weekly-digest");
       expect(screen.queryByText("weekly-digest")).toBeNull();
     });
 
-    it("collapses to a single chip at 4 or more articles", () => {
+    it("renders the article's first markdown heading as a sub-byline when present", () => {
       renderFeed([
         stubRun({
           id: "abc",
           articles: [
-            article({ name: "a", title: "A" }),
-            article({ name: "b", title: "B" }),
-            article({ name: "c", title: "C" }),
-            article({ name: "d", title: "D" }),
+            article({ name: "digest", title: "PR Review Digest", heading: "Three PRs merged" }),
+            article({ name: "notes", title: "Release Notes", heading: null }),
           ],
         }),
       ]);
-      // Individual chip labels are gone — replaced by a single counted chip.
-      expect(screen.queryByRole("link", { name: /^A$/ })).toBeNull();
-      const collapsed = screen.getByRole("link", { name: /4 articles/i });
-      expect(collapsed.getAttribute("href")).toBe("/runs/abc");
+      const withHeading = screen.getByRole("link", { name: /PR Review Digest/ });
+      expect(withHeading.textContent).toContain("Three PRs merged");
+      const withoutHeading = screen.getByRole("link", { name: /Release Notes/ });
+      expect(withoutHeading.textContent).not.toContain("Three PRs merged");
     });
 
-    it("clicking a chip targets the article, not the run page", () => {
-      // Chips sit below the row's header link as independent anchors.
-      // Assert by hrefs: the chip's href is the article route, distinct
+    it("keeps all entries visible regardless of count (no collapse)", () => {
+      renderFeed([
+        stubRun({
+          id: "abc",
+          articles: [
+            article({ name: "a", title: "Alpha" }),
+            article({ name: "b", title: "Bravo" }),
+            article({ name: "c", title: "Charlie" }),
+            article({ name: "d", title: "Delta" }),
+          ],
+        }),
+      ]);
+      expect(screen.getByRole("link", { name: /Alpha/ }).getAttribute("href")).toBe(
+        "/runs/abc/published/a",
+      );
+      expect(screen.getByRole("link", { name: /Delta/ }).getAttribute("href")).toBe(
+        "/runs/abc/published/d",
+      );
+      // No collapsed "N articles" link.
+      expect(screen.queryByRole("link", { name: /\d+ articles/i })).toBeNull();
+    });
+
+    it("clicking an entry targets the article, not the run page", () => {
+      // Entries sit below the row's header link as independent anchors.
+      // Assert by hrefs: the entry's href is the article route, distinct
       // from the row link's run route.
       renderFeed([
         stubRun({
@@ -251,8 +271,8 @@ describe("<ActivityFeed>", () => {
       ]);
       const rowLink = screen.getByRole("link", { name: /pr-review/i });
       expect(rowLink.getAttribute("href")).toBe("/runs/abc");
-      const chip = screen.getByRole("link", { name: /^PR Review Digest$/ });
-      expect(chip.getAttribute("href")).toBe("/runs/abc/published/digest");
+      const entry = screen.getByRole("link", { name: /PR Review Digest/ });
+      expect(entry.getAttribute("href")).toBe("/runs/abc/published/digest");
     });
   });
 
