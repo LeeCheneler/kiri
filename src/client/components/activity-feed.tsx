@@ -103,7 +103,7 @@ export function ActivityFeed({
                 </div>
                 <Link
                   href={`/runs/${run.id}`}
-                  className="group/row-link mt-2 -mx-2 -my-1 inline-flex items-baseline gap-2 rounded-sm px-2 py-1 font-display text-2xl leading-tight text-ink no-underline outline-none transition-colors hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+                  className="group/row-link mt-2 -mx-2 -my-1 flex items-baseline gap-2 rounded-sm px-2 py-1 font-display text-2xl leading-tight text-ink no-underline outline-none transition-colors hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
                 >
                   <span>{run.workflowName}</span>
                   <span
@@ -142,13 +142,13 @@ export function ActivityFeed({
 }
 
 /**
- * Stacked list of published articles for a feed row. One link per
- * article, each carrying the publish-entry title and (when present)
- * the article body's first markdown heading as a muted sub-byline.
- *
- * No collapse: a vertical list just grows the row's height, it
- * doesn't blow the layout the way a chip row did, and the heading
- * byline is the whole point of the change — collapsing would hide it.
+ * Stacked list of published articles for a feed row. Each entry is a
+ * mini-headline — display-font title with a trailing arrow, mirroring
+ * the parent run-link's affordance at a smaller scale so articles
+ * read as nested destinations rather than body copy. The article
+ * body's first markdown heading (when present) sits below as a muted
+ * sub-byline so identically-titled articles from the same workflow
+ * are distinguishable.
  */
 function ArticleList({
   runId,
@@ -158,18 +158,26 @@ function ArticleList({
   articles: ArticleSummary[];
 }) {
   return (
-    <ul className="mt-3 space-y-1.5">
+    <ul className="mt-3 space-y-1">
       {articles.map((article) => (
         <li key={article.name}>
           <Link
             href={`/runs/${runId}/published/${article.name}`}
-            className="group/article -mx-2 block rounded-sm px-2 py-1 no-underline outline-none transition-colors hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+            className="group/article -mx-2 block rounded-sm px-2 py-1.5 no-underline outline-none transition-colors hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
           >
-            <span className="block font-mono text-sm text-ink transition-colors group-hover/article:text-accent group-focus-visible/article:text-accent">
-              {article.title}
+            <span className="flex items-baseline gap-2">
+              <span className="font-display text-base leading-tight text-ink transition-colors group-hover/article:text-accent group-focus-visible/article:text-accent">
+                {article.title}
+              </span>
+              <span
+                aria-hidden="true"
+                className="font-mono text-sm text-ink-muted transition-all duration-150 group-hover/article:translate-x-0.5 group-hover/article:text-accent group-focus-visible/article:text-accent"
+              >
+                →
+              </span>
             </span>
             {article.heading !== null && (
-              <span className="mt-0.5 block text-xs text-ink-muted">{article.heading}</span>
+              <span className="mt-1 block text-xs text-ink-muted">{article.heading}</span>
             )}
           </Link>
         </li>
