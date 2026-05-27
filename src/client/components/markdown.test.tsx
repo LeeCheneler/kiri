@@ -224,4 +224,43 @@ describe("<Markdown>", () => {
     expect(screen.getByText("Before the chart.")).toBeDefined();
     expect(screen.getByText("After the chart.")).toBeDefined();
   });
+
+  describe("withSectionOrdinals", () => {
+    const source = ["## What stood out", "", "Body.", "", "## Why it matters", "", "More."].join(
+      "\n",
+    );
+
+    it("stamps deterministic section-NN ids and § NN eyebrows when enabled", () => {
+      const { container } = render(<Markdown content={source} withSectionOrdinals />);
+      const h2s = Array.from(container.querySelectorAll("h2"));
+      expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+      // Eyebrow span sits at the start of each heading and is aria-hidden
+      // so the heading's accessible name remains the prose text only.
+      expect(h2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
+      expect(h2s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
+      // The heading still announces its prose text without the eyebrow.
+      expect(screen.getByRole("heading", { level: 2, name: "What stood out" })).toBeDefined();
+      expect(screen.getByRole("heading", { level: 2, name: "Why it matters" })).toBeDefined();
+    });
+
+    it("leaves h2s untouched when the prop is omitted", () => {
+      const { container } = render(<Markdown content={source} />);
+      const h2s = Array.from(container.querySelectorAll("h2"));
+      expect(h2s.map((h) => h.id)).toEqual(["", ""]);
+      expect(h2s[0]?.querySelector("span[aria-hidden]")).toBeNull();
+    });
+
+    it("restarts the counter per Markdown instance", () => {
+      // Two sibling renders must each count from 01 — the counter lives
+      // inside the per-render h2 component, not in module scope.
+      const { container } = render(
+        <>
+          <Markdown content={"## Alpha"} withSectionOrdinals />
+          <Markdown content={"## Beta"} withSectionOrdinals />
+        </>,
+      );
+      const h2s = Array.from(container.querySelectorAll("h2"));
+      expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-01"]);
+    });
+  });
 });

@@ -376,14 +376,64 @@ const components: Components = {
  * `rel="noopener noreferrer"`; same-origin and fragment links pass
  * through untouched.
  *
+ * `withSectionOrdinals`, when set, gives each rendered `<h2>` a
+ * deterministic id (`section-01`, `section-02`, …) and a leading
+ * `§ NN` mono eyebrow. IDs are derived from a 1-based positional
+ * counter that resets per `<Markdown>` instance, so editorial surfaces
+ * can anchor-link to sections without slugging heading text. Reordering
+ * H2s will rebind the anchors — that is the trade-off for not having to
+ * resolve duplicate-text collisions.
+ *
  * Used by every surface that renders markdown — published articles,
  * activity-feed summaries, the run-detail summary block — so each one
  * inherits the same sandboxing and editorial styling.
  */
-export function Markdown({ content }: { content: string }) {
+export function Markdown({
+  content,
+  withSectionOrdinals = false,
+}: {
+  content: string;
+  withSectionOrdinals?: boolean;
+}) {
+  const resolvedComponents = withSectionOrdinals
+    ? { ...components, h2: buildOrdinalHeading2() }
+    : components;
   return (
-    <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+    <ReactMarkdown components={resolvedComponents} remarkPlugins={[remarkGfm]}>
       {content}
     </ReactMarkdown>
   );
+}
+
+/**
+ * Build a stateful `<h2>` renderer that closes over a per-render counter,
+ * stamping `id="section-NN"` and a `§ NN` eyebrow on each heading in
+ * document order. Rebuilt on every `<Markdown>` render so the counter
+ * stays scoped to the instance.
+ */
+function buildOrdinalHeading2(): Components["h2"] {
+  let counter = 0;
+  return function OrdinalHeading2({
+    node: _node,
+    children,
+    ...rest
+  }: HTMLAttributes<HTMLHeadingElement> & ExtraProps) {
+    counter += 1;
+    const nn = String(counter).padStart(2, "0");
+    return (
+      <h2
+        id={`section-${nn}`}
+        className="mt-8 mb-3 font-display text-2xl text-ink leading-tight"
+        {...rest}
+      >
+        <span
+          aria-hidden="true"
+          className="mb-1.5 block font-mono text-xs tracking-widest text-ink-faint uppercase"
+        >
+          § {nn}
+        </span>
+        {children}
+      </h2>
+    );
+  };
 }
