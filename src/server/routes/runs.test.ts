@@ -960,6 +960,11 @@ EOF
         contentMd: string;
         createdAt: string;
         workflowName: string;
+        heading: string | null;
+        gitSha: string | null;
+        gitDirty: boolean | null;
+        startedAt: string;
+        finishedAt: string | null;
       };
       expect(body.runId).toBe(runId);
       expect(body.name).toBe("digest");
@@ -969,6 +974,14 @@ EOF
       expect(body.contentMd).toContain("Body paragraph.");
       expect(body.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(body.id).toMatch(/[0-9a-f-]{36}/);
+      // First markdown # of the body — feeds the article hero sub-byline.
+      expect(body.heading).toBe("Heading");
+      // Provenance and lifecycle fields carry the parent run's state so the
+      // article page can render the byline rule without a second fetch.
+      expect(body.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(body.finishedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(body).toHaveProperty("gitSha");
+      expect(body).toHaveProperty("gitDirty");
     });
 
     it("returns 404 when the run id is unknown", async () => {

@@ -318,6 +318,12 @@ export const fetchRun = async (id: string): Promise<RunDetail> =>
  * One run's published article, fetched by `(runId, name)`. Carries the
  * full markdown body for the dedicated article page; the run detail
  * payload only carries summary metadata so its size stays bounded.
+ *
+ * `heading` is the article body's first markdown `# heading` (null when
+ * the body has none), `gitSha`/`gitDirty` mirror the parent run's
+ * working-tree state, and `startedAt`/`finishedAt` carry the run's
+ * lifecycle timestamps so the article page can render duration without
+ * a second fetch.
  */
 export interface ArticleDetail {
   id: string;
@@ -327,6 +333,11 @@ export interface ArticleDetail {
   contentMd: string;
   createdAt: string;
   workflowName: string;
+  heading: string | null;
+  gitSha: string | null;
+  gitDirty: boolean | null;
+  startedAt: string;
+  finishedAt: string | null;
 }
 
 /**

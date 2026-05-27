@@ -173,6 +173,11 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         contentMd: article.contentMd,
         createdAt: article.createdAt,
         workflowName: run.workflowName,
+        heading: extractFirstHeading(article.contentMd),
+        gitSha: run.gitSha,
+        gitDirty: run.gitDirty,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
       });
     },
   );
