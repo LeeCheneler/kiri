@@ -44,7 +44,7 @@ export function TextButton({
       disabled={disabled || pending}
       title={title}
       data-tone={tone}
-      className={`cursor-pointer font-mono text-xs tracking-widest uppercase transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:text-ink-muted ${TONE_CLASSES[tone]}`}
+      className={`cursor-pointer font-mono text-xs transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:text-ink-muted ${TONE_CLASSES[tone]}`}
     >
       {pending ? (
         <span className="inline-flex items-baseline gap-1.5">

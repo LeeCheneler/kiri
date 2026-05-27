@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { TextButton } from "./ui/text-button.tsx";
 
 /**
  * Copies `content` to the system clipboard on click, rendered as an
@@ -39,13 +40,9 @@ export function CopyButton({
 
   return (
     <span className="inline-flex items-baseline gap-2">
-      <button
-        type="button"
-        onClick={handleClick}
-        className="cursor-pointer bg-transparent p-0 font-mono text-xs text-accent no-underline outline-none transition-colors duration-150 hover:text-ink focus-visible:text-ink focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
-      >
+      <TextButton tone="accent" onClick={handleClick}>
         {status === "copied" ? "copied" : "copy markdown"}
-      </button>
+      </TextButton>
       {error && (
         <span role="alert" className="text-status-failed">
           {error}
