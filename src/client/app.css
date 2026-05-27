@@ -2,11 +2,15 @@
 
 @theme {
   --color-canvas: #0e0f0d;
+  --color-canvas-2: #131310;
   --color-paper: #1a1b19;
+  --color-paper-2: #21221f;
   --color-ink: #e5dfd2;
   --color-ink-muted: #8b8579;
+  --color-ink-faint: #4f4b43;
   --color-rule: #2a2a26;
   --color-accent: #d6b85a;
+  --color-accent-deep: #a58a3c;
 
   --color-status-running: #7aaedb;
   --color-status-ok: #88a579;
