@@ -112,6 +112,37 @@ describe("<ArticlePage>", () => {
     expect(screen.queryByText(/\(dirty\)/)).toBeNull();
   });
 
+  it("renders article-body h2s with section-NN ids and § NN eyebrows", async () => {
+    server.use(
+      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+        HttpResponse.json({
+          id: "art-1",
+          runId: params.id,
+          name: params.name,
+          title: "Sectioned",
+          contentMd: "## First section\n\nBody.\n\n## Second section\n\nMore.\n",
+          createdAt: NOW.toISOString(),
+          workflowName: "wf",
+          heading: null,
+          gitSha: null,
+          gitDirty: null,
+          startedAt: NOW.toISOString(),
+          finishedAt: null,
+        }),
+      ),
+    );
+
+    const { container } = renderArticle("abc", "sectioned");
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Sectioned" })).toBeDefined();
+    // The article body h2s (level 2 like the page h2 above — disambiguate by
+    // id) carry positional anchors the marginalia TOC can link to.
+    const bodyH2s = Array.from(container.querySelectorAll("h2[id^='section-']"));
+    expect(bodyH2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+    expect(bodyH2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
+    expect(bodyH2s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
+  });
+
   it("renders the (dirty) marker when the run's working tree was dirty", async () => {
     server.use(
       http.get("*/api/runs/:id/published/:name", ({ params }) =>

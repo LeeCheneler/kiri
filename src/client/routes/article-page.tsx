@@ -141,7 +141,7 @@ export function ArticlePage({
       </header>
 
       <div className="mt-10">
-        <Markdown content={article.contentMd} />
+        <Markdown content={article.contentMd} withSectionOrdinals />
       </div>
     </article>
   );
