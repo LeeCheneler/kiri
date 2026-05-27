@@ -94,6 +94,11 @@ export function PageShell({ children }: { children: ReactNode }) {
                     Documentation
                   </RailLink>
                 </li>
+                <li>
+                  <RailLink href="https://github.com/LeeCheneler/kiri" external>
+                    GitHub
+                  </RailLink>
+                </li>
               </ul>
             </nav>
           </div>
