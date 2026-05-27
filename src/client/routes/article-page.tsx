@@ -5,7 +5,7 @@ import { CopyButton } from "../components/copy-button.tsx";
 import { Markdown } from "../components/markdown.tsx";
 import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
-import { formatRelativeTime } from "../formatters/format-time.ts";
+import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
 
 type State =
   | { status: "loading" }
@@ -81,38 +81,63 @@ export function ArticlePage({
     <article>
       <BackLink href={`/runs/${article.runId}`}>back to run</BackLink>
 
-      <header className="mt-6 flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="text-xs tracking-widest text-ink-muted uppercase">
-            {article.workflowName}
-          </div>
-          <h2 className="mt-2 font-display text-4xl text-ink leading-tight">{article.title}</h2>
-          <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
-            <div className="flex items-baseline">
-              <dt className="sr-only">run</dt>
-              <dd>
-                <Link
-                  href={`/runs/${article.runId}`}
-                  className="font-mono text-ink-muted no-underline transition-colors hover:text-accent focus-visible:text-accent"
-                >
-                  run {article.runId.slice(0, 8)}
-                </Link>
-              </dd>
-            </div>
+      <header className="mt-6">
+        <h2 className="font-display text-[76px] text-ink italic leading-[0.95] tracking-tight">
+          {article.title}
+        </h2>
+        {article.heading !== null && (
+          <p className="mt-4 max-w-[58ch] font-display text-xl text-ink-muted italic leading-snug">
+            {article.heading}
+          </p>
+        )}
+
+        <div className="mt-7 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-rule border-b pb-3.5 font-mono text-xs text-ink-muted">
+          <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+            <span>From the run on</span>
+            <Link
+              href={`/workflows/${article.workflowName}`}
+              className="font-medium text-ink no-underline transition-colors hover:text-accent focus-visible:text-accent"
+            >
+              {article.workflowName}
+            </Link>
             <span aria-hidden="true" className="text-rule">
               ·
             </span>
-            <div className="flex items-baseline">
-              <dt className="sr-only">created</dt>
-              <dd>
-                <time dateTime={article.createdAt} title={article.createdAt}>
-                  {formatRelativeTime(article.createdAt, now)}
-                </time>
-              </dd>
-            </div>
-          </dl>
+            <time dateTime={article.createdAt} title={article.createdAt}>
+              {formatRelativeTime(article.createdAt, now)}
+            </time>
+            {article.finishedAt && (
+              <>
+                <span aria-hidden="true" className="text-rule">
+                  ·
+                </span>
+                <span className="tabular-nums">
+                  {formatDuration(article.startedAt, article.finishedAt)}
+                </span>
+              </>
+            )}
+            {article.gitSha && (
+              <>
+                <span aria-hidden="true" className="text-rule">
+                  ·
+                </span>
+                <span className="bg-paper px-1.5 py-0.5 tabular-nums" title={article.gitSha}>
+                  {article.gitSha.slice(0, 7)}
+                </span>
+                {article.gitDirty && <span className="italic">(dirty)</span>}
+              </>
+            )}
+          </p>
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <Link
+              href={`/runs/${article.runId}`}
+              className="text-accent no-underline transition-colors hover:text-ink focus-visible:text-ink"
+            >
+              open run ↗
+            </Link>
+            <CopyButton content={article.contentMd} />
+          </div>
         </div>
-        <CopyButton content={article.contentMd} />
       </header>
 
       <div className="mt-10">
