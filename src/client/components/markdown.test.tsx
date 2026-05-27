@@ -230,7 +230,7 @@ describe("<Markdown>", () => {
       "\n",
     );
 
-    it("stamps deterministic section-NN ids and § NN eyebrows when enabled", () => {
+    it("stamps section-NN ids and § NN eyebrows on rendered h2 headings", () => {
       const { container } = render(<Markdown content={source} withSectionOrdinals />);
       const h2s = Array.from(container.querySelectorAll("h2"));
       expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
@@ -238,12 +238,11 @@ describe("<Markdown>", () => {
       // so the heading's accessible name remains the prose text only.
       expect(h2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
       expect(h2s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
-      // The heading still announces its prose text without the eyebrow.
       expect(screen.getByRole("heading", { level: 2, name: "What stood out" })).toBeDefined();
       expect(screen.getByRole("heading", { level: 2, name: "Why it matters" })).toBeDefined();
     });
 
-    it("leaves h2s untouched when the prop is omitted", () => {
+    it("leaves headings untouched when the prop is omitted", () => {
       const { container } = render(<Markdown content={source} />);
       const h2s = Array.from(container.querySelectorAll("h2"));
       expect(h2s.map((h) => h.id)).toEqual(["", ""]);
@@ -252,7 +251,7 @@ describe("<Markdown>", () => {
 
     it("restarts the counter per Markdown instance", () => {
       // Two sibling renders must each count from 01 — the counter lives
-      // inside the per-render h2 component, not in module scope.
+      // inside the per-render heading component, not in module scope.
       const { container } = render(
         <>
           <Markdown content={"## Alpha"} withSectionOrdinals />
@@ -261,6 +260,50 @@ describe("<Markdown>", () => {
       );
       const h2s = Array.from(container.querySelectorAll("h2"));
       expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-01"]);
+    });
+  });
+
+  describe("downgradeHeaderLevels", () => {
+    it("renders authored h1 as h2 when downgrade=1", () => {
+      const { container } = render(<Markdown content={"# Heading"} downgradeHeaderLevels={1} />);
+      expect(container.querySelector("h2")?.textContent).toBe("Heading");
+      expect(container.querySelector("h1")).toBeNull();
+    });
+
+    it("shifts every authored level by the same amount", () => {
+      const { container } = render(
+        <Markdown
+          content={"# one\n\n## two\n\n### three\n\n#### four\n\n##### five"}
+          downgradeHeaderLevels={1}
+        />,
+      );
+      expect(container.querySelector("h2")?.textContent).toBe("one");
+      expect(container.querySelector("h3")?.textContent).toBe("two");
+      expect(container.querySelector("h4")?.textContent).toBe("three");
+      expect(container.querySelector("h5")?.textContent).toBe("four");
+      expect(container.querySelector("h6")?.textContent).toBe("five");
+    });
+
+    it("clamps at h6 so authored h6 stays h6 under any downgrade", () => {
+      const { container } = render(<Markdown content={"###### Six"} downgradeHeaderLevels={2} />);
+      expect(container.querySelector("h6")?.textContent).toBe("Six");
+    });
+
+    it("composes with withSectionOrdinals — eyebrows follow whichever level renders as h2", () => {
+      // With downgrade=1, authored `# ` lands at h2 and picks up the
+      // ordinal eyebrow. The would-be-h2 (authored `## `) shifts to h3.
+      const { container } = render(
+        <Markdown
+          content={"# First\n\n## Sub\n\n# Second"}
+          downgradeHeaderLevels={1}
+          withSectionOrdinals
+        />,
+      );
+      const h2s = Array.from(container.querySelectorAll("h2"));
+      expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+      expect(h2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
+      // No ordinal on the shifted h3.
+      expect(container.querySelector("h3")?.querySelector("span[aria-hidden]")).toBeNull();
     });
   });
 });

@@ -336,7 +336,9 @@ function TableCell({
   );
 }
 
-const components: Components = {
+const HEADINGS = [Heading1, Heading2, Heading3, Heading4, Heading5, Heading6] as const;
+
+const baseComponents: Components = {
   a: Anchor,
   h1: Heading1,
   h2: Heading2,
@@ -361,6 +363,10 @@ const components: Components = {
   td: TableCell,
 };
 
+type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
+const clampLevel = (level: number): HeadingLevel => Math.max(1, Math.min(6, level)) as HeadingLevel;
+
 /**
  * Render a markdown string as React elements. Built on `react-markdown`,
  * which parses markdown to React elements directly — there is no HTML
@@ -376,13 +382,23 @@ const components: Components = {
  * `rel="noopener noreferrer"`; same-origin and fragment links pass
  * through untouched.
  *
- * `withSectionOrdinals`, when set, gives each rendered `<h2>` a
+ * `downgradeHeaderLevels` shifts every authored heading down by N
+ * levels in the rendered output, clamped at h6. Use on surfaces where
+ * markdown content needs to slot in beneath an outer page heading — for
+ * example, an article surface whose route owns its own `<h2>` title can
+ * pass `1` so body `# section` lands as `<h2>` rather than competing
+ * with the page-shell wordmark `<h1>`.
+ *
+ * `withSectionOrdinals`, when set, gives every rendered `<h2>` a
  * deterministic id (`section-01`, `section-02`, …) and a leading
- * `§ NN` mono eyebrow. IDs are derived from a 1-based positional
- * counter that resets per `<Markdown>` instance, so editorial surfaces
- * can anchor-link to sections without slugging heading text. Reordering
- * H2s will rebind the anchors — that is the trade-off for not having to
- * resolve duplicate-text collisions.
+ * `§ NN` mono eyebrow — whichever authored level ends up at h2 after
+ * any downgrade is the one that's stamped. IDs are derived from a
+ * 1-based positional counter that resets per `<Markdown>` instance,
+ * so editorial surfaces can anchor-link to sections without slugging
+ * heading text. Reordering headings will rebind the anchors — that is
+ * the trade-off for not having to resolve duplicate-text collisions.
+ * When the downgrade pushes the would-be-h2 level off the top of the
+ * range (e.g. downgrade ≥ 2), no headings receive ordinals.
  *
  * Used by every surface that renders markdown — published articles,
  * activity-feed summaries, the run-detail summary block — so each one
@@ -391,13 +407,16 @@ const components: Components = {
 export function Markdown({
   content,
   withSectionOrdinals = false,
+  downgradeHeaderLevels = 0,
 }: {
   content: string;
   withSectionOrdinals?: boolean;
+  downgradeHeaderLevels?: number;
 }) {
-  const resolvedComponents = withSectionOrdinals
-    ? { ...components, h2: buildOrdinalHeading2() }
-    : components;
+  const resolvedComponents = buildMarkdownComponents({
+    downgrade: downgradeHeaderLevels,
+    withSectionOrdinals,
+  });
   return (
     <ReactMarkdown components={resolvedComponents} remarkPlugins={[remarkGfm]}>
       {content}
@@ -405,15 +424,43 @@ export function Markdown({
   );
 }
 
+const buildMarkdownComponents = ({
+  downgrade,
+  withSectionOrdinals,
+}: {
+  downgrade: number;
+  withSectionOrdinals: boolean;
+}): Components => {
+  if (downgrade === 0 && !withSectionOrdinals) return baseComponents;
+  const result: Components = { ...baseComponents };
+  // Section ordinals always land on whatever authored level renders as
+  // h2 after the downgrade — i.e. the slot for `2 - downgrade`. With
+  // downgrade=0 that's h2; with downgrade=1 it's h1. When the answer
+  // falls outside 1–6 (downgrade ≥ 2 or negative) no slot is stamped.
+  const ordinalAuthoredLevel = 2 - downgrade;
+  for (let authored = 1 as HeadingLevel; authored <= 6; authored++) {
+    const target = clampLevel(authored + downgrade);
+    const key = `h${authored}` as const;
+    result[key] =
+      withSectionOrdinals && authored === ordinalAuthoredLevel
+        ? buildOrdinalHeading(target)
+        : HEADINGS[target - 1];
+  }
+  return result;
+};
+
 /**
- * Build a stateful `<h2>` renderer that closes over a per-render counter,
- * stamping `id="section-NN"` and a `§ NN` eyebrow on each heading in
- * document order. Rebuilt on every `<Markdown>` render so the counter
- * stays scoped to the instance.
+ * Build a stateful heading renderer that closes over a per-render
+ * counter, stamping `id="section-NN"` and a `§ NN` eyebrow on each
+ * heading in document order. The wrapped Heading component owns the
+ * level-appropriate styling; the wrapper just injects the eyebrow + id.
+ * Rebuilt on every `<Markdown>` render so the counter stays scoped to
+ * the instance.
  */
-function buildOrdinalHeading2(): Components["h2"] {
+function buildOrdinalHeading(level: HeadingLevel): Components["h1"] {
+  const LevelComponent = HEADINGS[level - 1];
   let counter = 0;
-  return function OrdinalHeading2({
+  return function OrdinalHeading({
     node: _node,
     children,
     ...rest
@@ -421,11 +468,7 @@ function buildOrdinalHeading2(): Components["h2"] {
     counter += 1;
     const nn = String(counter).padStart(2, "0");
     return (
-      <h2
-        id={`section-${nn}`}
-        className="mt-8 mb-3 font-display text-2xl text-ink leading-tight"
-        {...rest}
-      >
+      <LevelComponent id={`section-${nn}`} {...rest}>
         <span
           aria-hidden="true"
           className="mb-1.5 block font-mono text-xs tracking-widest text-ink-faint uppercase"
@@ -433,7 +476,7 @@ function buildOrdinalHeading2(): Components["h2"] {
           § {nn}
         </span>
         {children}
-      </h2>
+      </LevelComponent>
     );
   };
 }
