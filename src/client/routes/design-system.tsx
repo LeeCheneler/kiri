@@ -1,5 +1,6 @@
 import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
+import { List } from "../components/design-system/content/list.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
 
@@ -316,6 +317,40 @@ export function DesignSystem() {
   );
 }`}</CodeBlock>
                 </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Lists</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">List</span> ·
+              components/design-system/content/list.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A reading-content list, set in the reading voice with markers in muted ink. Bulleted
+                by default; pass <Code>ordered</Code> for a numbered list — use it only when
+                sequence actually matters. Children are the list items; the list inherits its voice
+                from the surrounding Prose.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Prose>
+                  <List>
+                    <li>Each step runs in order, top to bottom.</li>
+                    <li>A step's output flows to the next as input.</li>
+                    <li>The first failure halts the run.</li>
+                  </List>
+                  <div className="mt-4">
+                    <List ordered>
+                      <li>Load the workflow definition.</li>
+                      <li>Resolve inputs and run each step.</li>
+                      <li>Summarise and publish the result.</li>
+                    </List>
+                  </div>
+                </Prose>
               </Card>
             </div>
           </article>
