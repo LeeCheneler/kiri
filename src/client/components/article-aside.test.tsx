@@ -171,4 +171,22 @@ describe("<ArticleAside>", () => {
       "#section-01",
     );
   });
+
+  it("ignores mutations under <main> that leave the heading set unchanged", async () => {
+    const { container } = renderWithBody([{ ordinal: "01", label: "Stable" }]);
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+
+    // A non-heading mutation — e.g. a lazy chart mounting into the body
+    // after the headings already exist — fires the observer, but the TOC
+    // must stay put rather than rebuild from an identical heading set.
+    await act(async () => {
+      const main = container.querySelector("main");
+      if (main === null) throw new Error("main not in DOM");
+      main.appendChild(document.createElement("p"));
+      await flushAsync();
+    });
+
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /stable/i }).getAttribute("href")).toBe("#section-01");
+  });
 });
