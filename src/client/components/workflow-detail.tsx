@@ -375,7 +375,7 @@ function WorkflowHero({
   return (
     <header className="mt-6 border-rule border-b pb-8">
       <p className="font-mono text-xs text-accent uppercase tracking-widest">{eyebrow}</p>
-      <h2 className="mt-2 font-display text-[64px] text-ink italic leading-[0.95] tracking-tight">
+      <h2 className="mt-2 font-display text-6xl text-ink italic leading-[0.95] tracking-tight">
         {workflow.name}
       </h2>
       {workflow.description && (

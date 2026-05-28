@@ -96,7 +96,7 @@ export function WorkflowTabs({
               aria-controls={`wf-panel-${tab.id}`}
               tabIndex={selected ? 0 : -1}
               onClick={() => selectTab(tab.id)}
-              className={`relative cursor-pointer py-3.5 font-mono text-[11px] uppercase tracking-[0.18em] outline-none transition-colors duration-150 focus-visible:text-accent ${
+              className={`relative cursor-pointer py-3.5 font-mono text-xs uppercase tracking-[0.18em] outline-none transition-colors duration-150 focus-visible:text-accent ${
                 selected
                   ? "text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-accent after:content-['']"
                   : "text-ink-muted hover:text-ink"

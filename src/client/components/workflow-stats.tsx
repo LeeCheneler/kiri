@@ -66,7 +66,7 @@ export function WorkflowStats({ workflowName }: { workflowName: string }) {
     <section aria-labelledby="workflow-stats-heading" className="mt-6 border border-rule p-5">
       <h3
         id="workflow-stats-heading"
-        className="mb-4 font-mono text-[10px] text-ink-muted uppercase tracking-[0.22em]"
+        className="mb-4 font-mono text-xs text-ink-muted uppercase tracking-[0.22em]"
       >
         Last {WINDOW} runs
       </h3>
@@ -113,7 +113,7 @@ function StatsBody({ runs, error }: { runs: RunListEntry[] | null; error: Error 
 function Stat({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="font-mono text-[10px] text-ink-muted uppercase tracking-[0.18em]">{label}</dt>
+      <dt className="font-mono text-xs text-ink-muted uppercase tracking-[0.18em]">{label}</dt>
       <dd
         className={`font-display text-2xl leading-none tabular-nums${className ? ` ${className}` : " text-ink"}`}
       >
@@ -148,7 +148,7 @@ function Sparkline({ runs, durations }: { runs: RunListEntry[]; durations: numbe
             );
           })}
       </div>
-      <div className="mt-1.5 flex justify-between font-mono text-[10px] text-ink-faint">
+      <div className="mt-1.5 flex justify-between font-mono text-xs text-ink-faint">
         <span>oldest</span>
         <span>duration · now</span>
       </div>

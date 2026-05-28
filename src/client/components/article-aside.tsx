@@ -107,7 +107,7 @@ export function ArticleAside(): ReactNode {
     <section aria-labelledby="article-toc-heading">
       <h2
         id="article-toc-heading"
-        className="mb-3.5 border-rule border-b pb-2 font-mono text-[10px] tracking-widest text-ink-muted uppercase"
+        className="mb-3.5 border-rule border-b pb-2 font-mono text-xs tracking-widest text-ink-muted uppercase"
       >
         In this article
       </h2>

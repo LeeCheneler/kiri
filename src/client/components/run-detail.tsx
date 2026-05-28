@@ -461,9 +461,7 @@ function ActivityRow({ item }: { item: ActivityItem }) {
     <>
       <StatusStrip status={status} hoverGrow={!!row} />
       <span className={`shrink-0 font-mono text-xs tabular-nums ${metaClass}`}>{ordinalText}</span>
-      <span
-        className={`w-20 shrink-0 font-mono text-[10px] tracking-widest uppercase ${metaClass}`}
-      >
+      <span className={`w-20 shrink-0 font-mono text-xs tracking-widest uppercase ${metaClass}`}>
         {KIND_LABEL[kind]}
       </span>
       <span className={`min-w-0 flex-1 truncate font-mono text-sm ${titleClass}`}>{title}</span>

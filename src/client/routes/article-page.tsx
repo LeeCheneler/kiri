@@ -82,7 +82,7 @@ export function ArticlePage({
       <BackLink href={`/runs/${article.runId}`}>back to run</BackLink>
 
       <header className="mt-6">
-        <h2 className="font-display text-[76px] text-ink italic leading-[0.95] tracking-tight">
+        <h2 className="font-display text-7xl text-ink italic leading-[0.95] tracking-tight">
           {article.title}
         </h2>
 
