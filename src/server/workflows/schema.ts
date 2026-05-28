@@ -117,6 +117,28 @@ const baseWorkflowSchema = z
   .object({
     name: z.string().min(1),
     /**
+     * Optional one-line summary of what the workflow does. Rendered as the
+     * deck beneath the workflow's title on its detail page.
+     */
+    description: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Short summary of what the workflow does, shown as the deck beneath the title on the workflow page.",
+      ),
+    /**
+     * Optional grouping label for related workflows (e.g. "Dev"). Rendered
+     * as the eyebrow above the workflow's title on its detail page.
+     */
+    group: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Optional grouping label for related workflows (e.g. "Dev"), shown as the eyebrow on the workflow page.',
+      ),
+    /**
      * Optional named parameters collected via a modal at invocation time.
      * A workflow with no `inputs:` runs immediately on invoke; one with
      * `inputs:` collects values via a form before the run starts. Steps

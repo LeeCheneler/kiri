@@ -18,6 +18,17 @@ describe("workflowJsonSchema", () => {
     });
   });
 
+  it("optionally permits top-level description and group string fields", () => {
+    const schema = workflowJsonSchema() as {
+      required: string[];
+      properties: { description?: { type: string }; group?: { type: string } };
+    };
+    expect(schema.required).not.toContain("description");
+    expect(schema.required).not.toContain("group");
+    expect(schema.properties.description?.type).toBe("string");
+    expect(schema.properties.group?.type).toBe("string");
+  });
+
   it("describes step variants for use: and sh:", () => {
     type Variant = {
       properties: { use?: { type: string }; sh?: { type: string } };

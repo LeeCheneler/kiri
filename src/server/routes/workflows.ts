@@ -18,6 +18,11 @@ export interface WorkflowsRoutesDeps {
 
 const summarizeWorkflow = (def: WorkflowDefinition) => ({
   name: def.name,
+  // Absent fields collapse to `undefined`, which `JSON.stringify` drops, so
+  // the client sees a missing key (its single "not declared" signal) rather
+  // than an empty string.
+  description: def.description,
+  group: def.group,
   // The invoke modal renders one field per declared input; the field's
   // metadata (description, required, default) lives on each entry.
   // Absent when the workflow declares no `inputs:` block.

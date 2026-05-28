@@ -38,6 +38,35 @@ describe("workflowSchema", () => {
     expect(() => workflowSchema.parse({ name: "empty", steps: [] })).toThrow();
   });
 
+  it("parses an optional top-level description and group", () => {
+    const result = workflowSchema.parse({
+      name: "patch",
+      description: "Patches Dependabot alerts and opens a PR.",
+      group: "Dev",
+      steps: [{ use: "x" }],
+    });
+    expect(result.description).toBe("Patches Dependabot alerts and opens a PR.");
+    expect(result.group).toBe("Dev");
+  });
+
+  it("treats description and group as optional", () => {
+    const result = workflowSchema.parse({ name: "bare", steps: [{ use: "x" }] });
+    expect(result.description).toBeUndefined();
+    expect(result.group).toBeUndefined();
+  });
+
+  it("rejects an empty top-level description", () => {
+    expect(() =>
+      workflowSchema.parse({ name: "empty-desc", description: "", steps: [{ use: "x" }] }),
+    ).toThrow();
+  });
+
+  it("rejects an empty top-level group", () => {
+    expect(() =>
+      workflowSchema.parse({ name: "empty-group", group: "", steps: [{ use: "x" }] }),
+    ).toThrow();
+  });
+
   it("rejects a step with both use and sh keys", () => {
     expect(() =>
       workflowSchema.parse({

@@ -51,6 +51,33 @@ describe("workflows routes", () => {
       });
     });
 
+    it("projects top-level description and group when present", async () => {
+      const wf: WorkflowDefinition = {
+        name: "patch",
+        description: "Patches Dependabot alerts and opens a PR.",
+        group: "Dev",
+        steps: [{ sh: "echo hi" }],
+      };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request("/api/workflows");
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      expect(body[0].description).toBe("Patches Dependabot alerts and opens a PR.");
+      expect(body[0].group).toBe("Dev");
+    });
+
+    it("omits description and group when the workflow declares neither", async () => {
+      const wf: WorkflowDefinition = { name: "bare", steps: [{ sh: "echo hi" }] };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request("/api/workflows");
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      expect("description" in body[0]).toBe(false);
+      expect("group" in body[0]).toBe(false);
+    });
+
     it("omits publish and summarize when the workflow has neither", async () => {
       const wf: WorkflowDefinition = { name: "steps-only", steps: [{ sh: "echo hi" }] };
       env.registry.replace(new Map([[wf.name, wf]]));

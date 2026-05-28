@@ -53,6 +53,10 @@ export interface WorkflowInputSummary {
 /** Workflow summary as returned by `GET /api/workflows`. */
 export interface WorkflowSummary {
   name: string;
+  /** One-line summary rendered as the deck beneath the workflow title; absent when undeclared. */
+  description?: string;
+  /** Grouping label rendered as the workflow page eyebrow (e.g. "Dev"); absent when undeclared. */
+  group?: string;
   /** Defined when the workflow declares an `inputs:` block; absent otherwise. */
   inputs?: WorkflowInputSummary[];
   steps: WorkflowStepSummary[];
