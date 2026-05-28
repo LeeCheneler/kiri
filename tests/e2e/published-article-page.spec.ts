@@ -31,9 +31,9 @@ test("clicking a published article navigates to a page rendering its markdown bo
   await expect(page).toHaveURL(`/runs/${runId}/published/digest`);
   // Title in Fraunces lands as the level-2 heading on the article page.
   await expect(page.getByRole("heading", { level: 2, name: /published digest/i })).toBeVisible();
-  // Body markdown is rendered through <Markdown> — a level-1 heading
-  // and at least one paragraph element appear in the tree.
-  await expect(page.getByRole("heading", { level: 1, name: /published digest/i })).toBeVisible();
+  // Body markdown is rendered through <Markdown>, demoted by two so the
+  // authored `# Published Digest` lands at <h3> beneath the route's h2.
+  await expect(page.getByRole("heading", { level: 3, name: /published digest/i })).toBeVisible();
   await expect(page.locator("article p").first()).toBeVisible();
 
   // The back link returns to the parent run page.
