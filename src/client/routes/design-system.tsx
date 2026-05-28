@@ -1,6 +1,7 @@
 import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { List } from "../components/design-system/content/list.tsx";
+import { Meta } from "../components/design-system/content/meta.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
 import { Quote } from "../components/design-system/content/quote.tsx";
 import { Rule } from "../components/design-system/content/rule.tsx";
@@ -452,6 +453,32 @@ export function DesignSystem() {
                 <Prose>
                   <p>And the content that resumes below it.</p>
                 </Prose>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Meta</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Meta</span> ·
+              components/design-system/content/meta.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                An inline metadata row — a sequence of small machine-layer facts separated by a
+                muted middot. List the facts as children and the separator is inserted between each,
+                so the dots are never written by hand. The byline above a run or article is the
+                canonical use.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Meta>
+                  <span>ok</span>
+                  <span>2h ago</span>
+                  <span>1.2s</span>
+                  <span>a1b2c3d</span>
+                </Meta>
               </Card>
             </div>
           </article>
