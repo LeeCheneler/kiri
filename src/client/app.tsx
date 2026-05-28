@@ -1,5 +1,6 @@
 import { Route, Switch } from "wouter";
 import { PageShell } from "./components/page-shell.tsx";
+import { RecentlyPublished } from "./components/recently-published.tsx";
 import { ToastContainer } from "./components/toast-container.tsx";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
@@ -21,7 +22,7 @@ import { WorkflowPage } from "./routes/workflow-page.tsx";
 export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFactory } = {}) {
   return (
     <LiveEventsProvider factory={liveEventsFactory}>
-      <PageShell>
+      <PageShell rightAside={<RecentlyPublished />}>
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/workflows/:name" component={WorkflowPage} />

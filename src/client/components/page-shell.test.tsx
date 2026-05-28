@@ -12,13 +12,13 @@ import { PageShell } from "./page-shell.tsx";
 
 afterEach(() => cleanup());
 
-const renderShell = (children: ReactNode, path = "/") => {
+const renderShell = (children: ReactNode, path = "/", rightAside?: ReactNode) => {
   const { hook } = memoryLocation({ path });
   const { factory, sources } = captureEventSources();
   const ui = render(
     <Router hook={hook}>
       <LiveEventsProvider factory={factory}>
-        <PageShell>{children}</PageShell>
+        <PageShell rightAside={rightAside}>{children}</PageShell>
       </LiveEventsProvider>
     </Router>,
   );
@@ -52,9 +52,17 @@ describe("<PageShell>", () => {
     await flushAsync();
   });
 
-  it("renders the recently published section in the right rail", async () => {
+  it("renders the caller-supplied right aside in the right rail", async () => {
+    renderShell(<p>x</p>, "/", <nav aria-label="right rail marker">aside content</nav>);
+    expect(screen.getByRole("navigation", { name: /right rail marker/i })).toBeDefined();
+    await flushAsync();
+  });
+
+  it("leaves the right rail empty when no rightAside is supplied", async () => {
     renderShell(<p>x</p>);
-    expect(await screen.findByRole("heading", { name: /recently published/i })).toBeDefined();
+    // No default marginalia — the article and other routes choose what to
+    // pass. Recently Published only renders when a caller provides it.
+    expect(screen.queryByRole("heading", { name: /recently published/i })).toBeNull();
     await flushAsync();
   });
 

@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
-import { RecentlyPublished } from "./recently-published.tsx";
 import { RailLink } from "./ui/rail-link.tsx";
 import { VersionInfo } from "./version-info.tsx";
 import { WorkflowsNav } from "./workflows-nav.tsx";
@@ -24,9 +23,14 @@ const activeWorkflowName = (location: string): string | null => {
  * Three-column page shell: a sticky left rail with the kiri wordmark,
  * the workflows nav, and a docs nav; the route content in the centre
  * with a max-width tuned for legible single-column reading; and a
- * sticky right rail carrying the recently-published articles section,
- * alongside which the todo rail will sit as it lands. Below the `lg`
- * breakpoint the grid collapses to a single column.
+ * sticky right rail whose contents the caller supplies via
+ * `rightAside`. Below the `lg` breakpoint the grid collapses to a
+ * single column.
+ *
+ * `rightAside` is the per-route marginalia slot — the dashboard and run
+ * surfaces pass `<RecentlyPublished>`, the article route passes its
+ * `<ArticleAside>` TOC. When omitted the right column renders empty so
+ * the centre column keeps a stable width across routes.
  *
  * The shell owns the workflows fetch so the nav stays consistent across
  * routes; the workflows nav stays hidden until the registry resolves so
@@ -34,7 +38,13 @@ const activeWorkflowName = (location: string): string | null => {
  * nav always renders so the rail still surfaces something useful when
  * the workflows fetch fails.
  */
-export function PageShell({ children }: { children: ReactNode }) {
+export function PageShell({
+  children,
+  rightAside,
+}: {
+  children: ReactNode;
+  rightAside?: ReactNode;
+}) {
   const [workflows, setWorkflows] = useState<WorkflowSummary[] | null>(null);
   const [location] = useLocation();
   const tokenRef = useRef(0);
@@ -105,9 +115,7 @@ export function PageShell({ children }: { children: ReactNode }) {
           <VersionInfo />
         </aside>
         <main className="min-w-0 lg:max-w-240">{children}</main>
-        <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start">
-          <RecentlyPublished />
-        </aside>
+        <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start">{rightAside}</aside>
       </div>
     </div>
   );
