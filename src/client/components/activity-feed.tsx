@@ -7,6 +7,8 @@ import { EmptyState } from "./ui/empty-state.tsx";
 import { StatusLabel } from "./ui/status-label.tsx";
 import { StatusStrip } from "./ui/status-strip.tsx";
 
+const firstLine = (text: string): string => text.split("\n", 1)[0]?.trim() ?? "";
+
 /**
  * Activity feed: each run is one editorial entry, prefaced by a thin
  * status-coloured strip at the left edge. The entry is a single
@@ -31,6 +33,14 @@ import { StatusStrip } from "./ui/status-strip.tsx";
  * label already pulses live. Rows stagger in on first paint. Empty
  * state is a single italic sentence.
  *
+ * `variant` adapts the row to its surface. `"global"` (the default) is
+ * the cross-workflow home feed: the workflow name leads each headline
+ * and the summary renders as full markdown. `"workflow"` scopes the
+ * feed to one workflow, where the name would repeat on every row — so
+ * the headline becomes the run's first input value (falling back to the
+ * workflow name), the kicker gains the run's short git SHA, and the
+ * summary collapses to its first line in mono.
+ *
  * `sentinelRef` marks the bottom of the list so an
  * `IntersectionObserver` can trigger the next page load. `isLoadingMore`
  * shows a soft loading strip beneath the list while a page is in
@@ -43,12 +53,14 @@ import { StatusStrip } from "./ui/status-strip.tsx";
 export function ActivityFeed({
   runs,
   now,
+  variant = "global",
   sentinelRef,
   isLoadingMore = false,
   endReached = false,
 }: {
   runs: RunListEntry[];
   now?: Date;
+  variant?: "global" | "workflow";
   sentinelRef?: Ref<HTMLDivElement>;
   isLoadingMore?: boolean;
   endReached?: boolean;
@@ -57,11 +69,19 @@ export function ActivityFeed({
     return <EmptyState>no runs yet.</EmptyState>;
   }
 
+  const isWorkflow = variant === "workflow";
+
   return (
     <>
       <ul className="divide-y divide-rule">
         {runs.map((run, index) => {
           const status = run.status;
+          // On a workflow-scoped feed the workflow name repeats on every
+          // row, so the run's first input value identifies it instead; a
+          // run with no inputs falls back to the name.
+          const title = isWorkflow
+            ? (Object.values(run.inputs ?? {})[0] ?? run.workflowName)
+            : run.workflowName;
           return (
             <li
               key={run.id}
@@ -84,6 +104,12 @@ export function ActivityFeed({
                       </span>
                     </>
                   )}
+                  {isWorkflow && run.gitSha && (
+                    <>
+                      <span className="text-rule">·</span>
+                      <code className="font-mono">{run.gitSha.slice(0, 7)}</code>
+                    </>
+                  )}
                   {run.recommendationsCount > 0 && (
                     <>
                       <span className="text-rule">·</span>
@@ -103,9 +129,9 @@ export function ActivityFeed({
                 </div>
                 <Link
                   href={`/runs/${run.id}`}
-                  className="group/row-link mt-2 -mx-2 -my-1 flex items-baseline gap-2 rounded-sm px-2 py-1 font-display text-2xl leading-tight text-ink no-underline outline-none transition-colors hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+                  className={`group/row-link mt-2 -mx-2 -my-1 flex items-baseline gap-2 rounded-sm px-2 py-1 font-display text-2xl leading-tight text-ink no-underline outline-none transition-colors hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1${isWorkflow ? " italic" : ""}`}
                 >
-                  <span>{run.workflowName}</span>
+                  <span>{title}</span>
                   <span
                     aria-hidden="true"
                     className="text-ink-muted transition-all duration-150 group-hover/row-link:translate-x-0.5 group-hover/row-link:text-accent group-focus-visible/row-link:text-accent"
@@ -113,11 +139,16 @@ export function ActivityFeed({
                     →
                   </span>
                 </Link>
-                {run.summary && (
-                  <div className="kiri-feed-summary mt-3 text-sm leading-snug text-ink [&_p]:mt-1 [&_p]:text-sm [&_p]:leading-snug [&_p]:first:mt-0 [&_ul]:mt-1 [&_ol]:mt-1">
-                    <Markdown content={run.summary} />
-                  </div>
-                )}
+                {run.summary &&
+                  (isWorkflow ? (
+                    <p className="mt-3 font-mono text-sm leading-snug text-ink-muted">
+                      {firstLine(run.summary)}
+                    </p>
+                  ) : (
+                    <div className="kiri-feed-summary mt-3 text-sm leading-snug text-ink [&_p]:mt-1 [&_p]:text-sm [&_p]:leading-snug [&_p]:first:mt-0 [&_ul]:mt-1 [&_ol]:mt-1">
+                      <Markdown content={run.summary} />
+                    </div>
+                  ))}
                 {run.articles.length > 0 && <ArticleList runId={run.id} articles={run.articles} />}
               </div>
             </li>

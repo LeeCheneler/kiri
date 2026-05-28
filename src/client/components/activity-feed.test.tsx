@@ -303,6 +303,54 @@ describe("<ActivityFeed>", () => {
     });
   });
 
+  describe("workflow variant", () => {
+    const renderWorkflowFeed = (runs: RunListEntry[]) => {
+      const { hook } = memoryLocation({ path: "/" });
+      return render(
+        <Router hook={hook}>
+          <ActivityFeed runs={runs} now={NOW} variant="workflow" />
+        </Router>,
+      );
+    };
+
+    it("titles each row with the run's first input value", () => {
+      renderWorkflowFeed([
+        stubRun({
+          id: "abc",
+          workflowName: "dev-patch",
+          inputs: { repo: "autoid-verify-service" },
+        }),
+      ]);
+      const link = screen.getByRole("link", { name: /autoid-verify-service/i });
+      expect(link.getAttribute("href")).toBe("/runs/abc");
+      // The workflow name does not lead the headline when an input does.
+      expect(screen.queryByRole("link", { name: /dev-patch/i })).toBeNull();
+    });
+
+    it("falls back to the workflow name when the run has no inputs", () => {
+      renderWorkflowFeed([stubRun({ workflowName: "dev-patch", inputs: null })]);
+      expect(screen.getByRole("link", { name: /dev-patch/i })).toBeDefined();
+    });
+
+    it("shows the run's short git SHA in the kicker when present", () => {
+      renderWorkflowFeed([stubRun({ gitSha: "576a5ae0c1d2e3f4" })]);
+      expect(screen.getByText("576a5ae")).toBeDefined();
+    });
+
+    it("omits the SHA segment when the run has no git SHA", () => {
+      const { container } = renderWorkflowFeed([stubRun({ gitSha: null })]);
+      expect(container.querySelector("code")).toBeNull();
+    });
+
+    it("renders only the summary's first line, dropping the rest", () => {
+      renderWorkflowFeed([
+        stubRun({ summary: "patched 2 advisories at PR #79.\nfull detail on the run page." }),
+      ]);
+      expect(screen.getByText(/patched 2 advisories at PR #79\./)).toBeDefined();
+      expect(screen.queryByText(/full detail on the run page/)).toBeNull();
+    });
+  });
+
   it("omits the duration text for runs that haven't finished", () => {
     renderFeed([
       stubRun({
