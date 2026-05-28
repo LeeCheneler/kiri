@@ -1,5 +1,6 @@
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
+import { Card } from "../components/design-system/surfaces/card.tsx";
 
 // Display sizes climb with the reading voice; the small steps are the
 // machine layer. Each carries the literal Tailwind class so the size is
@@ -180,6 +181,38 @@ export function DesignSystem() {
         </ul>
       </section>
 
+      <section aria-labelledby="surfaces">
+        <header className="mt-16 mb-6 border-b border-rule pb-3">
+          <h3 id="surfaces" className="font-display text-3xl text-ink leading-tight">
+            Surfaces
+          </h3>
+          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/surfaces</p>
+        </header>
+
+        <article>
+          <h4 className="font-mono text-base text-ink">Card</h4>
+          <p className="mt-1 font-mono text-xs text-ink-faint">
+            <span className="text-ink-muted">Card</span> ·
+            components/design-system/surfaces/card.tsx
+          </p>
+          <Prose>
+            <p className="mt-3">
+              A bordered surface that lifts a block of related content off the page background with
+              a hairline rule and even padding. Use it to group a self-contained unit — a demo, a
+              stat panel, a callout. It owns its frame and padding only; the space around it is the
+              caller's layout concern.
+            </p>
+          </Prose>
+          <div className="mt-5">
+            <Card>
+              <Prose>
+                <p>Content sits inside the card, framed by a hairline rule and even padding.</p>
+              </Prose>
+            </Card>
+          </div>
+        </article>
+      </section>
+
       <section aria-labelledby="content">
         <header className="mt-16 mb-6 border-b border-rule pb-3">
           <h3 id="content" className="font-display text-3xl text-ink leading-tight">
@@ -204,15 +237,17 @@ export function DesignSystem() {
                 text by hand — reach for Prose and let it own the width.
               </p>
             </Prose>
-            <div className="mt-5 rounded-sm border border-rule bg-canvas-2 p-6">
-              <Prose>
-                <p>
-                  This paragraph sits inside Prose, so it wraps at the reading measure no matter how
-                  wide the surrounding column grows. The line breaks where the eye wants a rest
-                  rather than running the full width of the page, which is the whole point — measure
-                  is a property of the container, never a number sprinkled onto the text.
-                </p>
-              </Prose>
+            <div className="mt-5">
+              <Card>
+                <Prose>
+                  <p>
+                    This paragraph sits inside Prose, so it wraps at the reading measure no matter
+                    how wide the surrounding column grows. The line breaks where the eye wants a
+                    rest rather than running the full width of the page, which is the whole point —
+                    measure is a property of the container, never a number sprinkled onto the text.
+                  </p>
+                </Prose>
+              </Card>
             </div>
           </article>
 
@@ -231,17 +266,19 @@ export function DesignSystem() {
                 navigation (the side rail, a back link) has its own treatment.
               </p>
             </Prose>
-            <div className="mt-5 rounded-sm border border-rule bg-canvas-2 p-6">
-              <Prose>
-                <p>
-                  The morning digest pulls highlights from{" "}
-                  <InlineLink href="/workflows/daily">the daily workflow</InlineLink> and cites{" "}
-                  <InlineLink href="https://example.com" external>
-                    an external source
-                  </InlineLink>{" "}
-                  when the summary quotes one.
-                </p>
-              </Prose>
+            <div className="mt-5">
+              <Card>
+                <Prose>
+                  <p>
+                    The morning digest pulls highlights from{" "}
+                    <InlineLink href="/workflows/daily">the daily workflow</InlineLink> and cites{" "}
+                    <InlineLink href="https://example.com" external>
+                      an external source
+                    </InlineLink>{" "}
+                    when the summary quotes one.
+                  </p>
+                </Prose>
+              </Card>
             </div>
           </article>
         </div>
