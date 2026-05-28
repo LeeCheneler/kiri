@@ -32,6 +32,24 @@ const sourceLabel = (entry: LabelSource): string => {
   return `sh: ${truncated}`;
 };
 
+const stepKind = (entry: LabelSource): "sh" | "use" => ("use" in entry ? "use" : "sh");
+
+// The Steps/Summariser tab rows show the kind and title as separate
+// elements, so this returns the title alone: the bundle reference for a
+// `use:` step, or the first non-empty line of an `sh:` script truncated
+// to the label limit.
+const stepTitle = (entry: LabelSource): string => {
+  if ("use" in entry) return entry.use;
+  const firstNonEmpty =
+    entry.sh
+      .split("\n")
+      .find((line) => line.trim().length > 0)
+      ?.trim() ?? "";
+  return firstNonEmpty.length > SH_LABEL_LIMIT
+    ? `${firstNonEmpty.slice(0, SH_LABEL_LIMIT)}…`
+    : firstNonEmpty;
+};
+
 const hasEnv = (env: Record<string, EnvValue> | undefined): env is Record<string, EnvValue> =>
   env !== undefined && Object.keys(env).length > 0;
 
@@ -82,7 +100,7 @@ export function WorkflowDetailView({
     {
       id: "steps",
       label: "Steps",
-      content: <EmptyState>the steps view is coming soon.</EmptyState>,
+      content: <StepsPanel steps={workflow.steps} />,
     },
     {
       id: "summariser",
@@ -148,6 +166,44 @@ function InputsPanel({ inputs }: { inputs?: WorkflowInputSummary[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * The Steps tab body: the workflow's steps in declared order. Each row
+ * pairs a two-digit ordinal with the step's kind (`sh` or `use`) and a
+ * title — the bundle reference for `use:` steps, the first non-empty
+ * line of the script for `sh:` steps — with the step description on a
+ * second line when set. Workflows with no steps show an empty state.
+ */
+function StepsPanel({ steps }: { steps: WorkflowStepSummary[] }) {
+  if (steps.length === 0) {
+    return <EmptyState>this workflow declares no steps.</EmptyState>;
+  }
+  return (
+    <ol className="divide-y divide-rule">
+      {steps.map((step, index) => (
+        <li
+          // Steps have no identity; combine the ordinal with the step's
+          // primary subject so repeats still produce distinct keys.
+          key={`${index}:${"use" in step ? `use:${step.use}` : `sh:${step.sh}`}`}
+          className="flex flex-col gap-2 px-5 py-4"
+        >
+          <div className="flex items-baseline gap-5">
+            <span className="shrink-0 font-mono text-xs text-ink-faint tabular-nums">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span className="shrink-0 font-mono text-xs text-ink-muted uppercase">
+              {stepKind(step)}
+            </span>
+            <span className="min-w-0 flex-1 font-mono text-sm text-ink">{stepTitle(step)}</span>
+          </div>
+          {step.description !== undefined && step.description.length > 0 && (
+            <p className="font-display text-sm text-ink-muted italic">{step.description}</p>
+          )}
+        </li>
+      ))}
+    </ol>
   );
 }
 

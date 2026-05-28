@@ -111,11 +111,6 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.queryByRole("heading", { level: 3, name: /^steps$/i })).toBeNull();
     });
 
-    it("renders placeholder copy on the Steps tab", async () => {
-      await renderDetail(stubWorkflow(), undefined, "steps");
-      expect(screen.getByText(/the steps view is coming soon/i)).toBeDefined();
-    });
-
     it("renders placeholder copy on the Summariser tab", async () => {
       await renderDetail(stubWorkflow(), undefined, "summariser");
       expect(screen.getByText(/the summariser view is coming soon/i)).toBeDefined();
@@ -187,6 +182,58 @@ describe("<WorkflowDetailView>", () => {
         "inputs",
       );
       expect(screen.getByText("owner/name of the repository")).toBeDefined();
+    });
+  });
+
+  describe("steps tab", () => {
+    it("renders an empty state when the workflow declares no steps", async () => {
+      await renderDetail(stubWorkflow({ steps: [] }), undefined, "steps");
+      expect(screen.getByText(/declares no steps/i)).toBeDefined();
+    });
+
+    it("numbers steps with a two-digit ordinal in declared order", async () => {
+      await renderDetail(
+        stubWorkflow({ steps: [{ use: "claude-code" }, { sh: "echo done" }] }),
+        undefined,
+        "steps",
+      );
+      expect(screen.getByText("01")).toBeDefined();
+      expect(screen.getByText("02")).toBeDefined();
+    });
+
+    it("renders a use: step as kind use with the bundle reference as the title", async () => {
+      await renderDetail(stubWorkflow({ steps: [{ use: "claude-code" }] }), undefined, "steps");
+      expect(screen.getByText("use")).toBeDefined();
+      expect(screen.getByText("claude-code")).toBeDefined();
+    });
+
+    it("renders an sh: step as kind sh with the first non-empty line as the title", async () => {
+      await renderDetail(
+        stubWorkflow({ steps: [{ sh: "\n\n  echo hello\nexit 0" }] }),
+        undefined,
+        "steps",
+      );
+      expect(screen.getByText("sh")).toBeDefined();
+      expect(screen.getByText("echo hello")).toBeDefined();
+    });
+
+    it("truncates a long sh: title", async () => {
+      await renderDetail(stubWorkflow({ steps: [{ sh: "a".repeat(80) }] }), undefined, "steps");
+      expect(screen.getByText(/^a{60}…$/)).toBeDefined();
+    });
+
+    it("renders the step description on a second line when set", async () => {
+      await renderDetail(
+        stubWorkflow({ steps: [{ use: "claude-code", description: "review the open PR" }] }),
+        undefined,
+        "steps",
+      );
+      expect(screen.getByText("review the open PR")).toBeDefined();
+    });
+
+    it("omits the description line when a step declares none", async () => {
+      await renderDetail(stubWorkflow({ steps: [{ use: "claude-code" }] }), undefined, "steps");
+      expect(screen.queryByText("review the open PR")).toBeNull();
     });
   });
 
