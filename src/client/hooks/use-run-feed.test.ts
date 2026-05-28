@@ -47,6 +47,26 @@ describe("useRunFeed", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("forwards the workflow filter on the initial load and every follow-on page", async () => {
+    const calls: { cursor?: string; workflow?: string }[] = [];
+    const pages: Record<string, RunsPage> = {
+      first: { runs: [stubRun("r1")], nextCursor: "r1" },
+      r1: { runs: [stubRun("r2")], nextCursor: null },
+    };
+    const fetchPage = async (opts: { cursor?: string; workflow?: string }) => {
+      calls.push(opts);
+      return pages[opts.cursor ?? "first"];
+    };
+
+    const { result } = renderHook(() => useRunFeed({ fetchPage, workflow: "patch" }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => result.current.loadNext());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(calls).toEqual([{ workflow: "patch" }, { cursor: "r1", workflow: "patch" }]);
+  });
+
   it("appends subsequent pages on loadNext and exposes the new cursor", async () => {
     const calls: ({ cursor?: string; limit?: number } | undefined)[] = [];
     const pages: Record<string, RunsPage> = {

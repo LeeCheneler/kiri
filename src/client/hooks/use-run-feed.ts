@@ -53,7 +53,11 @@ export interface RunFeed {
  * Override the API call (test seam). Production callers omit it and
  * the hook fetches via `fetchRunsPage` against the real backend.
  */
-type FetchPage = (opts: { cursor?: string; limit?: number }) => Promise<RunsPage>;
+type FetchPage = (opts: {
+  cursor?: string;
+  limit?: number;
+  workflow?: string;
+}) => Promise<RunsPage>;
 
 /**
  * Paginated runs feed. Loads page one on mount and `loadNext()`
@@ -61,9 +65,13 @@ type FetchPage = (opts: { cursor?: string; limit?: number }) => Promise<RunsPage
  * `nextCursor`. Concurrent `loadNext` calls are coalesced — a fetch in
  * flight short-circuits new requests so an intersection observer
  * sentinel can fire repeatedly without queueing duplicates.
+ *
+ * Pass `workflow` to scope every fetch to one workflow's runs; omit it
+ * for the cross-workflow feed.
  */
-export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
+export function useRunFeed(opts: { fetchPage?: FetchPage; workflow?: string } = {}): RunFeed {
   const fetchPage = opts.fetchPage ?? fetchRunsPage;
+  const { workflow } = opts;
   const [pages, setPages] = useState<RunListEntry[][]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -93,7 +101,7 @@ export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
     const token = ++tokenRef.current;
     inFlightRef.current = true;
     setIsLoading(true);
-    fetchPage({})
+    fetchPage({ workflow })
       .then((page) => {
         if (tokenRef.current !== token) return;
         cursorRef.current = page.nextCursor;
@@ -113,7 +121,7 @@ export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
         setIsLoading(false);
         setHasLoadedFirst(true);
       });
-  }, [fetchPage]);
+  }, [fetchPage, workflow]);
 
   const appendPage = useCallback(
     (cursor: string) => {
@@ -121,7 +129,7 @@ export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
       inFlightRef.current = true;
       const token = ++tokenRef.current;
       setIsLoading(true);
-      fetchPage({ cursor })
+      fetchPage({ cursor, workflow })
         .then((page) => {
           if (tokenRef.current !== token) return;
           cursorRef.current = page.nextCursor;
@@ -140,7 +148,7 @@ export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
           setHasLoadedFirst(true);
         });
     },
-    [fetchPage],
+    [fetchPage, workflow],
   );
 
   useEffect(() => {
@@ -222,7 +230,7 @@ export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
     // landing no other fetch resolves (the token bump cancelled them),
     // so this read is consistent with the state we'll be merging into.
     const wasSinglePage = pagesLengthRef.current <= 1;
-    fetchPage({})
+    fetchPage({ workflow })
       .then((page) => {
         if (tokenRef.current !== token) return;
         setPages((prev) => {
@@ -250,7 +258,7 @@ export function useRunFeed(opts: { fetchPage?: FetchPage } = {}): RunFeed {
         setIsLoading(false);
         setHasLoadedFirst(true);
       });
-  }, [fetchPage]);
+  }, [fetchPage, workflow]);
 
   const runs = useMemo(() => pages.flat(), [pages]);
   const endReached = hasLoadedFirst && nextCursor === null;

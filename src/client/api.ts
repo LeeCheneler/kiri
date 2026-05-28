@@ -302,14 +302,16 @@ export interface RunsPage {
  * Fetch one page of the run feed. With no arguments returns the first
  * page (default size). Pass `cursor` from the previous page's
  * `nextCursor` to advance; pass `limit` (1–100) to override the page
- * size. Throws on non-2xx.
+ * size; pass `workflow` to scope the feed to a single workflow's runs.
+ * Throws on non-2xx.
  */
 export const fetchRunsPage = async (
-  opts: { cursor?: string; limit?: number } = {},
+  opts: { cursor?: string; limit?: number; workflow?: string } = {},
 ): Promise<RunsPage> => {
   const params = new URLSearchParams();
   if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.workflow !== undefined) params.set("workflow", opts.workflow);
   const qs = params.toString();
   return json<RunsPage>(await apiFetch(`/api/runs${qs ? `?${qs}` : ""}`));
 };
