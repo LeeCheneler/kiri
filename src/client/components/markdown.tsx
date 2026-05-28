@@ -48,7 +48,7 @@ function Anchor({
   // `::before` overlay covering the row, e.g. the activity feed). On
   // surfaces without an overlay it's a no-op — no inset, no z-index.
   const classes =
-    "relative text-accent underline underline-offset-2 transition-colors hover:text-ink focus-visible:text-ink focus-visible:outline-1 focus-visible:outline-accent";
+    "relative text-accent underline decoration-1 decoration-accent-deep underline-offset-2 transition-colors hover:text-ink hover:decoration-ink focus-visible:text-ink focus-visible:outline-1 focus-visible:outline-accent";
   if (href !== undefined && isExternalHref(href)) {
     return (
       <a
@@ -102,7 +102,7 @@ function Paragraph({
   ...rest
 }: HTMLAttributes<HTMLParagraphElement> & ExtraProps) {
   return (
-    <p className="mt-4 text-base leading-relaxed text-ink first:mt-0" {...rest}>
+    <p className="mt-3.5 text-base leading-7 text-ink first:mt-0" {...rest}>
       {children}
     </p>
   );
@@ -114,7 +114,7 @@ function UnorderedList({
   ...rest
 }: HTMLAttributes<HTMLUListElement> & ExtraProps) {
   return (
-    <ul className="mt-4 ml-5 list-disc space-y-1 text-ink marker:text-ink-muted" {...rest}>
+    <ul className="mt-4 ml-6 list-disc space-y-1.5 text-ink marker:text-ink-muted" {...rest}>
       {children}
     </ul>
   );
@@ -126,7 +126,7 @@ function OrderedList({
   ...rest
 }: OlHTMLAttributes<HTMLOListElement> & ExtraProps) {
   return (
-    <ol className="mt-4 ml-5 list-decimal space-y-1 text-ink marker:text-ink-muted" {...rest}>
+    <ol className="mt-4 ml-6 list-decimal space-y-1.5 text-ink marker:text-ink-muted" {...rest}>
       {children}
     </ol>
   );
@@ -158,7 +158,7 @@ function HorizontalRule({ node: _node, ...rest }: HTMLAttributes<HTMLHRElement> 
 
 function Strong({ node: _node, children, ...rest }: HTMLAttributes<HTMLElement> & ExtraProps) {
   return (
-    <strong className="font-semibold text-ink" {...rest}>
+    <strong className="font-display font-medium text-ink" {...rest}>
       {children}
     </strong>
   );
@@ -204,7 +204,7 @@ function Code({
     );
   }
   return (
-    <code className="rounded-sm bg-paper px-1.5 py-0.5 font-mono text-sm text-ink" {...rest}>
+    <code className="rounded-sm bg-paper-2 px-2 py-0.5 font-mono text-sm text-ink" {...rest}>
       {children}
     </code>
   );
