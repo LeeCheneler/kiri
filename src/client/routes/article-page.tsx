@@ -135,7 +135,7 @@ export function ArticlePage({
         </div>
       </header>
 
-      <div className="mt-10">
+      <div className="mt-10 [&_li]:text-sm [&_p]:text-sm">
         <Markdown content={article.contentMd} withSectionOrdinals downgradeHeaderLevels={2} />
       </div>
     </article>
