@@ -11,6 +11,9 @@
   --color-rule: #2a2a26;
   --color-accent: #d6b85a;
   --color-accent-deep: #a58a3c;
+  /* Warm secondary accent. Tints slower-than-median runs in the workflow
+     duration sparkline — a "watch this" cue distinct from the status palette. */
+  --color-accent-warm: #c99858;
 
   --color-status-running: #7aaedb;
   --color-status-ok: #88a579;

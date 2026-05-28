@@ -14,6 +14,7 @@ import { ErrorMessage } from "./ui/error-message.tsx";
 import { LabelledBlock } from "./ui/labelled-block.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
 import { WorkflowRecentRuns } from "./workflow-recent-runs.tsx";
+import { WorkflowStats } from "./workflow-stats.tsx";
 import { WORKFLOW_TAB_PARAM, type WorkflowTabDef, WorkflowTabs } from "./workflow-tabs.tsx";
 
 /** Tab id holding the YAML definition; the hero's "view definition" action selects it. */
@@ -49,9 +50,10 @@ const articleCountLabel = (count: number): string =>
  * Editorial detail view for one workflow definition. Opens on a hero
  * lockup — a grouping eyebrow, the workflow name in italic Fraunces, an
  * optional description deck, and the run / view-definition actions —
- * above a tab strip. The structured definition (steps, publish,
- * summariser) lives in the rightmost "YAML definition" tab; the other
- * tabs hold placeholder copy until their dedicated views land.
+ * followed by an at-a-glance stats panel and then a tab strip. The
+ * structured definition (steps, publish, summariser) lives in the
+ * rightmost "YAML definition" tab; the other tabs hold placeholder copy
+ * until their dedicated views land.
  *
  * `onTrigger` returns a promise so the run button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
@@ -111,6 +113,8 @@ export function WorkflowDetailView({
       <BackLink href="/">all activity</BackLink>
 
       <WorkflowHero workflow={workflow} onTrigger={onTrigger} onViewDefinition={viewDefinition} />
+
+      <WorkflowStats workflowName={workflow.name} />
 
       <WorkflowTabs tabs={tabs} rightTabId={YAML_TAB_ID} />
     </article>

@@ -4,11 +4,18 @@ import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
+import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import type { WorkflowSummary } from "../api.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { WorkflowDetailView } from "./workflow-detail.tsx";
 
-afterEach(() => cleanup());
+// The view mounts two fetch-on-mount panels (the recent-runs feed and the
+// stats snapshot). Settle their fetches inside act() before unmounting so
+// synchronous tests don't leave a setState to land outside act and warn.
+afterEach(async () => {
+  await flushAsync();
+  cleanup();
+});
 
 const stubWorkflow = (overrides: Partial<WorkflowSummary> = {}): WorkflowSummary => ({
   name: "kiri-self-review",
@@ -83,6 +90,13 @@ describe("<WorkflowDetailView>", () => {
     it("labels the run button 'run' when the workflow declares no inputs", () => {
       renderDetail(stubWorkflow());
       expect(screen.getByRole("button", { name: "run" })).toBeDefined();
+    });
+  });
+
+  describe("stats panel", () => {
+    it("mounts the Last 14 runs panel between the hero and the tabs", () => {
+      renderDetail(stubWorkflow());
+      expect(screen.getByRole("heading", { name: /last 14 runs/i })).toBeDefined();
     });
   });
 
