@@ -47,7 +47,7 @@ describe("<WorkflowPage>", () => {
     expect(
       await screen.findByRole("heading", { level: 2, name: /kiri-self-review/i }),
     ).toBeDefined();
-    expect(screen.getByRole("heading", { level: 3, name: /steps/i })).toBeDefined();
+    expect(screen.getByRole("tab", { name: "Recent runs" })).toBeDefined();
   });
 
   it("renders a not-found view when the registry has no workflow with that name", async () => {
@@ -144,7 +144,9 @@ describe("<WorkflowPage>", () => {
       }),
     );
 
-    const { sources } = renderWorkflow("alpha");
+    // The definition (and its sh: source labels) lives on the YAML tab, so
+    // open the page there to observe the refetched step text.
+    const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=yaml");
     await screen.findByText(/sh: echo v1/);
 
     act(() => {
@@ -163,7 +165,7 @@ describe("<WorkflowPage>", () => {
       }),
     );
 
-    const { sources } = renderWorkflow("alpha");
+    const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=yaml");
     await screen.findByText(/sh: echo v1/);
 
     act(() => {
@@ -187,7 +189,7 @@ describe("<WorkflowPage>", () => {
     // still percent-encoded because wouter uses `decodeURI`, which leaves
     // `%2F` alone. The page must decode before comparing against the API.
     const encoded = encodeURIComponent("examples/recommendations");
-    const { sources } = renderWorkflow(encoded, `/workflows/${encoded}`);
+    const { sources } = renderWorkflow(encoded, `/workflows/${encoded}?tab=yaml`);
 
     expect(
       await screen.findByRole("heading", { level: 2, name: /examples\/recommendations/i }),

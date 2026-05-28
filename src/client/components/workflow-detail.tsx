@@ -1,4 +1,5 @@
 import { type ReactNode, useState } from "react";
+import { useSearchParams } from "wouter";
 import type {
   EnvValue,
   WorkflowPublishSummary,
@@ -12,6 +13,10 @@ import { EmptyState } from "./ui/empty-state.tsx";
 import { ErrorMessage } from "./ui/error-message.tsx";
 import { LabelledBlock } from "./ui/labelled-block.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
+import { WORKFLOW_TAB_PARAM, type WorkflowTabDef, WorkflowTabs } from "./workflow-tabs.tsx";
+
+/** Tab id holding the YAML definition; the hero's "view definition" action selects it. */
+const YAML_TAB_ID = "yaml";
 
 const SH_LABEL_LIMIT = 60;
 
@@ -43,11 +48,9 @@ const articleCountLabel = (count: number): string =>
  * Editorial detail view for one workflow definition. Opens on a hero
  * lockup — a grouping eyebrow, the workflow name in italic Fraunces, an
  * optional description deck, and the run / view-definition actions —
- * above the definition sections (steps, publish, summariser).
- *
- * Every entry — step, publish, summariser — renders the same config
- * blocks (description, source, env) using one shared component so the
- * page reads as a single rhythm of identical units.
+ * above a tab strip. The structured definition (steps, publish,
+ * summariser) lives in the rightmost "YAML definition" tab; the other
+ * tabs hold placeholder copy until their dedicated views land.
  *
  * `onTrigger` returns a promise so the run button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
@@ -62,14 +65,69 @@ export function WorkflowDetailView({
   workflow: WorkflowSummary;
   onTrigger: (name: string, inputs?: Record<string, string>) => Promise<unknown>;
 }) {
-  const stepCount = workflow.steps.length;
+  const [, setParams] = useSearchParams();
+
+  const viewDefinition = () => {
+    setParams(
+      (prev) => {
+        prev.set(WORKFLOW_TAB_PARAM, YAML_TAB_ID);
+        return prev;
+      },
+      { replace: true },
+    );
+  };
+
+  const tabs: WorkflowTabDef[] = [
+    {
+      id: "recent",
+      label: "Recent runs",
+      content: <EmptyState>recent runs are coming soon.</EmptyState>,
+    },
+    {
+      id: "inputs",
+      label: "Inputs",
+      content: <EmptyState>the inputs view is coming soon.</EmptyState>,
+    },
+    {
+      id: "steps",
+      label: "Steps",
+      content: <EmptyState>the steps view is coming soon.</EmptyState>,
+    },
+    {
+      id: "summariser",
+      label: "Summariser",
+      content: <EmptyState>the summariser view is coming soon.</EmptyState>,
+    },
+    {
+      id: YAML_TAB_ID,
+      label: "YAML definition",
+      content: <DefinitionPanel workflow={workflow} />,
+    },
+  ];
+
   return (
     <article>
       <BackLink href="/">all activity</BackLink>
 
-      <WorkflowHero workflow={workflow} onTrigger={onTrigger} />
+      <WorkflowHero workflow={workflow} onTrigger={onTrigger} onViewDefinition={viewDefinition} />
 
-      <section id="definition" className="mt-12">
+      <WorkflowTabs tabs={tabs} rightTabId={YAML_TAB_ID} />
+    </article>
+  );
+}
+
+/**
+ * The structured workflow definition rendered inside the "YAML
+ * definition" tab: the ordered steps, then the optional publish and
+ * summarise sections. Every entry renders the same config blocks
+ * (description, source, env) so the panel reads as one rhythm of
+ * identical units.
+ */
+function DefinitionPanel({ workflow }: { workflow: WorkflowSummary }) {
+  const stepCount = workflow.steps.length;
+  return (
+    <>
+      <section>
         <SectionHeader title="Steps" meta={stepCountLabel(stepCount)} />
         {stepCount === 0 ? (
           <EmptyState>no steps defined.</EmptyState>
@@ -108,7 +166,7 @@ export function WorkflowDetailView({
       )}
 
       {workflow.summarize && <SummariseSection step={workflow.summarize} />}
-    </article>
+    </>
   );
 }
 
@@ -158,7 +216,8 @@ function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
  * Workflow page hero. A grouping eyebrow (keyed off the workflow's
  * optional `group`, falling back to a static label), the workflow name
  * in italic Fraunces, an optional description deck, and a row of
- * actions: a primary run affordance plus an anchor to the definition.
+ * actions: a primary run affordance plus a "view definition" button
+ * that switches the tab strip to the YAML definition tab.
  *
  * The run button opens the invoke modal for workflows declaring
  * `inputs:` and fires the run directly otherwise; in-flight and error
@@ -167,9 +226,11 @@ function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
 function WorkflowHero({
   workflow,
   onTrigger,
+  onViewDefinition,
 }: {
   workflow: WorkflowSummary;
   onTrigger: (name: string, inputs?: Record<string, string>) => Promise<unknown>;
+  onViewDefinition: () => void;
 }) {
   const hasInputs = workflow.inputs !== undefined && workflow.inputs.length > 0;
   const [state, setState] = useState<"idle" | "running">("idle");
@@ -215,12 +276,13 @@ function WorkflowHero({
         <Button pending={state === "running"} pendingLabel="running…" onClick={handleRun}>
           {hasInputs ? "run with inputs" : "run"}
         </Button>
-        <a
-          href="#definition"
-          className="border border-rule px-3 py-1.5 font-mono text-xs text-ink no-underline outline-none transition-colors duration-150 hover:border-accent hover:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+        <button
+          type="button"
+          onClick={onViewDefinition}
+          className="border border-rule px-3 py-1.5 font-mono text-xs text-ink outline-none transition-colors duration-150 hover:border-accent hover:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
         >
           view definition
-        </a>
+        </button>
       </div>
       <ErrorMessage message={errorMessage} />
       {modalOpen && workflow.inputs && (
