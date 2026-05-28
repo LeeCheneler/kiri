@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
@@ -8,8 +8,6 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { RunPage } from "./run-page.tsx";
-
-afterEach(() => cleanup());
 
 const renderRun = (id: string) => {
   const { hook } = memoryLocation({ path: `/runs/${id}` });

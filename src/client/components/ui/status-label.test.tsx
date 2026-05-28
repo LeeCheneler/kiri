@@ -1,8 +1,6 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { StatusLabel } from "./status-label.tsx";
-
-afterEach(() => cleanup());
 
 describe("<StatusLabel>", () => {
   it("renders the status keyword as text", () => {

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { Router } from "wouter";
@@ -9,8 +9,6 @@ import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { PageShell } from "./page-shell.tsx";
-
-afterEach(() => cleanup());
 
 const renderShell = (children: ReactNode, path = "/", rightAside?: ReactNode) => {
   const { hook } = memoryLocation({ path });

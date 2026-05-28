@@ -1,10 +1,8 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, mock } from "bun:test";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { WorkflowInputSummary } from "../api.ts";
 import { InvokeModal } from "./invoke-modal.tsx";
-
-afterEach(() => cleanup());
 
 const stubInputs = (overrides: Partial<WorkflowInputSummary>[] = []): WorkflowInputSummary[] => {
   if (overrides.length === 0) return [{ name: "pr_number", required: true }];

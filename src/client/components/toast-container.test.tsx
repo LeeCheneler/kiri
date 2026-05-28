@@ -1,12 +1,10 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { act, render, screen } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { ToastContainer } from "./toast-container.tsx";
-
-afterEach(() => cleanup());
 
 const renderToasts = ({
   path = "/",

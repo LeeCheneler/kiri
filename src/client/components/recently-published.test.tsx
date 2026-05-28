@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { act, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -7,8 +7,6 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { RecentlyPublished } from "./recently-published.tsx";
-
-afterEach(() => cleanup());
 
 const NOW = new Date("2026-05-21T12:00:00.000Z");
 

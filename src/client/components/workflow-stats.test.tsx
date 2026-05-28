@@ -1,17 +1,8 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { WorkflowStats } from "./workflow-stats.tsx";
-
-// Settle the on-mount snapshot fetch inside act() before unmounting, so a
-// synchronous test (one that asserts and returns without awaiting) doesn't
-// leave the fetch to resolve outside act and log a warning.
-afterEach(async () => {
-  await flushAsync();
-  cleanup();
-});
 
 const WORKFLOW = "dev-patch";
 const STARTED = "2026-05-09T12:00:00.000Z";

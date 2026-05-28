@@ -1,10 +1,8 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import { VersionInfo, compareVersions } from "./version-info.tsx";
-
-afterEach(() => cleanup());
 
 describe("compareVersions", () => {
   it("returns -1 / 0 / 1 for numerically ordered semver-ish strings", () => {

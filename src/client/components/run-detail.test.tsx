@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -13,8 +13,6 @@ import type {
   WorkflowSummary,
 } from "../api.ts";
 import { RunDetailView } from "./run-detail.tsx";
-
-afterEach(() => cleanup());
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 

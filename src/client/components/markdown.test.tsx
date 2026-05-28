@@ -1,12 +1,10 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import { mockReactVega } from "../../../tests/setup/react-vega-mock.tsx";
 import { Markdown } from "./markdown.tsx";
 
 mockReactVega();
-
-afterEach(() => cleanup());
 
 describe("<Markdown>", () => {
   it("renders headings, lists, links, and code blocks", () => {

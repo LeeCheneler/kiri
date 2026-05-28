@@ -1,11 +1,9 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { type WorkflowTabDef, WorkflowTabs } from "./workflow-tabs.tsx";
-
-afterEach(() => cleanup());
 
 const TABS: WorkflowTabDef[] = [
   { id: "recent", label: "Recent runs", content: <p>recent panel</p> },

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -7,8 +7,6 @@ import { captureEventSources } from "../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../tests/setup/flush-async.ts";
 import { server } from "../../tests/setup/msw.ts";
 import { App } from "./app.tsx";
-
-afterEach(() => cleanup());
 
 const renderAt = (path: string) => {
   const { hook } = memoryLocation({ path });

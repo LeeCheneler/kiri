@@ -1,8 +1,6 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { ErrorMessage } from "./error-message.tsx";
-
-afterEach(() => cleanup());
 
 describe("<ErrorMessage>", () => {
   it("renders an alert paragraph carrying the supplied message", () => {

@@ -1,10 +1,8 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { BackLink } from "./back-link.tsx";
-
-afterEach(() => cleanup());
 
 const renderLink = (ui: React.ReactElement) => {
   const { hook } = memoryLocation({ path: "/" });

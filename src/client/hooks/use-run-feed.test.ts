@@ -1,9 +1,7 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { RunListEntry, RunsPage } from "../api.ts";
 import { useRunFeed } from "./use-run-feed.ts";
-
-afterEach(() => cleanup());
 
 const stubRun = (id: string, workflowName = "wf"): RunListEntry => ({
   id,

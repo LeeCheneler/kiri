@@ -1,12 +1,10 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { createRef } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type { RunListEntry } from "../api.ts";
 import { ActivityFeed } from "./activity-feed.tsx";
-
-afterEach(() => cleanup());
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 

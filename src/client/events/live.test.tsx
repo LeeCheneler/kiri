@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
-import { act, cleanup, render } from "@testing-library/react";
+import { describe, expect, it, mock } from "bun:test";
+import { act, render } from "@testing-library/react";
 import { useState } from "react";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import {
@@ -9,8 +9,6 @@ import {
   useLiveReconnect,
   useLiveSync,
 } from "./live.tsx";
-
-afterEach(() => cleanup());
 
 const Probe = ({
   on,

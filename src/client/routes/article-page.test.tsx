@@ -1,12 +1,10 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../tests/setup/msw.ts";
 import { ArticlePage } from "./article-page.tsx";
-
-afterEach(() => cleanup());
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 

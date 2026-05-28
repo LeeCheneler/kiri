@@ -1,8 +1,6 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { LoadingState } from "./loading-state.tsx";
-
-afterEach(() => cleanup());
 
 describe("<LoadingState>", () => {
   it("renders its children as paragraph text", () => {

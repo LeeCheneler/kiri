@@ -1,8 +1,6 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { LabelledBlock } from "./labelled-block.tsx";
-
-afterEach(() => cleanup());
 
 describe("<LabelledBlock>", () => {
   it("renders the label as a heading", () => {

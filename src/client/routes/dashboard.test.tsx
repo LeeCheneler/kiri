@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -11,7 +11,6 @@ import { LiveEventsProvider } from "../events/live.tsx";
 import { Dashboard } from "./dashboard.tsx";
 
 afterEach(() => {
-  cleanup();
   FakeIntersectionObserver.reset();
 });
 

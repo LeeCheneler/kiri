@@ -1,11 +1,7 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, mock } from "bun:test";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CopyButton } from "./copy-button.tsx";
-
-afterEach(() => {
-  cleanup();
-});
 
 // userEvent.setup() replaces navigator.clipboard with a get-only stub,
 // so any clipboard mock must be installed *after* setup runs. This

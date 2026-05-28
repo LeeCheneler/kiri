@@ -1,11 +1,9 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen, within } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type { WorkflowSummary } from "../api.ts";
 import { WorkflowsNav } from "./workflows-nav.tsx";
-
-afterEach(() => cleanup());
 
 const renderNav = (workflows: WorkflowSummary[], activeName: string | null = null) => {
   const { hook } = memoryLocation({ path: "/" });

@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it } from "bun:test";
+import { act, render, screen } from "@testing-library/react";
 import { FakeIntersectionObserver } from "../../../tests/setup/fake-intersection-observer.ts";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { ArticleAside } from "./article-aside.tsx";
@@ -7,8 +7,6 @@ import { ArticleAside } from "./article-aside.tsx";
 beforeEach(() => {
   FakeIntersectionObserver.reset();
 });
-
-afterEach(() => cleanup());
 
 // Render the aside alongside a fake <main> body that owns the section
 // headings — production-ish layout where the aside reads headings from

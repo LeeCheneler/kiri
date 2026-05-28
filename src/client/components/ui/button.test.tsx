@@ -1,9 +1,7 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it, mock } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Button } from "./button.tsx";
-
-afterEach(() => cleanup());
 
 describe("<Button>", () => {
   it("renders the children as the label by default", () => {

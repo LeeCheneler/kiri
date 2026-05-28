@@ -1,8 +1,6 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { SectionHeader } from "./section-header.tsx";
-
-afterEach(() => cleanup());
 
 describe("<SectionHeader>", () => {
   it("renders the title as a heading", () => {

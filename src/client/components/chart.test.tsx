@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { lastEmbed, mockReactVega, resetEmbed } from "../../../tests/setup/react-vega-mock.tsx";
 
 mockReactVega();
@@ -22,7 +22,6 @@ const DESIGN_TOKENS: Record<string, string> = {
 };
 
 afterEach(() => {
-  cleanup();
   resetEmbed();
   for (const name of Object.keys(DESIGN_TOKENS)) {
     document.documentElement.style.removeProperty(name);

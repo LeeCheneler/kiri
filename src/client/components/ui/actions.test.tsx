@@ -1,9 +1,7 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
+import { render, screen } from "@testing-library/react";
 import { Actions } from "./actions.tsx";
 import { Button } from "./button.tsx";
-
-afterEach(() => cleanup());
 
 describe("<Actions>", () => {
   it("renders its button children in a row", () => {

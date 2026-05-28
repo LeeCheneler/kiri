@@ -1,5 +1,5 @@
 [test]
-preload = ["./tests/setup/happy-dom.ts", "./tests/setup/msw.ts"]
+preload = ["./tests/setup/happy-dom.ts", "./tests/setup/msw.ts", "./tests/setup/rtl-cleanup.ts"]
 coverage = true
 coverageThreshold = 1.0
 coverageReporter = ["text", "lcov"]
