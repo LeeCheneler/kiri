@@ -39,6 +39,7 @@ const MAX_RUN_LIMIT = 100;
 const runListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_RUN_LIMIT).default(DEFAULT_RUN_LIMIT),
+  workflow: z.string().min(1).optional(),
 });
 
 const recommendationActionParamSchema = z.object({
@@ -56,7 +57,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
   const app = new Hono();
 
   app.get("/", zValidator("query", runListQuerySchema, onZodFail("invalid query")), (c) => {
-    const { cursor, limit } = c.req.valid("query");
+    const { cursor, limit, workflow } = c.req.valid("query");
 
     // Keyset pagination on the compound key (started_at DESC, id DESC). The
     // cursor is the last seen run's id; we look it up to resolve its
@@ -72,16 +73,21 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       anchor = found;
     }
 
+    // An unknown `workflow` simply matches no rows — an empty page is the
+    // right answer, not a 4xx, so the equality filter handles it for free.
     const rows = db
       .select()
       .from(runs)
       .where(
-        anchor
-          ? or(
-              lt(runs.startedAt, anchor.startedAt),
-              and(eq(runs.startedAt, anchor.startedAt), lt(runs.id, anchor.id)),
-            )
-          : undefined,
+        and(
+          workflow !== undefined ? eq(runs.workflowName, workflow) : undefined,
+          anchor
+            ? or(
+                lt(runs.startedAt, anchor.startedAt),
+                and(eq(runs.startedAt, anchor.startedAt), lt(runs.id, anchor.id)),
+              )
+            : undefined,
+        ),
       )
       .orderBy(desc(runs.startedAt), desc(runs.id))
       .limit(limit)

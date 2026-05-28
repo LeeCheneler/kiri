@@ -142,6 +142,84 @@ describe("runs routes", () => {
       expect(await res.json()).toEqual({ error: 'cursor "does-not-exist" not found' });
     });
 
+    it("scopes the listing to one workflow when ?workflow= is supplied", async () => {
+      writeBundle(env.cwd, "a", "#!/bin/sh\necho a\n");
+      writeBundle(env.cwd, "b", "#!/bin/sh\necho b\n");
+      const wfA: WorkflowDefinition = { name: "alpha", steps: [{ use: "a" }] };
+      const wfB: WorkflowDefinition = { name: "beta", steps: [{ use: "b" }] };
+      env.registry.replace(
+        new Map([
+          [wfA.name, wfA],
+          [wfB.name, wfB],
+        ]),
+      );
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const alpha1 = await triggerAndAwait(app, "alpha", waitForFinished);
+      await triggerAndAwait(app, "beta", waitForFinished);
+      const alpha2 = await triggerAndAwait(app, "alpha", waitForFinished);
+
+      const res = await app.request("/api/runs?workflow=alpha");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as RunsPageBody;
+      // Newest-first, beta excluded entirely.
+      expect(body.runs.map((r) => r.id)).toEqual([alpha2, alpha1]);
+      expect(body.runs.every((r) => r.workflowName === "alpha")).toBe(true);
+      expect(body.nextCursor).toBeNull();
+    });
+
+    it("returns an empty page for an unknown workflow name rather than a 4xx", async () => {
+      writeBundle(env.cwd, "n", "#!/bin/sh\necho n\n");
+      const wf: WorkflowDefinition = { name: "wf", steps: [{ use: "n" }] };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      await triggerAndAwait(app, "wf", waitForFinished);
+
+      const res = await app.request("/api/runs?workflow=ghost");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as RunsPageBody;
+      expect(body.runs).toEqual([]);
+      expect(body.nextCursor).toBeNull();
+    });
+
+    it("pages forward within the workflow filter, skipping other workflows' runs", async () => {
+      writeBundle(env.cwd, "a", "#!/bin/sh\necho a\n");
+      writeBundle(env.cwd, "b", "#!/bin/sh\necho b\n");
+      const wfA: WorkflowDefinition = { name: "alpha", steps: [{ use: "a" }] };
+      const wfB: WorkflowDefinition = { name: "beta", steps: [{ use: "b" }] };
+      env.registry.replace(
+        new Map([
+          [wfA.name, wfA],
+          [wfB.name, wfB],
+        ]),
+      );
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      // Interleave beta runs between the alpha runs so the keyset cursor has
+      // to step over them rather than landing on an adjacent row.
+      const alpha1 = await triggerAndAwait(app, "alpha", waitForFinished);
+      await triggerAndAwait(app, "beta", waitForFinished);
+      const alpha2 = await triggerAndAwait(app, "alpha", waitForFinished);
+      await triggerAndAwait(app, "beta", waitForFinished);
+      const alpha3 = await triggerAndAwait(app, "alpha", waitForFinished);
+
+      const page1 = (await (
+        await app.request("/api/runs?workflow=alpha&limit=2")
+      ).json()) as RunsPageBody;
+      expect(page1.runs.map((r) => r.id)).toEqual([alpha3, alpha2]);
+      expect(page1.nextCursor).toBe(alpha2);
+
+      const page2 = (await (
+        await app.request(`/api/runs?workflow=alpha&limit=2&cursor=${page1.nextCursor}`)
+      ).json()) as RunsPageBody;
+      expect(page2.runs.map((r) => r.id)).toEqual([alpha1]);
+      expect(page2.nextCursor).toBeNull();
+    });
+
     it("attaches each run's articles to its row in a single aggregation across the page", async () => {
       writeBundle(env.cwd, "step", "#!/bin/sh\necho s\n");
       writeBundle(env.cwd, "digest", "#!/bin/sh\necho digest-body\n");
