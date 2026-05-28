@@ -248,7 +248,7 @@ type EntryShape = { description?: string; env?: Record<string, EnvValue> } & (
 );
 
 /** Line count beyond which an inline source starts collapsed. */
-const SOURCE_COLLAPSE_LINES = 12;
+const SOURCE_COLLAPSE_LINES = 4;
 
 /**
  * Inline `sh:` source viewer. Short scripts render in full; scripts past
@@ -266,12 +266,12 @@ function SourceBlock({ source }: { source: string }) {
   if (!collapsible) return pre;
   return (
     <div>
-      <div className={`relative ${expanded ? "" : "max-h-48 overflow-hidden"}`}>
+      <div className={`relative ${expanded ? "" : "max-h-16 overflow-hidden"}`}>
         {pre}
         {!expanded && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-b from-transparent to-canvas"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-b from-transparent to-canvas"
           />
         )}
       </div>
