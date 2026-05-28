@@ -33,7 +33,7 @@
     background: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1.55;
     font-feature-settings: "tnum", "ss01";
     -webkit-font-smoothing: antialiased;
