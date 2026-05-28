@@ -7,7 +7,7 @@ Companion to `design-notes.md`. M0–M7 are shipped — see `git log` for the hi
 These are constraints, not work items. They hold for every milestone below.
 
 - Standard step envelope (`status`, `output`, `error`, `traces`) — established in M0, never deferred
-- Workflow YAML validated against a Zod schema; the top-level shape is fixed (`steps`, `inputs`, `summarize`, `publish`) but step `env:` contents are bundle-defined and not validated by kiri
+- Workflow YAML validated against a Zod schema; the top-level shape is fixed (`steps`, `inputs`, `summarize`, `publish`, `description`, `group`) but step `env:` contents are bundle-defined and not validated by kiri
 - No shell interpolation of inputs anywhere — argv arrays and env vars only
 - Kiri is a CLI launched per-repo; workflow definitions live in `<cwd>/workflows/` of whichever repo Kiri is running against. No global cross-repo store
 - Repo-scoped runtime state lives in `<cwd>/.kiri/` (gitignored)

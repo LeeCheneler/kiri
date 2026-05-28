@@ -173,6 +173,14 @@ steps:
   - sh: echo "hello world"</code></pre>
       <p>Edits are picked up live — no restart needed. The activity feed on <a href="/">local.kiri.build</a> is where runs surface.</p>
 
+      <h3>Title &amp; grouping — <code>description:</code> / <code>group:</code></h3>
+      <p>Two optional top-level fields shape how a workflow presents on its page: <code>description:</code> is a one-line summary rendered as the deck beneath the title, and <code>group:</code> is a label (e.g. <code>Dev</code>) shown as the page eyebrow so related workflows read as a set.</p>
+      <pre><code>name: Patch
+description: Patches Dependabot alerts and opens a PR.
+group: Dev
+steps:
+  - sh: echo "patching"</code></pre>
+
       <h3>Inline shell — <code>sh:</code></h3>
       <p>The simplest step. The string runs under <code>sh -c</code> with a scoped env. Useful for quick scripts that don't warrant a bundle:</p>
       <pre><code>name: open-prs

@@ -19,6 +19,8 @@ single workflow. Kiri loads them on startup, validates each against
 
 \`\`\`yaml
 name: my-workflow
+description: One-line summary shown on the workflow page.  # optional
+group: Examples                                            # optional, groups related workflows
 steps:
   - use: my-bundle
     env:
@@ -29,6 +31,10 @@ steps:
 
 Workflows are linear pipelines — each step's output feeds the next. No
 branches, conditionals, or fan-out/fan-in.
+
+\`description\` and \`group\` are optional top-level metadata: \`description\`
+renders as the deck beneath the workflow's title, and \`group\` becomes the
+page eyebrow so related workflows read as a set.
 
 ### Step variants
 
@@ -181,6 +187,7 @@ Safe — existing files are never overwritten; only the schema is refreshed.
 export const HELLO_WORLD_WORKFLOW = `# yaml-language-server: $schema=../.kiri/workflow.schema.json
 
 name: Hello World
+description: A starter workflow — greets whoever you name when you run it.
 
 inputs:
   - name: name

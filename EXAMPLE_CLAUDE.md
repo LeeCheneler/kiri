@@ -40,6 +40,8 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
 # yaml-language-server: $schema=../.kiri/workflow.schema.json   # editor LSP
 
 name: My Workflow            # required, unique across workflows/
+description: "..."           # optional — one-line summary, shown as the workflow page deck
+group: Dev                   # optional — grouping label, shown as the workflow page eyebrow
 
 inputs:                      # optional — parameters collected via a modal at invoke
   - name: pr_number          # identifier referenced from a step's env (`{ input: pr_number }`)
