@@ -85,11 +85,6 @@ export function ArticlePage({
         <h2 className="font-display text-[76px] text-ink italic leading-[0.95] tracking-tight">
           {article.title}
         </h2>
-        {article.heading !== null && (
-          <p className="mt-4 max-w-[58ch] font-display text-xl text-ink-muted italic leading-snug">
-            {article.heading}
-          </p>
-        )}
 
         <div className="mt-7 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-rule border-b pb-3.5 font-mono text-xs text-ink-muted">
           <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
@@ -141,7 +136,7 @@ export function ArticlePage({
       </header>
 
       <div className="mt-10">
-        <Markdown content={article.contentMd} withSectionOrdinals />
+        <Markdown content={article.contentMd} withSectionOrdinals downgradeHeaderLevels={2} />
       </div>
     </article>
   );

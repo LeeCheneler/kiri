@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import { mockReactVega } from "../../../tests/setup/react-vega-mock.tsx";
 import { Markdown } from "./markdown.tsx";
 
@@ -226,27 +227,28 @@ describe("<Markdown>", () => {
   });
 
   describe("withSectionOrdinals", () => {
-    const source = ["## What stood out", "", "Body.", "", "## Why it matters", "", "More."].join(
+    const source = ["# What stood out", "", "Body.", "", "# Why it matters", "", "More."].join(
       "\n",
     );
 
-    it("stamps section-NN ids and § NN eyebrows on rendered h2 headings", () => {
+    it("stamps section-NN ids and § NN eyebrows on authored # headings", () => {
       const { container } = render(<Markdown content={source} withSectionOrdinals />);
-      const h2s = Array.from(container.querySelectorAll("h2"));
-      expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+      // No downgrade — authored # renders as h1, ordinals attach there.
+      const h1s = Array.from(container.querySelectorAll("h1"));
+      expect(h1s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
       // Eyebrow span sits at the start of each heading and is aria-hidden
       // so the heading's accessible name remains the prose text only.
-      expect(h2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
-      expect(h2s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
-      expect(screen.getByRole("heading", { level: 2, name: "What stood out" })).toBeDefined();
-      expect(screen.getByRole("heading", { level: 2, name: "Why it matters" })).toBeDefined();
+      expect(h1s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
+      expect(h1s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
+      expect(screen.getByRole("heading", { level: 1, name: "What stood out" })).toBeDefined();
+      expect(screen.getByRole("heading", { level: 1, name: "Why it matters" })).toBeDefined();
     });
 
     it("leaves headings untouched when the prop is omitted", () => {
       const { container } = render(<Markdown content={source} />);
-      const h2s = Array.from(container.querySelectorAll("h2"));
-      expect(h2s.map((h) => h.id)).toEqual(["", ""]);
-      expect(h2s[0]?.querySelector("span[aria-hidden]")).toBeNull();
+      const h1s = Array.from(container.querySelectorAll("h1"));
+      expect(h1s.map((h) => h.id)).toEqual(["", ""]);
+      expect(h1s[0]?.querySelector("span[aria-hidden]")).toBeNull();
     });
 
     it("restarts the counter per Markdown instance", () => {
@@ -254,12 +256,27 @@ describe("<Markdown>", () => {
       // inside the per-render heading component, not in module scope.
       const { container } = render(
         <>
-          <Markdown content={"## Alpha"} withSectionOrdinals />
-          <Markdown content={"## Beta"} withSectionOrdinals />
+          <Markdown content={"# Alpha"} withSectionOrdinals />
+          <Markdown content={"# Beta"} withSectionOrdinals />
         </>,
       );
-      const h2s = Array.from(container.querySelectorAll("h2"));
-      expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-01"]);
+      const h1s = Array.from(container.querySelectorAll("h1"));
+      expect(h1s.map((h) => h.id)).toEqual(["section-01", "section-01"]);
+    });
+
+    it("does not double-count under React.StrictMode's double-render", () => {
+      // Ordinals key off AST node identity rather than a plain increment,
+      // so repeated invocations of the same heading return the same value
+      // — guarding against StrictMode bumping § 01 to § 02 in dev.
+      const { container } = render(
+        <StrictMode>
+          <Markdown content={"# Only Heading"} withSectionOrdinals />
+        </StrictMode>,
+      );
+      const h1s = Array.from(container.querySelectorAll("h1"));
+      expect(h1s).toHaveLength(1);
+      expect(h1s[0]?.id).toBe("section-01");
+      expect(h1s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
     });
   });
 
@@ -289,21 +306,21 @@ describe("<Markdown>", () => {
       expect(container.querySelector("h6")?.textContent).toBe("Six");
     });
 
-    it("composes with withSectionOrdinals — eyebrows follow whichever level renders as h2", () => {
-      // With downgrade=1, authored `# ` lands at h2 and picks up the
-      // ordinal eyebrow. The would-be-h2 (authored `## `) shifts to h3.
+    it("composes with withSectionOrdinals — eyebrows follow authored # to its rendered level", () => {
+      // With downgrade=2, authored `# ` lands at h3 and picks up the
+      // ordinal eyebrow. Authored `## ` shifts to h4 and stays untouched.
       const { container } = render(
         <Markdown
           content={"# First\n\n## Sub\n\n# Second"}
-          downgradeHeaderLevels={1}
+          downgradeHeaderLevels={2}
           withSectionOrdinals
         />,
       );
-      const h2s = Array.from(container.querySelectorAll("h2"));
-      expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
-      expect(h2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
-      // No ordinal on the shifted h3.
-      expect(container.querySelector("h3")?.querySelector("span[aria-hidden]")).toBeNull();
+      const h3s = Array.from(container.querySelectorAll("h3"));
+      expect(h3s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+      expect(h3s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
+      // No ordinal on the shifted h4 (authored ##).
+      expect(container.querySelector("h4")?.querySelector("span[aria-hidden]")).toBeNull();
     });
   });
 });
