@@ -208,7 +208,7 @@ export function RunDetailView({
               <StatusLabel status={status} />
             </dd>
           </div>
-          <span aria-hidden="true" className="text-rule">
+          <span aria-hidden="true" className="text-ink-faint">
             ·
           </span>
           <div className="flex items-baseline">
@@ -221,7 +221,7 @@ export function RunDetailView({
           </div>
           {run.finishedAt && (
             <>
-              <span aria-hidden="true" className="text-rule">
+              <span aria-hidden="true" className="text-ink-faint">
                 ·
               </span>
               <div className="flex items-baseline">
@@ -232,7 +232,7 @@ export function RunDetailView({
           )}
           {run.gitSha && (
             <>
-              <span aria-hidden="true" className="text-rule">
+              <span aria-hidden="true" className="text-ink-faint">
                 ·
               </span>
               <div className="flex items-baseline gap-1.5">
@@ -246,7 +246,7 @@ export function RunDetailView({
           )}
           {run.isInterrupted && (
             <>
-              <span aria-hidden="true" className="text-rule">
+              <span aria-hidden="true" className="text-ink-faint">
                 ·
               </span>
               <span className="italic">deleted</span>

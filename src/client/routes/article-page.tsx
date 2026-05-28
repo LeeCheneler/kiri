@@ -95,7 +95,7 @@ export function ArticlePage({
             >
               {article.workflowName}
             </Link>
-            <span aria-hidden="true" className="text-rule">
+            <span aria-hidden="true" className="text-ink-faint">
               ·
             </span>
             <time dateTime={article.createdAt} title={article.createdAt}>
@@ -103,7 +103,7 @@ export function ArticlePage({
             </time>
             {article.finishedAt && (
               <>
-                <span aria-hidden="true" className="text-rule">
+                <span aria-hidden="true" className="text-ink-faint">
                   ·
                 </span>
                 <span className="tabular-nums">
@@ -113,7 +113,7 @@ export function ArticlePage({
             )}
             {article.gitSha && (
               <>
-                <span aria-hidden="true" className="text-rule">
+                <span aria-hidden="true" className="text-ink-faint">
                   ·
                 </span>
                 <span className="bg-paper px-1.5 py-0.5 tabular-nums" title={article.gitSha}>

@@ -94,11 +94,11 @@ export function ActivityFeed({
                   <span className="tracking-wider">
                     <StatusLabel status={status} />
                   </span>
-                  <span className="text-rule">·</span>
+                  <span className="text-ink-faint">·</span>
                   <span>{formatRelativeTime(run.startedAt, now)}</span>
                   {run.finishedAt && (
                     <>
-                      <span className="text-rule">·</span>
+                      <span className="text-ink-faint">·</span>
                       <span className="tabular-nums">
                         {formatDuration(run.startedAt, run.finishedAt)}
                       </span>
@@ -106,13 +106,13 @@ export function ActivityFeed({
                   )}
                   {isWorkflow && run.gitSha && (
                     <>
-                      <span className="text-rule">·</span>
+                      <span className="text-ink-faint">·</span>
                       <code className="font-mono">{run.gitSha.slice(0, 7)}</code>
                     </>
                   )}
                   {run.recommendationsCount > 0 && (
                     <>
-                      <span className="text-rule">·</span>
+                      <span className="text-ink-faint">·</span>
                       <span>
                         {run.recommendationsCount === 1
                           ? "1 recommendation"
@@ -122,7 +122,7 @@ export function ActivityFeed({
                   )}
                   {run.isInterrupted && (
                     <>
-                      <span className="text-rule">·</span>
+                      <span className="text-ink-faint">·</span>
                       <span className="italic">deleted</span>
                     </>
                   )}
