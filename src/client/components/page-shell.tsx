@@ -27,10 +27,11 @@ const activeWorkflowName = (location: string): string | null => {
  * `rightAside`. Below the `lg` breakpoint the grid collapses to a
  * single column.
  *
- * `rightAside` is the per-route marginalia slot — the dashboard and run
- * surfaces pass `<RecentlyPublished>`, the article route passes its
- * `<ArticleAside>` TOC. When omitted the right column renders empty so
- * the centre column keeps a stable width across routes.
+ * `rightAside` is the per-route marginalia slot — the home dashboard
+ * passes `<RecentlyPublished>`, the article route passes its
+ * `<ArticleAside>` TOC, and other routes pass nothing. When omitted the
+ * right column renders empty so the centre column keeps a stable width
+ * across routes.
  *
  * The shell owns the workflows fetch so the nav stays consistent across
  * routes; the workflows nav stays hidden until the registry resolves so

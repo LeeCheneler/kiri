@@ -20,15 +20,19 @@ const ARTICLE_ROUTE = /^\/runs\/[^/]+\/published\/[^/]+$/;
  * route is mounted.
  *
  * The right rail is route-dependent: the article reading view gets its
- * marginalia TOC, every other route keeps the cross-run
- * recently-published shortlist.
+ * marginalia TOC, the home dashboard keeps the cross-run
+ * recently-published shortlist, and other routes leave it empty.
  *
  * `liveEventsFactory` is a test seam — production callers omit it and
  * get the native `EventSource`.
  */
 export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFactory } = {}) {
   const [location] = useLocation();
-  const rightAside = ARTICLE_ROUTE.test(location) ? <ArticleAside /> : <RecentlyPublished />;
+  const rightAside = ARTICLE_ROUTE.test(location) ? (
+    <ArticleAside />
+  ) : location === "/" ? (
+    <RecentlyPublished />
+  ) : undefined;
   return (
     <LiveEventsProvider factory={liveEventsFactory}>
       <PageShell rightAside={rightAside}>

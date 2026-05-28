@@ -57,10 +57,16 @@ describe("<App>", () => {
     await flushAsync();
   });
 
-  it("shows the Recently Published rail on non-article routes", async () => {
+  it("shows the Recently Published rail on the home route", async () => {
     renderAt("/");
     expect(await screen.findByRole("heading", { name: /recently published/i })).toBeDefined();
     await flushAsync();
+  });
+
+  it("omits the Recently Published rail on the workflow route", async () => {
+    renderAt("/workflows/example");
+    await flushAsync();
+    expect(screen.queryByRole("heading", { name: /recently published/i })).toBeNull();
   });
 
   it("swaps the right rail for the article TOC on the article route", async () => {
