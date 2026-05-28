@@ -3,7 +3,9 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import type { WorkflowSummary } from "../api.ts";
+import { LiveEventsProvider } from "../events/live.tsx";
 import { WorkflowDetailView } from "./workflow-detail.tsx";
 
 afterEach(() => cleanup());
@@ -21,9 +23,12 @@ const renderDetail = (
 ) => {
   const search = tab ? `?tab=${tab}` : "";
   const { hook } = memoryLocation({ path: `/workflows/${workflow.name}${search}` });
+  const { factory } = captureEventSources();
   return render(
     <Router hook={hook}>
-      <WorkflowDetailView workflow={workflow} onTrigger={onTrigger} />
+      <LiveEventsProvider factory={factory}>
+        <WorkflowDetailView workflow={workflow} onTrigger={onTrigger} />
+      </LiveEventsProvider>
     </Router>,
   );
 };
@@ -82,10 +87,12 @@ describe("<WorkflowDetailView>", () => {
   });
 
   describe("tabs", () => {
-    it("opens on the Recent runs tab by default", () => {
+    it("opens on the Recent runs tab by default", async () => {
       renderDetail(stubWorkflow());
       expect(screen.getByRole("tab", { name: "Recent runs", selected: true })).toBeDefined();
-      expect(screen.getByText(/recent runs are coming soon/i)).toBeDefined();
+      // The default panel hosts the recent-runs feed, which settles on its
+      // empty state for a workflow with no runs.
+      expect(await screen.findByText(/no runs yet/i)).toBeDefined();
     });
 
     it("hides the definition while the Recent runs tab is active", () => {

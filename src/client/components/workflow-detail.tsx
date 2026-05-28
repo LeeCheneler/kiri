@@ -13,6 +13,7 @@ import { EmptyState } from "./ui/empty-state.tsx";
 import { ErrorMessage } from "./ui/error-message.tsx";
 import { LabelledBlock } from "./ui/labelled-block.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
+import { WorkflowRecentRuns } from "./workflow-recent-runs.tsx";
 import { WORKFLOW_TAB_PARAM, type WorkflowTabDef, WorkflowTabs } from "./workflow-tabs.tsx";
 
 /** Tab id holding the YAML definition; the hero's "view definition" action selects it. */
@@ -81,7 +82,7 @@ export function WorkflowDetailView({
     {
       id: "recent",
       label: "Recent runs",
-      content: <EmptyState>recent runs are coming soon.</EmptyState>,
+      content: <WorkflowRecentRuns workflowName={workflow.name} />,
     },
     {
       id: "inputs",

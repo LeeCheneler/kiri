@@ -50,6 +50,48 @@ describe("<WorkflowPage>", () => {
     expect(screen.getByRole("tab", { name: "Recent runs" })).toBeDefined();
   });
 
+  it("renders the workflow's recent runs as feed rows in the default tab", async () => {
+    const seenWorkflow: (string | null)[] = [];
+    server.use(
+      http.get("*/api/workflows", () =>
+        HttpResponse.json([
+          { name: "dev-patch", inputs: [{ name: "repo", required: true }], steps: [{ use: "x" }] },
+        ]),
+      ),
+      http.get("*/api/runs", ({ request }) => {
+        seenWorkflow.push(new URL(request.url).searchParams.get("workflow"));
+        return HttpResponse.json({
+          runs: [
+            {
+              id: "r1",
+              workflowName: "dev-patch",
+              status: "ok",
+              startedAt: "2026-05-09T12:00:00.000Z",
+              finishedAt: "2026-05-09T12:00:01.000Z",
+              error: null,
+              summary: null,
+              definitionSnapshot: { name: "dev-patch", steps: [] },
+              gitSha: null,
+              gitDirty: null,
+              inputs: { repo: "autoid-verify-service" },
+              isInterrupted: false,
+              articles: [],
+              recommendationsCount: 0,
+            },
+          ],
+          nextCursor: null,
+        });
+      }),
+    );
+
+    renderWorkflow("dev-patch");
+
+    const row = await screen.findByRole("link", { name: /autoid-verify-service/i });
+    expect(row.getAttribute("href")).toBe("/runs/r1");
+    // The feed scoped its fetch to this workflow.
+    expect(seenWorkflow).toEqual(["dev-patch"]);
+  });
+
   it("renders a not-found view when the registry has no workflow with that name", async () => {
     server.use(
       http.get("*/api/workflows", () => HttpResponse.json([{ name: "other", steps: [] }])),
