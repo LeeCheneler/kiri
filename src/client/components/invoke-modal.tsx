@@ -109,9 +109,10 @@ export function InvokeModal({
         event.preventDefault();
         onCancel();
       }}
-      // Backdrop clicks land on the dialog element itself, not the inner
-      // card. Translate that into a cancel so the user can dismiss by
-      // clicking outside, matching native expectation for modal dialogs.
+      // A click dismisses only when its target is the dialog element
+      // itself — i.e. the backdrop. Padding lives on the inner wrapper
+      // below, not the dialog, so clicks anywhere in the visible card land
+      // on a child and never read as a backdrop click.
       onClick={(event) => {
         if (event.target === dialogRef.current) onCancel();
       }}
@@ -123,95 +124,97 @@ export function InvokeModal({
       // by any `text-right` (or RTL) inherited from the mount point's
       // ancestors — the dialog opens in the top layer visually but stays
       // a DOM child where it's rendered, and `text-align` inherits.
-      className="m-auto w-full max-w-md animate-[modal-in_180ms_ease-out] border border-rule bg-paper p-6 text-left text-ink shadow-xl backdrop:bg-canvas/80"
+      className="m-auto w-full max-w-md animate-[modal-in_180ms_ease-out] border border-rule bg-paper text-left text-ink shadow-xl backdrop:bg-canvas/80"
     >
-      <h2 id={headingId} className="font-display text-2xl text-ink leading-tight">
-        run {workflowName}
-      </h2>
-      {notice && (
-        <p
-          role="note"
-          className="mt-3 border-l-2 border-status-failed py-1 pl-3 font-mono text-xs text-ink-muted normal-case"
+      <div className="p-6">
+        <h2 id={headingId} className="font-display text-2xl text-ink leading-tight">
+          run {workflowName}
+        </h2>
+        {notice && (
+          <p
+            role="note"
+            className="mt-3 border-l-2 border-status-failed py-1 pl-3 font-mono text-xs text-ink-muted normal-case"
+          >
+            {notice}
+          </p>
+        )}
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+          className="mt-6 flex flex-col gap-5"
         >
-          {notice}
-        </p>
-      )}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-        className="mt-6 flex flex-col gap-5"
-      >
-        {inputs.map((input, index) => {
-          const fieldId = `invoke-input-${input.name}`;
-          const helpId = input.description ? `${fieldId}-help` : undefined;
-          const isFirstField = index === 0;
-          const handleChange = (next: string) =>
-            setValues((prev) => ({ ...prev, [input.name]: next }));
-          return (
-            <div key={input.name} className="flex flex-col gap-1.5">
-              <label
-                htmlFor={fieldId}
-                className="font-mono text-xs tracking-widest text-ink-muted uppercase"
-              >
-                {input.name}
-                {input.required && (
-                  <span aria-label="required" className="ml-1 text-accent">
-                    *
-                  </span>
-                )}
-              </label>
-              {input.description && (
-                <p id={helpId} className="font-display text-sm text-ink-muted italic">
-                  {input.description}
-                </p>
-              )}
-              {input.options ? (
-                <select
-                  ref={isFirstField ? firstSelectRef : undefined}
-                  id={fieldId}
-                  value={values[input.name] ?? ""}
-                  onChange={(event) => handleChange(event.target.value)}
-                  aria-describedby={helpId}
-                  aria-required={input.required ? true : undefined}
-                  className="border border-rule bg-canvas py-2 pr-10 pl-3 font-mono text-sm text-ink outline-none focus-visible:border-accent"
+          {inputs.map((input, index) => {
+            const fieldId = `invoke-input-${input.name}`;
+            const helpId = input.description ? `${fieldId}-help` : undefined;
+            const isFirstField = index === 0;
+            const handleChange = (next: string) =>
+              setValues((prev) => ({ ...prev, [input.name]: next }));
+            return (
+              <div key={input.name} className="flex flex-col gap-1.5">
+                <label
+                  htmlFor={fieldId}
+                  className="font-mono text-xs tracking-widest text-ink-muted uppercase"
                 >
-                  {input.options.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  ref={isFirstField ? firstFieldRef : undefined}
-                  id={fieldId}
-                  type="text"
-                  value={values[input.name] ?? ""}
-                  onChange={(event) => handleChange(event.target.value)}
-                  aria-describedby={helpId}
-                  aria-required={input.required ? true : undefined}
-                  className="border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent"
-                />
-              )}
-            </div>
-          );
-        })}
-        <div className="mt-2">
-          <Actions errorMessage={errorMessage}>
-            <TextButton onClick={onCancel}>cancel</TextButton>
-            <Button
-              type="submit"
-              pending={state === "submitting"}
-              pendingLabel="running…"
-              disabled={!allRequiredFilled}
-            >
-              run →
-            </Button>
-          </Actions>
-        </div>
-      </form>
+                  {input.name}
+                  {input.required && (
+                    <span aria-label="required" className="ml-1 text-accent">
+                      *
+                    </span>
+                  )}
+                </label>
+                {input.description && (
+                  <p id={helpId} className="font-display text-sm text-ink-muted italic">
+                    {input.description}
+                  </p>
+                )}
+                {input.options ? (
+                  <select
+                    ref={isFirstField ? firstSelectRef : undefined}
+                    id={fieldId}
+                    value={values[input.name] ?? ""}
+                    onChange={(event) => handleChange(event.target.value)}
+                    aria-describedby={helpId}
+                    aria-required={input.required ? true : undefined}
+                    className="border border-rule bg-canvas py-2 pr-10 pl-3 font-mono text-sm text-ink outline-none focus-visible:border-accent"
+                  >
+                    {input.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    ref={isFirstField ? firstFieldRef : undefined}
+                    id={fieldId}
+                    type="text"
+                    value={values[input.name] ?? ""}
+                    onChange={(event) => handleChange(event.target.value)}
+                    aria-describedby={helpId}
+                    aria-required={input.required ? true : undefined}
+                    className="border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent"
+                  />
+                )}
+              </div>
+            );
+          })}
+          <div className="mt-2">
+            <Actions errorMessage={errorMessage}>
+              <TextButton onClick={onCancel}>cancel</TextButton>
+              <Button
+                type="submit"
+                pending={state === "submitting"}
+                pendingLabel="running…"
+                disabled={!allRequiredFilled}
+              >
+                run →
+              </Button>
+            </Actions>
+          </div>
+        </form>
+      </div>
     </dialog>
   );
 }
