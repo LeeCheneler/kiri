@@ -3,6 +3,7 @@ import { InlineLink } from "../components/design-system/content/inline-link.tsx"
 import { List } from "../components/design-system/content/list.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
 import { Quote } from "../components/design-system/content/quote.tsx";
+import { Rule } from "../components/design-system/content/rule.tsx";
 import { Table } from "../components/design-system/content/table.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
 
@@ -424,6 +425,33 @@ export function DesignSystem() {
                     </tr>
                   </tbody>
                 </Table>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Rule</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Rule</span> ·
+              components/design-system/content/rule.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A hairline divider marking a break between passages. It renders the line only — the
+                space above and below is the caller's, so it never carries a baked-in margin.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Prose>
+                  <p>A passage of content above the break.</p>
+                </Prose>
+                <div className="my-6">
+                  <Rule />
+                </div>
+                <Prose>
+                  <p>And the content that resumes below it.</p>
+                </Prose>
               </Card>
             </div>
           </article>
