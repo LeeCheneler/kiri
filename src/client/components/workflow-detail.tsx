@@ -6,10 +6,10 @@ import type {
   WorkflowSummary,
 } from "../api.ts";
 import { InvokeModal } from "./invoke-modal.tsx";
-import { Actions } from "./ui/actions.tsx";
 import { BackLink } from "./ui/back-link.tsx";
 import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
+import { ErrorMessage } from "./ui/error-message.tsx";
 import { LabelledBlock } from "./ui/labelled-block.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
 
@@ -40,17 +40,16 @@ const articleCountLabel = (count: number): string =>
   count === 1 ? "1 article" : `${count} articles`;
 
 /**
- * Editorial detail view for one workflow definition. Header carries the
- * name in Fraunces with a trigger affordance set in the accent token.
- * Step count, article count (when the workflow publishes), and
- * summariser presence are listed alongside it in mono small caps so
- * the reader sees the run shape at a glance.
+ * Editorial detail view for one workflow definition. Opens on a hero
+ * lockup — a grouping eyebrow, the workflow name in italic Fraunces, an
+ * optional description deck, and the run / view-definition actions —
+ * above the definition sections (steps, publish, summariser).
  *
  * Every entry — step, publish, summariser — renders the same config
  * blocks (description, source, env) using one shared component so the
  * page reads as a single rhythm of identical units.
  *
- * `onTrigger` returns a promise so the button can show the in-flight
+ * `onTrigger` returns a promise so the run button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
  * detail on success. Workflows declaring `inputs:` collect values via
  * a modal before invoking — the second argument carries that map; it
@@ -64,35 +63,13 @@ export function WorkflowDetailView({
   onTrigger: (name: string, inputs?: Record<string, string>) => Promise<unknown>;
 }) {
   const stepCount = workflow.steps.length;
-  const publishCount = workflow.publish?.length ?? 0;
   return (
     <article>
       <BackLink href="/">all activity</BackLink>
 
-      <header className="relative mt-6 pl-6">
-        <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-rule" />
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="font-display text-4xl text-ink leading-tight">{workflow.name}</h2>
-          <TriggerButton workflow={workflow} onTrigger={onTrigger} />
-        </div>
-        <dl className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-muted">
-          <HeaderFact label="steps" value={stepCountLabel(stepCount)} />
-          {publishCount > 0 && (
-            <>
-              <HeaderSeparator />
-              <HeaderFact label="articles" value={articleCountLabel(publishCount)} />
-            </>
-          )}
-          {workflow.summarize && (
-            <>
-              <HeaderSeparator />
-              <HeaderFact label="summariser" value="summarised" />
-            </>
-          )}
-        </dl>
-      </header>
+      <WorkflowHero workflow={workflow} onTrigger={onTrigger} />
 
-      <section className="mt-12">
+      <section id="definition" className="mt-12">
         <SectionHeader title="Steps" meta={stepCountLabel(stepCount)} />
         {stepCount === 0 ? (
           <EmptyState>no steps defined.</EmptyState>
@@ -132,23 +109,6 @@ export function WorkflowDetailView({
 
       {workflow.summarize && <SummariseSection step={workflow.summarize} />}
     </article>
-  );
-}
-
-function HeaderFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline">
-      <dt className="sr-only">{label}</dt>
-      <dd className="tracking-widest uppercase">{value}</dd>
-    </div>
-  );
-}
-
-function HeaderSeparator() {
-  return (
-    <span aria-hidden="true" className="text-rule">
-      ·
-    </span>
   );
 }
 
@@ -194,19 +154,29 @@ function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
   );
 }
 
-function TriggerButton({
+/**
+ * Workflow page hero. A grouping eyebrow (keyed off the workflow's
+ * optional `group`, falling back to a static label), the workflow name
+ * in italic Fraunces, an optional description deck, and a row of
+ * actions: a primary run affordance plus an anchor to the definition.
+ *
+ * The run button opens the invoke modal for workflows declaring
+ * `inputs:` and fires the run directly otherwise; in-flight and error
+ * state live here so the button reflects the trigger's progress.
+ */
+function WorkflowHero({
   workflow,
   onTrigger,
 }: {
   workflow: WorkflowSummary;
   onTrigger: (name: string, inputs?: Record<string, string>) => Promise<unknown>;
 }) {
-  const hasInputs = workflow.inputs && workflow.inputs.length > 0;
+  const hasInputs = workflow.inputs !== undefined && workflow.inputs.length > 0;
   const [state, setState] = useState<"idle" | "running">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const handleClick = async () => {
+  const handleRun = async () => {
     if (hasInputs) {
       setModalOpen(true);
       return;
@@ -228,13 +198,31 @@ function TriggerButton({
     // the modal handles its own inline error state and re-enables submit.
   };
 
+  const eyebrow = workflow.group ? `${workflow.group} · Workflow` : "Workflow";
+
   return (
-    <>
-      <Actions errorMessage={errorMessage}>
-        <Button pending={state === "running"} pendingLabel="running…" onClick={handleClick}>
-          run →
+    <header className="mt-6 border-rule border-b pb-8">
+      <p className="font-mono text-xs text-accent uppercase tracking-widest">{eyebrow}</p>
+      <h2 className="mt-2 font-display text-[64px] text-ink italic leading-[0.95] tracking-tight">
+        {workflow.name}
+      </h2>
+      {workflow.description && (
+        <p className="mt-4 max-w-[56ch] font-display text-lg text-ink-muted italic leading-[1.45]">
+          {workflow.description}
+        </p>
+      )}
+      <div className="mt-6 flex flex-wrap items-baseline gap-3">
+        <Button pending={state === "running"} pendingLabel="running…" onClick={handleRun}>
+          {hasInputs ? "run with inputs" : "run"}
         </Button>
-      </Actions>
+        <a
+          href="#definition"
+          className="border border-rule px-3 py-1.5 font-mono text-xs text-ink no-underline outline-none transition-colors duration-150 hover:border-accent hover:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
+        >
+          view definition
+        </a>
+      </div>
+      <ErrorMessage message={errorMessage} />
       {modalOpen && workflow.inputs && (
         <InvokeModal
           workflowName={workflow.name}
@@ -243,7 +231,7 @@ function TriggerButton({
           onCancel={() => setModalOpen(false)}
         />
       )}
-    </>
+    </header>
   );
 }
 

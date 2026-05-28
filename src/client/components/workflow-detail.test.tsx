@@ -27,10 +27,15 @@ const renderDetail = (
 };
 
 describe("<WorkflowDetailView>", () => {
-  describe("header", () => {
+  describe("hero", () => {
     it("renders the workflow name as a level-2 heading", () => {
       renderDetail(stubWorkflow({ name: "pr-review" }));
       expect(screen.getByRole("heading", { level: 2, name: /pr-review/i })).toBeDefined();
+    });
+
+    it("keeps the full workflow name as the title when a group is set", () => {
+      renderDetail(stubWorkflow({ name: "patch", group: "Dev" }));
+      expect(screen.getByRole("heading", { level: 2, name: "patch" })).toBeDefined();
     });
 
     it("renders the back link to the activity feed", () => {
@@ -39,48 +44,54 @@ describe("<WorkflowDetailView>", () => {
       expect(link.getAttribute("href")).toBe("/");
     });
 
-    it("renders the singular step count when there is exactly one step", () => {
-      renderDetail(stubWorkflow({ steps: [{ sh: "echo one" }] }));
-      // Both header dl and section header carry the count.
-      expect(screen.getAllByText(/^1 step$/i).length).toBeGreaterThan(0);
-    });
-
-    it("renders the plural step count for multi-step workflows", () => {
-      renderDetail(
-        stubWorkflow({
-          steps: [{ sh: "echo a" }, { sh: "echo b" }, { sh: "echo c" }],
-        }),
-      );
-      expect(screen.getAllByText(/^3 steps$/i).length).toBeGreaterThan(0);
-    });
-
-    it("surfaces the article count in the header when the workflow publishes", () => {
-      renderDetail(
-        stubWorkflow({
-          publish: [{ name: "digest", title: "Digest", use: "claude-code" }],
-        }),
-      );
-      // Both the header dl and the publish section header carry the count.
-      expect(screen.getAllByText(/^1 article$/i).length).toBeGreaterThan(0);
-    });
-
-    it("omits the article slot when the workflow has no publish entries", () => {
+    it("renders a static eyebrow when the workflow has no group", () => {
       renderDetail(stubWorkflow());
-      expect(screen.queryByText(/article/i)).toBeNull();
+      expect(screen.getByText("Workflow")).toBeDefined();
     });
 
-    it("surfaces a 'summarised' indicator in the header when the workflow summarises", () => {
-      renderDetail(stubWorkflow({ summarize: { use: "claude-code-summarizer" } }));
-      expect(screen.getByText(/^summarised$/i)).toBeDefined();
+    it("renders the group in the eyebrow when one is set", () => {
+      renderDetail(stubWorkflow({ group: "Dev" }));
+      expect(screen.getByText("Dev · Workflow")).toBeDefined();
     });
 
-    it("omits the summariser indicator when the workflow has no summarize step", () => {
+    it("renders the description as the deck when present", () => {
+      renderDetail(stubWorkflow({ description: "Patches Dependabot alerts." }));
+      expect(screen.getByText("Patches Dependabot alerts.")).toBeDefined();
+    });
+
+    it("omits the deck when no description is declared", () => {
       renderDetail(stubWorkflow());
-      expect(screen.queryByText(/^summarised$/i)).toBeNull();
+      expect(screen.queryByText("Patches Dependabot alerts.")).toBeNull();
+    });
+
+    it("labels the run button 'run with inputs' when the workflow declares inputs", () => {
+      renderDetail(stubWorkflow({ inputs: [{ name: "pr_number", required: true }] }));
+      expect(screen.getByRole("button", { name: "run with inputs" })).toBeDefined();
+    });
+
+    it("labels the run button 'run' when the workflow declares no inputs", () => {
+      renderDetail(stubWorkflow());
+      expect(screen.getByRole("button", { name: "run" })).toBeDefined();
+    });
+
+    it("renders a 'view definition' link pointing at the definition section", () => {
+      renderDetail(stubWorkflow());
+      const link = screen.getByRole("link", { name: /view definition/i });
+      expect(link.getAttribute("href")).toBe("#definition");
     });
   });
 
   describe("steps", () => {
+    it("renders the singular step count when there is exactly one step", () => {
+      renderDetail(stubWorkflow({ steps: [{ sh: "echo one" }] }));
+      expect(screen.getByText(/^1 step$/i)).toBeDefined();
+    });
+
+    it("renders the plural step count for multi-step workflows", () => {
+      renderDetail(stubWorkflow({ steps: [{ sh: "echo a" }, { sh: "echo b" }, { sh: "echo c" }] }));
+      expect(screen.getByText(/^3 steps$/i)).toBeDefined();
+    });
+
     it("renders an empty-state sentence when no steps are defined", () => {
       renderDetail(stubWorkflow({ steps: [] }));
       expect(screen.getByText(/no steps defined/i)).toBeDefined();
