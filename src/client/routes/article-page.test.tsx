@@ -61,12 +61,12 @@ describe("<ArticlePage>", () => {
     // Short-form git sha; no (dirty) when gitDirty is false.
     expect(screen.getByText("abc1234")).toBeDefined();
     expect(screen.queryByText(/\(dirty\)/)).toBeNull();
-    // Secondary actions: open-run link to the run detail, copy markdown
-    // as a text link rather than a bordered button.
-    const openRun = screen.getByRole("link", { name: /open run/i });
-    expect(openRun.getAttribute("href")).toBe("/runs/abc12345-0000-0000-0000-000000000000");
+    // The only byline action is copy-markdown, a bordered ghost button —
+    // there's no duplicate "open run" link, since the run is already
+    // reachable via the back link above the header.
     expect(screen.getByRole("button", { name: /^copy markdown$/i })).toBeDefined();
-    // Back link sits above the header.
+    expect(screen.queryByRole("link", { name: /open run/i })).toBeNull();
+    // Back link sits above the header and points at the run.
     const backLink = screen.getByRole("link", { name: /back to run/i });
     expect(backLink.getAttribute("href")).toBe("/runs/abc12345-0000-0000-0000-000000000000");
     // Body markdown headings demote by two so authored `# Hello` slots

@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { TextButton } from "./ui/text-button.tsx";
+import { Button } from "./ui/button.tsx";
 
 /**
- * Copies `content` to the system clipboard on click, rendered as an
- * inline accent-coloured text link to sit alongside other byline
- * actions. Briefly swaps the label to "copied" for `feedbackMs` so the
- * user gets visual confirmation — the clipboard write is otherwise
- * invisible. Surfaces an inline error if the clipboard API rejects
- * (insecure context, permissions denied, etc.).
+ * Copies `content` to the system clipboard on click, rendered as a
+ * bordered ghost button so it reads as an action distinct from the
+ * neighbouring text links. Briefly swaps the label to "copied" for
+ * `feedbackMs` so the user gets visual confirmation — the clipboard
+ * write is otherwise invisible. Surfaces an inline error if the
+ * clipboard API rejects (insecure context, permissions denied, etc.).
  *
  * `feedbackMs` is exposed so tests can shorten the confirmation window
  * without waiting for the real one.
@@ -40,9 +40,7 @@ export function CopyButton({
 
   return (
     <span className="inline-flex items-baseline gap-2">
-      <TextButton tone="accent" onClick={handleClick}>
-        {status === "copied" ? "copied" : "copy markdown"}
-      </TextButton>
+      <Button onClick={handleClick}>{status === "copied" ? "copied" : "copy markdown"}</Button>
       {error && (
         <span role="alert" className="text-status-failed">
           {error}
