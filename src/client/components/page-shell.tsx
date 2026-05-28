@@ -113,6 +113,18 @@ export function PageShell({
               </ul>
             </nav>
           </div>
+          <div className="mt-10">
+            <h2 className="mb-3 text-xs tracking-widest text-ink-muted uppercase">Dev</h2>
+            <nav aria-label="dev">
+              <ul>
+                <li>
+                  <RailLink href="/dev/design-system" active={location === "/dev/design-system"}>
+                    Design System
+                  </RailLink>
+                </li>
+              </ul>
+            </nav>
+          </div>
           <VersionInfo />
         </aside>
         <main className="min-w-0 lg:max-w-240">{children}</main>

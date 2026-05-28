@@ -6,6 +6,7 @@ import { ToastContainer } from "./components/toast-container.tsx";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
 import { Dashboard } from "./routes/dashboard.tsx";
+import { DesignSystem } from "./routes/design-system.tsx";
 import { RunPage } from "./routes/run-page.tsx";
 import { WorkflowPage } from "./routes/workflow-page.tsx";
 
@@ -41,6 +42,7 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
           <Route path="/workflows/:name" component={WorkflowPage} />
           <Route path="/runs/:id/published/:name" component={ArticlePage} />
           <Route path="/runs/:id" component={RunPage} />
+          <Route path="/dev/design-system" component={DesignSystem} />
           <Route>
             <p>Page not found.</p>
           </Route>

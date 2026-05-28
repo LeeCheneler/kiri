@@ -50,6 +50,14 @@ describe("<PageShell>", () => {
     await flushAsync();
   });
 
+  it("marks the design system rail link active on the dev route", async () => {
+    renderShell(<p>x</p>, "/dev/design-system");
+    const link = screen.getByRole("link", { name: /design system/i });
+    expect(link.getAttribute("href")).toBe("/dev/design-system");
+    expect(link.getAttribute("aria-current")).toBe("page");
+    await flushAsync();
+  });
+
   it("renders the caller-supplied right aside in the right rail", async () => {
     renderShell(<p>x</p>, "/", <nav aria-label="right rail marker">aside content</nav>);
     expect(screen.getByRole("navigation", { name: /right rail marker/i })).toBeDefined();
