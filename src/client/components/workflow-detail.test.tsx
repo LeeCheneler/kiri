@@ -133,17 +133,6 @@ describe("<WorkflowDetailView>", () => {
       renderDetail(stubWorkflow({ steps: [{ sh: "echo hi" }] }), undefined, "yaml");
       expect(screen.getByRole("heading", { level: 3, name: /^steps$/i })).toBeDefined();
     });
-
-    it("switches to the YAML definition tab when 'view definition' is clicked", async () => {
-      const user = userEvent.setup();
-      renderDetail(stubWorkflow({ steps: [{ sh: "echo hi" }] }));
-
-      expect(screen.queryByRole("heading", { level: 3, name: /^steps$/i })).toBeNull();
-      await user.click(screen.getByRole("button", { name: /view definition/i }));
-
-      expect(screen.getByRole("heading", { level: 3, name: /^steps$/i })).toBeDefined();
-      expect(screen.getByRole("tab", { name: "YAML definition", selected: true })).toBeDefined();
-    });
   });
 
   describe("steps", () => {

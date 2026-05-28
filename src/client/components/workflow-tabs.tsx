@@ -14,8 +14,7 @@ export type WorkflowTabDef = {
 /**
  * Tab strip for the workflow detail page, following the WAI-ARIA tabs
  * pattern. The active tab is held in the URL (`?tab=<id>`) so panels are
- * deep-linkable and the hero's "view definition" action can switch tabs
- * by navigating; an unknown or absent `?tab` falls back to the first tab.
+ * deep-linkable; an unknown or absent `?tab` falls back to the first tab.
  *
  * Arrow Left/Right (wrapping) and Home/End move focus *and* activate
  * (automatic activation). Only the active panel is rendered, so a tab's

@@ -1,12 +1,20 @@
 import type { ReactNode } from "react";
 
-type Variant = "primary" | "danger";
+type Variant = "primary" | "danger" | "solid";
+type Size = "sm" | "lg";
 
 const VARIANT_CLASSES: Record<Variant, string> = {
   primary:
-    "hover:border-accent hover:text-accent focus-visible:border-accent focus-visible:text-accent",
+    "border-rule text-ink hover:border-accent hover:text-accent focus-visible:border-accent focus-visible:text-accent",
   danger:
-    "hover:border-status-failed hover:text-status-failed focus-visible:border-status-failed focus-visible:text-status-failed",
+    "border-rule text-ink hover:border-status-failed hover:text-status-failed focus-visible:border-status-failed focus-visible:text-status-failed",
+  solid:
+    "border-accent bg-accent text-canvas hover:bg-transparent hover:text-accent focus-visible:bg-transparent focus-visible:text-accent",
+};
+
+const SIZE_CLASSES: Record<Size, string> = {
+  sm: "px-3 py-1.5 text-xs",
+  lg: "px-5 py-2.5 text-sm",
 };
 
 /**
@@ -16,12 +24,16 @@ const VARIANT_CLASSES: Record<Variant, string> = {
  * button and nothing else.
  *
  * `pending` swaps the label for a pulsing dot + `pendingLabel` and
- * implicitly disables the button. `variant` drives hover/focus only —
- * `primary` tints to accent, `danger` to status-failed.
+ * implicitly disables the button. `variant` drives the colour treatment:
+ * `primary` and `danger` are ghost buttons that tint to accent /
+ * status-failed on hover; `solid` is a filled accent call-to-action that
+ * inverts to a ghost on hover. `size` bumps padding and label size —
+ * `lg` for a headline action, `sm` (default) everywhere else.
  */
 export function Button({
   children,
   variant = "primary",
+  size = "sm",
   pending = false,
   pendingLabel,
   disabled = false,
@@ -31,6 +43,7 @@ export function Button({
 }: {
   children: ReactNode;
   variant?: Variant;
+  size?: Size;
   pending?: boolean;
   pendingLabel?: string;
   disabled?: boolean;
@@ -45,7 +58,7 @@ export function Button({
       disabled={disabled || pending}
       title={title}
       data-variant={variant}
-      className={`cursor-pointer border border-rule px-3 py-1.5 font-mono text-xs text-ink no-underline outline-none transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${VARIANT_CLASSES[variant]}`}
+      className={`cursor-pointer border font-mono no-underline outline-none transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${SIZE_CLASSES[size]} ${VARIANT_CLASSES[variant]}`}
     >
       {pending ? (
         <span className="inline-flex items-baseline gap-1.5">

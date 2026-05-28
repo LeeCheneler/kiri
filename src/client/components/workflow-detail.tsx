@@ -1,5 +1,4 @@
 import { type ReactNode, useState } from "react";
-import { useSearchParams } from "wouter";
 import type {
   EnvValue,
   WorkflowPublishSummary,
@@ -15,9 +14,9 @@ import { LabelledBlock } from "./ui/labelled-block.tsx";
 import { SectionHeader } from "./ui/section-header.tsx";
 import { WorkflowRecentRuns } from "./workflow-recent-runs.tsx";
 import { WorkflowStats } from "./workflow-stats.tsx";
-import { WORKFLOW_TAB_PARAM, type WorkflowTabDef, WorkflowTabs } from "./workflow-tabs.tsx";
+import { type WorkflowTabDef, WorkflowTabs } from "./workflow-tabs.tsx";
 
-/** Tab id holding the YAML definition; the hero's "view definition" action selects it. */
+/** Tab id holding the YAML definition; pinned to the right of the tab strip. */
 const YAML_TAB_ID = "yaml";
 
 const SH_LABEL_LIMIT = 60;
@@ -49,11 +48,11 @@ const articleCountLabel = (count: number): string =>
 /**
  * Editorial detail view for one workflow definition. Opens on a hero
  * lockup — a grouping eyebrow, the workflow name in italic Fraunces, an
- * optional description deck, and the run / view-definition actions —
- * followed by an at-a-glance stats panel and then a tab strip. The
- * structured definition (steps, publish, summariser) lives in the
- * rightmost "YAML definition" tab; the other tabs hold placeholder copy
- * until their dedicated views land.
+ * optional description deck, and the run action — followed by an
+ * at-a-glance stats panel and then a tab strip. The structured
+ * definition (steps, publish, summariser) lives in the rightmost "YAML
+ * definition" tab; the other tabs hold placeholder copy until their
+ * dedicated views land.
  *
  * `onTrigger` returns a promise so the run button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
@@ -68,18 +67,6 @@ export function WorkflowDetailView({
   workflow: WorkflowSummary;
   onTrigger: (name: string, inputs?: Record<string, string>) => Promise<unknown>;
 }) {
-  const [, setParams] = useSearchParams();
-
-  const viewDefinition = () => {
-    setParams(
-      (prev) => {
-        prev.set(WORKFLOW_TAB_PARAM, YAML_TAB_ID);
-        return prev;
-      },
-      { replace: true },
-    );
-  };
-
   const tabs: WorkflowTabDef[] = [
     {
       id: "recent",
@@ -112,7 +99,7 @@ export function WorkflowDetailView({
     <article>
       <BackLink href="/">all activity</BackLink>
 
-      <WorkflowHero workflow={workflow} onTrigger={onTrigger} onViewDefinition={viewDefinition} />
+      <WorkflowHero workflow={workflow} onTrigger={onTrigger} />
 
       <WorkflowStats workflowName={workflow.name} />
 
@@ -220,9 +207,8 @@ function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
 /**
  * Workflow page hero. A grouping eyebrow (keyed off the workflow's
  * optional `group`, falling back to a static label), the workflow name
- * in italic Fraunces, an optional description deck, and a row of
- * actions: a primary run affordance plus a "view definition" button
- * that switches the tab strip to the YAML definition tab.
+ * in italic Fraunces, an optional description deck, and a primary run
+ * action.
  *
  * The run button opens the invoke modal for workflows declaring
  * `inputs:` and fires the run directly otherwise; in-flight and error
@@ -231,11 +217,9 @@ function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
 function WorkflowHero({
   workflow,
   onTrigger,
-  onViewDefinition,
 }: {
   workflow: WorkflowSummary;
   onTrigger: (name: string, inputs?: Record<string, string>) => Promise<unknown>;
-  onViewDefinition: () => void;
 }) {
   const hasInputs = workflow.inputs !== undefined && workflow.inputs.length > 0;
   const [state, setState] = useState<"idle" | "running">("idle");
@@ -277,17 +261,16 @@ function WorkflowHero({
           {workflow.description}
         </p>
       )}
-      <div className="mt-6 flex flex-wrap items-baseline gap-3">
-        <Button pending={state === "running"} pendingLabel="running…" onClick={handleRun}>
+      <div className="mt-6">
+        <Button
+          variant="solid"
+          size="lg"
+          pending={state === "running"}
+          pendingLabel="running…"
+          onClick={handleRun}
+        >
           {hasInputs ? "run with inputs" : "run"}
         </Button>
-        <button
-          type="button"
-          onClick={onViewDefinition}
-          className="border border-rule px-3 py-1.5 font-mono text-xs text-ink outline-none transition-colors duration-150 hover:border-accent hover:text-accent focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
-        >
-          view definition
-        </button>
       </div>
       <ErrorMessage message={errorMessage} />
       {modalOpen && workflow.inputs && (

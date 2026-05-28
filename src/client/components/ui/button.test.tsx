@@ -21,6 +21,11 @@ describe("<Button>", () => {
     expect(screen.getByRole("button").getAttribute("data-variant")).toBe("danger");
   });
 
+  it("exposes the solid variant via data-variant for a headline call-to-action", () => {
+    render(<Button variant="solid">run</Button>);
+    expect(screen.getByRole("button").getAttribute("data-variant")).toBe("solid");
+  });
+
   it("fires onClick when the user clicks", async () => {
     const user = userEvent.setup();
     const onClick = mock(() => {});
