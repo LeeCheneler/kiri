@@ -239,6 +239,25 @@ describe("<WorkflowDetailView>", () => {
     });
   });
 
+  describe("source panel", () => {
+    it("shows a short sh: source in full with no expand toggle", async () => {
+      await renderDetail(stubWorkflow({ steps: [{ sh: "echo hi\nexit 0" }] }), undefined, "steps");
+      expect(screen.queryByRole("button", { name: /expand|collapse/i })).toBeNull();
+    });
+
+    it("collapses a long sh: source behind a toggle that expands and re-collapses", async () => {
+      const user = userEvent.setup();
+      const longSource = Array.from({ length: 20 }, (_, i) => `echo line ${i}`).join("\n");
+      await renderDetail(stubWorkflow({ steps: [{ sh: longSource }] }), undefined, "steps");
+
+      await user.click(screen.getByRole("button", { name: "expand" }));
+      expect(screen.getByRole("button", { name: "collapse" })).toBeDefined();
+
+      await user.click(screen.getByRole("button", { name: "collapse" }));
+      expect(screen.getByRole("button", { name: "expand" })).toBeDefined();
+    });
+  });
+
   describe("summariser tab", () => {
     it("renders an empty state when the workflow has no summariser", async () => {
       await renderDetail(stubWorkflow(), undefined, "summariser");

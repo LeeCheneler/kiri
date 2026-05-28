@@ -12,6 +12,7 @@ import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
 import { ErrorMessage } from "./ui/error-message.tsx";
 import { LabelledBlock } from "./ui/labelled-block.tsx";
+import { TextButton } from "./ui/text-button.tsx";
 import { WorkflowRecentRuns } from "./workflow-recent-runs.tsx";
 import { WorkflowStats } from "./workflow-stats.tsx";
 import { type WorkflowTabDef, WorkflowTabs } from "./workflow-tabs.tsx";
@@ -246,6 +247,43 @@ type EntryShape = { description?: string; env?: Record<string, EnvValue> } & (
   | { sh: string }
 );
 
+/** Line count beyond which an inline source starts collapsed. */
+const SOURCE_COLLAPSE_LINES = 12;
+
+/**
+ * Inline `sh:` source viewer. Short scripts render in full; scripts past
+ * the collapse threshold start clipped behind a fade with an
+ * expand/collapse toggle, so a long script doesn't dominate the panel.
+ * The threshold is a line count rather than a measured height because
+ * the render target the tests run against has no layout.
+ */
+function SourceBlock({ source }: { source: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = source.split("\n").length > SOURCE_COLLAPSE_LINES;
+  const pre = (
+    <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink">{source}</pre>
+  );
+  if (!collapsible) return pre;
+  return (
+    <div>
+      <div className={`relative ${expanded ? "" : "max-h-48 overflow-hidden"}`}>
+        {pre}
+        {!expanded && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-b from-transparent to-canvas"
+          />
+        )}
+      </div>
+      <div className="mt-2">
+        <TextButton tone="accent" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "collapse" : "expand"}
+        </TextButton>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Renders the optional description / inline `sh:` source / env map shared
  * by the Steps, Summariser, and Publishes tab rows. Each block only
@@ -267,9 +305,7 @@ function EntryConfig({ entry }: { entry: EntryShape }) {
       )}
       {showSource && (
         <LabelledBlock label="source">
-          <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink">
-            {(entry as { sh: string }).sh}
-          </pre>
+          <SourceBlock source={(entry as { sh: string }).sh} />
         </LabelledBlock>
       )}
       {showEnv && (
