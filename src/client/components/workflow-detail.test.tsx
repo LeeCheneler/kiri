@@ -111,11 +111,6 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.queryByRole("heading", { level: 3, name: /^steps$/i })).toBeNull();
     });
 
-    it("renders placeholder copy on the Inputs tab", async () => {
-      await renderDetail(stubWorkflow(), undefined, "inputs");
-      expect(screen.getByText(/the inputs view is coming soon/i)).toBeDefined();
-    });
-
     it("renders placeholder copy on the Steps tab", async () => {
       await renderDetail(stubWorkflow(), undefined, "steps");
       expect(screen.getByText(/the steps view is coming soon/i)).toBeDefined();
@@ -129,6 +124,69 @@ describe("<WorkflowDetailView>", () => {
     it("shows the definition body on the YAML definition tab", async () => {
       await renderDetail(stubWorkflow({ steps: [{ sh: "echo hi" }] }), undefined, "yaml");
       expect(screen.getByRole("heading", { level: 3, name: /^steps$/i })).toBeDefined();
+    });
+  });
+
+  describe("inputs tab", () => {
+    it("renders an empty state when the workflow declares no inputs", async () => {
+      await renderDetail(stubWorkflow(), undefined, "inputs");
+      expect(screen.getByText(/declares no inputs/i)).toBeDefined();
+    });
+
+    it("renders one row per declared input with its name", async () => {
+      await renderDetail(
+        stubWorkflow({
+          inputs: [{ name: "repo", required: true }, { name: "model" }],
+        }),
+        undefined,
+        "inputs",
+      );
+      expect(screen.getByText("repo")).toBeDefined();
+      expect(screen.getByText("model")).toBeDefined();
+    });
+
+    it("marks a required input as required and an optional one as opt", async () => {
+      await renderDetail(
+        stubWorkflow({
+          inputs: [{ name: "repo", required: true }, { name: "model" }],
+        }),
+        undefined,
+        "inputs",
+      );
+      expect(screen.getByText("required")).toBeDefined();
+      expect(screen.getByText("opt")).toBeDefined();
+    });
+
+    it("renders the derived type as enum for a picklist input and string otherwise", async () => {
+      await renderDetail(
+        stubWorkflow({
+          inputs: [{ name: "env", options: ["dev", "prod"] }, { name: "model" }],
+        }),
+        undefined,
+        "inputs",
+      );
+      expect(screen.getByText("enum")).toBeDefined();
+      expect(screen.getByText("string")).toBeDefined();
+    });
+
+    it("renders the default value when one is declared", async () => {
+      await renderDetail(
+        stubWorkflow({ inputs: [{ name: "model", default: "sonnet" }] }),
+        undefined,
+        "inputs",
+      );
+      expect(screen.getByText("sonnet")).toBeDefined();
+    });
+
+    it("renders the description when one is declared", async () => {
+      await renderDetail(
+        stubWorkflow({
+          inputs: [{ name: "repo", description: "owner/name of the repository" }],
+        }),
+        undefined,
+        "inputs",
+      );
+      expect(screen.getByText("owner/name of the repository")).toBeDefined();
     });
   });
 
