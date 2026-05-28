@@ -3,6 +3,7 @@ import { InlineLink } from "../components/design-system/content/inline-link.tsx"
 import { List } from "../components/design-system/content/list.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
 import { Quote } from "../components/design-system/content/quote.tsx";
+import { Table } from "../components/design-system/content/table.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
 
 // Display sizes climb with the reading voice; the small steps are the
@@ -377,6 +378,52 @@ export function DesignSystem() {
                     thing in the right place, on time, without being asked.
                   </Quote>
                 </Prose>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Table</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Table</span> ·
+              components/design-system/content/table.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                Tabular data — the machine layer, so it is set in mono with tabular figures and
+                scrolls sideways rather than reflowing. Write semantic <Code>thead</Code>/
+                <Code>tbody</Code> markup as children; the rule lines and cell spacing are applied
+                for you.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Table>
+                  <thead>
+                    <tr>
+                      <th>Step</th>
+                      <th>Duration</th>
+                      <th>Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>fetch-sources</td>
+                      <td>0.4s</td>
+                      <td>ok</td>
+                    </tr>
+                    <tr>
+                      <td>summarise</td>
+                      <td>1.1s</td>
+                      <td>ok</td>
+                    </tr>
+                    <tr>
+                      <td>publish</td>
+                      <td>0.2s</td>
+                      <td>ok</td>
+                    </tr>
+                  </tbody>
+                </Table>
               </Card>
             </div>
           </article>
