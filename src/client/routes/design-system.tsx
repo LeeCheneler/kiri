@@ -1,3 +1,6 @@
+import { InlineLink } from "../components/design-system/content/inline-link.tsx";
+import { Prose } from "../components/design-system/content/prose.tsx";
+
 // Display sizes climb with the reading voice; the small steps are the
 // machine layer. Each carries the literal Tailwind class so the size is
 // generated and the specimen renders true to life.
@@ -77,9 +80,9 @@ const TYPE_SCALE = [
 /**
  * Dev-only living design system. The single source of truth for kiri's
  * UI building blocks: the foundation tokens (colour, type, status) and
- * the presentational primitives in `components/ui/`, each shown with its
- * variants and usage guidance so new UI composes from the same parts
- * rather than re-deriving them.
+ * the presentational primitives in `components/design-system/`, each shown
+ * with its variants and usage guidance so new UI composes from the same
+ * parts rather than re-deriving them.
  *
  * Pure composition — no data, no state. Sections fill in as primitives
  * are catalogued.
@@ -92,13 +95,17 @@ export function DesignSystem() {
         <h2 className="mt-2 font-display text-5xl text-ink italic leading-[0.95] tracking-tight">
           Design System
         </h2>
-        <p className="mt-4 max-w-[60ch] font-display text-lg text-ink-muted italic leading-[1.45]">
-          The building blocks kiri's interface is composed from — foundation tokens and the
-          presentational primitives in{" "}
-          <code className="font-mono text-base text-ink-muted not-italic">components/ui</code>, each
-          shown with its variants and usage guidance. Reach for these first; a new pattern earns its
-          place only when nothing here fits.
-        </p>
+        <Prose>
+          <p className="mt-4 text-lg text-ink-muted italic leading-[1.45]">
+            The building blocks kiri's interface is composed from — foundation tokens and the
+            presentational primitives in{" "}
+            <code className="font-mono text-base text-ink-muted not-italic">
+              components/design-system
+            </code>
+            , each shown with its variants and usage guidance. Reach for these first; a new pattern
+            earns its place only when nothing here fits.
+          </p>
+        </Prose>
       </header>
 
       <section aria-labelledby="foundations">
@@ -112,14 +119,16 @@ export function DesignSystem() {
         </header>
 
         <h4 className="text-xs tracking-widest text-ink-muted uppercase">Typefaces</h4>
-        <p className="mt-3 max-w-[64ch] font-display text-base text-ink leading-relaxed">
-          Each typeface has one job.{" "}
-          <span className="font-mono text-sm text-ink">JetBrains Mono</span> is the default and
-          carries the machine layer; <span className="font-display italic">Fraunces</span> is opt-in
-          via <code className="font-mono text-sm text-ink-muted">font-display</code> and carries the
-          human reading voice. If a person reads it like a sentence, reach for Fraunces — otherwise
-          leave it Mono.
-        </p>
+        <Prose>
+          <p className="mt-3">
+            Each typeface has one job.{" "}
+            <span className="font-mono text-sm text-ink">JetBrains Mono</span> is the default and
+            carries the machine layer; <span className="font-display italic">Fraunces</span> is
+            opt-in via <code className="font-mono text-sm text-ink-muted">font-display</code> and
+            carries the human reading voice. If a person reads it like a sentence, reach for
+            Fraunces — otherwise leave it Mono.
+          </p>
+        </Prose>
 
         <div className="mt-6 grid gap-8 sm:grid-cols-2">
           <div>
@@ -147,11 +156,13 @@ export function DesignSystem() {
         </div>
 
         <h4 className="mt-12 text-xs tracking-widest text-ink-muted uppercase">Type scale</h4>
-        <p className="mt-3 max-w-[64ch] font-display text-base text-ink leading-relaxed">
-          Size and voice track together: the small steps are the machine layer (Mono), the display
-          steps are the reading voice (Fraunces). Never set type below{" "}
-          <span className="font-mono text-sm text-ink-muted">12px</span> — text-xs is the floor.
-        </p>
+        <Prose>
+          <p className="mt-3">
+            Size and voice track together: the small steps are the machine layer (Mono), the display
+            steps are the reading voice (Fraunces). Never set type below{" "}
+            <span className="font-mono text-sm text-ink-muted">12px</span> — text-xs is the floor.
+          </p>
+        </Prose>
         <ul className="mt-6">
           {TYPE_SCALE.map((step) => (
             <li
@@ -167,6 +178,73 @@ export function DesignSystem() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section aria-labelledby="content">
+        <header className="mt-16 mb-6 border-b border-rule pb-3">
+          <h3 id="content" className="font-display text-3xl text-ink leading-tight">
+            Content
+          </h3>
+          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/content</p>
+        </header>
+
+        <div className="space-y-12">
+          <article>
+            <h4 className="font-mono text-base text-ink">Prose</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Prose</span> ·
+              components/design-system/content/prose.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                Reading content — a guideline, an article, a rendered summary — goes inside the{" "}
+                <code className="font-mono text-sm text-ink-muted">Prose</code> container. It owns
+                the reading measure (about 65 characters wide) and the base reading voice, so line
+                length stays comfortable and consistent across surfaces. Never put a max-width on
+                text by hand — reach for Prose and let it own the width.
+              </p>
+            </Prose>
+            <div className="mt-5 rounded-sm border border-rule bg-canvas-2 p-6">
+              <Prose>
+                <p>
+                  This paragraph sits inside Prose, so it wraps at the reading measure no matter how
+                  wide the surrounding column grows. The line breaks where the eye wants a rest
+                  rather than running the full width of the page, which is the whole point — measure
+                  is a property of the container, never a number sprinkled onto the text.
+                </p>
+              </Prose>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Inline link</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">InlineLink</span> ·
+              components/design-system/content/inline-link.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A link inside a run of prose or chrome. It is accent-coloured and underlined so it
+                reads as a link before any hover. Internal routes navigate client-side; pass{" "}
+                <code className="font-mono text-sm text-ink-muted">external</code> for outbound
+                URLs, which open in a new tab. Reach for this for any in-flow link — standalone
+                navigation (the side rail, a back link) has its own treatment.
+              </p>
+            </Prose>
+            <div className="mt-5 rounded-sm border border-rule bg-canvas-2 p-6">
+              <Prose>
+                <p>
+                  The morning digest pulls highlights from{" "}
+                  <InlineLink href="/workflows/daily">the daily workflow</InlineLink> and cites{" "}
+                  <InlineLink href="https://example.com" external>
+                    an external source
+                  </InlineLink>{" "}
+                  when the summary quotes one.
+                </p>
+              </Prose>
+            </div>
+          </article>
+        </div>
       </section>
     </section>
   );
