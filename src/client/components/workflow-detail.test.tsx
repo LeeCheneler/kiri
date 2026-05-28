@@ -111,11 +111,6 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.queryByRole("heading", { level: 3, name: /^steps$/i })).toBeNull();
     });
 
-    it("renders placeholder copy on the Summariser tab", async () => {
-      await renderDetail(stubWorkflow(), undefined, "summariser");
-      expect(screen.getByText(/the summariser view is coming soon/i)).toBeDefined();
-    });
-
     it("shows the definition body on the YAML definition tab", async () => {
       await renderDetail(stubWorkflow({ steps: [{ sh: "echo hi" }] }), undefined, "yaml");
       expect(screen.getByRole("heading", { level: 3, name: /^steps$/i })).toBeDefined();
@@ -234,6 +229,72 @@ describe("<WorkflowDetailView>", () => {
     it("omits the description line when a step declares none", async () => {
       await renderDetail(stubWorkflow({ steps: [{ use: "claude-code" }] }), undefined, "steps");
       expect(screen.queryByText("review the open PR")).toBeNull();
+    });
+  });
+
+  describe("summariser tab", () => {
+    it("renders an empty state when the workflow has no summariser", async () => {
+      await renderDetail(stubWorkflow(), undefined, "summariser");
+      expect(screen.getByText(/no summariser configured/i)).toBeDefined();
+    });
+
+    it("renders a use: summariser as kind use with the bundle reference as the title", async () => {
+      await renderDetail(
+        stubWorkflow({ summarize: { use: "claude-code-summarizer" } }),
+        undefined,
+        "summariser",
+      );
+      expect(screen.getByText("use")).toBeDefined();
+      expect(screen.getByText("claude-code-summarizer")).toBeDefined();
+    });
+
+    it("renders an sh: summariser as kind sh with the first non-empty line as the title", async () => {
+      await renderDetail(
+        stubWorkflow({ summarize: { sh: "\necho summarising\nexit 0" } }),
+        undefined,
+        "summariser",
+      );
+      expect(screen.getByText("sh")).toBeDefined();
+      expect(screen.getByText("echo summarising")).toBeDefined();
+    });
+
+    it("renders the summariser description when set", async () => {
+      await renderDetail(
+        stubWorkflow({
+          summarize: { use: "claude-code-summarizer", description: "one-line digest of the run" },
+        }),
+        undefined,
+        "summariser",
+      );
+      expect(screen.getByText("one-line digest of the run")).toBeDefined();
+    });
+
+    it("renders the env map with input references in YAML ref form", async () => {
+      await renderDetail(
+        stubWorkflow({
+          inputs: [{ name: "model", default: "sonnet" }],
+          summarize: {
+            use: "claude-code-summarizer",
+            env: { MODEL: { input: "model" }, PROMPT: "summarise" },
+          },
+        }),
+        undefined,
+        "summariser",
+      );
+      expect(screen.getByText(/^env$/i)).toBeDefined();
+      expect(screen.getByText("MODEL")).toBeDefined();
+      expect(screen.getByText("{ input: model }")).toBeDefined();
+      expect(screen.getByText("PROMPT")).toBeDefined();
+      expect(screen.getByText("summarise")).toBeDefined();
+    });
+
+    it("omits the env block when the summariser declares no env", async () => {
+      await renderDetail(
+        stubWorkflow({ summarize: { use: "claude-code-summarizer" } }),
+        undefined,
+        "summariser",
+      );
+      expect(screen.queryByText(/^env$/i)).toBeNull();
     });
   });
 

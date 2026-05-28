@@ -68,10 +68,10 @@ const articleCountLabel = (count: number): string =>
  * Editorial detail view for one workflow definition. Opens on a hero
  * lockup — a grouping eyebrow, the workflow name in italic Fraunces, an
  * optional description deck, and the run action — followed by an
- * at-a-glance stats panel and then a tab strip. The structured
- * definition (steps, publish, summariser) lives in the rightmost "YAML
- * definition" tab; the other tabs hold placeholder copy until their
- * dedicated views land.
+ * at-a-glance stats panel and then a tab strip. The middle tabs hold
+ * typed read-only views of the workflow's inputs, steps, and summariser;
+ * the full structured definition (steps, publish, summariser) lives in
+ * the rightmost "YAML definition" tab.
  *
  * `onTrigger` returns a promise so the run button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
@@ -105,7 +105,7 @@ export function WorkflowDetailView({
     {
       id: "summariser",
       label: "Summariser",
-      content: <EmptyState>the summariser view is coming soon.</EmptyState>,
+      content: <SummariserPanel summarize={workflow.summarize} />,
     },
     {
       id: YAML_TAB_ID,
@@ -204,6 +204,47 @@ function StepsPanel({ steps }: { steps: WorkflowStepSummary[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * The Summariser tab body: when the workflow declares a `summarize:`
+ * step, render it as a single step-style row (kind and title) plus its
+ * description and `env` map when set; otherwise an empty state. The env
+ * map mirrors the YAML tab — keys sorted, structured input references in
+ * `{ input: <name> }` form.
+ */
+function SummariserPanel({ summarize }: { summarize?: WorkflowStepSummary }) {
+  if (!summarize) {
+    return <EmptyState>this workflow has no summariser configured.</EmptyState>;
+  }
+  const env = summarize.env;
+  return (
+    <div className="flex flex-col gap-2 px-5 py-4">
+      <div className="flex items-baseline gap-5">
+        <span className="shrink-0 font-mono text-xs text-ink-muted uppercase">
+          {stepKind(summarize)}
+        </span>
+        <span className="min-w-0 flex-1 font-mono text-sm text-ink">{stepTitle(summarize)}</span>
+      </div>
+      {summarize.description !== undefined && summarize.description.length > 0 && (
+        <p className="font-display text-sm text-ink-muted italic">{summarize.description}</p>
+      )}
+      {hasEnv(env) && (
+        <LabelledBlock label="env">
+          <dl className="space-y-1 font-mono text-xs">
+            {Object.entries(env)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([k, v]) => (
+                <div key={k} className="flex items-baseline gap-4">
+                  <dt className="w-40 shrink-0 text-ink-muted">{k}</dt>
+                  <dd className="min-w-0 flex-1 break-words text-ink">{renderEnvValue(v)}</dd>
+                </div>
+              ))}
+          </dl>
+        </LabelledBlock>
+      )}
+    </div>
   );
 }
 
