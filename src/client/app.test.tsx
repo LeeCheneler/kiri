@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../tests/setup/flush-async.ts";
+import { server } from "../../tests/setup/msw.ts";
 import { App } from "./app.tsx";
 
 afterEach(() => cleanup());
@@ -54,6 +56,42 @@ describe("<App>", () => {
     expect(screen.getByRole("status", { name: /notifications/i }).getAttribute("aria-live")).toBe(
       "polite",
     );
+    await flushAsync();
+  });
+
+  it("shows the Recently Published rail on non-article routes", async () => {
+    renderAt("/");
+    expect(await screen.findByRole("heading", { name: /recently published/i })).toBeDefined();
+    await flushAsync();
+  });
+
+  it("swaps the right rail for the article TOC on the article route", async () => {
+    // Article body carries a section anchor so the TOC has an entry to show.
+    server.use(
+      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+        HttpResponse.json({
+          id: "art-1",
+          runId: params.id,
+          name: params.name,
+          title: "Demo",
+          contentMd: "# A section\n\nbody\n",
+          createdAt: new Date().toISOString(),
+          workflowName: "wf",
+          heading: "A section",
+          gitSha: null,
+          gitDirty: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: null,
+        }),
+      ),
+    );
+
+    renderAt("/runs/run-1/published/demo");
+
+    // The article TOC marginalia is present; the cross-run Recently
+    // Published shortlist is not.
+    expect(await screen.findByRole("heading", { name: /in this article/i })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: /recently published/i })).toBeNull();
     await flushAsync();
   });
 });
