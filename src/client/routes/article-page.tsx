@@ -128,7 +128,7 @@ export function ArticlePage({
               href={`/runs/${article.runId}`}
               className="text-accent no-underline transition-colors hover:text-ink focus-visible:text-ink"
             >
-              open run ↗
+              open run
             </Link>
             <CopyButton content={article.contentMd} />
           </div>
