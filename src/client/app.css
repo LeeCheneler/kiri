@@ -35,6 +35,15 @@
     font-feature-settings: "tnum", "ss01";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    /* Anchor jumps (the article TOC links to #section-NN) ease into
+       place rather than snapping. Disabled under reduced-motion below. */
+    scroll-behavior: smooth;
+  }
+
+  /* Section anchors clear the top edge when scrolled to, so a jumped-to
+     heading isn't flush against the viewport top. */
+  [id^="section-"] {
+    scroll-margin-top: 2rem;
   }
 
   body {
@@ -54,6 +63,10 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
     *,
     *::before,
     *::after {
