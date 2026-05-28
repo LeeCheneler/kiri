@@ -186,16 +186,16 @@ describe("<WorkflowPage>", () => {
       }),
     );
 
-    // The definition (and its sh: source labels) lives on the YAML tab, so
-    // open the page there to observe the refetched step text.
-    const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=yaml");
-    await screen.findByText(/sh: echo v1/);
+    // The Steps tab renders each step's title (the first non-empty line of
+    // its script), so open the page there to observe the refetched step text.
+    const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=steps");
+    await screen.findByText(/echo v1/);
 
     act(() => {
       sources[0]?.emit({ type: "workflow.updated", name: "alpha" });
     });
 
-    await screen.findByText(/sh: echo v2/);
+    await screen.findByText(/echo v2/);
   });
 
   it("ignores workflow events for other names", async () => {
@@ -207,8 +207,8 @@ describe("<WorkflowPage>", () => {
       }),
     );
 
-    const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=yaml");
-    await screen.findByText(/sh: echo v1/);
+    const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=steps");
+    await screen.findByText(/echo v1/);
 
     act(() => {
       sources[0]?.emit({ type: "workflow.updated", name: "beta" });
@@ -216,7 +216,7 @@ describe("<WorkflowPage>", () => {
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(screen.getByText(/sh: echo v1/)).toBeDefined();
+    expect(screen.getByText(/echo v1/)).toBeDefined();
     expect(calls).toBe(1);
   });
 
@@ -231,7 +231,7 @@ describe("<WorkflowPage>", () => {
     // still percent-encoded because wouter uses `decodeURI`, which leaves
     // `%2F` alone. The page must decode before comparing against the API.
     const encoded = encodeURIComponent("examples/recommendations");
-    const { sources } = renderWorkflow(encoded, `/workflows/${encoded}?tab=yaml`);
+    const { sources } = renderWorkflow(encoded, `/workflows/${encoded}?tab=steps`);
 
     expect(
       await screen.findByRole("heading", { level: 2, name: /examples\/recommendations/i }),
@@ -253,7 +253,7 @@ describe("<WorkflowPage>", () => {
       sources[0]?.emit({ type: "workflow.updated", name: "examples/recommendations" });
     });
 
-    await screen.findByText(/sh: echo v1/);
+    await screen.findByText(/echo v1/);
   });
 
   it("falls back to the raw param when the URL contains a malformed escape", async () => {

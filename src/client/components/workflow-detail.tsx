@@ -2,7 +2,6 @@ import { type ReactNode, useState } from "react";
 import type {
   EnvValue,
   WorkflowInputSummary,
-  WorkflowPublishSummary,
   WorkflowStepSummary,
   WorkflowSummary,
 } from "../api.ts";
@@ -12,25 +11,13 @@ import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
 import { ErrorMessage } from "./ui/error-message.tsx";
 import { LabelledBlock } from "./ui/labelled-block.tsx";
-import { SectionHeader } from "./ui/section-header.tsx";
 import { WorkflowRecentRuns } from "./workflow-recent-runs.tsx";
 import { WorkflowStats } from "./workflow-stats.tsx";
 import { type WorkflowTabDef, WorkflowTabs } from "./workflow-tabs.tsx";
 
-/** Tab id holding the YAML definition; pinned to the right of the tab strip. */
-const YAML_TAB_ID = "yaml";
-
 const SH_LABEL_LIMIT = 60;
 
 type LabelSource = { use: string } | { sh: string };
-
-const sourceLabel = (entry: LabelSource): string => {
-  if ("use" in entry) return `use: ${entry.use}`;
-  const firstLine = entry.sh.split("\n", 1)[0]?.trim() ?? "";
-  const truncated =
-    firstLine.length > SH_LABEL_LIMIT ? `${firstLine.slice(0, SH_LABEL_LIMIT)}…` : firstLine;
-  return `sh: ${truncated}`;
-};
 
 const stepKind = (entry: LabelSource): "sh" | "use" => ("use" in entry ? "use" : "sh");
 
@@ -59,19 +46,13 @@ const hasEnv = (env: Record<string, EnvValue> | undefined): env is Record<string
 const renderEnvValue = (value: EnvValue): ReactNode =>
   typeof value === "string" ? value : `{ input: ${value.input} }`;
 
-const stepCountLabel = (count: number): string => (count === 1 ? "1 step" : `${count} steps`);
-
-const articleCountLabel = (count: number): string =>
-  count === 1 ? "1 article" : `${count} articles`;
-
 /**
  * Editorial detail view for one workflow definition. Opens on a hero
  * lockup — a grouping eyebrow, the workflow name in italic Fraunces, an
  * optional description deck, and the run action — followed by an
- * at-a-glance stats panel and then a tab strip. The middle tabs hold
- * typed read-only views of the workflow's inputs, steps, and summariser;
- * the full structured definition (steps, publish, summariser) lives in
- * the rightmost "YAML definition" tab.
+ * at-a-glance stats panel and then a tab strip whose panels hold the
+ * workflow's recent runs and typed read-only views of its inputs,
+ * steps, and summariser.
  *
  * `onTrigger` returns a promise so the run button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
@@ -107,11 +88,6 @@ export function WorkflowDetailView({
       label: "Summariser",
       content: <SummariserPanel summarize={workflow.summarize} />,
     },
-    {
-      id: YAML_TAB_ID,
-      label: "YAML definition",
-      content: <DefinitionPanel workflow={workflow} />,
-    },
   ];
 
   return (
@@ -122,7 +98,7 @@ export function WorkflowDetailView({
 
       <WorkflowStats workflowName={workflow.name} />
 
-      <WorkflowTabs tabs={tabs} rightTabId={YAML_TAB_ID} />
+      <WorkflowTabs tabs={tabs} />
     </article>
   );
 }
@@ -211,7 +187,7 @@ function StepsPanel({ steps }: { steps: WorkflowStepSummary[] }) {
  * The Summariser tab body: when the workflow declares a `summarize:`
  * step, render it as a single step-style row (kind and title) plus its
  * description and `env` map when set; otherwise an empty state. The env
- * map mirrors the YAML tab — keys sorted, structured input references in
+ * map renders keys sorted, with structured input references in
  * `{ input: <name> }` form.
  */
 function SummariserPanel({ summarize }: { summarize?: WorkflowStepSummary }) {
@@ -245,102 +221,6 @@ function SummariserPanel({ summarize }: { summarize?: WorkflowStepSummary }) {
         </LabelledBlock>
       )}
     </div>
-  );
-}
-
-/**
- * The structured workflow definition rendered inside the "YAML
- * definition" tab: the ordered steps, then the optional publish and
- * summarise sections. Every entry renders the same config blocks
- * (description, source, env) so the panel reads as one rhythm of
- * identical units.
- */
-function DefinitionPanel({ workflow }: { workflow: WorkflowSummary }) {
-  const stepCount = workflow.steps.length;
-  return (
-    <>
-      <section>
-        <SectionHeader title="Steps" meta={stepCountLabel(stepCount)} />
-        {stepCount === 0 ? (
-          <EmptyState>no steps defined.</EmptyState>
-        ) : (
-          <ol className="divide-y divide-rule">
-            {workflow.steps.map((step, index) => (
-              <li
-                // Steps have no identity at the definition level; combine
-                // ordinal with the step's primary subject so identical
-                // sh: lines or repeat use: bundles still produce distinct keys.
-                key={`${index}:${"use" in step ? `use:${step.use}` : `sh:${step.sh}`}`}
-                style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
-                className="animate-[feed-row-in_320ms_ease-out_backwards]"
-              >
-                <EntryRow
-                  entry={step}
-                  identityLines={[
-                    <span key="step" className="flex items-baseline gap-5">
-                      <span className="shrink-0 font-mono text-xs text-ink-muted tabular-nums">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                      <span className="min-w-0 flex-1 font-mono text-sm text-ink">
-                        {sourceLabel(step)}
-                      </span>
-                    </span>,
-                  ]}
-                />
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-
-      {workflow.publish && workflow.publish.length > 0 && (
-        <PublishSection entries={workflow.publish} />
-      )}
-
-      {workflow.summarize && <SummariseSection step={workflow.summarize} />}
-    </>
-  );
-}
-
-function SummariseSection({ step }: { step: WorkflowStepSummary }) {
-  return (
-    <section className="mt-12">
-      <SectionHeader title="Summarise" />
-      <EntryRow
-        entry={step}
-        identityLines={[
-          <span key="src" className="font-mono text-sm text-ink">
-            {sourceLabel(step)}
-          </span>,
-        ]}
-      />
-    </section>
-  );
-}
-
-function PublishSection({ entries }: { entries: WorkflowPublishSummary[] }) {
-  return (
-    <section className="mt-12">
-      <SectionHeader title="Publish" meta={articleCountLabel(entries.length)} />
-      <ul className="divide-y divide-rule">
-        {entries.map((entry) => (
-          <li key={entry.name}>
-            <EntryRow
-              entry={entry}
-              title={entry.title}
-              identityLines={[
-                <span key="name" className="font-mono text-sm text-ink">
-                  {`name: ${entry.name}`}
-                </span>,
-                <span key="src" className="font-mono text-sm text-ink">
-                  {sourceLabel(entry)}
-                </span>,
-              ]}
-            />
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 
@@ -422,77 +302,5 @@ function WorkflowHero({
         />
       )}
     </header>
-  );
-}
-
-type EntryShape = { description?: string; env?: Record<string, EnvValue> } & (
-  | { use: string }
-  | { sh: string }
-);
-
-/**
- * Render one workflow entry (step, publish, summariser) with a shared
- * layout: optional editorial title, a stack of mono identity lines
- * (ordinal, name, source label), and then the standard config blocks —
- * description, inline sh source, and env — keyed in small caps.
- */
-function EntryRow({
-  entry,
-  title,
-  identityLines,
-}: {
-  entry: EntryShape;
-  title?: string;
-  identityLines: ReactNode[];
-}) {
-  return (
-    <div className="relative flex flex-col gap-3 px-5 py-4">
-      <span aria-hidden="true" className="absolute inset-y-2 left-1 w-0.5 bg-rule" />
-      {title && <h4 className="font-display text-2xl text-ink leading-tight">{title}</h4>}
-      <div className="flex flex-col gap-1">{identityLines}</div>
-      <EntryConfig entry={entry} />
-    </div>
-  );
-}
-
-/**
- * Renders the optional description / inline `sh:` source / env map for a
- * step, publish entry, or summariser. Each block only appears when its
- * value is populated, so callers don't need to gate the render themselves.
- */
-function EntryConfig({ entry }: { entry: EntryShape }) {
-  const showDescription = entry.description !== undefined && entry.description.length > 0;
-  const showSource = "sh" in entry;
-  const showEnv = hasEnv(entry.env);
-  if (!showDescription && !showSource && !showEnv) return null;
-  return (
-    <div className="space-y-4">
-      {showDescription && (
-        <LabelledBlock label="description">
-          <p className="font-display text-base text-ink italic">{entry.description}</p>
-        </LabelledBlock>
-      )}
-      {showSource && (
-        <LabelledBlock label="source">
-          <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink">
-            {(entry as { sh: string }).sh}
-          </pre>
-        </LabelledBlock>
-      )}
-      {showEnv && (
-        <LabelledBlock label="env">
-          <dl className="space-y-1 font-mono text-xs">
-            {Object.entries(entry.env as Record<string, EnvValue>)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([k, v]) => (
-                <div key={k} className="flex items-baseline gap-4">
-                  <dt className="w-40 shrink-0 text-ink-muted">{k}</dt>
-                  <dd className="min-w-0 flex-1 break-words text-ink">{renderEnvValue(v)}</dd>
-                </div>
-              ))}
-          </dl>
-        </LabelledBlock>
-      )}
-    </div>
   );
 }
