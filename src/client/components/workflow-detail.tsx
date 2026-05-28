@@ -2,6 +2,7 @@ import { type ReactNode, useState } from "react";
 import type {
   EnvValue,
   WorkflowInputSummary,
+  WorkflowPublishSummary,
   WorkflowStepSummary,
   WorkflowSummary,
 } from "../api.ts";
@@ -52,7 +53,7 @@ const renderEnvValue = (value: EnvValue): ReactNode =>
  * optional description deck, and the run action — followed by an
  * at-a-glance stats panel and then a tab strip whose panels hold the
  * workflow's recent runs and typed read-only views of its inputs,
- * steps, and summariser.
+ * steps, summariser, and publishes.
  *
  * `onTrigger` returns a promise so the run button can show the in-flight
  * state until the run resolves; the route owns navigating to the run
@@ -87,6 +88,11 @@ export function WorkflowDetailView({
       id: "summariser",
       label: "Summariser",
       content: <SummariserPanel summarize={workflow.summarize} />,
+    },
+    {
+      id: "publishes",
+      label: "Publishes",
+      content: <PublishesPanel entries={workflow.publish} />,
     },
   ];
 
@@ -202,6 +208,36 @@ function SummariserPanel({ summarize }: { summarize?: WorkflowStepSummary }) {
       </div>
       <EntryConfig entry={summarize} />
     </div>
+  );
+}
+
+/**
+ * The Publishes tab body: a row per declared `publish:` entry — the
+ * resolved editorial title, then a mono line pairing the kebab `name`
+ * with the entry's kind and source reference, followed by the shared
+ * config blocks (description, inline source, env). Workflows that
+ * publish nothing show an empty state.
+ */
+function PublishesPanel({ entries }: { entries?: WorkflowPublishSummary[] }) {
+  if (!entries || entries.length === 0) {
+    return <EmptyState>this workflow publishes no articles.</EmptyState>;
+  }
+  return (
+    <ul className="divide-y divide-rule">
+      {entries.map((entry) => (
+        <li key={entry.name} className="flex flex-col gap-2 px-5 py-4">
+          <h4 className="font-display text-2xl text-ink leading-tight">{entry.title}</h4>
+          <div className="flex items-baseline gap-5">
+            <span className="shrink-0 font-mono text-xs text-ink-faint">{entry.name}</span>
+            <span className="shrink-0 font-mono text-xs text-ink-muted uppercase">
+              {stepKind(entry)}
+            </span>
+            <span className="min-w-0 flex-1 font-mono text-sm text-ink">{stepTitle(entry)}</span>
+          </div>
+          <EntryConfig entry={entry} />
+        </li>
+      ))}
+    </ul>
   );
 }
 

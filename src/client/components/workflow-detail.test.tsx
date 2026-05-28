@@ -316,6 +316,62 @@ describe("<WorkflowDetailView>", () => {
     });
   });
 
+  describe("publishes tab", () => {
+    it("renders an empty state when the workflow publishes nothing", async () => {
+      await renderDetail(stubWorkflow(), undefined, "publishes");
+      expect(screen.getByText(/publishes no articles/i)).toBeDefined();
+    });
+
+    it("renders a row per entry with its title, name, kind, and source reference", async () => {
+      await renderDetail(
+        stubWorkflow({
+          publish: [{ name: "pr-digest", title: "PR Digest", use: "claude-code" }],
+        }),
+        undefined,
+        "publishes",
+      );
+      expect(screen.getByRole("heading", { level: 4, name: "PR Digest" })).toBeDefined();
+      expect(screen.getByText("pr-digest")).toBeDefined();
+      expect(screen.getByText("use")).toBeDefined();
+      expect(screen.getByText("claude-code")).toBeDefined();
+    });
+
+    it("renders the inline source for an sh: publish entry", async () => {
+      await renderDetail(
+        stubWorkflow({
+          publish: [{ name: "report", title: "Report", sh: "echo body\nexit 0" }],
+        }),
+        undefined,
+        "publishes",
+      );
+      const sourcePanel = screen.getByText(/^source$/i).parentElement;
+      expect(sourcePanel?.textContent).toContain("echo body");
+      expect(sourcePanel?.textContent).toContain("exit 0");
+    });
+
+    it("renders the description and env blocks when an entry declares them", async () => {
+      await renderDetail(
+        stubWorkflow({
+          publish: [
+            {
+              name: "digest",
+              title: "Digest",
+              description: "a long-form summary of the top stories",
+              use: "claude-code",
+              env: { MODEL: "sonnet" },
+            },
+          ],
+        }),
+        undefined,
+        "publishes",
+      );
+      expect(screen.getByText("a long-form summary of the top stories")).toBeDefined();
+      expect(screen.getByText(/^env$/i)).toBeDefined();
+      expect(screen.getByText("MODEL")).toBeDefined();
+      expect(screen.getByText("sonnet")).toBeDefined();
+    });
+  });
+
   describe("trigger", () => {
     it("calls onTrigger with just the workflow name when the workflow has no inputs", async () => {
       const user = userEvent.setup();
