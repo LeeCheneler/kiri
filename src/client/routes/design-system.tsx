@@ -2,6 +2,7 @@ import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { List } from "../components/design-system/content/list.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
+import { Quote } from "../components/design-system/content/quote.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
 
 // Display sizes climb with the reading voice; the small steps are the
@@ -350,6 +351,31 @@ export function DesignSystem() {
                       <li>Summarise and publish the result.</li>
                     </List>
                   </div>
+                </Prose>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Quote</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Quote</span> ·
+              components/design-system/content/quote.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A block quotation — words lifted from elsewhere, set apart from the body in muted
+                italic with a rule down the left edge. Use it for a cited passage, not for emphasis;
+                emphasis stays inline.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Prose>
+                  <Quote>
+                    The best automation is the kind you forget is running — it just leaves the right
+                    thing in the right place, on time, without being asked.
+                  </Quote>
                 </Prose>
               </Card>
             </div>
