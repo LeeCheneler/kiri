@@ -202,7 +202,7 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.getByText(/^a{60}…$/)).toBeDefined();
     });
 
-    it("renders the step description on a second line when set", async () => {
+    it("renders the step description when set", async () => {
       await renderDetail(
         stubWorkflow({ steps: [{ use: "claude-code", description: "review the open PR" }] }),
         undefined,
@@ -211,9 +211,31 @@ describe("<WorkflowDetailView>", () => {
       expect(screen.getByText("review the open PR")).toBeDefined();
     });
 
-    it("omits the description line when a step declares none", async () => {
+    it("omits the description block when a step declares none", async () => {
       await renderDetail(stubWorkflow({ steps: [{ use: "claude-code" }] }), undefined, "steps");
-      expect(screen.queryByText("review the open PR")).toBeNull();
+      expect(screen.queryByText(/^description$/i)).toBeNull();
+    });
+
+    it("renders the inline source for an sh: step", async () => {
+      await renderDetail(
+        stubWorkflow({ steps: [{ sh: "echo materials\nexit 0" }] }),
+        undefined,
+        "steps",
+      );
+      const sourcePanel = screen.getByText(/^source$/i).parentElement;
+      expect(sourcePanel?.textContent).toContain("echo materials");
+      expect(sourcePanel?.textContent).toContain("exit 0");
+    });
+
+    it("renders the env block for a step that declares env", async () => {
+      await renderDetail(
+        stubWorkflow({ steps: [{ use: "claude-code", env: { MODEL: "sonnet" } }] }),
+        undefined,
+        "steps",
+      );
+      expect(screen.getByText(/^env$/i)).toBeDefined();
+      expect(screen.getByText("MODEL")).toBeDefined();
+      expect(screen.getByText("sonnet")).toBeDefined();
     });
   });
 
@@ -241,6 +263,17 @@ describe("<WorkflowDetailView>", () => {
       );
       expect(screen.getByText("sh")).toBeDefined();
       expect(screen.getByText("echo summarising")).toBeDefined();
+    });
+
+    it("renders the inline source for an sh: summariser", async () => {
+      await renderDetail(
+        stubWorkflow({ summarize: { sh: "echo summarising\nexit 0" } }),
+        undefined,
+        "summariser",
+      );
+      const sourcePanel = screen.getByText(/^source$/i).parentElement;
+      expect(sourcePanel?.textContent).toContain("echo summarising");
+      expect(sourcePanel?.textContent).toContain("exit 0");
     });
 
     it("renders the summariser description when set", async () => {

@@ -149,8 +149,9 @@ function InputsPanel({ inputs }: { inputs?: WorkflowInputSummary[] }) {
  * The Steps tab body: the workflow's steps in declared order. Each row
  * pairs a two-digit ordinal with the step's kind (`sh` or `use`) and a
  * title — the bundle reference for `use:` steps, the first non-empty
- * line of the script for `sh:` steps — with the step description on a
- * second line when set. Workflows with no steps show an empty state.
+ * line of the script for `sh:` steps — followed by the shared config
+ * blocks (description, inline source, env). Workflows with no steps
+ * show an empty state.
  */
 function StepsPanel({ steps }: { steps: WorkflowStepSummary[] }) {
   if (steps.length === 0) {
@@ -174,9 +175,7 @@ function StepsPanel({ steps }: { steps: WorkflowStepSummary[] }) {
             </span>
             <span className="min-w-0 flex-1 font-mono text-sm text-ink">{stepTitle(step)}</span>
           </div>
-          {step.description !== undefined && step.description.length > 0 && (
-            <p className="font-display text-sm text-ink-muted italic">{step.description}</p>
-          )}
+          <EntryConfig entry={step} />
         </li>
       ))}
     </ol>
@@ -185,16 +184,14 @@ function StepsPanel({ steps }: { steps: WorkflowStepSummary[] }) {
 
 /**
  * The Summariser tab body: when the workflow declares a `summarize:`
- * step, render it as a single step-style row (kind and title) plus its
- * description and `env` map when set; otherwise an empty state. The env
- * map renders keys sorted, with structured input references in
- * `{ input: <name> }` form.
+ * step, render it as a single step-style row (kind and title) followed
+ * by the shared config blocks (description, inline source, env);
+ * otherwise an empty state.
  */
 function SummariserPanel({ summarize }: { summarize?: WorkflowStepSummary }) {
   if (!summarize) {
     return <EmptyState>this workflow has no summariser configured.</EmptyState>;
   }
-  const env = summarize.env;
   return (
     <div className="flex flex-col gap-2 px-5 py-4">
       <div className="flex items-baseline gap-5">
@@ -203,13 +200,46 @@ function SummariserPanel({ summarize }: { summarize?: WorkflowStepSummary }) {
         </span>
         <span className="min-w-0 flex-1 font-mono text-sm text-ink">{stepTitle(summarize)}</span>
       </div>
-      {summarize.description !== undefined && summarize.description.length > 0 && (
-        <p className="font-display text-sm text-ink-muted italic">{summarize.description}</p>
+      <EntryConfig entry={summarize} />
+    </div>
+  );
+}
+
+type EntryShape = { description?: string; env?: Record<string, EnvValue> } & (
+  | { use: string }
+  | { sh: string }
+);
+
+/**
+ * Renders the optional description / inline `sh:` source / env map shared
+ * by the Steps, Summariser, and Publishes tab rows. Each block only
+ * appears when its value is populated, so callers don't gate the render
+ * themselves. Env keys sort alphabetically and structured input
+ * references render in `{ input: <name> }` form.
+ */
+function EntryConfig({ entry }: { entry: EntryShape }) {
+  const showDescription = entry.description !== undefined && entry.description.length > 0;
+  const showSource = "sh" in entry;
+  const showEnv = hasEnv(entry.env);
+  if (!showDescription && !showSource && !showEnv) return null;
+  return (
+    <div className="space-y-4">
+      {showDescription && (
+        <LabelledBlock label="description">
+          <p className="font-display text-base text-ink italic">{entry.description}</p>
+        </LabelledBlock>
       )}
-      {hasEnv(env) && (
+      {showSource && (
+        <LabelledBlock label="source">
+          <pre className="font-mono text-xs break-words whitespace-pre-wrap text-ink">
+            {(entry as { sh: string }).sh}
+          </pre>
+        </LabelledBlock>
+      )}
+      {showEnv && (
         <LabelledBlock label="env">
           <dl className="space-y-1 font-mono text-xs">
-            {Object.entries(env)
+            {Object.entries(entry.env as Record<string, EnvValue>)
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([k, v]) => (
                 <div key={k} className="flex items-baseline gap-4">

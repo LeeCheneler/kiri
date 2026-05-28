@@ -182,20 +182,20 @@ describe("<WorkflowPage>", () => {
     server.use(
       http.get("*/api/workflows", () => {
         calls++;
-        return HttpResponse.json([{ name: "alpha", steps: [{ sh: `echo v${calls}` }] }]);
+        return HttpResponse.json([{ name: "alpha", steps: [{ use: `bundle-v${calls}` }] }]);
       }),
     );
 
-    // The Steps tab renders each step's title (the first non-empty line of
-    // its script), so open the page there to observe the refetched step text.
+    // The Steps tab renders each step's title (the bundle reference for a
+    // use: step), so open the page there to observe the refetched step text.
     const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=steps");
-    await screen.findByText(/echo v1/);
+    await screen.findByText("bundle-v1");
 
     act(() => {
       sources[0]?.emit({ type: "workflow.updated", name: "alpha" });
     });
 
-    await screen.findByText(/echo v2/);
+    await screen.findByText("bundle-v2");
   });
 
   it("ignores workflow events for other names", async () => {
@@ -203,12 +203,12 @@ describe("<WorkflowPage>", () => {
     server.use(
       http.get("*/api/workflows", () => {
         calls++;
-        return HttpResponse.json([{ name: "alpha", steps: [{ sh: `echo v${calls}` }] }]);
+        return HttpResponse.json([{ name: "alpha", steps: [{ use: `bundle-v${calls}` }] }]);
       }),
     );
 
     const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=steps");
-    await screen.findByText(/echo v1/);
+    await screen.findByText("bundle-v1");
 
     act(() => {
       sources[0]?.emit({ type: "workflow.updated", name: "beta" });
@@ -216,7 +216,7 @@ describe("<WorkflowPage>", () => {
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(screen.getByText(/echo v1/)).toBeDefined();
+    expect(screen.getByText("bundle-v1")).toBeDefined();
     expect(calls).toBe(1);
   });
 
@@ -244,7 +244,7 @@ describe("<WorkflowPage>", () => {
       http.get("*/api/workflows", () => {
         calls++;
         return HttpResponse.json([
-          { name: "examples/recommendations", steps: [{ sh: `echo v${calls}` }] },
+          { name: "examples/recommendations", steps: [{ use: `bundle-v${calls}` }] },
         ]);
       }),
     );
@@ -253,7 +253,7 @@ describe("<WorkflowPage>", () => {
       sources[0]?.emit({ type: "workflow.updated", name: "examples/recommendations" });
     });
 
-    await screen.findByText(/echo v1/);
+    await screen.findByText("bundle-v1");
   });
 
   it("falls back to the raw param when the URL contains a malformed escape", async () => {
