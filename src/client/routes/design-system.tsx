@@ -1,3 +1,4 @@
+import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
@@ -278,6 +279,43 @@ export function DesignSystem() {
                     when the summary quotes one.
                   </p>
                 </Prose>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Code</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Code</span> ·{" "}
+              <span className="text-ink-muted">CodeBlock</span> ·
+              components/design-system/content/code.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                Code is the machine layer, always set in mono. <Code>Code</Code> is the inline token
+                — a chip for a snippet, filename, or literal value inside prose.{" "}
+                <Code>CodeBlock</Code> is the multi-line panel: it preserves whitespace and scrolls
+                long lines rather than wrapping them.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Prose>
+                  <p>
+                    Reference a token like <Code>--color-accent</Code> or a path like{" "}
+                    <Code>components/design-system</Code> inline, then drop to a block for a full
+                    snippet:
+                  </p>
+                </Prose>
+                <div className="mt-4">
+                  <CodeBlock>{`export function Card({ children }) {
+  return (
+    <div className="rounded-sm border border-rule bg-canvas-2 p-6">
+      {children}
+    </div>
+  );
+}`}</CodeBlock>
+                </div>
               </Card>
             </div>
           </article>
