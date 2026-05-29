@@ -2,10 +2,15 @@ import { describe, expect, it } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { mockReactVega } from "../../../tests/setup/react-vega-mock.tsx";
 import { DesignSystem } from "./design-system.tsx";
 
+// The Markdown demo embeds a lazy vega chart; mock it so the page renders
+// without pulling in the real charting bundle.
+mockReactVega();
+
 describe("<DesignSystem>", () => {
-  it("renders the design system page heading", () => {
+  it("renders the design system page heading", async () => {
     const { hook } = memoryLocation({ path: "/dev/design-system" });
     render(
       <Router hook={hook}>
@@ -13,5 +18,8 @@ describe("<DesignSystem>", () => {
       </Router>,
     );
     expect(screen.getByRole("heading", { name: /design system/i })).toBeDefined();
+    // Let the lazy chart in the Markdown demo resolve so the test doesn't
+    // leave a pending update behind.
+    await screen.findByRole("figure");
   });
 });

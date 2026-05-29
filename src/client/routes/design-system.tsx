@@ -1,6 +1,7 @@
 import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { List } from "../components/design-system/content/list.tsx";
+import { Markdown } from "../components/design-system/content/markdown.tsx";
 import { Meta } from "../components/design-system/content/meta.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
 import { Quote } from "../components/design-system/content/quote.tsx";
@@ -479,6 +480,46 @@ export function DesignSystem() {
                   <span>1.2s</span>
                   <span>a1b2c3d</span>
                 </Meta>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Markdown</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Markdown</span> ·
+              components/design-system/content/markdown.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                Renders a markdown string into the design system: links, lists, quotes, code,
+                tables, and rules all flow through their components, headings carry the Foundations
+                scale, and the whole is wrapped in <Code>Prose</Code>. It also supports{" "}
+                <InlineLink href="https://vega.github.io/vega-lite/" external>
+                  vega-lite
+                </InlineLink>{" "}
+                <Code>chart</Code> blocks, optional section ordinals, and header-level downgrade for
+                nesting beneath a page title.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Markdown
+                  content={[
+                    "## Morning digest",
+                    "",
+                    "A summary with an [internal link](/workflows/daily), an [external one](https://example.com), and `inline code`.",
+                    "",
+                    "- First highlight",
+                    "- Second highlight",
+                    "",
+                    "```chart",
+                    '{ "width": "container", "height": 140, "data": { "values": [ {"day": "Mon", "runs": 3}, {"day": "Tue", "runs": 5}, {"day": "Wed", "runs": 2}, {"day": "Thu", "runs": 6}, {"day": "Fri", "runs": 4} ] }, "mark": "bar", "encoding": { "x": {"field": "day", "type": "nominal", "sort": ["Mon", "Tue", "Wed", "Thu", "Fri"], "axis": {"title": null}}, "y": {"field": "runs", "type": "quantitative", "axis": {"title": null}} } }',
+                    "```",
+                    "",
+                    "> A line lifted from a source.",
+                  ].join("\n")}
+                />
               </Card>
             </div>
           </article>
