@@ -10,7 +10,9 @@ const LINK_CLASS =
  * to ink on hover and focus. Internal hrefs thread through wouter's
  * `<Link>` for client-side navigation; pass `external` for outbound URLs,
  * which render as a native anchor opening in a new tab with a safe `rel`
- * and a trailing ↗ to mark that the link leaves the app.
+ * and a trailing ↗ to mark that the link leaves the app. A fragment href
+ * (`#…`) threads through `<Link>` like any internal href and renders the
+ * same in-page anchor.
  *
  * This is the in-flow link. Standalone navigation entries — the side rail,
  * a back link — carry their own affordances and are not this component.

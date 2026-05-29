@@ -32,4 +32,17 @@ describe("<InlineLink>", () => {
     expect(rel).toContain("noreferrer");
     expect(link.textContent).toContain("↗");
   });
+
+  it("renders a fragment link as a same-page anchor", () => {
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <InlineLink href="#section-01">jump to section</InlineLink>
+      </Router>,
+    );
+    const link = screen.getByRole("link", { name: /jump to section/i });
+    expect(link.getAttribute("href")).toBe("#section-01");
+    expect(link.getAttribute("target")).toBeNull();
+    expect(link.textContent).not.toContain("↗");
+  });
 });
