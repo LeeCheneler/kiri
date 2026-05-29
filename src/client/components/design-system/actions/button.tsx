@@ -7,7 +7,7 @@ const VARIANT_CLASSES: Record<Variant, string> = {
   primary:
     "border border-accent bg-accent text-canvas hover:bg-transparent hover:text-accent focus-visible:bg-transparent focus-visible:text-accent",
   default:
-    "border border-rule text-ink hover:border-accent hover:text-accent focus-visible:border-accent focus-visible:text-accent",
+    "border border-ink text-ink hover:border-accent hover:text-accent focus-visible:border-accent focus-visible:text-accent",
   negative:
     "border border-status-failed bg-status-failed text-canvas hover:bg-transparent hover:text-status-failed focus-visible:bg-transparent focus-visible:text-status-failed",
   // Transparent border so the box matches the bordered variants and stays
