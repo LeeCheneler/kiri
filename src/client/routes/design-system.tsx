@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../components/design-system/actions/button.tsx";
 import { Select } from "../components/design-system/actions/select.tsx";
+import { Sparkline, type SparklineBar } from "../components/design-system/charts/sparkline.tsx";
 import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { List } from "../components/design-system/content/list.tsx";
@@ -154,6 +155,26 @@ const TOC_ENTRIES: TocEntry[] = [
   { id: "content", label: "Content" },
   { id: "actions", label: "Actions" },
   { id: "navigation", label: "Navigation" },
+  { id: "charts", label: "Charts" },
+];
+
+// A fortnight of made-up run durations (ms), oldest → newest, for the Sparkline
+// specimen: a mostly-healthy run of work with two slower spikes and one failure.
+const SPARKLINE_BARS: SparklineBar[] = [
+  { value: 820, tone: "ok", label: "0.82s" },
+  { value: 910, tone: "ok", label: "0.91s" },
+  { value: 760, tone: "ok", label: "0.76s" },
+  { value: 1480, tone: "warm", label: "1.48s" },
+  { value: 880, tone: "ok", label: "0.88s" },
+  { value: 0, tone: "failed", label: "failed" },
+  { value: 840, tone: "ok", label: "0.84s" },
+  { value: 1290, tone: "warm", label: "1.29s" },
+  { value: 800, tone: "ok", label: "0.80s" },
+  { value: 870, tone: "ok", label: "0.87s" },
+  { value: 1610, tone: "warm", label: "1.61s" },
+  { value: 790, tone: "ok", label: "0.79s" },
+  { value: 850, tone: "ok", label: "0.85s" },
+  { value: 910, tone: "ok", label: "0.91s" },
 ];
 
 /** Right-rail table of contents for the design-system page. */
@@ -935,6 +956,48 @@ export function DesignSystem() {
             </div>
           </article>
         </div>
+      </section>
+
+      <section aria-labelledby="charts">
+        <header className="mt-16 mb-6 border-b border-rule pb-3">
+          <h3 id="charts" className="font-display text-3xl text-ink leading-tight">
+            Charts
+          </h3>
+          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/charts</p>
+        </header>
+
+        <article>
+          <h4 className="font-mono text-base text-ink">Sparkline</h4>
+          <p className="mt-1 font-mono text-xs text-ink-faint">
+            <span className="text-ink-muted">Sparkline</span> ·
+            components/design-system/charts/sparkline.tsx
+          </p>
+          <Prose>
+            <p className="mt-3">
+              A compact bar chart for a run of recent measurements — one bar per value, scaled to
+              the largest so the shape reads at a glance. Pass the data as{" "}
+              <Code>{"{ value, tone, label? }"}</Code> in <Code>bars</Code>, in display order. Each
+              bar's <Code>tone</Code> colours it — <Code>ok</Code>, <Code>warm</Code> for a
+              slower-than-usual run, or <Code>failed</Code> — and surfaces as <Code>data-tone</Code>
+              ; a near-zero value still draws a stub so gaps don't vanish. <Code>label</Code> names
+              the whole chart for assistive tech, and optional <Code>startLabel</Code> /{" "}
+              <Code>endLabel</Code> caption the axis ends. It owns no width — size it from the
+              caller.
+            </p>
+          </Prose>
+          <div className="mt-5">
+            <Card>
+              <div className="max-w-md">
+                <Sparkline
+                  label="Run durations, oldest to newest"
+                  bars={SPARKLINE_BARS}
+                  startLabel="oldest"
+                  endLabel="duration · now"
+                />
+              </div>
+            </Card>
+          </div>
+        </article>
       </section>
     </section>
   );
