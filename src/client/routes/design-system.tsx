@@ -12,6 +12,7 @@ import { Rule } from "../components/design-system/content/rule.tsx";
 import { Stat, StatList } from "../components/design-system/content/stat.tsx";
 import { Table } from "../components/design-system/content/table.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
+import { Modal } from "../components/design-system/surfaces/modal.tsx";
 
 // Display sizes climb with the reading voice; the small steps are the
 // machine layer. Each carries the literal Tailwind class so the size is
@@ -106,6 +107,32 @@ function SelectDemo() {
         <option value="monthly">monthly</option>
       </Select>
     </div>
+  );
+}
+
+// Interactive specimen for the Modal — a button opens a confirm dialog.
+function ModalDemo() {
+  const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>open dialog</Button>
+      {open && (
+        <Modal title="Discard draft?" onClose={close}>
+          <Prose>
+            <p>This can't be undone — the draft and its unsaved edits will be cleared.</p>
+          </Prose>
+          <div className="mt-6 flex justify-end gap-4">
+            <Button variant="dismissive" onClick={close}>
+              cancel
+            </Button>
+            <Button variant="negative" onClick={close}>
+              discard
+            </Button>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -220,28 +247,54 @@ export function DesignSystem() {
           <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/surfaces</p>
         </header>
 
-        <article>
-          <h4 className="font-mono text-base text-ink">Card</h4>
-          <p className="mt-1 font-mono text-xs text-ink-faint">
-            <span className="text-ink-muted">Card</span> ·
-            components/design-system/surfaces/card.tsx
-          </p>
-          <Prose>
-            <p className="mt-3">
-              A bordered surface that lifts a block of related content off the page background with
-              a hairline rule and even padding. Use it to group a self-contained unit — a demo, a
-              stat panel, a callout. It owns its frame and padding only; the space around it is the
-              caller's layout concern.
+        <div className="space-y-12">
+          <article>
+            <h4 className="font-mono text-base text-ink">Card</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Card</span> ·
+              components/design-system/surfaces/card.tsx
             </p>
-          </Prose>
-          <div className="mt-5">
-            <Card>
-              <Prose>
-                <p>Content sits inside the card, framed by a hairline rule and even padding.</p>
-              </Prose>
-            </Card>
-          </div>
-        </article>
+            <Prose>
+              <p className="mt-3">
+                A bordered surface that lifts a block of related content off the page background
+                with a hairline rule and even padding. Use it to group a self-contained unit — a
+                demo, a stat panel, a callout. It owns its frame and padding only; the space around
+                it is the caller's layout concern.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Prose>
+                  <p>Content sits inside the card, framed by a hairline rule and even padding.</p>
+                </Prose>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Modal</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Modal</span> ·
+              components/design-system/surfaces/modal.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                An overlay dialog built on the native <Code>dialog</Code> element — it sits above an
+                inert page on a lifted surface, traps focus, and restores it to the trigger on
+                close, all natively. It is open while mounted: render it to open it, and let{" "}
+                <Code>onClose</Code> (fired by Escape or a backdrop click) tell the parent to
+                unmount. <Code>title</Code> labels the dialog; the body is the children, so the
+                footer actions are yours to compose. Reserve it for a focused decision or a short
+                form — anything longer belongs on its own page.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <ModalDemo />
+              </Card>
+            </div>
+          </article>
+        </div>
       </section>
 
       <section aria-labelledby="content">
