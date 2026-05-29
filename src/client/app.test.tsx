@@ -6,7 +6,12 @@ import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../tests/setup/flush-async.ts";
 import { server } from "../../tests/setup/msw.ts";
+import { mockReactVega } from "../../tests/setup/react-vega-mock.tsx";
 import { App } from "./app.tsx";
+
+// The design-system route renders a Markdown demo with a lazy vega chart;
+// mock it so rendering that route doesn't pull in the charting bundle.
+mockReactVega();
 
 const renderAt = (path: string) => {
   const { hook } = memoryLocation({ path });
@@ -96,6 +101,12 @@ describe("<App>", () => {
     // Published shortlist is not.
     expect(await screen.findByRole("heading", { name: /in this article/i })).toBeDefined();
     expect(screen.queryByRole("heading", { name: /recently published/i })).toBeNull();
+    await flushAsync();
+  });
+
+  it("shows the design-system TOC in the right rail on the design-system route", async () => {
+    renderAt("/dev/design-system");
+    expect(await screen.findByRole("navigation", { name: "On this page" })).toBeDefined();
     await flushAsync();
   });
 });

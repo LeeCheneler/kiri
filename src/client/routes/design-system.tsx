@@ -13,6 +13,7 @@ import { Stat, StatList } from "../components/design-system/content/stat.tsx";
 import { Table } from "../components/design-system/content/table.tsx";
 import { Breadcrumb } from "../components/design-system/navigation/breadcrumb.tsx";
 import { Tabs } from "../components/design-system/navigation/tabs.tsx";
+import { Toc, type TocEntry } from "../components/design-system/navigation/toc.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
 import { Modal } from "../components/design-system/surfaces/modal.tsx";
 
@@ -136,6 +137,20 @@ function ModalDemo() {
       )}
     </>
   );
+}
+
+/** This page's own sections, in document order — drives the right-rail TOC. */
+const TOC_ENTRIES: TocEntry[] = [
+  { id: "foundations", label: "Foundations" },
+  { id: "surfaces", label: "Surfaces" },
+  { id: "content", label: "Content" },
+  { id: "actions", label: "Actions" },
+  { id: "navigation", label: "Navigation" },
+];
+
+/** Right-rail table of contents for the design-system page. */
+export function DesignSystemAside() {
+  return <Toc heading="On this page" entries={TOC_ENTRIES} />;
 }
 
 /**
@@ -838,6 +853,31 @@ export function DesignSystem() {
                     },
                   ]}
                 />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Toc</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Toc</span> ·
+              components/design-system/navigation/toc.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A table of contents with scroll-spy — the right-rail "in this article" marginalia.
+                Pass the headings as <Code>{"{ id, label, ordinal? }"}</Code> in{" "}
+                <Code>entries</Code>; each links to its <Code>#id</Code>, and the entry whose target
+                is in the reader's active zone (the top of the viewport) is highlighted as a "you
+                are here" marker. Collecting the headings is the caller's job — this owns the list
+                and the active-tracking. This page's right rail carries a live instance; the
+                specimen below is the same component wired to these sections, so both markers track
+                as you scroll.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Toc heading="Contents" entries={TOC_ENTRIES} />
               </Card>
             </div>
           </article>
