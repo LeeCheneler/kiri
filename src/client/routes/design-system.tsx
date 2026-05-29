@@ -11,6 +11,7 @@ import { Quote } from "../components/design-system/content/quote.tsx";
 import { Rule } from "../components/design-system/content/rule.tsx";
 import { Stat, StatList } from "../components/design-system/content/stat.tsx";
 import { Table } from "../components/design-system/content/table.tsx";
+import { Breadcrumb } from "../components/design-system/navigation/breadcrumb.tsx";
 import { Tabs } from "../components/design-system/navigation/tabs.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
 import { Modal } from "../components/design-system/surfaces/modal.tsx";
@@ -755,60 +756,92 @@ export function DesignSystem() {
           </p>
         </header>
 
-        <article>
-          <h4 className="font-mono text-base text-ink">Tabs</h4>
-          <p className="mt-1 font-mono text-xs text-ink-faint">
-            <span className="text-ink-muted">Tabs</span> ·
-            components/design-system/navigation/tabs.tsx
-          </p>
-          <Prose>
-            <p className="mt-3">
-              A deep-linkable tab strip following the WAI-ARIA tabs pattern. The active tab lives in
-              a search param (<Code>?tab</Code> by default; set <Code>param</Code> for another key),
-              so a panel can be linked to and survives a reload, and arrow keys plus Home/End move
-              between tabs. Pass the tabs as <Code>{"{ id, label, content }"}</Code> with a{" "}
-              <Code>label</Code> naming the strip; only the active panel renders, so a panel's data
-              isn't fetched until its tab is opened. Reach for tabs to switch between views of one
-              thing — not to page between unrelated destinations.
+        <div className="space-y-12">
+          <article>
+            <h4 className="font-mono text-base text-ink">Breadcrumb</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Breadcrumb</span> ·
+              components/design-system/navigation/breadcrumb.tsx
             </p>
-          </Prose>
-          <div className="mt-5">
-            <Card>
-              <Tabs
-                label="Workflow views"
-                tabs={[
-                  {
-                    id: "runs",
-                    label: "Runs",
-                    content: (
-                      <Prose>
-                        <p>The most recent runs of this workflow, newest first.</p>
-                      </Prose>
-                    ),
-                  },
-                  {
-                    id: "inputs",
-                    label: "Inputs",
-                    content: (
-                      <Prose>
-                        <p>The inputs this workflow declares, with their types and defaults.</p>
-                      </Prose>
-                    ),
-                  },
-                  {
-                    id: "steps",
-                    label: "Steps",
-                    content: (
-                      <Prose>
-                        <p>Each step in declared order — the shape of the workflow itself.</p>
-                      </Prose>
-                    ),
-                  },
-                ]}
-              />
-            </Card>
-          </div>
-        </article>
+            <Prose>
+              <p className="mt-3">
+                The path from the root to the page you're on, as a labelled trail. Pass the
+                ancestors as <Code>{"{ label, href }"}</Code> in <Code>items</Code> and the page
+                you're on as <Code>current</Code>; the ancestors are links (client-side, via wouter)
+                and the current page is plain text marked <Code>aria-current</Code>, since a page
+                never links to itself. The <Code>/</Code> separators are inserted for you. It is
+                wayfinding chrome — quiet by design, so it sits above a page without competing with
+                it.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Breadcrumb
+                  items={[
+                    { label: "Workflows", href: "/workflows" },
+                    { label: "pr-review", href: "/workflows/pr-review" },
+                  ]}
+                  current="run 42"
+                />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Tabs</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Tabs</span> ·
+              components/design-system/navigation/tabs.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A deep-linkable tab strip following the WAI-ARIA tabs pattern. The active tab lives
+                in a search param (<Code>?tab</Code> by default; set <Code>param</Code> for another
+                key), so a panel can be linked to and survives a reload, and arrow keys plus
+                Home/End move between tabs. Pass the tabs as <Code>{"{ id, label, content }"}</Code>{" "}
+                with a <Code>label</Code> naming the strip; only the active panel renders, so a
+                panel's data isn't fetched until its tab is opened. Reach for tabs to switch between
+                views of one thing — not to page between unrelated destinations.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Tabs
+                  label="Workflow views"
+                  tabs={[
+                    {
+                      id: "runs",
+                      label: "Runs",
+                      content: (
+                        <Prose>
+                          <p>The most recent runs of this workflow, newest first.</p>
+                        </Prose>
+                      ),
+                    },
+                    {
+                      id: "inputs",
+                      label: "Inputs",
+                      content: (
+                        <Prose>
+                          <p>The inputs this workflow declares, with their types and defaults.</p>
+                        </Prose>
+                      ),
+                    },
+                    {
+                      id: "steps",
+                      label: "Steps",
+                      content: (
+                        <Prose>
+                          <p>Each step in declared order — the shape of the workflow itself.</p>
+                        </Prose>
+                      ),
+                    },
+                  ]}
+                />
+              </Card>
+            </div>
+          </article>
+        </div>
       </section>
     </section>
   );
