@@ -7,6 +7,7 @@ import { Meta } from "../components/design-system/content/meta.tsx";
 import { Prose } from "../components/design-system/content/prose.tsx";
 import { Quote } from "../components/design-system/content/quote.tsx";
 import { Rule } from "../components/design-system/content/rule.tsx";
+import { Stat, StatList } from "../components/design-system/content/stat.tsx";
 import { Table } from "../components/design-system/content/table.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
 
@@ -54,7 +55,7 @@ const TYPE_SCALE = [
     px: "24px",
     font: "font-display",
     sample: "The morning briefing",
-    role: "Sub-headings & stat figures",
+    role: "Sub-headings & titles",
   },
   {
     cls: "text-lg",
@@ -481,6 +482,40 @@ export function DesignSystem() {
                   <span>1.2s</span>
                   <span>a1b2c3d</span>
                 </Meta>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Stat</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">StatList</span> ·{" "}
+              <span className="text-ink-muted">Stat</span> ·
+              components/design-system/content/stat.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A strip of summary figures — a run's counts, an average duration — rendered as a
+                description list so each label and figure form a real term–value pair.{" "}
+                <Code>StatList</Code> lays its <Code>Stat</Code> children out in a row; each{" "}
+                <Code>Stat</Code> sets its figure in mono — a figure is a number, so it stays in the
+                machine layer — and takes a <Code>tone</Code>: <Code>ok</Code> tints it green,{" "}
+                <Code>failed</Code> red, and the default leaves it in ink.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <StatList>
+                  <Stat label="Runs">9</Stat>
+                  <Stat label="Ok" tone="ok">
+                    8
+                  </Stat>
+                  <Stat label="Failed" tone="failed">
+                    1
+                  </Stat>
+                  <Stat label="Articles">0</Stat>
+                  <Stat label="Avg duration">601ms</Stat>
+                </StatList>
               </Card>
             </div>
           </article>
