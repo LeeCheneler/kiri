@@ -4,6 +4,7 @@ import { Select } from "../components/design-system/actions/select.tsx";
 import { Sparkline, type SparklineBar } from "../components/design-system/charts/sparkline.tsx";
 import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
 import { Disclosure } from "../components/design-system/content/disclosure.tsx";
+import { EmptyState } from "../components/design-system/content/empty-state.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { List } from "../components/design-system/content/list.tsx";
 import { Markdown } from "../components/design-system/content/markdown.tsx";
@@ -719,6 +720,31 @@ export function DesignSystem() {
                     <CodeBlock>{'echo "publishing $TITLE"\nkiri publish --draft'}</CodeBlock>
                   </Disclosure>
                 </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Empty state</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">EmptyState</span> ·
+              components/design-system/content/empty-state.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A "nothing here yet" message in the reading voice — italic Fraunces, muted — so an
+                empty list reads as a calm aside rather than a blank gap. Pass the sentence as
+                children; inline elements like a <Code>Code</Code> chip weave straight in. Render it
+                directly or hand it to a component's empty slot, such as the nav list's{" "}
+                <Code>emptyState</Code>.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <EmptyState>
+                  no workflows yet — run <Code>kiri init</Code> and add YAML to{" "}
+                  <Code>workflows/</Code>.
+                </EmptyState>
               </Card>
             </div>
           </article>
