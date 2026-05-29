@@ -64,6 +64,13 @@ const TYPE_SCALE = [
     role: "Sub-headings & titles",
   },
   {
+    cls: "text-xl",
+    px: "20px",
+    font: "font-display",
+    sample: "The morning briefing",
+    role: "Markdown h3 & minor headings",
+  },
+  {
     cls: "text-lg",
     px: "18px",
     font: "font-display italic",
@@ -174,12 +181,9 @@ export function DesignSystem() {
         <Prose>
           <p className="mt-4 text-lg text-ink-muted italic leading-[1.45]">
             The building blocks kiri's interface is composed from — foundation tokens and the
-            presentational primitives in{" "}
-            <code className="font-mono text-base text-ink-muted not-italic">
-              components/design-system
-            </code>
-            , each shown with its variants and usage guidance. Reach for these first; a new pattern
-            earns its place only when nothing here fits.
+            presentational primitives in <Code>components/design-system</Code>, each shown with its
+            variants and usage guidance. Reach for these first; a new pattern earns its place only
+            when nothing here fits.
           </p>
         </Prose>
       </header>
@@ -200,9 +204,8 @@ export function DesignSystem() {
             Each typeface has one job.{" "}
             <span className="font-mono text-sm text-ink">JetBrains Mono</span> is the default and
             carries the machine layer; <span className="font-display italic">Fraunces</span> is
-            opt-in via <code className="font-mono text-sm text-ink-muted">font-display</code> and
-            carries the human reading voice. If a person reads it like a sentence, reach for
-            Fraunces — otherwise leave it Mono.
+            opt-in via <Code>font-display</Code> and carries the human reading voice. If a person
+            reads it like a sentence, reach for Fraunces — otherwise leave it Mono.
           </p>
         </Prose>
 
@@ -332,10 +335,10 @@ export function DesignSystem() {
             <Prose>
               <p className="mt-3">
                 Reading content — a guideline, an article, a rendered summary — goes inside the{" "}
-                <code className="font-mono text-sm text-ink-muted">Prose</code> container. It owns
-                the reading measure (about 65 characters wide) and the base reading voice, so line
-                length stays comfortable and consistent across surfaces. Never put a max-width on
-                text by hand — reach for Prose and let it own the width.
+                <Code>Prose</Code> container. It owns the reading measure (about 65 characters wide)
+                and the base reading voice, so line length stays comfortable and consistent across
+                surfaces. Never put a max-width on text by hand — reach for Prose and let it own the
+                width.
               </p>
             </Prose>
             <div className="mt-5">
@@ -362,9 +365,9 @@ export function DesignSystem() {
               <p className="mt-3">
                 A link inside a run of prose or chrome. It is accent-coloured and underlined so it
                 reads as a link before any hover. Internal routes navigate client-side; pass{" "}
-                <code className="font-mono text-sm text-ink-muted">external</code> for outbound
-                URLs, which open in a new tab. Reach for this for any in-flow link — standalone
-                navigation (the side rail, a back link) has its own treatment.
+                <Code>external</Code> for outbound URLs, which open in a new tab. Reach for this for
+                any in-flow link — standalone navigation (the side rail, a back link) has its own
+                treatment.
               </p>
             </Prose>
             <div className="mt-5">
