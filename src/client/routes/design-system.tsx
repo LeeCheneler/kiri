@@ -3,6 +3,7 @@ import { Button } from "../components/design-system/actions/button.tsx";
 import { Select } from "../components/design-system/actions/select.tsx";
 import { Sparkline, type SparklineBar } from "../components/design-system/charts/sparkline.tsx";
 import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
+import { Disclosure } from "../components/design-system/content/disclosure.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { List } from "../components/design-system/content/list.tsx";
 import { Markdown } from "../components/design-system/content/markdown.tsx";
@@ -673,6 +674,46 @@ export function DesignSystem() {
                     "> A line lifted from a source.",
                   ].join("\n")}
                 />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Disclosure</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Disclosure</span> ·
+              components/design-system/content/disclosure.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                An expand/collapse region — a trigger that toggles one block of content. Use it to
+                tuck secondary detail (a script's source, a step's output, advanced options) out of
+                the way until it's wanted, so the page leads with what matters. Pass the
+                always-shown trigger as <Code>summary</Code> and the revealed content as children;
+                it owns its open state, so pass <Code>defaultOpen</Code> when the detail should
+                start visible. The trigger and panel are wired with <Code>aria-expanded</Code> /{" "}
+                <Code>aria-controls</Code> so assistive tech announces the state. Stack several to
+                build an accordion.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="divide-y divide-rule">
+                  <Disclosure summary={<span className="font-mono text-sm text-ink">env</span>}>
+                    <Prose>
+                      <p>
+                        The environment variables this step receives, resolved from the workflow's
+                        inputs and the host environment.
+                      </p>
+                    </Prose>
+                  </Disclosure>
+                  <Disclosure
+                    defaultOpen
+                    summary={<span className="font-mono text-sm text-ink">source</span>}
+                  >
+                    <CodeBlock>{'echo "publishing $TITLE"\nkiri publish --draft'}</CodeBlock>
+                  </Disclosure>
+                </div>
               </Card>
             </div>
           </article>
