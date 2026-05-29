@@ -192,14 +192,14 @@ export function DesignSystemAside() {
 /**
  * Dev-only living design system. The single source of truth for kiri's
  * UI building blocks: the foundation tokens (colour, type, status) and
- * the presentational primitives in `components/design-system/`, each shown
+ * the presentational primitives in `design-system/`, each shown
  * with its variants and usage guidance so new UI composes from the same
  * parts rather than re-deriving them.
  *
  * No fetched data; interactive controls hold their own local demo state.
  * Sections fill in as primitives are catalogued.
  */
-export function DesignSystem() {
+export function DesignSystemPage() {
   return (
     <section>
       <header className="border-b border-rule pb-6">
@@ -210,9 +210,9 @@ export function DesignSystem() {
         <Prose>
           <p className="mt-4 text-lg text-ink-muted italic leading-[1.45]">
             The building blocks kiri's interface is composed from — foundation tokens and the
-            presentational primitives in <Code>components/design-system</Code>, each shown with its
-            variants and usage guidance. Reach for these first; a new pattern earns its place only
-            when nothing here fits.
+            presentational primitives in <Code>design-system</Code>, each shown with its variants
+            and usage guidance. Reach for these first; a new pattern earns its place only when
+            nothing here fits.
           </p>
         </Prose>
       </header>
@@ -293,15 +293,14 @@ export function DesignSystem() {
           <h3 id="surfaces" className="font-display text-3xl text-ink leading-tight">
             Surfaces
           </h3>
-          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/surfaces</p>
+          <p className="mt-1 font-mono text-xs text-ink-muted">design-system/surfaces</p>
         </header>
 
         <div className="space-y-12">
           <article>
             <h4 className="font-mono text-base text-ink">Card</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Card</span> ·
-              components/design-system/surfaces/card.tsx
+              <span className="text-ink-muted">Card</span> · design-system/surfaces/card.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -323,8 +322,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Modal</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Modal</span> ·
-              components/design-system/surfaces/modal.tsx
+              <span className="text-ink-muted">Modal</span> · design-system/surfaces/modal.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -351,15 +349,14 @@ export function DesignSystem() {
           <h3 id="content" className="font-display text-3xl text-ink leading-tight">
             Content
           </h3>
-          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/content</p>
+          <p className="mt-1 font-mono text-xs text-ink-muted">design-system/content</p>
         </header>
 
         <div className="space-y-12">
           <article>
             <h4 className="font-mono text-base text-ink">Prose</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Prose</span> ·
-              components/design-system/content/prose.tsx
+              <span className="text-ink-muted">Prose</span> · design-system/content/prose.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -388,7 +385,7 @@ export function DesignSystem() {
             <h4 className="font-mono text-base text-ink">Inline link</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">InlineLink</span> ·
-              components/design-system/content/inline-link.tsx
+              design-system/content/inline-link.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -419,8 +416,7 @@ export function DesignSystem() {
             <h4 className="font-mono text-base text-ink">Code</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">Code</span> ·{" "}
-              <span className="text-ink-muted">CodeBlock</span> ·
-              components/design-system/content/code.tsx
+              <span className="text-ink-muted">CodeBlock</span> · design-system/content/code.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -435,8 +431,7 @@ export function DesignSystem() {
                 <Prose>
                   <p>
                     Reference a token like <Code>--color-accent</Code> or a path like{" "}
-                    <Code>components/design-system</Code> inline, then drop to a block for a full
-                    snippet:
+                    <Code>design-system</Code> inline, then drop to a block for a full snippet:
                   </p>
                 </Prose>
                 <div className="mt-4">
@@ -455,8 +450,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Lists</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">List</span> ·
-              components/design-system/content/list.tsx
+              <span className="text-ink-muted">List</span> · design-system/content/list.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -489,8 +483,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Quote</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Quote</span> ·
-              components/design-system/content/quote.tsx
+              <span className="text-ink-muted">Quote</span> · design-system/content/quote.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -514,8 +507,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Table</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Table</span> ·
-              components/design-system/content/table.tsx
+              <span className="text-ink-muted">Table</span> · design-system/content/table.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -560,8 +552,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Rule</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Rule</span> ·
-              components/design-system/content/rule.tsx
+              <span className="text-ink-muted">Rule</span> · design-system/content/rule.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -587,8 +578,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Meta</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Meta</span> ·
-              components/design-system/content/meta.tsx
+              <span className="text-ink-muted">Meta</span> · design-system/content/meta.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -614,8 +604,7 @@ export function DesignSystem() {
             <h4 className="font-mono text-base text-ink">Stat</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">StatList</span> ·{" "}
-              <span className="text-ink-muted">Stat</span> ·
-              components/design-system/content/stat.tsx
+              <span className="text-ink-muted">Stat</span> · design-system/content/stat.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -647,8 +636,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Markdown</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Markdown</span> ·
-              components/design-system/content/markdown.tsx
+              <span className="text-ink-muted">Markdown</span> · design-system/content/markdown.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -688,7 +676,7 @@ export function DesignSystem() {
             <h4 className="font-mono text-base text-ink">Disclosure</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">Disclosure</span> ·
-              components/design-system/content/disclosure.tsx
+              design-system/content/disclosure.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -728,7 +716,7 @@ export function DesignSystem() {
             <h4 className="font-mono text-base text-ink">Empty state</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">EmptyState</span> ·
-              components/design-system/content/empty-state.tsx
+              design-system/content/empty-state.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -756,15 +744,14 @@ export function DesignSystem() {
           <h3 id="actions" className="font-display text-3xl text-ink leading-tight">
             Actions
           </h3>
-          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/actions</p>
+          <p className="mt-1 font-mono text-xs text-ink-muted">design-system/actions</p>
         </header>
 
         <div className="space-y-12">
           <article>
             <h4 className="font-mono text-base text-ink">Button</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Button</span> ·
-              components/design-system/actions/button.tsx
+              <span className="text-ink-muted">Button</span> · design-system/actions/button.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -836,8 +823,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Select</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Select</span> ·
-              components/design-system/actions/select.tsx
+              <span className="text-ink-muted">Select</span> · design-system/actions/select.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -863,9 +849,7 @@ export function DesignSystem() {
           <h3 id="navigation" className="font-display text-3xl text-ink leading-tight">
             Navigation
           </h3>
-          <p className="mt-1 font-mono text-xs text-ink-muted">
-            components/design-system/navigation
-          </p>
+          <p className="mt-1 font-mono text-xs text-ink-muted">design-system/navigation</p>
         </header>
 
         <div className="space-y-12">
@@ -873,7 +857,7 @@ export function DesignSystem() {
             <h4 className="font-mono text-base text-ink">Breadcrumb</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">Breadcrumb</span> ·
-              components/design-system/navigation/breadcrumb.tsx
+              design-system/navigation/breadcrumb.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -902,8 +886,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Tabs</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Tabs</span> ·
-              components/design-system/navigation/tabs.tsx
+              <span className="text-ink-muted">Tabs</span> · design-system/navigation/tabs.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -957,8 +940,7 @@ export function DesignSystem() {
           <article>
             <h4 className="font-mono text-base text-ink">Toc</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Toc</span> ·
-              components/design-system/navigation/toc.tsx
+              <span className="text-ink-muted">Toc</span> · design-system/navigation/toc.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -983,7 +965,7 @@ export function DesignSystem() {
             <h4 className="font-mono text-base text-ink">Nav list</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">NavList</span> ·
-              components/design-system/navigation/nav-list.tsx
+              design-system/navigation/nav-list.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -1056,14 +1038,13 @@ export function DesignSystem() {
           <h3 id="charts" className="font-display text-3xl text-ink leading-tight">
             Charts
           </h3>
-          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/charts</p>
+          <p className="mt-1 font-mono text-xs text-ink-muted">design-system/charts</p>
         </header>
 
         <article>
           <h4 className="font-mono text-base text-ink">Sparkline</h4>
           <p className="mt-1 font-mono text-xs text-ink-faint">
-            <span className="text-ink-muted">Sparkline</span> ·
-            components/design-system/charts/sparkline.tsx
+            <span className="text-ink-muted">Sparkline</span> · design-system/charts/sparkline.tsx
           </p>
           <Prose>
             <p className="mt-3">
@@ -1098,15 +1079,14 @@ export function DesignSystem() {
           <h3 id="feedback" className="font-display text-3xl text-ink leading-tight">
             Feedback
           </h3>
-          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/feedback</p>
+          <p className="mt-1 font-mono text-xs text-ink-muted">design-system/feedback</p>
         </header>
 
         <div className="space-y-12">
           <article>
             <h4 className="font-mono text-base text-ink">Status</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Status</span> ·
-              components/design-system/feedback/status.tsx
+              <span className="text-ink-muted">Status</span> · design-system/feedback/status.tsx
             </p>
             <Prose>
               <p className="mt-3">
@@ -1134,7 +1114,7 @@ export function DesignSystem() {
             <h4 className="font-mono text-base text-ink">Status block</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">StatusBlock</span> ·
-              components/design-system/feedback/status-block.tsx
+              design-system/feedback/status-block.tsx
             </p>
             <Prose>
               <p className="mt-3">

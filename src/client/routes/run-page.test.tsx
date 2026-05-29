@@ -335,7 +335,7 @@ describe("<RunPage>", () => {
       return { ...ui, history: memory.history };
     };
 
-    it("confirms, calls DELETE /api/runs/:id, and navigates back to the dashboard", async () => {
+    it("confirms, calls DELETE /api/runs/:id, and navigates back to home", async () => {
       const deleteCalls: string[] = [];
       server.use(
         http.get("*/api/runs/:id", ({ params }) =>

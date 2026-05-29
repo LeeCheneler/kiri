@@ -8,46 +8,46 @@ import { FakeIntersectionObserver } from "../../../tests/setup/fake-intersection
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { Dashboard } from "./dashboard.tsx";
+import { HomePage } from "./home-page.tsx";
 
 afterEach(() => {
   FakeIntersectionObserver.reset();
 });
 
-const renderDashboard = () => {
+const renderHomePage = () => {
   const { hook } = memoryLocation({ path: "/" });
   const { factory, sources } = captureEventSources();
   const ui = render(
     <Router hook={hook}>
       <LiveEventsProvider factory={factory}>
-        <Dashboard />
+        <HomePage />
       </LiveEventsProvider>
     </Router>,
   );
   return { ...ui, sources };
 };
 
-describe("<Dashboard>", () => {
+describe("<HomePage>", () => {
   it("renders the activity section heading", async () => {
-    renderDashboard();
+    renderHomePage();
     expect(screen.getByRole("heading", { name: /activity/i })).toBeDefined();
     await flushAsync();
   });
 
   it("shows a loading message while runs are being fetched", async () => {
-    renderDashboard();
+    renderHomePage();
     expect(screen.getByText(/loading runs/i)).toBeDefined();
     await flushAsync();
   });
 
   it("delegates rendering to the activity feed once runs load", async () => {
-    renderDashboard();
+    renderHomePage();
     expect(await screen.findByText(/no runs yet/i)).toBeDefined();
   });
 
   it("surfaces fetch failures via an alert", async () => {
     server.use(http.get("*/api/runs", () => new HttpResponse("boom", { status: 500 })));
-    renderDashboard();
+    renderHomePage();
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeDefined();
@@ -94,7 +94,7 @@ describe("<Dashboard>", () => {
       ),
     );
 
-    const { sources } = renderDashboard();
+    const { sources } = renderHomePage();
     await screen.findByText(/old-wf/);
     expect(pageOneCalls).toBe(1);
 
@@ -121,7 +121,7 @@ describe("<Dashboard>", () => {
       ),
     );
 
-    const { sources, container } = renderDashboard();
+    const { sources, container } = renderHomePage();
     await waitFor(() => {
       expect(container.querySelector('[data-status="running"]')).not.toBeNull();
     });
@@ -147,7 +147,7 @@ describe("<Dashboard>", () => {
       }),
     );
 
-    const { sources } = renderDashboard();
+    const { sources } = renderHomePage();
     await screen.findByText(/alpha/);
     await screen.findByText(/beta/);
     expect(pageOneCalls).toBe(1);
@@ -169,7 +169,7 @@ describe("<Dashboard>", () => {
       ),
     );
 
-    const { sources } = renderDashboard();
+    const { sources } = renderHomePage();
     await screen.findByText(/alpha/);
 
     act(() => sources[0]?.emit({ type: "run.deleted", id: "unknown" }));
@@ -180,7 +180,7 @@ describe("<Dashboard>", () => {
 
   it("reconciles article chips when a run goes from 0 to N articles mid-stream", async () => {
     // First page-one fetch carries no articles. After a run.updated event
-    // the dashboard refetches the single run; the detail endpoint now
+    // the home page refetches the single run; the detail endpoint now
     // returns articles on run.articles, and the feed row patches in place
     // to show the chip without a page-one reload.
     server.use(
@@ -200,7 +200,7 @@ describe("<Dashboard>", () => {
       ),
     );
 
-    const { sources } = renderDashboard();
+    const { sources } = renderHomePage();
     await screen.findByText(/with-publish/);
     // No chip yet — the initial page-one payload carried no articles.
     expect(screen.queryByRole("link", { name: /^PR Review Digest$/ })).toBeNull();
@@ -233,7 +233,7 @@ describe("<Dashboard>", () => {
       }),
     );
 
-    const { sources } = renderDashboard();
+    const { sources } = renderHomePage();
     await screen.findByText(/^wf$/);
 
     act(() => {
@@ -268,7 +268,7 @@ describe("<Dashboard>", () => {
       }),
     );
 
-    const { sources } = renderDashboard();
+    const { sources } = renderHomePage();
     await screen.findByText(/wf-1/);
     // Initial open doesn't count as a reconnect.
     act(() => sources[0]?.triggerOpen());
@@ -296,7 +296,7 @@ describe("<Dashboard>", () => {
     };
 
     try {
-      const { sources } = renderDashboard();
+      const { sources } = renderHomePage();
       await screen.findByText(/wf/);
       act(() => sources[0]?.emit({ type: "run.started", id: "missing" }));
       await waitFor(() =>
@@ -325,7 +325,7 @@ describe("<Dashboard>", () => {
     };
 
     try {
-      const { sources } = renderDashboard();
+      const { sources } = renderHomePage();
       await screen.findByText(/wf/);
       act(() => {
         sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok", workflowName: "wf" });
@@ -360,7 +360,7 @@ describe("<Dashboard>", () => {
 
   it("loads the next page when the sentinel intersects", async () => {
     seedTwoPages();
-    renderDashboard();
+    renderHomePage();
     await screen.findByText(/page-one/);
     expect(screen.queryByText(/page-two/)).toBeNull();
 
@@ -373,7 +373,7 @@ describe("<Dashboard>", () => {
   });
 
   it("shows the end-of-feed indicator immediately when the first page is the last", async () => {
-    renderDashboard();
+    renderHomePage();
     await screen.findByText(/no runs yet/i);
     // An empty feed renders the empty-state sentence, not an end-of-feed
     // indicator — both convey the same thing but the empty-state copy

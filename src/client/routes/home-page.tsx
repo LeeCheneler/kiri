@@ -6,7 +6,7 @@ import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 import { useRunFeed } from "../hooks/use-run-feed.ts";
 
 /**
- * Dashboard route. Renders an editorial section header above the
+ * Home route. Renders an editorial section header above the
  * paginated activity feed; owns only the loading and error states and
  * delegates the populated/empty rendering to `<ActivityFeed>`.
  *
@@ -22,7 +22,7 @@ import { useRunFeed } from "../hooks/use-run-feed.ts";
  * recovers any rows that arrived while disconnected without losing
  * loaded pages below.
  */
-export function Dashboard() {
+export function HomePage() {
   const feed = useRunFeed();
   // Latest `loadNext` reference so the observer callback always calls
   // the freshest closure without re-creating the observer.

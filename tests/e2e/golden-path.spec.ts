@@ -13,7 +13,7 @@ const triggerRun = async (request: APIRequestContext, name: string) => {
   return (await res.json()) as { runId: string; status: "running" };
 };
 
-test("dashboard renders the wordmark, activity heading, and empty feed", async ({ page }) => {
+test("home renders the wordmark, activity heading, and empty feed", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: /kiri/i })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: /activity/i })).toBeVisible();
@@ -55,9 +55,7 @@ test("a failing run row carries the failed status treatment", async ({ page, req
   await expect(row).toHaveAttribute("data-status", "failed");
 });
 
-test("clicking the wordmark from the run-not-found view returns to the dashboard", async ({
-  page,
-}) => {
+test("clicking the wordmark from the run-not-found view returns to home", async ({ page }) => {
   await page.goto("/runs/missing-run-id");
   await expect(page.getByRole("heading", { name: /run not found/i })).toBeVisible();
   await page.getByRole("link", { name: "kiri", exact: true }).click();

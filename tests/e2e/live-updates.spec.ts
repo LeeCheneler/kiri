@@ -20,11 +20,11 @@ test("triggering from the workflow page navigates immediately and shows live tra
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 });
 
-test("dashboard reflects a new run appearing and reaching terminal status without reload", async ({
+test("home reflects a new run appearing and reaching terminal status without reload", async ({
   page,
   request,
 }) => {
-  // Start on the dashboard so the activity feed is mounted before the run is
+  // Start on home so the activity feed is mounted before the run is
   // triggered. The new row arrival and the running → ok transition both have
   // to come over the SSE stream — there is no reload in this test.
   await page.goto("/");

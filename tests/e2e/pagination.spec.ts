@@ -20,7 +20,7 @@ const seedQuickRuns = async (request: APIRequestContext, count: number) => {
     ),
   );
 
-  // Confirm the rows landed before navigating — otherwise the dashboard
+  // Confirm the rows landed before navigating — otherwise the home feed
   // would race the inserts and render a thinner first page.
   await expect
     .poll(async () => {

@@ -6,8 +6,8 @@ import { RecentlyPublished } from "./components/recently-published.tsx";
 import { ToastContainer } from "./components/toast-container.tsx";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
-import { Dashboard } from "./routes/dashboard.tsx";
-import { DesignSystem, DesignSystemAside } from "./routes/design-system.tsx";
+import { DesignSystemAside, DesignSystemPage } from "./routes/design-system-page.tsx";
+import { HomePage } from "./routes/home-page.tsx";
 import { RunPage } from "./routes/run-page.tsx";
 import { WorkflowPage } from "./routes/workflow-page.tsx";
 
@@ -29,7 +29,7 @@ const RIGHT_ASIDE_BY_PATH: Record<string, ReactNode> = {
  * route is mounted.
  *
  * The right rail is route-dependent: the article reading view gets its
- * marginalia TOC, the home dashboard keeps the cross-run
+ * marginalia TOC, the home page keeps the cross-run
  * recently-published shortlist, the design-system page gets a TOC of its
  * own sections, and other routes leave it empty.
  *
@@ -47,11 +47,11 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
     <LiveEventsProvider factory={liveEventsFactory}>
       <PageShell rightAside={rightAside}>
         <Switch>
-          <Route path="/" component={Dashboard} />
+          <Route path="/" component={HomePage} />
           <Route path="/workflows/:name" component={WorkflowPage} />
           <Route path="/runs/:id/published/:name" component={ArticlePage} />
           <Route path="/runs/:id" component={RunPage} />
-          <Route path="/dev/design-system" component={DesignSystem} />
+          <Route path="/dev/design-system" component={DesignSystemPage} />
           <Route>
             <p>Page not found.</p>
           </Route>

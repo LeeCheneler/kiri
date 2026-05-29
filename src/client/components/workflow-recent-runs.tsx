@@ -7,7 +7,7 @@ import { LoadingState } from "./ui/loading-state.tsx";
 
 /**
  * The Recent runs tab body: the paginated run feed scoped to one
- * workflow. Mirrors the dashboard feed — infinite scroll via an
+ * workflow. Mirrors the home feed — infinite scroll via an
  * `IntersectionObserver` sentinel plus live `run.*` updates — but every
  * fetch is filtered to `workflowName`. Because the events bus is
  * app-wide, a freshly-started run is only prepended when it belongs to

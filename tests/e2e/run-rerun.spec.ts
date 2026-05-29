@@ -45,10 +45,7 @@ test("clicking 'run again' re-executes a terminal run under the same id and url"
   expect(page.url()).toBe(url);
 });
 
-test("rerunning does not create a duplicate row on the dashboard feed", async ({
-  page,
-  request,
-}) => {
+test("rerunning does not create a duplicate row on the home feed", async ({ page, request }) => {
   // Use `slow` so the running window is observable; with `quick` the
   // ok → running → ok cycle completes inside one event loop tick and
   // SSE coalesces away the running state before Playwright can see it.
@@ -59,7 +56,7 @@ test("rerunning does not create a duplicate row on the dashboard feed", async ({
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: /run again/i }).click();
-  // Wait for the rerun to settle so the dashboard assertion isn't racing
+  // Wait for the rerun to settle so the home assertion isn't racing
   // mid-flight state.
   await expect(page.locator('[data-status="running"]').first()).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });

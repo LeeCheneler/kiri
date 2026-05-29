@@ -41,11 +41,8 @@ test("dismissing the confirm prompt leaves the run intact", async ({ page, reque
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible();
 });
 
-test("deleting via the API removes the row from the dashboard feed live", async ({
-  page,
-  request,
-}) => {
-  // Mount the dashboard first so the row arrival and the run.deleted-driven
+test("deleting via the API removes the row from the home feed live", async ({ page, request }) => {
+  // Mount home first so the row arrival and the run.deleted-driven
   // removal both have to come over SSE; no reload after the delete.
   await page.goto("/");
   const feed = page.getByRole("main");

@@ -4,18 +4,18 @@ import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { mockReactVega } from "../../../tests/setup/react-vega-mock.tsx";
-import { DesignSystem } from "./design-system.tsx";
+import { DesignSystemPage } from "./design-system-page.tsx";
 
 // The Markdown demo embeds a lazy vega chart; mock it so the page renders
 // without pulling in the real charting bundle.
 mockReactVega();
 
-describe("<DesignSystem>", () => {
+describe("<DesignSystemPage>", () => {
   it("renders the design system page heading", async () => {
     const { hook } = memoryLocation({ path: "/dev/design-system" });
     render(
       <Router hook={hook}>
-        <DesignSystem />
+        <DesignSystemPage />
       </Router>,
     );
     expect(screen.getByRole("heading", { name: /design system/i })).toBeDefined();
@@ -29,7 +29,7 @@ describe("<DesignSystem>", () => {
     const { hook } = memoryLocation({ path: "/dev/design-system" });
     render(
       <Router hook={hook}>
-        <DesignSystem />
+        <DesignSystemPage />
       </Router>,
     );
     await screen.findByRole("figure");

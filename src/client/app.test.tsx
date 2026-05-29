@@ -30,9 +30,9 @@ describe("<App>", () => {
     await flushAsync();
   });
 
-  it("routes / to the dashboard", async () => {
+  it("routes / to the home page", async () => {
     renderAt("/");
-    // Dashboard's loading state is what we'll see synchronously before the
+    // The home page's loading state is what we'll see synchronously before the
     // mocked fetch resolves; either way, the "Page not found" copy must
     // not appear when the route matched.
     expect(screen.queryByText(/page not found/i)).toBeNull();

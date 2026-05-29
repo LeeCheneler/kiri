@@ -30,7 +30,7 @@ describe("<PageShell>", () => {
     await flushAsync();
   });
 
-  it("renders a kiri wordmark linking back to the dashboard", async () => {
+  it("renders a kiri wordmark linking back to home", async () => {
     renderShell(<p>x</p>);
     const wordmark = screen.getByRole("link", { name: /^kiri$/i });
     expect(wordmark.getAttribute("href")).toBe("/");

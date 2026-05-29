@@ -35,7 +35,7 @@ test("cancelling via the API surfaces the cancelled treatment in the feed live",
   page,
   request,
 }) => {
-  // Mount the dashboard before triggering so the row arrival + status
+  // Mount home before triggering so the row arrival + status
   // transitions both have to come over SSE; no goto/reload after cancel.
   await page.goto("/");
   const feed = page.getByRole("main");
