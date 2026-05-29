@@ -80,14 +80,14 @@ export function PageShell({
   const activeName = activeWorkflowName(location);
 
   const docItems: NavItem[] = [
-    { label: "Managing kiri", href: "https://local.kiri.build/docs", external: true },
+    { label: "Managing kiri", href: "https://local.kiri.build/docs" },
     {
       label: "Design system",
       href: "/dev/design-system",
       active: location === "/dev/design-system",
     },
-    { label: "GitHub", href: "https://github.com/LeeCheneler/kiri", external: true },
-    { label: "Releases", href: "https://github.com/LeeCheneler/kiri/releases", external: true },
+    { label: "GitHub", href: "https://github.com/LeeCheneler/kiri" },
+    { label: "Releases", href: "https://github.com/LeeCheneler/kiri/releases" },
   ];
 
   return (
@@ -104,13 +104,13 @@ export function PageShell({
           </h1>
           {workflows !== null && (
             <>
-              <div className="mt-10 mb-6">
+              <div className="my-6">
                 <Rule />
               </div>
               <WorkflowsNav workflows={workflows} activeName={activeName} />
             </>
           )}
-          <div className="mt-10 mb-6">
+          <div className="my-6">
             <Rule />
           </div>
           <NavList heading="Documentation" items={docItems} />

@@ -24,17 +24,6 @@ import { Table } from "./table.tsx";
 // nothing.
 const Chart = lazy(() => import("../charts/chart.tsx").then((m) => ({ default: m.Chart })));
 
-const isExternalHref = (href: string): boolean => {
-  if (href.length === 0) return false;
-  if (href.startsWith("#") || href.startsWith("/")) return false;
-  try {
-    const url = new URL(href, window.location.href);
-    return url.origin !== window.location.origin;
-  } catch {
-    return false;
-  }
-};
-
 // `react-markdown` passes the AST `node` through to every custom
 // component. Each component below drops it so it never leaks to the DOM.
 
@@ -43,12 +32,8 @@ function Anchor({
   children,
   node: _node,
 }: AnchorHTMLAttributes<HTMLAnchorElement> & ExtraProps) {
-  const target = href ?? "";
-  return (
-    <InlineLink href={target} external={isExternalHref(target)}>
-      {children}
-    </InlineLink>
-  );
+  // InlineLink reads external-vs-internal off the href itself.
+  return <InlineLink href={href ?? ""}>{children}</InlineLink>;
 }
 
 type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;

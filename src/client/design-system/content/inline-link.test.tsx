@@ -19,11 +19,7 @@ describe("<InlineLink>", () => {
   });
 
   it("opens external links in a new tab with a safe rel", () => {
-    render(
-      <InlineLink href="https://example.com" external>
-        an external source
-      </InlineLink>,
-    );
+    render(<InlineLink href="https://example.com">an external source</InlineLink>);
     const link = screen.getByRole("link", { name: /an external source/i });
     expect(link.getAttribute("href")).toBe("https://example.com");
     expect(link.getAttribute("target")).toBe("_blank");

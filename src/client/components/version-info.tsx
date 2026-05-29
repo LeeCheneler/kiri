@@ -75,7 +75,7 @@ export function VersionInfo() {
   const hasUpdate = latest !== null && compareVersions(current, latest.tagName) === -1;
 
   return (
-    <div className="mt-10 border-t border-rule pt-6 text-xs text-ink-muted">
+    <div className="mt-6 border-t border-rule pt-6 text-xs text-ink-muted">
       <div className="font-mono">{current}</div>
       {hasUpdate && latest && (
         <a

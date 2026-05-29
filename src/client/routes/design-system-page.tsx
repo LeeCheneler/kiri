@@ -390,10 +390,10 @@ export function DesignSystemPage() {
             <Prose>
               <p className="mt-3">
                 A link inside a run of prose or chrome. It is accent-coloured and underlined so it
-                reads as a link before any hover. Internal routes navigate client-side; pass{" "}
-                <Code>external</Code> for outbound URLs, which open in a new tab. Reach for this for
-                any in-flow link — standalone navigation (the side rail, a back link) has its own
-                treatment.
+                reads as a link before any hover. Internal routes navigate client-side; an{" "}
+                <Code>href</Code> that points off-app opens in a new tab with a trailing ↗ — read
+                from the href, no flag to set. Reach for this for any in-flow link — standalone
+                navigation (the side rail, a back link) has its own treatment.
               </p>
             </Prose>
             <div className="mt-5">
@@ -402,10 +402,8 @@ export function DesignSystemPage() {
                   <p>
                     The morning digest pulls highlights from{" "}
                     <InlineLink href="/workflows/daily">the daily workflow</InlineLink> and cites{" "}
-                    <InlineLink href="https://example.com" external>
-                      an external source
-                    </InlineLink>{" "}
-                    when the summary quotes one.
+                    <InlineLink href="https://example.com">an external source</InlineLink> when the
+                    summary quotes one.
                   </p>
                 </Prose>
               </Card>
@@ -643,9 +641,7 @@ export function DesignSystemPage() {
                 Renders a markdown string into the design system: links, lists, quotes, code,
                 tables, and rules all flow through their components, headings carry the Foundations
                 scale, and the whole is wrapped in <Code>Prose</Code>. It also supports{" "}
-                <InlineLink href="https://vega.github.io/vega-lite/" external>
-                  vega-lite
-                </InlineLink>{" "}
+                <InlineLink href="https://vega.github.io/vega-lite/">vega-lite</InlineLink>{" "}
                 <Code>chart</Code> blocks, optional section ordinals, and header-level downgrade for
                 nesting beneath a page title.
               </p>
@@ -970,31 +966,34 @@ export function DesignSystemPage() {
             <Prose>
               <p className="mt-3">
                 The side rail's titled vertical navigation — an eyebrow heading over a column of
-                link rows, each with an accent strip flush to its left edge. Pass the rows as{" "}
-                <Code>{"{ label, href, active?, external? }"}</Code> in <Code>items</Code>. Internal
-                links thread through wouter and the <Code>active</Code> one is marked{" "}
-                <Code>aria-current</Code>; <Code>external</Code> rows open in a new tab with a safe{" "}
-                <Code>rel</Code> and are never current. When both <Code>items</Code> and{" "}
-                <Code>groups</Code> are empty an optional <Code>emptyState</Code> renders in their
-                place. Stack several — Workflows, Documentation — with your own spacing; the
-                component owns no outer margin.
+                link rows, each with an accent strip flush to its left edge. <Code>items</Code> is
+                an ordered mix of rows and groups: a row is{" "}
+                <Code>{"{ label, href, active? }"}</Code>, a group is{" "}
+                <Code>{"{ heading, items }"}</Code> — a titled cluster beneath a smaller
+                sub-heading. They render in the order given; consecutive rows sit tight while a
+                group stands off with space above it. A row links internally through wouter and is
+                marked <Code>aria-current</Code> when <Code>active</Code>; a row whose{" "}
+                <Code>href</Code> points off-app (a scheme or <Code>{"//"}</Code>) instead opens in
+                a new tab with a safe <Code>rel</Code> and a trailing ↗, and is never current — read
+                from the href, no flag to set. When <Code>items</Code> is empty an optional{" "}
+                <Code>emptyState</Code> renders in its place.
               </p>
               <p className="mt-3">
-                Pass <Code>groups</Code> as <Code>{"{ heading, items }[]"}</Code> for a nested rail
-                — workflows bucketed by label, say. Any flat <Code>items</Code> render first, then
-                each group renders its rows beneath a smaller sub-heading.
+                Pass <Code>heading</Code> for a labelled <Code>nav</Code> landmark — the usual
+                section. Omit it (as the lone <Code>Home</Code> row above) for a bare cluster with
+                no landmark and no eyebrow. Stack several — Home, Workflows, Documentation — with
+                your own spacing; the component owns no outer margin.
               </p>
             </Prose>
             <div className="mt-5">
               <Card>
                 <div className="space-y-10">
+                  <NavList items={[{ label: "Home", href: "/", active: true }]} />
                   <NavList
                     heading="Workflows"
                     items={[
                       { label: "pr-review", href: "/workflows/pr-review", active: true },
                       { label: "deploy", href: "/workflows/deploy" },
-                    ]}
-                    groups={[
                       {
                         heading: "Dev",
                         items: [
@@ -1014,16 +1013,8 @@ export function DesignSystemPage() {
                   <NavList
                     heading="Documentation"
                     items={[
-                      {
-                        label: "Managing kiri",
-                        href: "https://local.kiri.build/docs",
-                        external: true,
-                      },
-                      {
-                        label: "GitHub",
-                        href: "https://github.com/LeeCheneler/kiri",
-                        external: true,
-                      },
+                      { label: "Managing kiri", href: "https://local.kiri.build/docs" },
+                      { label: "GitHub", href: "https://github.com/LeeCheneler/kiri" },
                     ]}
                   />
                 </div>

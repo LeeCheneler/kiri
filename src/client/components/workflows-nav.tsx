@@ -57,8 +57,7 @@ export function WorkflowsNav({
   return (
     <NavList
       heading="Workflows"
-      items={items}
-      groups={groups}
+      items={[...items, ...groups]}
       emptyState={
         <EmptyState>
           no workflows yet. run <Code>kiri init</Code> and add YAML to <Code>workflows/</Code>.

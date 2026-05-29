@@ -1,51 +1,72 @@
 import { describe, expect, it } from "bun:test";
 import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { NavList } from "./nav-list.tsx";
 
-const renderNav = () => {
+const renderNav = (ui: ReactNode) => {
   const { hook } = memoryLocation({ path: "/" });
-  render(
-    <Router hook={hook}>
-      <NavList
-        heading="Workflows"
-        items={[
-          { label: "pr-review", href: "/workflows/pr-review", active: true },
-          { label: "nightly", href: "/workflows/nightly" },
-          { label: "Documentation", href: "https://example.com/docs", external: true },
-        ]}
-      />
-    </Router>,
-  );
+  render(<Router hook={hook}>{ui}</Router>);
 };
+
+const renderFlat = () =>
+  renderNav(
+    <NavList
+      heading="Workflows"
+      items={[
+        { label: "pr-review", href: "/workflows/pr-review", active: true },
+        { label: "nightly", href: "/workflows/nightly" },
+        { label: "Documentation", href: "https://example.com/docs" },
+      ]}
+    />,
+  );
+
+const renderGrouped = () =>
+  renderNav(
+    <NavList
+      heading="Workflows"
+      items={[
+        { label: "hello-world", href: "/workflows/hello-world" },
+        {
+          heading: "Dev",
+          items: [
+            { label: "lint", href: "/workflows/lint" },
+            { label: "test", href: "/workflows/test", active: true },
+          ],
+        },
+        { label: "restore", href: "/workflows/restore" },
+      ]}
+    />,
+  );
 
 describe("<NavList>", () => {
   it("labels the navigation with its heading", () => {
-    renderNav();
+    renderFlat();
     expect(screen.getByRole("navigation", { name: "Workflows" })).toBeDefined();
   });
 
-  it("renders internal items as wouter links to their href", () => {
-    renderNav();
-    expect(screen.getByRole("link", { name: "pr-review" }).getAttribute("href")).toBe(
-      "/workflows/pr-review",
-    );
+  it("renders internal items as in-app wouter links to their href", () => {
+    renderFlat();
+    const prReview = screen.getByRole("link", { name: "pr-review" });
+    expect(prReview.getAttribute("href")).toBe("/workflows/pr-review");
+    // An in-app path stays in the tab — no external target.
+    expect(prReview.getAttribute("target")).toBeNull();
     expect(screen.getByRole("link", { name: "nightly" }).getAttribute("href")).toBe(
       "/workflows/nightly",
     );
   });
 
   it("marks the active internal item aria-current and leaves the rest unmarked", () => {
-    renderNav();
+    renderFlat();
     expect(screen.getByRole("link", { name: "pr-review" }).getAttribute("aria-current")).toBe(
       "page",
     );
     expect(screen.getByRole("link", { name: "nightly" }).getAttribute("aria-current")).toBeNull();
   });
 
-  it("opens external items in a new tab with a safe rel and never marks them current", () => {
-    renderNav();
+  it("opens a row whose href leaves the app in a new tab with a safe rel, never current", () => {
+    renderFlat();
     const docs = screen.getByRole("link", { name: "Documentation" });
     expect(docs.getAttribute("target")).toBe("_blank");
     expect(docs.getAttribute("rel")).toBe("noreferrer noopener");
@@ -58,35 +79,16 @@ describe("<NavList>", () => {
     expect(screen.queryByRole("list")).toBeNull();
   });
 
-  const renderGrouped = () => {
-    const { hook } = memoryLocation({ path: "/" });
-    render(
-      <Router hook={hook}>
-        <NavList
-          heading="Workflows"
-          items={[{ label: "hello-world", href: "/workflows/hello-world" }]}
-          groups={[
-            {
-              heading: "Dev",
-              items: [
-                { label: "lint", href: "/workflows/lint" },
-                { label: "test", href: "/workflows/test", active: true },
-              ],
-            },
-          ]}
-          emptyState={<p>no workflows yet</p>}
-        />
-      </Router>,
-    );
-  };
-
-  it("renders both ungrouped items and grouped items as links", () => {
+  it("renders rows and groups in one ordered items list as links", () => {
     renderGrouped();
     expect(screen.getByRole("link", { name: "hello-world" }).getAttribute("href")).toBe(
       "/workflows/hello-world",
     );
     expect(screen.getByRole("link", { name: "lint" }).getAttribute("href")).toBe("/workflows/lint");
     expect(screen.getByRole("link", { name: "test" }).getAttribute("href")).toBe("/workflows/test");
+    expect(screen.getByRole("link", { name: "restore" }).getAttribute("href")).toBe(
+      "/workflows/restore",
+    );
   });
 
   it("titles each group with a sub-heading", () => {
@@ -100,19 +102,21 @@ describe("<NavList>", () => {
     expect(screen.getByRole("link", { name: "lint" }).getAttribute("aria-current")).toBeNull();
   });
 
-  it("renders groups, not the empty state, when only groups are populated", () => {
-    const { hook } = memoryLocation({ path: "/" });
-    render(
-      <Router hook={hook}>
-        <NavList
-          heading="Workflows"
-          items={[]}
-          groups={[{ heading: "Dev", items: [{ label: "lint", href: "/workflows/lint" }] }]}
-          emptyState={<p>no workflows yet</p>}
-        />
-      </Router>,
+  it("renders groups, not the empty state, when only groups are present", () => {
+    renderNav(
+      <NavList
+        heading="Workflows"
+        items={[{ heading: "Dev", items: [{ label: "lint", href: "/workflows/lint" }] }]}
+        emptyState={<p>no workflows yet</p>}
+      />,
     );
     expect(screen.queryByText("no workflows yet")).toBeNull();
     expect(screen.getByRole("link", { name: "lint" })).toBeDefined();
+  });
+
+  it("renders a bare row cluster with no nav landmark when no heading is given", () => {
+    renderNav(<NavList items={[{ label: "Home", href: "/", active: true }]} />);
+    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(screen.getByRole("link", { name: "Home" }).getAttribute("href")).toBe("/");
   });
 });
