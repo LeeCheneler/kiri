@@ -92,7 +92,6 @@ export function PageShell({
           </h1>
           {workflows !== null && (
             <div className="mt-10">
-              <h2 className="mb-3 text-xs tracking-widest text-ink-muted uppercase">Workflows</h2>
               <WorkflowsNav workflows={workflows} activeName={activeName} />
             </div>
           )}

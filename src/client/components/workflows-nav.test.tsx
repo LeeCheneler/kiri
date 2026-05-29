@@ -54,4 +54,32 @@ describe("<WorkflowsNav>", () => {
     renderNav([wf("alpha"), wf("beta")], null);
     expect(screen.queryByRole("link", { current: "page" })).toBeNull();
   });
+
+  const grouped = (name: string, group: string): WorkflowSummary => ({ name, group, steps: [] });
+
+  it("buckets workflows that declare a group under a sub-heading, ungrouped ones flat", () => {
+    renderNav([wf("hello-world"), grouped("lint", "Dev"), grouped("deploy", "Ops")]);
+    expect(screen.getByRole("link", { name: /hello-world/i })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Dev" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Ops" })).toBeDefined();
+    expect(screen.getByRole("link", { name: /lint/i }).getAttribute("href")).toBe(
+      "/workflows/lint",
+    );
+    expect(screen.getByRole("link", { name: /deploy/i }).getAttribute("href")).toBe(
+      "/workflows/deploy",
+    );
+  });
+
+  it("collects workflows that share a group under a single sub-heading", () => {
+    renderNav([grouped("lint", "Dev"), grouped("test", "Dev")]);
+    expect(screen.getAllByRole("heading", { name: "Dev" })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /lint/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /test/i })).toBeDefined();
+  });
+
+  it("marks the active workflow even when it lives inside a group", () => {
+    renderNav([grouped("lint", "Dev"), grouped("test", "Dev")], "test");
+    expect(screen.getByRole("link", { name: /test/i }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: /lint/i }).getAttribute("aria-current")).toBeNull();
+  });
 });

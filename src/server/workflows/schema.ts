@@ -128,15 +128,16 @@ const baseWorkflowSchema = z
         "Short summary of what the workflow does, shown as the deck beneath the title on the workflow page.",
       ),
     /**
-     * Optional grouping label for related workflows (e.g. "Dev"). Rendered
-     * as the eyebrow above the workflow's title on its detail page.
+     * Optional grouping label for related workflows (e.g. "Dev"). Buckets the
+     * workflow under that label in the side navigation, and renders as the
+     * eyebrow above the workflow's title on its detail page.
      */
     group: z
       .string()
       .min(1)
       .optional()
       .describe(
-        'Optional grouping label for related workflows (e.g. "Dev"), shown as the eyebrow on the workflow page.',
+        'Optional grouping label for related workflows (e.g. "Dev"). Groups the workflow under that label in the side navigation, and shows as the eyebrow on the workflow page.',
       ),
     /**
      * Optional named parameters collected via a modal at invocation time.
