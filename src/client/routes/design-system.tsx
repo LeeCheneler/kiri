@@ -13,6 +13,7 @@ import { Quote } from "../components/design-system/content/quote.tsx";
 import { Rule } from "../components/design-system/content/rule.tsx";
 import { Stat, StatList } from "../components/design-system/content/stat.tsx";
 import { Table } from "../components/design-system/content/table.tsx";
+import { StatusBlock } from "../components/design-system/feedback/status-block.tsx";
 import { Status, type StatusKind } from "../components/design-system/feedback/status.tsx";
 import { Breadcrumb } from "../components/design-system/navigation/breadcrumb.tsx";
 import { NavList } from "../components/design-system/navigation/nav-list.tsx";
@@ -1053,32 +1054,72 @@ export function DesignSystem() {
           <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/feedback</p>
         </header>
 
-        <article>
-          <h4 className="font-mono text-base text-ink">Status</h4>
-          <p className="mt-1 font-mono text-xs text-ink-faint">
-            <span className="text-ink-muted">Status</span> ·
-            components/design-system/feedback/status.tsx
-          </p>
-          <Prose>
-            <p className="mt-3">
-              The status word for a run or step, tinted in its state's colour. Pass{" "}
-              <Code>status</Code> — one of <Code>pending</Code>, <Code>running</Code>,{" "}
-              <Code>ok</Code>, <Code>failed</Code>, <Code>cancelled</Code>, <Code>interrupted</Code>
-              . The <Code>running</Code> state adds a pulsing dot as an in-flight cue. It exposes
-              the state as <Code>data-status</Code> for containers to anchor on, and stays mono —
-              but leaves size and case to the caller, so it drops cleanly into a row's chrome.
+        <div className="space-y-12">
+          <article>
+            <h4 className="font-mono text-base text-ink">Status</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Status</span> ·
+              components/design-system/feedback/status.tsx
             </p>
-          </Prose>
-          <div className="mt-5">
-            <Card>
-              <div className="flex flex-wrap gap-x-8 gap-y-3 text-xs tracking-widest uppercase">
-                {STATUSES.map((status) => (
-                  <Status key={status} status={status} />
-                ))}
-              </div>
-            </Card>
-          </div>
-        </article>
+            <Prose>
+              <p className="mt-3">
+                The status word for a run or step, tinted in its state's colour. Pass{" "}
+                <Code>status</Code> — one of <Code>pending</Code>, <Code>running</Code>,{" "}
+                <Code>ok</Code>, <Code>failed</Code>, <Code>cancelled</Code>,{" "}
+                <Code>interrupted</Code>. The <Code>running</Code> state adds a pulsing dot as an
+                in-flight cue. It exposes the state as <Code>data-status</Code> for containers to
+                anchor on, and stays mono — but leaves size and case to the caller, so it drops
+                cleanly into a row's chrome.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="flex flex-wrap gap-x-8 gap-y-3 text-xs tracking-widest uppercase">
+                  {STATUSES.map((status) => (
+                    <Status key={status} status={status} />
+                  ))}
+                </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Status block</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">StatusBlock</span> ·
+              components/design-system/feedback/status-block.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A content block edged on the left with its status colour — the callout for a run or
+                step's outcome. Pass <Code>status</Code> and the content as children; the block
+                draws a <Code>border-status-*</Code> left edge and exposes <Code>data-status</Code>{" "}
+                for containers to anchor on. It owns its border and inset only — stack several with
+                your own spacing.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="space-y-4">
+                  <StatusBlock status="failed">
+                    <p className="font-mono text-sm text-ink">sh: bun test — exited 1</p>
+                    <p className="mt-1 font-mono text-xs text-ink-muted">
+                      3 of 14 assertions failed
+                    </p>
+                  </StatusBlock>
+                  <StatusBlock status="ok">
+                    <p className="font-mono text-sm text-ink">publish: weekly digest</p>
+                    <p className="mt-1 font-mono text-xs text-ink-muted">published in 0.8s</p>
+                  </StatusBlock>
+                  <StatusBlock status="running">
+                    <p className="font-mono text-sm text-ink">sh: gather sources</p>
+                    <p className="mt-1 font-mono text-xs text-ink-muted">in progress…</p>
+                  </StatusBlock>
+                </div>
+              </Card>
+            </div>
+          </article>
+        </div>
       </section>
     </section>
   );
