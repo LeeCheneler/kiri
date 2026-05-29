@@ -26,7 +26,7 @@ const renderAt = (path: string) => {
 describe("<App>", () => {
   it("renders the kiri wordmark from the page shell", async () => {
     renderAt("/");
-    expect(screen.getByRole("link", { name: /kiri/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /^kiri$/i })).toBeDefined();
     await flushAsync();
   });
 

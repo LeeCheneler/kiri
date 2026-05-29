@@ -1033,7 +1033,7 @@ export function DesignSystem() {
                     heading="Documentation"
                     items={[
                       {
-                        label: "managing kiri",
+                        label: "Managing kiri",
                         href: "https://local.kiri.build/docs",
                         external: true,
                       },

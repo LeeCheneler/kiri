@@ -32,21 +32,26 @@ describe("<PageShell>", () => {
 
   it("renders a kiri wordmark linking back to the dashboard", async () => {
     renderShell(<p>x</p>);
-    const wordmark = screen.getByRole("link", { name: /kiri/i });
+    const wordmark = screen.getByRole("link", { name: /^kiri$/i });
     expect(wordmark.getAttribute("href")).toBe("/");
     await flushAsync();
   });
 
-  it("renders a documentation link that opens the hosted docs in a new tab", async () => {
+  it("renders the documentation nav with the docs site, github, and releases as external links", async () => {
     renderShell(<p>x</p>);
-    const docsNav = screen.getByRole("navigation", { name: /docs/i });
-    expect(docsNav).toBeDefined();
-    const link = screen.getByRole("link", { name: /documentation/i });
-    expect(link.getAttribute("href")).toBe("https://local.kiri.build/docs");
-    expect(link.getAttribute("target")).toBe("_blank");
-    const rel = link.getAttribute("rel") ?? "";
+    expect(screen.getByRole("navigation", { name: /documentation/i })).toBeDefined();
+    const docs = screen.getByRole("link", { name: /managing kiri/i });
+    expect(docs.getAttribute("href")).toBe("https://local.kiri.build/docs");
+    expect(docs.getAttribute("target")).toBe("_blank");
+    const rel = docs.getAttribute("rel") ?? "";
     expect(rel).toContain("noopener");
     expect(rel).toContain("noreferrer");
+    expect(screen.getByRole("link", { name: /^github$/i }).getAttribute("href")).toBe(
+      "https://github.com/LeeCheneler/kiri",
+    );
+    expect(screen.getByRole("link", { name: /releases/i }).getAttribute("href")).toBe(
+      "https://github.com/LeeCheneler/kiri/releases",
+    );
     await flushAsync();
   });
 

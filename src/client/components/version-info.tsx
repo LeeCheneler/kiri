@@ -33,8 +33,6 @@ const parseVersion = (raw: string): number[] | null => {
   return parts;
 };
 
-const RELEASES_URL = "https://github.com/LeeCheneler/kiri/releases";
-
 /**
  * Left-rail footer: shows the running kiri version with an inline update
  * nudge when a newer GitHub release is available. Both fetches fail
@@ -88,16 +86,6 @@ export function VersionInfo() {
         >
           <span aria-hidden="true">→</span>
           <span>Update available: {latest.tagName}</span>
-        </a>
-      )}
-      {!hasUpdate && (
-        <a
-          href={RELEASES_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="mt-1 inline-block text-ink-muted no-underline transition-colors duration-150 hover:text-ink focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1"
-        >
-          Releases ↗
         </a>
       )}
     </div>

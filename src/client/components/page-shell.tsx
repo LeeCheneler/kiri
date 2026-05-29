@@ -2,7 +2,8 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
-import { RailLink } from "./ui/rail-link.tsx";
+import { Rule } from "./design-system/content/rule.tsx";
+import { type NavItem, NavList } from "./design-system/navigation/nav-list.tsx";
 import { VersionInfo } from "./version-info.tsx";
 import { WorkflowsNav } from "./workflows-nav.tsx";
 
@@ -21,11 +22,11 @@ const activeWorkflowName = (location: string): string | null => {
 
 /**
  * Three-column page shell: a sticky left rail with the kiri wordmark,
- * the workflows nav, and a docs nav; the route content in the centre
- * with a max-width tuned for legible single-column reading; and a
- * sticky right rail whose contents the caller supplies via
- * `rightAside`. Below the `lg` breakpoint the grid collapses to a
- * single column.
+ * the workflows nav, a documentation nav, and the version footer, each
+ * divided by a hairline rule; the route content in the centre with a
+ * max-width tuned for legible single-column reading; and a sticky right
+ * rail whose contents the caller supplies via `rightAside`. Below the
+ * `lg` breakpoint the grid collapses to a single column.
  *
  * `rightAside` is the per-route marginalia slot — the home dashboard
  * passes `<RecentlyPublished>`, the article route passes its
@@ -35,9 +36,9 @@ const activeWorkflowName = (location: string): string | null => {
  *
  * The shell owns the workflows fetch so the nav stays consistent across
  * routes; the workflows nav stays hidden until the registry resolves so
- * a brief empty-state flash never shows on a populated repo. The docs
- * nav always renders so the rail still surfaces something useful when
- * the workflows fetch fails.
+ * a brief empty-state flash never shows on a populated repo. The
+ * documentation nav always renders so the rail still surfaces something
+ * useful when the workflows fetch fails.
  */
 export function PageShell({
   children,
@@ -78,6 +79,17 @@ export function PageShell({
 
   const activeName = activeWorkflowName(location);
 
+  const docItems: NavItem[] = [
+    { label: "Managing kiri", href: "https://local.kiri.build/docs", external: true },
+    {
+      label: "Design system",
+      href: "/dev/design-system",
+      active: location === "/dev/design-system",
+    },
+    { label: "GitHub", href: "https://github.com/LeeCheneler/kiri", external: true },
+    { label: "Releases", href: "https://github.com/LeeCheneler/kiri/releases", external: true },
+  ];
+
   return (
     <div className="mx-auto min-h-screen max-w-420 px-8 py-12 lg:py-16">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[200px_1fr_260px] lg:gap-12">
@@ -91,39 +103,17 @@ export function PageShell({
             </Link>
           </h1>
           {workflows !== null && (
-            <div className="mt-10">
+            <>
+              <div className="mt-10 mb-6">
+                <Rule />
+              </div>
               <WorkflowsNav workflows={workflows} activeName={activeName} />
-            </div>
+            </>
           )}
-          <div className="mt-10">
-            <h2 className="mb-3 text-xs tracking-widest text-ink-muted uppercase">Docs</h2>
-            <nav aria-label="docs">
-              <ul>
-                <li>
-                  <RailLink href="https://local.kiri.build/docs" external>
-                    Documentation
-                  </RailLink>
-                </li>
-                <li>
-                  <RailLink href="https://github.com/LeeCheneler/kiri" external>
-                    GitHub
-                  </RailLink>
-                </li>
-              </ul>
-            </nav>
+          <div className="mt-10 mb-6">
+            <Rule />
           </div>
-          <div className="mt-10">
-            <h2 className="mb-3 text-xs tracking-widest text-ink-muted uppercase">Dev</h2>
-            <nav aria-label="dev">
-              <ul>
-                <li>
-                  <RailLink href="/dev/design-system" active={location === "/dev/design-system"}>
-                    Design System
-                  </RailLink>
-                </li>
-              </ul>
-            </nav>
-          </div>
+          <NavList heading="Documentation" items={docItems} />
           <VersionInfo />
         </aside>
         <main className="min-w-0 lg:max-w-240">{children}</main>
