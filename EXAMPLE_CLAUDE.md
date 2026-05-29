@@ -41,7 +41,7 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
 
 name: My Workflow            # required, unique across workflows/
 description: "..."           # optional — one-line summary, shown as the workflow page deck
-group: Dev                   # optional — grouping label, shown as the workflow page eyebrow
+group: Dev                   # optional — grouping label; buckets the workflow in the side nav + shows as the workflow page eyebrow
 
 inputs:                      # optional — parameters collected via a modal at invoke
   - name: pr_number          # identifier referenced from a step's env (`{ input: pr_number }`)
@@ -78,6 +78,13 @@ summarize:                   # optional — one-shot post-run summary
   env:                       # optional override (see bundle docs)
     MODEL: sonnet
 ```
+
+### Top-level metadata (`description`, `group`)
+
+Both optional, both pure presentation — neither affects execution.
+
+- `description` — a one-line summary. Renders as the deck beneath the workflow's title on its page.
+- `group` — a grouping label (e.g. `Dev`, `Ops`). Buckets the workflow under that label in the left-rail navigation: grouped workflows cluster beneath their label (groups sorted alphabetically), and any workflow without a `group` lists flat above the groups. It also shows as the eyebrow above the workflow's title on its page, so related workflows read as a set. Workflows sharing a `group` string land in the same cluster.
 
 ### Step shape rules
 
@@ -450,6 +457,7 @@ steps:
 ```yaml
 # workflows/pr-review.yaml
 name: PR Review
+group: Dev                   # clusters under "Dev" in the side nav
 inputs:
   - name: pr_number
     description: GitHub PR to review (number, not URL)

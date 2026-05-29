@@ -25,7 +25,7 @@ YAML files validated against a Zod schema. No custom DSL.
 ```yaml
 name: pr-review
 description: Review a pull request and summarise findings.  # optional, shown on the workflow page
-group: Dev                 # optional, groups related workflows on the page eyebrow
+group: Dev                 # optional, buckets related workflows in the side nav + page eyebrow
 inputs:                    # optional — parameters collected via a modal at invocation
   - name: pr_number
     description: The PR to review
