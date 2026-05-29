@@ -13,6 +13,7 @@ import { Quote } from "../components/design-system/content/quote.tsx";
 import { Rule } from "../components/design-system/content/rule.tsx";
 import { Stat, StatList } from "../components/design-system/content/stat.tsx";
 import { Table } from "../components/design-system/content/table.tsx";
+import { Status, type StatusKind } from "../components/design-system/feedback/status.tsx";
 import { Breadcrumb } from "../components/design-system/navigation/breadcrumb.tsx";
 import { NavList } from "../components/design-system/navigation/nav-list.tsx";
 import { Tabs } from "../components/design-system/navigation/tabs.tsx";
@@ -157,7 +158,10 @@ const TOC_ENTRIES: TocEntry[] = [
   { id: "actions", label: "Actions" },
   { id: "navigation", label: "Navigation" },
   { id: "charts", label: "Charts" },
+  { id: "feedback", label: "Feedback" },
 ];
+
+const STATUSES: StatusKind[] = ["pending", "running", "ok", "failed", "cancelled", "interrupted"];
 
 // A fortnight of made-up run durations (ms), oldest → newest, for the Sparkline
 // specimen: a mostly-healthy run of work with two slower spikes and one failure.
@@ -1035,6 +1039,42 @@ export function DesignSystem() {
                   startLabel="oldest"
                   endLabel="duration · now"
                 />
+              </div>
+            </Card>
+          </div>
+        </article>
+      </section>
+
+      <section aria-labelledby="feedback">
+        <header className="mt-16 mb-6 border-b border-rule pb-3">
+          <h3 id="feedback" className="font-display text-3xl text-ink leading-tight">
+            Feedback
+          </h3>
+          <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/feedback</p>
+        </header>
+
+        <article>
+          <h4 className="font-mono text-base text-ink">Status</h4>
+          <p className="mt-1 font-mono text-xs text-ink-faint">
+            <span className="text-ink-muted">Status</span> ·
+            components/design-system/feedback/status.tsx
+          </p>
+          <Prose>
+            <p className="mt-3">
+              The status word for a run or step, tinted in its state's colour. Pass{" "}
+              <Code>status</Code> — one of <Code>pending</Code>, <Code>running</Code>,{" "}
+              <Code>ok</Code>, <Code>failed</Code>, <Code>cancelled</Code>, <Code>interrupted</Code>
+              . The <Code>running</Code> state adds a pulsing dot as an in-flight cue. It exposes
+              the state as <Code>data-status</Code> for containers to anchor on, and stays mono —
+              but leaves size and case to the caller, so it drops cleanly into a row's chrome.
+            </p>
+          </Prose>
+          <div className="mt-5">
+            <Card>
+              <div className="flex flex-wrap gap-x-8 gap-y-3 text-xs tracking-widest uppercase">
+                {STATUSES.map((status) => (
+                  <Status key={status} status={status} />
+                ))}
               </div>
             </Card>
           </div>
