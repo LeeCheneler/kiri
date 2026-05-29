@@ -1,7 +1,7 @@
 import type { WorkflowSummary } from "../api.ts";
-import { Code } from "./design-system/content/code.tsx";
-import { EmptyState } from "./design-system/content/empty-state.tsx";
-import { type NavGroup, type NavItem, NavList } from "./design-system/navigation/nav-list.tsx";
+import { Code } from "../design-system/content/code.tsx";
+import { EmptyState } from "../design-system/content/empty-state.tsx";
+import { type NavGroup, type NavItem, NavList } from "../design-system/navigation/nav-list.tsx";
 
 const toItem = (workflow: WorkflowSummary, activeName: string | null): NavItem => ({
   label: workflow.name,

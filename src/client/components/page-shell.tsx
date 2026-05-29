@@ -1,9 +1,9 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { type WorkflowSummary, fetchWorkflows } from "../api.ts";
+import { Rule } from "../design-system/content/rule.tsx";
+import { type NavItem, NavList } from "../design-system/navigation/nav-list.tsx";
 import { useLiveSync } from "../events/live.tsx";
-import { Rule } from "./design-system/content/rule.tsx";
-import { type NavItem, NavList } from "./design-system/navigation/nav-list.tsx";
 import { VersionInfo } from "./version-info.tsx";
 import { WorkflowsNav } from "./workflows-nav.tsx";
 

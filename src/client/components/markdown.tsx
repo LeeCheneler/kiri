@@ -19,7 +19,9 @@ import remarkGfm from "remark-gfm";
 // component lazily keeps them in a separate chunk fetched only when an
 // article actually contains a `chart` block — chart-free pages pay
 // nothing.
-const Chart = lazy(() => import("./chart.tsx").then((m) => ({ default: m.Chart })));
+const Chart = lazy(() =>
+  import("../design-system/charts/chart.tsx").then((m) => ({ default: m.Chart })),
+);
 
 const isExternalHref = (href: string): boolean => {
   if (href.length === 0) return false;

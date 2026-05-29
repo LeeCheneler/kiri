@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { type ReactNode, StrictMode } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { mockReactVega } from "../../../../../tests/setup/react-vega-mock.tsx";
+import { mockReactVega } from "../../../../tests/setup/react-vega-mock.tsx";
 import { Markdown } from "./markdown.tsx";
 
 mockReactVega();

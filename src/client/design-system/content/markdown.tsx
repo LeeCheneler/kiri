@@ -21,9 +21,8 @@ import { Table } from "./table.tsx";
 // Vega and its dependencies weigh ~290 KB gzipped. Loading the chart
 // component lazily keeps them in a separate chunk fetched only when a
 // document actually contains a `chart` block — chart-free pages pay
-// nothing. The chart renderer is an app feature component, not a
-// design-system primitive; this lazy import is the one coupling out.
-const Chart = lazy(() => import("../../chart.tsx").then((m) => ({ default: m.Chart })));
+// nothing.
+const Chart = lazy(() => import("../charts/chart.tsx").then((m) => ({ default: m.Chart })));
 
 const isExternalHref = (href: string): boolean => {
   if (href.length === 0) return false;

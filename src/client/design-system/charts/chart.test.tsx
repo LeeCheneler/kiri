@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { act, render, screen } from "@testing-library/react";
-import { lastEmbed, mockReactVega, resetEmbed } from "../../../tests/setup/react-vega-mock.tsx";
+import { lastEmbed, mockReactVega, resetEmbed } from "../../../../tests/setup/react-vega-mock.tsx";
 
 mockReactVega();
 const { Chart } = await import("./chart.tsx");

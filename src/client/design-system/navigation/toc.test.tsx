@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { act, render, screen } from "@testing-library/react";
-import { FakeIntersectionObserver } from "../../../../../tests/setup/fake-intersection-observer.ts";
+import { FakeIntersectionObserver } from "../../../../tests/setup/fake-intersection-observer.ts";
 import { Toc, type TocEntry } from "./toc.tsx";
 
 const ENTRIES: TocEntry[] = [
