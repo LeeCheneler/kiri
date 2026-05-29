@@ -57,4 +57,62 @@ describe("<NavList>", () => {
     expect(screen.getByText("no workflows yet")).toBeDefined();
     expect(screen.queryByRole("list")).toBeNull();
   });
+
+  const renderGrouped = () => {
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <NavList
+          heading="Workflows"
+          items={[{ label: "hello-world", href: "/workflows/hello-world" }]}
+          groups={[
+            {
+              heading: "Dev",
+              items: [
+                { label: "lint", href: "/workflows/lint" },
+                { label: "test", href: "/workflows/test", active: true },
+              ],
+            },
+          ]}
+          emptyState={<p>no workflows yet</p>}
+        />
+      </Router>,
+    );
+  };
+
+  it("renders both ungrouped items and grouped items as links", () => {
+    renderGrouped();
+    expect(screen.getByRole("link", { name: "hello-world" }).getAttribute("href")).toBe(
+      "/workflows/hello-world",
+    );
+    expect(screen.getByRole("link", { name: "lint" }).getAttribute("href")).toBe("/workflows/lint");
+    expect(screen.getByRole("link", { name: "test" }).getAttribute("href")).toBe("/workflows/test");
+  });
+
+  it("titles each group with a sub-heading", () => {
+    renderGrouped();
+    expect(screen.getByRole("heading", { name: "Dev" })).toBeDefined();
+  });
+
+  it("marks the active row aria-current even when it lives inside a group", () => {
+    renderGrouped();
+    expect(screen.getByRole("link", { name: "test" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "lint" }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("renders groups, not the empty state, when only groups are populated", () => {
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <NavList
+          heading="Workflows"
+          items={[]}
+          groups={[{ heading: "Dev", items: [{ label: "lint", href: "/workflows/lint" }] }]}
+          emptyState={<p>no workflows yet</p>}
+        />
+      </Router>,
+    );
+    expect(screen.queryByText("no workflows yet")).toBeNull();
+    expect(screen.getByRole("link", { name: "lint" })).toBeDefined();
+  });
 });

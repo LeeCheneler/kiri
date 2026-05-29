@@ -992,9 +992,15 @@ export function DesignSystem() {
                 <Code>{"{ label, href, active?, external? }"}</Code> in <Code>items</Code>. Internal
                 links thread through wouter and the <Code>active</Code> one is marked{" "}
                 <Code>aria-current</Code>; <Code>external</Code> rows open in a new tab with a safe{" "}
-                <Code>rel</Code> and are never current. When <Code>items</Code> is empty an optional{" "}
-                <Code>emptyState</Code> renders in its place. Stack several — Workflows, Docs, Dev —
-                with your own spacing; the component owns no outer margin.
+                <Code>rel</Code> and are never current. When both <Code>items</Code> and{" "}
+                <Code>groups</Code> are empty an optional <Code>emptyState</Code> renders in their
+                place. Stack several — Workflows, Documentation — with your own spacing; the
+                component owns no outer margin.
+              </p>
+              <p className="mt-3">
+                Pass <Code>groups</Code> as <Code>{"{ heading, items }[]"}</Code> for a nested rail
+                — workflows bucketed by label, say. Any flat <Code>items</Code> render first, then
+                each group renders its rows beneath a smaller sub-heading.
               </p>
             </Prose>
             <div className="mt-5">
@@ -1004,15 +1010,30 @@ export function DesignSystem() {
                     heading="Workflows"
                     items={[
                       { label: "pr-review", href: "/workflows/pr-review", active: true },
-                      { label: "nightly-backup", href: "/workflows/nightly-backup" },
-                      { label: "weekly-digest", href: "/workflows/weekly-digest" },
+                      { label: "deploy", href: "/workflows/deploy" },
+                    ]}
+                    groups={[
+                      {
+                        heading: "Dev",
+                        items: [
+                          { label: "lint", href: "/workflows/lint" },
+                          { label: "test", href: "/workflows/test" },
+                        ],
+                      },
+                      {
+                        heading: "Ops",
+                        items: [
+                          { label: "nightly-backup", href: "/workflows/nightly-backup" },
+                          { label: "restore", href: "/workflows/restore" },
+                        ],
+                      },
                     ]}
                   />
                   <NavList
-                    heading="Docs"
+                    heading="Documentation"
                     items={[
                       {
-                        label: "Documentation",
+                        label: "managing kiri",
                         href: "https://local.kiri.build/docs",
                         external: true,
                       },
