@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Button } from "../components/design-system/actions/button.tsx";
+import { Select } from "../components/design-system/actions/select.tsx";
 import { Code, CodeBlock } from "../components/design-system/content/code.tsx";
 import { InlineLink } from "../components/design-system/content/inline-link.tsx";
 import { List } from "../components/design-system/content/list.tsx";
@@ -87,6 +89,26 @@ const TYPE_SCALE = [
   },
 ];
 
+// Interactive specimen for the Select control, which owns its controlled value.
+function SelectDemo() {
+  const [cadence, setCadence] = useState("daily");
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label
+        htmlFor="ds-select-cadence"
+        className="font-mono text-xs tracking-widest text-ink-muted uppercase"
+      >
+        Cadence
+      </label>
+      <Select id="ds-select-cadence" value={cadence} onChange={setCadence}>
+        <option value="daily">daily</option>
+        <option value="weekly">weekly</option>
+        <option value="monthly">monthly</option>
+      </Select>
+    </div>
+  );
+}
+
 /**
  * Dev-only living design system. The single source of truth for kiri's
  * UI building blocks: the foundation tokens (colour, type, status) and
@@ -94,8 +116,8 @@ const TYPE_SCALE = [
  * with its variants and usage guidance so new UI composes from the same
  * parts rather than re-deriving them.
  *
- * Pure composition — no data, no state. Sections fill in as primitives
- * are catalogued.
+ * No fetched data; interactive controls hold their own local demo state.
+ * Sections fill in as primitives are catalogued.
  */
 export function DesignSystem() {
   return (
@@ -570,77 +592,103 @@ export function DesignSystem() {
           <p className="mt-1 font-mono text-xs text-ink-muted">components/design-system/actions</p>
         </header>
 
-        <article>
-          <h4 className="font-mono text-base text-ink">Button</h4>
-          <p className="mt-1 font-mono text-xs text-ink-faint">
-            <span className="text-ink-muted">Button</span> ·
-            components/design-system/actions/button.tsx
-          </p>
-          <Prose>
-            <p className="mt-3">
-              A button performs an action — it runs, submits, toggles, deletes; it <em>changes</em>{" "}
-              something. The line that matters most: <em>buttons act, links navigate</em>. If a
-              control takes the user somewhere — another page, a section, an external site — it is a
-              link (the Inline link above), never a button wired to navigate on click. A button that
-              navigates throws away open-in-new-tab, middle-click, history, and the role a screen
-              reader announces. When you are unsure which to reach for, ask whether the control{" "}
-              <em>goes somewhere</em> or <em>does something</em>.
+        <div className="space-y-12">
+          <article>
+            <h4 className="font-mono text-base text-ink">Button</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Button</span> ·
+              components/design-system/actions/button.tsx
             </p>
-          </Prose>
-          <div className="mt-5">
-            <Card>
-              <div className="flex flex-wrap items-baseline gap-4">
-                <Button variant="primary">run</Button>
-                <Button>copy</Button>
-                <Button variant="negative">delete</Button>
-                <Button variant="dismissive">cancel</Button>
-              </div>
-              <div className="mt-6 flex flex-wrap items-baseline gap-4">
-                <Button variant="primary" size="lg">
-                  run workflow
-                </Button>
-                <Button variant="primary" pending pendingLabel="running…">
-                  run
-                </Button>
-                <Button disabled>unavailable</Button>
-              </div>
-            </Card>
-          </div>
-          <Prose>
-            <p className="mt-5">
-              Reach for the variant that matches the action's weight, and keep at most one{" "}
-              <Code>primary</Code> on a surface — everything else steps down from it.
+            <Prose>
+              <p className="mt-3">
+                A button performs an action — it runs, submits, toggles, deletes; it{" "}
+                <em>changes</em> something. The line that matters most:{" "}
+                <em>buttons act, links navigate</em>. If a control takes the user somewhere —
+                another page, a section, an external site — it is a link (the Inline link above),
+                never a button wired to navigate on click. A button that navigates throws away
+                open-in-new-tab, middle-click, history, and the role a screen reader announces. When
+                you are unsure which to reach for, ask whether the control <em>goes somewhere</em>{" "}
+                or <em>does something</em>.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="flex flex-wrap items-baseline gap-4">
+                  <Button variant="primary">run</Button>
+                  <Button>copy</Button>
+                  <Button variant="negative">delete</Button>
+                  <Button variant="dismissive">cancel</Button>
+                </div>
+                <div className="mt-6 flex flex-wrap items-baseline gap-4">
+                  <Button variant="primary" size="lg">
+                    run workflow
+                  </Button>
+                  <Button variant="primary" pending pendingLabel="running…">
+                    run
+                  </Button>
+                  <Button disabled>unavailable</Button>
+                </div>
+              </Card>
+            </div>
+            <Prose>
+              <p className="mt-5">
+                Reach for the variant that matches the action's weight, and keep at most one{" "}
+                <Code>primary</Code> on a surface — everything else steps down from it.
+              </p>
+              <List>
+                <li>
+                  <Code>primary</Code> — solid accent; the single affirmative call-to-action, the
+                  one thing you most want done (run, save, submit). Competing primaries cancel each
+                  other out.
+                </li>
+                <li>
+                  <Code>default</Code> — outlined; the everyday standalone action that needs its own
+                  edge but isn't the headline (copy, run again, refresh). Most buttons are this.
+                </li>
+                <li>
+                  <Code>negative</Code> — solid red; a destructive, hard-to-undo action (delete,
+                  cancel a run mid-flight). Reserve red for genuine consequence so it still makes
+                  the user pause — usually behind a confirm.
+                </li>
+                <li>
+                  <Code>dismissive</Code> — borderless; a low-weight action inside chrome that
+                  already carries weight, like a dialog's cancel or a dismiss. It sits quietly
+                  beside the primary it accompanies.
+                </li>
+              </List>
+              <p className="mt-4">
+                Use <Code>size="lg"</Code> only for a true headline action — a hero run button
+                crowning a page — and the default <Code>sm</Code> everywhere else. For anything
+                asynchronous, pass <Code>pending</Code> with a <Code>pendingLabel</Code>: the label
+                swaps for a pulse and the button disables itself, so progress shows and it can't be
+                fired twice.
+              </p>
+            </Prose>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Select</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Select</span> ·
+              components/design-system/actions/select.tsx
             </p>
-            <List>
-              <li>
-                <Code>primary</Code> — solid accent; the single affirmative call-to-action, the one
-                thing you most want done (run, save, submit). Competing primaries cancel each other
-                out.
-              </li>
-              <li>
-                <Code>default</Code> — outlined; the everyday standalone action that needs its own
-                edge but isn't the headline (copy, run again, refresh). Most buttons are this.
-              </li>
-              <li>
-                <Code>negative</Code> — solid red; a destructive, hard-to-undo action (delete,
-                cancel a run mid-flight). Reserve red for genuine consequence so it still makes the
-                user pause — usually behind a confirm.
-              </li>
-              <li>
-                <Code>dismissive</Code> — borderless; a low-weight action inside chrome that already
-                carries weight, like a dialog's cancel or a dismiss. It sits quietly beside the
-                primary it accompanies.
-              </li>
-            </List>
-            <p className="mt-4">
-              Use <Code>size="lg"</Code> only for a true headline action — a hero run button
-              crowning a page — and the default <Code>sm</Code> everywhere else. For anything
-              asynchronous, pass <Code>pending</Code> with a <Code>pendingLabel</Code>: the label
-              swaps for a pulse and the button disables itself, so progress shows and it can't be
-              fired twice.
-            </p>
-          </Prose>
-        </article>
+            <Prose>
+              <p className="mt-3">
+                The form control for choosing one value from a fixed set — a styled wrapper over the
+                native <Code>select</Code>, so keyboard, type-ahead, and the platform picker all
+                come for free. Write the <Code>option</Code> elements as children and drive it with{" "}
+                <Code>value</Code> / <Code>onChange</Code>. It is the control alone; pair it with a{" "}
+                <Code>label</Code> for the field. Reach for a select only for a short, fixed list —
+                a long or open-ended set wants a different control.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <SelectDemo />
+              </Card>
+            </div>
+          </article>
+        </div>
       </section>
     </section>
   );
