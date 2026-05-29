@@ -12,6 +12,7 @@ import { Rule } from "../components/design-system/content/rule.tsx";
 import { Stat, StatList } from "../components/design-system/content/stat.tsx";
 import { Table } from "../components/design-system/content/table.tsx";
 import { Breadcrumb } from "../components/design-system/navigation/breadcrumb.tsx";
+import { NavList } from "../components/design-system/navigation/nav-list.tsx";
 import { Tabs } from "../components/design-system/navigation/tabs.tsx";
 import { Toc, type TocEntry } from "../components/design-system/navigation/toc.tsx";
 import { Card } from "../components/design-system/surfaces/card.tsx";
@@ -881,6 +882,55 @@ export function DesignSystem() {
             <div className="mt-5">
               <Card>
                 <Toc heading="Contents" entries={TOC_ENTRIES} />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Nav list</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">NavList</span> ·
+              components/design-system/navigation/nav-list.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                The side rail's titled vertical navigation — an eyebrow heading over a column of
+                link rows, each with an accent strip flush to its left edge. Pass the rows as{" "}
+                <Code>{"{ label, href, active?, external? }"}</Code> in <Code>items</Code>. Internal
+                links thread through wouter and the <Code>active</Code> one is marked{" "}
+                <Code>aria-current</Code>; <Code>external</Code> rows open in a new tab with a safe{" "}
+                <Code>rel</Code> and are never current. When <Code>items</Code> is empty an optional{" "}
+                <Code>emptyState</Code> renders in its place. Stack several — Workflows, Docs, Dev —
+                with your own spacing; the component owns no outer margin.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="space-y-10">
+                  <NavList
+                    heading="Workflows"
+                    items={[
+                      { label: "pr-review", href: "/workflows/pr-review", active: true },
+                      { label: "nightly-backup", href: "/workflows/nightly-backup" },
+                      { label: "weekly-digest", href: "/workflows/weekly-digest" },
+                    ]}
+                  />
+                  <NavList
+                    heading="Docs"
+                    items={[
+                      {
+                        label: "Documentation",
+                        href: "https://local.kiri.build/docs",
+                        external: true,
+                      },
+                      {
+                        label: "GitHub",
+                        href: "https://github.com/LeeCheneler/kiri",
+                        external: true,
+                      },
+                    ]}
+                  />
+                </div>
               </Card>
             </div>
           </article>
