@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
-import { type EventBus, mountEventsRoute } from "./events/index.ts";
+import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
 import { articlesRoutes } from "./routes/articles.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { mountStaticRoutes } from "./routes/static.ts";
@@ -155,6 +155,9 @@ export function createApp(deps: AppDeps): Hono {
       app,
       eventsHeartbeatMs === undefined ? { bus } : { bus, heartbeatMs: eventsHeartbeatMs },
     );
+    // Reflect a spawned run's status back onto the recommendation that
+    // actioned it, so the producing run's detail refreshes its rec badge.
+    mountRecommendationReflector(db, bus);
   }
 
   mountStaticRoutes(app, { staticRoot: deps.staticRoot, embeddedFiles });

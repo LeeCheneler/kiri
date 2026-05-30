@@ -16,6 +16,13 @@ export type KiriEvent =
       recommendationId: string;
       actionedRunId: string;
     }
+  | {
+      type: "recommendation.updated";
+      runId: string;
+      recommendationId: string;
+      actionedRunId: string;
+      status: RunStatus;
+    }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string };

@@ -6,4 +6,5 @@ export {
   type StepStatus,
   createEventBus,
 } from "./bus.ts";
+export { mountRecommendationReflector } from "./recommendation-reflector.ts";
 export { type MountEventsRouteOptions, mountEventsRoute } from "./sse.ts";
