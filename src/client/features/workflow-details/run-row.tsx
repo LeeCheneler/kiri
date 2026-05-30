@@ -36,7 +36,9 @@ export function RunRow({ run, now }: { run: RunListEntry; now?: Date }) {
         ) : null}
       </Meta>
       {run.summary ? (
-        <div className="mt-2 text-sm text-ink-muted">
+        // Markdown's paragraph hardcodes ink; mute it here so the summary
+        // reads as secondary to the articles that lead the row.
+        <div className="mt-2 text-sm text-ink-muted [&_p]:text-ink-muted">
           <Markdown content={run.summary} />
         </div>
       ) : null}
