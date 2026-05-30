@@ -25,7 +25,7 @@ export function Drawer({
   const headingId = useId();
 
   // Open as a true modal: background inert, focus trapped, Escape fires the
-  // dialog's `cancel` event, and focus returns to the trigger on unmount.
+  // dialog's `cancel` event, and focus returns to the trigger when it closes.
   useEffect(() => {
     dialogRef.current?.showModal();
   }, []);
@@ -35,17 +35,23 @@ export function Drawer({
     <dialog
       ref={dialogRef}
       aria-labelledby={headingId}
-      // The dialog ships its own `cancel` event for Escape; route it through
-      // onClose so the parent controls unmount.
+      // Escape fires the dialog's `cancel` event: stop the default close so we
+      // drive it ourselves — `close()` restores focus to the trigger (removing
+      // the element on unmount would not), then the parent unmounts.
       onCancel={(event) => {
         event.preventDefault();
+        dialogRef.current?.close();
         onClose();
       }}
       // A click dismisses only when its target is the dialog element itself —
       // the backdrop. Padding lives on the inner wrapper, so clicks anywhere in
       // the visible panel land on a child and never read as a backdrop click.
+      // `close()` first so focus returns to the trigger, then the parent unmounts.
       onClick={(event) => {
-        if (event.target === dialogRef.current) onClose();
+        if (event.target === dialogRef.current) {
+          dialogRef.current?.close();
+          onClose();
+        }
       }}
       // `m-0` pins the panel to the top-left corner (Tailwind's preflight has
       // already stripped the UA dialog's centering margins); `max-h-dvh`

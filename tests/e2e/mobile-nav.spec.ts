@@ -47,4 +47,6 @@ test("dismisses the drawer with Escape", async ({ page }) => {
 
   await page.keyboard.press("Escape");
   await expect(drawer).not.toBeVisible();
+  // Closing the native dialog restores focus to the trigger that opened it.
+  await expect(page.getByRole("button", { name: /menu/i })).toBeFocused();
 });
