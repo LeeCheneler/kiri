@@ -3,6 +3,7 @@ import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { RunWorkflow } from "../features/run-workflow/run-workflow.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
+import { WorkflowDetails } from "../features/workflow-details/workflow-details.tsx";
 import { WorkflowStats } from "../features/workflow-stats/workflow-stats.tsx";
 import { useWorkflows } from "../state/workflows.ts";
 
@@ -88,6 +89,9 @@ export function WorkflowContent({ params }: { params: { name: string } }) {
       </header>
       <div className="mt-8">
         <WorkflowStats workflowName={workflow.name} />
+      </div>
+      <div className="mt-10">
+        <WorkflowDetails workflow={workflow} />
       </div>
     </article>
   );
