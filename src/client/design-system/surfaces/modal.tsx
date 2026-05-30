@@ -53,8 +53,12 @@ export function Modal({
       }}
       // `m-auto` restores the centering Tailwind's preflight strips from the UA
       // dialog; `text-left` anchors content alignment against any inherited
-      // text-align from the mount point.
-      className="m-auto w-full max-w-md animate-[modal-in_180ms_ease-out] border border-rule bg-paper text-left text-ink shadow-xl backdrop:bg-canvas/80"
+      // text-align from the mount point. `overflow-x-hidden` clips the horizontal
+      // axis the UA dialog leaves as `overflow: auto`: when the body fills the
+      // dialog's content width exactly, the scale-in entrance tips that axis into
+      // "scrollable" for a few sub-pixel frames and macOS flashes an overlay
+      // scrollbar. Clipping x removes it; y stays scrollable for tall content.
+      className="m-auto w-full max-w-md overflow-x-hidden animate-[modal-in_180ms_ease-out] border border-rule bg-paper text-left text-ink shadow-xl backdrop:bg-canvas/80"
     >
       <div className="p-6">
         <h2 id={headingId} className="font-display text-2xl text-ink leading-tight">
