@@ -55,10 +55,11 @@ test("a failing run row carries the failed status treatment", async ({ page, req
   await expect(row).toHaveAttribute("data-status", "failed");
 });
 
-test("clicking the wordmark from the run-not-found view returns to home", async ({ page }) => {
+test("clicking Home from the run-not-found view returns to home", async ({ page }) => {
   await page.goto("/runs/missing-run-id");
   await expect(page.getByRole("heading", { name: /run not found/i })).toBeVisible();
-  await page.getByRole("link", { name: "kiri", exact: true }).click();
+  // The wordmark is a heading now, not a link — the Home nav row navigates home.
+  await page.getByRole("link", { name: "Home", exact: true }).click();
   await expect(page).toHaveURL("/");
 });
 
