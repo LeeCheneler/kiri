@@ -212,7 +212,7 @@ For workflows using broad `Bash(*)` permissions, the load-bearing defence is the
 
 ## UI
 
-- **Left rail: workflows nav.** Lists workflows from the registry, each linking to its detail page.
+- **Left rail: workflows nav.** Lists workflows from the registry, each linking to its detail page. Below the `lg` breakpoint the rail collapses to a top bar (wordmark + menu button) that opens the same nav in a left drawer.
 - **Center: feed.** Reverse-chronological activity log. Each row shows workflow name, status, duration, and (when present) the run's one-or-two-sentence summary plus a stacked list of published articles — one row per article, each carrying the publish-entry title and (when present) the article body's first markdown `# heading` as a sub-byline so identically-titled articles from the same workflow are distinguishable. A small count signals when a run carries recommendations. Clicking a row opens the run detail page (`/runs/:id`) with full traces, the run's recommendations, and its published articles; clicking an article entry opens its dedicated page (`/runs/:id/published/:name`).
 - **Right rail: recently published.** Lists the most recent articles across all runs, each linking to its article page; each entry shows the publish-entry title with the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Live-updates as runs publish.
 

@@ -6,8 +6,9 @@ import type { ReactNode } from "react";
  * right rail for marginalia. All three columns hold their width across
  * routes so the centre never shifts; `left` and `right` render empty when
  * a route supplies no rail content. Below the `lg` breakpoint the grid
- * collapses to a single column — the left rail stacks above the content
- * and the right rail is hidden.
+ * collapses to a single column — the left slot stacks above the content
+ * (the site nav collapses itself to a top bar there) and the right rail
+ * is hidden.
  *
  * Purely presentational: callers compose the rails (the site nav on the
  * left, per-route marginalia on the right) and pass them in. Each page

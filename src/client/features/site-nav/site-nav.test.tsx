@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -101,6 +102,42 @@ describe("<SiteNav>", () => {
     renderNav("/workflows/%");
     const active = await screen.findByRole("link", { name: "%" });
     expect(active.getAttribute("aria-current")).toBe("page");
+    await flushAsync();
+  });
+
+  it("opens the navigation drawer with the rail content when the menu button is clicked", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("*/api/workflows", () => HttpResponse.json([workflow("deploy")])));
+    renderNav("/");
+    await user.click(await screen.findByRole("button", { name: /menu/i }));
+    const drawer = screen.getByRole("dialog", { name: /navigation/i });
+    expect(within(drawer).getByRole("link", { name: /^home$/i })).toBeDefined();
+    expect(within(drawer).getByRole("link", { name: "deploy" })).toBeDefined();
+    await flushAsync();
+  });
+
+  it("closes the drawer when a link inside it is selected", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("*/api/workflows", () => HttpResponse.json([workflow("deploy")])));
+    renderNav("/");
+    await user.click(await screen.findByRole("button", { name: /menu/i }));
+    const drawer = screen.getByRole("dialog", { name: /navigation/i });
+    // Selecting a workflow navigates, which the rail keys off to close itself.
+    await user.click(within(drawer).getByRole("link", { name: "deploy" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await flushAsync();
+  });
+
+  it("closes the drawer on a backdrop click", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("*/api/workflows", () => HttpResponse.json([workflow("deploy")])));
+    renderNav("/");
+    await user.click(await screen.findByRole("button", { name: /menu/i }));
+    const drawer = screen.getByRole("dialog", { name: /navigation/i });
+    // A backdrop click lands on the dialog element itself, dismissing it
+    // without a route change.
+    await user.click(drawer);
+    expect(screen.queryByRole("dialog")).toBeNull();
     await flushAsync();
   });
 });
