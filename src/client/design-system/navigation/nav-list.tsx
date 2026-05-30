@@ -88,9 +88,9 @@ function Group({ heading, items }: NavGroup) {
  * cluster beneath a smaller sub-heading. Consecutive rows sit tight; a group
  * stands off with a little space above it. A row links internally through
  * wouter and gains `aria-current="page"` when `active`; a row whose `href`
- * points off-app (a scheme or `//`) instead opens in a new tab with a safe
- * `rel` and a trailing ↗, and is never current — there's no flag to set, it's
- * read from the href.
+ * points off-app (a different origin, or the hosted `/docs` site) instead opens
+ * in a new tab with a safe `rel` and a trailing ↗, and is never current —
+ * there's no flag to set, it's read from the href.
  *
  * Pass `heading` for a labelled `<nav>` landmark — the usual side-rail section.
  * Omit it for a bare cluster of rows with no landmark and no eyebrow, e.g. a

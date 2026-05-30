@@ -14,6 +14,7 @@ import {
 } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { isExternalHref } from "../design-system/utils/is-external-href.ts";
 
 // Vega and its dependencies weigh ~290 KB gzipped. Loading the chart
 // component lazily keeps them in a separate chunk fetched only when an
@@ -22,17 +23,6 @@ import remarkGfm from "remark-gfm";
 const Chart = lazy(() =>
   import("../design-system/charts/chart.tsx").then((m) => ({ default: m.Chart })),
 );
-
-const isExternalHref = (href: string): boolean => {
-  if (href.length === 0) return false;
-  if (href.startsWith("#") || href.startsWith("/")) return false;
-  try {
-    const url = new URL(href, window.location.href);
-    return url.origin !== window.location.origin;
-  } catch {
-    return false;
-  }
-};
 
 // `react-markdown` passes the AST `node` through to every custom
 // component. Each component below destructures and drops it so it never
