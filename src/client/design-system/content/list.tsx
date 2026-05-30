@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
-const SHARED = "ml-6 space-y-1.5 text-ink marker:text-ink-muted [&>li]:leading-relaxed";
+// Item text colour is left to inherit (the app root defaults to ink) so a
+// list inside a muted block tints with it; only the markers pin to muted.
+const SHARED = "ml-6 space-y-1.5 marker:text-ink-muted [&>li]:leading-relaxed";
 
 /**
  * Reading-content list. Bulleted by default; pass `ordered` for a numbered

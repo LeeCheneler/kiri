@@ -8,7 +8,8 @@ import type { ReactNode } from "react";
  * width; never put a max-width on text by hand.
  */
 export function Prose({ children }: { children: ReactNode }) {
-  return (
-    <div className="max-w-[65ch] font-display text-base text-ink leading-relaxed">{children}</div>
-  );
+  // Text colour is deliberately not set: the app root already defaults to
+  // ink, so leaving it unstated lets a wrapping tint (e.g. `text-ink-muted`
+  // on a secondary summary) inherit through to the content.
+  return <div className="max-w-[65ch] font-display text-base leading-relaxed">{children}</div>;
 }

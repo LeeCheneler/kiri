@@ -43,12 +43,16 @@ type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 // `downgradeHeaderLevels`, but the visual prominence follows whatever the
 // author wrote — so `# x` always reads as the most prominent heading, even
 // when it lands at <h2> or <h3>.
+//
+// Standard content (h1–h5) leaves its colour to inherit so a wrapping tint
+// flows through; h6 is the exception — its muted ink is part of the eyebrow
+// treatment, not the default body colour.
 const HEADING_CLASSES: Record<HeadingLevel, string> = {
-  1: "mt-10 mb-4 font-display text-3xl text-ink leading-tight first:mt-0",
-  2: "mt-8 mb-3 font-display text-2xl text-ink leading-tight",
-  3: "mt-6 mb-2 font-display text-xl text-ink leading-tight",
-  4: "mt-6 mb-2 font-display text-lg text-ink",
-  5: "mt-4 mb-2 font-display text-base text-ink",
+  1: "mt-10 mb-4 font-display text-3xl leading-tight first:mt-0",
+  2: "mt-8 mb-3 font-display text-2xl leading-tight",
+  3: "mt-6 mb-2 font-display text-xl leading-tight",
+  4: "mt-6 mb-2 font-display text-lg",
+  5: "mt-4 mb-2 font-display text-base",
   6: "mt-4 mb-2 text-xs tracking-widest text-ink-muted uppercase",
 };
 
@@ -70,7 +74,7 @@ function Paragraph({
   ...rest
 }: HTMLAttributes<HTMLParagraphElement> & ExtraProps) {
   return (
-    <p className="mt-3.5 text-base leading-7 text-ink first:mt-0" {...rest}>
+    <p className="mt-3.5 text-base leading-7 first:mt-0" {...rest}>
       {children}
     </p>
   );
@@ -110,7 +114,7 @@ function HorizontalRule(_props: HTMLAttributes<HTMLHRElement> & ExtraProps) {
 
 function Strong({ node: _node, children, ...rest }: HTMLAttributes<HTMLElement> & ExtraProps) {
   return (
-    <strong className="font-display font-medium text-ink" {...rest}>
+    <strong className="font-display font-medium" {...rest}>
       {children}
     </strong>
   );
