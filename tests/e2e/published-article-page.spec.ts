@@ -36,10 +36,10 @@ test("clicking a published article navigates to a page rendering its markdown bo
   await expect(page.getByRole("heading", { level: 3, name: /published digest/i })).toBeVisible();
   await expect(page.locator("article p").first()).toBeVisible();
 
-  // The back link returns to the parent run page.
+  // The breadcrumb's run crumb (the short run id) returns to the parent run.
   await page
-    .getByRole("link", { name: /back to run/i })
-    .first()
+    .getByRole("navigation", { name: /breadcrumb/i })
+    .getByRole("link", { name: runId.slice(0, 8) })
     .click();
   await expect(page).toHaveURL(`/runs/${runId}`);
 });
