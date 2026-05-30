@@ -1,3 +1,4 @@
+import { useRunsLive } from "./runs.ts";
 import { useWorkflowsLive } from "./workflows.ts";
 
 /**
@@ -7,6 +8,7 @@ import { useWorkflowsLive } from "./workflows.ts";
  * `<QueryClientProvider>` and `<LiveEventsProvider>`.
  */
 export function LiveSync(): null {
+  useRunsLive();
   useWorkflowsLive();
   return null;
 }

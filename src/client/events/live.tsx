@@ -8,6 +8,7 @@ export type KiriEventType =
   | "run.finished"
   | "run.deleted"
   | "recommendation.actioned"
+  | "recommendation.updated"
   | "workflow.added"
   | "workflow.updated"
   | "workflow.removed";
@@ -35,6 +36,13 @@ export type KiriEvent =
       recommendationId: string;
       actionedRunId: string;
     }
+  | {
+      type: "recommendation.updated";
+      runId: string;
+      recommendationId: string;
+      actionedRunId: string;
+      status: "running" | "ok" | "failed" | "cancelled";
+    }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string };
@@ -58,6 +66,7 @@ const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
   "run.finished",
   "run.deleted",
   "recommendation.actioned",
+  "recommendation.updated",
   "workflow.added",
   "workflow.updated",
   "workflow.removed",
