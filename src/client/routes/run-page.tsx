@@ -3,18 +3,17 @@ import { useLocation } from "wouter";
 import {
   ApiError,
   type RunDetail,
-  type WorkflowSummary,
   actionRecommendation,
   cancelRun,
   deleteRun,
   fetchRun,
-  fetchWorkflows,
   rerunRun,
 } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
 import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { useLiveSync } from "../events/live.tsx";
+import { useWorkflows } from "../state/workflows.ts";
 
 type State =
   | { status: "loading" }
@@ -25,20 +24,19 @@ type State =
 /**
  * Run detail route. Fetches the run by id and renders one of: loading,
  * not-found (404 from the API), generic error, or the editorial run
- * detail view. Owns only the fetch states; the populated case delegates
- * to `<RunDetailView>`. Refetches whenever a run/step event for the
- * matching id fires so step transitions surface live without reload.
+ * detail view. Owns only the run-fetch states; the populated case
+ * delegates to `<RunDetailView>`. Refetches whenever a run/step event for
+ * the matching id fires so step transitions surface live without reload.
  *
- * Also resolves the run's *current* workflow definition from the
- * registry so the re-run path knows whether to pre-fill the invoke
- * modal. Both fetches are issued in parallel and joined before the
- * "ready" state flips, so the modal-armed signal arrives with the
- * rest of the page. A workflow registry fetch failure is swallowed —
- * the run renders without the modal-aware re-run.
+ * The run's *current* workflow definition — used to decide whether the
+ * re-run path pre-fills the invoke modal — is read from the shared
+ * workflows query, which stays live as definitions change. While it loads
+ * (or if it fails) the list is empty and the run renders without the
+ * modal-aware re-run.
  */
 export function RunPage({ params }: { params: { id: string } }) {
   const [state, setState] = useState<State>({ status: "loading" });
-  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  const { data: workflows } = useWorkflows();
   const [, navigate] = useLocation();
   const tokenRef = useRef(0);
   // Spawned run ids whose lifecycle events should refetch this page.
@@ -50,29 +48,26 @@ export function RunPage({ params }: { params: { id: string } }) {
 
   const refetch = useCallback(() => {
     const token = ++tokenRef.current;
-    Promise.allSettled([fetchRun(params.id), fetchWorkflows()]).then(([runResult, wfResult]) => {
-      if (tokenRef.current !== token) return;
-      if (runResult.status === "rejected") {
-        const err = runResult.reason as Error;
+    fetchRun(params.id)
+      .then((detail) => {
+        if (tokenRef.current !== token) return;
+        for (const r of detail.run.recommendations ?? []) {
+          if (r.actionedRunId) actionedRunIdsRef.current.add(r.actionedRunId);
+        }
+        setState({ status: "ready", detail });
+      })
+      .catch((err: Error) => {
+        if (tokenRef.current !== token) return;
         if (err instanceof ApiError && err.status === 404) {
           setState({ status: "not-found" });
         } else {
           setState({ status: "error", message: err.message });
         }
-        return;
-      }
-      const detail = runResult.value;
-      for (const r of detail.run.recommendations ?? []) {
-        if (r.actionedRunId) actionedRunIdsRef.current.add(r.actionedRunId);
-      }
-      setWorkflows(wfResult.status === "fulfilled" ? wfResult.value : []);
-      setState({ status: "ready", detail });
-    });
+      });
   }, [params.id]);
 
   useEffect(() => {
     setState({ status: "loading" });
-    setWorkflows([]);
     actionedRunIdsRef.current = new Set();
     refetch();
     return () => {
@@ -99,12 +94,6 @@ export function RunPage({ params }: { params: { id: string } }) {
   useLiveSync({
     on: ["recommendation.actioned"],
     filter: (event) => event.runId === params.id,
-    refetch,
-  });
-
-  useLiveSync({
-    on: ["workflow.updated", "workflow.removed"],
-    filter: (event) => state.status === "ready" && event.name === state.detail.run.workflowName,
     refetch,
   });
 
@@ -165,7 +154,8 @@ export function RunPage({ params }: { params: { id: string } }) {
     refetch();
   };
 
-  const workflowInputs = workflows.find((w) => w.name === state.detail.run.workflowName)?.inputs;
+  const workflowList = workflows ?? [];
+  const workflowInputs = workflowList.find((w) => w.name === state.detail.run.workflowName)?.inputs;
 
   return (
     <RunDetailView
@@ -174,7 +164,7 @@ export function RunPage({ params }: { params: { id: string } }) {
       onDelete={handleDelete}
       onRerun={handleRerun}
       workflowInputs={workflowInputs}
-      workflows={workflows}
+      workflows={workflowList}
       onActionRecommendation={handleActionRecommendation}
     />
   );

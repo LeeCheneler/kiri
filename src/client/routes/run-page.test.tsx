@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,17 +8,20 @@ import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { createQueryClient } from "../state/query-client.ts";
 import { RunPage } from "./run-page.tsx";
 
 const renderRun = (id: string) => {
   const { hook } = memoryLocation({ path: `/runs/${id}` });
   const { factory, sources } = captureEventSources();
   const ui = render(
-    <Router hook={hook}>
+    <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
-        <RunPage params={{ id }} />
+        <Router hook={hook}>
+          <RunPage params={{ id }} />
+        </Router>
       </LiveEventsProvider>
-    </Router>,
+    </QueryClientProvider>,
   );
   return { ...ui, sources };
 };
@@ -85,71 +89,6 @@ describe("<RunPage>", () => {
       expect(screen.getByRole("alert")).toBeDefined();
     });
     expect(screen.getByRole("alert").textContent).toMatch(/failed to load run/i);
-  });
-
-  it("refetches when a workflow event for the matching workflow name fires", async () => {
-    // Initial fetch returns the run + an empty workflows list (no inputs).
-    // A workflow.updated event for the matching name triggers a refetch
-    // and the new registry response declares inputs, arming the modal.
-    let runFetches = 0;
-    let wfFetches = 0;
-    server.use(
-      http.get("*/api/runs/:id", ({ params }) => {
-        runFetches++;
-        return HttpResponse.json({
-          run: {
-            id: params.id,
-            workflowName: "edited",
-            status: "ok",
-            trigger: "manual",
-            startedAt: "2026-05-09T12:00:00.000Z",
-            finishedAt: "2026-05-09T12:00:01.000Z",
-            error: null,
-            summary: null,
-            definitionSnapshot: { name: "edited", steps: [] },
-            isInterrupted: false,
-            articles: [],
-            inputs: null,
-          },
-          steps: [],
-        });
-      }),
-      http.get("*/api/workflows", () => {
-        wfFetches++;
-        return HttpResponse.json(
-          wfFetches === 1
-            ? [{ name: "edited", steps: [{ sh: "echo hi" }] }]
-            : [
-                {
-                  name: "edited",
-                  inputs: [{ name: "topic", required: true }],
-                  steps: [{ sh: "echo hi" }],
-                },
-              ],
-        );
-      }),
-    );
-
-    const { sources } = renderRun("abc");
-    await screen.findByRole("button", { name: /run again/i });
-    expect(runFetches).toBe(1);
-    expect(wfFetches).toBe(1);
-
-    // Event for a *different* workflow name is filtered out — no refetch.
-    act(() => {
-      sources[0]?.emit({ type: "workflow.updated", name: "other-thing" });
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(runFetches).toBe(1);
-    expect(wfFetches).toBe(1);
-
-    // Event for the matching name passes the filter and triggers refetch.
-    act(() => {
-      sources[0]?.emit({ type: "workflow.updated", name: "edited" });
-    });
-    await waitFor(() => {
-      expect(wfFetches).toBe(2);
-    });
   });
 
   it("refetches when a run event for the matching id fires", async () => {
@@ -326,11 +265,13 @@ describe("<RunPage>", () => {
       const memory = memoryLocation({ path: `/runs/${id}`, record: true });
       const { factory } = captureEventSources();
       const ui = render(
-        <Router hook={memory.hook}>
+        <QueryClientProvider client={createQueryClient()}>
           <LiveEventsProvider factory={factory}>
-            <RunPage params={{ id }} />
+            <Router hook={memory.hook}>
+              <RunPage params={{ id }} />
+            </Router>
           </LiveEventsProvider>
-        </Router>,
+        </QueryClientProvider>,
       );
       return { ...ui, history: memory.history };
     };
@@ -467,11 +408,13 @@ describe("<RunPage>", () => {
       const memory = memoryLocation({ path: `/runs/${id}`, record: true });
       const { factory } = captureEventSources();
       const ui = render(
-        <Router hook={memory.hook}>
+        <QueryClientProvider client={createQueryClient()}>
           <LiveEventsProvider factory={factory}>
-            <RunPage params={{ id }} />
+            <Router hook={memory.hook}>
+              <RunPage params={{ id }} />
+            </Router>
           </LiveEventsProvider>
-        </Router>,
+        </QueryClientProvider>,
       );
       return { ...ui, history: memory.history };
     };
