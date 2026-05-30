@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "../design-system/actions/button.tsx";
+import { CopyButton } from "../design-system/actions/copy-button.tsx";
 import { Select } from "../design-system/actions/select.tsx";
 import { TextInput } from "../design-system/actions/text-input.tsx";
 import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.tsx";
@@ -920,6 +921,33 @@ export function DesignSystemContent() {
                 fired twice.
               </p>
             </Prose>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Copy button</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">CopyButton</span> ·
+              design-system/actions/copy-button.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A <Code>default</Code> button wired to write <Code>content</Code> to the system
+                clipboard. The write is invisible, so on success it swaps its label to{" "}
+                <Code>copiedLabel</Code> for a beat before reverting — the feedback the user needs
+                to know it took. If the clipboard rejects (an insecure context, denied permission)
+                it surfaces the reason inline beside the button rather than failing silently. Pass{" "}
+                <Code>label</Code> to name what's copied so the control stays content-agnostic —
+                "copy markdown", "copy link", "copy SHA".
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="flex flex-wrap items-baseline gap-4">
+                  <CopyButton content="the quick brown fox" />
+                  <CopyButton content="# The morning briefing" label="copy markdown" />
+                </div>
+              </Card>
+            </div>
           </article>
 
           <article>
