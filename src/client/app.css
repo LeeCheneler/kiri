@@ -117,6 +117,18 @@
   }
 }
 
+/* Open-drawer entrance for the left-anchored <dialog showModal()>: the panel
+   slides in from off the left edge. The backdrop fades in via the shared
+   modal-backdrop-in rule below, which targets every open dialog. */
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
 dialog[open]::backdrop {
   animation: modal-backdrop-in 180ms ease-out;
 }

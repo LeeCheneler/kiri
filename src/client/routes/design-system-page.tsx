@@ -21,6 +21,7 @@ import { NavList } from "../design-system/navigation/nav-list.tsx";
 import { Tabs } from "../design-system/navigation/tabs.tsx";
 import { Toc, type TocEntry } from "../design-system/navigation/toc.tsx";
 import { Card } from "../design-system/surfaces/card.tsx";
+import { Drawer } from "../design-system/surfaces/drawer.tsx";
 import { Modal } from "../design-system/surfaces/modal.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
@@ -149,6 +150,28 @@ function ModalDemo() {
             </Button>
           </div>
         </Modal>
+      )}
+    </>
+  );
+}
+
+// Interactive specimen for the Drawer — a button opens a left side panel
+// hosting navigation, the way the site rail does on small screens.
+function DrawerDemo() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>open drawer</Button>
+      {open && (
+        <Drawer title="Navigation" onClose={() => setOpen(false)}>
+          <NavList
+            heading="Workflows"
+            items={[
+              { label: "pr-review", href: "/workflows/pr-review", active: true },
+              { label: "deploy", href: "/workflows/deploy" },
+            ]}
+          />
+        </Drawer>
       )}
     </>
   );
@@ -353,6 +376,30 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <ModalDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Drawer</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Drawer</span> · design-system/surfaces/drawer.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A left-anchored, full-height panel built on the native <Code>dialog</Code> element —
+                the same inert-background, focus-trap, Escape, and focus-restore machinery as the{" "}
+                <Code>Modal</Code>, but sliding in from the edge as an off-canvas surface. It is
+                open while mounted: render it to open it, and let <Code>onClose</Code> (fired by
+                Escape or a backdrop click) tell the parent to unmount. <Code>title</Code> labels
+                the panel; the body is the children, which fill the column and scroll when they
+                overflow. Reach for it for navigation or a side panel — the small-screen home for
+                chrome that sits in a rail on wider viewports.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <DrawerDemo />
               </Card>
             </div>
           </article>

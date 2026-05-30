@@ -40,4 +40,22 @@ describe("<DesignSystemPage>", () => {
     await user.click(screen.getByRole("button", { name: /discard/i }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("opens and closes the Drawer demo", async () => {
+    const user = userEvent.setup();
+    const { hook } = memoryLocation({ path: "/dev/design-system" });
+    render(
+      <Router hook={hook}>
+        <DesignSystemContent />
+      </Router>,
+    );
+    await screen.findByRole("figure");
+
+    await user.click(screen.getByRole("button", { name: /open drawer/i }));
+    expect(screen.getByRole("dialog", { name: /navigation/i })).toBeDefined();
+
+    // A backdrop click lands on the dialog element itself and dismisses it.
+    await user.click(screen.getByRole("dialog"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
