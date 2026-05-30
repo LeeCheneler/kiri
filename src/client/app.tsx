@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { type ReactNode, useState } from "react";
 import { Route, Switch, useLocation } from "wouter";
 import { ArticleAside } from "./components/article-aside.tsx";
 import { PageShell } from "./components/page-shell.tsx";
@@ -10,6 +11,8 @@ import { DesignSystemAside, DesignSystemPage } from "./routes/design-system-page
 import { HomePage } from "./routes/home-page.tsx";
 import { RunPage } from "./routes/run-page.tsx";
 import { WorkflowPage } from "./routes/workflow-page.tsx";
+import { LiveSync } from "./state/live-sync.tsx";
+import { createQueryClient } from "./state/query-client.ts";
 
 const ARTICLE_ROUTE = /^\/runs\/[^/]+\/published\/[^/]+$/;
 
@@ -21,12 +24,14 @@ const RIGHT_ASIDE_BY_PATH: Record<string, ReactNode> = {
 };
 
 /**
- * Root client shell. Mounts the live events provider once so every route
- * shares the single `EventSource('/api/events')` connection, then wraps
- * the wouter route switch in the page shell so each route inherits the
- * three-column layout and the kiri wordmark. The toast container sits
- * alongside the shell so completion notifications float over whatever
- * route is mounted.
+ * Root client shell. Owns the query client and the live events provider
+ * so every route shares one cache and the single
+ * `EventSource('/api/events')` connection; `<LiveSync>` bridges the two,
+ * invalidating cached queries as server events arrive. The wouter route
+ * switch is wrapped in the page shell so each route inherits the
+ * three-column layout and the kiri wordmark, and the toast container sits
+ * alongside it so completion notifications float over whatever route is
+ * mounted.
  *
  * The right rail is route-dependent: the article reading view gets its
  * marginalia TOC, the home page keeps the cross-run
@@ -37,6 +42,7 @@ const RIGHT_ASIDE_BY_PATH: Record<string, ReactNode> = {
  * get the native `EventSource`.
  */
 export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFactory } = {}) {
+  const [queryClient] = useState(createQueryClient);
   const [location] = useLocation();
   const rightAside = ARTICLE_ROUTE.test(location) ? (
     <ArticleAside />
@@ -44,20 +50,23 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
     RIGHT_ASIDE_BY_PATH[location]
   );
   return (
-    <LiveEventsProvider factory={liveEventsFactory}>
-      <PageShell rightAside={rightAside}>
-        <Switch>
-          <Route path="/" component={HomePage} />
-          <Route path="/workflows/:name" component={WorkflowPage} />
-          <Route path="/runs/:id/published/:name" component={ArticlePage} />
-          <Route path="/runs/:id" component={RunPage} />
-          <Route path="/dev/design-system" component={DesignSystemPage} />
-          <Route>
-            <p>Page not found.</p>
-          </Route>
-        </Switch>
-      </PageShell>
-      <ToastContainer />
-    </LiveEventsProvider>
+    <QueryClientProvider client={queryClient}>
+      <LiveEventsProvider factory={liveEventsFactory}>
+        <LiveSync />
+        <PageShell rightAside={rightAside}>
+          <Switch>
+            <Route path="/" component={HomePage} />
+            <Route path="/workflows/:name" component={WorkflowPage} />
+            <Route path="/runs/:id/published/:name" component={ArticlePage} />
+            <Route path="/runs/:id" component={RunPage} />
+            <Route path="/dev/design-system" component={DesignSystemPage} />
+            <Route>
+              <p>Page not found.</p>
+            </Route>
+          </Switch>
+        </PageShell>
+        <ToastContainer />
+      </LiveEventsProvider>
+    </QueryClientProvider>
   );
 }
