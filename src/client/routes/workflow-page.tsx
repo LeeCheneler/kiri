@@ -1,4 +1,4 @@
-import { LoadingState } from "../components/ui/loading-state.tsx";
+import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { RunWorkflow } from "../features/run-workflow/run-workflow.tsx";

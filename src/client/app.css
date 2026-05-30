@@ -26,6 +26,9 @@
 
   --font-display: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  /* Sweep for shimmering loading text. */
+  --animate-text-shimmer: text-shimmer 2.5s linear infinite;
 }
 
 @layer base {
@@ -107,6 +110,17 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
+  }
+}
+
+/* Shimmer for loading text: a brighter band sweeps across the muted base,
+   revealed through bg-clip-text on the otherwise-transparent glyphs. */
+@keyframes text-shimmer {
+  from {
+    background-position: 200% center;
+  }
+  to {
+    background-position: -200% center;
   }
 }
 

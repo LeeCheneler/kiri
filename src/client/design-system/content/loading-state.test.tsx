@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { LoadingState } from "./loading-state.tsx";
 
 describe("<LoadingState>", () => {
-  it("renders its children as paragraph text", () => {
+  it("renders its children as text", () => {
     render(<LoadingState>Loading run…</LoadingState>);
     expect(screen.getByText("Loading run…")).toBeDefined();
   });

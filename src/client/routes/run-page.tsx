@@ -2,7 +2,7 @@ import { useLocation } from "wouter";
 import { ApiError, actionRecommendation, cancelRun, deleteRun, rerunRun } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
 import { BackLink } from "../components/ui/back-link.tsx";
-import { LoadingState } from "../components/ui/loading-state.tsx";
+import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useRun } from "../state/runs.ts";

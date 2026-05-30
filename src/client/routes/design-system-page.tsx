@@ -10,6 +10,7 @@ import { EmptyState } from "../design-system/content/empty-state.tsx";
 import { HeadlineLink } from "../design-system/content/headline-link.tsx";
 import { InlineLink } from "../design-system/content/inline-link.tsx";
 import { List } from "../design-system/content/list.tsx";
+import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Markdown } from "../design-system/content/markdown.tsx";
 import { Meta } from "../design-system/content/meta.tsx";
 import { Prose } from "../design-system/content/prose.tsx";
@@ -836,6 +837,29 @@ export function DesignSystemContent() {
                   no workflows yet — run <Code>kiri init</Code> and add YAML to{" "}
                   <Code>workflows/</Code>.
                 </EmptyState>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Loading state</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">LoadingState</span> ·
+              design-system/content/loading-state.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                The loading twin of the empty state — the same muted, italic line, but rendered as
+                an <Code>output</Code> with <Code>role="status"</Code> so assistive tech announces
+                the body settling, and given a slow shimmer to signal liveness (it stills under{" "}
+                <Code>prefers-reduced-motion</Code>). Reach for it while a surface's content is
+                mid-fetch; swap to the real content, or an <Code>EmptyState</Code>, once it
+                resolves.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <LoadingState>Loading workflow…</LoadingState>
               </Card>
             </div>
           </article>

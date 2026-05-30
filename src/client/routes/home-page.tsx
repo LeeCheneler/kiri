@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import { fetchRun } from "../api.ts";
 import { ActivityFeed } from "../components/activity-feed.tsx";
 import { RecentlyPublished } from "../components/recently-published.tsx";
-import { LoadingState } from "../components/ui/loading-state.tsx";
+import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";

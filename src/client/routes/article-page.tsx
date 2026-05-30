@@ -1,6 +1,6 @@
 import { ApiError } from "../api.ts";
-import { LoadingState } from "../components/ui/loading-state.tsx";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
+import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Markdown } from "../design-system/content/markdown.tsx";
 import { Meta } from "../design-system/content/meta.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
