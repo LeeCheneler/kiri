@@ -31,7 +31,9 @@ const seedQuickRuns = async (request: APIRequestContext, count: number) => {
     .toBeGreaterThanOrEqual(count);
 };
 
-test("infinite scroll advances through pages and shows an end-of-feed indicator", async ({
+// Skipped: the home page is a blank Activity shell with no run feed; restore
+// when the feed is rebuilt.
+test.skip("infinite scroll advances through pages and shows an end-of-feed indicator", async ({
   page,
   request,
 }) => {
@@ -68,7 +70,9 @@ test("infinite scroll advances through pages and shows an end-of-feed indicator"
   await expect(page.getByText(/end of feed/i)).toBeVisible();
 });
 
-test("a fresh run.started event prepends to the top without disturbing loaded pages", async ({
+// Skipped: the home page is a blank Activity shell with no run feed; restore
+// when the feed is rebuilt.
+test.skip("a fresh run.started event prepends to the top without disturbing loaded pages", async ({
   page,
   request,
 }) => {

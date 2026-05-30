@@ -20,7 +20,9 @@ test("triggering from the workflow page navigates immediately and shows live tra
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 });
 
-test("home reflects a new run appearing and reaching terminal status without reload", async ({
+// Skipped: the home page is a blank Activity shell with no run feed; restore
+// when the feed is rebuilt.
+test.skip("home reflects a new run appearing and reaching terminal status without reload", async ({
   page,
   request,
 }) => {

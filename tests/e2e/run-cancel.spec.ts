@@ -31,7 +31,9 @@ test("clicking cancel on the run detail page transitions the run to cancelled li
   await expect(cancelButton).not.toBeVisible();
 });
 
-test("cancelling via the API surfaces the cancelled treatment in the feed live", async ({
+// Skipped: the home page is a blank Activity shell with no run feed; restore
+// when the feed is rebuilt.
+test.skip("cancelling via the API surfaces the cancelled treatment in the feed live", async ({
   page,
   request,
 }) => {

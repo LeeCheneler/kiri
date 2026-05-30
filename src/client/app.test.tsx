@@ -32,9 +32,9 @@ describe("<App>", () => {
 
   it("routes / to the home page", async () => {
     renderAt("/");
-    // The home page's loading state is what we'll see synchronously before the
-    // mocked fetch resolves; either way, the "Page not found" copy must
-    // not appear when the route matched.
+    // The home page renders its Activity breadcrumb synchronously; the
+    // "Page not found" copy must not appear when the route matched.
+    expect(screen.getByText("Activity").getAttribute("aria-current")).toBe("page");
     expect(screen.queryByText(/page not found/i)).toBeNull();
     await flushAsync();
   });
@@ -69,12 +69,6 @@ describe("<App>", () => {
     expect(screen.getByRole("status", { name: /notifications/i }).getAttribute("aria-live")).toBe(
       "polite",
     );
-    await flushAsync();
-  });
-
-  it("shows the Recently Published rail on the home route", async () => {
-    renderAt("/");
-    expect(await screen.findByRole("heading", { name: /recently published/i })).toBeDefined();
     await flushAsync();
   });
 

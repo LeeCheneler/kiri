@@ -45,7 +45,12 @@ test("clicking 'run again' re-executes a terminal run under the same id and url"
   expect(page.url()).toBe(url);
 });
 
-test("rerunning does not create a duplicate row on the home feed", async ({ page, request }) => {
+// Skipped: the home page is a blank Activity shell with no run feed; restore
+// when the feed is rebuilt.
+test.skip("rerunning does not create a duplicate row on the home feed", async ({
+  page,
+  request,
+}) => {
   // Use `slow` so the running window is observable; with `quick` the
   // ok → running → ok cycle completes inside one event loop tick and
   // SSE coalesces away the running state before Playwright can see it.

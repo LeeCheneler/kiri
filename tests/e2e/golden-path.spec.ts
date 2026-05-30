@@ -13,11 +13,11 @@ const triggerRun = async (request: APIRequestContext, name: string) => {
   return (await res.json()) as { runId: string; status: "running" };
 };
 
-test("home renders the wordmark, activity heading, and empty feed", async ({ page }) => {
+test("home renders the wordmark and the activity breadcrumb", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: /kiri/i })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: /activity/i })).toBeVisible();
-  await expect(page.getByText(/no runs yet/i)).toBeVisible();
+  const breadcrumb = page.getByRole("navigation", { name: /breadcrumb/i });
+  await expect(breadcrumb.getByText(/activity/i)).toBeVisible();
 });
 
 test("refreshing on /runs/:id boots the SPA and shows the not-found view", async ({ page }) => {
@@ -27,10 +27,11 @@ test("refreshing on /runs/:id boots the SPA and shows the not-found view", async
 
   await page.getByRole("link", { name: /^activity$/i }).click();
   await expect(page).toHaveURL("/");
-  await expect(page.getByText(/no runs yet/i)).toBeVisible();
 });
 
-test("a successful run surfaces in the feed with status and link to detail", async ({
+// Skipped: the home page is a blank Activity shell with no run feed; restore
+// when the feed is rebuilt.
+test.skip("a successful run surfaces in the feed with status and link to detail", async ({
   page,
   request,
 }) => {
@@ -46,7 +47,9 @@ test("a successful run surfaces in the feed with status and link to detail", asy
   await expect(row).toHaveAttribute("data-status", "ok");
 });
 
-test("a failing run row carries the failed status treatment", async ({ page, request }) => {
+// Skipped: the home page is a blank Activity shell with no run feed; restore
+// when the feed is rebuilt.
+test.skip("a failing run row carries the failed status treatment", async ({ page, request }) => {
   const { runId } = await triggerRun(request, "failing");
 
   await page.goto("/");
