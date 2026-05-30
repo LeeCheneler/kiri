@@ -1,6 +1,7 @@
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { RunWorkflow } from "../features/run-workflow/run-workflow.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useWorkflows } from "../state/workflows.ts";
 
@@ -80,6 +81,9 @@ export function WorkflowContent({ params }: { params: { name: string } }) {
             {workflow.description}
           </p>
         )}
+        <div className="mt-6">
+          <RunWorkflow workflow={workflow} />
+        </div>
       </header>
     </article>
   );

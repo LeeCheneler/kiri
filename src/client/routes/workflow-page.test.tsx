@@ -47,6 +47,8 @@ describe("<WorkflowPage>", () => {
     ).toBeDefined();
     // The breadcrumb trail leads back to the activity feed.
     expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
+    // The hero composes the run affordance.
+    expect(screen.getByRole("button", { name: /^run$/i })).toBeDefined();
   });
 
   it("renders a not-found view when the registry has no workflow with that name", async () => {
