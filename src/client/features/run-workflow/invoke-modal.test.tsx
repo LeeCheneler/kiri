@@ -74,6 +74,22 @@ describe("<InvokeModal>", () => {
     expect(onSubmit.mock.calls).toEqual([[{ depth: "shallow" }]]);
   });
 
+  it("forwards a changed picklist value", async () => {
+    const user = userEvent.setup();
+    const onSubmit = mock(async (_values: Record<string, string>) => {});
+    render(
+      <InvokeModal
+        workflowName="brief"
+        inputs={[{ name: "depth", options: ["shallow", "deep"] }]}
+        onSubmit={onSubmit}
+        onCancel={noop}
+      />,
+    );
+    await user.selectOptions(screen.getByRole("combobox", { name: /depth/i }), "deep");
+    await user.click(screen.getByRole("button", { name: /run →/i }));
+    expect(onSubmit.mock.calls).toEqual([[{ depth: "deep" }]]);
+  });
+
   it("calls onCancel from the cancel action", async () => {
     const user = userEvent.setup();
     const onCancel = mock(noop);

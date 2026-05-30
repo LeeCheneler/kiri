@@ -58,6 +58,17 @@ describe("<RunWorkflow>", () => {
     expect(posted).toEqual([]);
   });
 
+  it("closes the modal when cancelled", async () => {
+    const user = userEvent.setup();
+    renderRun(wf({ inputs: [{ name: "topic", required: true }] }));
+
+    await user.click(screen.getByRole("button", { name: /run with inputs/i }));
+    expect(screen.getByRole("dialog")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("surfaces an inline error when the bare run fails", async () => {
     const user = userEvent.setup();
     server.use(
