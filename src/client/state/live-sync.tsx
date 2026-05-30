@@ -1,4 +1,4 @@
-import { useRunWindowsLive, useRunsLive } from "./runs.ts";
+import { useRunFeedsLive, useRunWindowsLive, useRunsLive } from "./runs.ts";
 import { useWorkflowsLive } from "./workflows.ts";
 
 /**
@@ -10,6 +10,7 @@ import { useWorkflowsLive } from "./workflows.ts";
 export function LiveSync(): null {
   useRunsLive();
   useRunWindowsLive();
+  useRunFeedsLive();
   useWorkflowsLive();
   return null;
 }

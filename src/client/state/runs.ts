@@ -1,10 +1,20 @@
-import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type UseInfiniteQueryResult,
+  type UseQueryResult,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { type RunDetail, type RunListEntry, fetchRun, fetchRunsPage } from "../api.ts";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 
 const runKey = (id: string) => ["run", id] as const;
 const runWindowKey = (workflow: string, limit: number) =>
   ["runs", "window", workflow, limit] as const;
+const runFeedKey = (workflow: string) => ["runs", "feed", workflow] as const;
+
+/** Page size for the workflow run feed; mirrors the server's default. */
+const FEED_PAGE_SIZE = 25;
 
 /**
  * Read a single run's detail, fetching on first use and serving the cache
@@ -29,6 +39,29 @@ export function useWorkflowRunWindow(
     queryKey: runWindowKey(workflow, limit),
     queryFn: () => fetchRunsPage({ workflow, limit }),
     select: (page) => page.runs,
+  });
+}
+
+/**
+ * Read one workflow's full run history as an infinite, cursor-paginated
+ * feed, newest first. The first page fetches on mount; `fetchNextPage`
+ * advances by the previous page's `nextCursor` until it runs dry
+ * (`hasNextPage` false). `data` is the loaded pages flattened into a
+ * single newest-first array. Kept current by `useRunFeedsLive`, which
+ * invalidates the feed on run lifecycle events so a TanStack refetch of
+ * all loaded pages folds in starts, updates, finishes, and deletes
+ * without manual cache surgery.
+ */
+export function useWorkflowRunFeed(
+  workflow: string,
+): UseInfiniteQueryResult<RunListEntry[], Error> {
+  return useInfiniteQuery({
+    queryKey: runFeedKey(workflow),
+    queryFn: ({ pageParam }) =>
+      fetchRunsPage({ workflow, cursor: pageParam, limit: FEED_PAGE_SIZE }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    select: (data) => data.pages.flatMap((page) => page.runs),
   });
 }
 
@@ -80,5 +113,26 @@ export function useRunWindowsLive(): void {
   });
   useLiveReconnect(() => {
     void queryClient.invalidateQueries({ queryKey: ["runs", "window"] });
+  });
+}
+
+/**
+ * Invalidate the cached workflow run feeds as runs start, change, finish, or
+ * are deleted, so a mounted feed refetches its loaded pages and reflects the
+ * change. The lifecycle events don't all name their workflow, so this
+ * invalidates the whole `["runs", "feed"]` subtree rather than a single key;
+ * reconnect does the same to recover anything missed while disconnected.
+ * Mount once near the root via `<LiveSync>`.
+ */
+export function useRunFeedsLive(): void {
+  const queryClient = useQueryClient();
+  useLiveEvent({
+    on: ["run.started", "run.updated", "run.finished", "run.deleted"],
+    handler: () => {
+      void queryClient.invalidateQueries({ queryKey: ["runs", "feed"] });
+    },
+  });
+  useLiveReconnect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["runs", "feed"] });
   });
 }
