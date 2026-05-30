@@ -1,5 +1,5 @@
-import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
+import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useWorkflows } from "../state/workflows.ts";
@@ -56,7 +56,7 @@ export function WorkflowContent({ params }: { params: { name: string } }) {
   if (!workflow) {
     return (
       <section>
-        <BackLink href="/">all activity</BackLink>
+        <Breadcrumb items={[{ label: "Activity", href: "/" }]} current="Not found" />
         <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Workflow not found</h2>
         <p className="mt-3 font-mono text-sm text-ink-muted">
           No workflow named <code className="text-ink">{workflowName}</code>.
@@ -65,11 +65,22 @@ export function WorkflowContent({ params }: { params: { name: string } }) {
     );
   }
 
+  const eyebrow = workflow.group ? `${workflow.group} · Workflow` : "Workflow";
+
   return (
     <article>
-      <h2 className="font-display text-6xl text-ink italic leading-[0.95] tracking-tight">
-        {workflow.name}
-      </h2>
+      <Breadcrumb items={[{ label: "Activity", href: "/" }]} current={workflow.name} />
+      <header className="mt-6 border-rule border-b pb-8">
+        <p className="font-mono text-xs text-accent uppercase tracking-widest">{eyebrow}</p>
+        <h2 className="mt-2 font-display text-6xl text-ink italic leading-[0.95] tracking-tight">
+          {workflow.name}
+        </h2>
+        {workflow.description && (
+          <p className="mt-4 max-w-[56ch] font-display text-lg text-ink-muted italic leading-[1.45]">
+            {workflow.description}
+          </p>
+        )}
+      </header>
     </article>
   );
 }

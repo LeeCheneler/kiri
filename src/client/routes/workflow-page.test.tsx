@@ -45,6 +45,8 @@ describe("<WorkflowPage>", () => {
     expect(
       await screen.findByRole("heading", { level: 2, name: /kiri-self-review/i }),
     ).toBeDefined();
+    // The breadcrumb trail leads back to the activity feed.
+    expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
   });
 
   it("renders a not-found view when the registry has no workflow with that name", async () => {
@@ -56,7 +58,7 @@ describe("<WorkflowPage>", () => {
 
     expect(await screen.findByRole("heading", { name: /workflow not found/i })).toBeDefined();
     expect(screen.getByText("missing")).toBeDefined();
-    expect(screen.getByRole("link", { name: /all activity/i }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
   });
 
   it("renders a generic error view when the registry fetch fails", async () => {
