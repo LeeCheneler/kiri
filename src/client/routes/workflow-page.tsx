@@ -1,8 +1,5 @@
-import { useLocation } from "wouter";
-import { triggerRun } from "../api.ts";
 import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
-import { WorkflowDetailView } from "../components/workflow-detail.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useWorkflows } from "../state/workflows.ts";
@@ -32,26 +29,17 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
 /**
  * Workflow detail content. Reads the registry from the shared workflows
  * query and finds the entry by name, rendering one of: loading,
- * not-found, error, or the editorial detail view. Owns the trigger
- * handler — it POSTs the run, awaits the terminal status, then navigates
- * to `/runs/:id` on success. The registry stays live through the query
- * (invalidated app-wide as definitions change), so edits and deletions
- * reflect without reload.
+ * not-found, error, or the detail view. The registry stays live through
+ * the query (invalidated app-wide as definitions change), so edits and
+ * deletions reflect without reload.
  */
 export function WorkflowContent({ params }: { params: { name: string } }) {
-  const [, navigate] = useLocation();
   const workflows = useWorkflows();
 
   // wouter leaves `%2F` alone (it uses `decodeURI`, not `decodeURIComponent`),
   // so a name with `/` arrives still encoded. Decode here once to match the
   // raw name returned by the API.
   const workflowName = decodeName(params.name);
-
-  const handleTrigger = async (name: string, inputs?: Record<string, string>) => {
-    const result = await triggerRun(name, inputs);
-    navigate(`/runs/${result.runId}`);
-    return result;
-  };
 
   if (workflows.isPending) {
     return <LoadingState>Loading workflow…</LoadingState>;
@@ -77,5 +65,11 @@ export function WorkflowContent({ params }: { params: { name: string } }) {
     );
   }
 
-  return <WorkflowDetailView workflow={workflow} onTrigger={handleTrigger} />;
+  return (
+    <article>
+      <h2 className="font-display text-6xl text-ink italic leading-[0.95] tracking-tight">
+        {workflow.name}
+      </h2>
+    </article>
+  );
 }
