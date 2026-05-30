@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../design-system/actions/button.tsx";
 import { Select } from "../design-system/actions/select.tsx";
+import { TextInput } from "../design-system/actions/text-input.tsx";
 import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.tsx";
 import { Code, CodeBlock } from "../design-system/content/code.tsx";
 import { Disclosure } from "../design-system/content/disclosure.tsx";
@@ -123,6 +124,20 @@ function SelectDemo() {
       <option value="weekly">weekly</option>
       <option value="monthly">monthly</option>
     </Select>
+  );
+}
+
+// Interactive specimen for the TextInput control, which owns its controlled value.
+function TextInputDemo() {
+  const [topic, setTopic] = useState("");
+  return (
+    <TextInput
+      label="Topic"
+      description="An optional focus for the briefing."
+      placeholder="e.g. semiconductors"
+      value={topic}
+      onChange={setTopic}
+    />
   );
 }
 
@@ -895,6 +910,29 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <SelectDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Text input</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">TextInput</span> ·
+              design-system/actions/text-input.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                The single-line text field — a styled wrapper over the native <Code>input</Code>,
+                controlled with <Code>value</Code> / <Code>onChange</Code>. Like the select, it
+                shares the field lockup: pass a <Code>label</Code> and it renders the label, an
+                optional <Code>description</Code> help line, and a <Code>required</Code> marker, all
+                wired so the label and help text are announced together. Omit the label for the bare
+                control when the caller owns the labelling.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <TextInputDemo />
               </Card>
             </div>
           </article>
