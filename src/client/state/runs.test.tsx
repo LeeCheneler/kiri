@@ -6,7 +6,7 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { createQueryClient } from "./query-client.ts";
-import { useRun, useRunsLive } from "./runs.ts";
+import { useRun, useRunWindowsLive, useRunsLive, useWorkflowRunWindow } from "./runs.ts";
 
 const runPayload = (id: string, workflowName: string) => ({
   run: {
@@ -139,5 +139,84 @@ describe("runs state", () => {
 
     act(() => sources[0]?.triggerOpen());
     await screen.findByText("wf-2");
+  });
+});
+
+const WindowProbe = ({ workflow }: { workflow: string }) => {
+  useRunWindowsLive();
+  const { data } = useWorkflowRunWindow(workflow, 14);
+  return <p>{data ? `count:${data.length}` : "loading"}</p>;
+};
+
+const renderWindowProbe = (workflow = "deploy") => {
+  const { factory, sources } = captureEventSources();
+  const ui = render(
+    <QueryClientProvider client={createQueryClient()}>
+      <LiveEventsProvider factory={factory}>
+        <WindowProbe workflow={workflow} />
+      </LiveEventsProvider>
+    </QueryClientProvider>,
+  );
+  return { ...ui, sources };
+};
+
+// Serve a run window whose length encodes the fetch count, so a refetch is
+// observable as the rendered count advancing 1 → 2 → …
+const serveCountingWindow = () => {
+  let calls = 0;
+  server.use(
+    http.get("*/api/runs", () => {
+      calls++;
+      return HttpResponse.json({
+        runs: Array.from({ length: calls }, (_, i) => ({ id: `r${i}` })),
+        nextCursor: null,
+      });
+    }),
+  );
+  return () => calls;
+};
+
+describe("run window state", () => {
+  it("fetches a workflow's recent run window scoped to that workflow", async () => {
+    const seen: (string | null)[] = [];
+    server.use(
+      http.get("*/api/runs", ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get("workflow"));
+        return HttpResponse.json({ runs: [{ id: "a" }, { id: "b" }], nextCursor: null });
+      }),
+    );
+    renderWindowProbe("deploy");
+    expect(await screen.findByText("count:2")).toBeDefined();
+    expect(seen).toEqual(["deploy"]);
+  });
+
+  it("refetches the window on run lifecycle events", async () => {
+    serveCountingWindow();
+    const { sources } = renderWindowProbe("deploy");
+    await screen.findByText("count:1");
+
+    act(() => sources[0]?.emit({ type: "run.started", id: "r9" }));
+    await screen.findByText("count:2");
+
+    act(() =>
+      sources[0]?.emit({ type: "run.finished", id: "r9", status: "ok", workflowName: "deploy" }),
+    );
+    await screen.findByText("count:3");
+
+    act(() => sources[0]?.emit({ type: "run.deleted", id: "r9" }));
+    await screen.findByText("count:4");
+  });
+
+  it("recovers the window on event-stream reconnect", async () => {
+    const callCount = serveCountingWindow();
+    const { sources } = renderWindowProbe("deploy");
+    await screen.findByText("count:1");
+
+    // First open is the initial connect (silent); the second is a reconnect.
+    act(() => sources[0]?.triggerOpen());
+    expect(callCount()).toBe(1);
+
+    act(() => sources[0]?.triggerOpen());
+    await screen.findByText("count:2");
   });
 });

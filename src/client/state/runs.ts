@@ -1,8 +1,10 @@
 import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type RunDetail, fetchRun } from "../api.ts";
+import { type RunDetail, type RunListEntry, fetchRun, fetchRunsPage } from "../api.ts";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 
 const runKey = (id: string) => ["run", id] as const;
+const runWindowKey = (workflow: string, limit: number) =>
+  ["runs", "window", workflow, limit] as const;
 
 /**
  * Read a single run's detail, fetching on first use and serving the cache
@@ -11,6 +13,23 @@ const runKey = (id: string) => ["run", id] as const;
  */
 export function useRun(id: string): UseQueryResult<RunDetail> {
   return useQuery({ queryKey: runKey(id), queryFn: () => fetchRun(id) });
+}
+
+/**
+ * Read the most recent `limit` runs for one workflow, newest first — the window
+ * the at-a-glance stats panel charts. Fetches on first use and serves the cache
+ * thereafter, kept current by `useRunWindowsLive` so the panel recounts as runs
+ * come and go without a manual refetch.
+ */
+export function useWorkflowRunWindow(
+  workflow: string,
+  limit: number,
+): UseQueryResult<RunListEntry[]> {
+  return useQuery({
+    queryKey: runWindowKey(workflow, limit),
+    queryFn: () => fetchRunsPage({ workflow, limit }),
+    select: (page) => page.runs,
+  });
 }
 
 /**
@@ -40,5 +59,26 @@ export function useRunsLive(): void {
   });
   useLiveReconnect(() => {
     void queryClient.invalidateQueries({ queryKey: ["run"] });
+  });
+}
+
+/**
+ * Invalidate the cached run windows as runs start, change, finish, or are
+ * deleted, so the stats panels they feed recount without a manual refetch. The
+ * lifecycle events don't all name their workflow, so this invalidates the whole
+ * `["runs", "window"]` subtree rather than a single key; reconnect does the same
+ * to recover anything missed while disconnected. Mount once near the root via
+ * `<LiveSync>`.
+ */
+export function useRunWindowsLive(): void {
+  const queryClient = useQueryClient();
+  useLiveEvent({
+    on: ["run.started", "run.updated", "run.finished", "run.deleted"],
+    handler: () => {
+      void queryClient.invalidateQueries({ queryKey: ["runs", "window"] });
+    },
+  });
+  useLiveReconnect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["runs", "window"] });
   });
 }
