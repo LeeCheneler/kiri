@@ -1,0 +1,78 @@
+import { describe, expect, it } from "bun:test";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
+import { flushAsync } from "../../../../tests/setup/flush-async.ts";
+import { server } from "../../../../tests/setup/msw.ts";
+import { createQueryClient } from "../../state/query-client.ts";
+import { SiteNav } from "./site-nav.tsx";
+
+const workflow = (name: string) => ({ name, steps: [] });
+
+const renderNav = (path = "/") => {
+  const { hook } = memoryLocation({ path });
+  return render(
+    <QueryClientProvider client={createQueryClient()}>
+      <Router hook={hook}>
+        <SiteNav />
+      </Router>
+    </QueryClientProvider>,
+  );
+};
+
+describe("<SiteNav>", () => {
+  it("renders the wordmark and documentation links", async () => {
+    renderNav();
+    expect(screen.getByRole("link", { name: /^kiri$/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /design system/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /github/i })).toBeDefined();
+    // The version footer (MSW default "dev") confirms the rail mounted in full.
+    expect(await screen.findByText("dev")).toBeDefined();
+    await flushAsync();
+  });
+
+  it("lists workflows from the registry once it resolves", async () => {
+    server.use(
+      http.get("*/api/workflows", () =>
+        HttpResponse.json([workflow("deploy"), workflow("release")]),
+      ),
+    );
+    renderNav();
+    expect(await screen.findByRole("link", { name: "deploy" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "release" })).toBeDefined();
+    await flushAsync();
+  });
+
+  it("hides the workflows nav until the registry resolves", async () => {
+    server.use(http.get("*/api/workflows", () => new Promise(() => {})));
+    renderNav();
+    expect(screen.queryByRole("navigation", { name: /^workflows$/i })).toBeNull();
+    await flushAsync();
+  });
+
+  it("marks the active workflow from the current path", async () => {
+    server.use(http.get("*/api/workflows", () => HttpResponse.json([workflow("deploy")])));
+    renderNav("/workflows/deploy");
+    const active = await screen.findByRole("link", { name: "deploy" });
+    expect(active.getAttribute("aria-current")).toBe("page");
+    await flushAsync();
+  });
+
+  it("decodes an encoded workflow name from the path", async () => {
+    server.use(http.get("*/api/workflows", () => HttpResponse.json([workflow("deploy prod")])));
+    renderNav("/workflows/deploy%20prod");
+    const active = await screen.findByRole("link", { name: "deploy prod" });
+    expect(active.getAttribute("aria-current")).toBe("page");
+    await flushAsync();
+  });
+
+  it("falls back to the raw segment when the path is malformed", async () => {
+    server.use(http.get("*/api/workflows", () => HttpResponse.json([workflow("%")])));
+    renderNav("/workflows/%");
+    const active = await screen.findByRole("link", { name: "%" });
+    expect(active.getAttribute("aria-current")).toBe("page");
+    await flushAsync();
+  });
+});
