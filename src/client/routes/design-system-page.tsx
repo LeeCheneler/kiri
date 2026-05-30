@@ -6,6 +6,7 @@ import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.
 import { Code, CodeBlock } from "../design-system/content/code.tsx";
 import { Disclosure } from "../design-system/content/disclosure.tsx";
 import { EmptyState } from "../design-system/content/empty-state.tsx";
+import { HeadlineLink } from "../design-system/content/headline-link.tsx";
 import { InlineLink } from "../design-system/content/inline-link.tsx";
 import { List } from "../design-system/content/list.tsx";
 import { Markdown } from "../design-system/content/markdown.tsx";
@@ -480,6 +481,37 @@ export function DesignSystemContent() {
                     summary quotes one.
                   </p>
                 </Prose>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Headline link</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">HeadlineLink</span> ·
+              design-system/content/headline-link.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A standalone link to a destination — the title of a thing you click through to, not
+                a word inside a sentence. Set in the display face and ink-coloured so it reads as a
+                heading at rest; a trailing arrow tints accent and nudges along on hover. It
+                inherits its font-size from the surrounding element, so the caller picks the scale.
+                Internal routes trail a <Code>→</Code>; an <Code>href</Code> that points off-app
+                opens in a new tab and trails a ↗ instead. Reach for this for a run, an article, or
+                any entity you list and link — prose links are <Code>InlineLink</Code>.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <ul className="space-y-3 text-xl">
+                  <li>
+                    <HeadlineLink href="/runs/demo">Weekly Digest — May 30</HeadlineLink>
+                  </li>
+                  <li>
+                    <HeadlineLink href="https://example.com">An external report</HeadlineLink>
+                  </li>
+                </ul>
               </Card>
             </div>
           </article>
