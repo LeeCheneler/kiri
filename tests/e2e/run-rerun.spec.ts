@@ -63,7 +63,7 @@ test("rerunning does not create a duplicate row on the home feed", async ({ page
 
   // Back on the feed, the run id has exactly one row — the rerun updated
   // the existing row in place rather than spawning a sibling.
-  await page.getByRole("link", { name: /all activity/i }).click();
+  await page.getByRole("link", { name: /^activity$/i }).click();
   await expect(page).toHaveURL("/");
   const rows = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
   await expect(rows).toHaveCount(1);

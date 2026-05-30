@@ -134,10 +134,12 @@ describe("<RunDetailView>", () => {
       expect(screen.queryByText("duration")).toBeNull();
     });
 
-    it("renders the back link to the activity feed", () => {
+    it("renders a breadcrumb trail back to the activity feed and the workflow", () => {
       renderDetail(stubDetail());
-      const link = screen.getByRole("link", { name: /all activity/i });
-      expect(link.getAttribute("href")).toBe("/");
+      expect(screen.getByRole("link", { name: /^activity$/i }).getAttribute("href")).toBe("/");
+      expect(screen.getByRole("link", { name: /^kiri-self-review$/i }).getAttribute("href")).toBe(
+        "/workflows/kiri-self-review",
+      );
     });
 
     it("shows a short git sha in the metadata row with the full sha as a title", () => {

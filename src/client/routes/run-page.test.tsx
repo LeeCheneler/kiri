@@ -63,7 +63,8 @@ describe("<RunPage>", () => {
       await screen.findByRole("heading", { level: 2, name: /kiri-self-review/i }),
     ).toBeDefined();
     expect(screen.getByRole("heading", { level: 3, name: /activity/i })).toBeDefined();
-    expect(screen.getByRole("link", { name: /all activity/i })).toBeDefined();
+    // The breadcrumb trail leads back to the activity feed.
+    expect(screen.getByRole("link", { name: /^activity$/i }).getAttribute("href")).toBe("/");
   });
 
   it("renders a not-found view when the API returns 404", async () => {
@@ -77,7 +78,7 @@ describe("<RunPage>", () => {
 
     expect(await screen.findByRole("heading", { name: /run not found/i })).toBeDefined();
     expect(screen.getByText("missing")).toBeDefined();
-    expect(screen.getByRole("link", { name: /all activity/i }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: /^activity$/i }).getAttribute("href")).toBe("/");
   });
 
   it("renders a generic error view on non-404 failures", async () => {

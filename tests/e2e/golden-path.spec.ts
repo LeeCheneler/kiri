@@ -25,7 +25,7 @@ test("refreshing on /runs/:id boots the SPA and shows the not-found view", async
   await expect(page.getByRole("heading", { name: /run not found/i })).toBeVisible();
   await expect(page.getByText("missing-run-id")).toBeVisible();
 
-  await page.getByRole("link", { name: /all activity/i }).click();
+  await page.getByRole("link", { name: /^activity$/i }).click();
   await expect(page).toHaveURL("/");
   await expect(page.getByText(/no runs yet/i)).toBeVisible();
 });

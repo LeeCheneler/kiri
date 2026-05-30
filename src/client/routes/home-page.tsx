@@ -3,6 +3,7 @@ import { fetchRun } from "../api.ts";
 import { ActivityFeed } from "../components/activity-feed.tsx";
 import { RecentlyPublished } from "../components/recently-published.tsx";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
+import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
@@ -99,7 +100,8 @@ export function HomeContent() {
 
   return (
     <section>
-      <header className="mb-6 flex items-baseline border-b border-rule pb-3">
+      <Breadcrumb items={[]} current="Activity" />
+      <header className="mt-6 mb-6 flex items-baseline border-b border-rule pb-3">
         <h2 className="text-xs tracking-widest text-ink-muted uppercase">Activity</h2>
       </header>
       {feed.error ? (

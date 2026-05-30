@@ -1,8 +1,8 @@
 import { useLocation } from "wouter";
 import { ApiError, actionRecommendation, cancelRun, deleteRun, rerunRun } from "../api.ts";
 import { RunDetailView } from "../components/run-detail.tsx";
-import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
+import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useRun } from "../state/runs.ts";
@@ -42,7 +42,7 @@ export function RunContent({ params }: { params: { id: string } }) {
     if (run.error instanceof ApiError && run.error.status === 404) {
       return (
         <section>
-          <BackLink href="/">all activity</BackLink>
+          <Breadcrumb items={[{ label: "Activity", href: "/" }]} current="Not found" />
           <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Run not found</h2>
           <p className="mt-3 font-mono text-sm text-ink-muted">
             No run with id <code className="text-ink">{params.id}</code>.

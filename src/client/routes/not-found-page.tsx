@@ -1,3 +1,4 @@
+import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
@@ -8,7 +9,13 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
 export function NotFoundPage() {
   return (
     <PageShell left={<SiteNav />}>
-      <p className="font-mono text-sm text-ink-muted">Page not found.</p>
+      <section>
+        <Breadcrumb items={[{ label: "Activity", href: "/" }]} current="Not found" />
+        <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Page not found</h2>
+        <p className="mt-3 font-mono text-sm text-ink-muted">
+          The page you’re looking for doesn’t exist.
+        </p>
+      </section>
     </PageShell>
   );
 }

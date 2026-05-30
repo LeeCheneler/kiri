@@ -11,11 +11,11 @@ import type {
   WorkflowStepSummary,
   WorkflowSummary,
 } from "../api.ts";
+import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { formatDuration, formatDurationMs, formatRelativeTime } from "../formatters/format-time.ts";
 import { InvokeModal } from "./invoke-modal.tsx";
 import { Markdown } from "./markdown.tsx";
 import { Actions } from "./ui/actions.tsx";
-import { BackLink } from "./ui/back-link.tsx";
 import { Button } from "./ui/button.tsx";
 import { EmptyState } from "./ui/empty-state.tsx";
 import { LabelledBlock } from "./ui/labelled-block.tsx";
@@ -197,7 +197,13 @@ export function RunDetailView({
 
   return (
     <article>
-      <BackLink href="/">all activity</BackLink>
+      <Breadcrumb
+        items={[
+          { label: "Activity", href: "/" },
+          { label: run.workflowName, href: `/workflows/${encodeURIComponent(run.workflowName)}` },
+        ]}
+        current={run.id.slice(0, 8)}
+      />
 
       <header className="relative mt-6 pl-6">
         <StatusStrip status={status} />
