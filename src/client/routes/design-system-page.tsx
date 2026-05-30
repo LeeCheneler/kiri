@@ -113,19 +113,16 @@ const TYPE_SCALE = [
 function SelectDemo() {
   const [cadence, setCadence] = useState("daily");
   return (
-    <div className="flex flex-col gap-1.5">
-      <label
-        htmlFor="ds-select-cadence"
-        className="font-mono text-xs tracking-widest text-ink-muted uppercase"
-      >
-        Cadence
-      </label>
-      <Select id="ds-select-cadence" value={cadence} onChange={setCadence}>
-        <option value="daily">daily</option>
-        <option value="weekly">weekly</option>
-        <option value="monthly">monthly</option>
-      </Select>
-    </div>
+    <Select
+      label="Cadence"
+      description="How often the workflow runs on its own."
+      value={cadence}
+      onChange={setCadence}
+    >
+      <option value="daily">daily</option>
+      <option value="weekly">weekly</option>
+      <option value="monthly">monthly</option>
+    </Select>
   );
 }
 
@@ -888,9 +885,11 @@ export function DesignSystemContent() {
                 The form control for choosing one value from a fixed set — a styled wrapper over the
                 native <Code>select</Code>, so keyboard, type-ahead, and the platform picker all
                 come for free. Write the <Code>option</Code> elements as children and drive it with{" "}
-                <Code>value</Code> / <Code>onChange</Code>. It is the control alone; pair it with a{" "}
-                <Code>label</Code> for the field. Reach for a select only for a short, fixed list —
-                a long or open-ended set wants a different control.
+                <Code>value</Code> / <Code>onChange</Code>. Pass a <Code>label</Code> to render the
+                field lockup — the label, an optional <Code>description</Code> help line, and a{" "}
+                <Code>required</Code> marker, all wired for assistive tech — or omit it for the bare
+                control. Reach for a select only for a short, fixed list — a long or open-ended set
+                wants a different control.
               </p>
             </Prose>
             <div className="mt-5">
