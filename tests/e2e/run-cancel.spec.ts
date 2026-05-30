@@ -38,8 +38,6 @@ test("cancelling via the API surfaces the cancelled treatment in the feed live",
   // Mount home before triggering so the row arrival + status
   // transitions both have to come over SSE; no goto/reload after cancel.
   await page.goto("/");
-  const feed = page.getByRole("main");
-  const initialRowCount = await feed.getByRole("link", { name: /cancellable/i }).count();
 
   const { runId } = await triggerCancellable(request);
   const cancelRes = await request.post(`/api/runs/${runId}/cancel`, {
@@ -47,12 +45,12 @@ test("cancelling via the API surfaces the cancelled treatment in the feed live",
   });
   expect(cancelRes.status()).toBe(202);
 
-  await expect
-    .poll(() => feed.getByRole("link", { name: /cancellable/i }).count())
-    .toBe(initialRowCount + 1);
-  // Stacked-link row: link wraps the workflow name; data-status lives on
-  // the wrapping <div data-status>. Query the row by its link href via
-  // :has() — one runId per row, so the match is unambiguous.
+  // Stacked-link row: link wraps the workflow name; data-status lives on the
+  // wrapping <div data-status>. Locate this run's row by its link href via
+  // :has() — one runId per row, so the match is unambiguous and immune to any
+  // other cancellable runs already in the feed. The row appearing at all is
+  // the live prepend over SSE; its data-status is the live status transition.
   const row = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
+  await expect(row).toBeVisible({ timeout: 10_000 });
   await expect(row).toHaveAttribute("data-status", "cancelled", { timeout: 10_000 });
 });

@@ -45,24 +45,23 @@ test("deleting via the API removes the row from the home feed live", async ({ pa
   // Mount home first so the row arrival and the run.deleted-driven
   // removal both have to come over SSE; no reload after the delete.
   await page.goto("/");
-  const feed = page.getByRole("main");
 
   const { runId } = await triggerRun(request, "quick");
 
+  // Locate this run's row by its run-id href (one runId per row), so the
+  // assertions track the specific run regardless of any other "quick" runs in
+  // the feed. The row appearing is the live prepend; it carrying ok is the
+  // live status transition.
   const row = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
   await expect(row).toBeVisible({ timeout: 10_000 });
   await expect(row).toHaveAttribute("data-status", "ok");
-
-  const initialRowCount = await feed.getByRole("link", { name: /quick/i }).count();
 
   const deleteRes = await request.delete(`/api/runs/${runId}`, {
     headers: { "X-Kiri-Client": "kiri-e2e" },
   });
   expect(deleteRes.status()).toBe(204);
 
-  // run.deleted on the SSE bus drives the row out of the feed without a reload.
+  // run.deleted on the SSE bus drives this run's row out of the feed without a
+  // reload.
   await expect(row).not.toBeVisible({ timeout: 10_000 });
-  await expect
-    .poll(() => feed.getByRole("link", { name: /quick/i }).count())
-    .toBe(initialRowCount - 1);
 });

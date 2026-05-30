@@ -28,8 +28,6 @@ test("home reflects a new run appearing and reaching terminal status without rel
   // triggered. The new row arrival and the running → ok transition both have
   // to come over the SSE stream — there is no reload in this test.
   await page.goto("/");
-  const feed = page.getByRole("main");
-  const initialRowCount = await feed.getByRole("link", { name: /slow/i }).count();
 
   const triggerRes = await request.post("/api/workflows/slow/runs", {
     headers: { "X-Kiri-Client": "kiri-e2e" },
@@ -37,13 +35,13 @@ test("home reflects a new run appearing and reaching terminal status without rel
   expect(triggerRes.status()).toBe(202);
   const { runId } = (await triggerRes.json()) as { runId: string };
 
-  // A new "slow" row appears (count grows by one) and eventually carries an
-  // ok data-status — both via live invalidations, no goto/reload. The row
-  // is a stacked-link card; data-status lives on the wrapping <div data-status>
-  // sibling of the link, so query the row by the run-id href via :has().
-  await expect
-    .poll(() => feed.getByRole("link", { name: /slow/i }).count())
-    .toBe(initialRowCount + 1);
+  // The new run's row appears and eventually carries an ok data-status — both
+  // via live invalidations, no goto/reload. The row is a stacked-link card;
+  // data-status lives on the wrapping <div data-status> sibling of the link, so
+  // query the row by the run-id href via :has() — one runId per row, so it is
+  // immune to any other "slow" runs already in the feed. The row appearing at
+  // all is the live prepend; its data-status is the live status transition.
   const row = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
+  await expect(row).toBeVisible({ timeout: 10_000 });
   await expect(row).toHaveAttribute("data-status", "ok", { timeout: 10_000 });
 });
