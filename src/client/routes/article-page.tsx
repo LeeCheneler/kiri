@@ -1,24 +1,19 @@
-import { useEffect, useRef, useState } from "react";
-import { Link } from "wouter";
-import { ApiError, type ArticleDetail, fetchArticle } from "../api.ts";
-import { ArticleAside } from "../components/article-aside.tsx";
-import { CopyButton } from "../components/copy-button.tsx";
-import { Markdown } from "../components/markdown.tsx";
-import { BackLink } from "../components/ui/back-link.tsx";
+import { ApiError } from "../api.ts";
 import { LoadingState } from "../components/ui/loading-state.tsx";
+import { CopyButton } from "../design-system/actions/copy-button.tsx";
+import { Markdown } from "../design-system/content/markdown.tsx";
+import { Meta } from "../design-system/content/meta.tsx";
+import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
+import { ArticleToc } from "../features/article/article-toc.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
-import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
-
-type State =
-  | { status: "loading" }
-  | { status: "not-found" }
-  | { status: "error"; message: string }
-  | { status: "ready"; article: ArticleDetail };
+import { formatRelativeTime } from "../formatters/format-time.ts";
+import { readingStats } from "../formatters/reading-stats.ts";
+import { useArticle } from "../state/articles.ts";
 
 /**
- * Published-article route. Composes the article content into the page
- * shell, with the in-article table of contents as right-rail marginalia.
+ * Published-article route. Composes the article content into the page shell,
+ * with the in-article table of contents as right-rail marginalia.
  *
  * `now` is injectable so component tests render deterministic relative
  * timestamps; production callers omit it and pick up the system clock.
@@ -31,17 +26,17 @@ export function ArticlePage({
   now?: Date;
 }) {
   return (
-    <PageShell left={<SiteNav />} right={<ArticleAside />}>
+    <PageShell left={<SiteNav />} right={<ArticleToc />}>
       <ArticleContent params={params} now={now} />
     </PageShell>
   );
 }
 
 /**
- * Published-article content. Fetches a single article by `(runId, name)`
- * once on mount and renders the markdown body through the sandboxed
- * `<Markdown>` component. No live sync — once an article is written its
- * row is immutable.
+ * Published-article content. Reads a single article by `(runId, name)` from
+ * the shared query cache and renders its markdown body through the sandboxed
+ * design-system `Markdown`. Articles are immutable once written, so the cache
+ * never goes stale — there is no live sync.
  */
 export function ArticleContent({
   params,
@@ -50,105 +45,72 @@ export function ArticleContent({
   params: { id: string; name: string };
   now?: Date;
 }) {
-  const [state, setState] = useState<State>({ status: "loading" });
-  const tokenRef = useRef(0);
+  const article = useArticle(params.id, params.name);
 
-  useEffect(() => {
-    const token = ++tokenRef.current;
-    setState({ status: "loading" });
-    fetchArticle(params.id, params.name)
-      .then((article) => {
-        if (tokenRef.current !== token) return;
-        setState({ status: "ready", article });
-      })
-      .catch((err: Error) => {
-        if (tokenRef.current !== token) return;
-        if (err instanceof ApiError && err.status === 404) {
-          setState({ status: "not-found" });
-        } else {
-          setState({ status: "error", message: err.message });
-        }
-      });
-    return () => {
-      tokenRef.current++;
-    };
-  }, [params.id, params.name]);
-
-  if (state.status === "loading") {
+  if (article.isPending) {
     return <LoadingState>Loading article…</LoadingState>;
   }
-  if (state.status === "not-found") {
-    return (
-      <section>
-        <BackLink href={`/runs/${params.id}`}>back to run</BackLink>
-        <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Article not found</h2>
-        <p className="mt-3 font-mono text-sm text-ink-muted">
-          No article named <code className="text-ink">{params.name}</code> on run{" "}
-          <code className="text-ink">{params.id}</code>.
-        </p>
-      </section>
-    );
-  }
-  if (state.status === "error") {
+  if (article.isError) {
+    if (article.error instanceof ApiError && article.error.status === 404) {
+      return (
+        <section>
+          <Breadcrumb
+            items={[
+              { label: "Activity", href: "/" },
+              { label: params.id.slice(0, 8), href: `/runs/${params.id}` },
+            ]}
+            current="Not found"
+          />
+          <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Article not found</h2>
+          <p className="mt-3 font-mono text-sm text-ink-muted">
+            No article named <code className="text-ink">{params.name}</code> on run{" "}
+            <code className="text-ink">{params.id}</code>.
+          </p>
+        </section>
+      );
+    }
     return (
       <p role="alert" className="font-mono text-sm text-status-failed">
-        Failed to load article: {state.message}
+        Failed to load article: {article.error.message}
       </p>
     );
   }
 
-  const { article } = state;
+  const data = article.data;
+  const stats = readingStats(data.contentMd);
   return (
     <article>
-      <BackLink href={`/runs/${article.runId}`}>back to run</BackLink>
+      <Breadcrumb
+        items={[
+          { label: "Activity", href: "/" },
+          {
+            label: data.workflowName,
+            href: `/workflows/${encodeURIComponent(data.workflowName)}`,
+          },
+          { label: data.runId.slice(0, 8), href: `/runs/${data.runId}` },
+        ]}
+        current={data.title}
+      />
 
       <header className="mt-6">
         <h2 className="font-display text-7xl text-ink italic leading-[0.95] tracking-tight">
-          {article.title}
+          {data.title}
         </h2>
 
-        <div className="mt-7 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-rule border-b pb-3.5 font-mono text-xs text-ink-muted">
-          <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-            <Link
-              href={`/workflows/${article.workflowName}`}
-              className="font-medium text-ink underline decoration-1 decoration-ink-faint underline-offset-2 transition-colors hover:text-accent hover:decoration-accent focus-visible:text-accent focus-visible:decoration-accent"
-            >
-              {article.workflowName}
-            </Link>
-            <span aria-hidden="true" className="text-ink-faint">
-              ·
-            </span>
-            <time dateTime={article.createdAt} title={article.createdAt}>
-              {formatRelativeTime(article.createdAt, now)}
+        <div className="mt-7 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-rule border-b pb-3.5">
+          <Meta>
+            <time dateTime={data.createdAt} title={data.createdAt}>
+              {formatRelativeTime(data.createdAt, now)}
             </time>
-            {article.finishedAt && (
-              <>
-                <span aria-hidden="true" className="text-ink-faint">
-                  ·
-                </span>
-                <span className="tabular-nums">
-                  {formatDuration(article.startedAt, article.finishedAt)}
-                </span>
-              </>
-            )}
-            {article.gitSha && (
-              <>
-                <span aria-hidden="true" className="text-ink-faint">
-                  ·
-                </span>
-                <span className="tabular-nums" title={article.gitSha}>
-                  {article.gitSha.slice(0, 7)}
-                </span>
-                {article.gitDirty && <span> (dirty)</span>}
-              </>
-            )}
-          </p>
-          <CopyButton content={article.contentMd} />
+            <span>{stats.words}</span>
+            <span>{stats.readingTime}</span>
+          </Meta>
+          <CopyButton content={data.contentMd} label="copy markdown" />
         </div>
       </header>
 
-      <div className="mt-10 font-display [&_p]:leading-8">
-        <Markdown content={article.contentMd} withSectionOrdinals downgradeHeaderLevels={2} />
+      <div className="mt-10">
+        <Markdown content={data.contentMd} withSectionOrdinals downgradeHeaderLevels={2} />
       </div>
     </article>
   );
