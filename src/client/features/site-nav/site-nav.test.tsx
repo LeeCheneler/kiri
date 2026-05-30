@@ -23,13 +23,41 @@ const renderNav = (path = "/") => {
 };
 
 describe("<SiteNav>", () => {
-  it("renders the wordmark and documentation links", async () => {
+  it("renders the wordmark, home, and documentation links", async () => {
     renderNav();
-    expect(screen.getByRole("link", { name: /^kiri$/i })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: /^kiri$/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /^home$/i }).getAttribute("href")).toBe("/");
     expect(screen.getByRole("link", { name: /design system/i })).toBeDefined();
     expect(screen.getByRole("link", { name: /github/i })).toBeDefined();
     // The version footer (MSW default "dev") confirms the rail mounted in full.
     expect(await screen.findByText("dev")).toBeDefined();
+    await flushAsync();
+  });
+
+  it("renders the rail without the workflows nav when the registry fetch fails", async () => {
+    server.use(http.get("*/api/workflows", () => new HttpResponse("boom", { status: 500 })));
+    renderNav();
+    expect(await screen.findByRole("heading", { name: /^kiri$/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /^home$/i })).toBeDefined();
+    expect(screen.queryByRole("navigation", { name: /^workflows$/i })).toBeNull();
+    await flushAsync();
+  });
+
+  it("renders immediately, without the entrance fade, when the registry is cached", async () => {
+    const client = createQueryClient();
+    client.setQueryData(["workflows"], [workflow("deploy")]);
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <QueryClientProvider client={client}>
+        <Router hook={hook}>
+          <SiteNav />
+        </Router>
+      </QueryClientProvider>,
+    );
+    // Cache hit → no loading gate; the rail is present synchronously, so a
+    // navigation back to a cached registry doesn't flash.
+    expect(screen.getByRole("heading", { name: /^kiri$/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: "deploy" })).toBeDefined();
     await flushAsync();
   });
 
@@ -45,10 +73,10 @@ describe("<SiteNav>", () => {
     await flushAsync();
   });
 
-  it("hides the workflows nav until the registry resolves", async () => {
+  it("renders nothing until the registry resolves", async () => {
     server.use(http.get("*/api/workflows", () => new Promise(() => {})));
     renderNav();
-    expect(screen.queryByRole("navigation", { name: /^workflows$/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^kiri$/i })).toBeNull();
     await flushAsync();
   });
 
