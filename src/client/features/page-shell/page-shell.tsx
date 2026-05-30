@@ -24,11 +24,11 @@ export function PageShell({
   children: ReactNode;
 }) {
   return (
-    <div className="mx-auto min-h-screen max-w-420 px-8 py-12 lg:py-16">
+    <div className="mx-auto min-h-screen max-w-420 px-8 py-6 lg:py-8">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[200px_1fr_260px] lg:gap-12">
-        <aside className="lg:sticky lg:top-16 lg:h-[calc(100dvh-8rem)] lg:self-start">{left}</aside>
+        <aside className="lg:sticky lg:top-8 lg:h-[calc(100dvh-4rem)] lg:self-start">{left}</aside>
         <main className="min-w-0 lg:max-w-240">{children}</main>
-        <aside className="hidden lg:sticky lg:top-16 lg:block lg:self-start">{right}</aside>
+        <aside className="hidden lg:sticky lg:top-8 lg:block lg:self-start">{right}</aside>
       </div>
     </div>
   );
