@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
@@ -8,19 +9,24 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { createQueryClient } from "../state/query-client.ts";
 import { WorkflowPage } from "./workflow-page.tsx";
 
+// The page reads workflows from the query; its detail view still hosts
+// live run panels, so both providers wrap the render.
 const renderWorkflow = (name: string, initialPath = `/workflows/${name}`) => {
   const memory = memoryLocation({ path: initialPath, record: true });
-  const { factory, sources } = captureEventSources();
+  const { factory } = captureEventSources();
   const ui = render(
-    <Router hook={memory.hook}>
+    <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
-        <WorkflowPage params={{ name }} />
+        <Router hook={memory.hook}>
+          <WorkflowPage params={{ name }} />
+        </Router>
       </LiveEventsProvider>
-    </Router>,
+    </QueryClientProvider>,
   );
-  return { ...ui, history: memory.history, sources };
+  return { ...ui, history: memory.history };
 };
 
 describe("<WorkflowPage>", () => {
@@ -177,49 +183,6 @@ describe("<WorkflowPage>", () => {
     expect(seenBodies).toEqual([JSON.stringify({ inputs: { pr_number: "42", owner: "kiri" } })]);
   });
 
-  it("refetches when the matching workflow is updated", async () => {
-    let calls = 0;
-    server.use(
-      http.get("*/api/workflows", () => {
-        calls++;
-        return HttpResponse.json([{ name: "alpha", steps: [{ use: `bundle-v${calls}` }] }]);
-      }),
-    );
-
-    // The Steps tab renders each step's title (the bundle reference for a
-    // use: step), so open the page there to observe the refetched step text.
-    const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=steps");
-    await screen.findByText("bundle-v1");
-
-    act(() => {
-      sources[0]?.emit({ type: "workflow.updated", name: "alpha" });
-    });
-
-    await screen.findByText("bundle-v2");
-  });
-
-  it("ignores workflow events for other names", async () => {
-    let calls = 0;
-    server.use(
-      http.get("*/api/workflows", () => {
-        calls++;
-        return HttpResponse.json([{ name: "alpha", steps: [{ use: `bundle-v${calls}` }] }]);
-      }),
-    );
-
-    const { sources } = renderWorkflow("alpha", "/workflows/alpha?tab=steps");
-    await screen.findByText("bundle-v1");
-
-    act(() => {
-      sources[0]?.emit({ type: "workflow.updated", name: "beta" });
-      sources[0]?.emit({ type: "workflow.removed", name: "beta" });
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(screen.getByText("bundle-v1")).toBeDefined();
-    expect(calls).toBe(1);
-  });
-
   it("resolves a workflow whose name contains a slash from the percent-encoded URL", async () => {
     server.use(
       http.get("*/api/workflows", () =>
@@ -231,29 +194,11 @@ describe("<WorkflowPage>", () => {
     // still percent-encoded because wouter uses `decodeURI`, which leaves
     // `%2F` alone. The page must decode before comparing against the API.
     const encoded = encodeURIComponent("examples/recommendations");
-    const { sources } = renderWorkflow(encoded, `/workflows/${encoded}?tab=steps`);
+    renderWorkflow(encoded, `/workflows/${encoded}`);
 
     expect(
       await screen.findByRole("heading", { level: 2, name: /examples\/recommendations/i }),
     ).toBeDefined();
-
-    // Live events arrive with the raw (decoded) name; the filter must use
-    // the decoded value too, otherwise edits never trigger a refetch.
-    let calls = 0;
-    server.use(
-      http.get("*/api/workflows", () => {
-        calls++;
-        return HttpResponse.json([
-          { name: "examples/recommendations", steps: [{ use: `bundle-v${calls}` }] },
-        ]);
-      }),
-    );
-
-    act(() => {
-      sources[0]?.emit({ type: "workflow.updated", name: "examples/recommendations" });
-    });
-
-    await screen.findByText("bundle-v1");
   });
 
   it("falls back to the raw param when the URL contains a malformed escape", async () => {
@@ -268,24 +213,5 @@ describe("<WorkflowPage>", () => {
 
     expect(await screen.findByRole("heading", { name: /workflow not found/i })).toBeDefined();
     expect(screen.getByText(malformed)).toBeDefined();
-  });
-
-  it("transitions to not-found when the matching workflow is removed", async () => {
-    let calls = 0;
-    server.use(
-      http.get("*/api/workflows", () => {
-        calls++;
-        return HttpResponse.json(calls === 1 ? [{ name: "alpha", steps: [{ sh: "echo a" }] }] : []);
-      }),
-    );
-
-    const { sources } = renderWorkflow("alpha");
-    await screen.findByRole("heading", { level: 2, name: /alpha/i });
-
-    act(() => {
-      sources[0]?.emit({ type: "workflow.removed", name: "alpha" });
-    });
-
-    await screen.findByRole("heading", { name: /workflow not found/i });
   });
 });

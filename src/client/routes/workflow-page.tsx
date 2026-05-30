@@ -1,16 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { type WorkflowSummary, fetchWorkflows, triggerRun } from "../api.ts";
+import { triggerRun } from "../api.ts";
 import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { WorkflowDetailView } from "../components/workflow-detail.tsx";
-import { useLiveSync } from "../events/live.tsx";
-
-type State =
-  | { status: "loading" }
-  | { status: "not-found" }
-  | { status: "error"; message: string }
-  | { status: "ready"; workflow: WorkflowSummary };
+import { useWorkflows } from "../state/workflows.ts";
 
 const decodeName = (raw: string): string => {
   try {
@@ -23,54 +16,22 @@ const decodeName = (raw: string): string => {
 };
 
 /**
- * Workflow detail route. Loads the workflow registry, finds the entry by
- * name, and renders one of: loading, not-found, error, or the editorial
- * detail view. Owns the trigger handler — it POSTs the run, awaits the
- * terminal status, then navigates to `/runs/:id` on success. Refetches
- * the registry when the matching workflow's YAML changes or is removed
- * so edits and deletions reflect without reload.
+ * Workflow detail route. Reads the registry from the shared workflows
+ * query and finds the entry by name, rendering one of: loading,
+ * not-found, error, or the editorial detail view. Owns the trigger
+ * handler — it POSTs the run, awaits the terminal status, then navigates
+ * to `/runs/:id` on success. The registry stays live through the query
+ * (invalidated app-wide as definitions change), so edits and deletions
+ * reflect without reload.
  */
 export function WorkflowPage({ params }: { params: { name: string } }) {
-  const [state, setState] = useState<State>({ status: "loading" });
   const [, navigate] = useLocation();
-  const tokenRef = useRef(0);
+  const workflows = useWorkflows();
 
   // wouter leaves `%2F` alone (it uses `decodeURI`, not `decodeURIComponent`),
   // so a name with `/` arrives still encoded. Decode here once to match the
   // raw name returned by the API.
   const workflowName = decodeName(params.name);
-
-  const refetch = useCallback(() => {
-    const token = ++tokenRef.current;
-    fetchWorkflows()
-      .then((all) => {
-        if (tokenRef.current !== token) return;
-        const workflow = all.find((w) => w.name === workflowName);
-        if (!workflow) {
-          setState({ status: "not-found" });
-        } else {
-          setState({ status: "ready", workflow });
-        }
-      })
-      .catch((err: Error) => {
-        if (tokenRef.current !== token) return;
-        setState({ status: "error", message: err.message });
-      });
-  }, [workflowName]);
-
-  useEffect(() => {
-    setState({ status: "loading" });
-    refetch();
-    return () => {
-      tokenRef.current++;
-    };
-  }, [refetch]);
-
-  useLiveSync({
-    on: ["workflow.updated", "workflow.removed"],
-    filter: (event) => event.name === workflowName,
-    refetch,
-  });
 
   const handleTrigger = async (name: string, inputs?: Record<string, string>) => {
     const result = await triggerRun(name, inputs);
@@ -78,10 +39,19 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
     return result;
   };
 
-  if (state.status === "loading") {
+  if (workflows.isPending) {
     return <LoadingState>Loading workflow…</LoadingState>;
   }
-  if (state.status === "not-found") {
+  if (workflows.isError) {
+    return (
+      <p role="alert" className="font-mono text-sm text-status-failed">
+        Failed to load workflow: {workflows.error.message}
+      </p>
+    );
+  }
+
+  const workflow = workflows.data.find((w) => w.name === workflowName);
+  if (!workflow) {
     return (
       <section>
         <BackLink href="/">all activity</BackLink>
@@ -92,13 +62,6 @@ export function WorkflowPage({ params }: { params: { name: string } }) {
       </section>
     );
   }
-  if (state.status === "error") {
-    return (
-      <p role="alert" className="font-mono text-sm text-status-failed">
-        Failed to load workflow: {state.message}
-      </p>
-    );
-  }
 
-  return <WorkflowDetailView workflow={state.workflow} onTrigger={handleTrigger} />;
+  return <WorkflowDetailView workflow={workflow} onTrigger={handleTrigger} />;
 }
