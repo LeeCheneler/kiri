@@ -37,9 +37,10 @@ const renderRow = (entry: RunListEntry) => {
 };
 
 describe("<RunRow>", () => {
-  it("renders the status, relative start time, and duration in the byline", () => {
+  it("renders the status, short run id, relative start time, and duration in the byline", () => {
     renderRow(run({ status: "ok" }));
     expect(screen.getByText("ok")).toBeDefined();
+    expect(screen.getByRole("link", { name: "r1" }).getAttribute("href")).toBe("/runs/r1");
     expect(screen.getByText("3 minutes ago")).toBeDefined();
     expect(screen.getByText("1.4s")).toBeDefined();
   });
@@ -50,10 +51,12 @@ describe("<RunRow>", () => {
     expect(screen.queryByText("1.4s")).toBeNull();
   });
 
-  it("links the run detail from the relative start time", () => {
+  it("links the run detail from the short run id, leaving the time as plain text", () => {
     renderRow(run({ id: "abc" }));
-    const anchor = screen.getByRole("link", { name: "3 minutes ago" });
+    const anchor = screen.getByRole("link", { name: "abc" });
     expect(anchor.getAttribute("href")).toBe("/runs/abc");
+    // The relative start time is a plain meta fact now, not the link.
+    expect(screen.queryByRole("link", { name: "3 minutes ago" })).toBeNull();
   });
 
   it("omits the redundant workflow name", () => {

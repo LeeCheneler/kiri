@@ -9,13 +9,14 @@ import { formatDuration, formatRelativeTime } from "../../formatters/format-time
 
 /**
  * One run in the workflow runs feed, edged with its status colour. A mono
- * byline tops the entry — status, the relative start time (which carries the
- * link through to the run detail), and the duration. The run's own name is
- * left off: the feed is already scoped to a single workflow, so a name would
- * repeat on every row. An optional summary renders below as prose, and the
- * run's published articles follow as a stacked list — each an eyebrow of the
- * article's name above a link carrying its first heading (falling back to its
- * title). With no name heading, those articles are the row's visual lead.
+ * byline tops the entry — status, the short run id (which carries the link
+ * through to the run detail), the relative start time, and the duration. The
+ * run's own name is left off: the feed is already scoped to a single workflow,
+ * so a name would repeat on every row. An optional summary renders below as
+ * prose, and the run's published articles follow as a stacked list — each an
+ * eyebrow of the article's name above a link carrying its first heading
+ * (falling back to its title). With no name heading, those articles are the
+ * row's visual lead.
  *
  * Runs still in flight have no `finishedAt`, so the duration is omitted — the
  * `running` status word already signals the live state. `now` is injectable so
@@ -29,8 +30,9 @@ export function RunRow({ run, now }: { run: RunListEntry; now?: Date }) {
         {/* Wrap the link so Meta's middot separator attaches to this span, not
             the anchor — on the anchor it joins the link's underline and hit area. */}
         <span>
-          <InlineLink href={`/runs/${run.id}`}>{formatRelativeTime(run.startedAt, now)}</InlineLink>
+          <InlineLink href={`/runs/${run.id}`}>{run.id.slice(0, 8)}</InlineLink>
         </span>
+        <span>{formatRelativeTime(run.startedAt, now)}</span>
         {run.finishedAt ? (
           <span className="tabular-nums">{formatDuration(run.startedAt, run.finishedAt)}</span>
         ) : null}
