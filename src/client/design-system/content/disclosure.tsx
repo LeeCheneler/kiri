@@ -35,7 +35,7 @@ export function Disclosure({
         </span>
       </button>
       {open && (
-        <div id={panelId} className="px-4 pt-1 pb-4">
+        <div id={panelId} className="px-4 pt-3 pb-5">
           {children}
         </div>
       )}
