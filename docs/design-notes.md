@@ -226,8 +226,9 @@ The orchestrator is a single Node process serving both the engine and the UI. Th
 
 - **Bun** — runtime. TypeScript runs natively (no separate compile step), `bun:sqlite` is statically linked (no native-module headache), and `bun build --compile` produces a single-file macOS binary — the release artifact for distribution. One toolchain for install, test, run, and build.
 - **Hono** — HTTP server, SSE streams. Runtime-agnostic by design but pairs cleanly with Bun via `Bun.serve`. The Hono process *is* the orchestrator daemon: runs the cron tick loop, executes workflows, serves the UI bundle. One process, clear ownership.
-- **Vite + React** — UI bundle, served by Hono. No SSR, no framework magic — just a SPA window into the daemon. TanStack Router or React Router for routing.
+- **Vite + React** — UI bundle, served by Hono. No SSR, no framework magic — just a SPA window into the daemon. `wouter` for routing — tiny and hook-based.
 - **SSE** for live feed updates. One-way (server → client), browsers handle reconnection natively, Hono has `streamSSE` built in. WebSockets reserved for if/when bidirectional streaming is actually needed.
+- **TanStack Query** for client state. The SSE bus carries thin events (a type plus ids); the client treats them as cache-invalidation signals — an event invalidates the affected query and React Query refetches — rather than hand-rolling per-surface refetch wiring. Shared data hooks live in `client/state/`; UI features under `client/features/` compose the design-system primitives, and each route renders its own page shell (left nav · main · right marginalia) rather than an app-level wrapper.
 - **bun:sqlite + Drizzle** for state (see *State storage* under Architecture). Drizzle's `drizzle-orm/bun-sqlite` adapter; schema and migrations identical to a Node + better-sqlite3 setup.
 
 No Next.js, no HonoX, no full-stack framework — explicit choice to keep UI and daemon as separate layers communicating over HTTP/SSE.

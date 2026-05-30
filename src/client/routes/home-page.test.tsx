@@ -8,7 +8,7 @@ import { FakeIntersectionObserver } from "../../../tests/setup/fake-intersection
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { HomePage } from "./home-page.tsx";
+import { HomeContent } from "./home-page.tsx";
 
 afterEach(() => {
   FakeIntersectionObserver.reset();
@@ -20,7 +20,7 @@ const renderHomePage = () => {
   const ui = render(
     <Router hook={hook}>
       <LiveEventsProvider factory={factory}>
-        <HomePage />
+        <HomeContent />
       </LiveEventsProvider>
     </Router>,
   );

@@ -13,6 +13,8 @@ import { RunDetailView } from "../components/run-detail.tsx";
 import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { useLiveSync } from "../events/live.tsx";
+import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useWorkflows } from "../state/workflows.ts";
 
 type State =
@@ -22,7 +24,18 @@ type State =
   | { status: "ready"; detail: RunDetail };
 
 /**
- * Run detail route. Fetches the run by id and renders one of: loading,
+ * Run detail route. Composes the run detail content into the page shell.
+ */
+export function RunPage({ params }: { params: { id: string } }) {
+  return (
+    <PageShell left={<SiteNav />}>
+      <RunContent params={params} />
+    </PageShell>
+  );
+}
+
+/**
+ * Run detail content. Fetches the run by id and renders one of: loading,
  * not-found (404 from the API), generic error, or the editorial run
  * detail view. Owns only the run-fetch states; the populated case
  * delegates to `<RunDetailView>`. Refetches whenever a run/step event for
@@ -34,7 +47,7 @@ type State =
  * (or if it fails) the list is empty and the run renders without the
  * modal-aware re-run.
  */
-export function RunPage({ params }: { params: { id: string } }) {
+export function RunContent({ params }: { params: { id: string } }) {
   const [state, setState] = useState<State>({ status: "loading" });
   const { data: workflows } = useWorkflows();
   const [, navigate] = useLocation();

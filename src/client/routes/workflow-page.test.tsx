@@ -10,7 +10,7 @@ import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { createQueryClient } from "../state/query-client.ts";
-import { WorkflowPage } from "./workflow-page.tsx";
+import { WorkflowContent } from "./workflow-page.tsx";
 
 // The page reads workflows from the query; its detail view still hosts
 // live run panels, so both providers wrap the render.
@@ -21,7 +21,7 @@ const renderWorkflow = (name: string, initialPath = `/workflows/${name}`) => {
     <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
         <Router hook={memory.hook}>
-          <WorkflowPage params={{ name }} />
+          <WorkflowContent params={{ name }} />
         </Router>
       </LiveEventsProvider>
     </QueryClientProvider>,

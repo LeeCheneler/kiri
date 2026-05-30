@@ -46,6 +46,16 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /runs/:id to the run page", async () => {
+    // Stall the run fetch so the page stays in its loading state for the
+    // assertion; the shell around it still renders.
+    server.use(http.get("*/api/runs/:id", () => new Promise<Response>(() => {})));
+    renderAt("/runs/abc");
+    expect(screen.getByText(/loading run/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
   it("renders 'page not found' for an unmatched path", async () => {
     renderAt("/totally-unknown");
     expect(screen.getByText(/page not found/i)).toBeDefined();

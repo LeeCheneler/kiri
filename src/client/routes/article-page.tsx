@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ApiError, type ArticleDetail, fetchArticle } from "../api.ts";
+import { ArticleAside } from "../components/article-aside.tsx";
 import { CopyButton } from "../components/copy-button.tsx";
 import { Markdown } from "../components/markdown.tsx";
 import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
+import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { formatDuration, formatRelativeTime } from "../formatters/format-time.ts";
 
 type State =
@@ -14,15 +17,33 @@ type State =
   | { status: "ready"; article: ArticleDetail };
 
 /**
- * Published-article route. Fetches a single article by `(runId, name)`
- * once on mount and renders the markdown body through the sandboxed
- * `<Markdown>` component. No live sync — once an article is
- * written its row is immutable.
+ * Published-article route. Composes the article content into the page
+ * shell, with the in-article table of contents as right-rail marginalia.
  *
  * `now` is injectable so component tests render deterministic relative
  * timestamps; production callers omit it and pick up the system clock.
  */
 export function ArticlePage({
+  params,
+  now,
+}: {
+  params: { id: string; name: string };
+  now?: Date;
+}) {
+  return (
+    <PageShell left={<SiteNav />} right={<ArticleAside />}>
+      <ArticleContent params={params} now={now} />
+    </PageShell>
+  );
+}
+
+/**
+ * Published-article content. Fetches a single article by `(runId, name)`
+ * once on mount and renders the markdown body through the sandboxed
+ * `<Markdown>` component. No live sync — once an article is written its
+ * row is immutable.
+ */
+export function ArticleContent({
   params,
   now,
 }: {

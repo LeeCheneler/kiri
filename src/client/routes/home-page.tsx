@@ -1,12 +1,27 @@
 import { useCallback, useRef } from "react";
 import { fetchRun } from "../api.ts";
 import { ActivityFeed } from "../components/activity-feed.tsx";
+import { RecentlyPublished } from "../components/recently-published.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
+import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useRunFeed } from "../hooks/use-run-feed.ts";
 
 /**
- * Home route. Renders an editorial section header above the
+ * Home route. Composes the activity feed into the page shell, with the
+ * cross-run recently-published shortlist as right-rail marginalia.
+ */
+export function HomePage() {
+  return (
+    <PageShell left={<SiteNav />} right={<RecentlyPublished />}>
+      <HomeContent />
+    </PageShell>
+  );
+}
+
+/**
+ * Activity feed content. Renders an editorial section header above the
  * paginated activity feed; owns only the loading and error states and
  * delegates the populated/empty rendering to `<ActivityFeed>`.
  *
@@ -22,7 +37,7 @@ import { useRunFeed } from "../hooks/use-run-feed.ts";
  * recovers any rows that arrived while disconnected without losing
  * loaded pages below.
  */
-export function HomePage() {
+export function HomeContent() {
   const feed = useRunFeed();
   // Latest `loadNext` reference so the observer callback always calls
   // the freshest closure without re-creating the observer.

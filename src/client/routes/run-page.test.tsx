@@ -9,7 +9,7 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { createQueryClient } from "../state/query-client.ts";
-import { RunPage } from "./run-page.tsx";
+import { RunContent } from "./run-page.tsx";
 
 const renderRun = (id: string) => {
   const { hook } = memoryLocation({ path: `/runs/${id}` });
@@ -18,7 +18,7 @@ const renderRun = (id: string) => {
     <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
         <Router hook={hook}>
-          <RunPage params={{ id }} />
+          <RunContent params={{ id }} />
         </Router>
       </LiveEventsProvider>
     </QueryClientProvider>,
@@ -268,7 +268,7 @@ describe("<RunPage>", () => {
         <QueryClientProvider client={createQueryClient()}>
           <LiveEventsProvider factory={factory}>
             <Router hook={memory.hook}>
-              <RunPage params={{ id }} />
+              <RunContent params={{ id }} />
             </Router>
           </LiveEventsProvider>
         </QueryClientProvider>,
@@ -411,7 +411,7 @@ describe("<RunPage>", () => {
         <QueryClientProvider client={createQueryClient()}>
           <LiveEventsProvider factory={factory}>
             <Router hook={memory.hook}>
-              <RunPage params={{ id }} />
+              <RunContent params={{ id }} />
             </Router>
           </LiveEventsProvider>
         </QueryClientProvider>,

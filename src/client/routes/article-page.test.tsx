@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../tests/setup/msw.ts";
-import { ArticlePage } from "./article-page.tsx";
+import { ArticleContent } from "./article-page.tsx";
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 
@@ -12,7 +12,7 @@ const renderArticle = (id: string, name: string) => {
   const { hook } = memoryLocation({ path: `/runs/${id}/published/${name}` });
   return render(
     <Router hook={hook}>
-      <ArticlePage params={{ id, name }} now={NOW} />
+      <ArticleContent params={{ id, name }} now={NOW} />
     </Router>,
   );
 };
@@ -236,7 +236,7 @@ describe("<ArticlePage>", () => {
     const { rerender } = renderArticle("abc", "first");
     rerender(
       <Router hook={memoryLocation({ path: "/runs/abc/published/second" }).hook}>
-        <ArticlePage params={{ id: "abc", name: "second" }} now={NOW} />
+        <ArticleContent params={{ id: "abc", name: "second" }} now={NOW} />
       </Router>,
     );
     expect(await screen.findByRole("heading", { name: "Second Article" })).toBeDefined();

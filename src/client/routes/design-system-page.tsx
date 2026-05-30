@@ -22,6 +22,8 @@ import { Tabs } from "../design-system/navigation/tabs.tsx";
 import { Toc, type TocEntry } from "../design-system/navigation/toc.tsx";
 import { Card } from "../design-system/surfaces/card.tsx";
 import { Modal } from "../design-system/surfaces/modal.tsx";
+import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
 // Display sizes climb with the reading voice; the small steps are the
 // machine layer. Each carries the literal Tailwind class so the size is
@@ -190,6 +192,19 @@ export function DesignSystemAside() {
 }
 
 /**
+ * Dev-only living design system route. Composes the catalogue into the
+ * page shell, with its section table of contents as right-rail
+ * marginalia.
+ */
+export function DesignSystemPage() {
+  return (
+    <PageShell left={<SiteNav />} right={<DesignSystemAside />}>
+      <DesignSystemContent />
+    </PageShell>
+  );
+}
+
+/**
  * Dev-only living design system. The single source of truth for kiri's
  * UI building blocks: the foundation tokens (colour, type, status) and
  * the presentational primitives in `design-system/`, each shown
@@ -199,7 +214,7 @@ export function DesignSystemAside() {
  * No fetched data; interactive controls hold their own local demo state.
  * Sections fill in as primitives are catalogued.
  */
-export function DesignSystemPage() {
+export function DesignSystemContent() {
   return (
     <section>
       <header className="border-b border-rule pb-6">

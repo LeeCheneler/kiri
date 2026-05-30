@@ -3,6 +3,8 @@ import { triggerRun } from "../api.ts";
 import { BackLink } from "../components/ui/back-link.tsx";
 import { LoadingState } from "../components/ui/loading-state.tsx";
 import { WorkflowDetailView } from "../components/workflow-detail.tsx";
+import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useWorkflows } from "../state/workflows.ts";
 
 const decodeName = (raw: string): string => {
@@ -16,7 +18,19 @@ const decodeName = (raw: string): string => {
 };
 
 /**
- * Workflow detail route. Reads the registry from the shared workflows
+ * Workflow detail route. Composes the workflow detail content into the
+ * page shell.
+ */
+export function WorkflowPage({ params }: { params: { name: string } }) {
+  return (
+    <PageShell left={<SiteNav />}>
+      <WorkflowContent params={params} />
+    </PageShell>
+  );
+}
+
+/**
+ * Workflow detail content. Reads the registry from the shared workflows
  * query and finds the entry by name, rendering one of: loading,
  * not-found, error, or the editorial detail view. Owns the trigger
  * handler — it POSTs the run, awaits the terminal status, then navigates
@@ -24,7 +38,7 @@ const decodeName = (raw: string): string => {
  * (invalidated app-wide as definitions change), so edits and deletions
  * reflect without reload.
  */
-export function WorkflowPage({ params }: { params: { name: string } }) {
+export function WorkflowContent({ params }: { params: { name: string } }) {
   const [, navigate] = useLocation();
   const workflows = useWorkflows();
 
