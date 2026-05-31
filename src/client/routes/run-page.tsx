@@ -3,7 +3,9 @@ import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Markdown } from "../design-system/content/markdown.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { RunFailure } from "../features/run-detail/run-failure.tsx";
 import { RunHeader } from "../features/run-detail/run-header.tsx";
+import { RunPhases } from "../features/run-detail/run-phases.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useRun } from "../state/runs.ts";
 
@@ -52,7 +54,7 @@ export function RunContent({ params, now }: { params: { id: string }; now?: Date
     );
   }
 
-  const { run: detail } = run.data;
+  const { run: detail, steps } = run.data;
 
   return (
     <article>
@@ -72,6 +74,8 @@ export function RunContent({ params, now }: { params: { id: string }; now?: Date
           <Markdown content={detail.summary} />
         </div>
       ) : null}
+      {detail.error ? <RunFailure error={detail.error} /> : null}
+      <RunPhases run={detail} steps={steps} now={now} />
     </article>
   );
 }

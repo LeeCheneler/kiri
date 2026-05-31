@@ -46,7 +46,7 @@ describe("<RunPage>", () => {
             finishedAt: "2026-05-09T12:00:42.000Z",
             error: null,
             summary: "All checks passed.",
-            definitionSnapshot: { name: "kiri-self-review", steps: [] },
+            definitionSnapshot: { name: "kiri-self-review", steps: [{ use: "check" }] },
             gitSha: null,
             gitDirty: null,
             inputs: null,
@@ -55,7 +55,22 @@ describe("<RunPage>", () => {
             recommendationsCount: 0,
             recommendations: [],
           },
-          steps: [],
+          steps: [
+            {
+              id: "s0",
+              runId: params.id,
+              index: 0,
+              kind: "use",
+              status: "ok",
+              startedAt: "2026-05-09T12:00:00.000Z",
+              finishedAt: "2026-05-09T12:00:42.000Z",
+              output: null,
+              error: null,
+              traces: { stdout: "ok\n", stderr: "", durationMs: 42000 },
+              isSummary: false,
+              isPublish: false,
+            },
+          ],
         }),
       ),
     );
@@ -67,6 +82,8 @@ describe("<RunPage>", () => {
     expect(screen.getByRole("heading", { level: 2, name: "abcd1234" })).toBeDefined();
     // The summary renders below the header once the run has produced one.
     expect(screen.getByText("All checks passed.")).toBeDefined();
+    // The phases render: the Steps group lists the declared step.
+    expect(screen.getByText("use: check")).toBeDefined();
     // The breadcrumb still threads Activity → workflow → the run's short id;
     // scope to it so the short id isn't confused with the heading.
     const breadcrumb = within(screen.getByRole("navigation", { name: /breadcrumb/i }));
