@@ -213,6 +213,22 @@ describe("<Markdown>", () => {
       expect(h1s).toHaveLength(1);
       expect(h1s[0]?.id).toBe("section-01");
     });
+
+    it("attaches the ordinals to the authored level named by sectionLevel", () => {
+      const { container } = renderMd(
+        <Markdown
+          content={"# Headline\n\n## First\n\nBody.\n\n## Second\n\nMore."}
+          withSectionOrdinals
+          sectionLevel={2}
+        />,
+      );
+      const h2s = Array.from(container.querySelectorAll("h2"));
+      expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+      expect(h2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
+      // The authored `#` headline is left un-sectioned.
+      expect(container.querySelector("h1")?.id).toBe("");
+      expect(container.querySelector("h1")?.querySelector("span[aria-hidden]")).toBeNull();
+    });
   });
 
   describe("downgradeHeaderLevels", () => {

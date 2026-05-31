@@ -236,23 +236,31 @@ const baseComponents: Components = {
  * the rendered output, clamped at h6 — for surfaces whose route owns an
  * outer heading and needs body `# section` to slot in beneath it.
  *
- * `withSectionOrdinals` stamps every authored `# …` top-level heading with a
+ * `withSectionOrdinals` stamps each authored heading at `sectionLevel` with a
  * deterministic id (`section-01`, …) and a leading `§ NN` mono eyebrow, at
  * whatever rendered level the downgrade lands it on. Ordinals key off AST
  * node identity so React StrictMode's double-render doesn't double-count.
+ *
+ * `sectionLevel` chooses which authored heading level the section ordinals
+ * attach to — `1` (authored `#`) by default. A surface that pulls the body's
+ * `# headline` out into its own page title sets this to `2` so the article's
+ * `##` headings become the sectioned, table-of-contents-bearing level.
  */
 export function Markdown({
   content,
   withSectionOrdinals = false,
   downgradeHeaderLevels = 0,
+  sectionLevel = 1,
 }: {
   content: string;
   withSectionOrdinals?: boolean;
   downgradeHeaderLevels?: number;
+  sectionLevel?: HeadingLevel;
 }) {
   const resolvedComponents = buildMarkdownComponents({
     downgrade: downgradeHeaderLevels,
     withSectionOrdinals,
+    sectionLevel,
   });
   return (
     <Prose>
@@ -266,20 +274,22 @@ export function Markdown({
 const buildMarkdownComponents = ({
   downgrade,
   withSectionOrdinals,
+  sectionLevel,
 }: {
   downgrade: number;
   withSectionOrdinals: boolean;
+  sectionLevel: HeadingLevel;
 }): Components => {
   if (downgrade === 0 && !withSectionOrdinals) return baseComponents;
   const result: Components = { ...baseComponents };
-  // Ordinals follow the authored top-level heading (`# …`) wherever the
+  // Ordinals follow the authored heading at `sectionLevel` wherever the
   // downgrade lands it. The rendered element shifts; the source slot we
-  // override stays h1.
+  // override stays the authored level.
   for (let source = 1 as HeadingLevel; source <= 6; source++) {
     const target = clampLevel(source + downgrade);
     const key = `h${source}` as const;
     result[key] =
-      withSectionOrdinals && source === 1
+      withSectionOrdinals && source === sectionLevel
         ? buildOrdinalHeading(source, target)
         : buildHeading(source, target);
   }
