@@ -8,27 +8,44 @@ import { Status } from "../../design-system/feedback/status.tsx";
 import { formatDuration, formatRelativeTime } from "../../formatters/format-time.ts";
 
 /**
- * One run in the workflow runs feed, edged with its status colour. A mono
- * byline tops the entry — status, the short run id (which carries the link
- * through to the run detail), the relative start time, and the duration. The
- * run's own name is left off: the feed is already scoped to a single workflow,
- * so a name would repeat on every row. An optional summary renders below as
- * prose, and the run's published articles follow as a stacked list — each an
- * eyebrow of the article's name above a link carrying its first heading
- * (falling back to its title). With no name heading, those articles are the
- * row's visual lead.
+ * One run in an activity feed, edged with its status colour. A mono byline
+ * tops the entry — status, the short run id (which carries the link through to
+ * the run detail), the relative start time, and the duration. `showWorkflow`
+ * surfaces the run's workflow as the byline's lead link (to the workflow page);
+ * it defaults off for the single-workflow feed, where the name would repeat on
+ * every row, and is set for the cross-workflow home feed. An optional summary
+ * renders below as prose, and the run's published articles follow as a stacked
+ * list — each an eyebrow of the article's name above a link carrying its first
+ * heading (falling back to its title). With no name heading, those articles are
+ * the row's visual lead.
  *
  * Runs still in flight have no `finishedAt`, so the duration is omitted — the
  * `running` status word already signals the live state. `now` is injectable so
  * tests render deterministic relative times; production omits it.
  */
-export function RunRow({ run, now }: { run: RunListEntry; now?: Date }) {
+export function RunRow({
+  run,
+  now,
+  showWorkflow,
+}: {
+  run: RunListEntry;
+  now?: Date;
+  showWorkflow?: boolean;
+}) {
   return (
     <StatusBlock status={run.status}>
       <Meta>
         <Status status={run.status} />
-        {/* Wrap the link so Meta's middot separator attaches to this span, not
-            the anchor — on the anchor it joins the link's underline and hit area. */}
+        {/* Each link is wrapped in a span so Meta's middot separator attaches to
+            the span, not the anchor — on the anchor it joins the link's underline
+            and hit area. */}
+        {showWorkflow ? (
+          <span>
+            <InlineLink href={`/workflows/${encodeURIComponent(run.workflowName)}`}>
+              {run.workflowName}
+            </InlineLink>
+          </span>
+        ) : null}
         <span>
           <InlineLink href={`/runs/${run.id}`}>{run.id.slice(0, 8)}</InlineLink>
         </span>

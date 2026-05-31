@@ -27,11 +27,11 @@ const run = (over: Partial<RunListEntry> = {}): RunListEntry => ({
   ...over,
 });
 
-const renderRow = (entry: RunListEntry) => {
+const renderRow = (entry: RunListEntry, opts: { showWorkflow?: boolean } = {}) => {
   const { hook } = memoryLocation({ path: "/workflows/deploy" });
   return render(
     <Router hook={hook}>
-      <RunRow run={entry} now={NOW} />
+      <RunRow run={entry} now={NOW} showWorkflow={opts.showWorkflow} />
     </Router>,
   );
 };
@@ -59,9 +59,21 @@ describe("<RunRow>", () => {
     expect(screen.queryByRole("link", { name: "3 minutes ago" })).toBeNull();
   });
 
-  it("omits the redundant workflow name", () => {
+  it("omits the workflow name by default for the single-workflow feed", () => {
     renderRow(run({ workflowName: "deploy" }));
     expect(screen.queryByText("deploy")).toBeNull();
+  });
+
+  it("leads the byline with a link to the workflow page when showWorkflow is set", () => {
+    renderRow(run({ workflowName: "deploy" }), { showWorkflow: true });
+    const link = screen.getByRole("link", { name: "deploy" });
+    expect(link.getAttribute("href")).toBe("/workflows/deploy");
+  });
+
+  it("encodes a workflow name with a slash in the workflow-page href", () => {
+    renderRow(run({ workflowName: "dev/deploy" }), { showWorkflow: true });
+    const link = screen.getByRole("link", { name: "dev/deploy" });
+    expect(link.getAttribute("href")).toBe("/workflows/dev%2Fdeploy");
   });
 
   it("renders the summary when present", () => {
