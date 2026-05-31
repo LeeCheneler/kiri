@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -34,7 +34,7 @@ describe("<RunPage>", () => {
     expect(screen.getByText(/loading run/i)).toBeDefined();
   });
 
-  it("renders the run's breadcrumb trail when the run loads", async () => {
+  it("renders the run header, summary, and breadcrumb when the run loads", async () => {
     server.use(
       http.get("*/api/runs/:id", ({ params }) =>
         HttpResponse.json({
@@ -42,13 +42,18 @@ describe("<RunPage>", () => {
             id: params.id,
             workflowName: "kiri-self-review",
             status: "ok",
-            trigger: "manual",
             startedAt: "2026-05-09T12:00:00.000Z",
-            finishedAt: "2026-05-09T12:00:01.000Z",
+            finishedAt: "2026-05-09T12:00:42.000Z",
             error: null,
+            summary: "All checks passed.",
             definitionSnapshot: { name: "kiri-self-review", steps: [] },
+            gitSha: null,
+            gitDirty: null,
+            inputs: null,
             isInterrupted: false,
             articles: [],
+            recommendationsCount: 0,
+            recommendations: [],
           },
           steps: [],
         }),
@@ -57,12 +62,19 @@ describe("<RunPage>", () => {
 
     renderRun("abcd1234efgh");
 
-    // The trail runs Activity → workflow → the run's short id.
-    const activity = await screen.findByRole("link", { name: /^activity$/i });
-    expect(activity.getAttribute("href")).toBe("/");
-    const workflow = screen.getByRole("link", { name: /kiri-self-review/i });
-    expect(workflow.getAttribute("href")).toBe("/workflows/kiri-self-review");
-    expect(screen.getByText("abcd1234").getAttribute("aria-current")).toBe("page");
+    // Header: the workflow eyebrow above the run's short id as the heading.
+    expect(await screen.findByText("kiri-self-review · Run")).toBeDefined();
+    expect(screen.getByRole("heading", { level: 2, name: "abcd1234" })).toBeDefined();
+    // The summary renders below the header once the run has produced one.
+    expect(screen.getByText("All checks passed.")).toBeDefined();
+    // The breadcrumb still threads Activity → workflow → the run's short id;
+    // scope to it so the short id isn't confused with the heading.
+    const breadcrumb = within(screen.getByRole("navigation", { name: /breadcrumb/i }));
+    expect(breadcrumb.getByRole("link", { name: /^activity$/i }).getAttribute("href")).toBe("/");
+    expect(breadcrumb.getByRole("link", { name: /kiri-self-review/i }).getAttribute("href")).toBe(
+      "/workflows/kiri-self-review",
+    );
+    expect(breadcrumb.getByText("abcd1234").getAttribute("aria-current")).toBe("page");
   });
 
   it("renders a not-found view when the API returns 404", async () => {

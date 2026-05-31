@@ -1,7 +1,9 @@
 import { ApiError } from "../api.ts";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
+import { Markdown } from "../design-system/content/markdown.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { RunHeader } from "../features/run-detail/run-header.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useRun } from "../state/runs.ts";
 
@@ -19,9 +21,13 @@ export function RunPage({ params }: { params: { id: string } }) {
 /**
  * Run detail content. Reads the run from the shared query — kept current by
  * the app's run live-sync — and renders one of: loading, not-found (404),
- * generic error, or the run's breadcrumb trail (Activity → workflow → run).
+ * generic error, or the run detail (header, then the workflow's summary once
+ * it has produced one).
+ *
+ * `now` is injectable so tests render deterministic times and the header's
+ * live timer doesn't tick; production omits it.
  */
-export function RunContent({ params }: { params: { id: string } }) {
+export function RunContent({ params, now }: { params: { id: string }; now?: Date }) {
   const run = useRun(params.id);
 
   if (run.isPending) {
@@ -46,7 +52,7 @@ export function RunContent({ params }: { params: { id: string } }) {
     );
   }
 
-  const detail = run.data;
+  const { run: detail } = run.data;
 
   return (
     <article>
@@ -54,12 +60,18 @@ export function RunContent({ params }: { params: { id: string } }) {
         items={[
           { label: "Activity", href: "/" },
           {
-            label: detail.run.workflowName,
-            href: `/workflows/${encodeURIComponent(detail.run.workflowName)}`,
+            label: detail.workflowName,
+            href: `/workflows/${encodeURIComponent(detail.workflowName)}`,
           },
         ]}
-        current={detail.run.id.slice(0, 8)}
+        current={detail.id.slice(0, 8)}
       />
+      <RunHeader run={detail} now={now} />
+      {detail.summary ? (
+        <div className="mt-8">
+          <Markdown content={detail.summary} />
+        </div>
+      ) : null}
     </article>
   );
 }
