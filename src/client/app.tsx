@@ -1,7 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { Route, Switch } from "wouter";
-import { ToastContainer } from "./components/toast-container.tsx";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
 import { DesignSystemPage } from "./routes/design-system-page.tsx";
@@ -18,9 +17,7 @@ import { createQueryClient } from "./state/query-client.ts";
  * `EventSource('/api/events')` connection; `<LiveSync>` bridges the two,
  * invalidating cached queries as server events arrive. Each route renders
  * its own page shell (wordmark, nav, and right-rail marginalia), so the
- * root is just providers, the route switch, and the toast container —
- * which sits alongside the switch so completion notifications float over
- * whatever route is mounted.
+ * root is just the providers and the route switch.
  *
  * `liveEventsFactory` is a test seam — production callers omit it and
  * get the native `EventSource`.
@@ -39,7 +36,6 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
           <Route path="/dev/design-system" component={DesignSystemPage} />
           <Route component={NotFoundPage} />
         </Switch>
-        <ToastContainer />
       </LiveEventsProvider>
     </QueryClientProvider>
   );
