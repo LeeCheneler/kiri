@@ -76,14 +76,14 @@ describe("mountEventsRoute", () => {
     expect(bus.subscriberCount).toBe(1);
 
     bus.publish({ type: "run.started", id: "r1" });
-    bus.publish({ type: "run.finished", id: "r1", status: "ok", workflowName: "deploy" });
+    bus.publish({ type: "run.finished", id: "r1", status: "ok" });
 
-    const text = await readUntil(reader, (t) => t.includes("workflowName"));
+    const text = await readUntil(reader, (t) => t.includes("run.finished"));
 
     expect(text).toContain("event: run.started");
     expect(text).toContain('data: {"type":"run.started","id":"r1"}');
     expect(text).toContain("event: run.finished");
-    expect(text).toContain('"workflowName":"deploy"');
+    expect(text).toContain('data: {"type":"run.finished","id":"r1","status":"ok"}');
 
     await reader.cancel();
   });

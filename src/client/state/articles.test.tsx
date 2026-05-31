@@ -94,9 +94,7 @@ describe("recent articles state", () => {
     const { sources } = renderRecentProbe();
     await screen.findByText("count:1");
 
-    act(() =>
-      sources[0]?.emit({ type: "run.finished", id: "r9", status: "ok", workflowName: "x" }),
-    );
+    act(() => sources[0]?.emit({ type: "run.finished", id: "r9", status: "ok" }));
     await screen.findByText("count:2");
 
     act(() => sources[0]?.emit({ type: "run.deleted", id: "r9" }));

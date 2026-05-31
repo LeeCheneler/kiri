@@ -23,12 +23,7 @@ export type KiriEvent =
       step: number;
       status: "running" | "ok" | "failed" | "cancelled";
     }
-  | {
-      type: "run.finished";
-      id: string;
-      status: "running" | "ok" | "failed" | "cancelled";
-      workflowName: string;
-    }
+  | { type: "run.finished"; id: string; status: "running" | "ok" | "failed" | "cancelled" }
   | { type: "run.deleted"; id: string }
   | {
       type: "recommendation.actioned";

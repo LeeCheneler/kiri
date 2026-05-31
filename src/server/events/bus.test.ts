@@ -108,13 +108,13 @@ describe("createEventBus", () => {
 
   it("narrows event payloads on type discrimination", () => {
     const bus = createEventBus();
-    let workflowName: string | undefined;
+    let step: number | undefined;
     bus.subscribe((e) => {
-      if (e.type === "run.finished") workflowName = e.workflowName;
+      if (e.type === "run.step.updated") step = e.step;
     });
 
-    bus.publish({ type: "run.finished", id: "r1", status: "ok", workflowName: "deploy" });
+    bus.publish({ type: "run.step.updated", runId: "r1", step: 2, status: "ok" });
 
-    expect(workflowName).toBe("deploy");
+    expect(step).toBe(2);
   });
 });

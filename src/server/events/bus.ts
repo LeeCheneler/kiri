@@ -1,14 +1,14 @@
 /**
  * Discriminated union of every event the in-process bus carries. Consumers
- * narrow on `type` to get a typed payload. Payloads stay thin (IDs +
- * status); the single relaxation is `run.finished` which carries
- * `workflowName` so completion toasts can render without a refetch.
+ * narrow on `type` to get a typed payload. Payloads stay thin — an ID plus,
+ * where relevant, a status; consumers refetch the affected resource for
+ * anything richer.
  */
 export type KiriEvent =
   | { type: "run.started"; id: string }
   | { type: "run.updated"; id: string; status: RunStatus }
   | { type: "run.step.updated"; runId: string; step: number; status: StepStatus }
-  | { type: "run.finished"; id: string; status: RunStatus; workflowName: string }
+  | { type: "run.finished"; id: string; status: RunStatus }
   | { type: "run.deleted"; id: string }
   | {
       type: "recommendation.actioned";

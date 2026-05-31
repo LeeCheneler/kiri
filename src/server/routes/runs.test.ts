@@ -2370,12 +2370,7 @@ EOF
 
       await finished;
 
-      expect(seen).toContainEqual({
-        type: "run.finished",
-        id: runId,
-        status: "cancelled",
-        workflowName: "long",
-      });
+      expect(seen).toContainEqual({ type: "run.finished", id: runId, status: "cancelled" });
       expect(seen).toContainEqual({ type: "run.updated", id: runId, status: "cancelled" });
     });
   });

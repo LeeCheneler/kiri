@@ -62,7 +62,7 @@ describe("mountRecommendationReflector", () => {
     const { bus, events } = collect();
     mountRecommendationReflector(db, bus);
 
-    bus.publish({ type: "run.finished", id: "spawned-1", status: "ok", workflowName: "child-wf" });
+    bus.publish({ type: "run.finished", id: "spawned-1", status: "ok" });
 
     expect(events).toContainEqual({
       type: "recommendation.updated",
@@ -90,7 +90,7 @@ describe("mountRecommendationReflector", () => {
     const { bus, events } = collect();
     mountRecommendationReflector(db, bus);
 
-    bus.publish({ type: "run.finished", id: "orphan-1", status: "ok", workflowName: "wf" });
+    bus.publish({ type: "run.finished", id: "orphan-1", status: "ok" });
 
     expect(events.some((e) => e.type === "recommendation.updated")).toBe(false);
   });

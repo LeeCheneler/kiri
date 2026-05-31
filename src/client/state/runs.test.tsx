@@ -82,9 +82,7 @@ describe("runs state", () => {
     act(() => sources[0]?.emit({ type: "run.step.updated", runId: "r1", step: 0, status: "ok" }));
     await screen.findByText("wf-3");
 
-    act(() =>
-      sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok", workflowName: "x" }),
-    );
+    act(() => sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok" }));
     await screen.findByText("wf-4");
   });
 
@@ -206,9 +204,7 @@ describe("run window state", () => {
     act(() => sources[0]?.emit({ type: "run.started", id: "r9" }));
     await screen.findByText("count:2");
 
-    act(() =>
-      sources[0]?.emit({ type: "run.finished", id: "r9", status: "ok", workflowName: "deploy" }),
-    );
+    act(() => sources[0]?.emit({ type: "run.finished", id: "r9", status: "ok" }));
     await screen.findByText("count:3");
 
     act(() => sources[0]?.emit({ type: "run.deleted", id: "r9" }));
@@ -314,9 +310,7 @@ describe("run feed state", () => {
     act(() => sources[0]?.emit({ type: "run.started", id: "r9" }));
     await screen.findByText("count:2");
 
-    act(() =>
-      sources[0]?.emit({ type: "run.finished", id: "r9", status: "ok", workflowName: "deploy" }),
-    );
+    act(() => sources[0]?.emit({ type: "run.finished", id: "r9", status: "ok" }));
     await screen.findByText("count:3");
 
     act(() => sources[0]?.emit({ type: "run.deleted", id: "r9" }));

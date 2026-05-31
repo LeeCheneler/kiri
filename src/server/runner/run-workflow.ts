@@ -501,17 +501,11 @@ export function runWorkflow(
     args.cancelRegistry?.release(runId);
 
     // run.updated paired with run.finished so consumers that only watch
-    // status transitions still see the terminal flip; run.finished carries
-    // workflowName so completion toasts can render without a refetch.
-    // Published before scratch-dir teardown so a teardown error can't
-    // suppress the lifecycle events that downstream views depend on.
+    // status transitions still see the terminal flip. Published before
+    // scratch-dir teardown so a teardown error can't suppress the lifecycle
+    // events that downstream views depend on.
     args.bus?.publish({ type: "run.updated", id: runId, status });
-    args.bus?.publish({
-      type: "run.finished",
-      id: runId,
-      status,
-      workflowName: definition.name,
-    });
+    args.bus?.publish({ type: "run.finished", id: runId, status });
 
     rmSync(scratchDir, { recursive: true, force: true });
 

@@ -361,7 +361,7 @@ describe("runWorkflow", () => {
       { type: "run.step.updated", runId: result.runId, step: 1, status: "running" },
       { type: "run.step.updated", runId: result.runId, step: 1, status: "ok" },
       { type: "run.updated", id: result.runId, status: "ok" },
-      { type: "run.finished", id: result.runId, status: "ok", workflowName: "seq-ok" },
+      { type: "run.finished", id: result.runId, status: "ok" },
     ]);
   });
 
@@ -384,7 +384,7 @@ describe("runWorkflow", () => {
       { type: "run.step.updated", runId: result.runId, step: 1, status: "running" },
       { type: "run.step.updated", runId: result.runId, step: 1, status: "failed" },
       { type: "run.updated", id: result.runId, status: "failed" },
-      { type: "run.finished", id: result.runId, status: "failed", workflowName: "seq-fail" },
+      { type: "run.finished", id: result.runId, status: "failed" },
     ]);
   });
 
@@ -413,12 +413,7 @@ describe("runWorkflow", () => {
     expect(seen).toEqual([
       { type: "run.started", id: runId as string },
       { type: "run.updated", id: runId as string, status: "failed" },
-      {
-        type: "run.finished",
-        id: runId as string,
-        status: "failed",
-        workflowName: "throwy-bus",
-      },
+      { type: "run.finished", id: runId as string, status: "failed" },
     ]);
   });
 
@@ -468,12 +463,7 @@ describe("runWorkflow", () => {
         status: "cancelled",
       });
       expect(seen).toContainEqual({ type: "run.updated", id: runId, status: "cancelled" });
-      expect(seen).toContainEqual({
-        type: "run.finished",
-        id: runId,
-        status: "cancelled",
-        workflowName: "long",
-      });
+      expect(seen).toContainEqual({ type: "run.finished", id: runId, status: "cancelled" });
     });
 
     it("escalates to SIGKILL when the child traps and ignores SIGTERM", async () => {
@@ -891,7 +881,7 @@ describe("runWorkflow", () => {
         { type: "run.step.updated", runId: result.runId, step: 1, status: "running" },
         { type: "run.step.updated", runId: result.runId, step: 1, status: "ok" },
         { type: "run.updated", id: result.runId, status: "ok" },
-        { type: "run.finished", id: result.runId, status: "ok", workflowName: "events" },
+        { type: "run.finished", id: result.runId, status: "ok" },
       ]);
     });
 
@@ -1341,7 +1331,7 @@ describe("runWorkflow", () => {
         { type: "run.step.updated", runId: result.runId, step: 1, status: "running" },
         { type: "run.step.updated", runId: result.runId, step: 1, status: "ok" },
         { type: "run.updated", id: result.runId, status: "ok" },
-        { type: "run.finished", id: result.runId, status: "ok", workflowName: "pub-events" },
+        { type: "run.finished", id: result.runId, status: "ok" },
       ]);
     });
   });

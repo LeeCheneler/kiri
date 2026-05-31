@@ -256,21 +256,11 @@ describe("useLiveEvent", () => {
     );
 
     act(() => {
-      sources[0]?.emit({
-        type: "run.finished",
-        id: "r1",
-        status: "ok",
-        workflowName: "deploy",
-      });
+      sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok" });
     });
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({
-      type: "run.finished",
-      id: "r1",
-      status: "ok",
-      workflowName: "deploy",
-    });
+    expect(events[0]).toEqual({ type: "run.finished", id: "r1", status: "ok" });
   });
 
   it("ignores event types the handler didn't subscribe to", () => {
@@ -333,12 +323,7 @@ describe("useLiveEvent", () => {
     );
 
     act(() => {
-      sources[0]?.emit({
-        type: "run.finished",
-        id: "r1",
-        status: "ok",
-        workflowName: "x",
-      });
+      sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok" });
     });
     expect(a).toHaveLength(1);
     expect(b).toHaveLength(0);
@@ -347,12 +332,7 @@ describe("useLiveEvent", () => {
       ui.container.querySelector("button")?.click();
     });
     act(() => {
-      sources[0]?.emit({
-        type: "run.finished",
-        id: "r2",
-        status: "failed",
-        workflowName: "y",
-      });
+      sources[0]?.emit({ type: "run.finished", id: "r2", status: "failed" });
     });
     expect(a).toHaveLength(1);
     expect(b).toHaveLength(1);
@@ -377,12 +357,7 @@ describe("useLiveEvent", () => {
     });
 
     act(() => {
-      sources[0]?.emit({
-        type: "run.finished",
-        id: "r1",
-        status: "ok",
-        workflowName: "x",
-      });
+      sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok" });
     });
     expect(handler).toHaveBeenCalledTimes(0);
   });
@@ -436,7 +411,7 @@ describe("useLiveReconnect", () => {
 
     act(() => {
       sources[0]?.emit({ type: "run.started", id: "r1" });
-      sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok", workflowName: "x" });
+      sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok" });
     });
 
     expect(onReconnect).toHaveBeenCalledTimes(0);

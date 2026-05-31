@@ -272,12 +272,7 @@ describe("workflows routes", () => {
       await finished;
 
       expect(seen).toContainEqual({ type: "run.started", id: body.runId });
-      expect(seen).toContainEqual({
-        type: "run.finished",
-        id: body.runId,
-        status: "ok",
-        workflowName: "greeter",
-      });
+      expect(seen).toContainEqual({ type: "run.finished", id: body.runId, status: "ok" });
     });
 
     describe("inputs validation", () => {
