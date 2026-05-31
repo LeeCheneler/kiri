@@ -62,17 +62,17 @@ test("clicking Home from the run-not-found view returns to home", async ({ page 
   await expect(page).toHaveURL("/");
 });
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("opening a run detail page reveals stdout when the step is expanded", async ({
+test("opening a run detail page reveals stdout when the step is expanded", async ({
   page,
   request,
 }) => {
   const { runId } = await triggerRun(request, "golden");
 
   await page.goto(`/runs/${runId}`);
-  await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: /^activity$/i })).toBeVisible();
+  // The workflow name sits in the eyebrow above the run's short-id heading,
+  // and the pipeline renders under the "Steps" group label.
+  await expect(page.getByText("golden · Run")).toBeVisible();
+  await expect(page.getByText("Steps")).toBeVisible();
 
   const step = page.getByRole("button", { name: /sh:/i });
   await expect(step).toHaveAttribute("aria-expanded", "false");
@@ -84,9 +84,7 @@ test.skip("opening a run detail page reveals stdout when the step is expanded", 
   await expect(page.getByText("kiri e2e fixture", { exact: true })).toBeVisible();
 });
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("a failed run surfaces a run-level failure block on the detail page", async ({
+test("a failed run surfaces a run-level failure block on the detail page", async ({
   page,
   request,
 }) => {
@@ -98,9 +96,7 @@ test.skip("a failed run surfaces a run-level failure block on the detail page", 
   await expect(alert).toContainText(/run failed/i);
 });
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("triggering a workflow from the side nav lands on the run detail", async ({ page }) => {
+test("triggering a workflow from the side nav lands on the run detail", async ({ page }) => {
   await page.goto("/");
 
   const nav = page.getByRole("navigation", { name: /workflows/i });
@@ -115,12 +111,11 @@ test.skip("triggering a workflow from the side nav lands on the run detail", asy
 
   await page.getByRole("button", { name: /^run/i }).click();
   await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
-  await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
+  // On the run page the workflow name is the eyebrow, not the heading.
+  await expect(page.getByText("golden · Run")).toBeVisible();
 });
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("invoking a workflow with inputs opens a modal, collects values, and lands on the run", async ({
+test("invoking a workflow with inputs opens a modal, collects values, and lands on the run", async ({
   page,
 }) => {
   await page.goto("/workflows/with-inputs");
@@ -144,7 +139,7 @@ test.skip("invoking a workflow with inputs opens a modal, collects values, and l
   await dialog.getByRole("button", { name: /^run/i }).click();
 
   await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
-  await expect(page.getByRole("heading", { level: 2, name: /with-inputs/i })).toBeVisible();
+  await expect(page.getByText("with-inputs · Run")).toBeVisible();
 
   // The step echoes the resolved env, confirming the inputs flowed through
   // the API → snapshot → spawn env path. The disclosure has to be expanded

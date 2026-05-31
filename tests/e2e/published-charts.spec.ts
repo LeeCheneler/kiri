@@ -19,7 +19,8 @@ test("a chart code block renders a real chart in a published article", async ({
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
-  const articleLink = page.getByRole("main").getByRole("link", { name: /chart report/i });
+  // Published articles render in the run's right rail; follow the chart report.
+  const articleLink = page.getByRole("link", { name: /chart report/i });
   await articleLink.click();
   await expect(page).toHaveURL(`/runs/${runId}/published/chart-report`);
 

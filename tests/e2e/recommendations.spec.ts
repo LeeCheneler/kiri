@@ -8,20 +8,19 @@ const triggerRun = async (request: APIRequestContext, name: string) => {
   return (await res.json()) as { runId: string };
 };
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("recommendation with declared inputs opens the modal pre-filled and flips the row on submit", async ({
+test("recommendation with declared inputs opens the modal pre-filled and flips the row on submit", async ({
   page,
   request,
 }) => {
   const { runId } = await triggerRun(request, "recommends");
   await page.goto(`/runs/${runId}`);
 
-  // Run finishes; the Recommended section materialises with both rows.
+  // Run finishes; the Recommended section materialises with both rows. The
+  // section is labelled by an eyebrow, not a heading.
   await expect(page.locator('header [data-status="ok"]').first()).toBeVisible({
     timeout: 10_000,
   });
-  await expect(page.getByRole("heading", { name: /^recommended$/i })).toBeVisible();
+  await expect(page.getByText("Recommended")).toBeVisible();
 
   const reviewRow = page.getByRole("listitem").filter({ hasText: "Review PR #42" });
   await expect(reviewRow).toBeVisible();
@@ -48,9 +47,7 @@ test.skip("recommendation with declared inputs opens the modal pre-filled and fl
   await expect(reviewRow.locator('[data-status="ok"]')).toBeVisible({ timeout: 10_000 });
 });
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("recommendation for a no-input workflow actions immediately without opening a modal", async ({
+test("recommendation for a no-input workflow actions immediately without opening a modal", async ({
   page,
   request,
 }) => {

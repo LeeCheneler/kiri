@@ -19,12 +19,8 @@ test("clicking a published article navigates to a page rendering its markdown bo
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
-  const publishedHeading = page.getByRole("heading", { level: 3, name: /^published$/i });
-  await expect(publishedHeading).toBeVisible();
-
-  // Scope to the run page's main content — the "Recently Published" rail
-  // in the aside links to the same articles by title.
-  const articleLink = page.getByRole("main").getByRole("link", { name: /published digest/i });
+  // Published articles render in the run's right rail; follow the digest.
+  const articleLink = page.getByRole("link", { name: /published digest/i });
   await expect(articleLink).toHaveAttribute("href", `/runs/${runId}/published/digest`);
   await articleLink.click();
 

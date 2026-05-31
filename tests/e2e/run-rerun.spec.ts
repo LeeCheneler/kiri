@@ -21,9 +21,7 @@ const triggerRunWithInputs = async (
   return (await res.json()) as { runId: string };
 };
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("clicking 'run again' re-executes a terminal run under the same id and url", async ({
+test("clicking 'run again' re-executes a terminal run under the same id and url", async ({
   page,
   request,
 }) => {
@@ -47,12 +45,7 @@ test.skip("clicking 'run again' re-executes a terminal run under the same id and
   expect(page.url()).toBe(url);
 });
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("rerunning does not create a duplicate row on the home feed", async ({
-  page,
-  request,
-}) => {
+test("rerunning does not create a duplicate row on the home feed", async ({ page, request }) => {
   // Use `slow` so the running window is observable; with `quick` the
   // ok → running → ok cycle completes inside one event loop tick and
   // SSE coalesces away the running state before Playwright can see it.
@@ -77,9 +70,7 @@ test.skip("rerunning does not create a duplicate row on the home feed", async ({
   await expect(rows).toHaveAttribute("data-status", "ok");
 });
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("re-running a workflow with inputs opens a pre-filled modal and forwards tweaks", async ({
+test("re-running a workflow with inputs opens a pre-filled modal and forwards tweaks", async ({
   page,
   request,
 }) => {
@@ -118,9 +109,7 @@ test.skip("re-running a workflow with inputs opens a pre-filled modal and forwar
   await expect(page.getByText("pr=99 branch=release", { exact: true })).toBeVisible();
 });
 
-// Skipped: the run page is a blank breadcrumb shell during the rebuild;
-// restore when the run detail page is rebuilt.
-test.skip("'run again' is hidden while a run is still in flight", async ({ page, request }) => {
+test("'run again' is hidden while a run is still in flight", async ({ page, request }) => {
   const { runId } = await triggerRun(request, "slow");
   await page.goto(`/runs/${runId}`);
 
