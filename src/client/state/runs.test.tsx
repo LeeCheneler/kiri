@@ -8,6 +8,7 @@ import { LiveEventsProvider } from "../events/live.tsx";
 import { createQueryClient } from "./query-client.ts";
 import {
   useRun,
+  useRunFeed,
   useRunFeedsLive,
   useRunWindowsLive,
   useRunsLive,
@@ -332,6 +333,77 @@ describe("run feed state", () => {
     expect(callCount()).toBe(1);
 
     act(() => sources[0]?.triggerOpen());
+    await screen.findByText("count:2");
+  });
+});
+
+const GlobalFeedProbe = () => {
+  useRunFeedsLive();
+  const feed = useRunFeed();
+  return (
+    <div>
+      <p>{feed.data ? `count:${feed.data.length}` : "loading"}</p>
+      <p>{feed.hasNextPage ? "more" : "end"}</p>
+      <button type="button" onClick={() => void feed.fetchNextPage()}>
+        next
+      </button>
+    </div>
+  );
+};
+
+const renderGlobalFeedProbe = () => {
+  const { factory, sources } = captureEventSources();
+  const ui = render(
+    <QueryClientProvider client={createQueryClient()}>
+      <LiveEventsProvider factory={factory}>
+        <GlobalFeedProbe />
+      </LiveEventsProvider>
+    </QueryClientProvider>,
+  );
+  return { ...ui, sources };
+};
+
+describe("global run feed state", () => {
+  it("fetches the run feed across all workflows, unscoped", async () => {
+    const seen: (string | null)[] = [];
+    server.use(
+      http.get("*/api/runs", ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get("workflow"));
+        return HttpResponse.json({ runs: [{ id: "a" }, { id: "b" }], nextCursor: null });
+      }),
+    );
+    renderGlobalFeedProbe();
+    expect(await screen.findByText("count:2")).toBeDefined();
+    // No workflow filter on the wire — the home feed spans every workflow.
+    expect(seen).toEqual([null]);
+  });
+
+  it("loads further pages on demand, advancing by the cursor", async () => {
+    server.use(
+      http.get("*/api/runs", ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get("cursor");
+        if (cursor === null) {
+          return HttpResponse.json({ runs: [{ id: "r1" }], nextCursor: "r1" });
+        }
+        return HttpResponse.json({ runs: [{ id: "r2" }], nextCursor: null });
+      }),
+    );
+    renderGlobalFeedProbe();
+    await screen.findByText("count:1");
+    expect(screen.getByText("more")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "next" }));
+
+    await screen.findByText("count:2");
+    expect(screen.getByText("end")).toBeDefined();
+  });
+
+  it("refetches on run lifecycle events, sharing the per-workflow feed invalidation", async () => {
+    serveCountingFeed();
+    const { sources } = renderGlobalFeedProbe();
+    await screen.findByText("count:1");
+
+    act(() => sources[0]?.emit({ type: "run.started", id: "r9" }));
     await screen.findByText("count:2");
   });
 });

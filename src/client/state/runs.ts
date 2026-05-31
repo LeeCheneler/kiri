@@ -12,6 +12,8 @@ const runKey = (id: string) => ["run", id] as const;
 const runWindowKey = (workflow: string, limit: number) =>
   ["runs", "window", workflow, limit] as const;
 const runFeedKey = (workflow: string) => ["runs", "feed", workflow] as const;
+/** Key for the unscoped, all-workflows run feed — the prefix the per-workflow feed keys extend. */
+const allRunsFeedKey = ["runs", "feed"] as const;
 
 /** Page size for the workflow run feed; mirrors the server's default. */
 const FEED_PAGE_SIZE = 25;
@@ -59,6 +61,24 @@ export function useWorkflowRunFeed(
     queryKey: runFeedKey(workflow),
     queryFn: ({ pageParam }) =>
       fetchRunsPage({ workflow, cursor: pageParam, limit: FEED_PAGE_SIZE }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    select: (data) => data.pages.flatMap((page) => page.runs),
+  });
+}
+
+/**
+ * Read the full run history across all workflows as an infinite,
+ * cursor-paginated feed, newest first — the home activity feed. Same shape
+ * as `useWorkflowRunFeed` with no workflow filter; its `["runs", "feed"]`
+ * key is the prefix the per-workflow feed keys extend, so the single
+ * `useRunFeedsLive` invalidation keeps this feed and the scoped ones
+ * current alike.
+ */
+export function useRunFeed(): UseInfiniteQueryResult<RunListEntry[], Error> {
+  return useInfiniteQuery({
+    queryKey: allRunsFeedKey,
+    queryFn: ({ pageParam }) => fetchRunsPage({ cursor: pageParam, limit: FEED_PAGE_SIZE }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     select: (data) => data.pages.flatMap((page) => page.runs),
