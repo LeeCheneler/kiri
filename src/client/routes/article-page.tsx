@@ -84,6 +84,14 @@ export function ArticleContent({
   // publish title when the body carries no headline of its own.
   const { heading, body } = splitLeadingHeading(data.contentMd);
   const displayTitle = heading ?? data.title;
+  // The publish title earns its spot in the eyebrow only when it adds context:
+  // not when the body already supplies the page title, and not when it merely
+  // restates the workflow name or the headline. Otherwise fall back to the
+  // generic label.
+  const seriesLabel =
+    heading !== null && data.title !== data.workflowName && data.title !== heading
+      ? data.title
+      : "Article";
   const stats = readingStats(body);
   return (
     <article>
@@ -100,11 +108,11 @@ export function ArticleContent({
       />
 
       <header className="mt-6">
-        {/* The publish title rides in the eyebrow as the recurring series
-            label; when the body has no headline it already supplies the page
-            title, so the eyebrow falls back to the generic "Article". */}
+        {/* The eyebrow situates the article under its workflow, suffixed with
+            the publish title as the series label when it adds context (see
+            seriesLabel). */}
         <Eyebrow>
-          {data.workflowName} · {heading ? data.title : "Article"}
+          {data.workflowName} · {seriesLabel}
         </Eyebrow>
         <h1 className="mt-2 font-display text-7xl text-ink italic leading-[0.95] tracking-tight">
           {displayTitle}

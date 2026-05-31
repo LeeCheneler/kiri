@@ -115,6 +115,36 @@ describe("<ArticlePage>", () => {
     expect(screen.getByText("1 min read")).toBeDefined();
   });
 
+  it("drops the eyebrow series label when the publish title restates the workflow name", async () => {
+    server.use(
+      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+        HttpResponse.json({
+          id: "art-1",
+          runId: params.id,
+          name: params.name,
+          title: "Daily Briefing",
+          contentMd: "# Wednesday's briefing\n\n## Lead\n\nBody.\n",
+          createdAt: NOW.toISOString(),
+          workflowName: "Daily Briefing",
+          heading: "Wednesday's briefing",
+          gitSha: null,
+          gitDirty: null,
+          startedAt: NOW.toISOString(),
+          finishedAt: null,
+        }),
+      ),
+    );
+
+    renderArticle("abc", "briefing");
+
+    // The publish title equals the workflow name, so it adds nothing — the
+    // eyebrow keeps the generic "Article" label rather than echoing it.
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Wednesday's briefing" }),
+    ).toBeDefined();
+    expect(screen.getByText("Daily Briefing · Article")).toBeDefined();
+  });
+
   it("renders body `## section` markdown as h2 with section-NN ids and § NN eyebrows", async () => {
     server.use(
       http.get("*/api/runs/:id/published/:name", ({ params }) =>
