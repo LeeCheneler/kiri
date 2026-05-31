@@ -7,6 +7,7 @@ import { RunActions } from "../features/run-detail/run-actions.tsx";
 import { RunFailure } from "../features/run-detail/run-failure.tsx";
 import { RunHeader } from "../features/run-detail/run-header.tsx";
 import { RunPhases } from "../features/run-detail/run-phases.tsx";
+import { RunRecommendations } from "../features/run-detail/run-recommendations.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useRun } from "../state/runs.ts";
 import { useWorkflows } from "../state/workflows.ts";
@@ -86,6 +87,11 @@ export function RunContent({ params, now }: { params: { id: string }; now?: Date
       ) : null}
       {detail.error ? <RunFailure error={detail.error} /> : null}
       <RunPhases run={detail} steps={steps} now={now} />
+      <RunRecommendations
+        runId={detail.id}
+        recommendations={detail.recommendations}
+        workflows={workflows ?? []}
+      />
     </article>
   );
 }
