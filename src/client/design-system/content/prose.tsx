@@ -11,5 +11,5 @@ export function Prose({ children }: { children: ReactNode }) {
   // Text colour is deliberately not set: the app root already defaults to
   // ink, so leaving it unstated lets a wrapping tint (e.g. `text-ink-muted`
   // on a secondary summary) inherit through to the content.
-  return <div className="max-w-[65ch] font-display text-base leading-relaxed">{children}</div>;
+  return <div className="max-w-[75ch] font-display text-base leading-relaxed">{children}</div>;
 }

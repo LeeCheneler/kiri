@@ -438,7 +438,7 @@ export function DesignSystemContent() {
             <Prose>
               <p className="mt-3">
                 Reading content — a guideline, an article, a rendered summary — goes inside the{" "}
-                <Code>Prose</Code> container. It owns the reading measure (about 65 characters wide)
+                <Code>Prose</Code> container. It owns the reading measure (about 75 characters wide)
                 and the base reading voice, so line length stays comfortable and consistent across
                 surfaces. Never put a max-width on text by hand — reach for Prose and let it own the
                 width.
