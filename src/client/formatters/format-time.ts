@@ -51,3 +51,34 @@ export const formatDurationMs = (ms: number): string => {
  */
 export const formatDuration = (startedAt: string, finishedAt: string): string =>
   formatDurationMs(new Date(finishedAt).getTime() - new Date(startedAt).getTime());
+
+// Day-month order (en-GB) for the date markers; the year is appended only when
+// the run falls in an earlier calendar year than the viewer's "now".
+const DAY_MARKER_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" });
+const DAY_MARKER_FORMAT_WITH_YEAR = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+const startOfLocalDay = (d: Date): number =>
+  new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/**
+ * Format an ISO timestamp as an activity-feed day marker: "Today" / "Yesterday"
+ * for the two most recent local calendar days, otherwise the date — "12 May",
+ * or "12 May 2025" when it falls in an earlier year than `now`. Bucketing is by
+ * local calendar day rather than a rolling 24h window, so a run logged just
+ * after midnight reads "Today", not "Yesterday". `now` is injectable for
+ * deterministic tests.
+ */
+export const formatDayMarker = (iso: string, now: Date = new Date()): string => {
+  const date = new Date(iso);
+  // Whole-day gap between local midnights; rounding absorbs the 23h/25h DST days.
+  const dayDelta = Math.round((startOfLocalDay(now) - startOfLocalDay(date)) / 86_400_000);
+  if (dayDelta === 0) return "Today";
+  if (dayDelta === 1) return "Yesterday";
+  return date.getFullYear() === now.getFullYear()
+    ? DAY_MARKER_FORMAT.format(date)
+    : DAY_MARKER_FORMAT_WITH_YEAR.format(date);
+};

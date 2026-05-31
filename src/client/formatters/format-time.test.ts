@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { formatDuration, formatDurationMs, formatRelativeTime } from "./format-time.ts";
+import {
+  formatDayMarker,
+  formatDuration,
+  formatDurationMs,
+  formatRelativeTime,
+} from "./format-time.ts";
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 const isoOffset = (seconds: number) => new Date(NOW.getTime() + seconds * 1000).toISOString();
@@ -107,5 +112,29 @@ describe("formatDurationMs", () => {
 
   it("clamps negative inputs to zero", () => {
     expect(formatDurationMs(-50)).toBe("0ms");
+  });
+});
+
+describe("formatDayMarker", () => {
+  // Markers sit at midday UTC so the local-calendar-day classification is
+  // stable across any runner timezone within ±12h (UTC in CI, BST locally).
+  it("labels the current local day 'Today'", () => {
+    expect(formatDayMarker("2026-05-09T10:00:00.000Z", NOW)).toBe("Today");
+  });
+
+  it("labels the previous local day 'Yesterday'", () => {
+    expect(formatDayMarker("2026-05-08T12:00:00.000Z", NOW)).toBe("Yesterday");
+  });
+
+  it("renders an earlier day this year as day and month, no year", () => {
+    expect(formatDayMarker("2026-04-20T12:00:00.000Z", NOW)).toBe("20 April");
+  });
+
+  it("appends the year for a day in an earlier calendar year", () => {
+    expect(formatDayMarker("2025-12-25T12:00:00.000Z", NOW)).toBe("25 December 2025");
+  });
+
+  it("uses the system clock when 'now' is omitted", () => {
+    expect(formatDayMarker(new Date().toISOString())).toBe("Today");
   });
 });
