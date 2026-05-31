@@ -24,10 +24,10 @@ const renderNav = (path = "/") => {
 };
 
 describe("<SiteNav>", () => {
-  it("renders the wordmark, home, and documentation links", async () => {
+  it("renders the wordmark, activity, and documentation links", async () => {
     renderNav();
     expect(await screen.findByRole("heading", { name: /^kiri$/i })).toBeDefined();
-    expect(screen.getByRole("link", { name: /^home$/i }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: /^activity$/i }).getAttribute("href")).toBe("/");
     expect(screen.getByRole("link", { name: /design system/i })).toBeDefined();
     expect(screen.getByRole("link", { name: /github/i })).toBeDefined();
     // The version footer (MSW default "dev") confirms the rail mounted in full.
@@ -39,7 +39,7 @@ describe("<SiteNav>", () => {
     server.use(http.get("*/api/workflows", () => new HttpResponse("boom", { status: 500 })));
     renderNav();
     expect(await screen.findByRole("heading", { name: /^kiri$/i })).toBeDefined();
-    expect(screen.getByRole("link", { name: /^home$/i })).toBeDefined();
+    expect(screen.getByRole("link", { name: /^activity$/i })).toBeDefined();
     expect(screen.queryByRole("navigation", { name: /^workflows$/i })).toBeNull();
     await flushAsync();
   });
@@ -111,7 +111,7 @@ describe("<SiteNav>", () => {
     renderNav("/");
     await user.click(await screen.findByRole("button", { name: /menu/i }));
     const drawer = screen.getByRole("dialog", { name: /navigation/i });
-    expect(within(drawer).getByRole("link", { name: /^home$/i })).toBeDefined();
+    expect(within(drawer).getByRole("link", { name: /^activity$/i })).toBeDefined();
     expect(within(drawer).getByRole("link", { name: "deploy" })).toBeDefined();
     await flushAsync();
   });

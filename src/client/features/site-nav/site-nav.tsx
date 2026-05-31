@@ -22,7 +22,7 @@ const activeWorkflowName = (location: string): string | null => {
   }
 };
 
-// The rail's body — the Home row, the live workflows nav, the documentation
+// The rail's body — the Activity row, the live workflows nav, the documentation
 // nav, and the version footer — shared between the lg+ column and the mobile
 // drawer. A fragment, so each host supplies the bounded-height flex column the
 // scrollable workflows middle needs.
@@ -47,7 +47,7 @@ function RailContent({
 
   return (
     <>
-      <NavList items={[{ label: "Home", href: "/", active: location === "/" }]} />
+      <NavList items={[{ label: "Activity", href: "/", active: location === "/" }]} />
       <div className="mt-6 min-h-0 flex-1 overflow-y-auto">
         {workflows && <WorkflowsNav workflows={workflows} activeName={activeName} />}
       </div>
