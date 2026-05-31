@@ -54,10 +54,10 @@ describe("articles routes", () => {
       expect(await res.json()).toEqual([]);
     });
 
-    it("returns the 7 newest articles across runs, newest first, with the workflow name", async () => {
+    it("returns the 10 newest articles across runs, newest first, with the workflow name", async () => {
       seedRun("run-a", "alpha");
       seedRun("run-b", "beta");
-      // Eight articles across two runs with distinct, increasing timestamps
+      // Eleven articles across two runs with distinct, increasing timestamps
       // so the newest-first ordering is deterministic.
       const base = Date.UTC(2026, 0, 1, 12, 0, 0);
       seedArticle("run-a", "a1", { createdAt: new Date(base + 1000) });
@@ -68,6 +68,9 @@ describe("articles routes", () => {
       seedArticle("run-b", "b3", { createdAt: new Date(base + 6000) });
       seedArticle("run-a", "a4", { createdAt: new Date(base + 7000) });
       seedArticle("run-b", "b4", { createdAt: new Date(base + 8000) });
+      seedArticle("run-a", "a5", { createdAt: new Date(base + 9000) });
+      seedArticle("run-b", "b5", { createdAt: new Date(base + 10000) });
+      seedArticle("run-a", "a6", { createdAt: new Date(base + 11000) });
 
       const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
       const res = await app.request("/api/articles/recent");
@@ -81,15 +84,26 @@ describe("articles routes", () => {
         workflowName: string;
       }>;
 
-      // Newest first, capped at 7 — the oldest article (a1) is excluded.
-      expect(body.map((a) => a.name)).toEqual(["b4", "a4", "b3", "a3", "b2", "a2", "b1"]);
+      // Newest first, capped at 10 — the oldest article (a1) is excluded.
+      expect(body.map((a) => a.name)).toEqual([
+        "a6",
+        "b5",
+        "a5",
+        "b4",
+        "a4",
+        "b3",
+        "a3",
+        "b2",
+        "a2",
+        "b1",
+      ]);
       expect(body[0]).toEqual({
-        runId: "run-b",
-        name: "b4",
-        title: "b4",
-        heading: "b4",
-        createdAt: new Date(base + 8000).toISOString(),
-        workflowName: "beta",
+        runId: "run-a",
+        name: "a6",
+        title: "a6",
+        heading: "a6",
+        createdAt: new Date(base + 11000).toISOString(),
+        workflowName: "alpha",
       });
       // The joined workflow name travels with each entry.
       expect(body.find((a) => a.name === "b1")?.workflowName).toBe("beta");

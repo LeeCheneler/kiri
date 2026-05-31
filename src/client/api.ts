@@ -385,7 +385,7 @@ export interface RecentArticle {
 
 /**
  * Fetch the most recently published articles across all runs, newest
- * first. The server caps the list (currently at 5). Throws on non-2xx.
+ * first. The server caps the list (currently at 10). Throws on non-2xx.
  */
 export const fetchRecentArticles = async (): Promise<RecentArticle[]> =>
   json<RecentArticle[]>(await apiFetch("/api/articles/recent"));
