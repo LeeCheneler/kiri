@@ -1,4 +1,5 @@
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
+import { ActivityFeed } from "../features/activity-feed/activity-feed.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
@@ -14,12 +15,16 @@ export function HomePage() {
 }
 
 /**
- * Home content — the Activity view's breadcrumb anchor.
+ * Home content — the Activity breadcrumb above the live, cross-workflow
+ * activity feed. `now` is injectable so tests render deterministic timestamps.
  */
-export function HomeContent() {
+export function HomeContent({ now }: { now?: Date }) {
   return (
     <section>
       <Breadcrumb items={[]} current="Activity" />
+      <div className="mt-6">
+        <ActivityFeed now={now} />
+      </div>
     </section>
   );
 }
