@@ -19,8 +19,9 @@ test("clicking a published article navigates to a page rendering its markdown bo
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
-  // Published articles render in the run's right rail; follow the digest.
-  const articleLink = page.getByRole("link", { name: /published digest/i });
+  // Published articles render in the run's right rail, labelled by the body's
+  // first heading (falling back to the publish title); follow the digest.
+  const articleLink = page.getByRole("link", { name: /this week in review/i });
   await expect(articleLink).toHaveAttribute("href", `/runs/${runId}/published/digest`);
   await articleLink.click();
 
