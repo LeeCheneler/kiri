@@ -12,8 +12,11 @@ Inside that JSON, `steps[0].stdout` is a single JSON object with two fields:
 - `devto`: an array of Dev.to articles. Each has `title`, `url`, `description`,
   `tag_list`, `positive_reactions_count`, `user.name`, `published_at`.
 
-Read those, then write a tight markdown briefing with exactly this structure
-and these headings, no preamble, no sign-off:
+Read those, then write a tight markdown briefing. Open with a single `#`
+headline — a short, specific title for today's edition that captures the main
+thread of the news (not a generic word like "Briefing"; the page already
+labels it the Daily Briefing). Then exactly these section headings, no
+preamble, no sign-off:
 
 ## Today
 

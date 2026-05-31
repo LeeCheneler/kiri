@@ -11,7 +11,9 @@ the PR with these fields:
 - `additions`, `deletions` — line counts
 - `files` — array of `{ path, additions, deletions }`
 
-Read it, then write a tight markdown review with exactly this structure:
+Read it, then write a tight markdown review. Open with a single `#` headline
+naming the PR — `# #<number> — <title>` drawn from the PR's `number` and
+`title` (the page already labels it a PR Review). Then exactly this structure:
 
 ## Verdict
 
