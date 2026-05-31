@@ -54,11 +54,10 @@ describe("<ArticlePage>", () => {
 
     renderArticle("abc12345-0000-0000-0000-000000000000", "digest");
 
-    expect(
-      await screen.findByRole("heading", { level: 2, name: "PR Review Digest" }),
-    ).toBeDefined();
-    // The eyebrow names the producing workflow, matching the run/workflow pages.
-    expect(screen.getByText("pr-review · Article")).toBeDefined();
+    // The body's `# Hello` becomes the page title (an h1); the publish title
+    // rides in the eyebrow as the series label.
+    expect(await screen.findByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
+    expect(screen.getByText("pr-review · PR Review Digest")).toBeDefined();
     // The breadcrumb threads Activity → workflow → run → (current article).
     expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
     const workflowLink = screen.getByRole("link", { name: "pr-review" });
@@ -66,9 +65,10 @@ describe("<ArticlePage>", () => {
     const runLink = screen.getByRole("link", { name: "abc12345" });
     expect(runLink.getAttribute("href")).toBe("/runs/abc12345-0000-0000-0000-000000000000");
     // The byline is article-centric: when it was published, plus the body's
-    // word count and reading-time estimate. No run-execution facts.
+    // word count and reading-time estimate. No run-execution facts. The word
+    // count is of the body, with the headline lifted out.
     expect(screen.getByText(/30 seconds ago/i)).toBeDefined();
-    expect(screen.getByText("5 words")).toBeDefined();
+    expect(screen.getByText("4 words")).toBeDefined();
     expect(screen.getByText("1 min read")).toBeDefined();
     // The run's git sha and duration are not surfaced here. (Exact match: the
     // run crumb label "abc12345" must not be mistaken for a 7-char sha.)
@@ -76,10 +76,9 @@ describe("<ArticlePage>", () => {
     expect(screen.queryByText(/\(dirty\)/)).toBeNull();
     // The only byline action is copy-markdown.
     expect(screen.getByRole("button", { name: /^copy markdown$/i })).toBeDefined();
-    // Body markdown headings demote by two so authored `# Hello` slots under
-    // the route's h2 title as an h3 element.
-    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
-    expect(screen.getByRole("heading", { level: 3, name: "Hello" })).toBeDefined();
+    // The headline is lifted out of the body, so the page carries exactly one
+    // h1 and the headline is not also rendered as a body heading.
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByText(/First paragraph\./)).toBeDefined();
     expect(screen.getByText(/Second paragraph\./)).toBeDefined();
   });
@@ -106,14 +105,17 @@ describe("<ArticlePage>", () => {
 
     renderArticle("abc", "sparse");
 
-    expect(await screen.findByRole("heading", { level: 2, name: "Sparse" })).toBeDefined();
+    // With no body headline, the publish title supplies the page title and the
+    // eyebrow keeps the generic "Article" label.
+    expect(await screen.findByRole("heading", { level: 1, name: "Sparse" })).toBeDefined();
+    expect(screen.getByText("wf · Article")).toBeDefined();
     expect(screen.getByText(/Body only/)).toBeDefined();
     // The byline reading stats are computed even when the body has no heading.
     expect(screen.getByText("4 words")).toBeDefined();
     expect(screen.getByText("1 min read")).toBeDefined();
   });
 
-  it("renders body `# section` markdown as h3 with section-NN ids and § NN eyebrows", async () => {
+  it("renders body `## section` markdown as h2 with section-NN ids and § NN eyebrows", async () => {
     server.use(
       http.get("*/api/runs/:id/published/:name", ({ params }) =>
         HttpResponse.json({
@@ -121,10 +123,10 @@ describe("<ArticlePage>", () => {
           runId: params.id,
           name: params.name,
           title: "Sectioned",
-          contentMd: "# First section\n\nBody.\n\n# Second section\n\nMore.\n",
+          contentMd: "# The headline\n\n## First section\n\nBody.\n\n## Second section\n\nMore.\n",
           createdAt: NOW.toISOString(),
           workflowName: "wf",
-          heading: "First section",
+          heading: "The headline",
           gitSha: null,
           gitDirty: null,
           startedAt: NOW.toISOString(),
@@ -135,12 +137,13 @@ describe("<ArticlePage>", () => {
 
     const { container } = renderArticle("abc", "sectioned");
 
-    expect(await screen.findByRole("heading", { level: 2, name: "Sectioned" })).toBeDefined();
-    expect(container.querySelector("h1")).toBeNull();
-    const bodyH3s = Array.from(container.querySelectorAll("h3[id^='section-']"));
-    expect(bodyH3s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
-    expect(bodyH3s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
-    expect(bodyH3s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
+    // The headline is the page h1; the `##` headings are the sections that the
+    // table of contents reads, each stamped with a section-NN id and § eyebrow.
+    expect(await screen.findByRole("heading", { level: 1, name: "The headline" })).toBeDefined();
+    const bodyH2s = Array.from(container.querySelectorAll("h2[id^='section-']"));
+    expect(bodyH2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+    expect(bodyH2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
+    expect(bodyH2s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
   });
 
   it("renders the not-found view with a run breadcrumb when the API returns 404", async () => {

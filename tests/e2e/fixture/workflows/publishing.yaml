@@ -5,4 +5,4 @@ publish:
   - name: digest
     title: Published Digest
     sh: |
-      printf '# Published Digest\n\nFirst body paragraph.\n\nSecond paragraph.\n'
+      printf '# This week in review\n\n## First section\n\nFirst body paragraph.\n\n## Second section\n\nSecond paragraph.\n'

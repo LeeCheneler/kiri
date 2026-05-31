@@ -1,3 +1,4 @@
+import { splitLeadingHeading } from "../../shared/extract-first-heading.ts";
 import { ApiError } from "../api.ts";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
 import { Eyebrow } from "../design-system/content/eyebrow.tsx";
@@ -78,7 +79,12 @@ export function ArticleContent({
   }
 
   const data = article.data;
-  const stats = readingStats(data.contentMd);
+  // The body's own `# headline` is the article's title; drop it and any
+  // assistant preamble before it from the rendered body, and fall back to the
+  // publish title when the body carries no headline of its own.
+  const { heading, body } = splitLeadingHeading(data.contentMd);
+  const displayTitle = heading ?? data.title;
+  const stats = readingStats(body);
   return (
     <article>
       <Breadcrumb
@@ -90,14 +96,19 @@ export function ArticleContent({
           },
           { label: data.runId.slice(0, 8), href: `/runs/${data.runId}` },
         ]}
-        current={data.title}
+        current={displayTitle}
       />
 
       <header className="mt-6">
-        <Eyebrow>{data.workflowName} · Article</Eyebrow>
-        <h2 className="mt-2 font-display text-7xl text-ink italic leading-[0.95] tracking-tight">
-          {data.title}
-        </h2>
+        {/* The publish title rides in the eyebrow as the recurring series
+            label; when the body has no headline it already supplies the page
+            title, so the eyebrow falls back to the generic "Article". */}
+        <Eyebrow>
+          {data.workflowName} · {heading ? data.title : "Article"}
+        </Eyebrow>
+        <h1 className="mt-2 font-display text-7xl text-ink italic leading-[0.95] tracking-tight">
+          {displayTitle}
+        </h1>
 
         <div className="mt-7 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-rule border-b pb-3.5">
           <Meta>
@@ -112,7 +123,7 @@ export function ArticleContent({
       </header>
 
       <div className="mt-10">
-        <Markdown content={data.contentMd} withSectionOrdinals downgradeHeaderLevels={2} />
+        <Markdown content={body} withSectionOrdinals sectionLevel={2} />
       </div>
     </article>
   );

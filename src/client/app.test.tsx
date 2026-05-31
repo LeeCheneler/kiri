@@ -75,7 +75,7 @@ describe("<App>", () => {
   });
 
   it("swaps the right rail for the article TOC on the article route", async () => {
-    // Article body carries a section anchor so the TOC has an entry to show.
+    // Article body carries a `##` section so the TOC has an entry to show.
     server.use(
       http.get("*/api/runs/:id/published/:name", ({ params }) =>
         HttpResponse.json({
@@ -83,10 +83,10 @@ describe("<App>", () => {
           runId: params.id,
           name: params.name,
           title: "Demo",
-          contentMd: "# A section\n\nbody\n",
+          contentMd: "# Headline\n\n## A section\n\nbody\n",
           createdAt: new Date().toISOString(),
           workflowName: "wf",
-          heading: "A section",
+          heading: "Headline",
           gitSha: null,
           gitDirty: null,
           startedAt: new Date().toISOString(),
