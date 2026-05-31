@@ -66,6 +66,8 @@ describe("runWorkflow", () => {
     expect(step.index).toBe(0);
     expect(step.kind).toBe("use");
     expect(step.status).toBe("ok");
+    expect(step.startedAt).toBeInstanceOf(Date);
+    expect(step.finishedAt).toBeInstanceOf(Date);
     expect(step.output).toBe("hi from kiri\n");
     expect(step.error).toBeNull();
     expect(step.traces).toMatchObject({ stdout: "hi from kiri\n", stderr: "" });

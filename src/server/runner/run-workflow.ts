@@ -242,6 +242,7 @@ export function runWorkflow(
         index: opts.index,
         kind: isUseStep(opts.step) ? "use" : "sh",
         status: "running",
+        startedAt: new Date(),
         isPublish: opts.flag === "publish" ? true : undefined,
         isSummary: opts.flag === "summary" ? true : undefined,
       })
@@ -275,6 +276,7 @@ export function runWorkflow(
     db.update(runSteps)
       .set({
         status: stepStatus,
+        finishedAt: new Date(),
         output: envelope.output,
         error: stepError,
         traces: envelope.traces,

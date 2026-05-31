@@ -174,6 +174,16 @@ export interface RunStepRow {
   index: number;
   kind: string;
   status: "running" | "ok" | "failed" | "cancelled";
+  /**
+   * ISO timestamps bounding the step's execution: `startedAt` is captured
+   * when the row is first written, `finishedAt` at its terminal update.
+   * Their difference is the duration shown once the step completes, and
+   * `startedAt` anchors the live elapsed timer while it runs. Both null only
+   * for rows predating per-step timing; a `running` row carries `startedAt`
+   * with a null `finishedAt`.
+   */
+  startedAt: string | null;
+  finishedAt: string | null;
   output: unknown;
   error: { message: string; stack?: string } | null;
   traces: { stdout: string; stderr: string; durationMs: number } | null;

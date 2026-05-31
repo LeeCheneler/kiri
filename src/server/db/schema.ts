@@ -65,6 +65,17 @@ export const runSteps = sqliteTable(
     kind: text("kind").notNull(),
     status: text("status").notNull(),
     /**
+     * Wall-clock span of the step's execution: `startedAt` is stamped at
+     * insert (when the row is first written as `running`); `finishedAt` is
+     * stamped at the terminal update. Their difference is the duration the
+     * UI shows once a step completes, and `startedAt` alone anchors the live
+     * elapsed timer while it runs. Both nullable: rows predating these
+     * columns have neither, and a running row carries `startedAt` with no
+     * `finishedAt` yet.
+     */
+    startedAt: integer("started_at", { mode: "timestamp_ms" }),
+    finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+    /**
      * Step output. `mode: "json"` round-trips through `JSON.stringify`, so
      * a string lands in the cell *quoted* (drizzle re-parses on read;
      * matters only for raw SQL inspection).
