@@ -10,8 +10,9 @@ import { formatDuration, formatRelativeTime } from "../../formatters/format-time
 /**
  * One run in an activity feed, edged with its status colour. A mono byline
  * tops the entry — status, the short run id (which carries the link through to
- * the run detail), the relative start time, and the duration. `showWorkflow`
- * surfaces the run's workflow as the byline's lead link (to the workflow page);
+ * the run detail), the relative start time, the duration, and a recommendation
+ * count when the run produced any. `showWorkflow` surfaces the run's workflow as
+ * the byline's lead link (to the workflow page);
  * it defaults off for the single-workflow feed, where the name would repeat on
  * every row, and is set for the cross-workflow home feed. An optional summary
  * renders below as prose, and the run's published articles follow as a stacked
@@ -52,6 +53,11 @@ export function RunRow({
         <span>{formatRelativeTime(run.startedAt, now)}</span>
         {run.finishedAt ? (
           <span className="tabular-nums">{formatDuration(run.startedAt, run.finishedAt)}</span>
+        ) : null}
+        {run.recommendationsCount > 0 ? (
+          <span>
+            {run.recommendationsCount} recommendation{run.recommendationsCount === 1 ? "" : "s"}
+          </span>
         ) : null}
       </Meta>
       {run.summary ? (

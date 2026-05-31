@@ -76,6 +76,21 @@ describe("<RunRow>", () => {
     expect(link.getAttribute("href")).toBe("/workflows/dev%2Fdeploy");
   });
 
+  it("surfaces a pluralised recommendation count when the run produced any", () => {
+    renderRow(run({ recommendationsCount: 11 }));
+    expect(screen.getByText("11 recommendations")).toBeDefined();
+  });
+
+  it("renders the recommendation count in the singular for exactly one", () => {
+    renderRow(run({ recommendationsCount: 1 }));
+    expect(screen.getByText("1 recommendation")).toBeDefined();
+  });
+
+  it("omits the recommendation count when the run produced none", () => {
+    renderRow(run({ recommendationsCount: 0 }));
+    expect(screen.queryByText(/recommendation/i)).toBeNull();
+  });
+
   it("renders the summary when present", () => {
     renderRow(run({ summary: "Deployed cleanly to production." }));
     expect(screen.getByText(/deployed cleanly to production/i)).toBeDefined();
