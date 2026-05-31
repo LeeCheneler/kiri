@@ -31,28 +31,33 @@ test("clicking cancel on the run detail page transitions the run to cancelled li
   await expect(cancelButton).not.toBeVisible();
 });
 
-// Skipped: the home page is a blank Activity shell with no run feed; restore
-// when the feed is rebuilt.
-test.skip("cancelling via the API surfaces the cancelled treatment in the feed live", async ({
+test("cancelling via the API surfaces the cancelled treatment in the feed live", async ({
   page,
   request,
 }) => {
-  // Mount home before triggering so the row arrival + status
-  // transitions both have to come over SSE; no goto/reload after cancel.
+  // Mount home before triggering so the row arrival + status transitions both
+  // have to come over SSE; no goto/reload after cancel.
   await page.goto("/");
 
   const { runId } = await triggerCancellable(request);
+
+  // Locate this run's row by its link href via :has() — one runId per row, so
+  // the match is unambiguous and immune to any other cancellable runs in the
+  // feed. data-status lives on the wrapping <div data-status>.
+  const row = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
+
+  // Wait until the run is observably running before cancelling — by then its
+  // child process is live, so the SIGTERM reaches it rather than racing the
+  // spawn (which would leave the sleep to finish on its own). The row arriving
+  // as running is itself the live prepend over SSE.
+  await expect(row).toHaveAttribute("data-status", "running", { timeout: 10_000 });
+
   const cancelRes = await request.post(`/api/runs/${runId}/cancel`, {
     headers: { "X-Kiri-Client": "kiri-e2e" },
   });
   expect(cancelRes.status()).toBe(202);
 
-  // Stacked-link row: link wraps the workflow name; data-status lives on the
-  // wrapping <div data-status>. Locate this run's row by its link href via
-  // :has() — one runId per row, so the match is unambiguous and immune to any
-  // other cancellable runs already in the feed. The row appearing at all is
-  // the live prepend over SSE; its data-status is the live status transition.
-  const row = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
-  await expect(row).toBeVisible({ timeout: 10_000 });
+  // run.finished:cancelled on the SSE bus drives the row to its cancelled
+  // treatment without a reload.
   await expect(row).toHaveAttribute("data-status", "cancelled", { timeout: 10_000 });
 });

@@ -41,25 +41,32 @@ test("dismissing the confirm prompt leaves the run intact", async ({ page, reque
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible();
 });
 
-// Skipped: the home page is a blank Activity shell with no run feed; restore
-// when the feed is rebuilt.
-test.skip("deleting via the API removes the row from the home feed live", async ({
-  page,
-  request,
-}) => {
-  // Mount home first so the row arrival and the run.deleted-driven
-  // removal both have to come over SSE; no reload after the delete.
+test("deleting via the API removes the row from the home feed live", async ({ page, request }) => {
+  // Mount home first so the row arrival and the run.deleted-driven removal both
+  // come over SSE; no reload after the delete.
   await page.goto("/");
 
   const { runId } = await triggerRun(request, "quick");
 
-  // Locate this run's row by its run-id href (one runId per row), so the
-  // assertions track the specific run regardless of any other "quick" runs in
-  // the feed. The row appearing is the live prepend; it carrying ok is the
-  // live status transition.
+  // Locate this run's row by its run-id href (one runId per row) so the
+  // assertions track this specific run regardless of other "quick" runs in the
+  // feed. The row appearing at all is the live prepend over SSE.
   const row = page.locator(`main [data-status]:has(a[href="/runs/${runId}"])`);
   await expect(row).toBeVisible({ timeout: 10_000 });
-  await expect(row).toHaveAttribute("data-status", "ok");
+
+  // The delete API rejects an in-flight run with 409, so wait for the run to
+  // finish first. Poll the run directly rather than the feed: a fast run fires
+  // started+finished back-to-back, and the feed can coalesce the two
+  // invalidations and settle on the interim running state.
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${runId}`);
+        return ((await res.json()) as { run: { status: string } }).run.status;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe("ok");
 
   const deleteRes = await request.delete(`/api/runs/${runId}`, {
     headers: { "X-Kiri-Client": "kiri-e2e" },

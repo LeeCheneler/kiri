@@ -29,9 +29,7 @@ test("refreshing on /runs/:id boots the SPA and shows the not-found view", async
   await expect(page).toHaveURL("/");
 });
 
-// Skipped: the home page is a blank Activity shell with no run feed; restore
-// when the feed is rebuilt.
-test.skip("a successful run surfaces in the feed with status and link to detail", async ({
+test("a successful run surfaces in the feed with status and link to detail", async ({
   page,
   request,
 }) => {
@@ -47,9 +45,7 @@ test.skip("a successful run surfaces in the feed with status and link to detail"
   await expect(row).toHaveAttribute("data-status", "ok");
 });
 
-// Skipped: the home page is a blank Activity shell with no run feed; restore
-// when the feed is rebuilt.
-test.skip("a failing run row carries the failed status treatment", async ({ page, request }) => {
+test("a failing run row carries the failed status treatment", async ({ page, request }) => {
   const { runId } = await triggerRun(request, "failing");
 
   await page.goto("/");
