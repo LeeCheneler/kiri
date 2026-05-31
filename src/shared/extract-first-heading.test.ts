@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { extractFirstHeading } from "./extract-first-heading.ts";
+import { extractFirstHeading, splitLeadingHeading } from "./extract-first-heading.ts";
 
 describe("extractFirstHeading", () => {
   it("returns null for empty input", () => {
@@ -99,6 +99,61 @@ describe("extractFirstHeading", () => {
       expect(extractFirstHeading("# Just plain text, no syntax")).toBe(
         "Just plain text, no syntax",
       );
+    });
+  });
+});
+
+describe("splitLeadingHeading", () => {
+  it("returns a null heading and the input unchanged when there is no h1", () => {
+    expect(splitLeadingHeading("## section\n\nbody copy")).toEqual({
+      heading: null,
+      body: "## section\n\nbody copy",
+    });
+  });
+
+  it("returns an empty body for empty input", () => {
+    expect(splitLeadingHeading("")).toEqual({ heading: null, body: "" });
+  });
+
+  it("splits the headline from the body", () => {
+    expect(splitLeadingHeading("# Headline\n\n## A section\n\nbody")).toEqual({
+      heading: "Headline",
+      body: "## A section\n\nbody",
+    });
+  });
+
+  it("drops assistant preamble before the headline", () => {
+    const md = "Sure, here's the piece you asked for:\n\n# Headline\n\nbody";
+    expect(splitLeadingHeading(md)).toEqual({ heading: "Headline", body: "body" });
+  });
+
+  it("trims blank lines between the headline and the body", () => {
+    expect(splitLeadingHeading("# Headline\n\n\n\nbody")).toEqual({
+      heading: "Headline",
+      body: "body",
+    });
+  });
+
+  it("yields an empty body when the headline is the only content", () => {
+    expect(splitLeadingHeading("# Headline")).toEqual({ heading: "Headline", body: "" });
+  });
+
+  it("removes only the first h1, leaving later ones in the body", () => {
+    expect(splitLeadingHeading("# First\n\nintro\n\n# Second\n\nmore")).toEqual({
+      heading: "First",
+      body: "intro\n\n# Second\n\nmore",
+    });
+  });
+
+  it("ignores a headline inside a fenced code block", () => {
+    const md = "```\n# fenced\n```\n\n# Real headline\n\nbody";
+    expect(splitLeadingHeading(md)).toEqual({ heading: "Real headline", body: "body" });
+  });
+
+  it("strips inline markdown from the headline but leaves the body intact", () => {
+    expect(splitLeadingHeading("# **Bold** headline\n\nstays **bold** here")).toEqual({
+      heading: "Bold headline",
+      body: "stays **bold** here",
     });
   });
 });
