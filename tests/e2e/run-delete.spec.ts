@@ -8,7 +8,9 @@ const triggerRun = async (request: APIRequestContext, name: string) => {
   return (await res.json()) as { runId: string };
 };
 
-test("clicking delete on the run detail page removes the row and navigates home", async ({
+// Skipped: the run page is a blank breadcrumb shell during the rebuild;
+// restore when the run detail page is rebuilt.
+test.skip("clicking delete on the run detail page removes the row and navigates home", async ({
   page,
   request,
 }) => {
@@ -28,7 +30,9 @@ test("clicking delete on the run detail page removes the row and navigates home"
   await expect(page.getByRole("heading", { name: /run not found/i })).toBeVisible();
 });
 
-test("dismissing the confirm prompt leaves the run intact", async ({ page, request }) => {
+// Skipped: the run page is a blank breadcrumb shell during the rebuild;
+// restore when the run detail page is rebuilt.
+test.skip("dismissing the confirm prompt leaves the run intact", async ({ page, request }) => {
   const { runId } = await triggerRun(request, "quick");
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });

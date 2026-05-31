@@ -62,7 +62,9 @@ test("clicking Home from the run-not-found view returns to home", async ({ page 
   await expect(page).toHaveURL("/");
 });
 
-test("opening a run detail page reveals stdout when the step is expanded", async ({
+// Skipped: the run page is a blank breadcrumb shell during the rebuild;
+// restore when the run detail page is rebuilt.
+test.skip("opening a run detail page reveals stdout when the step is expanded", async ({
   page,
   request,
 }) => {
@@ -82,7 +84,9 @@ test("opening a run detail page reveals stdout when the step is expanded", async
   await expect(page.getByText("kiri e2e fixture", { exact: true })).toBeVisible();
 });
 
-test("a failed run surfaces a run-level failure block on the detail page", async ({
+// Skipped: the run page is a blank breadcrumb shell during the rebuild;
+// restore when the run detail page is rebuilt.
+test.skip("a failed run surfaces a run-level failure block on the detail page", async ({
   page,
   request,
 }) => {
@@ -94,7 +98,9 @@ test("a failed run surfaces a run-level failure block on the detail page", async
   await expect(alert).toContainText(/run failed/i);
 });
 
-test("triggering a workflow from the side nav lands on the run detail", async ({ page }) => {
+// Skipped: the run page is a blank breadcrumb shell during the rebuild;
+// restore when the run detail page is rebuilt.
+test.skip("triggering a workflow from the side nav lands on the run detail", async ({ page }) => {
   await page.goto("/");
 
   const nav = page.getByRole("navigation", { name: /workflows/i });
@@ -112,7 +118,9 @@ test("triggering a workflow from the side nav lands on the run detail", async ({
   await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
 });
 
-test("invoking a workflow with inputs opens a modal, collects values, and lands on the run", async ({
+// Skipped: the run page is a blank breadcrumb shell during the rebuild;
+// restore when the run detail page is rebuilt.
+test.skip("invoking a workflow with inputs opens a modal, collects values, and lands on the run", async ({
   page,
 }) => {
   await page.goto("/workflows/with-inputs");

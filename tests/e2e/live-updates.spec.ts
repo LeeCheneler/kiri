@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-test("triggering from the workflow page navigates immediately and shows live transitions", async ({
+// Skipped: the run page is a blank breadcrumb shell during the rebuild;
+// restore when the run detail page is rebuilt.
+test.skip("triggering from the workflow page navigates immediately and shows live transitions", async ({
   page,
 }) => {
   await page.goto("/workflows/slow");

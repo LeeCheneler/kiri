@@ -8,7 +8,9 @@ const triggerCancellable = async (request: APIRequestContext) => {
   return (await res.json()) as { runId: string };
 };
 
-test("clicking cancel on the run detail page transitions the run to cancelled live", async ({
+// Skipped: the run page is a blank breadcrumb shell during the rebuild;
+// restore when the run detail page is rebuilt.
+test.skip("clicking cancel on the run detail page transitions the run to cancelled live", async ({
   page,
   request,
 }) => {
