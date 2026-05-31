@@ -72,6 +72,12 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("shows the Recently Published rail on the home route", async () => {
+    renderAt("/");
+    expect(await screen.findByRole("heading", { name: /recently published/i })).toBeDefined();
+    await flushAsync();
+  });
+
   it("omits the Recently Published rail on the workflow route", async () => {
     renderAt("/workflows/example");
     await flushAsync();
