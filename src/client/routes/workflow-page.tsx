@@ -1,3 +1,4 @@
+import { Eyebrow } from "../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
@@ -74,7 +75,7 @@ export function WorkflowContent({ params }: { params: { name: string } }) {
     <article>
       <Breadcrumb items={[{ label: "Activity", href: "/" }]} current={workflow.name} />
       <header className="mt-6 border-rule border-b pb-8">
-        <p className="font-mono text-xs text-accent uppercase tracking-widest">{eyebrow}</p>
+        <Eyebrow>{eyebrow}</Eyebrow>
         <h2 className="mt-2 font-display text-6xl text-ink italic leading-[0.95] tracking-tight">
           {workflow.name}
         </h2>

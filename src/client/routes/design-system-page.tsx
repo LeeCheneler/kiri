@@ -7,6 +7,7 @@ import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.
 import { Code, CodeBlock } from "../design-system/content/code.tsx";
 import { Disclosure } from "../design-system/content/disclosure.tsx";
 import { EmptyState } from "../design-system/content/empty-state.tsx";
+import { Eyebrow } from "../design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../design-system/content/headline-link.tsx";
 import { InlineLink } from "../design-system/content/inline-link.tsx";
 import { List } from "../design-system/content/list.tsx";
@@ -677,6 +678,34 @@ export function DesignSystemContent() {
                 <Prose>
                   <p>And the content that resumes below it.</p>
                 </Prose>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Eyebrow</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Eyebrow</span> · design-system/content/eyebrow.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                The small mono uppercase kicker above a page title or section heading. The default{" "}
+                <Code>accent</Code> tone is a page's lead eyebrow — it colours the kicker so the
+                title reads as the page's opening — while <Code>muted</Code> heads a section{" "}
+                <em>within</em> a page, where an accent kicker would compete with the lead.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="space-y-5">
+                  <div>
+                    <Eyebrow>Dev · Workflow</Eyebrow>
+                    <p className="mt-2 font-display text-3xl text-ink italic leading-tight">
+                      pr-review
+                    </p>
+                  </div>
+                  <Eyebrow tone="muted">Steps</Eyebrow>
+                </div>
               </Card>
             </div>
           </article>

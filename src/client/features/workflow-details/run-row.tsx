@@ -1,4 +1,5 @@
 import type { RunListEntry } from "../../api.ts";
+import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
 import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
@@ -72,9 +73,7 @@ export function RunRow({
         <ul className="mt-4 space-y-3 text-xl">
           {run.articles.map((article) => (
             <li key={article.name}>
-              <p className="font-mono text-xs text-ink-muted uppercase tracking-widest">
-                {article.name}
-              </p>
+              <Eyebrow tone="muted">{article.name}</Eyebrow>
               <HeadlineLink href={`/runs/${run.id}/published/${article.name}`}>
                 {article.heading ?? article.title}
               </HeadlineLink>

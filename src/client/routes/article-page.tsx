@@ -1,5 +1,6 @@
 import { ApiError } from "../api.ts";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
+import { Eyebrow } from "../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Markdown } from "../design-system/content/markdown.tsx";
 import { Meta } from "../design-system/content/meta.tsx";
@@ -93,7 +94,8 @@ export function ArticleContent({
       />
 
       <header className="mt-6">
-        <h2 className="font-display text-7xl text-ink italic leading-[0.95] tracking-tight">
+        <Eyebrow>{data.workflowName} · Article</Eyebrow>
+        <h2 className="mt-2 font-display text-7xl text-ink italic leading-[0.95] tracking-tight">
           {data.title}
         </h2>
 

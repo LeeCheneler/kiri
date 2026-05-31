@@ -57,6 +57,8 @@ describe("<ArticlePage>", () => {
     expect(
       await screen.findByRole("heading", { level: 2, name: "PR Review Digest" }),
     ).toBeDefined();
+    // The eyebrow names the producing workflow, matching the run/workflow pages.
+    expect(screen.getByText("pr-review · Article")).toBeDefined();
     // The breadcrumb threads Activity → workflow → run → (current article).
     expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
     const workflowLink = screen.getByRole("link", { name: "pr-review" });

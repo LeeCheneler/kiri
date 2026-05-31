@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import type { RunListEntry } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
+import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Rule } from "../../design-system/content/rule.tsx";
 import { formatDayMarker } from "../../formatters/format-time.ts";
 import { useRunFeed } from "../../state/runs.ts";
@@ -76,9 +77,9 @@ export function ActivityFeed({ now }: { now?: Date }) {
     <div>
       {groupByDay(runs, now).map((group) => (
         <section key={group.marker} className="mb-10">
-          <p className="mb-3 font-mono text-xs text-ink-muted uppercase tracking-widest">
-            {group.marker}
-          </p>
+          <div className="mb-3">
+            <Eyebrow tone="muted">{group.marker}</Eyebrow>
+          </div>
           <Rule />
           <ul className="mt-6 space-y-8">
             {group.runs.map((run) => (
