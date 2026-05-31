@@ -4,6 +4,7 @@ import { Markdown } from "../design-system/content/markdown.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { RunActions } from "../features/run-detail/run-actions.tsx";
+import { RunAside } from "../features/run-detail/run-aside.tsx";
 import { RunFailure } from "../features/run-detail/run-failure.tsx";
 import { RunHeader } from "../features/run-detail/run-header.tsx";
 import { RunPhases } from "../features/run-detail/run-phases.tsx";
@@ -17,7 +18,7 @@ import { useWorkflows } from "../state/workflows.ts";
  */
 export function RunPage({ params }: { params: { id: string } }) {
   return (
-    <PageShell left={<SiteNav />}>
+    <PageShell left={<SiteNav />} right={<RunAside id={params.id} />}>
       <RunContent params={params} />
     </PageShell>
   );
