@@ -3,11 +3,13 @@ import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Markdown } from "../design-system/content/markdown.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { RunActions } from "../features/run-detail/run-actions.tsx";
 import { RunFailure } from "../features/run-detail/run-failure.tsx";
 import { RunHeader } from "../features/run-detail/run-header.tsx";
 import { RunPhases } from "../features/run-detail/run-phases.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 import { useRun } from "../state/runs.ts";
+import { useWorkflows } from "../state/workflows.ts";
 
 /**
  * Run detail route. Composes the run detail content into the page shell.
@@ -31,6 +33,9 @@ export function RunPage({ params }: { params: { id: string } }) {
  */
 export function RunContent({ params, now }: { params: { id: string }; now?: Date }) {
   const run = useRun(params.id);
+  // The re-run path reads the workflow's *current* declared inputs from the
+  // registry to decide whether to open the pre-filled invoke modal.
+  const { data: workflows } = useWorkflows();
 
   if (run.isPending) {
     return <LoadingState>Loading run…</LoadingState>;
@@ -55,6 +60,7 @@ export function RunContent({ params, now }: { params: { id: string }; now?: Date
   }
 
   const { run: detail, steps } = run.data;
+  const workflowInputs = workflows?.find((w) => w.name === detail.workflowName)?.inputs;
 
   return (
     <article>
@@ -68,7 +74,11 @@ export function RunContent({ params, now }: { params: { id: string }; now?: Date
         ]}
         current={detail.id.slice(0, 8)}
       />
-      <RunHeader run={detail} now={now} />
+      <RunHeader
+        run={detail}
+        now={now}
+        actions={<RunActions run={detail} workflowInputs={workflowInputs} />}
+      />
       {detail.summary ? (
         <div className="mt-8">
           <Markdown content={detail.summary} />

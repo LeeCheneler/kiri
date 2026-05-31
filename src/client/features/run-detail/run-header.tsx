@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { RunDetailRun } from "../../api.ts";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
@@ -13,16 +14,29 @@ import { LiveDuration } from "./live-duration.tsx";
  * flight, the final span once it has a finish time), and a "deleted" marker
  * when the workflow is no longer in the registry.
  *
- * `now` is injectable so tests render deterministic times and the live timer
- * doesn't tick; production omits it.
+ * `actions` renders beside the heading — the run-level controls (cancel while
+ * running; re-run and delete once terminal). `now` is injectable so tests
+ * render deterministic times and the live timer doesn't tick; production omits
+ * it.
  */
-export function RunHeader({ run, now }: { run: RunDetailRun; now?: Date }) {
+export function RunHeader({
+  run,
+  now,
+  actions,
+}: {
+  run: RunDetailRun;
+  now?: Date;
+  actions?: ReactNode;
+}) {
   return (
     <header className="mt-6 border-rule border-b pb-6">
       <Eyebrow>{run.workflowName} · Run</Eyebrow>
-      <h2 title={run.id} className="mt-2 font-mono text-5xl text-ink leading-none">
-        {run.id.slice(0, 8)}
-      </h2>
+      <div className="mt-2 flex items-start justify-between gap-4">
+        <h2 title={run.id} className="min-w-0 font-mono text-5xl text-ink leading-none">
+          {run.id.slice(0, 8)}
+        </h2>
+        {actions ? <div className="shrink-0">{actions}</div> : null}
+      </div>
       <div className="mt-5">
         <Meta>
           <Status status={run.status} />

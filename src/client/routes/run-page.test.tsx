@@ -35,7 +35,12 @@ describe("<RunPage>", () => {
   });
 
   it("renders the run header, summary, and breadcrumb when the run loads", async () => {
+    // The registry carries the run's workflow so the re-run action can resolve
+    // its declared inputs.
     server.use(
+      http.get("*/api/workflows", () =>
+        HttpResponse.json([{ name: "kiri-self-review", steps: [{ use: "check" }] }]),
+      ),
       http.get("*/api/runs/:id", ({ params }) =>
         HttpResponse.json({
           run: {
@@ -84,6 +89,9 @@ describe("<RunPage>", () => {
     expect(screen.getByText("All checks passed.")).toBeDefined();
     // The phases render: the Steps group lists the declared step.
     expect(screen.getByText("use: check")).toBeDefined();
+    // A terminal run carries its re-run and delete controls in the header.
+    expect(screen.getByRole("button", { name: /run again/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /^delete$/i })).toBeDefined();
     // The breadcrumb still threads Activity → workflow → the run's short id;
     // scope to it so the short id isn't confused with the heading.
     const breadcrumb = within(screen.getByRole("navigation", { name: /breadcrumb/i }));

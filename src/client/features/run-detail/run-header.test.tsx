@@ -49,4 +49,12 @@ describe("<RunHeader>", () => {
 
     expect(screen.getByText("deleted")).toBeDefined();
   });
+
+  it("renders header actions beside the heading when provided", () => {
+    render(
+      <RunHeader run={makeRun()} now={NOW} actions={<button type="button">do thing</button>} />,
+    );
+
+    expect(screen.getByRole("button", { name: "do thing" })).toBeDefined();
+  });
 });
