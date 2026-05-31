@@ -43,10 +43,17 @@ export const publishNameSchema = z.string().regex(/^[a-z0-9-]+$/, {
   message: "publish name must match ^[a-z0-9-]+$",
 });
 
+const publishTitleSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Series label for the article — shown as a feed chip and the page eyebrow, and used as the page title when the body has no leading `# ` heading. Defaults to a humanised form of `name`.",
+  );
+
 const usePublishSchema = z
   .object({
     name: publishNameSchema,
-    title: z.string().min(1).optional(),
+    title: publishTitleSchema.optional(),
     description: z.string().min(1).optional(),
     use: z.string().min(1),
     env: envSchema.optional(),
@@ -56,7 +63,7 @@ const usePublishSchema = z
 const shPublishSchema = z
   .object({
     name: publishNameSchema,
-    title: z.string().min(1).optional(),
+    title: publishTitleSchema.optional(),
     description: z.string().min(1).optional(),
     sh: z.string().min(1),
     env: envSchema.optional(),

@@ -67,7 +67,7 @@ steps:                       # required, ≥1
 
 publish:                     # optional, M6 — long-form markdown articles
   - name: digest             # required, kebab-case-only ([a-z0-9-]+), unique within workflow
-    title: "Friendly Title"  # optional, shown on feed/run page (defaults to a humanised name)
+    title: "Friendly Title"  # optional series label — feed chip + page eyebrow (defaults to a humanised name)
     description: "..."       # optional
     use: claude-code         # OR sh: |  …  — same shape as a step
     env:
@@ -117,6 +117,8 @@ Mixing `use:` and `sh:` on the same step is a schema error.
 
 - Each entry runs after `steps:` complete (on `ok` and `failed` runs, not `cancelled`). One after another, serially.
 - Each entry's **trimmed stdout** is stored as a markdown article, keyed by `name`. It appears as a chip on the feed and a "Published" entry on the run detail page, with its own `/runs/:id/published/:name` view rendered through a sandboxed markdown parser.
+- **Structure the body as a document with one headline and `##` sections.** Open with a single `# Headline` — the article page lifts it out as the page title and drops anything before it, so don't emit chatter like "Here's the article" ahead of it. Use `##` for the sections beneath: they become the article's table of contents. Sub-divide with `###` and deeper as usual.
+- The publish `title` is the article's **series label**, shown as a feed chip and the page eyebrow — and used as the page title only when the body carries no `# Headline`. Let the body bring its own headline (this edition's subject) and let `title` name the recurring series (e.g. `Daily Briefing`).
 - `name` must match `^[a-z0-9-]+$` and be unique within the workflow.
 - A failing publish step does **not** fail the run — siblings still run. (Exception: cancel mid-publish flips the run to `cancelled` and halts further publishes.)
 
