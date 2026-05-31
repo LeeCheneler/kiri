@@ -124,4 +124,43 @@ describe("<InvokeModal>", () => {
     });
     expect(screen.getByRole("dialog")).toBeDefined();
   });
+
+  it("pre-fills from initialValues and falls back to declared defaults", async () => {
+    const user = userEvent.setup();
+    const onSubmit = mock(async (_values: Record<string, string>) => {});
+    render(
+      <InvokeModal
+        workflowName="pr-review"
+        inputs={[
+          { name: "pr_number", required: true },
+          { name: "branch", default: "main" },
+        ]}
+        initialValues={{ pr_number: "42" }}
+        onSubmit={onSubmit}
+        onCancel={noop}
+      />,
+    );
+    expect((screen.getByRole("textbox", { name: /pr_number/i }) as HTMLInputElement).value).toBe(
+      "42",
+    );
+    // `branch` isn't in initialValues, so it falls back to its declared default.
+    expect((screen.getByRole("textbox", { name: /branch/i }) as HTMLInputElement).value).toBe(
+      "main",
+    );
+    await user.click(screen.getByRole("button", { name: /run →/i }));
+    expect(onSubmit.mock.calls).toEqual([[{ pr_number: "42", branch: "main" }]]);
+  });
+
+  it("renders a notice above the fields when provided", () => {
+    render(
+      <InvokeModal
+        workflowName="pr-review"
+        inputs={[{ name: "topic" }]}
+        notice="The previous attempt's steps and traces will be cleared."
+        onSubmit={resolve}
+        onCancel={noop}
+      />,
+    );
+    expect(screen.getByRole("note").textContent).toMatch(/previous attempt/i);
+  });
 });

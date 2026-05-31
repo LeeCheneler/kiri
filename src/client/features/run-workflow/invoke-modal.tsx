@@ -17,29 +17,41 @@ import { Modal } from "../../design-system/surfaces/modal.tsx";
  * run. A submit error keeps the dialog open, shows the message by the actions,
  * and re-enables the form. Built on the design-system `Modal`, so the backdrop
  * is inert, focus is trapped, and Escape / backdrop dismissal route to `onCancel`.
+ *
+ * `initialValues` pre-fills the fields — the re-run and recommendation flows
+ * seed it from a prior run's snapshot or a recommendation's payload. Each field
+ * falls back to its declared `default` (then its first option) for inputs the
+ * map doesn't cover, and values for inputs the workflow no longer declares are
+ * ignored. `notice`, when set, renders a short note above the fields (e.g. a
+ * re-run's "previous attempt will be cleared" warning).
  */
 export function InvokeModal({
   workflowName,
   inputs,
+  initialValues,
+  notice,
   onSubmit,
   onCancel,
 }: {
   workflowName: string;
   inputs: WorkflowInputSummary[];
+  initialValues?: Record<string, string>;
+  notice?: string;
   onSubmit: (values: Record<string, string>) => Promise<unknown>;
   onCancel: () => void;
 }) {
-  const initialValues = useMemo(() => {
+  const seededValues = useMemo(() => {
     const map: Record<string, string> = {};
     for (const input of inputs) {
-      // A picklist always reports its first option as its value, so seed it
-      // with options[0] when no default applies — keeping the payload valid.
-      map[input.name] = input.default ?? input.options?.[0] ?? "";
+      // Prefer a supplied value, then the declared default; a picklist always
+      // reports its first option as its value, so seed that as the last resort
+      // to keep the payload valid.
+      map[input.name] = initialValues?.[input.name] ?? input.default ?? input.options?.[0] ?? "";
     }
     return map;
-  }, [inputs]);
+  }, [inputs, initialValues]);
 
-  const [values, setValues] = useState<Record<string, string>>(initialValues);
+  const [values, setValues] = useState<Record<string, string>>(seededValues);
   const [state, setState] = useState<"idle" | "submitting">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -72,6 +84,11 @@ export function InvokeModal({
         }}
         className="flex flex-col gap-5"
       >
+        {notice ? (
+          <p role="note" className="font-mono text-xs leading-relaxed text-ink-muted">
+            {notice}
+          </p>
+        ) : null}
         {inputs.map((input) =>
           input.options ? (
             <Select
