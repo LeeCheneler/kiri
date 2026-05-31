@@ -19,8 +19,8 @@ test("collapses the rail to a top bar and opens the nav in a drawer", async ({ p
 
   const drawer = page.getByRole("dialog", { name: /navigation/i });
   await expect(drawer).toBeVisible();
-  // The drawer hosts the same rail content — Home and the live workflows nav.
-  await expect(drawer.getByRole("link", { name: /^home$/i })).toBeVisible();
+  // The drawer hosts the same rail content — Activity and the live workflows nav.
+  await expect(drawer.getByRole("link", { name: /^activity$/i })).toBeVisible();
   await expect(drawer.getByRole("link", { name: /golden/i })).toBeVisible();
 });
 

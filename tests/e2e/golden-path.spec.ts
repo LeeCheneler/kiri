@@ -25,7 +25,10 @@ test("refreshing on /runs/:id boots the SPA and shows the not-found view", async
   await expect(page.getByRole("heading", { name: /run not found/i })).toBeVisible();
   await expect(page.getByText("missing-run-id")).toBeVisible();
 
-  await page.getByRole("link", { name: /^activity$/i }).click();
+  await page
+    .getByRole("navigation", { name: /breadcrumb/i })
+    .getByRole("link", { name: /^activity$/i })
+    .click();
   await expect(page).toHaveURL("/");
 });
 
@@ -54,11 +57,19 @@ test("a failing run row carries the failed status treatment", async ({ page, req
   await expect(row).toHaveAttribute("data-status", "failed");
 });
 
-test("clicking Home from the run-not-found view returns to home", async ({ page }) => {
+test("clicking Activity in the side nav from the run-not-found view returns to home", async ({
+  page,
+}) => {
   await page.goto("/runs/missing-run-id");
   await expect(page.getByRole("heading", { name: /run not found/i })).toBeVisible();
-  // The wordmark is a heading now, not a link — the Home nav row navigates home.
-  await page.getByRole("link", { name: "Home", exact: true }).click();
+  // The wordmark is a heading now, not a link — the side-nav Activity row
+  // navigates home. The breadcrumb also exposes an Activity link, so scope to
+  // the left rail to target the nav row specifically.
+  await page
+    .getByRole("complementary")
+    .first()
+    .getByRole("link", { name: /^activity$/i })
+    .click();
   await expect(page).toHaveURL("/");
 });
 
