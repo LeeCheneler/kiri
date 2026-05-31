@@ -93,6 +93,12 @@ export function ArticleContent({
       ? data.title
       : "Article";
   const stats = readingStats(body);
+  // Copy the article as displayed: the headline normalised to a `#` line plus
+  // the preamble-stripped body, so a paste lands a tidy document rather than
+  // the raw model output with its lead-in chatter.
+  const copyMarkdown = [heading === null ? "" : `# ${heading}`, body]
+    .filter((part) => part !== "")
+    .join("\n\n");
   return (
     <article>
       <Breadcrumb
@@ -126,7 +132,7 @@ export function ArticleContent({
             <span>{stats.words}</span>
             <span>{stats.readingTime}</span>
           </Meta>
-          <CopyButton content={data.contentMd} label="copy markdown" />
+          <CopyButton content={copyMarkdown} label="copy markdown" />
         </div>
       </header>
 

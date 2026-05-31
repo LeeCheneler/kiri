@@ -1,6 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -81,6 +82,43 @@ describe("<ArticlePage>", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByText(/First paragraph\./)).toBeDefined();
     expect(screen.getByText(/Second paragraph\./)).toBeDefined();
+  });
+
+  it("copies the cleaned article — headline plus preamble-stripped body — on click", async () => {
+    server.use(
+      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+        HttpResponse.json({
+          id: "art-1",
+          runId: params.id,
+          name: params.name,
+          title: "Demo",
+          contentMd: "Sure, here's the article:\n\n# The Headline\n\n## Section\n\nBody copy.",
+          createdAt: NOW.toISOString(),
+          workflowName: "wf",
+          heading: "The Headline",
+          gitSha: null,
+          gitDirty: null,
+          startedAt: NOW.toISOString(),
+          finishedAt: null,
+        }),
+      ),
+    );
+
+    const writeText = mock(async (_text: string) => {});
+    // userEvent.setup() stubs navigator.clipboard, so install the mock after it.
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+
+    renderArticle("abc", "demo");
+
+    await user.click(await screen.findByRole("button", { name: /^copy markdown$/i }));
+
+    // The lead-in chatter is gone and the headline is re-emitted as a `#` line.
+    expect(writeText.mock.calls).toEqual([["# The Headline\n\n## Section\n\nBody copy."]]);
   });
 
   it("renders the byline reading stats for a heading-less body", async () => {
