@@ -1,6 +1,19 @@
 # Kiri
 
-A local-first, git-based workflow orchestrator for personal automation. Workflows are linear pipelines of scripts and AI steps, invoked by hand. Activity feed as the main UI surface, not a node-graph canvas. Each run can surface recommended follow-up workflows as one-click trigger buttons on its detail page, so an aggregator workflow turns into a launch pad for per-item follow-ups. Single user, app-active scope — workflows run while kiri is open, no daemons.
+> A local-first, git-based workflow orchestrator for personal automation — with an **activity feed** as the main surface, not a node-graph canvas.
+
+<p align="center">
+  <img src="docs/assets/home-activity-hero.png" alt="Kiri's activity feed: a reverse-chronological stream of script and AI workflow runs, each with its status, duration, an AI-written summary, and any published articles, alongside a workflows nav and a recently-published rail." width="900">
+</p>
+
+Kiri is a single local app for running your personal scripts and AI workflows. You define them as YAML in a git repo, invoke them by hand, and watch each run stream into an activity feed — with full traces, published articles, and one-click follow-ups. It runs only while the app is open: no daemons, no scheduler, no cloud.
+
+## What makes it different
+
+- **An activity feed, not a canvas.** Every run — script or AI — streams into one reverse-chronological feed with its status, duration, and a one-line AI summary. The feed *is* the UI; there's no node graph to wire up.
+- **Runs become launch pads.** A run can surface one-click follow-up workflows on its detail page — an aggregator that lists your open PRs turns each one into a pre-filled "review this PR" button. No global queue, no inbox: the proposals live on the run that produced them.
+- **Long-form output, rendered.** Workflows can publish markdown articles — briefings, code reviews, digests — with inline charts, surfaced in the feed and a "recently published" rail.
+- **Local-first and git-based.** Workflows are YAML in your own git repo; runs execute on your machine while the app is open — no daemons, no cloud, no multi-tenancy. AI steps spawn the Claude Code CLI, so they bill to your existing subscription.
 
 ## Install
 
