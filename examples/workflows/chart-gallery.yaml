@@ -1,0 +1,192 @@
+# yaml-language-server: $schema=../.kiri/workflow.schema.json
+
+name: Chart Gallery
+description: Publishes an article showing off every chart type kiri can render from inline Vega-Lite.
+
+steps:
+  - sh: echo "Building the chart gallery."
+    description: No data to fetch — every chart below ships its own inline values.
+
+publish:
+  - name: charts
+    title: Chart Gallery
+    description: A worked tour of the chart types a published article can embed.
+    sh: |
+      cat <<'EOF'
+      # Chart gallery
+
+      Every chart below renders from a Vega-Lite spec in a fenced `chart`
+      block, with its data inline under `data.values`. Colours, fonts, and
+      axes come from the site theme — no `config` in any spec. Hover any
+      mark for a tooltip.
+
+      ## Bar — runs per weekday
+
+      ```chart
+      {
+        "width": "container",
+        "height": 200,
+        "data": { "values": [
+          { "day": "Mon", "runs": 12 },
+          { "day": "Tue", "runs": 19 },
+          { "day": "Wed", "runs": 8 },
+          { "day": "Thu", "runs": 15 },
+          { "day": "Fri", "runs": 22 },
+          { "day": "Sat", "runs": 5 },
+          { "day": "Sun", "runs": 3 }
+        ] },
+        "mark": "bar",
+        "encoding": {
+          "x": { "field": "day", "type": "nominal", "sort": null },
+          "y": { "field": "runs", "type": "quantitative" }
+        }
+      }
+      ```
+
+      ## Stacked bar — outcomes by day
+
+      ```chart
+      {
+        "width": "container",
+        "height": 220,
+        "data": { "values": [
+          { "day": "Mon", "status": "ok", "runs": 10 },
+          { "day": "Mon", "status": "failed", "runs": 2 },
+          { "day": "Tue", "status": "ok", "runs": 16 },
+          { "day": "Tue", "status": "failed", "runs": 3 },
+          { "day": "Wed", "status": "ok", "runs": 7 },
+          { "day": "Wed", "status": "failed", "runs": 1 },
+          { "day": "Thu", "status": "ok", "runs": 12 },
+          { "day": "Thu", "status": "failed", "runs": 3 },
+          { "day": "Fri", "status": "ok", "runs": 20 },
+          { "day": "Fri", "status": "failed", "runs": 2 }
+        ] },
+        "mark": "bar",
+        "encoding": {
+          "x": { "field": "day", "type": "nominal", "sort": null },
+          "y": { "field": "runs", "type": "quantitative" },
+          "color": { "field": "status", "type": "nominal" }
+        }
+      }
+      ```
+
+      ## Line — pass and fail trend
+
+      ```chart
+      {
+        "width": "container",
+        "height": 220,
+        "data": { "values": [
+          { "week": "W1", "metric": "passed", "value": 40 },
+          { "week": "W2", "metric": "passed", "value": 52 },
+          { "week": "W3", "metric": "passed", "value": 48 },
+          { "week": "W4", "metric": "passed", "value": 61 },
+          { "week": "W1", "metric": "failed", "value": 6 },
+          { "week": "W2", "metric": "failed", "value": 4 },
+          { "week": "W3", "metric": "failed", "value": 9 },
+          { "week": "W4", "metric": "failed", "value": 3 }
+        ] },
+        "mark": { "type": "line", "point": true },
+        "encoding": {
+          "x": { "field": "week", "type": "ordinal" },
+          "y": { "field": "value", "type": "quantitative" },
+          "color": { "field": "metric", "type": "nominal" }
+        }
+      }
+      ```
+
+      ## Area — activity through the day
+
+      ```chart
+      {
+        "width": "container",
+        "height": 200,
+        "data": { "values": [
+          { "hour": 0, "events": 2 },
+          { "hour": 4, "events": 1 },
+          { "hour": 8, "events": 9 },
+          { "hour": 12, "events": 14 },
+          { "hour": 16, "events": 11 },
+          { "hour": 20, "events": 4 }
+        ] },
+        "mark": "area",
+        "encoding": {
+          "x": { "field": "hour", "type": "quantitative", "title": "hour of day" },
+          "y": { "field": "events", "type": "quantitative" }
+        }
+      }
+      ```
+
+      ## Scatter — duration against step count
+
+      ```chart
+      {
+        "width": "container",
+        "height": 220,
+        "data": { "values": [
+          { "name": "fetch-news", "duration": 12, "steps": 3 },
+          { "name": "pr-review", "duration": 34, "steps": 5 },
+          { "name": "deploy", "duration": 58, "steps": 8 },
+          { "name": "backup", "duration": 21, "steps": 2 },
+          { "name": "digest", "duration": 45, "steps": 6 },
+          { "name": "lint", "duration": 9, "steps": 1 }
+        ] },
+        "mark": "point",
+        "encoding": {
+          "x": { "field": "duration", "type": "quantitative", "title": "duration (s)" },
+          "y": { "field": "steps", "type": "quantitative" },
+          "size": { "field": "steps", "type": "quantitative" }
+        }
+      }
+      ```
+
+      ## Donut — run outcomes
+
+      ```chart
+      {
+        "width": "container",
+        "height": 220,
+        "data": { "values": [
+          { "status": "ok", "count": 128 },
+          { "status": "failed", "count": 14 },
+          { "status": "running", "count": 6 },
+          { "status": "interrupted", "count": 3 }
+        ] },
+        "mark": { "type": "arc", "innerRadius": 60 },
+        "encoding": {
+          "theta": { "field": "count", "type": "quantitative" },
+          "color": { "field": "status", "type": "nominal" }
+        }
+      }
+      ```
+
+      ## Heatmap — runs by day and shift
+
+      ```chart
+      {
+        "width": "container",
+        "height": 200,
+        "data": { "values": [
+          { "day": "Mon", "shift": "AM", "runs": 4 },
+          { "day": "Mon", "shift": "PM", "runs": 9 },
+          { "day": "Tue", "shift": "AM", "runs": 6 },
+          { "day": "Tue", "shift": "PM", "runs": 13 },
+          { "day": "Wed", "shift": "AM", "runs": 2 },
+          { "day": "Wed", "shift": "PM", "runs": 6 },
+          { "day": "Thu", "shift": "AM", "runs": 5 },
+          { "day": "Thu", "shift": "PM", "runs": 10 },
+          { "day": "Fri", "shift": "AM", "runs": 8 },
+          { "day": "Fri", "shift": "PM", "runs": 14 }
+        ] },
+        "mark": "rect",
+        "encoding": {
+          "x": { "field": "shift", "type": "ordinal" },
+          "y": { "field": "day", "type": "ordinal", "sort": null },
+          "color": { "field": "runs", "type": "quantitative" }
+        }
+      }
+      ```
+      EOF
+
+summarize:
+  sh: echo "Seven inline Vega-Lite charts — bar, stacked bar, line, area, scatter, donut, and heatmap."

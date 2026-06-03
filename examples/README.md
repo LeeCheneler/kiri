@@ -18,6 +18,7 @@ examples/
     daily-briefing.yaml       # composes a sh: fetch, a publish: article, and a summary
     review-queue.yaml         # cross-repo PR triage; recommends one PR Review per matching PR
     pr-review.yaml            # takes repo + pr_number inputs, fetches the PR, publishes a review
+    chart-gallery.yaml        # publishes an article showcasing every embeddable chart type
   prompts/
     daily-briefing.tpl        # prompt template for the briefing
     pr-review.tpl             # prompt template for the PR review
