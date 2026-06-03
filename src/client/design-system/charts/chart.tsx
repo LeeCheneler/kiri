@@ -107,7 +107,11 @@ function themedVegaConfig(): EmbedOptions["config"] {
       heatmap: [rule, inkMuted, accent],
       ramp: [rule, inkMuted, accent],
     },
-    mark: { color: accent },
+    // `tooltip: true` makes every mark auto-generate a hover tooltip from
+    // its encoded fields, so charts get tooltips without each spec opting
+    // in. A spec can still declare an explicit `tooltip` encoding to
+    // override the content.
+    mark: { color: accent, tooltip: true },
   };
 
   // vega-embed types `config` as a Vega config; in vega-lite mode it
