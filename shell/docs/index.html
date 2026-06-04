@@ -290,18 +290,18 @@ summarize:
       <p>A <code>summarize:</code> step receives empty stdin and the <code>KIRI_RUN_CONTEXT_FILE</code> environment variable (see the table above), so it can describe what the run did. For an AI-written summary, the <code>examples/</code> directory ships a <code>claude-code-summarizer</code> bundle — copy it into <code>scripts/</code> and reference it with <code>use:</code>.</p>
 
       <h3>Published articles — <code>publish:</code></h3>
-      <p>An optional array of long-form markdown articles produced by the run. Each entry has the same <code>{ use | sh, env? }</code> shape as a step, plus a <code>name</code> (lowercase letters, digits, hyphens — unique within the workflow) and an optional <code>title</code>. Publish steps run serially after <code>steps:</code> and before <code>summarize:</code>; each step's stdout is captured as the article body. They receive empty stdin — to build an article from the run's data, read <code>KIRI_RUN_CONTEXT_FILE</code>:</p>
+      <p>An optional array of long-form markdown articles produced by the run. Each entry has the same <code>{ use | sh, env? }</code> shape as a step, plus a <code>slug</code> (lowercase letters, digits, hyphens — unique within the workflow, used as the article's URL id) and an optional display <code>name</code>. Publish steps run serially after <code>steps:</code> and before <code>summarize:</code>; each step's stdout is captured as the article body. They receive empty stdin — to build an article from the run's data, read <code>KIRI_RUN_CONTEXT_FILE</code>:</p>
       <pre><code>name: status
 steps:
   - sh: echo "all systems go"
 publish:
-  - name: report
-    title: Daily Status
+  - slug: report
+    name: Daily Status
     sh: |
       echo "# Daily Status"
       echo
       echo "All systems reporting healthy."</code></pre>
-      <p>Articles surface as chips on the activity feed row, in a <strong>Recently Published</strong> list in the right-hand column, and under a <strong>Published</strong> section on the run page. Clicking a chip opens a dedicated <code>/runs/:id/published/:name</code> page that renders the markdown through a sandboxed parser (no raw-HTML pass-through).</p>
+      <p>Articles surface as chips on the activity feed row, in a <strong>Recently Published</strong> list in the right-hand column, and under a <strong>Published</strong> section on the run page. Clicking a chip opens a dedicated <code>/runs/:id/published/:slug</code> page that renders the markdown through a sandboxed parser (no raw-HTML pass-through).</p>
       <p>Article markdown can embed charts: fence a block as <code>chart</code> with a <a href="https://vega.github.io/vega-lite/">Vega-Lite</a> JSON spec and kiri renders it inline as a chart — bar, line, area, scatter, pie, heatmap, and more. The data must be inline in the spec; a chart that fetches a remote URL is rejected, and an invalid spec degrades to an inline notice without breaking the article.</p>
       <p>A failed publish step does not affect the run's status; it's captured for debugging on the run page and filtered from the main step list.</p>
 

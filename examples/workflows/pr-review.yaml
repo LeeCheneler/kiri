@@ -31,8 +31,8 @@ steps:
         input: pr_number
 
 publish:
-  - name: review
-    title: PR Review
+  - slug: review
+    name: PR Review
     description: A short code review for the requested PR.
     use: claude-code
     env:

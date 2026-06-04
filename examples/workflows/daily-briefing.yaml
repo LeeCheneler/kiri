@@ -29,8 +29,8 @@ steps:
     description: Fetch HackerNews best stories and Dev.to top articles
 
 publish:
-  - name: briefing
-    title: Daily Briefing
+  - slug: briefing
+    name: Daily Briefing
     description: Today's most important tech news, with a roundup and a thought to chew on.
     use: claude-code
     env:
