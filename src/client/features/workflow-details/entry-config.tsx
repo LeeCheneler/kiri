@@ -4,16 +4,18 @@ import { Code, CodeBlock } from "../../design-system/content/code.tsx";
 
 const SH_LABEL_LIMIT = 60;
 
-type LabelSource = { use: string } | { sh: string };
+type LabelSource = ({ use: string } | { sh: string }) & { name?: string };
 
 /** The kind tag for a step-shaped entry: a bundle reference or an inline script. */
 export const stepKind = (entry: LabelSource): "sh" | "use" => ("use" in entry ? "use" : "sh");
 
 /**
- * The title for a step-shaped entry: the bundle reference for a `use:` entry, or
- * the first non-empty line of an `sh:` script truncated to the label limit.
+ * The title for a step-shaped entry: the explicit `name` when set, else the
+ * bundle reference for a `use:` entry, or the first non-empty line of an `sh:`
+ * script truncated to the label limit.
  */
 export const stepTitle = (entry: LabelSource): string => {
+  if (entry.name) return entry.name;
   if ("use" in entry) return entry.use;
   const firstNonEmpty =
     entry.sh

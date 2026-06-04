@@ -67,6 +67,16 @@ describe("<RunPhases>", () => {
     expect(screen.getByText("use: summariser")).toBeDefined();
   });
 
+  it("labels a step by its name when one is declared", () => {
+    const run = makeRun({
+      name: "wf",
+      steps: [{ sh: "echo hi\necho bye", name: "Warm the cache" }],
+    });
+    render(<RunPhases run={run} steps={[makeStep({ index: 0, kind: "sh" })]} now={NOW} />);
+    expect(screen.getByText("Warm the cache")).toBeDefined();
+    expect(screen.queryByText(/^sh:/)).toBeNull();
+  });
+
   it("expands an executed step to reveal stdout and an empty stderr", async () => {
     const user = userEvent.setup();
     const run = makeRun({ name: "wf", steps: [{ use: "fetch-pr" }] });

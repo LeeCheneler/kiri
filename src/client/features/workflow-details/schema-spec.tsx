@@ -24,7 +24,7 @@ function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
             {stepKind(entry)}
           </span>
           <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink">
-            {stepTitle(entry)}
+            {publish ? publish.title : stepTitle(entry)}
           </span>
         </div>
       }

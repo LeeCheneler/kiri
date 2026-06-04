@@ -22,10 +22,18 @@ describe("<SchemaSpec>", () => {
     expect(screen.getByText("Step 02")).toBeDefined();
     expect(screen.getByText("Publish 01")).toBeDefined();
     expect(screen.getByText("Summariser")).toBeDefined();
-    // Entry titles surface in the collapsed summaries.
+    // Entry titles surface in the collapsed summaries: steps fall back to their
+    // reference, while a publish row shows its resolved title (not the bundle).
     expect(screen.getByText("claude-code")).toBeDefined();
-    expect(screen.getByText("publish-bundle")).toBeDefined();
+    expect(screen.getByText("Digest")).toBeDefined();
     expect(screen.getByText("summary-bundle")).toBeDefined();
+  });
+
+  it("titles a step row by its name when one is declared", () => {
+    render(<SchemaSpec steps={[{ sh: "echo one\necho two", name: "Warm the cache" }]} />);
+    expect(screen.getByText("Warm the cache")).toBeDefined();
+    // The script's first line no longer surfaces as the row title.
+    expect(screen.queryByText("echo one")).toBeNull();
   });
 
   it("reveals an entry's config when its disclosure is expanded", async () => {

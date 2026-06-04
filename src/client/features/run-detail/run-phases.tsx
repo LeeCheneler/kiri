@@ -10,9 +10,11 @@ import { LiveDuration } from "./live-duration.tsx";
 
 const SHELL_PREVIEW_LIMIT = 60;
 
-// The label for a declared step or summariser entry: the bundle it runs
-// (`use: <name>`) or a truncated preview of its inline shell (`sh: …`).
+// The label for a declared step or summariser entry: its explicit `name` when
+// set, else the bundle it runs (`use: <name>`) or a truncated preview of its
+// inline shell (`sh: …`).
 const stepLabel = (step: WorkflowStepSummary): string => {
+  if (step.name) return step.name;
   if ("use" in step) return `use: ${step.use}`;
   const firstLine = (step.sh.split("\n", 1)[0] ?? "").trim();
   const preview =

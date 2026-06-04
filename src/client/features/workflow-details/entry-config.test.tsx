@@ -13,6 +13,11 @@ describe("step helpers", () => {
     expect(stepTitle({ sh: "\n  echo hi\nmore" })).toBe("echo hi");
   });
 
+  it("prefers an explicit name over the reference or first line", () => {
+    expect(stepTitle({ use: "claude-code", name: "Review the PR" })).toBe("Review the PR");
+    expect(stepTitle({ sh: "echo hi", name: "Greet" })).toBe("Greet");
+  });
+
   it("truncates a long sh title", () => {
     expect(stepTitle({ sh: "x".repeat(80) })).toBe(`${"x".repeat(60)}…`);
   });
