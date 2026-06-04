@@ -64,7 +64,7 @@ export function EntryConfig({ entry }: { entry: EntryShape }) {
   return (
     <div className="space-y-4">
       {showReference && (
-        <LabelledBlock label="bundle">
+        <LabelledBlock label={stepKind(entry)}>
           <span className="font-mono text-sm">
             <Code>{(entry as { use: string }).use}</Code>
           </span>
@@ -76,7 +76,7 @@ export function EntryConfig({ entry }: { entry: EntryShape }) {
         </LabelledBlock>
       )}
       {showSource && (
-        <LabelledBlock label="source">
+        <LabelledBlock label={stepKind(entry)}>
           <CodeBlock>{(entry as { sh: string }).sh}</CodeBlock>
         </LabelledBlock>
       )}

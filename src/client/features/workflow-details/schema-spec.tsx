@@ -1,7 +1,7 @@
 import type { WorkflowPublishSummary, WorkflowStepSummary } from "../../api.ts";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
-import { EntryConfig, stepKind, stepTitle } from "./entry-config.tsx";
+import { EntryConfig, stepTitle } from "./entry-config.tsx";
 
 type SchemaItem = WorkflowStepSummary | WorkflowPublishSummary;
 
@@ -19,9 +19,6 @@ function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
         <div className="flex items-baseline gap-5">
           <span className="w-24 shrink-0 font-mono text-xs tabular-nums text-ink-muted">
             {marker}
-          </span>
-          <span className="shrink-0 font-mono text-xs text-ink-faint uppercase">
-            {stepKind(entry)}
           </span>
           <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink">
             {publish ? publish.title : stepTitle(entry)}
