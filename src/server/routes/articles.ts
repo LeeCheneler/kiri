@@ -30,8 +30,8 @@ export function articlesRoutes(deps: ArticlesRoutesDeps): Hono {
     const rows = db
       .select({
         runId: articles.runId,
+        slug: articles.slug,
         name: articles.name,
-        title: articles.title,
         contentMd: articles.contentMd,
         createdAt: articles.createdAt,
         workflowName: runs.workflowName,

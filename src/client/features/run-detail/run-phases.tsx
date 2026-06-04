@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { resolvePublishTitle } from "../../../shared/publish-title.ts";
+import { resolvePublishName } from "../../../shared/publish-name.ts";
 import type { RunDetailRun, RunStepRow, WorkflowStepSummary } from "../../api.ts";
 import { CodeBlock } from "../../design-system/content/code.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
@@ -61,7 +61,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
     return {
       key: row?.id ?? `publish-${pi}`,
       ordinal: pi + 1,
-      title: resolvePublishTitle(entry.name, entry.title),
+      title: resolvePublishName(entry.slug, entry.name),
       status: row?.status ?? "pending",
       row,
     };

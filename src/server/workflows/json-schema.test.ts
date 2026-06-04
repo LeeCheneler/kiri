@@ -155,8 +155,8 @@ describe("workflowJsonSchema", () => {
   it("optionally permits a publish array of named use/sh entries", () => {
     type Variant = {
       properties: {
-        name?: { type: string; pattern?: string };
-        title?: { type: string };
+        slug?: { type: string; pattern?: string };
+        name?: { type: string };
         use?: { type: string };
         sh?: { type: string };
       };
@@ -178,10 +178,10 @@ describe("workflowJsonSchema", () => {
     const variants = "oneOf" in items ? items.oneOf : "anyOf" in items ? items.anyOf : [items];
     const useVariant = variants.find((v) => v.properties.use !== undefined);
     const shVariant = variants.find((v) => v.properties.sh !== undefined);
-    expect(useVariant?.properties.name?.type).toBe("string");
-    expect(useVariant?.properties.name?.pattern).toBe("^[a-z0-9-]+$");
-    expect(useVariant?.required).toEqual(expect.arrayContaining(["name", "use"]));
-    expect(shVariant?.properties.name?.type).toBe("string");
-    expect(shVariant?.required).toEqual(expect.arrayContaining(["name", "sh"]));
+    expect(useVariant?.properties.slug?.type).toBe("string");
+    expect(useVariant?.properties.slug?.pattern).toBe("^[a-z0-9-]+$");
+    expect(useVariant?.required).toEqual(expect.arrayContaining(["slug", "use"]));
+    expect(shVariant?.properties.slug?.type).toBe("string");
+    expect(shVariant?.required).toEqual(expect.arrayContaining(["slug", "sh"]));
   });
 });

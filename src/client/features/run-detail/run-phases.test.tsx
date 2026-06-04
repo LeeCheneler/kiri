@@ -45,7 +45,7 @@ describe("<RunPhases>", () => {
     const run = makeRun({
       name: "wf",
       steps: [{ use: "fetch-pr" }, { sh: longSh }],
-      publish: [{ name: "digest", title: "PR Digest", use: "writer" }],
+      publish: [{ slug: "digest", name: "PR Digest", use: "writer" }],
       summarize: { use: "summariser" },
     });
     const steps = [

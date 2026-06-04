@@ -56,10 +56,10 @@ function PublishedSection({ runId, articles }: { runId: string; articles: Articl
       <Eyebrow tone="muted">Published</Eyebrow>
       <ul className="mt-3 space-y-4 text-base">
         {articles.map((article) => (
-          <li key={article.name}>
-            <Eyebrow tone="muted">{article.name}</Eyebrow>
-            <HeadlineLink href={`/runs/${runId}/published/${article.name}`}>
-              {article.heading ?? article.title}
+          <li key={article.slug}>
+            <Eyebrow tone="muted">{article.slug}</Eyebrow>
+            <HeadlineLink href={`/runs/${runId}/published/${article.slug}`}>
+              {article.heading ?? article.name}
             </HeadlineLink>
           </li>
         ))}

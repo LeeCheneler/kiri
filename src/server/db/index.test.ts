@@ -245,8 +245,8 @@ describe("db", () => {
       .values({
         id: "art-1",
         runId: "run-art",
-        name: "digest",
-        title: "Digest",
+        slug: "digest",
+        name: "Digest",
         contentMd: "# Top story\n\nA thing happened.",
         createdAt,
       })
@@ -255,13 +255,13 @@ describe("db", () => {
     const row = db.select().from(articles).where(eq(articles.id, "art-1")).get();
     expect(row).toBeDefined();
     expect(row?.runId).toBe("run-art");
-    expect(row?.name).toBe("digest");
-    expect(row?.title).toBe("Digest");
+    expect(row?.slug).toBe("digest");
+    expect(row?.name).toBe("Digest");
     expect(row?.contentMd).toBe("# Top story\n\nA thing happened.");
     expect(row?.createdAt).toEqual(createdAt);
   });
 
-  it("enforces (run_id, name) uniqueness on articles", () => {
+  it("enforces (run_id, slug) uniqueness on articles", () => {
     migrate(db);
 
     db.insert(runs)
@@ -278,8 +278,8 @@ describe("db", () => {
       .values({
         id: "art-a",
         runId: "run-uniq",
-        name: "digest",
-        title: "Digest",
+        slug: "digest",
+        name: "Digest",
         contentMd: "a",
         createdAt: new Date(),
       })
@@ -291,8 +291,8 @@ describe("db", () => {
         .values({
           id: "art-b",
           runId: "run-uniq",
-          name: "digest",
-          title: "Other",
+          slug: "digest",
+          name: "Other",
           contentMd: "b",
           createdAt: new Date(),
         })
@@ -300,7 +300,7 @@ describe("db", () => {
     ).toThrow();
   });
 
-  it("allows the same article name across different runs", () => {
+  it("allows the same article slug across different runs", () => {
     migrate(db);
 
     for (const runId of ["run-x", "run-y"] as const) {
@@ -317,8 +317,8 @@ describe("db", () => {
         .values({
           id: `${runId}-digest`,
           runId,
-          name: "digest",
-          title: "Digest",
+          slug: "digest",
+          name: "Digest",
           contentMd: "ok",
           createdAt: new Date(),
         })
@@ -432,7 +432,7 @@ describe("db", () => {
       .all()
       .map((r) => r.name)
       .sort();
-    expect(indexes).toEqual(["articles_run_id_idx", "articles_run_id_name_unique"]);
+    expect(indexes).toEqual(["articles_run_id_idx", "articles_run_id_slug_unique"]);
   });
 
   it("renames run_nodes → run_steps on a pre-rename DB and preserves rows", () => {

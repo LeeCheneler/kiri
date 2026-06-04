@@ -44,25 +44,25 @@ const shStepSchema = z
 const stepSchema = z.union([useStepSchema, shStepSchema]);
 
 /**
- * Pattern that constrains a published article's `name`. Re-used by the
- * HTTP route that fetches articles by name so the regex lives once and
+ * Pattern that constrains a published article's `slug`. Re-used by the
+ * HTTP route that fetches articles by slug so the regex lives once and
  * the validation surface matches the schema exactly.
  */
-export const publishNameSchema = z.string().regex(/^[a-z0-9-]+$/, {
-  message: "publish name must match ^[a-z0-9-]+$",
+export const publishSlugSchema = z.string().regex(/^[a-z0-9-]+$/, {
+  message: "publish slug must match ^[a-z0-9-]+$",
 });
 
-const publishTitleSchema = z
+const publishNameSchema = z
   .string()
   .min(1)
   .describe(
-    "Series label for the article — shown as a feed chip and the page eyebrow, and used as the page title when the body has no leading `# ` heading. Defaults to a humanised form of `name`.",
+    "Series label for the article — shown as a feed chip and the page eyebrow, and used as the page title when the body has no leading `# ` heading. Defaults to a humanised form of `slug`.",
   );
 
 const usePublishSchema = z
   .object({
-    name: publishNameSchema,
-    title: publishTitleSchema.optional(),
+    slug: publishSlugSchema,
+    name: publishNameSchema.optional(),
     description: z.string().min(1).optional(),
     use: z.string().min(1),
     env: envSchema.optional(),
@@ -71,8 +71,8 @@ const usePublishSchema = z
 
 const shPublishSchema = z
   .object({
-    name: publishNameSchema,
-    title: publishTitleSchema.optional(),
+    slug: publishSlugSchema,
+    name: publishNameSchema.optional(),
     description: z.string().min(1).optional(),
     sh: z.string().min(1),
     env: envSchema.optional(),
@@ -83,8 +83,8 @@ const publishEntrySchema = z.union([usePublishSchema, shPublishSchema]);
 
 const publishArraySchema = z
   .array(publishEntrySchema)
-  .refine((entries) => new Set(entries.map((e) => e.name)).size === entries.length, {
-    message: "publish names must be unique within a workflow",
+  .refine((entries) => new Set(entries.map((e) => e.slug)).size === entries.length, {
+    message: "publish slugs must be unique within a workflow",
   });
 
 const inputSchema = z

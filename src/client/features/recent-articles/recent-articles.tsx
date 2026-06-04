@@ -44,9 +44,9 @@ function RecentArticlesBody({ now }: { now?: Date }) {
   return (
     <ul className="space-y-5 text-base">
       {data.map((article) => (
-        <li key={`${article.runId}/${article.name}`}>
-          <HeadlineLink href={`/runs/${article.runId}/published/${article.name}`}>
-            {article.heading ?? article.title}
+        <li key={`${article.runId}/${article.slug}`}>
+          <HeadlineLink href={`/runs/${article.runId}/published/${article.slug}`}>
+            {article.heading ?? article.name}
           </HeadlineLink>
           <div className="mt-1.5">
             <Meta>

@@ -8,13 +8,13 @@ describe("<PublishesSpec>", () => {
     expect(screen.getByText(/publishes no articles/i)).toBeDefined();
   });
 
-  it("lists each publish with its title, description, and name", () => {
+  it("lists each publish with its name, description, and slug", () => {
     render(
       <PublishesSpec
         entries={[
           {
-            name: "digest",
-            title: "Weekly Digest",
+            slug: "digest",
+            name: "Weekly Digest",
             description: "A weekly roundup",
             use: "publish-bundle",
           },

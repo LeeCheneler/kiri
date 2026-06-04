@@ -10,9 +10,9 @@ type SchemaItem = WorkflowStepSummary | WorkflowPublishSummary;
  * kind, and its title; expanding reveals the entry's config.
  */
 function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
-  // Publish summaries always carry a resolved `title`; steps never do, so it's
-  // the reliable discriminant now that steps may also declare a `name`.
-  const publish = "title" in entry ? entry : undefined;
+  // Publish summaries always carry a `slug`; steps never do, so it's the
+  // reliable discriminant now that steps may also declare a `name`.
+  const publish = "slug" in entry ? entry : undefined;
   return (
     <Disclosure
       summary={
@@ -24,7 +24,7 @@ function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
             {stepKind(entry)}
           </span>
           <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink">
-            {publish ? publish.title : stepTitle(entry)}
+            {publish ? publish.name : stepTitle(entry)}
           </span>
         </div>
       }
@@ -32,8 +32,8 @@ function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
       <div className="space-y-4">
         {publish && (
           <div className="flex flex-col gap-1">
-            <h4 className="font-display text-xl text-ink leading-tight">{publish.title}</h4>
-            <span className="font-mono text-xs text-ink-faint">{publish.name}</span>
+            <h4 className="font-display text-xl text-ink leading-tight">{publish.name}</h4>
+            <span className="font-mono text-xs text-ink-faint">{publish.slug}</span>
           </div>
         )}
         <EntryConfig entry={entry} />
@@ -73,7 +73,7 @@ export function SchemaSpec({
       ))}
       {publish?.map((entry, index) => (
         <SchemaRow
-          key={`publish-${entry.name}`}
+          key={`publish-${entry.slug}`}
           marker={`Publish ${String(index + 1).padStart(2, "0")}`}
           entry={entry}
         />

@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { resolvePublishTitle } from "../../shared/publish-title.ts";
+import { resolvePublishName } from "../../shared/publish-name.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
@@ -295,7 +295,7 @@ export function runWorkflow(
     let caughtThrow: unknown;
     let summaryText: string | null = null;
     const executed: ExecutedStep[] = [];
-    const publishedArticles: { name: string; title: string; content_md: string }[] = [];
+    const publishedArticles: { slug: string; name: string; content_md: string }[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
@@ -403,19 +403,19 @@ export function runWorkflow(
         });
 
         if (envelope.status === "ok" && !cancelled) {
-          const title = resolvePublishTitle(entry.name, entry.title);
+          const name = resolvePublishName(entry.slug, entry.name);
           const contentMd = envelope.output.trimEnd();
           db.insert(articles)
             .values({
               id: crypto.randomUUID(),
               runId,
-              name: entry.name,
-              title,
+              slug: entry.slug,
+              name,
               contentMd,
               createdAt: new Date(),
             })
             .run();
-          publishedArticles.push({ name: entry.name, title, content_md: contentMd });
+          publishedArticles.push({ slug: entry.slug, name, content_md: contentMd });
         }
 
         // Cancel mid-publish flips the run terminal status and halts.

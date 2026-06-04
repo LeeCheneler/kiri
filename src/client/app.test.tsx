@@ -77,12 +77,12 @@ describe("<App>", () => {
   it("swaps the right rail for the article TOC on the article route", async () => {
     // Article body carries a `##` section so the TOC has an entry to show.
     server.use(
-      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
-          name: params.name,
-          title: "Demo",
+          slug: params.slug,
+          name: "Demo",
           contentMd: "# Headline\n\n## A section\n\nbody\n",
           createdAt: new Date().toISOString(),
           workflowName: "wf",

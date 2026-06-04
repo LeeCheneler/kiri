@@ -12,12 +12,12 @@ import { ArticleContent } from "./article-page.tsx";
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 
-const renderArticle = (id: string, name: string) => {
-  const { hook } = memoryLocation({ path: `/runs/${id}/published/${name}` });
+const renderArticle = (id: string, slug: string) => {
+  const { hook } = memoryLocation({ path: `/runs/${id}/published/${slug}` });
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <Router hook={hook}>
-        <ArticleContent params={{ id, name }} now={NOW} />
+        <ArticleContent params={{ id, slug }} now={NOW} />
       </Router>
     </QueryClientProvider>,
   );
@@ -27,7 +27,7 @@ describe("<ArticlePage>", () => {
   it("shows a loading message while the article is being fetched", async () => {
     // A never-resolving handler keeps the page in the loading state while
     // we make the synchronous assertion.
-    server.use(http.get("*/api/runs/:id/published/:name", () => new Promise(() => {})));
+    server.use(http.get("*/api/runs/:id/published/:slug", () => new Promise(() => {})));
     renderArticle("abc", "digest");
     expect(screen.getByText(/loading article/i)).toBeDefined();
     await flushAsync();
@@ -35,12 +35,12 @@ describe("<ArticlePage>", () => {
 
   it("renders the title, breadcrumb trail, byline, and markdown body on the happy path", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
-          name: params.name,
-          title: "PR Review Digest",
+          slug: params.slug,
+          name: "PR Review Digest",
           contentMd: "# Hello\n\nFirst paragraph.\n\nSecond paragraph.\n",
           createdAt: new Date(NOW.getTime() - 30_000).toISOString(),
           workflowName: "pr-review",
@@ -86,12 +86,12 @@ describe("<ArticlePage>", () => {
 
   it("copies the cleaned article — headline plus preamble-stripped body — on click", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
-          name: params.name,
-          title: "Demo",
+          slug: params.slug,
+          name: "Demo",
           contentMd: "Sure, here's the article:\n\n# The Headline\n\n## Section\n\nBody copy.",
           createdAt: NOW.toISOString(),
           workflowName: "wf",
@@ -123,12 +123,12 @@ describe("<ArticlePage>", () => {
 
   it("renders the byline reading stats for a heading-less body", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
-          name: params.name,
-          title: "Sparse",
+          slug: params.slug,
+          name: "Sparse",
           contentMd: "Body only, no heading.\n",
           createdAt: NOW.toISOString(),
           workflowName: "wf",
@@ -155,12 +155,12 @@ describe("<ArticlePage>", () => {
 
   it("drops the eyebrow series label when the publish title restates the workflow name", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
-          name: params.name,
-          title: "Daily Briefing",
+          slug: params.slug,
+          name: "Daily Briefing",
           contentMd: "# Wednesday's briefing\n\n## Lead\n\nBody.\n",
           createdAt: NOW.toISOString(),
           workflowName: "Daily Briefing",
@@ -185,12 +185,12 @@ describe("<ArticlePage>", () => {
 
   it("renders body `## section` markdown as h2 with section-NN ids and § NN eyebrows", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
-          name: params.name,
-          title: "Sectioned",
+          slug: params.slug,
+          name: "Sectioned",
           contentMd: "# The headline\n\n## First section\n\nBody.\n\n## Second section\n\nMore.\n",
           createdAt: NOW.toISOString(),
           workflowName: "wf",
@@ -216,7 +216,7 @@ describe("<ArticlePage>", () => {
 
   it("renders the not-found view with a run breadcrumb when the API returns 404", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:name", () =>
+      http.get("*/api/runs/:id/published/:slug", () =>
         HttpResponse.json({ error: "article not found" }, { status: 404 }),
       ),
     );
@@ -235,7 +235,7 @@ describe("<ArticlePage>", () => {
 
   it("renders a generic error view on non-404 failures", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:name", () => new HttpResponse("boom", { status: 500 })),
+      http.get("*/api/runs/:id/published/:slug", () => new HttpResponse("boom", { status: 500 })),
     );
 
     renderArticle("abc", "digest");
