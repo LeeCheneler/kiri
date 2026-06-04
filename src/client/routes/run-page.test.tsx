@@ -88,7 +88,7 @@ describe("<RunPage>", () => {
     // The summary renders below the header once the run has produced one.
     expect(screen.getByText("All checks passed.")).toBeDefined();
     // The phases render: the Steps group lists the declared step.
-    expect(screen.getByText("use: check")).toBeDefined();
+    expect(screen.getByText("check")).toBeDefined();
     // A terminal run carries its re-run and delete controls in the header.
     expect(screen.getByRole("button", { name: /run again/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /^delete$/i })).toBeDefined();

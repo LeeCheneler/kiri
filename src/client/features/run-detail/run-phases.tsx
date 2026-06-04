@@ -1,28 +1,13 @@
 import type { ReactNode } from "react";
 import { resolvePublishTitle } from "../../../shared/publish-title.ts";
-import type { RunDetailRun, RunStepRow, WorkflowStepSummary } from "../../api.ts";
+import type { RunDetailRun, RunStepRow } from "../../api.ts";
 import { CodeBlock } from "../../design-system/content/code.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { formatDuration } from "../../formatters/format-time.ts";
+import { stepTitle } from "../workflow-details/entry-config.tsx";
 import { LiveDuration } from "./live-duration.tsx";
-
-const SHELL_PREVIEW_LIMIT = 60;
-
-// The label for a declared step or summariser entry: its explicit `name` when
-// set, else the bundle it runs (`use: <name>`) or a truncated preview of its
-// inline shell (`sh: …`).
-const stepLabel = (step: WorkflowStepSummary): string => {
-  if (step.name) return step.name;
-  if ("use" in step) return `use: ${step.use}`;
-  const firstLine = (step.sh.split("\n", 1)[0] ?? "").trim();
-  const preview =
-    firstLine.length > SHELL_PREVIEW_LIMIT
-      ? `${firstLine.slice(0, SHELL_PREVIEW_LIMIT)}…`
-      : firstLine;
-  return `sh: ${preview}`;
-};
 
 interface PhaseItem {
   key: string;
@@ -49,7 +34,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
     return {
       key: row?.id ?? `step-${i}`,
       ordinal: i + 1,
-      title: stepLabel(step),
+      title: stepTitle(step),
       status: row?.status ?? "pending",
       row,
     };
@@ -73,7 +58,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
     summarizeItem = {
       key: row?.id ?? "summarise",
       ordinal: 1,
-      title: stepLabel(snap.summarize),
+      title: stepTitle(snap.summarize),
       status: row?.status ?? "pending",
       row,
     };

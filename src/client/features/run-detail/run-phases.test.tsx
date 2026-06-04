@@ -60,11 +60,11 @@ describe("<RunPhases>", () => {
     expect(screen.getByText("Steps")).toBeDefined();
     expect(screen.getByText("Publishes")).toBeDefined();
     expect(screen.getByText("Summarise")).toBeDefined();
-    expect(screen.getByText("use: fetch-pr")).toBeDefined();
+    expect(screen.getByText("fetch-pr")).toBeDefined();
     // A long inline shell is previewed and truncated with an ellipsis.
-    expect(screen.getByText(/^sh: echo this-is-a-long.*…$/)).toBeDefined();
+    expect(screen.getByText(/^echo this-is-a-long.*…$/)).toBeDefined();
     expect(screen.getByText("PR Digest")).toBeDefined();
-    expect(screen.getByText("use: summariser")).toBeDefined();
+    expect(screen.getByText("summariser")).toBeDefined();
   });
 
   it("labels a step by its name when one is declared", () => {
@@ -112,7 +112,7 @@ describe("<RunPhases>", () => {
     expect(screen.getByText("running")).toBeDefined();
     // The not-yet-run step is pending: a static row (no expand affordance) with
     // a dash for its duration.
-    expect(screen.getByText("use: deploy")).toBeDefined();
+    expect(screen.getByText("deploy")).toBeDefined();
     expect(screen.getByText("pending")).toBeDefined();
     expect(screen.queryByRole("button", { name: /deploy/i })).toBeNull();
     expect(screen.getByText("—")).toBeDefined();
