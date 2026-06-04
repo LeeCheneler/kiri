@@ -198,6 +198,15 @@ steps:
       TARGET: production</code></pre>
       <p>Kiri passes the <code>env:</code> map through verbatim; what each key means is up to the bundle, documented in its own <code>README.md</code>. The project's <code>examples/</code> directory ships ready-made bundles — including a Claude Code runner — to copy into <code>scripts/</code> and adapt.</p>
 
+      <h3>Labelling a step — <code>name:</code> / <code>description:</code></h3>
+      <p>Both optional, both work on either step shape. <code>name:</code> is a short label shown as the step's title in the Schema tab and the run timeline; without it a step falls back to its <code>use:</code> reference or the first line of its <code>sh:</code> script, so set it to keep multi-line steps readable. <code>description:</code> is longer detail revealed when the step's row is expanded.</p>
+      <pre><code>steps:
+  - sh: |
+      set -eu
+      ./deploy.sh
+    name: Deploy the site
+    description: Builds and ships the production bundle.</code></pre>
+
       <h3>Piping output between steps</h3>
       <p>Each step's stdout is piped into the next step's stdin. The first step receives empty stdin. A step reads it however it likes — an <code>sh:</code> step with <code>cat</code>, or whatever a bundle's <code>run.sh</code> does:</p>
       <pre><code>name: greet

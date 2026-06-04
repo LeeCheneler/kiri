@@ -23,6 +23,7 @@ description: One-line summary shown on the workflow page.  # optional
 group: Examples                                            # optional, groups related workflows
 steps:
   - use: my-bundle
+    name: Greet                                             # optional, short label shown as the step title in the UI
     env:
       GREETING: hello
   - sh: |
@@ -63,6 +64,15 @@ deserve their own bundle. Multi-line via YAML's \`|\` block scalar.
     echo "step done"
     date
 \`\`\`
+
+#### Optional \`name\` and \`description\`
+
+Either shape accepts an optional \`name\` and \`description\`. \`name\` is a
+short label shown as the step's title in the Schema tab and the run
+timeline; it defaults to the bundle reference (\`use:\`) or the script's
+first non-empty line (\`sh:\`), so set it to keep multi-line scripts
+readable. \`description\` is longer detail revealed when the step's row is
+expanded.
 
 ### Environment variables
 
@@ -199,6 +209,7 @@ steps:
   - sh: |
       echo "\${GREETING}, \${NAME}."
       echo "Edit workflows/hello-world.yaml or drop new workflows alongside it."
+    name: Greet
     description: A one-step workflow. Trigger it from the activity feed.
     env:
       GREETING: Hello

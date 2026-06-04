@@ -52,7 +52,8 @@ inputs:                      # optional — parameters collected via a modal at 
 
 steps:                       # required, ≥1
   - use: <bundle-name>       # references scripts/<bundle-name>/run.sh
-    description: "..."       # optional, surfaced in UI
+    name: "Fetch the PR"     # optional — short label shown as the step title in the Schema tab + run timeline
+    description: "..."       # optional, longer detail surfaced when the step is expanded
     env:                     # optional, flat key→value map (value is string or `{ input: <name> }`)
       KEY: "value"
       PR_NUMBER:
@@ -61,6 +62,7 @@ steps:                       # required, ≥1
   - sh: |                    # OR inline shell — sugar for one-shots
       set -eu
       echo "anything"
+    name: "Post-process"     # optional — defaults to the script's first line when omitted
     description: "..."       # optional
     env:
       OTHER: "value"
@@ -90,8 +92,13 @@ Both optional, both pure presentation — neither affects execution.
 
 A step is **exactly one** of:
 
-- `{ use: <name>, description?, env? }` — resolves to `scripts/<name>/run.sh`. Missing bundle → workflow fails to load with a clear error.
-- `{ sh: <string>, description?, env? }` — inline shell, run via `sh -c`. Use YAML's `|` block scalar for multi-line.
+- `{ use: <bundle>, name?, description?, env? }` — resolves to `scripts/<bundle>/run.sh`. Missing bundle → workflow fails to load with a clear error.
+- `{ sh: <string>, name?, description?, env? }` — inline shell, run via `sh -c`. Use YAML's `|` block scalar for multi-line.
+
+`name?` and `description?` are both optional and both apply to either shape:
+
+- `name` — a short, human-readable label, shown as the step's title in the Schema tab and the run timeline. Defaults to the bundle reference (`use:`) or the script's first non-empty line (`sh:`). Set it so multi-line scripts read as a label, not a code fragment.
+- `description` — longer detail, surfaced when the step's row is expanded.
 
 Mixing `use:` and `sh:` on the same step is a schema error.
 

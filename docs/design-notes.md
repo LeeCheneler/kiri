@@ -32,6 +32,7 @@ inputs:                    # optional — parameters collected via a modal at in
     required: true
 steps:
   - use: fetch-pr           # script bundle: scripts/fetch-pr/run.sh
+    name: Fetch the PR      # optional short label, shown as the step title in the UI
     env:
       PR_NUMBER:
         input: pr_number    # resolved at spawn from the run's inputs snapshot
@@ -54,8 +55,10 @@ summarize:                 # optional one or two sentence feed summary
 
 A step is one of two shapes:
 
-- `{ use: <name>, env?: { ... } }` — references a **script bundle** at `scripts/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
-- `{ sh: <string>, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
+- `{ use: <name>, name?, description?, env?: { ... } }` — references a **script bundle** at `scripts/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
+- `{ sh: <string>, name?, description?, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
+
+The optional `name` is a short label rendered as the step's title in the Schema tab and the run timeline; it falls back to the bundle reference or the script's first non-empty line. `description` is longer detail shown when a step's row is expanded.
 
 `env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
 

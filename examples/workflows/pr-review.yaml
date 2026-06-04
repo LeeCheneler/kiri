@@ -22,6 +22,7 @@ steps:
       }
       gh pr view "$PR_NUMBER" --repo "$REPO" \
         --json number,title,body,additions,deletions,files,author,url
+    name: Fetch the PR
     description: Fetch the PR JSON for the requested PR.
     env:
       REPO:

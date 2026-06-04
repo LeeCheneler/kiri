@@ -5,6 +5,7 @@ description: Publishes an article showing off every chart type kiri can render f
 
 steps:
   - sh: echo "Building the chart gallery."
+    name: Build the gallery
     description: No data to fetch — every chart below ships its own inline values.
 
 publish:

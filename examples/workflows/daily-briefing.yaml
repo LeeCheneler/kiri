@@ -25,6 +25,7 @@ steps:
 
       curl -fsSL "https://dev.to/api/articles?per_page=30&top=1"
       printf '}'
+    name: Fetch news sources
     description: Fetch HackerNews best stories and Dev.to top articles
 
 publish:

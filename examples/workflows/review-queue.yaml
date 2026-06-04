@@ -54,6 +54,7 @@ steps:
       done
 
       echo "$all" | jq -r 'length as $n | "Found \($n) open PR(s) awaiting your review."'
+    name: Aggregate open PRs
     description: Aggregate open PRs awaiting your review across all repos.
 
 summarize:
