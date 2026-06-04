@@ -2,8 +2,8 @@ name: charts
 steps:
   - sh: echo "chart pipeline step"
 publish:
-  - name: chart-report
-    title: Chart Report
+  - slug: chart-report
+    name: Chart Report
     sh: |
       cat <<'EOF'
       # Chart Report
