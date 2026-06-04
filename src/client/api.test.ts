@@ -49,8 +49,8 @@ describe("api client", () => {
             id: params.id,
             articles: [
               {
-                name: "digest",
-                title: "Digest",
+                slug: "digest",
+                name: "Digest",
                 heading: "Digest body heading",
                 createdAt: "2026-05-09T12:00:00.000Z",
               },
@@ -67,8 +67,8 @@ describe("api client", () => {
     expect(detail.steps).toEqual([]);
     expect(detail.run.articles).toEqual([
       {
-        name: "digest",
-        title: "Digest",
+        slug: "digest",
+        name: "Digest",
         heading: "Digest body heading",
         createdAt: "2026-05-09T12:00:00.000Z",
       },
@@ -86,8 +86,8 @@ describe("api client", () => {
           [
             {
               runId: "run-1",
-              name: "digest",
-              title: "Digest",
+              slug: "digest",
+              name: "Digest",
               heading: "This Week in PRs",
               workflowName: "pr-review",
               createdAt: "2026-05-09T12:00:00.000Z",
@@ -101,8 +101,8 @@ describe("api client", () => {
     expect(articles).toEqual([
       {
         runId: "run-1",
-        name: "digest",
-        title: "Digest",
+        slug: "digest",
+        name: "Digest",
         heading: "This Week in PRs",
         workflowName: "pr-review",
         createdAt: "2026-05-09T12:00:00.000Z",

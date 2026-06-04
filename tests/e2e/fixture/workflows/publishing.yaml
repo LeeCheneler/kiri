@@ -2,7 +2,7 @@ name: publishing
 steps:
   - sh: echo "pipeline step"
 publish:
-  - name: digest
-    title: Published Digest
+  - slug: digest
+    name: Published Digest
     sh: |
       printf '# This week in review\n\n## First section\n\nFirst body paragraph.\n\n## Second section\n\nSecond paragraph.\n'

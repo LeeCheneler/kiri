@@ -72,10 +72,10 @@ export function RunRow({
       {run.articles.length > 0 ? (
         <ul className="mt-4 space-y-3 text-xl">
           {run.articles.map((article) => (
-            <li key={article.name}>
-              <Eyebrow tone="muted">{article.name}</Eyebrow>
-              <HeadlineLink href={`/runs/${run.id}/published/${article.name}`}>
-                {article.heading ?? article.title}
+            <li key={article.slug}>
+              <Eyebrow tone="muted">{article.slug}</Eyebrow>
+              <HeadlineLink href={`/runs/${run.id}/published/${article.slug}`}>
+                {article.heading ?? article.name}
               </HeadlineLink>
             </li>
           ))}

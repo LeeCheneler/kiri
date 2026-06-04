@@ -1,17 +1,17 @@
 /**
- * Resolve a publish entry's display title. Returns the explicit `title`
- * when set; otherwise titlecases the hyphen-separated `name`
+ * Resolve a publish entry's display name. Returns the explicit `name`
+ * when set; otherwise titlecases the hyphen-separated `slug`
  * (`pr-digest` → `PR Digest`). Tokens of two or fewer characters are
  * uppercased (`pr` → `PR`); longer tokens get only their first letter
  * capitalised. The single titlecasing site — callers that need a
- * resolved title (DB write, UI fallback) go through here.
+ * resolved name (DB write, UI fallback) go through here.
  *
  * Pure and dependency-free so both the server (schema, runner, API
  * projection) and the client (run detail rendering) can import it.
  */
-export const resolvePublishTitle = (name: string, title?: string): string => {
-  if (title !== undefined && title.length > 0) return title;
-  return name
+export const resolvePublishName = (slug: string, name?: string): string => {
+  if (name !== undefined && name.length > 0) return name;
+  return slug
     .split("-")
     .map((token) =>
       token.length === 0

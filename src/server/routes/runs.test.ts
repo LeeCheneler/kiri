@@ -228,14 +228,14 @@ describe("runs routes", () => {
       const onePub: WorkflowDefinition = {
         name: "one-pub",
         steps: [{ use: "step" }],
-        publish: [{ name: "digest", title: "Digest Title", use: "digest" }],
+        publish: [{ slug: "digest", name: "Digest Title", use: "digest" }],
       };
       const twoPub: WorkflowDefinition = {
         name: "two-pub",
         steps: [{ use: "step" }],
         publish: [
-          { name: "digest", use: "digest" },
-          { name: "release-notes", use: "notes" },
+          { slug: "digest", use: "digest" },
+          { slug: "release-notes", use: "notes" },
         ],
       };
       env.registry.replace(
@@ -267,8 +267,8 @@ describe("runs routes", () => {
         runs: Array<{
           id: string;
           articles: Array<{
+            slug: string;
             name: string;
-            title: string;
             heading: string | null;
             createdAt: string;
           }>;
@@ -276,15 +276,15 @@ describe("runs routes", () => {
       };
       const byId = new Map(body.runs.map((r) => [r.id, r]));
       expect(byId.get(noPubId)?.articles).toEqual([]);
-      expect(byId.get(onePubId)?.articles.map((a) => a.name)).toEqual(["digest"]);
+      expect(byId.get(onePubId)?.articles.map((a) => a.slug)).toEqual(["digest"]);
       expect(byId.get(onePubId)?.articles[0]).toMatchObject({
-        name: "digest",
-        title: "Digest Title",
+        slug: "digest",
+        name: "Digest Title",
         // digest bundle echoes "digest-body" — no markdown heading.
         heading: null,
       });
       // Declared order matches created_at order (publishes run serially).
-      expect(byId.get(twoPubId)?.articles.map((a) => a.name)).toEqual(["digest", "release-notes"]);
+      expect(byId.get(twoPubId)?.articles.map((a) => a.slug)).toEqual(["digest", "release-notes"]);
       // ISO timestamp round-trip via Date.toJSON.
       for (const r of body.runs) {
         for (const a of r.articles) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -299,8 +299,8 @@ describe("runs routes", () => {
         name: "headings",
         steps: [{ use: "step" }],
         publish: [
-          { name: "with-h1", use: "with-h1" },
-          { name: "no-h1", use: "no-h1" },
+          { slug: "with-h1", use: "with-h1" },
+          { slug: "no-h1", use: "no-h1" },
         ],
       };
       env.registry.replace(new Map([[wf.name, wf]]));
@@ -318,12 +318,12 @@ describe("runs routes", () => {
       const body = (await feed.json()) as {
         runs: Array<{
           id: string;
-          articles: Array<{ name: string; heading: string | null }>;
+          articles: Array<{ slug: string; heading: string | null }>;
         }>;
       };
       const articles = body.runs.find((r) => r.id === runId)?.articles ?? [];
-      expect(articles.find((a) => a.name === "with-h1")?.heading).toBe("Top Story");
-      expect(articles.find((a) => a.name === "no-h1")?.heading).toBeNull();
+      expect(articles.find((a) => a.slug === "with-h1")?.heading).toBe("Top Story");
+      expect(articles.find((a) => a.slug === "no-h1")?.heading).toBeNull();
     });
 
     it("scopes articles to the page — cursor pages don't leak the previous page's articles", async () => {
@@ -332,12 +332,12 @@ describe("runs routes", () => {
       const wfA: WorkflowDefinition = {
         name: "wf-a",
         steps: [{ use: "step" }],
-        publish: [{ name: "digest-a", use: "digest" }],
+        publish: [{ slug: "digest-a", use: "digest" }],
       };
       const wfB: WorkflowDefinition = {
         name: "wf-b",
         steps: [{ use: "step" }],
-        publish: [{ name: "digest-b", use: "digest" }],
+        publish: [{ slug: "digest-b", use: "digest" }],
       };
       env.registry.replace(
         new Map([
@@ -361,19 +361,19 @@ describe("runs routes", () => {
       const newRunId = await trigger("wf-b");
 
       type RunsBody = {
-        runs: Array<{ id: string; articles: Array<{ name: string }> }>;
+        runs: Array<{ id: string; articles: Array<{ slug: string }> }>;
         nextCursor: string | null;
       };
       const page1 = (await (await app.request("/api/runs?limit=1")).json()) as RunsBody;
       expect(page1.runs.map((r) => r.id)).toEqual([newRunId]);
-      expect(page1.runs[0]?.articles.map((a) => a.name)).toEqual(["digest-b"]);
+      expect(page1.runs[0]?.articles.map((a) => a.slug)).toEqual(["digest-b"]);
 
       const page2 = (await (
         await app.request(`/api/runs?limit=1&cursor=${page1.nextCursor}`)
       ).json()) as RunsBody;
       expect(page2.runs.map((r) => r.id)).toEqual([oldRunId]);
       // Page 2 only carries page 2's articles; page 1's digest-b doesn't leak.
-      expect(page2.runs[0]?.articles.map((a) => a.name)).toEqual(["digest-a"]);
+      expect(page2.runs[0]?.articles.map((a) => a.slug)).toEqual(["digest-a"]);
     });
 
     it("returns each run with an empty articles array when none of the page's runs have published", async () => {
@@ -611,8 +611,8 @@ EOF
         name: "with-publish",
         steps: [{ use: "one" }],
         publish: [
-          { name: "digest", title: "Digest Title", use: "digest" },
-          { name: "release-notes", use: "notes" },
+          { slug: "digest", name: "Digest Title", use: "digest" },
+          { slug: "release-notes", use: "notes" },
         ],
       };
       env.registry.replace(new Map([[wf.name, wf]]));
@@ -631,8 +631,8 @@ EOF
       const body = (await res.json()) as {
         run: {
           articles: Array<{
+            slug: string;
             name: string;
-            title: string;
             heading: string | null;
             createdAt: string;
           }>;
@@ -648,16 +648,16 @@ EOF
       ]);
       // Declared order matches created_at order (publishes run serially).
       const articleRows = body.run.articles;
-      expect(articleRows.map((a) => a.name)).toEqual(["digest", "release-notes"]);
-      // Resolved title travels with each row; defaulted via titlecase when omitted.
+      expect(articleRows.map((a) => a.slug)).toEqual(["digest", "release-notes"]);
+      // Resolved name travels with each row; defaulted via titlecase when omitted.
       expect(articleRows[0]).toMatchObject({
-        name: "digest",
-        title: "Digest Title",
+        slug: "digest",
+        name: "Digest Title",
         heading: "Digest Body Heading",
       });
       expect(articleRows[1]).toMatchObject({
-        name: "release-notes",
-        title: "Release Notes",
+        slug: "release-notes",
+        name: "Release Notes",
         // notes bundle echoes plain text — no markdown heading.
         heading: null,
       });
@@ -675,8 +675,8 @@ EOF
         name: "pub-fail",
         steps: [{ use: "one" }],
         publish: [
-          { name: "bad", use: "bad" },
-          { name: "good", use: "good" },
+          { slug: "bad", use: "bad" },
+          { slug: "good", use: "good" },
         ],
       };
       env.registry.replace(new Map([[wf.name, wf]]));
@@ -693,7 +693,7 @@ EOF
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        run: { articles: Array<{ name: string }> };
+        run: { articles: Array<{ slug: string }> };
         steps: Array<{ index: number; status: string; isPublish: boolean }>;
       };
       // Pipeline step, failed publish, ok publish — all three rows ship.
@@ -703,7 +703,7 @@ EOF
         [2, "ok", true],
       ]);
       // The failed publish produced no article row; the ok sibling did.
-      expect(body.run.articles.map((a) => a.name)).toEqual(["good"]);
+      expect(body.run.articles.map((a) => a.slug)).toEqual(["good"]);
     });
 
     it("surfaces a running publish row before its article has been written", async () => {
@@ -714,7 +714,7 @@ EOF
       const wf: WorkflowDefinition = {
         name: "slow-publish",
         steps: [{ use: "one" }],
-        publish: [{ name: "slow", sh: "exec 1>&- 2>&-; sleep 5" }],
+        publish: [{ slug: "slow", sh: "exec 1>&- 2>&-; sleep 5" }],
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
@@ -1003,14 +1003,14 @@ EOF
     });
   });
 
-  describe("GET /api/runs/:id/published/:name", () => {
+  describe("GET /api/runs/:id/published/:slug", () => {
     const setupPublishingRun = async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
       writeBundle(env.cwd, "digest", "#!/bin/sh\nprintf '# Heading\\n\\nBody paragraph.\\n'\n");
       const wf: WorkflowDefinition = {
         name: "with-publish",
         steps: [{ use: "one" }],
-        publish: [{ name: "digest", title: "Digest Title", use: "digest" }],
+        publish: [{ slug: "digest", name: "Digest Title", use: "digest" }],
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
@@ -1033,8 +1033,8 @@ EOF
       const body = (await res.json()) as {
         id: string;
         runId: string;
+        slug: string;
         name: string;
-        title: string;
         contentMd: string;
         createdAt: string;
         workflowName: string;
@@ -1045,8 +1045,8 @@ EOF
         finishedAt: string | null;
       };
       expect(body.runId).toBe(runId);
-      expect(body.name).toBe("digest");
-      expect(body.title).toBe("Digest Title");
+      expect(body.slug).toBe("digest");
+      expect(body.name).toBe("Digest Title");
       expect(body.workflowName).toBe("with-publish");
       expect(body.contentMd).toContain("# Heading");
       expect(body.contentMd).toContain("Body paragraph.");
@@ -1069,7 +1069,7 @@ EOF
       expect(await res.json()).toEqual({ error: 'run "missing-run" not found' });
     });
 
-    it("returns 404 when the article name is unknown on an existing run", async () => {
+    it("returns 404 when the article slug is unknown on an existing run", async () => {
       const { app, runId } = await setupPublishingRun();
       const res = await app.request(`/api/runs/${runId}/published/nope`);
       expect(res.status).toBe(404);
@@ -1078,7 +1078,7 @@ EOF
       });
     });
 
-    it("returns 400 when the article name fails the schema regex", async () => {
+    it("returns 400 when the article slug fails the schema regex", async () => {
       const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
       const res = await app.request("/api/runs/any-id/published/Bad_Name");
       expect(res.status).toBe(400);
@@ -1086,11 +1086,11 @@ EOF
         error: string;
         issues: { path: (string | number)[]; message: string }[];
       };
-      expect(body.error).toMatch(/publish name must match/);
+      expect(body.error).toMatch(/publish slug must match/);
       // Field path travels alongside the human-readable summary so
       // non-modal callers can pinpoint the offending path param.
       expect(body.issues).toHaveLength(1);
-      expect(body.issues[0]?.path).toEqual(["name"]);
+      expect(body.issues[0]?.path).toEqual(["slug"]);
     });
   });
 
@@ -1271,8 +1271,8 @@ EOF
         .values({
           id: `${id}-art`,
           runId: id,
-          name: "digest",
-          title: "Digest",
+          slug: "digest",
+          name: "Digest",
           contentMd: "# hi",
           createdAt: new Date(),
         })
@@ -1527,8 +1527,8 @@ EOF
         .values({
           id: `${id}-art`,
           runId: id,
-          name: "leftover",
-          title: "Leftover",
+          slug: "leftover",
+          name: "Leftover",
           contentMd: "stale",
           createdAt: new Date(),
         })

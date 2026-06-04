@@ -744,7 +744,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-fail-skips-summer",
         steps: [{ use: "step" }],
-        publish: [{ name: "bad", use: "bad-pub" }],
+        publish: [{ slug: "bad", use: "bad-pub" }],
         summarize: { use: "summer-marker" },
       };
 
@@ -846,7 +846,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "summer-sees-art",
         steps: [{ use: "step" }],
-        publish: [{ name: "art", title: "Article", use: "art" }],
+        publish: [{ slug: "art", name: "Article", use: "art" }],
         summarize: { use: "context-dump" },
       };
 
@@ -856,7 +856,7 @@ describe("runWorkflow", () => {
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       const parsed = JSON.parse(run?.summary as string);
       expect(parsed.articles).toEqual([
-        { name: "art", title: "Article", content_md: "article-body" },
+        { slug: "art", name: "Article", content_md: "article-body" },
       ]);
     });
 
@@ -925,8 +925,8 @@ describe("runWorkflow", () => {
         name: "with-publish",
         steps: [{ use: "step" }],
         publish: [
-          { name: "digest", use: "digest" },
-          { name: "notes", sh: 'echo "from-sh"' },
+          { slug: "digest", use: "digest" },
+          { slug: "notes", sh: 'echo "from-sh"' },
         ],
       };
 
@@ -958,7 +958,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "full",
         steps: [{ use: "step" }],
-        publish: [{ name: "art", use: "art" }],
+        publish: [{ slug: "art", use: "art" }],
         summarize: { use: "summer" },
       };
 
@@ -984,7 +984,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "snap-pub",
         steps: [{ use: "step" }],
-        publish: [{ name: "art", title: "Custom Title", use: "art", env: { KEEP: "yes" } }],
+        publish: [{ slug: "art", name: "Custom Title", use: "art", env: { KEEP: "yes" } }],
       };
 
       const result = await runWorkflow(db, wf, { cwd }).done;
@@ -992,7 +992,7 @@ describe("runWorkflow", () => {
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.definitionSnapshot).toMatchObject({
         name: "snap-pub",
-        publish: [{ name: "art", title: "Custom Title", use: "art", env: { KEEP: "yes" } }],
+        publish: [{ slug: "art", name: "Custom Title", use: "art", env: { KEEP: "yes" } }],
       });
     });
 
@@ -1004,8 +1004,8 @@ describe("runWorkflow", () => {
         name: "pub-failure",
         steps: [{ use: "step" }],
         publish: [
-          { name: "bad", use: "bad" },
-          { name: "good", use: "good" },
+          { slug: "bad", use: "bad" },
+          { slug: "good", use: "good" },
         ],
       };
 
@@ -1031,10 +1031,10 @@ describe("runWorkflow", () => {
       // Only the successful sibling lands as an article row.
       const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
       expect(articleRows).toHaveLength(1);
-      expect(articleRows[0].name).toBe("good");
+      expect(articleRows[0].slug).toBe("good");
     });
 
-    it("persists trimmed stdout to articles with the resolved title", async () => {
+    it("persists trimmed stdout to articles with the resolved name", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("digest", "#!/bin/sh\nprintf '# Digest\\n\\nbody\\n\\n\\n'\n");
       writeBundle("notes", "#!/bin/sh\necho notes-body\n");
@@ -1042,8 +1042,8 @@ describe("runWorkflow", () => {
         name: "pub-rows",
         steps: [{ use: "step" }],
         publish: [
-          { name: "digest", title: "PR Review Digest", use: "digest" },
-          { name: "release-notes", use: "notes" },
+          { slug: "digest", name: "PR Review Digest", use: "digest" },
+          { slug: "release-notes", use: "notes" },
         ],
       };
 
@@ -1054,19 +1054,19 @@ describe("runWorkflow", () => {
         .select()
         .from(articles)
         .where(eq(articles.runId, result.runId))
-        .orderBy(asc(articles.name))
+        .orderBy(asc(articles.slug))
         .all();
       expect(articleRows).toHaveLength(2);
 
-      const digest = articleRows.find((a) => a.name === "digest");
-      expect(digest?.title).toBe("PR Review Digest");
+      const digest = articleRows.find((a) => a.slug === "digest");
+      expect(digest?.name).toBe("PR Review Digest");
       // Trailing whitespace stripped; interior newlines preserved.
       expect(digest?.contentMd).toBe("# Digest\n\nbody");
       expect(digest?.createdAt).toBeInstanceOf(Date);
 
-      const notes = articleRows.find((a) => a.name === "release-notes");
-      // Title defaults via resolvePublishTitle when omitted.
-      expect(notes?.title).toBe("Release Notes");
+      const notes = articleRows.find((a) => a.slug === "release-notes");
+      // Name defaults via resolvePublishName when omitted.
+      expect(notes?.name).toBe("Release Notes");
       expect(notes?.contentMd).toBe("notes-body");
     });
 
@@ -1075,7 +1075,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "empty-pub",
         steps: [{ use: "step" }],
-        publish: [{ name: "empty", sh: "true" }],
+        publish: [{ slug: "empty", sh: "true" }],
       };
 
       const result = await runWorkflow(db, wf, { cwd }).done;
@@ -1084,7 +1084,7 @@ describe("runWorkflow", () => {
       const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
       expect(articleRows).toHaveLength(1);
       expect(articleRows[0].contentMd).toBe("");
-      expect(articleRows[0].title).toBe("Empty");
+      expect(articleRows[0].name).toBe("Empty");
     });
 
     it("does not insert an article row for a publish that fails", async () => {
@@ -1093,7 +1093,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "no-art-on-fail",
         steps: [{ use: "step" }],
-        publish: [{ name: "bad", use: "bad" }],
+        publish: [{ slug: "bad", use: "bad" }],
       };
 
       const result = await runWorkflow(db, wf, { cwd }).done;
@@ -1111,8 +1111,8 @@ describe("runWorkflow", () => {
         name: "sibling-ctx",
         steps: [{ use: "step" }],
         publish: [
-          { name: "first", title: "First Article", use: "first-art" },
-          { name: "second", use: "context-dump" },
+          { slug: "first", name: "First Article", use: "first-art" },
+          { slug: "second", use: "context-dump" },
         ],
       };
 
@@ -1128,7 +1128,7 @@ describe("runWorkflow", () => {
         .find((s) => s.isPublish && s.index === 2);
       const parsed = JSON.parse(secondRow?.output as string);
       expect(parsed.articles).toEqual([
-        { name: "first", title: "First Article", content_md: "first-content" },
+        { slug: "first", name: "First Article", content_md: "first-content" },
       ]);
     });
 
@@ -1141,7 +1141,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-after-fail",
         steps: [{ use: "boom" }],
-        publish: [{ name: "art", use: "pub-marker" }],
+        publish: [{ slug: "art", use: "pub-marker" }],
       };
 
       const result = await runWorkflow(db, wf, { cwd }).done;
@@ -1162,7 +1162,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "cancel-skip-pub",
         steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }],
-        publish: [{ name: "art", use: "pub-marker" }],
+        publish: [{ slug: "art", use: "pub-marker" }],
       };
 
       const { runId, done } = runWorkflow(db, wf, {
@@ -1188,7 +1188,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-ctx",
         steps: [{ use: "step" }],
-        publish: [{ name: "ctx", use: "context-dump" }],
+        publish: [{ slug: "ctx", use: "context-dump" }],
       };
 
       const result = await runWorkflow(db, wf, { cwd }).done;
@@ -1217,8 +1217,8 @@ describe("runWorkflow", () => {
         name: "two-pub",
         steps: [{ use: "step" }],
         publish: [
-          { name: "first", use: "first-pub" },
-          { name: "second", use: "second-pub" },
+          { slug: "first", use: "first-pub" },
+          { slug: "second", use: "second-pub" },
         ],
       };
       const cancelRegistry = createCancelRegistry();
@@ -1268,7 +1268,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-cancel",
         steps: [{ use: "step" }],
-        publish: [{ name: "art", use: "slow-pub" }],
+        publish: [{ slug: "art", use: "slow-pub" }],
       };
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
       const bus = createEventBus();
@@ -1316,7 +1316,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-events",
         steps: [{ use: "step" }],
-        publish: [{ name: "art", use: "art" }],
+        publish: [{ slug: "art", use: "art" }],
       };
       const bus = createEventBus();
       const seen: KiriEvent[] = [];
@@ -1594,7 +1594,7 @@ describe("runWorkflow", () => {
         name: "pub-ref",
         inputs: [{ name: "pr_number" }],
         steps: [{ use: "step" }],
-        publish: [{ name: "digest", use: "digest", env: { PR: { input: "pr_number" } } }],
+        publish: [{ slug: "digest", use: "digest", env: { PR: { input: "pr_number" } } }],
       };
 
       const result = await runWorkflow(db, wf, {
@@ -1852,7 +1852,7 @@ EOF
       const wf: WorkflowDefinition = {
         name: "pub-no-rec",
         steps: useSteps("source"),
-        publish: [{ name: "article", use: "pub-echo-env" }],
+        publish: [{ slug: "article", use: "pub-echo-env" }],
       };
 
       const result = await runWorkflow(db, wf, { cwd }).done;

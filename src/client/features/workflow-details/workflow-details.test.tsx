@@ -54,7 +54,7 @@ describe("<WorkflowDetails>", () => {
 
   it("shows publish entries when the publishes tab is selected", async () => {
     const user = userEvent.setup();
-    renderDetails(wf({ publish: [{ name: "digest", title: "Digest", use: "writer" }] }));
+    renderDetails(wf({ publish: [{ slug: "digest", name: "Digest", use: "writer" }] }));
     await awaitRunsSettled();
     await user.click(screen.getByRole("tab", { name: "Publishes" }));
     expect(screen.getByText("Digest")).toBeDefined();

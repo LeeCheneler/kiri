@@ -20,13 +20,13 @@ test("clicking a published article navigates to a page rendering its markdown bo
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
   // Published articles render in the run's right rail, labelled by the body's
-  // first heading (falling back to the publish title); follow the digest.
+  // first heading (falling back to the publish name); follow the digest.
   const articleLink = page.getByRole("link", { name: /this week in review/i });
   await expect(articleLink).toHaveAttribute("href", `/runs/${runId}/published/digest`);
   await articleLink.click();
 
   await expect(page).toHaveURL(`/runs/${runId}/published/digest`);
-  // The body's `# headline` is the level-1 page title; the publish title
+  // The body's `# headline` is the level-1 page title; the publish name
   // ("Published Digest") rides in the eyebrow as the series label.
   await expect(page.getByRole("heading", { level: 1, name: /this week in review/i })).toBeVisible();
   // The body's `##` headings are the article's sections, rendered as h2 with

@@ -13,8 +13,8 @@ const NOW = new Date("2026-05-09T12:03:00.000Z");
 
 const article = (over: Record<string, unknown> = {}) => ({
   runId: "run-1",
-  name: "briefing",
-  title: "Morning Briefing",
+  slug: "briefing",
+  name: "Morning Briefing",
   heading: "Top of the morning",
   workflowName: "briefing",
   createdAt: "2026-05-09T12:00:00.000Z",
@@ -55,12 +55,12 @@ describe("<RecentArticles>", () => {
     server.use(
       http.get("*/api/articles/recent", () =>
         HttpResponse.json([
-          article({ runId: "run-1", name: "a", heading: "First Heading", workflowName: "alpha" }),
+          article({ runId: "run-1", slug: "a", heading: "First Heading", workflowName: "alpha" }),
           article({
             runId: "run-2",
-            name: "b",
+            slug: "b",
             heading: null,
-            title: "Second Title",
+            name: "Second Title",
             workflowName: "beta",
           }),
         ]),
@@ -70,7 +70,7 @@ describe("<RecentArticles>", () => {
 
     const first = await screen.findByRole("link", { name: /first heading/i });
     expect(first.getAttribute("href")).toBe("/runs/run-1/published/a");
-    // A null heading falls back to the article's title for the link label.
+    // A null heading falls back to the article's name for the link label.
     const second = screen.getByRole("link", { name: /second title/i });
     expect(second.getAttribute("href")).toBe("/runs/run-2/published/b");
 

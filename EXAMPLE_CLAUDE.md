@@ -68,8 +68,8 @@ steps:                       # required, ≥1
       OTHER: "value"
 
 publish:                     # optional, M6 — long-form markdown articles
-  - name: digest             # required, kebab-case-only ([a-z0-9-]+), unique within workflow
-    title: "Friendly Title"  # optional series label — feed chip + page eyebrow (defaults to a humanised name)
+  - slug: digest             # required, kebab-case-only ([a-z0-9-]+), unique within workflow — the article's URL id
+    name: "Friendly Title"   # optional series label — feed chip + page eyebrow (defaults to a humanised slug)
     description: "..."       # optional
     use: claude-code         # OR sh: |  …  — same shape as a step
     env:
@@ -123,10 +123,10 @@ Mixing `use:` and `sh:` on the same step is a schema error.
 ### `publish:` rules
 
 - Each entry runs after `steps:` complete (on `ok` and `failed` runs, not `cancelled`). One after another, serially.
-- Each entry's **trimmed stdout** is stored as a markdown article, keyed by `name`. It appears as a chip on the feed and a "Published" entry on the run detail page, with its own `/runs/:id/published/:name` view rendered through a sandboxed markdown parser.
+- Each entry's **trimmed stdout** is stored as a markdown article, keyed by `slug`. It appears as a chip on the feed and a "Published" entry on the run detail page, with its own `/runs/:id/published/:slug` view rendered through a sandboxed markdown parser.
 - **Structure the body as a document with one headline and `##` sections.** Open with a single `# Headline` — the article page lifts it out as the page title and drops anything before it, so don't emit chatter like "Here's the article" ahead of it. Use `##` for the sections beneath: they become the article's table of contents. Sub-divide with `###` and deeper as usual.
-- The publish `title` is the article's **series label**, shown as a feed chip and the page eyebrow — and used as the page title only when the body carries no `# Headline`. Let the body bring its own headline (this edition's subject) and let `title` name the recurring series (e.g. `Daily Briefing`).
-- `name` must match `^[a-z0-9-]+$` and be unique within the workflow.
+- The publish `name` is the article's **series label**, shown as a feed chip and the page eyebrow — and used as the page title only when the body carries no `# Headline`. Let the body bring its own headline (this edition's subject) and let `name` name the recurring series (e.g. `Daily Briefing`).
+- `slug` must match `^[a-z0-9-]+$` and be unique within the workflow.
 - A failing publish step does **not** fail the run — siblings still run. (Exception: cancel mid-publish flips the run to `cancelled` and halts further publishes.)
 
 ### `summarize:` rules
@@ -226,7 +226,7 @@ Written to the scratch dir before each `publish:` and `summarize:` step. Shape:
     }
   ],
   "articles": [
-    { "name": "digest", "title": "...", "content_md": "..." }
+    { "slug": "digest", "name": "...", "content_md": "..." }
   ]
 }
 ```
@@ -434,8 +434,8 @@ steps:
       done
       printf ']'
 publish:
-  - name: article
-    title: HackerNews Top Stories
+  - slug: article
+    name: HackerNews Top Stories
     use: claude-code
     env:
       PROMPT_FILE: prompts/hackernews-digest.tpl
@@ -503,14 +503,14 @@ steps:
       # fetch some upstream data, print JSON to stdout
       curl -fsSL https://example.com/api/today
 publish:
-  - name: summary
-    title: Today, summarised
+  - slug: summary
+    name: Today, summarised
     use: claude-code
     env:
       PROMPT: "Read {{KIRI_RUN_CONTEXT_FILE}}, find steps[0].stdout, and write a 5-bullet markdown summary."
       MODEL: sonnet
-  - name: full
-    title: Full report
+  - slug: full
+    name: Full report
     use: claude-code
     env:
       PROMPT: "Read {{KIRI_RUN_CONTEXT_FILE}} and produce a long-form markdown report from steps[0].stdout."
@@ -619,7 +619,7 @@ line, area, scatter, arc (pie/donut), heatmap, and more.
 | `env: { KIRI_MODE: "x" }` | Don't prefix keys with `KIRI_`. Reserved. |
 | Relative path `prompts/foo.tpl` from inside a step expecting cwd-relative | Resolve against `$KIRI_REPO_ROOT`. The step's cwd is the scratch dir, not the repo root. |
 | Reading the parent shell's `MY_TOKEN` | Won't work. Set it explicitly under the step's `env:` (or pull it from a mode-600 file inside the script). |
-| Two `publish:` entries with the same `name` | Names must be unique within a workflow. |
+| Two `publish:` entries with the same `slug` | Slugs must be unique within a workflow. |
 | `publish:` step that depends on the previous step's stdout via stdin | `publish:` and `summarize:` get empty stdin. Read `KIRI_RUN_CONTEXT_FILE` instead. |
 | Multi-line `sh:` without `set -eu` | `sh -c` doesn't stop on first failure by default. Start every non-trivial `sh:` with `set -eu`. |
 | Using `dangerouslySetInnerHTML` in custom UI that renders articles | Don't. Articles render through a sandboxed markdown parser. AI/script output is untrusted. |

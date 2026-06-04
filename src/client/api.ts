@@ -17,21 +17,21 @@ export type WorkflowStepSummary =
   | { sh: string; name?: string; description?: string; env?: Record<string, EnvValue> };
 
 /**
- * One `publish:` entry on a workflow summary. `title` is always present —
- * the server applies the schema's titlecase fallback so the client doesn't
- * re-implement it.
+ * One `publish:` entry on a workflow summary. `slug` is the URL/identifier;
+ * `name` (the display label) is always present — the server applies the
+ * schema's titlecase fallback so the client doesn't re-implement it.
  */
 export type WorkflowPublishSummary =
   | {
+      slug: string;
       name: string;
-      title: string;
       description?: string;
       use: string;
       env?: Record<string, EnvValue>;
     }
   | {
+      slug: string;
       name: string;
-      title: string;
       description?: string;
       sh: string;
       env?: Record<string, EnvValue>;
@@ -81,21 +81,21 @@ export interface RunStartResult {
 }
 
 /**
- * Snapshotted publish entry on a run row. Carries the *raw* `title` (or
+ * Snapshotted publish entry on a run row. Carries the *raw* `name` label (or
  * `undefined`) as it appeared in the workflow definition at run-start —
- * callers that need a display string resolve via `resolvePublishTitle`.
+ * callers that need a display string resolve via `resolvePublishName`.
  */
 export type RunPublishSnapshot =
   | {
-      name: string;
-      title?: string;
+      slug: string;
+      name?: string;
       description?: string;
       use: string;
       env?: Record<string, EnvValue>;
     }
   | {
-      name: string;
-      title?: string;
+      slug: string;
+      name?: string;
       description?: string;
       sh: string;
       env?: Record<string, EnvValue>;
@@ -206,8 +206,8 @@ export interface RunStepRow {
  * articles from the same workflow are distinguishable.
  */
 export interface ArticleSummary {
+  slug: string;
   name: string;
-  title: string;
   heading: string | null;
   createdAt: string;
 }
@@ -348,8 +348,8 @@ export const fetchRun = async (id: string): Promise<RunDetail> =>
 export interface ArticleDetail {
   id: string;
   runId: string;
+  slug: string;
   name: string;
-  title: string;
   contentMd: string;
   createdAt: string;
   workflowName: string;
@@ -361,27 +361,27 @@ export interface ArticleDetail {
 }
 
 /**
- * Fetch a single published article by run id and name. Throws on
- * non-2xx — 400 for a malformed name, 404 when either the run or the
+ * Fetch a single published article by run id and slug. Throws on
+ * non-2xx — 400 for a malformed slug, 404 when either the run or the
  * named article is missing.
  */
-export const fetchArticle = async (runId: string, name: string): Promise<ArticleDetail> =>
+export const fetchArticle = async (runId: string, slug: string): Promise<ArticleDetail> =>
   json<ArticleDetail>(
-    await apiFetch(`/api/runs/${encodeURIComponent(runId)}/published/${encodeURIComponent(name)}`),
+    await apiFetch(`/api/runs/${encodeURIComponent(runId)}/published/${encodeURIComponent(slug)}`),
   );
 
 /**
  * One entry in the cross-run "recently published" list. Carries only the
- * metadata the right rail renders: the link target (`runId` + `name`),
- * the display `title`, the article body's first markdown `# heading` (or
+ * metadata the right rail renders: the link target (`runId` + `slug`),
+ * the display `name`, the article body's first markdown `# heading` (or
  * null when the body has none) for use as a sub-byline, the originating
  * `workflowName`, and `createdAt` for the relative timestamp. The full
  * markdown body lives on the dedicated article route.
  */
 export interface RecentArticle {
   runId: string;
+  slug: string;
   name: string;
-  title: string;
   heading: string | null;
   workflowName: string;
   createdAt: string;

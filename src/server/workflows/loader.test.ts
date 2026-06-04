@@ -212,14 +212,14 @@ summarize:
 steps:
   - use: step
 publish:
-  - name: digest
+  - slug: digest
     use: writer
 `,
     );
 
     const result = await loadWorkflows(dir, cwd);
     expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
-    expect(result.workflows.get("wf")?.publish).toEqual([{ name: "digest", use: "writer" }]);
+    expect(result.workflows.get("wf")?.publish).toEqual([{ slug: "digest", use: "writer" }]);
     expect(result.failures).toEqual([]);
   });
 
@@ -231,7 +231,7 @@ publish:
 steps:
   - use: step
 publish:
-  - name: digest
+  - slug: digest
     sh: |
       cat README.md
 `,
@@ -250,7 +250,7 @@ publish:
 steps:
   - use: step
 publish:
-  - name: digest
+  - slug: digest
     use: ghost-writer
 `,
     );

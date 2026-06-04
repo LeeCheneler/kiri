@@ -113,13 +113,13 @@ describe("workflows routes", () => {
       ]);
     });
 
-    it("projects publish entries with title resolved from the schema fallback", async () => {
+    it("projects publish entries with name resolved from the schema fallback", async () => {
       const wf: WorkflowDefinition = {
         name: "publishes",
         steps: [{ sh: "echo hi" }],
         publish: [
-          { name: "pr-digest", use: "claude-code", env: { MODEL: "sonnet" } },
-          { name: "report", title: "Weekly Report", sh: "echo report" },
+          { slug: "pr-digest", use: "claude-code", env: { MODEL: "sonnet" } },
+          { slug: "report", name: "Weekly Report", sh: "echo report" },
         ],
       };
       env.registry.replace(new Map([[wf.name, wf]]));
@@ -128,8 +128,8 @@ describe("workflows routes", () => {
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body[0].publish).toEqual([
-        { name: "pr-digest", title: "PR Digest", use: "claude-code", env: { MODEL: "sonnet" } },
-        { name: "report", title: "Weekly Report", sh: "echo report" },
+        { slug: "pr-digest", name: "PR Digest", use: "claude-code", env: { MODEL: "sonnet" } },
+        { slug: "report", name: "Weekly Report", sh: "echo report" },
       ]);
       expect("summarize" in body[0]).toBe(false);
     });
@@ -156,7 +156,7 @@ describe("workflows routes", () => {
       const wf: WorkflowDefinition = {
         name: "full",
         steps: [{ sh: "echo hi" }],
-        publish: [{ name: "digest", sh: "echo body" }],
+        publish: [{ slug: "digest", sh: "echo body" }],
         summarize: { sh: "echo one-liner" },
       };
       env.registry.replace(new Map([[wf.name, wf]]));
@@ -164,7 +164,7 @@ describe("workflows routes", () => {
       const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
-      expect(body[0].publish).toEqual([{ name: "digest", title: "Digest", sh: "echo body" }]);
+      expect(body[0].publish).toEqual([{ slug: "digest", name: "Digest", sh: "echo body" }]);
       expect(body[0].summarize).toEqual({ sh: "echo one-liner" });
     });
   });

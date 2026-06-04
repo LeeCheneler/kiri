@@ -15,6 +15,7 @@ import migration0009 from "../../../drizzle/0009_add_run_inputs.sql" with { type
 import migration0010 from "../../../drizzle/0010_add_recommendations.sql" with { type: "text" };
 import migration0011 from "../../../drizzle/0011_drop_run_trigger.sql" with { type: "text" };
 import migration0012 from "../../../drizzle/0012_add_run_step_timing.sql" with { type: "text" };
+import migration0013 from "../../../drizzle/0013_rename_article_columns.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -29,11 +30,12 @@ interface Migration {
  * and an entry here. Names are matched exactly against `__kiri_migrations`
  * — don't rename existing entries after they've shipped.
  *
- * `0002_rename_run_nodes_to_run_steps` and
- * `0008_rename_run_artefacts_to_articles`, plus their meta snapshots,
- * were hand-written: drizzle-kit's rename-detection prompt is
+ * `0002_rename_run_nodes_to_run_steps`,
+ * `0008_rename_run_artefacts_to_articles`, and
+ * `0013_rename_article_columns`, plus their meta snapshots, were
+ * hand-written: drizzle-kit's rename-detection prompt is
  * interactive-only. The next auto-generated migration may need its
- * `prevId` adjusted to chain off `drizzle/meta/0008_snapshot.json`.
+ * `prevId` adjusted to chain off `drizzle/meta/0013_snapshot.json`.
  */
 const MIGRATIONS: Migration[] = [
   { name: "0000_initial", sql: migration0000 },
@@ -49,6 +51,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0010_add_recommendations", sql: migration0010 },
   { name: "0011_drop_run_trigger", sql: migration0011 },
   { name: "0012_add_run_step_timing", sql: migration0012 },
+  { name: "0013_rename_article_columns", sql: migration0013 },
 ];
 
 /**

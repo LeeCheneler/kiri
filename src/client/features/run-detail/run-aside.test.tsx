@@ -69,21 +69,21 @@ describe("<RunAside>", () => {
     expect(screen.getByText("main")).toBeDefined();
   });
 
-  it("links the run's published articles by their first heading, then title", async () => {
+  it("links the run's published articles by their first heading, then name", async () => {
     server.use(
       http.get("*/api/runs/:id", () =>
         HttpResponse.json(
           detail({
             articles: [
               {
-                name: "digest",
-                title: "PR Digest",
+                slug: "digest",
+                name: "PR Digest",
                 heading: "Summary",
                 createdAt: "2026-05-09T12:00:40.000Z",
               },
               {
-                name: "notes",
-                title: "Release Notes",
+                slug: "notes",
+                name: "Release Notes",
                 heading: null,
                 createdAt: "2026-05-09T12:00:41.000Z",
               },
@@ -95,10 +95,10 @@ describe("<RunAside>", () => {
     renderAside();
 
     expect(await screen.findByText("Published")).toBeDefined();
-    // heading present → link reads the heading; absent → falls back to the title.
+    // heading present → link reads the heading; absent → falls back to the name.
     const byHeading = screen.getByRole("link", { name: /summary/i });
     expect(byHeading.getAttribute("href")).toBe("/runs/run-1/published/digest");
-    const byTitle = screen.getByRole("link", { name: /release notes/i });
-    expect(byTitle.getAttribute("href")).toBe("/runs/run-1/published/notes");
+    const byName = screen.getByRole("link", { name: /release notes/i });
+    expect(byName.getAttribute("href")).toBe("/runs/run-1/published/notes");
   });
 });

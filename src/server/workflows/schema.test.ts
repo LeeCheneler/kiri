@@ -249,9 +249,9 @@ describe("workflowSchema", () => {
     const result = workflowSchema.parse({
       name: "pub",
       steps: [{ use: "x" }],
-      publish: [{ name: "digest", use: "writer" }],
+      publish: [{ slug: "digest", use: "writer" }],
     });
-    expect(result.publish).toEqual([{ name: "digest", use: "writer" }]);
+    expect(result.publish).toEqual([{ slug: "digest", use: "writer" }]);
     const [entry] = result.publish ?? [];
     expect(isUsePublish(entry)).toBe(true);
   });
@@ -260,29 +260,29 @@ describe("workflowSchema", () => {
     const result = workflowSchema.parse({
       name: "pub-sh",
       steps: [{ use: "x" }],
-      publish: [{ name: "digest", sh: "cat" }],
+      publish: [{ slug: "digest", sh: "cat" }],
     });
-    expect(result.publish).toEqual([{ name: "digest", sh: "cat" }]);
+    expect(result.publish).toEqual([{ slug: "digest", sh: "cat" }]);
     const [entry] = result.publish ?? [];
     expect(isShPublish(entry)).toBe(true);
   });
 
-  it("parses a publish entry with explicit title and env", () => {
+  it("parses a publish entry with explicit name and env", () => {
     const result = workflowSchema.parse({
       name: "pub-full",
       steps: [{ use: "x" }],
       publish: [
         {
-          name: "digest",
-          title: "Top Stories",
+          slug: "digest",
+          name: "Top Stories",
           use: "writer",
           env: { FOO: "bar" },
         },
       ],
     });
     expect(result.publish?.[0]).toEqual({
-      name: "digest",
-      title: "Top Stories",
+      slug: "digest",
+      name: "Top Stories",
       use: "writer",
       env: { FOO: "bar" },
     });
@@ -296,24 +296,24 @@ describe("workflowSchema", () => {
     expect(result.publish).toBeUndefined();
   });
 
-  it("rejects a publish entry whose name doesn't match ^[a-z0-9-]+$", () => {
+  it("rejects a publish entry whose slug doesn't match ^[a-z0-9-]+$", () => {
     expect(() =>
       workflowSchema.parse({
         name: "bad-pub",
         steps: [{ use: "x" }],
-        publish: [{ name: "Bad-Name", use: "writer" }],
+        publish: [{ slug: "Bad-Name", use: "writer" }],
       }),
     ).toThrow();
   });
 
-  it("rejects duplicate publish names within a workflow", () => {
+  it("rejects duplicate publish slugs within a workflow", () => {
     expect(() =>
       workflowSchema.parse({
         name: "dup-pub",
         steps: [{ use: "x" }],
         publish: [
-          { name: "digest", use: "writer" },
-          { name: "digest", sh: "cat" },
+          { slug: "digest", use: "writer" },
+          { slug: "digest", sh: "cat" },
         ],
       }),
     ).toThrow();
@@ -324,7 +324,7 @@ describe("workflowSchema", () => {
       workflowSchema.parse({
         name: "ambig-pub",
         steps: [{ use: "x" }],
-        publish: [{ name: "digest", use: "a", sh: "echo b" }],
+        publish: [{ slug: "digest", use: "a", sh: "echo b" }],
       }),
     ).toThrow();
   });
@@ -334,7 +334,7 @@ describe("workflowSchema", () => {
       workflowSchema.parse({
         name: "neither-pub",
         steps: [{ use: "x" }],
-        publish: [{ name: "digest", env: { FOO: "bar" } }],
+        publish: [{ slug: "digest", env: { FOO: "bar" } }],
       }),
     ).toThrow();
   });
@@ -344,7 +344,7 @@ describe("workflowSchema", () => {
       workflowSchema.parse({
         name: "reserved-pub",
         steps: [{ use: "x" }],
-        publish: [{ name: "digest", use: "writer", env: { KIRI_RUN_ID: "spoofed" } }],
+        publish: [{ slug: "digest", use: "writer", env: { KIRI_RUN_ID: "spoofed" } }],
       }),
     ).toThrow();
   });
@@ -353,10 +353,10 @@ describe("workflowSchema", () => {
     const result = workflowSchema.parse({
       name: "pub-desc",
       steps: [{ use: "x" }],
-      publish: [{ name: "digest", description: "weekly summary", use: "writer" }],
+      publish: [{ slug: "digest", description: "weekly summary", use: "writer" }],
     });
     expect(result.publish?.[0]).toEqual({
-      name: "digest",
+      slug: "digest",
       description: "weekly summary",
       use: "writer",
     });
@@ -367,7 +367,7 @@ describe("workflowSchema", () => {
       workflowSchema.parse({
         name: "empty-desc-pub",
         steps: [{ use: "x" }],
-        publish: [{ name: "digest", description: "", use: "writer" }],
+        publish: [{ slug: "digest", description: "", use: "writer" }],
       }),
     ).toThrow();
   });
@@ -377,15 +377,15 @@ describe("workflowSchema", () => {
       workflowSchema.parse({
         name: "extras-pub",
         steps: [{ use: "x" }],
-        publish: [{ name: "digest", use: "writer", path: "scripts/writer/run.sh" }],
+        publish: [{ slug: "digest", use: "writer", path: "scripts/writer/run.sh" }],
       }),
     ).toThrow();
   });
 
-  it("rejects a publish entry missing name", () => {
+  it("rejects a publish entry missing slug", () => {
     expect(() =>
       workflowSchema.parse({
-        name: "no-name-pub",
+        name: "no-slug-pub",
         steps: [{ use: "x" }],
         publish: [{ use: "writer" }],
       }),
@@ -678,7 +678,7 @@ describe("workflowSchema", () => {
       name: "undeclared-publish-ref",
       inputs: [{ name: "pr_number" }],
       steps: [{ use: "x" }],
-      publish: [{ name: "digest", use: "writer", env: { LABEL: { input: "ghost" } } }],
+      publish: [{ slug: "digest", use: "writer", env: { LABEL: { input: "ghost" } } }],
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -701,7 +701,7 @@ describe("workflowSchema", () => {
       name: "publish-ref",
       inputs: [{ name: "pr_number" }],
       steps: [{ use: "x" }],
-      publish: [{ name: "digest", use: "writer", env: { LABEL: { input: "pr_number" } } }],
+      publish: [{ slug: "digest", use: "writer", env: { LABEL: { input: "pr_number" } } }],
     });
     expect(result.publish?.[0].env).toEqual({ LABEL: { input: "pr_number" } });
   });
@@ -709,13 +709,13 @@ describe("workflowSchema", () => {
 
 describe("isUsePublish / isShPublish", () => {
   it("narrows a use: publish entry", () => {
-    const entry = { name: "digest", use: "writer" } as const;
+    const entry = { slug: "digest", use: "writer" } as const;
     expect(isUsePublish(entry)).toBe(true);
     expect(isShPublish(entry)).toBe(false);
   });
 
   it("narrows an sh: publish entry", () => {
-    const entry = { name: "digest", sh: "cat" } as const;
+    const entry = { slug: "digest", sh: "cat" } as const;
     expect(isShPublish(entry)).toBe(true);
     expect(isUsePublish(entry)).toBe(false);
   });

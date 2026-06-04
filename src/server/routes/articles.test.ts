@@ -31,17 +31,17 @@ describe("articles routes", () => {
 
     const seedArticle = (
       runId: string,
-      name: string,
-      opts: { title?: string; contentMd?: string; createdAt: Date },
+      slug: string,
+      opts: { name?: string; contentMd?: string; createdAt: Date },
     ) => {
       env.db
         .insert(articles)
         .values({
           id: crypto.randomUUID(),
           runId,
-          name,
-          title: opts.title ?? name,
-          contentMd: opts.contentMd ?? `# ${name}`,
+          slug,
+          name: opts.name ?? slug,
+          contentMd: opts.contentMd ?? `# ${slug}`,
           createdAt: opts.createdAt,
         })
         .run();
@@ -61,7 +61,7 @@ describe("articles routes", () => {
       // so the newest-first ordering is deterministic.
       const base = Date.UTC(2026, 0, 1, 12, 0, 0);
       seedArticle("run-a", "a1", { createdAt: new Date(base + 1000) });
-      seedArticle("run-b", "b1", { title: "Beta One", createdAt: new Date(base + 2000) });
+      seedArticle("run-b", "b1", { name: "Beta One", createdAt: new Date(base + 2000) });
       seedArticle("run-a", "a2", { createdAt: new Date(base + 3000) });
       seedArticle("run-b", "b2", { createdAt: new Date(base + 4000) });
       seedArticle("run-a", "a3", { createdAt: new Date(base + 5000) });
@@ -77,15 +77,15 @@ describe("articles routes", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Array<{
         runId: string;
+        slug: string;
         name: string;
-        title: string;
         heading: string | null;
         createdAt: string;
         workflowName: string;
       }>;
 
       // Newest first, capped at 10 — the oldest article (a1) is excluded.
-      expect(body.map((a) => a.name)).toEqual([
+      expect(body.map((a) => a.slug)).toEqual([
         "a6",
         "b5",
         "a5",
@@ -99,15 +99,15 @@ describe("articles routes", () => {
       ]);
       expect(body[0]).toEqual({
         runId: "run-a",
+        slug: "a6",
         name: "a6",
-        title: "a6",
         heading: "a6",
         createdAt: new Date(base + 11000).toISOString(),
         workflowName: "alpha",
       });
       // The joined workflow name travels with each entry.
-      expect(body.find((a) => a.name === "b1")?.workflowName).toBe("beta");
-      expect(body.find((a) => a.name === "a3")?.workflowName).toBe("alpha");
+      expect(body.find((a) => a.slug === "b1")?.workflowName).toBe("beta");
+      expect(body.find((a) => a.slug === "a3")?.workflowName).toBe("alpha");
       // Link metadata only — the markdown body is not in the payload.
       for (const entry of body) {
         expect(entry).not.toHaveProperty("contentMd");
@@ -132,11 +132,11 @@ describe("articles routes", () => {
 
       const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
       const res = await app.request("/api/articles/recent");
-      const body = (await res.json()) as Array<{ name: string; heading: string | null }>;
+      const body = (await res.json()) as Array<{ slug: string; heading: string | null }>;
 
-      expect(body.find((a) => a.name === "with-h1")?.heading).toBe("This Week in PRs");
-      expect(body.find((a) => a.name === "no-h1")?.heading).toBeNull();
-      expect(body.find((a) => a.name === "fenced")?.heading).toBe("Real Heading");
+      expect(body.find((a) => a.slug === "with-h1")?.heading).toBe("This Week in PRs");
+      expect(body.find((a) => a.slug === "no-h1")?.heading).toBeNull();
+      expect(body.find((a) => a.slug === "fenced")?.heading).toBe("Real Heading");
     });
   });
 });

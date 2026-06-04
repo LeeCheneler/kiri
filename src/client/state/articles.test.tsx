@@ -8,27 +8,27 @@ import { LiveEventsProvider } from "../events/live.tsx";
 import { useArticle, useRecentArticles, useRecentArticlesLive } from "./articles.ts";
 import { createQueryClient } from "./query-client.ts";
 
-const Probe = ({ runId, name }: { runId: string; name: string }) => {
-  const { data } = useArticle(runId, name);
-  return <div>{data?.title}</div>;
+const Probe = ({ runId, slug }: { runId: string; slug: string }) => {
+  const { data } = useArticle(runId, slug);
+  return <div>{data?.name}</div>;
 };
 
-const renderProbe = (runId: string, name: string) =>
+const renderProbe = (runId: string, slug: string) =>
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <Probe runId={runId} name={name} />
+      <Probe runId={runId} slug={slug} />
     </QueryClientProvider>,
   );
 
 describe("articles state", () => {
-  it("fetches and exposes a single article by run id and name", async () => {
+  it("fetches and exposes a single article by run id and slug", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:name", ({ params }) =>
+      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
-          name: params.name,
-          title: "Morning Briefing",
+          slug: params.slug,
+          name: "Morning Briefing",
           contentMd: "# Hello\n\nBody.\n",
           createdAt: new Date().toISOString(),
           workflowName: "briefing",
@@ -72,7 +72,7 @@ const serveCountingRecent = () => {
   server.use(
     http.get("*/api/articles/recent", () => {
       calls++;
-      return HttpResponse.json(Array.from({ length: calls }, (_, i) => ({ name: `a${i}` })));
+      return HttpResponse.json(Array.from({ length: calls }, (_, i) => ({ slug: `a${i}` })));
     }),
   );
   return () => calls;
@@ -82,7 +82,7 @@ describe("recent articles state", () => {
   it("fetches and exposes the recently-published list", async () => {
     server.use(
       http.get("*/api/articles/recent", () =>
-        HttpResponse.json([{ name: "a" }, { name: "b" }, { name: "c" }]),
+        HttpResponse.json([{ slug: "a" }, { slug: "b" }, { slug: "c" }]),
       ),
     );
     renderRecentProbe();

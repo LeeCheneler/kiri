@@ -24,7 +24,7 @@ export function ArticlePage({
   params,
   now,
 }: {
-  params: { id: string; name: string };
+  params: { id: string; slug: string };
   now?: Date;
 }) {
   return (
@@ -35,7 +35,7 @@ export function ArticlePage({
 }
 
 /**
- * Published-article content. Reads a single article by `(runId, name)` from
+ * Published-article content. Reads a single article by `(runId, slug)` from
  * the shared query cache and renders its markdown body through the sandboxed
  * design-system `Markdown`. Articles are immutable once written, so the cache
  * never goes stale — there is no live sync.
@@ -44,10 +44,10 @@ export function ArticleContent({
   params,
   now,
 }: {
-  params: { id: string; name: string };
+  params: { id: string; slug: string };
   now?: Date;
 }) {
-  const article = useArticle(params.id, params.name);
+  const article = useArticle(params.id, params.slug);
 
   if (article.isPending) {
     return <LoadingState>Loading article…</LoadingState>;
@@ -65,7 +65,7 @@ export function ArticleContent({
           />
           <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Article not found</h2>
           <p className="mt-3 font-mono text-sm text-ink-muted">
-            No article named <code className="text-ink">{params.name}</code> on run{" "}
+            No article named <code className="text-ink">{params.slug}</code> on run{" "}
             <code className="text-ink">{params.id}</code>.
           </p>
         </section>
@@ -81,16 +81,16 @@ export function ArticleContent({
   const data = article.data;
   // The body's own `# headline` is the article's title; drop it and any
   // assistant preamble before it from the rendered body, and fall back to the
-  // publish title when the body carries no headline of its own.
+  // publish name when the body carries no headline of its own.
   const { heading, body } = splitLeadingHeading(data.contentMd);
-  const displayTitle = heading ?? data.title;
-  // The publish title earns its spot in the eyebrow only when it adds context:
+  const displayTitle = heading ?? data.name;
+  // The publish name earns its spot in the eyebrow only when it adds context:
   // not when the body already supplies the page title, and not when it merely
   // restates the workflow name or the headline. Otherwise fall back to the
   // generic label.
   const seriesLabel =
-    heading !== null && data.title !== data.workflowName && data.title !== heading
-      ? data.title
+    heading !== null && data.name !== data.workflowName && data.name !== heading
+      ? data.name
       : "Article";
   const stats = readingStats(body);
   // Copy the article as displayed: the headline normalised to a `#` line plus
@@ -115,7 +115,7 @@ export function ArticleContent({
 
       <header className="mt-6">
         {/* The eyebrow situates the article under its workflow, suffixed with
-            the publish title as the series label when it adds context (see
+            the publish name as the series label when it adds context (see
             seriesLabel). */}
         <Eyebrow>
           {data.workflowName} · {seriesLabel}

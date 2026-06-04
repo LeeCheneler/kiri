@@ -31,7 +31,7 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/workflows/:name" component={WorkflowPage} />
-          <Route path="/runs/:id/published/:name" component={ArticlePage} />
+          <Route path="/runs/:id/published/:slug" component={ArticlePage} />
           <Route path="/runs/:id" component={RunPage} />
           <Route path="/dev/design-system" component={DesignSystemPage} />
           <Route component={NotFoundPage} />

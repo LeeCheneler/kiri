@@ -100,8 +100,8 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     // `content_md` is pulled to derive each entry's first-h1 byline but not
     // echoed back — the body itself is fetched by the article page.
     type ArticleProjection = {
+      slug: string;
       name: string;
-      title: string;
       heading: string | null;
       createdAt: Date;
     };
@@ -112,8 +112,8 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       const allArticles = db
         .select({
           runId: articles.runId,
+          slug: articles.slug,
           name: articles.name,
-          title: articles.title,
           contentMd: articles.contentMd,
           createdAt: articles.createdAt,
         })
@@ -121,11 +121,11 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         .where(inArray(articles.runId, runIds))
         .orderBy(asc(articles.createdAt))
         .all();
-      for (const { runId, name, title, contentMd, createdAt } of allArticles) {
+      for (const { runId, slug, name, contentMd, createdAt } of allArticles) {
         const list = articlesByRunId.get(runId);
         const entry: ArticleProjection = {
+          slug,
           name,
-          title,
           heading: extractFirstHeading(contentMd),
           createdAt,
         };
@@ -157,25 +157,25 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
   });
 
   app.get(
-    "/:id/published/:name",
-    zValidator("param", publishedArticleParamSchema, onZodFail("invalid article name")),
+    "/:id/published/:slug",
+    zValidator("param", publishedArticleParamSchema, onZodFail("invalid article slug")),
     (c) => {
-      const { id, name } = c.req.valid("param");
+      const { id, slug } = c.req.valid("param");
       const run = db.select().from(runs).where(eq(runs.id, id)).get();
       if (!run) return c.json({ error: `run "${id}" not found` }, 404);
       const article = db
         .select()
         .from(articles)
-        .where(and(eq(articles.runId, id), eq(articles.name, name)))
+        .where(and(eq(articles.runId, id), eq(articles.slug, slug)))
         .get();
       if (!article) {
-        return c.json({ error: `article "${name}" not found on run "${id}"` }, 404);
+        return c.json({ error: `article "${slug}" not found on run "${id}"` }, 404);
       }
       return c.json({
         id: article.id,
         runId: article.runId,
+        slug: article.slug,
         name: article.name,
-        title: article.title,
         contentMd: article.contentMd,
         createdAt: article.createdAt,
         workflowName: run.workflowName,
@@ -209,8 +209,8 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     // both read from one place.
     const articleRows = db
       .select({
+        slug: articles.slug,
         name: articles.name,
-        title: articles.title,
         contentMd: articles.contentMd,
         createdAt: articles.createdAt,
       })

@@ -9,8 +9,8 @@ steps:
     description: No data to fetch — every chart below ships its own inline values.
 
 publish:
-  - name: charts
-    title: Chart Gallery
+  - slug: charts
+    name: Chart Gallery
     description: A worked tour of the chart types a published article can embed.
     sh: |
       cat <<'EOF'

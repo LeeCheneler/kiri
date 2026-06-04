@@ -104,9 +104,9 @@ export const runSteps = sqliteTable(
 /**
  * One row per published article a run produced. Populated after `steps:`
  * complete (when the workflow defines `publish:`) and read back to render
- * article chips on the feed and the dedicated article page. `title` is
- * the resolved display title — never null — so write-time titlecasing
- * doesn't leak into read paths.
+ * article chips on the feed and the dedicated article page. `slug` is the
+ * URL/identifier; `name` is the resolved display label — never null — so
+ * write-time titlecasing doesn't leak into read paths.
  */
 export const articles = sqliteTable(
   "articles",
@@ -115,13 +115,13 @@ export const articles = sqliteTable(
     runId: text("run_id")
       .notNull()
       .references(() => runs.id),
+    slug: text("slug").notNull(),
     name: text("name").notNull(),
-    title: text("title").notNull(),
     contentMd: text("content_md").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [
-    uniqueIndex("articles_run_id_name_unique").on(t.runId, t.name),
+    uniqueIndex("articles_run_id_slug_unique").on(t.runId, t.slug),
     index("articles_run_id_idx").on(t.runId),
   ],
 );
