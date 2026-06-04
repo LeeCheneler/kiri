@@ -10,7 +10,9 @@ type SchemaItem = WorkflowStepSummary | WorkflowPublishSummary;
  * kind, and its title; expanding reveals the entry's config.
  */
 function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
-  const publish = "name" in entry ? entry : undefined;
+  // Publish summaries always carry a resolved `title`; steps never do, so it's
+  // the reliable discriminant now that steps may also declare a `name`.
+  const publish = "title" in entry ? entry : undefined;
   return (
     <Disclosure
       summary={

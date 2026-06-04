@@ -136,6 +136,31 @@ describe("workflowSchema", () => {
     ).toThrow();
   });
 
+  it("parses a step with an optional name on use:", () => {
+    const result = workflowSchema.parse({
+      name: "named",
+      steps: [{ use: "x", name: "Fetch the PR" }],
+    });
+    expect(result.steps[0]).toEqual({ use: "x", name: "Fetch the PR" });
+  });
+
+  it("parses a step with an optional name on sh:", () => {
+    const result = workflowSchema.parse({
+      name: "named-sh",
+      steps: [{ sh: "echo hi", name: "Smoke test" }],
+    });
+    expect(result.steps[0]).toEqual({ sh: "echo hi", name: "Smoke test" });
+  });
+
+  it("rejects an empty name on a step", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "empty-name",
+        steps: [{ use: "x", name: "" }],
+      }),
+    ).toThrow();
+  });
+
   it("parses a workflow with a use: summarize step", () => {
     const result = workflowSchema.parse({
       name: "summed",
@@ -199,6 +224,15 @@ describe("workflowSchema", () => {
       summarize: { use: "y", description: "one-line digest" },
     });
     expect(result.summarize).toEqual({ use: "y", description: "one-line digest" });
+  });
+
+  it("parses a summarize step with an optional name", () => {
+    const result = workflowSchema.parse({
+      name: "named-sum",
+      steps: [{ use: "x" }],
+      summarize: { use: "y", name: "Summarise the run" },
+    });
+    expect(result.summarize).toEqual({ use: "y", name: "Summarise the run" });
   });
 
   it("rejects a summarize step with unknown extra keys", () => {

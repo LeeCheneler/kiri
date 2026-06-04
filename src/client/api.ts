@@ -7,10 +7,14 @@ import { z } from "zod";
  */
 export type EnvValue = string | { input: string };
 
-/** A single workflow step as seen by the client. */
+/**
+ * A single workflow step as seen by the client. `name` is an optional
+ * short label used as the step's title in the Schema tab and run timeline;
+ * absent steps fall back to the bundle reference or the script's first line.
+ */
 export type WorkflowStepSummary =
-  | { use: string; description?: string; env?: Record<string, EnvValue> }
-  | { sh: string; description?: string; env?: Record<string, EnvValue> };
+  | { use: string; name?: string; description?: string; env?: Record<string, EnvValue> }
+  | { sh: string; name?: string; description?: string; env?: Record<string, EnvValue> };
 
 /**
  * One `publish:` entry on a workflow summary. `title` is always present —

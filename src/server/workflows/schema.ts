@@ -16,9 +16,17 @@ const envSchema = z
     message: "env keys starting with 'KIRI_' are reserved",
   });
 
+const stepNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Short label for the step, shown as its title in the Schema tab and the run timeline. Defaults to the bundle reference (`use:`) or the script's first line (`sh:`).",
+  );
+
 const useStepSchema = z
   .object({
     use: z.string().min(1),
+    name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
   })
@@ -27,6 +35,7 @@ const useStepSchema = z
 const shStepSchema = z
   .object({
     sh: z.string().min(1),
+    name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
   })
