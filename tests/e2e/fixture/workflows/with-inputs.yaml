@@ -7,6 +7,7 @@ inputs:
     default: main
 steps:
   - sh: echo "pr=$PR_NUMBER branch=$BRANCH"
+    name: Echo inputs
     env:
       PR_NUMBER:
         input: pr_number

@@ -107,7 +107,7 @@ test("re-running a workflow with inputs opens a pre-filled modal and forwards tw
   expect(page.url()).toBe(url);
 
   // The step echoes the resolved env — confirm the tweaked value flowed through.
-  const step = page.getByRole("button", { name: /sh:/i });
+  const step = page.getByRole("button", { name: /echo inputs/i });
   await step.click();
   await expect(page.getByText("pr=99 branch=release", { exact: true })).toBeVisible();
 });

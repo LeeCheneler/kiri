@@ -1,3 +1,4 @@
 name: golden
 steps:
   - sh: echo "kiri e2e fixture"
+    name: Echo fixture

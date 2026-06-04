@@ -85,13 +85,12 @@ test("opening a run detail page reveals stdout when the step is expanded", async
   await expect(page.getByText("golden · Run")).toBeVisible();
   await expect(page.getByText("Steps")).toBeVisible();
 
-  const step = page.getByRole("button", { name: /sh:/i });
+  const step = page.getByRole("button", { name: /echo fixture/i });
   await expect(step).toHaveAttribute("aria-expanded", "false");
   await step.click();
   await expect(step).toHaveAttribute("aria-expanded", "true");
-  // The fixture's `echo` produces this exact stdout; exact: true
-  // disambiguates from the kind label, which contains the same phrase
-  // wrapped in `sh: echo "..."`.
+  // The fixture's `echo` produces this exact stdout, distinct from the step's
+  // name ("Echo fixture") shown on the disclosure row.
   await expect(page.getByText("kiri e2e fixture", { exact: true })).toBeVisible();
 });
 
@@ -154,8 +153,8 @@ test("invoking a workflow with inputs opens a modal, collects values, and lands 
 
   // The step echoes the resolved env, confirming the inputs flowed through
   // the API → snapshot → spawn env path. The disclosure has to be expanded
-  // to reveal stdout; the kind label disambiguates from any future button.
-  const step = page.getByRole("button", { name: /sh:/i });
+  // to reveal stdout; the step's name labels the disclosure button.
+  const step = page.getByRole("button", { name: /echo inputs/i });
   await step.click();
   await expect(page.getByText("pr=42 branch=main", { exact: true })).toBeVisible();
 });
