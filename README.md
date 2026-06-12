@@ -50,6 +50,12 @@ kiri init    # scaffold a starter workflow
 kiri         # boot the orchestrator on :4242
 ```
 
+To pin a fixed workspace regardless of where you launch from, set `KIRI_CONFIG_DIR` (a leading `~` is expanded). It applies to both `kiri init` and the server:
+
+```sh
+KIRI_CONFIG_DIR=~/projects/some-workspace kiri
+```
+
 Then open **https://local.kiri.build** in your browser. The hosted shell at that URL loads kiri's UI from your locally-running process. Bookmark it — same URL across machines and projects.
 
 > **Safari / Brave note.** Both browsers block HTTP-localhost subresource loads from an HTTPS page, so the shell won't fetch kiri's bundle there. Use **http://localhost:4242** directly on those browsers. Chrome and Firefox work either way.

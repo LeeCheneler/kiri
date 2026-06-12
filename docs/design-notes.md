@@ -238,7 +238,7 @@ No Next.js, no HonoX, no full-stack framework — explicit choice to keep UI and
 
 ### Launch model & data dir
 
-Kiri is a CLI launched from the cwd of whichever directory you want to run workflows against. The tool is global; the directory is the workspace. Same shape as `vite`, `next dev`, `drizzle-kit` — switching projects is `cd && kiri`. There is no global cross-repo store. Workflow definitions are expected to live under git, but kiri itself doesn't enforce that — the user owns versioning their own definitions.
+Kiri is a CLI launched from the cwd of whichever directory you want to run workflows against. The tool is global; the directory is the workspace. Same shape as `vite`, `next dev`, `drizzle-kit` — switching projects is `cd && kiri`, or set `KIRI_CONFIG_DIR` (a leading `~` is expanded) to pin a fixed workspace for launchers and aliases that can't easily `cd` first. There is no global cross-repo store. Workflow definitions are expected to live under git, but kiri itself doesn't enforce that — the user owns versioning their own definitions.
 
 Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
 

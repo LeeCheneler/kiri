@@ -164,6 +164,8 @@ kiri --version</code></pre>
       <pre><code>cd ~/projects/some-workspace
 kiri init    # scaffold a starter workflow
 kiri         # boot on :4242</code></pre>
+      <p>To pin a fixed workspace regardless of where you launch from, set <code>KIRI_CONFIG_DIR</code> (a leading <code>~</code> is expanded). It applies to both <code>kiri init</code> and the server:</p>
+      <pre><code>KIRI_CONFIG_DIR=~/projects/some-workspace kiri</code></pre>
       <p>Then open <a href="/">local.kiri.build</a> and click <strong>Run</strong> on the starter workflow.</p>
 
       <h2>Workflows</h2>
