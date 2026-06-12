@@ -32,14 +32,15 @@ Environment:
 const INIT_HELP = `Usage: kiri init
 
 Scaffold workflow authoring assets in the working directory:
-  README.md                   Workflow DSL reference and IDE/LSP setup notes
-  workflows/hello-world.yaml  Minimal one-step starter workflow
-  .kiri/workflow.schema.json  JSON Schema for editor validation
+  README.md                        Workflow DSL reference and IDE/LSP setup notes
+  workflows/hello-world.yaml       Minimal one-step starter workflow
+  .kiri/workflow.schema.json       JSON Schema for editor validation
+  .kiri/llm-providers.schema.json  JSON Schema for llm-providers.yaml
 
 The working directory is the current directory, or KIRI_CONFIG_DIR if set.
 Existing files are never overwritten; only missing files are created.
-The schema file is always (re)written from the live Zod schema, so a
-plain \`kiri\` launch also keeps it in sync after a binary upgrade.
+The schema files are always (re)written from the live Zod schemas, so a
+plain \`kiri\` launch also keeps them in sync after a binary upgrade.
 `;
 
 const args = process.argv.slice(2);
@@ -64,6 +65,7 @@ if (args[0] === "init") {
   for (const path of result.created) console.log(`created  ${path}`);
   for (const path of result.skipped) console.log(`skipped  ${path} (already exists)`);
   console.log(`schema   ${result.schemaPath}`);
+  console.log(`schema   ${result.llmSchemaPath}`);
   if (result.gitignoreUpdated) console.log("updated  .gitignore (added .kiri/)");
   process.exit(0);
 }

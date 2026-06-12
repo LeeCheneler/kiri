@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { llmProvidersJsonSchema } from "./llm/index.ts";
 import { workflowJsonSchema } from "./workflows/index.ts";
 
 /** Contents of the scaffolded repo-root `README.md`. */
@@ -218,6 +219,7 @@ steps:
 
 /** Relative paths reported by `initRepo`. */
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
+const LLM_SCHEMA_REL_PATH = ".kiri/llm-providers.schema.json";
 const README_REL_PATH = "README.md";
 const HELLO_WORLD_WORKFLOW_REL_PATH = "workflows/hello-world.yaml";
 const GITIGNORE_REL_PATH = ".gitignore";
@@ -229,8 +231,10 @@ export interface InitResult {
   created: string[];
   /** Repo-relative paths of files that already existed and were left untouched. */
   skipped: string[];
-  /** Repo-relative path of the schema file (always (re)written). */
+  /** Repo-relative path of the workflow schema file (always (re)written). */
   schemaPath: string;
+  /** Repo-relative path of the LLM providers schema file (always (re)written). */
+  llmSchemaPath: string;
   /** True if `.gitignore` was created or appended to add the `.kiri/` line. */
   gitignoreUpdated: boolean;
 }
@@ -245,6 +249,19 @@ export function writeSchemaFile(cwd: string): string {
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "workflow.schema.json");
   writeFileSync(path, `${JSON.stringify(workflowJsonSchema(), null, 2)}\n`);
+  return path;
+}
+
+/**
+ * (Re)write `.kiri/llm-providers.schema.json` from the live Zod schema, so
+ * editor validation of `llm-providers.yaml` stays in sync after a binary
+ * upgrade. Published on every startup alongside the workflow schema.
+ */
+export function writeLlmProvidersSchemaFile(cwd: string): string {
+  const dir = join(cwd, ".kiri");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, "llm-providers.schema.json");
+  writeFileSync(path, `${JSON.stringify(llmProvidersJsonSchema(), null, 2)}\n`);
   return path;
 }
 
@@ -283,10 +300,10 @@ const ensureKiriIgnored = (cwd: string): boolean => {
 
 /**
  * Bootstrap a kiri-ready repo at `cwd`: create `workflows/`, drop in a repo
- * README and a minimal hello-world starter workflow, (re)write the JSON
- * Schema file, and add `.kiri/` to `.gitignore` if one exists. User-authored
- * files are never overwritten — only missing files are created. The schema
- * file is always refreshed.
+ * README and a minimal hello-world starter workflow, (re)write the workflow
+ * and LLM-providers JSON Schema files, and add `.kiri/` to `.gitignore` if one
+ * exists. User-authored files are never overwritten — only missing files are
+ * created. The schema files are always refreshed.
  */
 export function initRepo(cwd: string): InitResult {
   const workflowsDir = join(cwd, "workflows");
@@ -305,12 +322,14 @@ export function initRepo(cwd: string): InitResult {
   );
 
   writeSchemaFile(cwd);
+  writeLlmProvidersSchemaFile(cwd);
   const gitignoreUpdated = ensureKiriIgnored(cwd);
 
   return {
     created,
     skipped,
     schemaPath: SCHEMA_REL_PATH,
+    llmSchemaPath: LLM_SCHEMA_REL_PATH,
     gitignoreUpdated,
   };
 }
