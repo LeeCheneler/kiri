@@ -145,6 +145,27 @@ describe("runLlmStep", () => {
     expect(envelope.traces.usage).toBeUndefined();
   });
 
+  it("maps a non-Error rejection onto a failed envelope via String()", async () => {
+    const clients: LlmClients = {
+      resolveModel: () => {
+        throw new Error("unused");
+      },
+      generateText: () => Promise.reject("socket hang up"),
+    };
+
+    const envelope = await runLlmStep({
+      step: { llm: { model: "anthropic:m", prompt: "p" } },
+      cwd,
+      input: "",
+      env: {},
+      llmClients: clients,
+    });
+
+    expect(envelope.status).toBe("failed");
+    expect(envelope.error?.message).toBe("socket hang up");
+    expect(envelope.error?.stack).toBeUndefined();
+  });
+
   it("publishes an abort handle whose kill() cancels the in-flight call", async () => {
     const clients: LlmClients = {
       resolveModel: () => {
