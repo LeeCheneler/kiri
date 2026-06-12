@@ -8,6 +8,7 @@ import { bootstrap } from "../bootstrap.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
+import type { LlmClients } from "../llm/index.ts";
 import type { WorkflowDefinition, WorkflowStep } from "../workflows/index.ts";
 import { createCancelRegistry } from "./cancel-registry.ts";
 import { runWorkflow } from "./run-workflow.ts";
@@ -43,6 +44,14 @@ describe("runWorkflow", () => {
   const makeWorkflow = (name: string, steps: WorkflowStep[]): WorkflowDefinition => ({
     name,
     steps,
+  });
+
+  /** Fake llm clients with the supplied completion behaviour; the runner never calls resolveModel. */
+  const fakeLlm = (generateText: LlmClients["generateText"]): LlmClients => ({
+    resolveModel: () => {
+      throw new Error("resolveModel is not part of the runner contract");
+    },
+    generateText,
   });
 
   it("persists a single use: step run + envelope and reports ok", async () => {
@@ -102,7 +111,7 @@ describe("runWorkflow", () => {
     expect(steps[1].output).toBe("first-output\n");
   });
 
-  it("records an llm step with kind llm and fails the run (not yet executable)", async () => {
+  it("records an llm step with kind llm and fails the run when no llm clients are wired", async () => {
     const wf = makeWorkflow("llm-stub", [
       { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
     ]);
@@ -114,13 +123,116 @@ describe("runWorkflow", () => {
     const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
     expect(run?.status).toBe("failed");
     expect(run?.error).toEqual({
-      message: 'llm steps are not yet executable (model "anthropic:claude-haiku-4-5")',
+      message: 'llm steps are not configured on this server (model "anthropic:claude-haiku-4-5")',
     });
 
     const steps = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
     expect(steps).toHaveLength(1);
     expect(steps[0].kind).toBe("llm");
     expect(steps[0].status).toBe("failed");
+  });
+
+  describe("llm: steps", () => {
+    it("pipes the completion text downstream and renders {{KIRI_INPUT}} from the previous step", async () => {
+      writeBundle("emit", "#!/bin/sh\necho first-output\n");
+      const prompts: string[] = [];
+      const llmClients = fakeLlm(async ({ prompt }) => {
+        prompts.push(prompt);
+        return { text: "llm-reply", usage: {} };
+      });
+      const wf = makeWorkflow("llm-pipe", [
+        { use: "emit" },
+        { llm: { model: "anthropic:m", prompt: "Reply to: {{KIRI_INPUT}}" } },
+        { sh: "cat" },
+      ]);
+
+      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+
+      expect(result.status).toBe("ok");
+      expect(prompts).toEqual(["Reply to: first-output"]);
+      const steps = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(steps[1].output).toBe("llm-reply");
+      expect(steps[2].output).toBe("llm-reply");
+    });
+
+    it("halts the pipeline when the call fails, with the provider message on the run", async () => {
+      writeBundle("never", "#!/bin/sh\necho should-not-run\n");
+      const llmClients = fakeLlm(async () => {
+        throw new Error("429 rate limited");
+      });
+      const wf = makeWorkflow("llm-fails", [
+        { llm: { model: "anthropic:m", prompt: "p" } },
+        { use: "never" },
+      ]);
+
+      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+
+      expect(result.status).toBe("failed");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.error).toMatchObject({ message: "429 rate limited" });
+      const steps = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+      expect(steps).toHaveLength(1);
+    });
+
+    it("persists usage on the step row and does not expose a recommendations file", async () => {
+      const prompts: string[] = [];
+      const llmClients = fakeLlm(async ({ prompt }) => {
+        prompts.push(prompt);
+        return {
+          text: "done",
+          usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+        };
+      });
+      const wf = makeWorkflow("llm-usage", [
+        { llm: { model: "anthropic:m", prompt: "rec={{KIRI_RECOMMENDATIONS_FILE}}" } },
+      ]);
+
+      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+
+      expect(result.status).toBe("ok");
+      // The file channel is absent for llm steps, so the placeholder renders empty.
+      expect(prompts).toEqual(["rec="]);
+      const steps = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+      expect(steps[0].traces).toEqual({
+        stdout: "done",
+        stderr: "",
+        durationMs: expect.any(Number),
+        usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+      });
+    });
+
+    it("cancel mid-call aborts the request and finalises the run as cancelled", async () => {
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
+      let callStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        callStarted = resolve;
+      });
+      const llmClients = fakeLlm(
+        ({ abortSignal }) =>
+          new Promise((_resolve, reject) => {
+            callStarted();
+            abortSignal?.addEventListener("abort", () => reject(new Error("request aborted")));
+          }),
+      );
+      const wf = makeWorkflow("llm-cancel", [{ llm: { model: "anthropic:m", prompt: "p" } }]);
+
+      const { runId, done } = runWorkflow(db, wf, { cwd, cancelRegistry, llmClients });
+      await started;
+      expect(cancelRegistry.requestCancel(runId)).toBe(true);
+
+      const result = await done;
+      expect(result.status).toBe("cancelled");
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("cancelled");
+      expect(run?.error).toEqual({ message: "run cancelled" });
+      const steps = db.select().from(runSteps).where(eq(runSteps.runId, runId)).all();
+      expect(steps[0].status).toBe("cancelled");
+    });
   });
 
   it("halts on first failure and does not create rows for later steps", async () => {
@@ -860,6 +972,28 @@ describe("runWorkflow", () => {
       expect(parsed.articles).toEqual([]);
     });
 
+    it("caps a step's stdout in the run-context envelope at 64 KB", async () => {
+      // Emit ~80 KB of stdout so the per-stream cap bites.
+      writeBundle("firehose", "#!/bin/sh\nyes x | head -c 81920\n");
+      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      const wf: WorkflowDefinition = {
+        name: "ctx-cap",
+        steps: [{ use: "firehose" }],
+        summarize: { use: "context-dump" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd }).done;
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      const parsed = JSON.parse(run?.summary as string);
+      expect(parsed.steps[0].stdout.endsWith("\n[truncated]")).toBe(true);
+      expect(parsed.steps[0].stdout.length).toBeLessThan(81920);
+
+      // The step row keeps the full stream — only the context envelope is capped.
+      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+      const firehose = stepsRows.find((s) => s.index === 0);
+      expect((firehose?.traces as { stdout: string }).stdout.length).toBe(81920);
+    });
+
     it("includes successful articles in the summariser run-context envelope", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("art", "#!/bin/sh\necho article-body\n");
@@ -934,6 +1068,68 @@ describe("runWorkflow", () => {
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.summary).toBeNull();
+    });
+
+    it("stores an llm summariser's text and inlines the run context into its prompt", async () => {
+      writeBundle("step", "#!/bin/sh\necho hello\n");
+      const prompts: string[] = [];
+      const llmClients = fakeLlm(async ({ prompt }) => {
+        prompts.push(prompt);
+        return { text: "  a tidy summary  ", usage: {} };
+      });
+      const wf: WorkflowDefinition = {
+        name: "llm-sum",
+        steps: [{ use: "step" }],
+        summarize: {
+          llm: {
+            model: "anthropic:m",
+            prompt: "file={{KIRI_RUN_CONTEXT_FILE}}|{{KIRI_RUN_CONTEXT}}",
+          },
+        },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+
+      expect(result.status).toBe("ok");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("a tidy summary");
+
+      // No context file is written for llm steps — the placeholder renders
+      // empty and the envelope itself is inlined instead.
+      expect(prompts[0]?.startsWith("file=|{")).toBe(true);
+      const context = JSON.parse(prompts[0]?.slice("file=|".length) as string);
+      expect(context.workflow).toBe("llm-sum");
+      expect(context.steps[0]).toMatchObject({ kind: "use", use: "step", stdout: "hello\n" });
+    });
+
+    it("falls back to the baked-in summary prompt when an llm summariser declares none", async () => {
+      writeBundle("step", "#!/bin/sh\necho payload\n");
+      const prompts: string[] = [];
+      const llmClients = fakeLlm(async ({ prompt }) => {
+        prompts.push(prompt);
+        return { text: "default-prompt summary", usage: {} };
+      });
+      const wf: WorkflowDefinition = {
+        name: "zero-config-sum",
+        steps: [{ use: "step" }],
+        summarize: { llm: { model: "anthropic:m" } },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+
+      expect(result.status).toBe("ok");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("default-prompt summary");
+
+      // The default prompt carries the feed instructions and the inlined envelope.
+      expect(prompts[0]).toContain("activity feed");
+      expect(prompts[0]).toContain('"workflow": "zero-config-sum"');
+      expect(prompts[0]).toContain("payload");
+
+      // The snapshot keeps the authored definition, not the substituted prompt.
+      expect(run?.definitionSnapshot).toMatchObject({
+        summarize: { llm: { model: "anthropic:m" } },
+      });
     });
   });
 
@@ -1354,6 +1550,43 @@ describe("runWorkflow", () => {
         { type: "run.updated", id: result.runId, status: "ok" },
         { type: "run.finished", id: result.runId, status: "ok" },
       ]);
+    });
+
+    it("stores an llm publish's text as the article and inlines the run context", async () => {
+      writeBundle("step", "#!/bin/sh\necho material\n");
+      const prompts: string[] = [];
+      const llmClients = fakeLlm(async ({ prompt }) => {
+        prompts.push(prompt);
+        return { text: "# Weekly digest\n\nbody\n", usage: {} };
+      });
+      const wf: WorkflowDefinition = {
+        name: "llm-pub",
+        steps: [{ use: "step" }],
+        publish: [
+          {
+            slug: "digest",
+            llm: {
+              model: "anthropic:m",
+              prompt: "file={{KIRI_RUN_CONTEXT_FILE}}|{{KIRI_RUN_CONTEXT}}",
+            },
+          },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+
+      expect(result.status).toBe("ok");
+      const stored = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
+      expect(stored).toHaveLength(1);
+      expect(stored[0].slug).toBe("digest");
+      expect(stored[0].contentMd).toBe("# Weekly digest\n\nbody");
+
+      // No context file is written for llm publishes — the placeholder
+      // renders empty and the envelope itself is inlined instead.
+      expect(prompts[0]?.startsWith("file=|{")).toBe(true);
+      const context = JSON.parse(prompts[0]?.slice("file=|".length) as string);
+      expect(context.workflow).toBe("llm-pub");
+      expect(context.steps[0]).toMatchObject({ kind: "use", stdout: "material\n" });
     });
   });
 

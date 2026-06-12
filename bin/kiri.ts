@@ -6,7 +6,11 @@ import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
-import { createLlmProviderRegistry, loadLlmProviders } from "../src/server/llm/index.ts";
+import {
+  createLlmClients,
+  createLlmProviderRegistry,
+  loadLlmProviders,
+} from "../src/server/llm/index.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
@@ -93,6 +97,7 @@ if (llmProviders.failure) {
   );
 }
 const providerNames = new Set(llmProviders.providers.keys());
+const llmClients = createLlmClients(llmRegistry, process.env);
 
 const workflowsDir = join(cwd, "workflows");
 const initial = await loadWorkflows(workflowsDir, cwd, providerNames);
@@ -103,7 +108,7 @@ for (const failure of initial.failures) {
 
 const watcher = watchWorkflows(workflowsDir, cwd, registry, initial, { bus, providerNames });
 
-const app = createApp({ db, registry, cwd, bus, cancelRegistry, version: VERSION });
+const app = createApp({ db, registry, cwd, bus, cancelRegistry, llmClients, version: VERSION });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
 

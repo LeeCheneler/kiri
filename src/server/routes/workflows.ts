@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { resolvePublishName } from "../../shared/publish-name.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
+import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow } from "../runner/index.ts";
 import { type Registry, type WorkflowDefinition, buildInputSchema } from "../workflows/index.ts";
@@ -14,6 +15,8 @@ export interface WorkflowsRoutesDeps {
   cwd: string;
   bus?: EventBus;
   cancelRegistry?: CancelRegistry;
+  /** Completion client forwarded to the runner so `llm:` steps can execute. Absent ⇒ they fail cleanly. */
+  llmClients?: LlmClients;
 }
 
 const summarizeWorkflow = (def: WorkflowDefinition) => ({
@@ -46,7 +49,7 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
  * by `createApp`.
  */
 export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
-  const { db, registry, cwd, bus, cancelRegistry } = deps;
+  const { db, registry, cwd, bus, cancelRegistry, llmClients } = deps;
   const app = new Hono();
 
   app.get("/", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
@@ -69,6 +72,7 @@ export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
         bus,
         cancelRegistry,
         inputs,
+        llmClients,
       });
       // Background execution: log unhandled rejections so they don't trip the
       // process-wide handler. The run row is finalised inside `done` before any

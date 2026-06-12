@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
+import type { LlmClients } from "./llm/index.ts";
 import { articlesRoutes } from "./routes/articles.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { mountStaticRoutes } from "./routes/static.ts";
@@ -43,6 +44,11 @@ export interface AppDeps {
    * is omitted entirely.
    */
   cancelRegistry?: CancelRegistry;
+  /**
+   * Completion client forwarded to the runner so `llm:` steps can execute.
+   * Without it, llm steps fail cleanly with a not-configured error.
+   */
+  llmClients?: LlmClients;
   /**
    * Inject the embedded-SPA map directly (test seam). Production reads
    * from `embedded-assets.ts`; tests pass a `Map` to exercise the
@@ -86,7 +92,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const { db, registry, cwd, bus, eventsHeartbeatMs, cancelRegistry } = deps;
+  const { db, registry, cwd, bus, eventsHeartbeatMs, cancelRegistry, llmClients } = deps;
   const version = deps.version ?? "dev";
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
   const app = new Hono();
@@ -146,8 +152,11 @@ export function createApp(deps: AppDeps): Hono {
   app.notFound((c) => c.json({ error: "not found" }, 404));
 
   app.route("/api", systemRoutes({ version }));
-  app.route("/api/workflows", workflowsRoutes({ db, registry, cwd, bus, cancelRegistry }));
-  app.route("/api/runs", runsRoutes({ db, registry, cwd, bus, cancelRegistry }));
+  app.route(
+    "/api/workflows",
+    workflowsRoutes({ db, registry, cwd, bus, cancelRegistry, llmClients }),
+  );
+  app.route("/api/runs", runsRoutes({ db, registry, cwd, bus, cancelRegistry, llmClients }));
   app.route("/api/articles", articlesRoutes({ db }));
 
   if (bus) {

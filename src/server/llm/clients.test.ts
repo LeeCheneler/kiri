@@ -94,6 +94,28 @@ describe("llm clients", () => {
     expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 13, totalTokens: 20 });
   });
 
+  it("resolves and completes in one call via the generateText method", async () => {
+    server.use(anthropicMessages("hi from claude"));
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    const result = await clients.generateText({
+      model: "anthropic:claude-haiku-4-5",
+      prompt: "hello",
+    });
+
+    expect(result.text).toBe("hi from claude");
+    expect(result.usage.inputTokens).toBe(11);
+    expect(result.usage.outputTokens).toBe(22);
+  });
+
+  it("surfaces a resolution error from generateText as a rejection, not a throw", async () => {
+    const clients = createLlmClients(registryWith(anthropic), {});
+
+    await expect(clients.generateText({ model: "openai:gpt-4o", prompt: "p" })).rejects.toThrow(
+      /unknown llm provider "openai"/,
+    );
+  });
+
   it("throws for an unknown provider prefix, listing the configured providers", () => {
     const clients = createLlmClients(registryWith(anthropic, local), {});
 

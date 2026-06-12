@@ -15,6 +15,7 @@ export {
 } from "./loader.ts";
 export { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
 export { renderPrompt } from "./render-prompt.ts";
+export { DEFAULT_SUMMARY_PROMPT } from "./default-summary-prompt.ts";
 export {
   type RunContext,
   type RunContextArticle,

@@ -212,6 +212,38 @@ describe("workflows routes", () => {
       expect(finished?.finishedAt).toBeInstanceOf(Date);
     });
 
+    it("forwards llm clients into the runner so llm steps execute", async () => {
+      const wf: WorkflowDefinition = {
+        name: "llm-flow",
+        steps: [{ llm: { model: "anthropic:m", prompt: "say hi" } }],
+      };
+      env.registry.replace(new Map([[wf.name, wf]]));
+
+      const { bus, waitForFinished } = createRunWaiter();
+      const app = createApp({
+        db: env.db,
+        registry: env.registry,
+        cwd: env.cwd,
+        bus,
+        llmClients: {
+          resolveModel: () => {
+            throw new Error("resolveModel is not part of the runner contract");
+          },
+          generateText: async () => ({ text: "hi back", usage: {} }),
+        },
+      });
+      const res = await app.request("/api/workflows/llm-flow/runs", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(202);
+      const { runId } = (await res.json()) as { runId: string };
+      await waitForFinished(runId);
+
+      const finished = env.db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(finished?.status).toBe("ok");
+    });
+
     it("logs and absorbs rejections from the background runner so they never go unhandled", async () => {
       writeBundle(env.cwd, "hi", "#!/bin/sh\necho hello\n");
       const wf: WorkflowDefinition = { name: "throwy", steps: [{ use: "hi" }] };
