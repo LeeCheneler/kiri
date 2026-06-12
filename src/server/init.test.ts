@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HELLO_WORLD_WORKFLOW, KIRI_README, initRepo, writeSchemaFile } from "./init.ts";
+import {
+  HELLO_WORLD_WORKFLOW,
+  KIRI_README,
+  initRepo,
+  writeLlmProvidersSchemaFile,
+  writeSchemaFile,
+} from "./init.ts";
+import { llmProvidersJsonSchema } from "./llm/index.ts";
 import { loadWorkflows, workflowJsonSchema } from "./workflows/index.ts";
 
 describe("writeSchemaFile", () => {
@@ -32,6 +39,33 @@ describe("writeSchemaFile", () => {
   });
 });
 
+describe("writeLlmProvidersSchemaFile", () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "kiri-llm-schema-"));
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("creates .kiri/ and writes the JSON schema with a trailing newline", () => {
+    const path = writeLlmProvidersSchemaFile(cwd);
+    expect(path).toBe(join(cwd, ".kiri", "llm-providers.schema.json"));
+    const raw = readFileSync(path, "utf8");
+    expect(raw.endsWith("\n")).toBe(true);
+    expect(JSON.parse(raw)).toEqual(llmProvidersJsonSchema());
+  });
+
+  it("overwrites an existing schema file (always refreshed)", () => {
+    const path = writeLlmProvidersSchemaFile(cwd);
+    writeFileSync(path, '{ "stale": true }');
+    writeLlmProvidersSchemaFile(cwd);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(llmProvidersJsonSchema());
+  });
+});
+
 describe("initRepo", () => {
   let cwd: string;
 
@@ -53,10 +87,14 @@ describe("initRepo", () => {
     expect(JSON.parse(readFileSync(join(cwd, ".kiri", "workflow.schema.json"), "utf8"))).toEqual(
       workflowJsonSchema(),
     );
+    expect(
+      JSON.parse(readFileSync(join(cwd, ".kiri", "llm-providers.schema.json"), "utf8")),
+    ).toEqual(llmProvidersJsonSchema());
 
     expect(result.created).toEqual(["README.md", "workflows/hello-world.yaml"]);
     expect(result.skipped).toEqual([]);
     expect(result.schemaPath).toBe(".kiri/workflow.schema.json");
+    expect(result.llmSchemaPath).toBe(".kiri/llm-providers.schema.json");
   });
 
   it("scaffolds a hello-world workflow that loads without failures", async () => {
@@ -83,13 +121,16 @@ describe("initRepo", () => {
     expect(result.skipped).toEqual(["README.md", "workflows/hello-world.yaml"]);
   });
 
-  it("always refreshes the schema file even when scaffold files are skipped", () => {
+  it("always refreshes the schema files even when scaffold files are skipped", () => {
     initRepo(cwd);
     const schemaPath = join(cwd, ".kiri", "workflow.schema.json");
+    const llmSchemaPath = join(cwd, ".kiri", "llm-providers.schema.json");
     writeFileSync(schemaPath, '{ "stale": true }');
+    writeFileSync(llmSchemaPath, '{ "stale": true }');
 
     initRepo(cwd);
     expect(JSON.parse(readFileSync(schemaPath, "utf8"))).toEqual(workflowJsonSchema());
+    expect(JSON.parse(readFileSync(llmSchemaPath, "utf8"))).toEqual(llmProvidersJsonSchema());
   });
 
   it("appends `.kiri/` to an existing .gitignore that doesn't list it", () => {

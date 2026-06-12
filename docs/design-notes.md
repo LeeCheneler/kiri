@@ -178,6 +178,29 @@ The feed entry surfaces a small count when a run has recommendations ("3 recomme
 
 ## AI integration
 
+### LLM providers (`llm-providers.yaml`)
+
+First-party LLM steps reference named endpoints declared in a workspace-root `llm-providers.yaml` — kiri's first workspace-level config file. It's a single `providers:` map keyed by a name of your choosing:
+
+```yaml
+providers:
+  anthropic:
+    type: anthropic                  # required — anthropic | openai | openai-compatible
+  work-openai:
+    type: openai
+    api_key: { env: WORK_OPENAI_KEY }
+  local:
+    type: openai-compatible
+    base_url: http://localhost:1234/v1
+```
+
+- **`type` is always required** and selects the API the endpoint speaks; there is no inference from the entry's key. Each entry is a discriminated union on `type`, so the published JSON Schema enforces every rule in-editor — notably that `openai-compatible` requires a `base_url`.
+- **`api_key` is an `{ env: <NAME> }` reference only**, never a literal key. This mirrors the `{ input: }` idiom in workflow `env:` and keeps secrets out of the git-tracked YAML. When omitted, `anthropic`/`openai` fall back to the conventional `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`; `openai-compatible` needs no key.
+- Kiri reads the config at startup into an in-memory registry. A **missing file is first-class** — an empty registry, not an error. A present file is validated, and a declared `{ env: }` ref must name a variable set in the kiri process or the load fails with the offending key named — the same posture as a workflow referencing a missing bundle. Only *declared* refs are checked at load; conventional fallbacks resolve when a provider is used. Resolved key **values are never persisted, snapshotted, or echoed in errors** — the registry keeps only the env var's name.
+- **Env source.** Bun auto-loads `.env` from the workspace root, so the variables your `{ env: }` refs name resolve from there (or the ambient environment) with no extra wiring.
+- **Editor support.** Kiri publishes `.kiri/llm-providers.schema.json` on every launch, alongside the workflow schema, for YAML validation and autocomplete — map it the same way (modeline or `yaml.schemas`).
+- **Reloading.** The registry is read once at startup; there is no dev-mode file watcher for it — restart kiri to pick up edits.
+
 ### Claude Code via the `claude-code` bundle
 
 Kiri integrates with Claude Code through a `claude-code` script bundle — a worked example carried in the repo's `examples/` that the user copies into their workspace's `scripts/` and owns from then on. Kiri itself has no CC-specific code; the bundle does the spawning, config translation, transcript parsing, and meta emission. Spawning CC's CLI directly keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
@@ -260,6 +283,7 @@ Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
 ```
 <repo-root>/
   workflows/                  # YAML workflow definitions (in git)
+  llm-providers.yaml          # LLM endpoint declarations (in git; optional)
   scripts/                    # script bundles (in git)
     claude-code/              # an example bundle copied in; user owns it
       run.sh
@@ -322,6 +346,7 @@ Script execution is the central capability of this system, which means security 
 ### Secrets
 
 - **No secrets in workflow definitions.** Definitions are git-tracked. Secrets stay outside the repo, mode 600, referenced by name from the workflow.
+- **No secrets in LLM provider config.** `llm-providers.yaml` is git-tracked, so an `api_key` is an `{ env: <NAME> }` reference only — a literal key is a schema error. Resolved values are never persisted, snapshotted, or echoed in errors (see *AI integration → LLM providers*).
 - **No secrets in feed entries or traces.** Output rendering scrubs known secret patterns (tokens, AWS keys, etc.) before display and persistence.
 
 ### UI
