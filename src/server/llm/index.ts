@@ -14,6 +14,7 @@ export {
   loadLlmProviders,
 } from "./loader.ts";
 export { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
+export { renderPrompt } from "./render-prompt.ts";
 export {
   type GenerateLlmTextResult,
   type LlmClients,
