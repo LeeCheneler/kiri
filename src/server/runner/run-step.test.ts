@@ -222,4 +222,26 @@ describe("runStep", () => {
       expect(envelope.output.trim()).toBe("FOO=bar USER=");
     });
   });
+
+  describe("llm: steps", () => {
+    it("returns a failed envelope without spawning (not yet executable)", async () => {
+      let spawned = false;
+      const envelope = await runStep({
+        step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
+        cwd,
+        scratchDir,
+        input: "",
+        env: {},
+        onSpawn: () => {
+          spawned = true;
+        },
+      });
+
+      expect(envelope.status).toBe("failed");
+      expect(envelope.output).toBe("");
+      expect(envelope.error?.message).toContain("not yet executable");
+      expect(envelope.error?.message).toContain("anthropic:claude-haiku-4-5");
+      expect(spawned).toBe(false);
+    });
+  });
 });

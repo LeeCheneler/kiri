@@ -1,4 +1,4 @@
-import { type WorkflowStep, bundleRunPath, isUseStep } from "../workflows/index.ts";
+import { type WorkflowStep, bundleRunPath, isLlmStep, isUseStep } from "../workflows/index.ts";
 
 /**
  * Standard envelope for a step, matching the shape every step variant
@@ -42,10 +42,19 @@ export interface RunStepArgs {
  * no shell interpolation of any input. Caller controls `cwd`
  * (scratchDir) and the env scope. Spawn-time failure (missing script,
  * not executable) and a non-zero exit both yield `status: "failed"`
- * with the cause in `error`.
+ * with the cause in `error`. `llm:` steps are not yet executable and
+ * fail cleanly without spawning anything.
  */
 export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
   const { step, cwd, scratchDir, input, env, onSpawn } = args;
+  if (isLlmStep(step)) {
+    return {
+      status: "failed",
+      output: "",
+      error: { message: `llm steps are not yet executable (model "${step.llm.model}")` },
+      traces: { stdout: "", stderr: "", durationMs: 0 },
+    };
+  }
   const cmd = isUseStep(step) ? [bundleRunPath(cwd, step.use)] : ["sh", "-c", step.sh];
   const startedAt = performance.now();
 
