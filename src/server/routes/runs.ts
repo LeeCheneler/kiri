@@ -9,6 +9,7 @@ import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
+import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow } from "../runner/index.ts";
 import { type Registry, buildInputSchema } from "../workflows/index.ts";
@@ -31,6 +32,8 @@ export interface RunsRoutesDeps {
    * unmounted entirely.
    */
   cancelRegistry?: CancelRegistry;
+  /** Completion client forwarded to the runner so `llm:` steps can execute. Absent ⇒ they fail cleanly. */
+  llmClients?: LlmClients;
 }
 
 const DEFAULT_RUN_LIMIT = 25;
@@ -53,7 +56,7 @@ const recommendationActionParamSchema = z.object({
  * fetch. Mounted at `/api/runs` by `createApp`.
  */
 export function runsRoutes(deps: RunsRoutesDeps): Hono {
-  const { db, registry, cwd, bus, cancelRegistry } = deps;
+  const { db, registry, cwd, bus, cancelRegistry, llmClients } = deps;
   const app = new Hono();
 
   app.get("/", zValidator("query", runListQuerySchema, onZodFail("invalid query")), (c) => {
@@ -331,6 +334,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         cancelRegistry,
         runId: id,
         inputs,
+        llmClients,
       });
       done.catch((cause) => {
         console.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);
@@ -373,6 +377,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         bus,
         cancelRegistry,
         inputs,
+        llmClients,
       });
       done.catch((cause) => {
         console.error(
