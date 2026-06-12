@@ -20,7 +20,7 @@ const stepNameSchema = z
   .string()
   .min(1)
   .describe(
-    "Short label for the step, shown as its title in the Schema tab and the run timeline. Defaults to the bundle reference (`use:`) or the script's first line (`sh:`).",
+    "Short label for the step, shown as its title in the Schema tab and the run timeline. Defaults to the bundle reference (`use:`), the script's first line (`sh:`), or the model id (`llm:`).",
   );
 
 const useStepSchema = z
@@ -41,7 +41,51 @@ const shStepSchema = z
   })
   .strict();
 
-const stepSchema = z.union([useStepSchema, shStepSchema]);
+/**
+ * The `llm:` block of a first-party LLM step. Both prompt fields are
+ * structurally optional because the rules are positional: `steps:` and
+ * `publish:` require exactly one of `prompt` / `prompt_file`, while
+ * `summarize:` allows neither (it falls back to a default summary prompt).
+ * The cross-field checks live in `workflowSchema.superRefine`.
+ */
+const llmConfigSchema = z
+  .object({
+    model: z
+      .string()
+      .regex(/^[^:]+:.+$/, {
+        message: 'llm model must be in "provider:model" form',
+      })
+      .describe(
+        "Model id in `provider:model` form. The provider prefix must name an entry in llm-providers.yaml.",
+      ),
+    prompt: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Inline prompt text sent to the model. Mutually exclusive with `prompt_file`."),
+    prompt_file: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Path to a prompt file, resolved against the workspace root. Mutually exclusive with `prompt`.",
+      ),
+  })
+  .strict()
+  .describe(
+    "First-party LLM completion: sends the prompt to a model declared in llm-providers.yaml; the model's text response becomes the step's output.",
+  );
+
+const llmStepSchema = z
+  .object({
+    llm: llmConfigSchema,
+    name: stepNameSchema.optional(),
+    description: z.string().min(1).optional(),
+    env: envSchema.optional(),
+  })
+  .strict();
+
+const stepSchema = z.union([useStepSchema, shStepSchema, llmStepSchema]);
 
 /**
  * Pattern that constrains a published article's `slug`. Re-used by the
@@ -79,7 +123,17 @@ const shPublishSchema = z
   })
   .strict();
 
-const publishEntrySchema = z.union([usePublishSchema, shPublishSchema]);
+const llmPublishSchema = z
+  .object({
+    slug: publishSlugSchema,
+    name: publishNameSchema.optional(),
+    description: z.string().min(1).optional(),
+    llm: llmConfigSchema,
+    env: envSchema.optional(),
+  })
+  .strict();
+
+const publishEntrySchema = z.union([usePublishSchema, shPublishSchema, llmPublishSchema]);
 
 const publishArraySchema = z
   .array(publishEntrySchema)
@@ -233,15 +287,46 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
   wf.steps.forEach((step, i) => checkEnv(step.env, ["steps", i]));
   if (wf.summarize) checkEnv(wf.summarize.env, ["summarize"]);
   wf.publish?.forEach((entry, i) => checkEnv(entry.env, ["publish", i]));
+
+  // Prompt rules are positional: `steps:` and `publish:` require exactly one
+  // of `prompt` / `prompt_file`; `summarize:` allows neither (it falls back
+  // to a default summary prompt). Declaring both is invalid everywhere.
+  const checkLlmPrompt = (
+    entry: z.infer<typeof stepSchema> | z.infer<typeof publishEntrySchema>,
+    path: Array<string | number>,
+    promptRequired: boolean,
+  ): void => {
+    if (!("llm" in entry)) return;
+    const { prompt, prompt_file } = entry.llm;
+    if (prompt !== undefined && prompt_file !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: [...path, "llm"],
+        message: "llm declares both prompt and prompt_file — set exactly one",
+      });
+    } else if (prompt === undefined && prompt_file === undefined && promptRequired) {
+      ctx.addIssue({
+        code: "custom",
+        path: [...path, "llm"],
+        message: "llm requires one of prompt or prompt_file",
+      });
+    }
+  };
+  wf.steps.forEach((step, i) => checkLlmPrompt(step, ["steps", i], true));
+  if (wf.summarize) checkLlmPrompt(wf.summarize, ["summarize"], false);
+  wf.publish?.forEach((entry, i) => checkLlmPrompt(entry, ["publish", i], true));
 });
 
 export type WorkflowDefinition = z.infer<typeof workflowSchema>;
 export type WorkflowStep = z.infer<typeof stepSchema>;
 export type UseStep = z.infer<typeof useStepSchema>;
 export type ShStep = z.infer<typeof shStepSchema>;
+export type LlmStep = z.infer<typeof llmStepSchema>;
+export type LlmConfig = z.infer<typeof llmConfigSchema>;
 export type PublishEntry = z.infer<typeof publishEntrySchema>;
 export type UsePublish = z.infer<typeof usePublishSchema>;
 export type ShPublish = z.infer<typeof shPublishSchema>;
+export type LlmPublish = z.infer<typeof llmPublishSchema>;
 export type WorkflowInput = z.infer<typeof inputSchema>;
 export type EnvValue = z.infer<typeof envValueSchema>;
 
@@ -251,8 +336,14 @@ export const isUseStep = (step: WorkflowStep): step is UseStep => "use" in step;
 /** Type guard: a step is an inline `sh:` shell snippet. */
 export const isShStep = (step: WorkflowStep): step is ShStep => "sh" in step;
 
+/** Type guard: a step is a first-party `llm:` completion. */
+export const isLlmStep = (step: WorkflowStep): step is LlmStep => "llm" in step;
+
 /** Type guard: a publish entry is a `use:` bundle reference. */
 export const isUsePublish = (entry: PublishEntry): entry is UsePublish => "use" in entry;
 
 /** Type guard: a publish entry is an inline `sh:` shell snippet. */
 export const isShPublish = (entry: PublishEntry): entry is ShPublish => "sh" in entry;
+
+/** Type guard: a publish entry is a first-party `llm:` completion. */
+export const isLlmPublish = (entry: PublishEntry): entry is LlmPublish => "llm" in entry;

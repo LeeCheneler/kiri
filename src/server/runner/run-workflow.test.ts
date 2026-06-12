@@ -102,6 +102,27 @@ describe("runWorkflow", () => {
     expect(steps[1].output).toBe("first-output\n");
   });
 
+  it("records an llm step with kind llm and fails the run (not yet executable)", async () => {
+    const wf = makeWorkflow("llm-stub", [
+      { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
+    ]);
+
+    const result = await runWorkflow(db, wf, { cwd }).done;
+
+    expect(result.status).toBe("failed");
+
+    const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+    expect(run?.status).toBe("failed");
+    expect(run?.error).toEqual({
+      message: 'llm steps are not yet executable (model "anthropic:claude-haiku-4-5")',
+    });
+
+    const steps = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe("llm");
+    expect(steps[0].status).toBe("failed");
+  });
+
   it("halts on first failure and does not create rows for later steps", async () => {
     writeBundle("boom", "#!/bin/sh\necho before-fail\nexit 5\n");
     writeBundle("wont-run", "#!/bin/sh\necho should-not-run\n");

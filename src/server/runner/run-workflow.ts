@@ -7,9 +7,12 @@ import { articles, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { resolveGitHead } from "../git/head.ts";
 import {
+  type LlmConfig,
   type PublishEntry,
   type WorkflowDefinition,
   type WorkflowStep,
+  isLlmPublish,
+  isLlmStep,
   isUsePublish,
   isUseStep,
 } from "../workflows/index.ts";
@@ -56,12 +59,18 @@ interface DefinitionSnapshot {
   publish?: PublishEntry[];
 }
 
+/** A step's kind tag plus the config that identifies it, mirroring the step variants. */
+type StepIdent =
+  | { kind: "use"; use: string }
+  | { kind: "sh"; sh: string }
+  | { kind: "llm"; llm: LlmConfig };
+
 /**
  * Per-step record accumulated during execution and serialised into the
  * run-context JSON file the summariser reads. Carries each step's
  * outcome so the summariser has full context without a DB round-trip.
  */
-type ExecutedStep = ({ kind: "use"; use: string } | { kind: "sh"; sh: string }) & {
+type ExecutedStep = StepIdent & {
   index: number;
   status: "ok" | "failed" | "cancelled";
   durationMs: number;
@@ -95,8 +104,18 @@ const resolveInputs = (
   return resolved;
 };
 
-const publishAsStep = (entry: PublishEntry): WorkflowStep =>
-  isUsePublish(entry) ? { use: entry.use, env: entry.env } : { sh: entry.sh, env: entry.env };
+const publishAsStep = (entry: PublishEntry): WorkflowStep => {
+  if (isUsePublish(entry)) return { use: entry.use, env: entry.env };
+  if (isLlmPublish(entry)) return { llm: entry.llm, env: entry.env };
+  return { sh: entry.sh, env: entry.env };
+};
+
+/** The step's kind tag plus identifying config, for `run_steps.kind` and the run-context file. */
+const stepIdentOf = (step: WorkflowStep): StepIdent => {
+  if (isUseStep(step)) return { kind: "use", use: step.use };
+  if (isLlmStep(step)) return { kind: "llm", llm: step.llm };
+  return { kind: "sh", sh: step.sh };
+};
 
 const buildEnv = (
   step: WorkflowStep,
@@ -240,7 +259,7 @@ export function runWorkflow(
         id: stepId,
         runId,
         index: opts.index,
-        kind: isUseStep(opts.step) ? "use" : "sh",
+        kind: stepIdentOf(opts.step).kind,
         status: "running",
         startedAt: new Date(),
         isPublish: opts.flag === "publish" ? true : undefined,
@@ -325,11 +344,8 @@ export function runWorkflow(
           );
         }
 
-        const stepIdent: { kind: "use"; use: string } | { kind: "sh"; sh: string } = isUseStep(step)
-          ? { kind: "use", use: step.use }
-          : { kind: "sh", sh: step.sh };
         executed.push({
-          ...stepIdent,
+          ...stepIdentOf(step),
           index: i,
           status: stepStatus,
           durationMs: envelope.traces.durationMs,
