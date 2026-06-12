@@ -72,6 +72,5 @@ The defences kiri *does* provide are external: the HTTP API binds to `127.0.0.1`
 
 ## Learn more
 
-- [`docs/design-notes.md`](./docs/design-notes.md) — architecture, workflows, script bundles, todos.
-- [`docs/milestones.md`](./docs/milestones.md) — what's shipped and what's next.
+- [`docs/design-notes.md`](./docs/design-notes.md) — architecture, workflows, script bundles, what's shipped, todos.
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — repo setup, dev workflow, deploying the shell.

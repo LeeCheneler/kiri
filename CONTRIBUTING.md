@@ -86,7 +86,7 @@ examples/              reference kiri workspace — example bundles + the dogfoo
 .kiri/                 repo-scoped runtime state (gitignored, created on launch)
 ```
 
-See `docs/design-notes.md` for architecture and `docs/milestones.md` for the build sequence.
+See `docs/design-notes.md` for architecture and the phased build sequence.
 
 ## Deploying the shell at `https://local.kiri.build`
 

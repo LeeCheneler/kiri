@@ -16,6 +16,21 @@ What sets kiri apart from Windmill, Kestra, n8n, Inngest et al. is the **feed-fi
 - **Linear pipelines only.** No branches, no conditionals, no fan-out/fan-in. `script → ai → script` covers most real cases.
 - **Everything is a workflow.** A workflow is N≥1 steps. Single-step workflows wrap "just run a script" cases. Todos invoke workflows. Manual menu items are workflows. One concept, uniform treatment everywhere.
 
+## Design invariants
+
+Constraints, not work items — they hold across the whole system:
+
+- Standard step envelope (`status`, `output`, `error`, `traces`), never deferred per step.
+- Workflow YAML validated against a Zod schema; the top-level shape is fixed (`steps`, `inputs`, `summarize`, `publish`, `description`, `group`) but step `env:` contents are bundle-defined and not validated by kiri.
+- No shell interpolation of inputs anywhere — argv arrays and env vars only.
+- Kiri is a CLI launched per-workspace; workflow definitions live in `<workspace>/workflows/`. No global cross-repo store.
+- Repo-scoped runtime state lives in `<workspace>/.kiri/` (gitignored).
+- Workflow definitions load into an in-memory registry; there is no `workflows` table — YAML files are the only source of truth.
+- Every run snapshots the resolved workflow definition and the data-repo git ref (HEAD + dirty flag) at start; feed entries reflect the workflow shape that ran, and the sha pins the working tree for reproduction.
+- Per-run scratch directory; steps never run with cwd of repo or home.
+- Per-step env scope; user `env:` applied first, kiri- and OS-controlled vars overwrite on collision; `KIRI_` prefix reserved.
+- Step output renders as plain text in the UI; markdown rendering is reserved for `publish:` articles and `summarize:` summaries, routed through the same sandboxed renderer.
+
 ## Architecture
 
 ### Workflow definition
@@ -43,7 +58,7 @@ steps:
   - sh: |                   # inline shell — sugar for trivial steps
       echo "review complete"
       date
-publish:                   # optional, M6: long-form markdown articles
+publish:                   # optional: long-form markdown articles
   - slug: digest
     name: "PR Review Digest"
     use: claude-code
@@ -64,8 +79,8 @@ The optional `name` is a short label rendered as the step's title in the Schema 
 
 Two workflow-level sibling fields run alongside `steps:`:
 
-- **`summarize:`** — a single `{ use | sh, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The `claude-code-summarizer` example bundle ships with a baked-in prompt and `MODEL=haiku` so it produces summaries out of the box once copied into a workspace. M4 makes prompt and model configurable via `env:` without forking the bundle.
-- **`publish:`** — an array of named long-form markdown articles (M6). Each entry has the shape `{ slug, name?, use | sh, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference articles in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Articles are stored as rows in `articles`, surfaced as a stacked list on each activity-feed row, in a "Recently Published" right-rail section, in a "Published" section of the run detail page's right rail, and rendered on dedicated `/runs/:id/published/:slug` pages via a sandboxed markdown parser. The article page lifts the body's first markdown `# heading` out as the page title — dropping any preamble before it — shows the publish name as the eyebrow series label (suppressed when it just restates the workflow name), and treats the body's `##` headings as the sections that fill the page's table of contents; a body with no `# heading` falls back to the publish name for its page title. Each surface that lists articles shows the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Article markdown may embed fenced `chart` blocks — Vega-Lite JSON specs rendered inline as SVG charts through that same parser, with the charting library code-split so it loads only for articles that use one.
+- **`summarize:`** — a single `{ use | sh, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The `claude-code-summarizer` example bundle ships with a baked-in prompt and `MODEL=haiku` so it produces summaries out of the box once copied into a workspace. Prompt and model are configurable via `env:` without forking the bundle.
+- **`publish:`** — an array of named long-form markdown articles. Each entry has the shape `{ slug, name?, use | sh, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference articles in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Articles are stored as rows in `articles`, surfaced as a stacked list on each activity-feed row, in a "Recently Published" right-rail section, in a "Published" section of the run detail page's right rail, and rendered on dedicated `/runs/:id/published/:slug` pages via a sandboxed markdown parser. The article page lifts the body's first markdown `# heading` out as the page title — dropping any preamble before it — shows the publish name as the eyebrow series label (suppressed when it just restates the workflow name), and treats the body's `##` headings as the sections that fill the page's table of contents; a body with no `# heading` falls back to the publish name for its page title. Each surface that lists articles shows the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Article markdown may embed fenced `chart` blocks — Vega-Lite JSON specs rendered inline as SVG charts through that same parser, with the charting library code-split so it loads only for articles that use one.
 
 Both fields share the same load-time validation as `steps:` (`use:` / `sh:` mutually exclusive, `KIRI_` prefix banned on `env:` keys, missing `use:` bundle is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing publish flips `runs.status` to `failed`.
 
@@ -96,7 +111,7 @@ Full I/O captured at every step. Linked from the corresponding feed entry for de
 
 ### Invocation & inputs
 
-Runs are invoked manually — from the workflows nav, by re-running an existing run, or (M8) by approving a todo. There is no time-based or file-based triggering: under the app-active scope a scheduler would only ever fire while the user is already at the keyboard, where clicking Run is the same gesture for no extra capability. Polling shapes (webhooks, inboxes) are served by a workflow whose first step does the poll, invoked when the user wants it.
+Runs are invoked manually — from the workflows nav, by re-running an existing run, or by triggering a recommendation. There is no time-based or file-based triggering: under the app-active scope a scheduler would only ever fire while the user is already at the keyboard, where clicking Run is the same gesture for no extra capability. Polling shapes (webhooks, inboxes) are served by a workflow whose first step does the poll, invoked when the user wants it.
 
 A workflow optionally declares `inputs:` — named parameters collected at invocation time, so one definition can be aimed at many targets (one `pr-review` workflow with a `pr_number` input reviews any PR, instead of one YAML file per PR).
 
@@ -332,30 +347,31 @@ Non-goals to resist scope creep:
 - Dynamic per-call permission policy (static per step only)
 - Persistent execution across app restarts (graceful halt on close, manual re-run on reopen)
 - Custom DSL for workflows
+- Agent-driven control surface — kiri is not an agent harness
+- Publishing to external destinations (gist, git commit, webhook POST); `publish:` is in-app only for v1
+
+Deliberately not built (single-user ephemeral local tool): persistent auth tokens, audit logs, on-host HTTPS/TLS (the `https://local.kiri.build` shell is hosted, not on-host), `ulimit`/resource caps and kernel sandboxing of step execution, and a dedicated secret store (use env vars; revisit if it becomes painful).
 
 ## Phased build
 
-Sequenced for fastest path to dogfooding, then layering capability outward. Each phase a usable artifact. Detailed work items per milestone live in `milestones.md`.
+Sequenced for fastest path to dogfooding, then layering capability outward. Each phase a usable artifact.
 
-**Shipped (M0 – M7):**
+**Shipped:**
 
-1. **Spine** (M0). YAML-defined linear pipeline of script steps. Standard envelope, traces captured, run history persisted to SQLite via Drizzle. Feed UI renders run history.
-2. **Step schema migration** (M1). YAML moved to `steps:` with `use:` (bundle reference) or `sh:` (inline shell), plus per-step `env:` with precedence and reserved-namespace rules.
-3. **`claude-code` bundle starter** (M2). A working CC runner bundle that translates `env:` keys to CC flags, spawns `claude`, and captures the session.
-4. **Hosted shell** (M2.5). `https://local.kiri.build` — a static Cloudflare Pages shell that loads the locally-running kiri's bundle. Stable bundle paths, CORS allow-list.
-5. **Security baseline** (M3). Bind to `127.0.0.1` only; require `X-Kiri-Client` header on state-changing endpoints — shuts down cross-origin attacks from other browser tabs.
-6. **UX foundation + test infra** (M3.5). Tailwind v4; `wouter` router with `/` and `/runs/:id`; `bun:test` + `happy-dom` + `@testing-library/react`; Playwright golden-path e2e.
-7. **Live updates, toasts, cancel** (M3.9). In-process event bus, SSE endpoint, EventSource cache invalidation, completion toasts, in-flight cancel.
-8. **Activity feed summaries** (M3.95). Workflow-level `summarize:` field, `claude-code-summarizer` bundle, summary rendered in feed and at the top of run detail.
-9. **Onboarding & docs** (M3.97). Hosted-shell fallback when no local kiri is running, one-sheet docs site at `/docs`, in-app link.
-10. **Configurable summariser** (M4). `PROMPT` / `PROMPT_FILE` / `MODEL` / `MAX_TURNS` env support on `claude-code-summarizer` with defaults preserved; `PROMPT` added to `claude-code` with precedence over `PROMPT_FILE`.
-11. **Cursor-based feed pagination** (M5). Infinite-scroll feed; live updates and cold-load cost decoupled from total run count.
-12. **Article publishing** (M6). `publish: [...]` array on workflows. Markdown articles stored in `articles`, surfaced as a stacked list on each feed row and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:slug` pages via a sandboxed renderer.
-13. **Workflow inputs** (M7). `inputs:` block on workflows — named parameters collected via a modal on invoke, snapshotted onto the run, and injected into step `env:` via `{ input: <name> }` refs. One definition, many targets.
-
-**Next up (M8 onwards):**
-
-14. **Recommendations** (M8). Workflows emit follow-up workflow invocations via a `KIRI_RECOMMENDATIONS_FILE` file channel. Stored as rows linked to the producing run, surfaced on the run detail page as a "Recommended" section beneath the run's phases, and triggered via the standard invoke modal with inputs pre-filled.
+1. **Spine.** YAML-defined linear pipeline of script steps. Standard envelope, traces captured, run history persisted to SQLite via Drizzle. Feed UI renders run history.
+2. **Step schema migration.** YAML moved to `steps:` with `use:` (bundle reference) or `sh:` (inline shell), plus per-step `env:` with precedence and reserved-namespace rules.
+3. **`claude-code` bundle starter.** A working CC runner bundle that translates `env:` keys to CC flags, spawns `claude`, and captures the session.
+4. **Hosted shell.** `https://local.kiri.build` — a static Cloudflare Pages shell that loads the locally-running kiri's bundle. Stable bundle paths, CORS allow-list.
+5. **Security baseline.** Bind to `127.0.0.1` only; require `X-Kiri-Client` header on state-changing endpoints — shuts down cross-origin attacks from other browser tabs.
+6. **UX foundation + test infra.** Tailwind v4; `wouter` router with `/` and `/runs/:id`; `bun:test` + `happy-dom` + `@testing-library/react`; Playwright golden-path e2e.
+7. **Live updates, toasts, cancel.** In-process event bus, SSE endpoint, EventSource cache invalidation, completion toasts, in-flight cancel.
+8. **Activity feed summaries.** Workflow-level `summarize:` field, `claude-code-summarizer` bundle, summary rendered in feed and at the top of run detail.
+9. **Onboarding & docs.** Hosted-shell fallback when no local kiri is running, one-sheet docs site at `/docs`, in-app link.
+10. **Configurable summariser.** `PROMPT` / `PROMPT_FILE` / `MODEL` / `MAX_TURNS` env support on `claude-code-summarizer` with defaults preserved; `PROMPT` added to `claude-code` with precedence over `PROMPT_FILE`.
+11. **Cursor-based feed pagination.** Infinite-scroll feed; live updates and cold-load cost decoupled from total run count.
+12. **Article publishing.** `publish: [...]` array on workflows. Markdown articles stored in `articles`, surfaced as a stacked list on each feed row and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:slug` pages via a sandboxed renderer.
+13. **Workflow inputs.** `inputs:` block on workflows — named parameters collected via a modal on invoke, snapshotted onto the run, and injected into step `env:` via `{ input: <name> }` refs. One definition, many targets.
+14. **Recommendations.** Workflows emit follow-up workflow invocations via a `KIRI_RECOMMENDATIONS_FILE` file channel. Stored as rows linked to the producing run, surfaced on the run detail page as a "Recommended" section beneath the run's phases, and triggered via the standard invoke modal with inputs pre-filled.
 
 ## Open questions
 

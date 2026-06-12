@@ -67,7 +67,7 @@ steps:                       # required, ≥1
     env:
       OTHER: "value"
 
-publish:                     # optional, M6 — long-form markdown articles
+publish:                     # optional — long-form markdown articles
   - slug: digest             # required, kebab-case-only ([a-z0-9-]+), unique within workflow — the article's URL id
     name: "Friendly Title"   # optional series label — feed chip + page eyebrow (defaults to a humanised slug)
     description: "..."       # optional
@@ -645,5 +645,4 @@ If kiri's repo is the workspace and behaviour is unclear, these are the source-o
 - **Loader (file scan, bundle resolution, error reporting):** `src/server/workflows/loader.ts`
 - **Step execution (spawn, envelope, env scoping):** `src/server/runner/run-step.ts`
 - **Run lifecycle (steps → publish → summarize, context JSON, cancel):** `src/server/runner/run-workflow.ts`
-- **Architecture overview:** `docs/design-notes.md`
-- **What's shipped vs. next:** `docs/milestones.md`
+- **Architecture & roadmap:** `docs/design-notes.md`

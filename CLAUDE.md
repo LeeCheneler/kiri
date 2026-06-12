@@ -1,6 +1,6 @@
 # Kiri — Working Instructions
 
-Kiri is a local-first, git-based workflow orchestrator for personal automation. See `docs/design-notes.md` for architecture and `docs/milestones.md` for the build sequence (M0 → M6). Read both before doing substantive work.
+Kiri is a local-first, git-based workflow orchestrator for personal automation. See `docs/design-notes.md` for architecture, the design invariants, and the phased build sequence. Read it before doing substantive work.
 
 ## Picking up a ticket
 
@@ -10,7 +10,7 @@ When asked to "pick up", "work on", or "start" a ticket (or given a ticket refer
 
 - Fetch the issue with `gh issue view <number>` (include comments via `--comments` if there's discussion).
 - Read every linked design doc, file path, or issue mentioned in the ticket body.
-- Cross-reference the milestone the ticket belongs to in `docs/milestones.md` so the work fits the milestone's invariants.
+- Cross-reference the design invariants in `docs/design-notes.md` so the work fits the system's constraints.
 - If the ticket is ambiguous, ask before planning. Do not guess at intent on tickets.
 
 ### Step 2 — Plan the changes
@@ -18,7 +18,7 @@ When asked to "pick up", "work on", or "start" a ticket (or given a ticket refer
 Produce a written plan covering:
 
 - **Goal** — one sentence restating what "done" looks like, in your own words.
-- **Approach** — the design choices you're making and *why*. Call out anything that interacts with a design invariant from `docs/milestones.md`.
+- **Approach** — the design choices you're making and *why*. Call out anything that interacts with a design invariant from `docs/design-notes.md`.
 - **Files** — paths you expect to create or modify, with a short note on what changes in each.
 - **Risks / open questions** — anything you're unsure about, or trade-offs the user should weigh in on.
 - **Out of scope** — anything you're explicitly *not* doing in this ticket, especially things a reader might assume are bundled in.
@@ -61,7 +61,7 @@ When completing a ticket, before considering it done, sweep the project's docume
 
 - **CLI help and usage text** — what the binary prints for `--help` and usage errors.
 - **The public site deployed to Cloudflare** — the hosted shell and docs pages users browse to.
-- **Repo markdown docs** — the project README, the contributor guide, the architecture/design notes, and the milestone/roadmap docs.
+- **Repo markdown docs** — the project README, the contributor guide, and the architecture/design notes (which also carry the roadmap and design invariants).
 - **The workflow-authoring reference for AI assistants** — the standalone guide that teaches an assistant to author workflows for this project.
 - **Bundle and script READMEs** — the env-var contract docs shipped alongside each bundle.
 - **Anything `kiri init` scaffolds** — the README and starter workflow written into a fresh user repo, plus the generated workflow JSON Schema.
@@ -69,6 +69,8 @@ When completing a ticket, before considering it done, sweep the project's docume
 - **In-app UI copy** — documentation links, empty-state explanations, and onboarding or explanatory text rendered inside the app.
 
 Not every change touches every surface, but check each one rather than assuming. Stale documentation is a defect — treat keeping it correct as part of the work, not an afterthought.
+
+Docs describe current behaviour for a reader — **don't reference internal milestone labels** (`M0`, `M1`, …) in them. They're a build-sequence artifact that's meaningless outside the repo's own history; describe the capability, not the milestone it shipped in.
 
 ## House rules
 
