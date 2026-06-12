@@ -14,3 +14,11 @@ export {
   loadLlmProviders,
 } from "./loader.ts";
 export { type LlmProviderRegistry, createLlmProviderRegistry } from "./registry.ts";
+export {
+  type GenerateLlmTextResult,
+  type LlmClients,
+  type LlmModel,
+  type LlmUsage,
+  createLlmClients,
+  generateLlmText,
+} from "./clients.ts";
