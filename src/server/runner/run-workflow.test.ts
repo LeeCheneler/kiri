@@ -860,6 +860,28 @@ describe("runWorkflow", () => {
       expect(parsed.articles).toEqual([]);
     });
 
+    it("caps a step's stdout in the run-context envelope at 64 KB", async () => {
+      // Emit ~80 KB of stdout so the per-stream cap bites.
+      writeBundle("firehose", "#!/bin/sh\nyes x | head -c 81920\n");
+      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      const wf: WorkflowDefinition = {
+        name: "ctx-cap",
+        steps: [{ use: "firehose" }],
+        summarize: { use: "context-dump" },
+      };
+
+      const result = await runWorkflow(db, wf, { cwd }).done;
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      const parsed = JSON.parse(run?.summary as string);
+      expect(parsed.steps[0].stdout.endsWith("\n[truncated]")).toBe(true);
+      expect(parsed.steps[0].stdout.length).toBeLessThan(81920);
+
+      // The step row keeps the full stream — only the context envelope is capped.
+      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
+      const firehose = stepsRows.find((s) => s.index === 0);
+      expect((firehose?.traces as { stdout: string }).stdout.length).toBe(81920);
+    });
+
     it("includes successful articles in the summariser run-context envelope", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("art", "#!/bin/sh\necho article-body\n");

@@ -6,6 +6,7 @@ import type { KiriDb } from "../db/index.ts";
 import { articles, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { resolveGitHead } from "../git/head.ts";
+import { type RunContextArticle, type RunContextStep, buildRunContext } from "../llm/index.ts";
 import {
   type LlmConfig,
   type PublishEntry,
@@ -64,20 +65,6 @@ type StepIdent =
   | { kind: "use"; use: string }
   | { kind: "sh"; sh: string }
   | { kind: "llm"; llm: LlmConfig };
-
-/**
- * Per-step record accumulated during execution and serialised into the
- * run-context JSON file the summariser reads. Carries each step's
- * outcome so the summariser has full context without a DB round-trip.
- */
-type ExecutedStep = StepIdent & {
-  index: number;
-  status: "ok" | "failed" | "cancelled";
-  durationMs: number;
-  stdout: string;
-  stderr: string;
-  error: { message: string; stack?: string } | null;
-};
 
 const snapshotDefinition = (def: WorkflowDefinition): DefinitionSnapshot => ({
   name: def.name,
@@ -313,8 +300,11 @@ export function runWorkflow(
     let runError: { message: string; stack?: string } | undefined;
     let caughtThrow: unknown;
     let summaryText: string | null = null;
-    const executed: ExecutedStep[] = [];
-    const publishedArticles: { slug: string; name: string; content_md: string }[] = [];
+    // Accumulated step outcomes and articles, serialised into the run
+    // context handed to publish/summarize phases so they have the full
+    // run picture without a DB round-trip.
+    const executed: RunContextStep[] = [];
+    const publishedArticles: RunContextArticle[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
@@ -396,18 +386,14 @@ export function runWorkflow(
         const contextFile = join(scratchDir, `publish-context-${pi}.json`);
         writeFileSync(
           contextFile,
-          JSON.stringify(
-            {
-              workflow: definition.name,
-              status,
-              startedAt: startedAt.toISOString(),
-              durationMs: Date.now() - startedAt.getTime(),
-              steps: executed,
-              articles: publishedArticles,
-            },
-            null,
-            2,
-          ),
+          buildRunContext({
+            workflow: definition.name,
+            status,
+            startedAt: startedAt.toISOString(),
+            durationMs: Date.now() - startedAt.getTime(),
+            steps: executed,
+            articles: publishedArticles,
+          }),
         );
 
         const { envelope, cancelled } = await executePhase({
@@ -459,18 +445,14 @@ export function runWorkflow(
         const contextFile = join(scratchDir, "run-context.json");
         writeFileSync(
           contextFile,
-          JSON.stringify(
-            {
-              workflow: definition.name,
-              status,
-              startedAt: startedAt.toISOString(),
-              durationMs: Date.now() - startedAt.getTime(),
-              steps: executed,
-              articles: publishedArticles,
-            },
-            null,
-            2,
-          ),
+          buildRunContext({
+            workflow: definition.name,
+            status,
+            startedAt: startedAt.toISOString(),
+            durationMs: Date.now() - startedAt.getTime(),
+            steps: executed,
+            articles: publishedArticles,
+          }),
         );
 
         const { envelope, cancelled } = await executePhase({
