@@ -102,7 +102,7 @@ describe("runWorkflow", () => {
     expect(steps[1].output).toBe("first-output\n");
   });
 
-  it("records an llm step with kind llm and fails the run (not yet executable)", async () => {
+  it("records an llm step with kind llm and fails the run when no llm clients are wired", async () => {
     const wf = makeWorkflow("llm-stub", [
       { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
     ]);
@@ -114,7 +114,7 @@ describe("runWorkflow", () => {
     const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
     expect(run?.status).toBe("failed");
     expect(run?.error).toEqual({
-      message: 'llm steps are not yet executable (model "anthropic:claude-haiku-4-5")',
+      message: 'llm steps are not configured on this server (model "anthropic:claude-haiku-4-5")',
     });
 
     const steps = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();

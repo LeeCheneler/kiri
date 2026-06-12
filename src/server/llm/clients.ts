@@ -33,6 +33,17 @@ export interface LlmClients {
    * from the registry — the error lists the configured provider names.
    */
   resolveModel(id: string): LlmModel;
+  /**
+   * Resolve a `provider:model` id and run a single non-streaming completion
+   * against it. Resolution errors and provider/API errors both surface as a
+   * rejection. The one operation the runner needs, on the one object it is
+   * handed — so a test fake can stand in without touching the AI SDK.
+   */
+  generateText(options: {
+    model: string;
+    prompt: string;
+    abortSignal?: AbortSignal;
+  }): Promise<GenerateLlmTextResult>;
 }
 
 /**
@@ -44,7 +55,17 @@ export function createLlmClients(
   registry: LlmProviderRegistry,
   env: Record<string, string | undefined>,
 ): LlmClients {
-  return {
+  const clients: LlmClients = {
+    // `async` so a synchronous resolveModel throw (bad id, unknown
+    // provider) reaches callers as a rejection, the same channel as a
+    // provider/API error.
+    async generateText(options) {
+      return generateLlmText({
+        model: clients.resolveModel(options.model),
+        prompt: options.prompt,
+        abortSignal: options.abortSignal,
+      });
+    },
     resolveModel(id) {
       const separator = id.indexOf(":");
       const providerName = separator === -1 ? id : id.slice(0, separator);
@@ -66,6 +87,7 @@ export function createLlmClients(
       return buildModel(provider, modelId, env);
     },
   };
+  return clients;
 }
 
 /** Construct an AI SDK model for a resolved provider, reading its API key from `env` now. */
