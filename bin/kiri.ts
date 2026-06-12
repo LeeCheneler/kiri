@@ -6,6 +6,7 @@ import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
+import { createLlmProviderRegistry, loadLlmProviders } from "../src/server/llm/index.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
@@ -78,6 +79,7 @@ if (args.length > 0) {
 
 const db = bootstrap(cwd);
 const registry = createRegistry();
+const llmRegistry = createLlmProviderRegistry();
 const bus = createEventBus();
 const cancelRegistry = createCancelRegistry();
 
@@ -86,6 +88,14 @@ const initial = await loadWorkflows(workflowsDir, cwd);
 registry.replace(initial.workflows);
 for (const failure of initial.failures) {
   console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
+}
+
+const llmProviders = loadLlmProviders(cwd, process.env);
+llmRegistry.replace(llmProviders.providers);
+if (llmProviders.failure) {
+  console.error(
+    `llm-providers: failed to load ${llmProviders.failure.path}: ${llmProviders.failure.reason}`,
+  );
 }
 
 const watcher = watchWorkflows(workflowsDir, cwd, registry, initial, { bus });
