@@ -101,11 +101,11 @@ Every step returns the same shape. Designed in early — painful to retrofit.
   status: "ok" | "failed",
   output: unknown,         // becomes the next step's input
   error?: { message, stack? },
-  traces: { stdout, stderr, durations, ... },
+  traces: { stdout, stderr, durations, usage?, ... },
 }
 ```
 
-Full I/O captured at every step. Linked from the corresponding feed entry for debugging and replay.
+Full I/O captured at every step. Linked from the corresponding feed entry for debugging and replay. `traces.usage` carries token counts and is present only on `llm:` steps (see *AI integration → LLM step execution*).
 
 ### Execution semantics
 
@@ -206,6 +206,18 @@ providers:
 - **Workflows validate against it.** An `llm:` step's `model` is a `provider:model` id; the prefix must name a provider in this registry or the workflow fails to load — the same posture as a missing bundle.
 - **Reloading.** The registry is read once at startup; there is no dev-mode file watcher for it — restart kiri to pick up edits.
 
+### LLM step execution
+
+An `llm:` step runs as a single non-streaming completion inside the kiri process — nothing is spawned. The runner renders the prompt template, calls the model through the provider registry, and maps the result onto the standard step envelope:
+
+- **Prompt rendering.** Same `{{VAR}}` semantics as the script bundles' renderer (ASCII `[A-Z_][A-Z0-9_]*` names, one left-to-right pass, unknown names resolve to empty, substituted values never re-scanned), so existing bundle prompt templates port to `llm:` steps unchanged. The vars map is the step's env scope — its own `env:` plus the kiri-injected vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) — and `{{KIRI_INPUT}}` carries the previous step's stdout with one trailing newline trimmed, exactly what a bundle's `KIRI_INPUT="$(cat)"` sees.
+- **Envelope mapping.** The completion text becomes `output` and `traces.stdout`; `traces.stderr` stays empty — there is no second stream. Token counts from the response are persisted on `traces.usage` (input/output/total, fields omitted when the provider doesn't report them). A provider or API error fails the step with the provider's message; halt-on-failure semantics match every other step.
+- **No file channels.** A completion can't read or write files, so llm steps are not offered `KIRI_RECOMMENDATIONS_FILE`, and llm `publish:`/`summarize:` entries get the run envelope inlined as `{{KIRI_RUN_CONTEXT}}` instead of a `KIRI_RUN_CONTEXT_FILE` path — no context file is written for them. The inlined JSON caps each step's stdout/stderr at 64 KB (`[truncated]` marker) so a verbose step can't blow the model's context window; the context file bundle steps read is built by the same serialiser and carries the same caps.
+- **Zero-config summariser.** A `summarize: { llm: { model } }` entry that declares neither `prompt` nor `prompt_file` falls back to a baked-in feed-summary prompt reading the inlined envelope. The fallback is applied at execution time only — the run's definition snapshot keeps what was authored.
+- **Cancellation.** Cancelling a run aborts the in-flight HTTP request; the step and run finalise as `cancelled` through the same path as a killed child process.
+
+Scope is completion-shaped steps: one prompt in, text out. Agentic work (tool use, multi-turn sessions) stays on script bundles like `claude-code`.
+
 ### Claude Code via the `claude-code` bundle
 
 Kiri integrates with Claude Code through a `claude-code` script bundle — a worked example carried in the repo's `examples/` that the user copies into their workspace's `scripts/` and owns from then on. Kiri itself has no CC-specific code; the bundle does the spawning, config translation, transcript parsing, and meta emission. Spawning CC's CLI directly keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
@@ -248,7 +260,9 @@ Three tiers, in order:
 
 ### Cost tracking
 
-Deferred. The earlier design carried a generic `meta` channel (`KIRI_META_FILE`) for steps to emit `{ cost_usd, tokens_in, tokens_out, model }`, with the UI promoting conventional keys to feed headers. The channel was never read back and the cost numbers never landed, so the wiring was retired to keep the runtime contract honest. Picking this up later means re-introducing both the file channel (or a different transport) and the UI promotion; ccusage's transcript-parsing approach remains the reference for the underlying numbers.
+First-party `llm:` steps persist token usage on their step row (`traces.usage`, straight off the provider response) — the numbers arrive without any side-channel, superseding the rationale for the retired `KIRI_META_FILE` meta channel where first-party calls are concerned. No cost/billing UI is built on top of them; the counts are simply kept.
+
+Bundle-spawned agents (e.g. `claude-code`) still have no usage capture. The earlier design's generic meta channel (`KIRI_META_FILE` emitting `{ cost_usd, tokens_in, tokens_out, model }`) was retired unread to keep the runtime contract honest; if bundle-side numbers are ever wanted, that means re-introducing a transport plus UI promotion, with ccusage's transcript-parsing approach as the reference.
 
 ### Permissions philosophy
 
