@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
 import { bootstrap } from "../src/server/bootstrap.ts";
+import { resolveConfigDir } from "../src/server/config-dir.ts";
 import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
@@ -15,29 +16,34 @@ const VERSION: string = typeof KIRI_VERSION === "string" ? KIRI_VERSION : "dev";
 const HELP = `Usage: kiri [command]
 
 Commands:
-  init           Scaffold workflow authoring assets in the current directory
+  init           Scaffold workflow authoring assets in the working directory
 
 Run kiri with no command to start the server.
 
 Options:
   -h, --help     Show this help text
   -v, --version  Show kiri version
+
+Environment:
+  KIRI_CONFIG_DIR  Workspace directory to use instead of the current
+                   directory. A leading ~ is expanded to your home.
 `;
 
 const INIT_HELP = `Usage: kiri init
 
-Scaffold workflow authoring assets in the current directory:
+Scaffold workflow authoring assets in the working directory:
   README.md                   Workflow DSL reference and IDE/LSP setup notes
   workflows/hello-world.yaml  Minimal one-step starter workflow
   .kiri/workflow.schema.json  JSON Schema for editor validation
 
+The working directory is the current directory, or KIRI_CONFIG_DIR if set.
 Existing files are never overwritten; only missing files are created.
 The schema file is always (re)written from the live Zod schema, so a
 plain \`kiri\` launch also keeps it in sync after a binary upgrade.
 `;
 
 const args = process.argv.slice(2);
-const cwd = process.cwd();
+const cwd = resolveConfigDir(process.env, process.cwd());
 
 if (args[0] === "--help" || args[0] === "-h") {
   console.log(HELP);
