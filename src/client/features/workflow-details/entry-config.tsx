@@ -1,22 +1,29 @@
 import type { ReactNode } from "react";
-import type { EnvValue } from "../../api.ts";
+import type { EnvValue, LlmConfigSummary } from "../../api.ts";
 import { Code, CodeBlock } from "../../design-system/content/code.tsx";
 
 const SH_LABEL_LIMIT = 60;
 
-type LabelSource = ({ use: string } | { sh: string }) & { name?: string };
+type LabelSource = ({ use: string } | { sh: string } | { llm: { model: string } }) & {
+  name?: string;
+};
 
-/** The kind tag for a step-shaped entry: a bundle reference or an inline script. */
-export const stepKind = (entry: LabelSource): "sh" | "use" => ("use" in entry ? "use" : "sh");
+/** The kind tag for a step-shaped entry: a bundle reference, an inline script, or an LLM completion. */
+export const stepKind = (entry: LabelSource): "sh" | "use" | "llm" => {
+  if ("use" in entry) return "use";
+  if ("llm" in entry) return "llm";
+  return "sh";
+};
 
 /**
  * The title for a step-shaped entry: the explicit `name` when set, else the
- * bundle reference for a `use:` entry, or the first non-empty line of an `sh:`
- * script truncated to the label limit.
+ * bundle reference for a `use:` entry, the model id for an `llm:` entry, or
+ * the first non-empty line of an `sh:` script truncated to the label limit.
  */
 export const stepTitle = (entry: LabelSource): string => {
   if (entry.name) return entry.name;
   if ("use" in entry) return entry.use;
+  if ("llm" in entry) return entry.llm.model;
   const firstNonEmpty =
     entry.sh
       .split("\n")
@@ -47,17 +54,20 @@ function LabelledBlock({ label, children }: { label: string; children: ReactNode
 type EntryShape = { description?: string; env?: Record<string, EnvValue> } & (
   | { use: string }
   | { sh: string }
+  | { llm: LlmConfigSummary }
 );
 
 /**
- * The expanded body of a schema entry: the bundle reference for a `use:` entry,
- * its optional description, inline `sh:` source, and env map — each shown only
- * when populated. The whole entry already sits behind a disclosure, so the
+ * The expanded body of a schema entry: the bundle reference for a `use:` entry
+ * or the model id for an `llm:` entry, its optional description, inline `sh:`
+ * source or `llm:` prompt (inline text or file path), and env map — each shown
+ * only when populated. The whole entry already sits behind a disclosure, so the
  * source renders in full rather than collapsing again. Env keys sort
  * alphabetically and structured input references render as `{ input: <name> }`.
  */
 export function EntryConfig({ entry }: { entry: EntryShape }) {
   const showReference = "use" in entry;
+  const llm = "llm" in entry ? entry.llm : undefined;
   const showDescription = entry.description !== undefined && entry.description.length > 0;
   const showSource = "sh" in entry;
   const showEnv = hasEnv(entry.env);
@@ -70,6 +80,13 @@ export function EntryConfig({ entry }: { entry: EntryShape }) {
           </span>
         </LabelledBlock>
       )}
+      {llm && (
+        <LabelledBlock label="model">
+          <span className="font-mono text-sm">
+            <Code>{llm.model}</Code>
+          </span>
+        </LabelledBlock>
+      )}
       {showDescription && (
         <LabelledBlock label="description">
           <p className="font-display text-base text-ink italic">{entry.description}</p>
@@ -78,6 +95,18 @@ export function EntryConfig({ entry }: { entry: EntryShape }) {
       {showSource && (
         <LabelledBlock label={stepKind(entry)}>
           <CodeBlock>{(entry as { sh: string }).sh}</CodeBlock>
+        </LabelledBlock>
+      )}
+      {llm?.prompt !== undefined && (
+        <LabelledBlock label="prompt">
+          <CodeBlock>{llm.prompt}</CodeBlock>
+        </LabelledBlock>
+      )}
+      {llm?.prompt_file !== undefined && (
+        <LabelledBlock label="prompt file">
+          <span className="font-mono text-sm">
+            <Code>{llm.prompt_file}</Code>
+          </span>
         </LabelledBlock>
       )}
       {showEnv && (

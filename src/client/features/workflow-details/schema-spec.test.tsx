@@ -36,6 +36,16 @@ describe("<SchemaSpec>", () => {
     expect(screen.queryByText("echo one")).toBeNull();
   });
 
+  it("titles an unnamed llm step row by its model id", () => {
+    render(
+      <SchemaSpec
+        steps={[{ llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } }]}
+      />,
+    );
+    expect(screen.getByText("Step 01")).toBeDefined();
+    expect(screen.getByText("anthropic:claude-haiku-4-5")).toBeDefined();
+  });
+
   it("reveals an entry's config when its disclosure is expanded", async () => {
     const user = userEvent.setup();
     render(<SchemaSpec steps={[{ sh: "echo hi", description: "does a thing" }]} />);
