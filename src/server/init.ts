@@ -66,6 +66,26 @@ deserve their own bundle. Multi-line via YAML's \`|\` block scalar.
     date
 \`\`\`
 
+#### \`llm: { model, prompt }\`
+
+Runs a **first-party model completion** — no bundle. The model's text
+response becomes the step's output. \`model\` is a \`provider:model\` id whose
+prefix names an entry in \`llm-providers.yaml\` (see below); supply exactly one
+of \`prompt\` (inline) or \`prompt_file\`. \`{{KIRI_INPUT}}\` in the prompt carries
+the previous step's output.
+
+\`\`\`yaml
+- llm:
+    model: anthropic:claude-haiku-4-5
+    prompt: |
+      Summarise this in three bullets.
+
+      {{KIRI_INPUT}}
+\`\`\`
+
+\`publish:\` and \`summarize:\` accept \`llm:\` too; \`summarize: { llm: { model } }\`
+with no prompt uses a built-in summary prompt.
+
 #### Optional \`name\` and \`description\`
 
 Either shape accepts an optional \`name\` and \`description\`. \`name\` is a
@@ -93,6 +113,26 @@ at load time.
 bundle's source directory. Steps run with their cwd set to a per-run
 scratch dir, so bundles must read sidecar files via this env var
 (\`cat "$KIRI_BUNDLE_DIR/prompt.tpl"\`) rather than relative paths.
+
+## LLM providers
+
+\`llm:\` steps reference a model by a \`provider:model\` id. The provider
+prefix names an entry in an optional workspace-root \`llm-providers.yaml\`
+(kept in git). You only need this file if you use \`llm:\` steps.
+
+\`\`\`yaml
+providers:
+  anthropic:
+    type: anthropic          # anthropic | openai | openai-compatible
+    api_key:
+      env: ANTHROPIC_API_KEY  # API keys are always { env: <NAME> } refs — never a literal
+  local:
+    type: openai-compatible
+    base_url: http://localhost:1234/v1   # required for openai-compatible (LM Studio, Ollama, …)
+\`\`\`
+
+An API key is only ever a \`{ env: <NAME> }\` reference to an environment
+variable, so secrets stay out of git; the key is read at run time.
 
 ## Inputs
 
@@ -163,16 +203,21 @@ becomes a one-click launch.
 
 ## IDE / LSP integration
 
-Kiri publishes the workflow JSON Schema at \`.kiri/workflow.schema.json\` and
-refreshes it on every startup, so editor validation and autocomplete stays in
-sync after you upgrade kiri.
+Kiri publishes its JSON Schemas at \`.kiri/workflow.schema.json\` (for
+\`workflows/*.yaml\`) and \`.kiri/llm-providers.schema.json\` (for
+\`llm-providers.yaml\`), refreshing them on every startup, so editor validation
+and autocomplete stays in sync after you upgrade kiri.
 
 ### VS Code (Red Hat YAML extension)
 
-The simplest setup is a modeline at the top of each workflow file:
+The simplest setup is a modeline at the top of each file:
 
 \`\`\`yaml
+# workflows/*.yaml
 # yaml-language-server: $schema=../.kiri/workflow.schema.json
+
+# llm-providers.yaml
+# yaml-language-server: $schema=.kiri/llm-providers.schema.json
 \`\`\`
 
 Or configure \`yaml.schemas\` in your workspace \`.vscode/settings.json\`:
@@ -180,7 +225,8 @@ Or configure \`yaml.schemas\` in your workspace \`.vscode/settings.json\`:
 \`\`\`json
 {
   "yaml.schemas": {
-    ".kiri/workflow.schema.json": "workflows/*.yaml"
+    ".kiri/workflow.schema.json": "workflows/*.yaml",
+    ".kiri/llm-providers.schema.json": "llm-providers.yaml"
   }
 }
 \`\`\`
@@ -188,7 +234,8 @@ Or configure \`yaml.schemas\` in your workspace \`.vscode/settings.json\`:
 ### JetBrains IDEs
 
 Settings → Languages & Frameworks → Schemas and DTDs → JSON Schema Mappings.
-Map \`.kiri/workflow.schema.json\` to \`workflows/*.yaml\`.
+Map \`.kiri/workflow.schema.json\` to \`workflows/*.yaml\` and
+\`.kiri/llm-providers.schema.json\` to \`llm-providers.yaml\`.
 
 ## Re-running \`kiri init\`
 
