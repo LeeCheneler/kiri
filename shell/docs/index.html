@@ -200,6 +200,30 @@ steps:
       TARGET: production</code></pre>
       <p>Kiri passes the <code>env:</code> map through verbatim; what each key means is up to the bundle, documented in its own <code>README.md</code>. The project's <code>examples/</code> directory ships ready-made bundles — including a Claude Code runner — to copy into <code>scripts/</code> and adapt.</p>
 
+      <h3>Model completion — <code>llm:</code></h3>
+      <p>For a plain model completion — send a prompt, get text back — an <code>llm:</code> step calls a provider directly, with no bundle to write. The model's text response becomes the step's stdout. <code>model</code> is a <code>provider:model</code> id whose prefix names an entry in <code>llm-providers.yaml</code> (below); supply exactly one of <code>prompt</code> (inline) or <code>prompt_file</code>. <code>{{KIRI_INPUT}}</code> in the prompt carries the previous step's stdout:</p>
+      <pre><code>name: summarise
+steps:
+  - sh: cat notes.md
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: |
+        Summarise this in three bullets.
+
+        {{KIRI_INPUT}}</code></pre>
+      <p>Reach for a bundle when a step needs to <em>do</em> something agentic — open files, run tools, shell out; reach for <code>llm:</code> when it just needs a completion. <code>publish:</code> and <code>summarize:</code> accept <code>llm:</code> too, and token counts for each call show in the run timeline.</p>
+
+      <h3>LLM providers — <code>llm-providers.yaml</code></h3>
+      <p>Providers for <code>llm:</code> steps live in an optional workspace-root <code>llm-providers.yaml</code> (kept in git). Each <code>llm:</code> step's <code>provider:</code> prefix names an entry here. An API key is only ever a <code>{ env: &lt;NAME&gt; }</code> reference to an environment variable — a literal key is rejected so secrets stay out of git:</p>
+      <pre><code>providers:
+  anthropic:
+    type: anthropic          # anthropic | openai | openai-compatible
+    api_key:
+      env: ANTHROPIC_API_KEY
+  local:
+    type: openai-compatible
+    base_url: http://localhost:1234/v1   # required for openai-compatible (LM Studio, Ollama, …)</code></pre>
+
       <h3>Labelling a step — <code>name:</code> / <code>description:</code></h3>
       <p>Both optional, both work on either step shape. <code>name:</code> is a short label shown as the step's title in the Schema tab and the run timeline; without it a step falls back to its <code>use:</code> reference or the first line of its <code>sh:</code> script, so set it to keep multi-line steps readable. <code>description:</code> is longer detail revealed when the step's row is expanded.</p>
       <pre><code>steps:
@@ -247,13 +271,13 @@ steps:
           </tr>
           <tr>
             <td><code>KIRI_RUN_CONTEXT_FILE</code></td>
-            <td><code>publish:</code> and <code>summarize:</code> steps</td>
-            <td>Path to a JSON file describing the run so far — workflow name, status, per-step traces, and any published articles.</td>
+            <td><code>use:</code> / <code>sh:</code> <code>publish:</code> and <code>summarize:</code> steps</td>
+            <td>Path to a JSON file describing the run so far — workflow name, status, per-step traces, and any published articles. An <code>llm:</code> publish/summarise step can't open files, so it gets the same envelope inlined into the prompt as <code>{{KIRI_RUN_CONTEXT}}</code> instead.</td>
           </tr>
           <tr>
             <td><code>KIRI_RECOMMENDATIONS_FILE</code></td>
-            <td>main <code>steps:</code> only</td>
-            <td>Path the step may write JSON Lines to — one proposed follow-up workflow per line. Ingested as <code>recommendations</code> rows on the producing run after the step succeeds. See <a href="#recommendations">Recommendations</a> below.</td>
+            <td>main <code>use:</code> / <code>sh:</code> <code>steps:</code></td>
+            <td>Path the step may write JSON Lines to — one proposed follow-up workflow per line. Ingested as <code>recommendations</code> rows on the producing run after the step succeeds. See <a href="#recommendations">Recommendations</a> below. Not set for <code>llm:</code> steps — a completion can't emit recommendations.</td>
           </tr>
           <tr>
             <td><code>PATH</code>, <code>HOME</code>, <code>USER</code>, <code>LOGNAME</code></td>
@@ -283,16 +307,16 @@ steps:
       <p>Each input is <code>{ name, description?, required?, default? }</code>. <code>required: true</code> gates the modal's submit until the field is non-empty; <code>default</code> pre-fills it. Wire an input into any step / publish / summarise <code>env:</code> with <code>{ input: &lt;name&gt; }</code> — refs to undeclared inputs fail at load. The resolved input map is snapshotted onto the run, so the activity feed and run page both reflect what the run was invoked with.</p>
 
       <h3>Summaries — <code>summarize:</code></h3>
-      <p>An optional post-run step whose stdout becomes the run's one-or-two-sentence summary, shown on the feed row and at the top of the run page. It has the same <code>{ use | sh, env? }</code> shape as a step and runs after <code>steps:</code> and <code>publish:</code>. A failing summariser does not change the run's status.</p>
+      <p>An optional post-run step whose stdout becomes the run's one-or-two-sentence summary, shown on the feed row and at the top of the run page. It has the same <code>{ use | sh | llm, env? }</code> shape as a step and runs after <code>steps:</code> and <code>publish:</code>. A failing summariser does not change the run's status. A <code>summarize: { llm: { model } }</code> with no prompt is zero-config — kiri supplies a built-in summary prompt.</p>
       <pre><code>name: hello
 steps:
   - sh: echo "hello world"
 summarize:
   sh: echo "said hello to the world"</code></pre>
-      <p>A <code>summarize:</code> step receives empty stdin and the <code>KIRI_RUN_CONTEXT_FILE</code> environment variable (see the table above), so it can describe what the run did. For an AI-written summary, the <code>examples/</code> directory ships a <code>claude-code-summarizer</code> bundle — copy it into <code>scripts/</code> and reference it with <code>use:</code>.</p>
+      <p>A <code>summarize:</code> step receives empty stdin and reads the run via <code>KIRI_RUN_CONTEXT_FILE</code> (a bundle/<code>sh:</code> step) or the inlined <code>{{KIRI_RUN_CONTEXT}}</code> (an <code>llm:</code> step), so it can describe what the run did. For an AI-written summary, use a zero-config <code>llm:</code> summariser, or copy the <code>claude-code-summarizer</code> bundle from <code>examples/</code> into <code>scripts/</code> and reference it with <code>use:</code>.</p>
 
       <h3>Published articles — <code>publish:</code></h3>
-      <p>An optional array of long-form markdown articles produced by the run. Each entry has the same <code>{ use | sh, env? }</code> shape as a step, plus a <code>slug</code> (lowercase letters, digits, hyphens — unique within the workflow, used as the article's URL id) and an optional display <code>name</code>. Publish steps run serially after <code>steps:</code> and before <code>summarize:</code>; each step's stdout is captured as the article body. They receive empty stdin — to build an article from the run's data, read <code>KIRI_RUN_CONTEXT_FILE</code>:</p>
+      <p>An optional array of long-form markdown articles produced by the run. Each entry has the same <code>{ use | sh | llm, env? }</code> shape as a step, plus a <code>slug</code> (lowercase letters, digits, hyphens — unique within the workflow, used as the article's URL id) and an optional display <code>name</code>. Publish steps run serially after <code>steps:</code> and before <code>summarize:</code>; each step's stdout is captured as the article body. They receive empty stdin — to build an article from the run's data, read <code>KIRI_RUN_CONTEXT_FILE</code> (a bundle/<code>sh:</code> step) or reference the inlined <code>{{KIRI_RUN_CONTEXT}}</code> (an <code>llm:</code> step):</p>
       <pre><code>name: status
 steps:
   - sh: echo "all systems go"
@@ -321,7 +345,7 @@ steps:
           >> "$KIRI_RECOMMENDATIONS_FILE"
       done</code></pre>
       <p>Each line has <code>title</code> (required), <code>workflow</code> (required — the workflow name to invoke), <code>description</code> (optional, shown under the title), and <code>inputs</code> (optional <code>{ string: string }</code> map pre-filled into the invoke modal). Malformed JSON or schema-failing lines are skipped with a warning; the rest of the file still ingests.</p>
-      <p><code>KIRI_RECOMMENDATIONS_FILE</code> is set on main <code>steps:</code> only — not on <code>publish:</code> or <code>summarize:</code>. A failed or cancelled step's file is discarded, even if it wrote lines before failing.</p>
+      <p><code>KIRI_RECOMMENDATIONS_FILE</code> is set on main <code>use:</code> / <code>sh:</code> <code>steps:</code> only — not on <code>publish:</code>, <code>summarize:</code>, or <code>llm:</code> steps (a completion can't write files). A failed or cancelled step's file is discarded, even if it wrote lines before failing.</p>
       <p>Acting on a recommendation spawns the proposed workflow and pins the spawned run's id to the recommendation row. If the spawned run is later deleted the recommendation becomes triggerable again; if the named workflow is removed from your repo the trigger button disables with a "workflow not found" tooltip.</p>
 
       <h2>Trust model</h2>

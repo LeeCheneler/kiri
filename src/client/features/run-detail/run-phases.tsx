@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 import { resolvePublishName } from "../../../shared/publish-name.ts";
-import type { RunDetailRun, RunStepRow } from "../../api.ts";
-import { CodeBlock } from "../../design-system/content/code.tsx";
+import type {
+  LlmConfigSummary,
+  RunDetailRun,
+  RunPublishSnapshot,
+  RunStepRow,
+  WorkflowStepSummary,
+} from "../../api.ts";
+import { Code, CodeBlock } from "../../design-system/content/code.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
@@ -9,11 +15,18 @@ import { formatDuration } from "../../formatters/format-time.ts";
 import { stepTitle } from "../workflow-details/entry-config.tsx";
 import { LiveDuration } from "./live-duration.tsx";
 
+/** A declared pipeline entry from the run's definition snapshot. */
+type PhaseEntry = WorkflowStepSummary | RunPublishSnapshot;
+
+type LlmUsageCounts = NonNullable<NonNullable<RunStepRow["traces"]>["usage"]>;
+
 interface PhaseItem {
   key: string;
   ordinal: number;
   title: string;
   status: StatusKind;
+  /** The declared definition entry — carries the `llm:` config for an llm row. */
+  entry: PhaseEntry;
   /** The persisted step row, once the runner has reached this entry. */
   row: RunStepRow | undefined;
 }
@@ -36,6 +49,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       ordinal: i + 1,
       title: stepTitle(step),
       status: row?.status ?? "pending",
+      entry: step,
       row,
     };
   });
@@ -48,6 +62,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       ordinal: pi + 1,
       title: resolvePublishName(entry.slug, entry.name),
       status: row?.status ?? "pending",
+      entry,
       row,
     };
   });
@@ -60,6 +75,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       ordinal: 1,
       title: stepTitle(snap.summarize),
       status: row?.status ?? "pending",
+      entry: snap.summarize,
       row,
     };
   }
@@ -135,7 +151,7 @@ function PhaseRow({ item, now }: { item: PhaseItem; now?: Date }) {
   }
   return (
     <Disclosure summary={summary}>
-      <StepTrace row={item.row} />
+      <StepTrace row={item.row} entry={item.entry} />
     </Disclosure>
   );
 }
@@ -146,11 +162,15 @@ function StepDuration({ row, now }: { row: RunStepRow | undefined; now?: Date })
   return <>{formatDuration(row.startedAt, row.finishedAt)}</>;
 }
 
-function StepTrace({ row }: { row: RunStepRow }) {
+function StepTrace({ row, entry }: { row: RunStepRow; entry: PhaseEntry }) {
+  const llm = "llm" in entry ? entry.llm : undefined;
+  const usage = row.traces?.usage;
   return (
     <div className="space-y-4">
+      {llm ? <LlmDetail llm={llm} /> : null}
       <TracePart label="stdout" body={row.traces?.stdout ?? ""} />
       <TracePart label="stderr" body={row.traces?.stderr ?? ""} />
+      {usage ? <LlmUsage usage={usage} /> : null}
       {row.error ? (
         <div>
           <Eyebrow tone="muted">error</Eyebrow>
@@ -164,6 +184,72 @@ function StepTrace({ row }: { row: RunStepRow }) {
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+const PROMPT_EXCERPT_LIMIT = 200;
+
+const promptExcerpt = (prompt: string): string =>
+  prompt.length > PROMPT_EXCERPT_LIMIT ? `${prompt.slice(0, PROMPT_EXCERPT_LIMIT)}…` : prompt;
+
+/**
+ * The llm-specific header of an expanded trace: the completion's model and
+ * its prompt source — an inline `prompt` excerpt or the `prompt_file` path.
+ * A zero-config summariser carries neither and shows only the model.
+ */
+function LlmDetail({ llm }: { llm: LlmConfigSummary }) {
+  return (
+    <>
+      <div>
+        <Eyebrow tone="muted">model</Eyebrow>
+        <p className="mt-1.5 font-mono text-sm">
+          <Code>{llm.model}</Code>
+        </p>
+      </div>
+      {llm.prompt !== undefined ? (
+        <div>
+          <Eyebrow tone="muted">prompt</Eyebrow>
+          <div className="mt-1.5">
+            <CodeBlock>{promptExcerpt(llm.prompt)}</CodeBlock>
+          </div>
+        </div>
+      ) : null}
+      {llm.prompt_file !== undefined ? (
+        <div>
+          <Eyebrow tone="muted">prompt file</Eyebrow>
+          <p className="mt-1.5 font-mono text-sm">
+            <Code>{llm.prompt_file}</Code>
+          </p>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Per-call token counts for an `llm:` step — input, output, and total,
+ * each shown only when the provider reported it. Counts only, no cost; an
+ * all-empty usage object renders nothing.
+ */
+function LlmUsage({ usage }: { usage: LlmUsageCounts }): ReactNode {
+  const counts = [
+    { label: "input", value: usage.inputTokens },
+    { label: "output", value: usage.outputTokens },
+    { label: "total", value: usage.totalTokens },
+  ].filter((c) => c.value !== undefined);
+  if (counts.length === 0) return null;
+  return (
+    <div>
+      <Eyebrow tone="muted">tokens</Eyebrow>
+      <dl className="mt-1.5 flex gap-6 font-mono text-xs">
+        {counts.map((c) => (
+          <div key={c.label} className="flex items-baseline gap-2">
+            <dt className="text-ink-muted">{c.label}</dt>
+            <dd className="text-ink tabular-nums">{c.value}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
