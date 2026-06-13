@@ -135,4 +135,58 @@ describe("<RunPhases>", () => {
     await user.click(screen.getByRole("button", { name: /test/i }));
     expect(screen.getByText("splat")).toBeDefined();
   });
+
+  it("expands an llm step to reveal its model, prompt, and token counts", async () => {
+    const user = userEvent.setup();
+    const run = makeRun({
+      name: "wf",
+      steps: [
+        {
+          llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise the run." },
+          name: "Draft summary",
+        },
+      ],
+    });
+    const steps = [
+      makeStep({
+        index: 0,
+        kind: "llm",
+        traces: {
+          stdout: "a tidy summary",
+          stderr: "",
+          durationMs: 1400,
+          usage: { inputTokens: 1200, outputTokens: 340, totalTokens: 1540 },
+        },
+      }),
+    ];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /draft summary/i }));
+
+    expect(screen.getByText("anthropic:claude-haiku-4-5")).toBeDefined();
+    expect(screen.getByText("Summarise the run.")).toBeDefined();
+    expect(screen.getByText("1200")).toBeDefined();
+    expect(screen.getByText("340")).toBeDefined();
+    expect(screen.getByText("1540")).toBeDefined();
+  });
+
+  it("shows an llm step's prompt file and omits token counts when usage is absent", async () => {
+    const user = userEvent.setup();
+    const run = makeRun({
+      name: "wf",
+      steps: [
+        { llm: { model: "local:llama3", prompt_file: "prompts/review.tpl" }, name: "Review" },
+      ],
+    });
+    const steps = [
+      makeStep({ index: 0, kind: "llm", traces: { stdout: "ok", stderr: "", durationMs: 900 } }),
+    ];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /review/i }));
+
+    expect(screen.getByText("prompts/review.tpl")).toBeDefined();
+    // No usage on the row ⇒ no token-count section.
+    expect(screen.queryByText("tokens")).toBeNull();
+  });
 });

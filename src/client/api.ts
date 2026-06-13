@@ -217,7 +217,18 @@ export interface RunStepRow {
   finishedAt: string | null;
   output: unknown;
   error: { message: string; stack?: string } | null;
-  traces: { stdout: string; stderr: string; durationMs: number } | null;
+  /**
+   * Captured execution traces, or null for rows predating trace capture.
+   * `usage` carries per-call token counts on `llm:` step rows (a single
+   * non-streaming completion); absent on script/bundle rows and on llm rows
+   * whose provider reported no usage.
+   */
+  traces: {
+    stdout: string;
+    stderr: string;
+    durationMs: number;
+    usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  } | null;
   isSummary: boolean;
   isPublish: boolean;
 }
