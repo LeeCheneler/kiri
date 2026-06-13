@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=.kiri/llm-providers.schema.json
+
+# LLM endpoints that `llm:` steps reference by their `provider:model` id.
+# An API key is only ever a `{ env: <NAME> }` reference to an environment
+# variable — a literal key is rejected so secrets never land in git.
+providers:
+  # Anthropic's API. The key is read from $ANTHROPIC_API_KEY at run time.
+  # A step's `model: anthropic:claude-haiku-4-5` resolves against this entry.
+  anthropic:
+    type: anthropic
+    api_key:
+      env: ANTHROPIC_API_KEY
+
+  # A local OpenAI-compatible server (LM Studio, Ollama, vLLM, …). `base_url`
+  # is required for this type; a local endpoint usually needs no key. Swap a
+  # step to `model: local:<your-model>` to run entirely offline.
+  local:
+    type: openai-compatible
+    base_url: http://localhost:1234/v1
