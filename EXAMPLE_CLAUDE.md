@@ -24,10 +24,12 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
       README.md               # documents the env-var contract
   prompts/                    # convention only; any path under repo works
     my-prompt.tpl
+  llm-providers.yaml          # optional — providers for first-party llm: steps (in git; keys are env refs)
   .kiri/                      # gitignored — runtime state
     state.db                  # SQLite (Drizzle-managed)
     runs/<run-id>/            # per-run scratch dir (auto-cleaned after run)
-    workflow.schema.json      # JSON Schema for editor LSP
+    workflow.schema.json          # JSON Schema for editor LSP
+    llm-providers.schema.json     # JSON Schema for llm-providers.yaml
 ```
 
 `workflows/` is scanned top-level only — nested YAML files are ignored by design. The scan runs at startup and (in dev) on file change.
@@ -67,16 +69,21 @@ steps:                       # required, ≥1
     env:
       OTHER: "value"
 
+  - llm:                     # OR a first-party model completion (no bundle) — see "First-party LLM steps"
+      model: anthropic:claude-haiku-4-5     # provider:model; provider names an llm-providers.yaml entry
+      prompt: "Summarise {{KIRI_INPUT}}."   # inline OR prompt_file: prompts/x.tpl (exactly one)
+    name: "Summarise"        # optional — defaults to the model id when omitted
+
 publish:                     # optional — long-form markdown articles
   - slug: digest             # required, kebab-case-only ([a-z0-9-]+), unique within workflow — the article's URL id
     name: "Friendly Title"   # optional series label — feed chip + page eyebrow (defaults to a humanised slug)
     description: "..."       # optional
-    use: claude-code         # OR sh: |  …  — same shape as a step
+    use: claude-code         # OR sh: |  …  OR llm: { … }  — same shape as a step
     env:
       PROMPT_FILE: prompts/digest.tpl
 
 summarize:                   # optional — one-shot post-run summary
-  use: claude-code-summarizer
+  use: claude-code-summarizer   # OR sh: |  …  OR llm: { model: <provider:model> }  (zero-config summary)
   env:                       # optional override (see bundle docs)
     MODEL: sonnet
 ```
@@ -94,13 +101,14 @@ A step is **exactly one** of:
 
 - `{ use: <bundle>, name?, description?, env? }` — resolves to `scripts/<bundle>/run.sh`. Missing bundle → workflow fails to load with a clear error.
 - `{ sh: <string>, name?, description?, env? }` — inline shell, run via `sh -c`. Use YAML's `|` block scalar for multi-line.
+- `{ llm: { model, prompt? | prompt_file? }, name?, description?, env? }` — a first-party model completion, no bundle. See *First-party LLM steps* below.
 
-`name?` and `description?` are both optional and both apply to either shape:
+`name?` and `description?` are both optional and both apply to any shape:
 
-- `name` — a short, human-readable label, shown as the step's title in the Schema tab and the run timeline. Defaults to the bundle reference (`use:`) or the script's first non-empty line (`sh:`). Set it so multi-line scripts read as a label, not a code fragment.
+- `name` — a short, human-readable label, shown as the step's title in the Schema tab and the run timeline. Defaults to the bundle reference (`use:`), the script's first non-empty line (`sh:`), or the model id (`llm:`). Set it so multi-line scripts read as a label, not a code fragment.
 - `description` — longer detail, surfaced when the step's row is expanded.
 
-Mixing `use:` and `sh:` on the same step is a schema error.
+Mixing `use:`, `sh:`, and `llm:` on the same step is a schema error.
 
 ### `env:` rules
 
@@ -122,6 +130,7 @@ Mixing `use:` and `sh:` on the same step is a schema error.
 
 ### `publish:` rules
 
+- Each entry is `use:`, `sh:`, or `llm:` (same shapes as a step) plus a `slug`. An `llm:` publish reads the run via the inlined `{{KIRI_RUN_CONTEXT}}` (a bundle reads `{{KIRI_RUN_CONTEXT_FILE}}`) — see *First-party LLM steps*.
 - Each entry runs after `steps:` complete (on `ok` and `failed` runs, not `cancelled`). One after another, serially.
 - Each entry's **trimmed stdout** is stored as a markdown article, keyed by `slug`. It appears as a chip on the feed and a "Published" entry on the run detail page, with its own `/runs/:id/published/:slug` view rendered through a sandboxed markdown parser.
 - **Structure the body as a document with one headline and `##` sections.** Open with a single `# Headline` — the article page lifts it out as the page title and drops anything before it, so don't emit chatter like "Here's the article" ahead of it. Use `##` for the sections beneath: they become the article's table of contents. Sub-divide with `###` and deeper as usual.
@@ -131,6 +140,7 @@ Mixing `use:` and `sh:` on the same step is a schema error.
 
 ### `summarize:` rules
 
+- A `use:`, `sh:`, or `llm:` step. A `summarize: { llm: { model } }` with no prompt is zero-config — kiri supplies a built-in summary prompt over the inlined `{{KIRI_RUN_CONTEXT}}`.
 - Runs **after** publish entries, only on non-cancelled runs.
 - Its trimmed stdout becomes the run's `summary` (rendered on the activity feed row and at the top of the run detail page).
 - Failure is non-fatal — `runs.status` stays whatever `steps:` decided.
@@ -181,8 +191,8 @@ steps[2] stdin = steps[1] stdout  steps[2] stdout
 
 - `steps[0]` receives empty stdin.
 - Every subsequent step receives the **previous step's full stdout** on stdin.
-- `publish:` and `summarize:` steps receive **empty stdin**. They read the run via `KIRI_RUN_CONTEXT_FILE` instead (see below).
-- A non-zero exit code on any step in `steps:` halts the pipeline. Later `steps:` are skipped; `publish:` and `summarize:` still run.
+- `publish:` and `summarize:` steps receive **empty stdin**. A bundle/`sh:` entry reads the run via `KIRI_RUN_CONTEXT_FILE`; an `llm:` entry gets it inlined as `{{KIRI_RUN_CONTEXT}}` (see below).
+- A non-zero exit code (or a failed completion) on any step in `steps:` halts the pipeline. Later `steps:` are skipped; `publish:` and `summarize:` still run.
 
 ---
 
@@ -194,8 +204,8 @@ steps[2] stdin = steps[1] stdout  steps[2] stdout
 | `KIRI_STEP_INDEX` | 0-based index of this step within the run. Publish entries continue numbering after the last regular step. |
 | `KIRI_REPO_ROOT` | Absolute path of the workspace root (where `kiri` was launched). Resolve all relative paths (`prompts/foo.tpl`, etc.) against this. |
 | `KIRI_BUNDLE_DIR` | Absolute path to the bundle's own dir (e.g. `<root>/scripts/<name>/`). **Only set for `use:` steps** — sh-steps don't have a bundle. |
-| `KIRI_RUN_CONTEXT_FILE` | Absolute path to a JSON file with the run envelope so far. **Only set for `publish:` and `summarize:` steps.** |
-| `KIRI_RECOMMENDATIONS_FILE` | Absolute path the step may write JSON Lines to, one recommendation per line: `{title, workflow, description?, inputs?}`. Lines are ingested as `recommendations` rows after the step succeeds; failed and cancelled steps' files are discarded. **Only set on main `steps:` — not `publish:` or `summarize:`.** |
+| `KIRI_RUN_CONTEXT_FILE` | Absolute path to a JSON file with the run envelope so far. **Only set for `use:` / `sh:` `publish:` and `summarize:` steps** — an `llm:` entry can't open files, so it gets the same envelope inlined as `{{KIRI_RUN_CONTEXT}}` instead. |
+| `KIRI_RECOMMENDATIONS_FILE` | Absolute path the step may write JSON Lines to, one recommendation per line: `{title, workflow, description?, inputs?}`. Lines are ingested as `recommendations` rows after the step succeeds; failed and cancelled steps' files are discarded. **Only set on main `use:` / `sh:` `steps:` — not `publish:`, `summarize:`, or `llm:` steps** (a completion can't emit recommendations). |
 | `PATH`, `HOME`, `USER`, `LOGNAME` | Inherited from the kiri parent process. |
 
 Step working directory is the **per-run scratch dir** at `.kiri/runs/<run-id>/`, not the repo root. Use `KIRI_REPO_ROOT` to reach repo files.
@@ -214,9 +224,10 @@ Written to the scratch dir before each `publish:` and `summarize:` step. Shape:
   "durationMs": 12345,
   "steps": [
     {
-      "kind": "sh",                        // "use" | "sh"
+      "kind": "sh",                        // "use" | "sh" | "llm"
       "sh": "set -eu; ...",                // present if kind === "sh"
       "use": "<bundle>",                   // present if kind === "use"
+      "llm": { "model": "..." },           // present if kind === "llm"
       "index": 0,
       "status": "ok",                      // ok | failed | cancelled
       "durationMs": 123,
@@ -244,9 +255,9 @@ The full per-step `stdout`/`stderr` is in there too — `publish:` and `summariz
 Two ways to bring this JSON into a prompt, picked by what the model can do:
 
 - **Agentic models that can open files** (e.g. Claude Code with the `Read` tool): reference `{{KIRI_RUN_CONTEXT_FILE}}` — the model opens the path itself. This is what `claude-code` / `claude-code-summarizer` do.
-- **Non-agentic local models** (e.g. anything routed through `lm-studio-summarizer`): reference `{{KIRI_RUN_CONTEXT}}` — bundles in this class read the context file at the top of `run.sh` and expose its **content** as an env var, so the awk substitution pass splices the JSON directly into the prompt. Without this, a non-tool-using model leaks raw tool-call tokens into the response instead of reading the context.
+- **Non-agentic models** (a first-party `llm:` publish/summarise step, or anything routed through `lm-studio-summarizer`): reference `{{KIRI_RUN_CONTEXT}}` — the **content** of the envelope is spliced directly into the prompt. Without this, a non-tool-using model leaks raw tool-call tokens into the response instead of reading the context.
 
-`KIRI_RUN_CONTEXT` is a bundle-level convention, not a kiri-injected env var — only bundles that opt in (currently `lm-studio-summarizer`) expose it. If you author a bundle for a non-agentic runtime, expose the same placeholder by reading `KIRI_RUN_CONTEXT_FILE` into a `KIRI_RUN_CONTEXT` env var before the prompt-template substitution.
+For a first-party `llm:` step, `{{KIRI_RUN_CONTEXT}}` is supplied **by kiri itself** — there is no context file (a completion can't open one), and each `stdout`/`stderr` stream is capped at 64 KB (marked `[truncated]`) before inlining so a chatty run can't blow the model's input window. For a **bundle**, `KIRI_RUN_CONTEXT` is a bundle-level convention rather than a kiri-injected var: a bundle for a non-agentic runtime reads `KIRI_RUN_CONTEXT_FILE` into a `KIRI_RUN_CONTEXT` env var before its prompt-template substitution (as `lm-studio-summarizer` does).
 
 ---
 
@@ -319,6 +330,64 @@ Renders: `Say a cheerful one-sentence hello to Lee.`
 
 ---
 
+## First-party LLM steps (`llm:`)
+
+When a step just needs a **model completion** — send a prompt, get text back — use an `llm:` step instead of a bundle. Kiri calls the provider's API directly, in-process; nothing is spawned. Reach for a bundle (`claude-code`, `lm-studio`) when a step needs to *do* something agentic (open files, run tools, shell out); reach for `llm:` for a plain completion.
+
+```yaml
+- llm:
+    model: anthropic:claude-haiku-4-5   # provider:model — the prefix names an llm-providers.yaml entry
+    prompt: |                           # inline prompt …
+      Summarise the following in three bullets.
+
+      {{KIRI_INPUT}}
+  name: "Summarise"                      # optional, same name/description/env as any step
+- llm:
+    model: local:llama-3.1-8b
+    prompt_file: prompts/review.tpl      # … OR a prompt file (exactly one of prompt / prompt_file)
+```
+
+- **`model` is `provider:model`.** The prefix must name an entry in `llm-providers.yaml` (below); the rest is the provider's model id. A bare `model: claude-haiku` with no provider prefix is a load-time error.
+- **Exactly one of `prompt` / `prompt_file`** on a `steps:` / `publish:` entry. `prompt_file` resolves against the workspace root. (A `summarize:` step may omit both — see zero-config below.)
+- **Templating is the same `{{VAR}}` pass the bundles use.** `{{KIRI_INPUT}}` carries the previous step's stdout into a pipeline step's prompt (one trailing newline trimmed); the step's own `env:` vars are available too; unknown vars resolve empty.
+- **The completion text is the step's stdout** — it flows downstream / becomes the article / becomes the summary, exactly like a bundle's stdout. Token counts land on the envelope's `traces.usage` and show in the run timeline.
+- **No file channels.** A completion can't open files, so an `llm:` step gets **no `KIRI_RECOMMENDATIONS_FILE`** (it can't emit recommendations — use an `sh:` or bundle step for that) and **no `KIRI_RUN_CONTEXT_FILE`**. Instead, an `llm:` `publish:` / `summarize:` step receives the run envelope **inlined** as `{{KIRI_RUN_CONTEXT}}` (each `stdout`/`stderr` stream capped at 64 KB, marked `[truncated]` past the cap). Reference `{{KIRI_RUN_CONTEXT}}` directly in the prompt — kiri splices the JSON in.
+
+### Zero-config summariser
+
+A `summarize:` step can be just a model:
+
+```yaml
+summarize:
+  llm:
+    model: anthropic:claude-haiku-4-5   # no prompt — kiri supplies a built-in summary prompt
+```
+
+With no `prompt` / `prompt_file`, kiri uses a baked-in summary prompt over the inlined `{{KIRI_RUN_CONTEXT}}` — the first-party equivalent of `claude-code-summarizer`.
+
+### `llm-providers.yaml`
+
+Providers live in a workspace-root `llm-providers.yaml` (kept in git). Each `llm:` step's `provider:` prefix names an entry here.
+
+```yaml
+# yaml-language-server: $schema=.kiri/llm-providers.schema.json
+
+providers:
+  anthropic:                  # entry name = the `provider:` prefix in a model id
+    type: anthropic           # anthropic | openai | openai-compatible
+    api_key:
+      env: ANTHROPIC_API_KEY  # API keys are ALWAYS { env: <NAME> } refs — never a literal
+  local:
+    type: openai-compatible
+    base_url: http://localhost:1234/v1   # required for openai-compatible (LM Studio, Ollama, vLLM)
+```
+
+- **`type`** is one of `anthropic`, `openai`, `openai-compatible`. `base_url` is optional for the first two (override the default endpoint) and **required** for `openai-compatible`.
+- **`api_key` is only ever `{ env: <NAME> }`** — a reference to the environment variable holding the key. A literal key string is rejected so secrets stay out of git; the key is read at run time, and a missing env var fails the step cleanly.
+- The file is **optional** — a workspace with no `llm:` steps needs none. A worked example lives in `examples/llm-providers.yaml`.
+
+---
+
 ## Authoring a custom bundle
 
 Add a folder under `scripts/<name>/` with `run.sh` + a `README.md` documenting its env-var contract:
@@ -387,11 +456,14 @@ Every step (regular, publish, summarize) produces:
   status: "ok" | "failed",
   output: string,           // captured stdout
   error?: { message, stack? },
-  traces: { stdout, stderr, durationMs }
+  traces: {
+    stdout, stderr, durationMs,
+    usage?: { inputTokens?, outputTokens?, totalTokens? }   // llm: steps only
+  }
 }
 ```
 
-`status: "failed"` corresponds to a non-zero exit code. `stdout` is what flows downstream; `stderr` is captured for the run page but not piped onward.
+`status: "failed"` corresponds to a non-zero exit code (or a failed completion). `stdout` is what flows downstream; `stderr` is captured for the run page but not piped onward. For an `llm:` step `stdout` is the completion text, `stderr` is empty, and `traces.usage` carries the call's token counts when the provider reports them (shown in the run timeline).
 
 ---
 
@@ -556,6 +628,47 @@ steps:
 
 **Secrets** don't have a first-class store yet. For now, pull them from a mode-600 file inside the `sh:` step (or inside a bundle's `run.sh`) — keep them out of YAML and out of git.
 
+### 7. First-party `llm:` pipeline — completion, publish, and zero-config summary
+
+```yaml
+# llm-providers.yaml (workspace root)
+providers:
+  anthropic:
+    type: anthropic
+    api_key:
+      env: ANTHROPIC_API_KEY
+```
+
+```yaml
+# workflows/release-notes.yaml
+name: Release Notes
+steps:
+  - sh: |
+      cat <<'CHANGES'
+      - add first-party llm: workflow steps
+      - render llm token usage in the run timeline
+      CHANGES
+    name: Collect changes
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: |
+        Rewrite these changelog lines as friendly release notes.
+
+        {{KIRI_INPUT}}
+    name: Draft the notes
+publish:
+  - slug: release-notes
+    name: Release Notes
+    llm:
+      model: anthropic:claude-haiku-4-5
+      prompt_file: prompts/release-notes.tpl   # reads {{KIRI_RUN_CONTEXT}}, not {{KIRI_INPUT}}
+summarize:
+  llm:
+    model: anthropic:claude-haiku-4-5          # zero-config — built-in summary prompt
+```
+
+The pipeline `llm:` step reads the previous step's stdout via `{{KIRI_INPUT}}`. The `llm:` publish gets empty stdin, so its prompt file reads the run envelope from the inlined `{{KIRI_RUN_CONTEXT}}` instead. The full version lives at `examples/workflows/release-notes.yaml`.
+
 ---
 
 ## Charts in published articles
@@ -620,7 +733,10 @@ line, area, scatter, arc (pie/donut), heatmap, and more.
 | Relative path `prompts/foo.tpl` from inside a step expecting cwd-relative | Resolve against `$KIRI_REPO_ROOT`. The step's cwd is the scratch dir, not the repo root. |
 | Reading the parent shell's `MY_TOKEN` | Won't work. Set it explicitly under the step's `env:` (or pull it from a mode-600 file inside the script). |
 | Two `publish:` entries with the same `slug` | Slugs must be unique within a workflow. |
-| `publish:` step that depends on the previous step's stdout via stdin | `publish:` and `summarize:` get empty stdin. Read `KIRI_RUN_CONTEXT_FILE` instead. |
+| `publish:` step that depends on the previous step's stdout via stdin | `publish:` and `summarize:` get empty stdin. Read `KIRI_RUN_CONTEXT_FILE` (bundle/`sh:`) or `{{KIRI_RUN_CONTEXT}}` (`llm:`) instead. |
+| `llm: { model: claude-haiku }` (no provider prefix) | Use `provider:model`, e.g. `anthropic:claude-haiku-4-5`. The prefix must name an `llm-providers.yaml` entry. |
+| `api_key: sk-...` literal in `llm-providers.yaml` | Use `api_key: { env: ANTHROPIC_API_KEY }`. Literal keys are rejected so secrets stay out of git. |
+| `llm:` step that writes to `$KIRI_RECOMMENDATIONS_FILE` | Not set for `llm:` steps — a completion can't emit recommendations. Use an `sh:` or bundle step. |
 | Multi-line `sh:` without `set -eu` | `sh -c` doesn't stop on first failure by default. Start every non-trivial `sh:` with `set -eu`. |
 | Using `dangerouslySetInnerHTML` in custom UI that renders articles | Don't. Articles render through a sandboxed markdown parser. AI/script output is untrusted. |
 | A `chart` block whose spec fetches remote data (`data: { url }`) | Inline the data under `data.values`. Remote-data specs are rejected and degrade to a notice. |
@@ -629,10 +745,16 @@ line, area, scatter, arc (pie/donut), heatmap, and more.
 
 ## Editor LSP
 
-The JSON Schema at `.kiri/workflow.schema.json` is generated from the Zod schema and ships with each `kiri` run. Pin it at the top of each YAML file for in-editor validation:
+The JSON Schemas under `.kiri/` are generated from the Zod schemas and ship with each `kiri` run. Pin the matching one at the top of each YAML file for in-editor validation:
 
 ```yaml
+# workflows/*.yaml
 # yaml-language-server: $schema=../.kiri/workflow.schema.json
+```
+
+```yaml
+# llm-providers.yaml (workspace root)
+# yaml-language-server: $schema=.kiri/llm-providers.schema.json
 ```
 
 ---
@@ -644,5 +766,7 @@ If kiri's repo is the workspace and behaviour is unclear, these are the source-o
 - **Schema:** `src/server/workflows/schema.ts`
 - **Loader (file scan, bundle resolution, error reporting):** `src/server/workflows/loader.ts`
 - **Step execution (spawn, envelope, env scoping):** `src/server/runner/run-step.ts`
+- **LLM step execution (prompt render, completion, usage):** `src/server/runner/run-llm-step.ts`
+- **LLM providers (schema, loader, provider clients):** `src/server/llm/`
 - **Run lifecycle (steps → publish → summarize, context JSON, cancel):** `src/server/runner/run-workflow.ts`
 - **Architecture & roadmap:** `docs/design-notes.md`

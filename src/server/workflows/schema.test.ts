@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { isShPublish, isShStep, isUsePublish, isUseStep, workflowSchema } from "./schema.ts";
+import {
+  isLlmPublish,
+  isLlmStep,
+  isShPublish,
+  isShStep,
+  isUsePublish,
+  isUseStep,
+  workflowSchema,
+} from "./schema.ts";
 
 describe("workflowSchema", () => {
   it("parses a minimal valid workflow with a use: step", () => {
@@ -392,6 +400,198 @@ describe("workflowSchema", () => {
     ).toThrow();
   });
 
+  it("parses an llm step with an inline prompt", () => {
+    const result = workflowSchema.parse({
+      name: "llm-inline",
+      steps: [{ llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise this." } }],
+    });
+    expect(result.steps[0]).toEqual({
+      llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise this." },
+    });
+    expect(isLlmStep(result.steps[0])).toBe(true);
+  });
+
+  it("parses an llm step with a prompt_file", () => {
+    const result = workflowSchema.parse({
+      name: "llm-file",
+      steps: [{ llm: { model: "local:llama3", prompt_file: "prompts/review.tpl" } }],
+    });
+    expect(result.steps[0]).toEqual({
+      llm: { model: "local:llama3", prompt_file: "prompts/review.tpl" },
+    });
+  });
+
+  it("parses an llm step with name, description, and env", () => {
+    const result = workflowSchema.parse({
+      name: "llm-full",
+      steps: [
+        {
+          llm: { model: "anthropic:claude-haiku-4-5", prompt: "Review." },
+          name: "Review the diff",
+          description: "Asks the model for a review",
+          env: { TONE: "terse" },
+        },
+      ],
+    });
+    expect(result.steps[0].name).toBe("Review the diff");
+    expect(result.steps[0].env).toEqual({ TONE: "terse" });
+  });
+
+  it("parses an llm publish entry", () => {
+    const result = workflowSchema.parse({
+      name: "llm-pub",
+      steps: [{ use: "x" }],
+      publish: [
+        { slug: "digest", llm: { model: "anthropic:claude-haiku-4-5", prompt: "Write a digest." } },
+      ],
+    });
+    const [entry] = result.publish ?? [];
+    expect(isLlmPublish(entry)).toBe(true);
+  });
+
+  it("parses an llm summarize step with a prompt", () => {
+    const result = workflowSchema.parse({
+      name: "llm-sum",
+      steps: [{ use: "x" }],
+      summarize: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "One sentence." } },
+    });
+    expect(result.summarize).toEqual({
+      llm: { model: "anthropic:claude-haiku-4-5", prompt: "One sentence." },
+    });
+  });
+
+  it("parses an llm summarize step with no prompt (falls back to the default)", () => {
+    const result = workflowSchema.parse({
+      name: "llm-sum-default",
+      steps: [{ use: "x" }],
+      summarize: { llm: { model: "anthropic:claude-haiku-4-5" } },
+    });
+    expect(result.summarize).toEqual({ llm: { model: "anthropic:claude-haiku-4-5" } });
+  });
+
+  it("rejects a step with both use and llm keys", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "ambig-llm",
+        steps: [{ use: "x", llm: { model: "a:b", prompt: "p" } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a step with both sh and llm keys", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "ambig-llm-sh",
+        steps: [{ sh: "echo hi", llm: { model: "a:b", prompt: "p" } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an llm step declaring both prompt and prompt_file", () => {
+    const result = workflowSchema.safeParse({
+      name: "both-prompts",
+      steps: [{ llm: { model: "a:b", prompt: "p", prompt_file: "f.tpl" } }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("both prompt and prompt_file");
+    }
+  });
+
+  it("rejects an llm summarize step declaring both prompt and prompt_file", () => {
+    const result = workflowSchema.safeParse({
+      name: "both-prompts-sum",
+      steps: [{ use: "x" }],
+      summarize: { llm: { model: "a:b", prompt: "p", prompt_file: "f.tpl" } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("both prompt and prompt_file");
+    }
+  });
+
+  it("rejects an llm step with neither prompt nor prompt_file", () => {
+    const result = workflowSchema.safeParse({
+      name: "no-prompt",
+      steps: [{ llm: { model: "a:b" } }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("one of prompt or prompt_file");
+    }
+  });
+
+  it("rejects an llm publish entry with neither prompt nor prompt_file", () => {
+    const result = workflowSchema.safeParse({
+      name: "no-prompt-pub",
+      steps: [{ use: "x" }],
+      publish: [{ slug: "digest", llm: { model: "a:b" } }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("one of prompt or prompt_file");
+    }
+  });
+
+  it("rejects an llm model without a provider prefix", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "bare-model",
+        steps: [{ llm: { model: "claude-haiku-4-5", prompt: "p" } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an llm model with an empty provider or model part", () => {
+    for (const model of [":claude-haiku-4-5", "anthropic:", ":"]) {
+      expect(() =>
+        workflowSchema.parse({
+          name: "bad-model",
+          steps: [{ llm: { model, prompt: "p" } }],
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("accepts an llm model whose model part itself contains a colon", () => {
+    const result = workflowSchema.parse({
+      name: "colon-model",
+      steps: [{ llm: { model: "ollama:llama3:8b", prompt: "p" } }],
+    });
+    expect(isLlmStep(result.steps[0])).toBe(true);
+  });
+
+  it("rejects KIRI_-prefixed env keys on an llm step", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "reserved-llm",
+        steps: [{ llm: { model: "a:b", prompt: "p" }, env: { KIRI_RUN_ID: "spoofed" } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects unknown extra keys inside an llm config", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "extras-llm",
+        steps: [{ llm: { model: "a:b", prompt: "p", temperature: 0.7 } }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an llm step env that references an undeclared input", () => {
+    const result = workflowSchema.safeParse({
+      name: "undeclared-llm-ref",
+      inputs: [{ name: "pr_number" }],
+      steps: [{ llm: { model: "a:b", prompt: "p" }, env: { TARGET: { input: "ghost" } } }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("undeclared input");
+      expect(result.error.message).toContain("ghost");
+    }
+  });
+
   it("parses a workflow with a single minimal input", () => {
     const result = workflowSchema.parse({
       name: "with-inputs",
@@ -707,16 +907,34 @@ describe("workflowSchema", () => {
   });
 });
 
-describe("isUsePublish / isShPublish", () => {
+describe("isUsePublish / isShPublish / isLlmPublish", () => {
   it("narrows a use: publish entry", () => {
     const entry = { slug: "digest", use: "writer" } as const;
     expect(isUsePublish(entry)).toBe(true);
     expect(isShPublish(entry)).toBe(false);
+    expect(isLlmPublish(entry)).toBe(false);
   });
 
   it("narrows an sh: publish entry", () => {
     const entry = { slug: "digest", sh: "cat" } as const;
     expect(isShPublish(entry)).toBe(true);
     expect(isUsePublish(entry)).toBe(false);
+    expect(isLlmPublish(entry)).toBe(false);
+  });
+
+  it("narrows an llm: publish entry", () => {
+    const entry = { slug: "digest", llm: { model: "a:b", prompt: "p" } } as const;
+    expect(isLlmPublish(entry)).toBe(true);
+    expect(isUsePublish(entry)).toBe(false);
+    expect(isShPublish(entry)).toBe(false);
+  });
+});
+
+describe("isUseStep / isShStep / isLlmStep", () => {
+  it("narrows an llm: step", () => {
+    const step = { llm: { model: "a:b", prompt: "p" } } as const;
+    expect(isLlmStep(step)).toBe(true);
+    expect(isUseStep(step)).toBe(false);
+    expect(isShStep(step)).toBe(false);
   });
 });

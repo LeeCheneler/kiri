@@ -6,6 +6,11 @@ import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
+import {
+  createLlmClients,
+  createLlmProviderRegistry,
+  loadLlmProviders,
+} from "../src/server/llm/index.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
@@ -32,14 +37,15 @@ Environment:
 const INIT_HELP = `Usage: kiri init
 
 Scaffold workflow authoring assets in the working directory:
-  README.md                   Workflow DSL reference and IDE/LSP setup notes
-  workflows/hello-world.yaml  Minimal one-step starter workflow
-  .kiri/workflow.schema.json  JSON Schema for editor validation
+  README.md                        Workflow DSL reference and IDE/LSP setup notes
+  workflows/hello-world.yaml       Minimal one-step starter workflow
+  .kiri/workflow.schema.json       JSON Schema for editor validation
+  .kiri/llm-providers.schema.json  JSON Schema for llm-providers.yaml
 
 The working directory is the current directory, or KIRI_CONFIG_DIR if set.
 Existing files are never overwritten; only missing files are created.
-The schema file is always (re)written from the live Zod schema, so a
-plain \`kiri\` launch also keeps it in sync after a binary upgrade.
+The schema files are always (re)written from the live Zod schemas, so a
+plain \`kiri\` launch also keeps them in sync after a binary upgrade.
 `;
 
 const args = process.argv.slice(2);
@@ -64,6 +70,7 @@ if (args[0] === "init") {
   for (const path of result.created) console.log(`created  ${path}`);
   for (const path of result.skipped) console.log(`skipped  ${path} (already exists)`);
   console.log(`schema   ${result.schemaPath}`);
+  console.log(`schema   ${result.llmSchemaPath}`);
   if (result.gitignoreUpdated) console.log("updated  .gitignore (added .kiri/)");
   process.exit(0);
 }
@@ -76,19 +83,32 @@ if (args.length > 0) {
 
 const db = bootstrap(cwd);
 const registry = createRegistry();
+const llmRegistry = createLlmProviderRegistry();
 const bus = createEventBus();
 const cancelRegistry = createCancelRegistry();
 
+// Providers load first: workflow validation needs the provider names to
+// check `llm:` model prefixes against.
+const llmProviders = loadLlmProviders(cwd, process.env);
+llmRegistry.replace(llmProviders.providers);
+if (llmProviders.failure) {
+  console.error(
+    `llm-providers: failed to load ${llmProviders.failure.path}: ${llmProviders.failure.reason}`,
+  );
+}
+const providerNames = new Set(llmProviders.providers.keys());
+const llmClients = createLlmClients(llmRegistry, process.env);
+
 const workflowsDir = join(cwd, "workflows");
-const initial = await loadWorkflows(workflowsDir, cwd);
+const initial = await loadWorkflows(workflowsDir, cwd, providerNames);
 registry.replace(initial.workflows);
 for (const failure of initial.failures) {
   console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
 }
 
-const watcher = watchWorkflows(workflowsDir, cwd, registry, initial, { bus });
+const watcher = watchWorkflows(workflowsDir, cwd, registry, initial, { bus, providerNames });
 
-const app = createApp({ db, registry, cwd, bus, cancelRegistry, version: VERSION });
+const app = createApp({ db, registry, cwd, bus, cancelRegistry, llmClients, version: VERSION });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
 

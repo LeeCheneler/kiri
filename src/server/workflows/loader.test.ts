@@ -383,6 +383,128 @@ steps:
     expect(result.failures[0].reason).toContain("undeclared input");
   });
 
+  it("loads a workflow whose llm step names a registered provider", async () => {
+    writeFileSync(
+      join(dir, "llm.yaml"),
+      `name: llm
+steps:
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: Summarise this.
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    expect(Array.from(result.workflows.keys())).toEqual(["llm"]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("records a failure when an llm step's provider prefix is not registered", async () => {
+    writeFileSync(
+      join(dir, "llm.yaml"),
+      `name: llm
+steps:
+  - llm:
+      model: ghost:some-model
+      prompt: Summarise this.
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "llm.yaml"));
+    expect(result.failures[0].reason).toContain('"ghost"');
+    expect(result.failures[0].reason).toContain("llm-providers.yaml");
+  });
+
+  it("treats every llm provider as unknown when no provider names are passed", async () => {
+    writeFileSync(
+      join(dir, "llm.yaml"),
+      `name: llm
+steps:
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: Summarise this.
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd);
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].reason).toContain('"anthropic"');
+  });
+
+  it("loads a workflow whose llm prompt_file exists on disk", async () => {
+    mkdirSync(join(cwd, "prompts"));
+    writeFileSync(join(cwd, "prompts", "review.tpl"), "Review the diff.\n");
+    writeFileSync(
+      join(dir, "llm.yaml"),
+      `name: llm
+steps:
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt_file: prompts/review.tpl
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    expect(Array.from(result.workflows.keys())).toEqual(["llm"]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("records a failure when an llm step's prompt_file is missing on disk", async () => {
+    writeFileSync(
+      join(dir, "llm.yaml"),
+      `name: llm
+steps:
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt_file: prompts/ghost.tpl
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "llm.yaml"));
+    expect(result.failures[0].reason).toContain('"prompts/ghost.tpl"');
+    expect(result.failures[0].reason).toContain(cwd);
+  });
+
+  it("validates llm models in summarize and publish positions", async () => {
+    writeBundle(cwd, "step");
+    writeFileSync(
+      join(dir, "llm-sum.yaml"),
+      `name: llm-sum
+steps:
+  - use: step
+summarize:
+  llm:
+    model: ghost:summariser
+`,
+    );
+    writeFileSync(
+      join(dir, "llm-pub.yaml"),
+      `name: llm-pub
+steps:
+  - use: step
+publish:
+  - slug: digest
+    llm:
+      model: phantom:writer
+      prompt: Write a digest.
+`,
+    );
+
+    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(2);
+    const reasons = result.failures.map((f) => f.reason).sort();
+    expect(reasons[0]).toContain('"ghost"');
+    expect(reasons[1]).toContain('"phantom"');
+  });
+
   it("records a failure when YAML parses but isn't an object", async () => {
     writeFileSync(join(dir, "scalar.yaml"), "just a string\n");
 

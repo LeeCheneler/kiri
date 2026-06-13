@@ -29,9 +29,19 @@ describe("workflowJsonSchema", () => {
     expect(schema.properties.group?.type).toBe("string");
   });
 
-  it("describes step variants for use: and sh:", () => {
+  it("describes step variants for use:, sh:, and llm:", () => {
+    type LlmObject = {
+      type: string;
+      required?: string[];
+      properties: {
+        model?: { type: string; pattern?: string; description?: string };
+        prompt?: { type: string; description?: string };
+        prompt_file?: { type: string; description?: string };
+      };
+      additionalProperties?: false;
+    };
     type Variant = {
-      properties: { use?: { type: string }; sh?: { type: string } };
+      properties: { use?: { type: string }; sh?: { type: string }; llm?: LlmObject };
       required?: string[];
     };
     const schema = workflowJsonSchema() as {
@@ -45,14 +55,29 @@ describe("workflowJsonSchema", () => {
     const variants = "oneOf" in items ? items.oneOf : "anyOf" in items ? items.anyOf : [items];
     const useVariant = variants.find((v) => v.properties.use !== undefined);
     const shVariant = variants.find((v) => v.properties.sh !== undefined);
+    const llmVariant = variants.find((v) => v.properties.llm !== undefined);
     expect(useVariant).toBeDefined();
     expect(shVariant).toBeDefined();
+    expect(llmVariant).toBeDefined();
     expect(useVariant?.properties.use?.type).toBe("string");
     expect(shVariant?.properties.sh?.type).toBe("string");
+    const llm = llmVariant?.properties.llm;
+    expect(llm?.type).toBe("object");
+    expect(llm?.required).toEqual(["model"]);
+    expect(llm?.additionalProperties).toBe(false);
+    expect(llm?.properties.model?.type).toBe("string");
+    expect(llm?.properties.model?.pattern).toBe("^[^:]+:.+$");
+    expect(llm?.properties.model?.description).toBeDefined();
+    expect(llm?.properties.prompt?.type).toBe("string");
+    expect(llm?.properties.prompt?.description).toBeDefined();
+    expect(llm?.properties.prompt_file?.type).toBe("string");
+    expect(llm?.properties.prompt_file?.description).toBeDefined();
   });
 
   it("optionally permits a summarize field with the step variant shape", () => {
-    type Variant = { properties: { use?: { type: string }; sh?: { type: string } } };
+    type Variant = {
+      properties: { use?: { type: string }; sh?: { type: string }; llm?: { type: string } };
+    };
     const schema = workflowJsonSchema() as {
       required: string[];
       properties: {
@@ -65,8 +90,10 @@ describe("workflowJsonSchema", () => {
       "oneOf" in summarize ? summarize.oneOf : "anyOf" in summarize ? summarize.anyOf : [summarize];
     const useVariant = variants.find((v) => v.properties.use !== undefined);
     const shVariant = variants.find((v) => v.properties.sh !== undefined);
+    const llmVariant = variants.find((v) => v.properties.llm !== undefined);
     expect(useVariant).toBeDefined();
     expect(shVariant).toBeDefined();
+    expect(llmVariant).toBeDefined();
   });
 
   it("optionally permits an inputs array of named input declarations", () => {
@@ -152,13 +179,14 @@ describe("workflowJsonSchema", () => {
     expect(refBranch?.additionalProperties).toBe(false);
   });
 
-  it("optionally permits a publish array of named use/sh entries", () => {
+  it("optionally permits a publish array of named use/sh/llm entries", () => {
     type Variant = {
       properties: {
         slug?: { type: string; pattern?: string };
         name?: { type: string };
         use?: { type: string };
         sh?: { type: string };
+        llm?: { type: string };
       };
       required?: string[];
     };
@@ -178,10 +206,13 @@ describe("workflowJsonSchema", () => {
     const variants = "oneOf" in items ? items.oneOf : "anyOf" in items ? items.anyOf : [items];
     const useVariant = variants.find((v) => v.properties.use !== undefined);
     const shVariant = variants.find((v) => v.properties.sh !== undefined);
+    const llmVariant = variants.find((v) => v.properties.llm !== undefined);
     expect(useVariant?.properties.slug?.type).toBe("string");
     expect(useVariant?.properties.slug?.pattern).toBe("^[a-z0-9-]+$");
     expect(useVariant?.required).toEqual(expect.arrayContaining(["slug", "use"]));
     expect(shVariant?.properties.slug?.type).toBe("string");
     expect(shVariant?.required).toEqual(expect.arrayContaining(["slug", "sh"]));
+    expect(llmVariant?.properties.slug?.type).toBe("string");
+    expect(llmVariant?.required).toEqual(expect.arrayContaining(["slug", "llm"]));
   });
 });

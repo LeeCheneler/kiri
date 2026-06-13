@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ChildHandle } from "./cancel-registry.ts";
 import { runStep } from "./run-step.ts";
 
 describe("runStep", () => {
@@ -141,7 +142,7 @@ describe("runStep", () => {
 
   describe("onSpawn callback", () => {
     it("invokes onSpawn synchronously with the live subprocess handle", async () => {
-      const captured: Bun.Subprocess[] = [];
+      const captured: ChildHandle[] = [];
       const envelope = await runStep({
         step: { sh: "echo hi" },
         cwd,
@@ -153,7 +154,7 @@ describe("runStep", () => {
 
       expect(envelope.status).toBe("ok");
       expect(captured).toHaveLength(1);
-      // Bun.Subprocess shape: a `kill` method the cancel registry will call.
+      // ChildHandle shape: a `kill` method the cancel registry will call.
       expect(typeof captured[0].kill).toBe("function");
     });
   });
@@ -220,6 +221,41 @@ describe("runStep", () => {
       });
 
       expect(envelope.output.trim()).toBe("FOO=bar USER=");
+    });
+  });
+
+  describe("llm: steps", () => {
+    it("dispatches to the llm executor instead of spawning", async () => {
+      const envelope = await runStep({
+        step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise {{KIRI_INPUT}}" } },
+        cwd,
+        scratchDir,
+        input: "the news\n",
+        env: {},
+        llmClients: {
+          resolveModel: () => {
+            throw new Error("unused");
+          },
+          generateText: async ({ prompt }) => ({ text: `completed: ${prompt}`, usage: {} }),
+        },
+      });
+
+      expect(envelope.status).toBe("ok");
+      expect(envelope.output).toBe("completed: Summarise the news");
+    });
+
+    it("returns a failed envelope when no llm clients are configured", async () => {
+      const envelope = await runStep({
+        step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
+        cwd,
+        scratchDir,
+        input: "",
+        env: {},
+      });
+
+      expect(envelope.status).toBe("failed");
+      expect(envelope.output).toBe("");
+      expect(envelope.error?.message).toContain("anthropic:claude-haiku-4-5");
     });
   });
 });

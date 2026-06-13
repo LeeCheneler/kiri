@@ -9,6 +9,8 @@ export interface WatchOptions {
   watchFn?: typeof watch;
   /** Optional event bus. When supplied, the watcher publishes workflow.added / workflow.updated / workflow.removed on registry changes. */
   bus?: EventBus;
+  /** Provider names registered from llm-providers.yaml, forwarded to the loader so rebuilds validate `llm:` model prefixes. */
+  providerNames?: ReadonlySet<string>;
 }
 
 export interface WorkflowWatcher {
@@ -40,7 +42,8 @@ const buildSnapshot = (result: LoadResult): Snapshot => {
  * failure set; recoveries are logged when a previously failing path drops
  * out.
  *
- * `cwd` is the repo root used by the loader to resolve `use:` bundles.
+ * `cwd` is the repo root used by the loader to resolve `use:` bundles
+ * and `llm:` prompt files.
  * `initial` seeds the watcher's view so the first rebuild only logs
  * actual deltas relative to what the caller already loaded — not every
  * workflow that's already there.
@@ -58,6 +61,7 @@ export function watchWorkflows(
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const watchFn = options.watchFn ?? watch;
   const bus = options.bus;
+  const providerNames = options.providerNames ?? new Set<string>();
 
   let snapshot = buildSnapshot(initial);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -66,7 +70,7 @@ export function watchWorkflows(
     timer = null;
     let result: LoadResult;
     try {
-      result = await loadWorkflows(dir, cwd);
+      result = await loadWorkflows(dir, cwd, providerNames);
     } catch (cause) {
       // Directory disappeared between an fs.watch event and the debounced
       // rebuild — usually a teardown race. Log and bail; if it's transient

@@ -9,6 +9,7 @@ being forced on every new repo.
 
 ```
 examples/
+  llm-providers.yaml          # provider config for first-party llm: steps
   scripts/
     claude-code/              # spawn the Claude Code CLI with a rendered prompt
     claude-code-summarizer/   # summarise: step backed by Claude Code
@@ -19,9 +20,11 @@ examples/
     review-queue.yaml         # cross-repo PR triage; recommends one PR Review per matching PR
     pr-review.yaml            # takes repo + pr_number inputs, fetches the PR, publishes a review
     chart-gallery.yaml        # publishes an article showcasing every embeddable chart type
+    release-notes.yaml        # first-party llm: steps — completion, publish, and summary, no bundle
   prompts/
     daily-briefing.tpl        # prompt template for the briefing
     pr-review.tpl             # prompt template for the PR review
+    release-notes.tpl         # prompt template for the llm: release-notes article
 ```
 
 Each bundle's `README.md` documents its env-var contract — the
@@ -35,6 +38,41 @@ Bundles are plain bash. Copy the one you want into your own workspace's
 ```sh
 cp -r examples/scripts/claude-code path/to/your/workspace/scripts/
 ```
+
+## First-party `llm:` steps — the release-notes example
+
+For a plain completion — send a prompt, get text back — you don't need a
+bundle at all. An `llm:` step calls a model provider directly:
+
+```yaml
+- llm:
+    model: anthropic:claude-haiku-4-5
+    prompt: |
+      Summarise the following in three bullets.
+
+      {{KIRI_INPUT}}
+```
+
+`release-notes.yaml` shows the full shape — an `llm:` step in the pipeline,
+an `llm:` publish that writes the article, and a zero-config `llm:`
+summariser (`summarize: { llm: { model } }`, which uses a built-in prompt):
+
+- **Providers live in `llm-providers.yaml`.** Each `model:` is a
+  `provider:model` id whose prefix names an entry there. API keys are
+  always `{ env: <NAME> }` references — a literal key is rejected so
+  secrets stay out of git. Point the example at `local:<model>` (the
+  bundled `openai-compatible` entry) to run against LM Studio / Ollama
+  with no key.
+- **Templating matches the bundles.** `{{KIRI_INPUT}}` carries the
+  previous step's stdout into an `llm:` step's prompt. Publish and
+  summarise steps receive the run envelope inlined as
+  `{{KIRI_RUN_CONTEXT}}` (each stream capped at 64 KB) rather than piped
+  stdin.
+
+Reach for a bundle (`claude-code`, `lm-studio`) when a step needs to *do*
+something — spawn a CLI, shell out, run an agent. Reach for `llm:` when it
+just needs a completion. Running it needs `ANTHROPIC_API_KEY` in the
+environment (or a `local:` model and a server on `base_url`).
 
 ## Running the examples
 

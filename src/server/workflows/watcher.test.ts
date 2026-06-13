@@ -109,6 +109,56 @@ describe("watchWorkflows", () => {
     watcher.stop();
   });
 
+  it("forwards providerNames to the loader so llm workflows validate on rebuild", async () => {
+    const llmSource = `name: llm-flow
+steps:
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: Summarise this.
+`;
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    registry.replace(initial.workflows);
+
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, {
+      debounceMs: 10,
+      watchFn,
+      providerNames: new Set(["anthropic"]),
+    });
+
+    writeFileSync(join(dir, "llm-flow.yaml"), llmSource);
+    triggerChange();
+    await waitFor(() => registry.getWorkflow("llm-flow") !== undefined);
+
+    expect(errs).toEqual([]);
+    watcher.stop();
+  });
+
+  it("fails an llm workflow on rebuild when its provider is not registered", async () => {
+    const registry = createRegistry();
+    const initial = await loadWorkflows(dir, cwd);
+    registry.replace(initial.workflows);
+
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+
+    writeFileSync(
+      join(dir, "llm-flow.yaml"),
+      `name: llm-flow
+steps:
+  - llm:
+      model: ghost:some-model
+      prompt: Summarise this.
+`,
+    );
+    triggerChange();
+    await waitFor(() => errs.some((m) => m.includes('"ghost"')));
+
+    expect(registry.getWorkflow("llm-flow")).toBeUndefined();
+    watcher.stop();
+  });
+
   it("logs changed when an existing workflow file is edited", async () => {
     writeBundle(cwd, "v1");
     writeBundle(cwd, "v2");

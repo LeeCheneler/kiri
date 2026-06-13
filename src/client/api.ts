@@ -8,13 +8,26 @@ import { z } from "zod";
 export type EnvValue = string | { input: string };
 
 /**
+ * The `llm:` block of a first-party LLM step. `model` is a `provider:model`
+ * id; the prompt is inline (`prompt`) or a workspace-relative file path
+ * (`prompt_file`) — never both, and a summariser may carry neither.
+ */
+export interface LlmConfigSummary {
+  model: string;
+  prompt?: string;
+  prompt_file?: string;
+}
+
+/**
  * A single workflow step as seen by the client. `name` is an optional
  * short label used as the step's title in the Schema tab and run timeline;
- * absent steps fall back to the bundle reference or the script's first line.
+ * absent steps fall back to the bundle reference, the script's first line,
+ * or the llm model id.
  */
 export type WorkflowStepSummary =
   | { use: string; name?: string; description?: string; env?: Record<string, EnvValue> }
-  | { sh: string; name?: string; description?: string; env?: Record<string, EnvValue> };
+  | { sh: string; name?: string; description?: string; env?: Record<string, EnvValue> }
+  | { llm: LlmConfigSummary; name?: string; description?: string; env?: Record<string, EnvValue> };
 
 /**
  * One `publish:` entry on a workflow summary. `slug` is the URL/identifier;
@@ -34,6 +47,13 @@ export type WorkflowPublishSummary =
       name: string;
       description?: string;
       sh: string;
+      env?: Record<string, EnvValue>;
+    }
+  | {
+      slug: string;
+      name: string;
+      description?: string;
+      llm: LlmConfigSummary;
       env?: Record<string, EnvValue>;
     };
 
@@ -98,6 +118,13 @@ export type RunPublishSnapshot =
       name?: string;
       description?: string;
       sh: string;
+      env?: Record<string, EnvValue>;
+    }
+  | {
+      slug: string;
+      name?: string;
+      description?: string;
+      llm: LlmConfigSummary;
       env?: Record<string, EnvValue>;
     };
 
@@ -190,7 +217,18 @@ export interface RunStepRow {
   finishedAt: string | null;
   output: unknown;
   error: { message: string; stack?: string } | null;
-  traces: { stdout: string; stderr: string; durationMs: number } | null;
+  /**
+   * Captured execution traces, or null for rows predating trace capture.
+   * `usage` carries per-call token counts on `llm:` step rows (a single
+   * non-streaming completion); absent on script/bundle rows and on llm rows
+   * whose provider reported no usage.
+   */
+  traces: {
+    stdout: string;
+    stderr: string;
+    durationMs: number;
+    usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  } | null;
   isSummary: boolean;
   isPublish: boolean;
 }

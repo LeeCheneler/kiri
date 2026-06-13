@@ -55,6 +55,9 @@ steps:
     env:
       PROMPT_FILE: prompts/pr-review.tpl
       MAX_TURNS: "50"
+  - llm:                    # first-party LLM completion — model from llm-providers.yaml
+      model: anthropic:claude-haiku-4-5
+      prompt_file: prompts/pr-summary.tpl
   - sh: |                   # inline shell — sugar for trivial steps
       echo "review complete"
       date
@@ -68,23 +71,24 @@ summarize:                 # optional one or two sentence feed summary
   use: claude-code-summarizer
 ```
 
-A step is one of two shapes:
+A step is exactly one of three shapes:
 
 - `{ use: <name>, name?, description?, env?: { ... } }` — references a **script bundle** at `scripts/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
 - `{ sh: <string>, name?, description?, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
+- `{ llm: { model, prompt? | prompt_file? }, name?, description?, env?: { ... } }` — **first-party LLM completion** against a model declared in `llm-providers.yaml` (see *AI integration → LLM providers*). `model` is a `provider:model` id; the prefix must name a registered provider or the workflow fails to load. The prompt is inline (`prompt`) or a workspace-root-relative file (`prompt_file`) — declaring both is a schema error, and a declared `prompt_file` must exist on disk at load. `steps:` and `publish:` require one of the two; `summarize:` may omit both, falling back to a baked-in summary prompt.
 
-The optional `name` is a short label rendered as the step's title in the Schema tab and the run timeline; it falls back to the bundle reference or the script's first non-empty line. `description` is longer detail shown when a step's row is expanded.
+The optional `name` is a short label rendered as the step's title in the Schema tab and the run timeline; it falls back to the bundle reference, the llm model id, or the script's first non-empty line. `description` is longer detail shown when a step's row is expanded.
 
 `env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
 
 Two workflow-level sibling fields run alongside `steps:`:
 
-- **`summarize:`** — a single `{ use | sh, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The `claude-code-summarizer` example bundle ships with a baked-in prompt and `MODEL=haiku` so it produces summaries out of the box once copied into a workspace. Prompt and model are configurable via `env:` without forking the bundle.
-- **`publish:`** — an array of named long-form markdown articles. Each entry has the shape `{ slug, name?, use | sh, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference articles in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Articles are stored as rows in `articles`, surfaced as a stacked list on each activity-feed row, in a "Recently Published" right-rail section, in a "Published" section of the run detail page's right rail, and rendered on dedicated `/runs/:id/published/:slug` pages via a sandboxed markdown parser. The article page lifts the body's first markdown `# heading` out as the page title — dropping any preamble before it — shows the publish name as the eyebrow series label (suppressed when it just restates the workflow name), and treats the body's `##` headings as the sections that fill the page's table of contents; a body with no `# heading` falls back to the publish name for its page title. Each surface that lists articles shows the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Article markdown may embed fenced `chart` blocks — Vega-Lite JSON specs rendered inline as SVG charts through that same parser, with the charting library code-split so it loads only for articles that use one.
+- **`summarize:`** — a single `{ use | sh | llm, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The `claude-code-summarizer` example bundle ships with a baked-in prompt and `MODEL=haiku` so it produces summaries out of the box once copied into a workspace. Prompt and model are configurable via `env:` without forking the bundle.
+- **`publish:`** — an array of named long-form markdown articles. Each entry has the shape `{ slug, name?, use | sh | llm, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference articles in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Articles are stored as rows in `articles`, surfaced as a stacked list on each activity-feed row, in a "Recently Published" right-rail section, in a "Published" section of the run detail page's right rail, and rendered on dedicated `/runs/:id/published/:slug` pages via a sandboxed markdown parser. The article page lifts the body's first markdown `# heading` out as the page title — dropping any preamble before it — shows the publish name as the eyebrow series label (suppressed when it just restates the workflow name), and treats the body's `##` headings as the sections that fill the page's table of contents; a body with no `# heading` falls back to the publish name for its page title. Each surface that lists articles shows the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Article markdown may embed fenced `chart` blocks — Vega-Lite JSON specs rendered inline as SVG charts through that same parser, with the charting library code-split so it loads only for articles that use one.
 
-Both fields share the same load-time validation as `steps:` (`use:` / `sh:` mutually exclusive, `KIRI_` prefix banned on `env:` keys, missing `use:` bundle is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing publish flips `runs.status` to `failed`.
+Both fields share the same load-time validation as `steps:` (a step is exactly one of `use:` / `sh:` / `llm:`, `KIRI_` prefix banned on `env:` keys; a missing `use:` bundle, an unknown llm provider prefix, or a missing `prompt_file` is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing publish flips `runs.status` to `failed`.
 
-This single primitive — the script bundle — supports every runtime kiri will ever care about. The repo's `examples/` carries `claude-code` and `lm-studio` starter bundles; LM Studio support is `cp -r examples/scripts/claude-code scripts/lm-studio` and editing the script. Kiri itself stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way.
+The script bundle is the primitive for everything kiri reaches by spawning a process; first-party `llm:` steps cover the plain-completion case without forcing a bundle. The repo's `examples/` carries `claude-code` and `lm-studio` starter bundles; LM Studio support is `cp -r examples/scripts/claude-code scripts/lm-studio` and editing the script. For a **script step** kiri stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way. An `llm:` step is the deliberate exception — kiri makes the completion call in-process against the configured provider — but its result maps onto the same envelope, so everything downstream (traces, `publish:`, `summarize:`) is identical to a script step's.
 
 Rationale for YAML over TS: workflow files live in arbitrary user repos, but kiri ships as a single Bun-compiled binary. Resolving a TS `import { defineWorkflow } from "kiri"` from those repos would require both a Bun plugin baked into the binary to intercept the import *and* generated `.d.ts` files dropped into each repo for IDE support — both maintenance costs that compound forever. YAML is pure data, validated at load time, and a JSON schema can be published alongside the binary for editor LSP integration with no per-repo footprint.
 
@@ -97,11 +101,11 @@ Every step returns the same shape. Designed in early — painful to retrofit.
   status: "ok" | "failed",
   output: unknown,         // becomes the next step's input
   error?: { message, stack? },
-  traces: { stdout, stderr, durations, ... },
+  traces: { stdout, stderr, durations, usage?, ... },
 }
 ```
 
-Full I/O captured at every step. Linked from the corresponding feed entry for debugging and replay.
+Full I/O captured at every step. Linked from the corresponding feed entry for debugging and replay. `traces.usage` carries token counts and is present only on `llm:` steps (see *AI integration → LLM step execution*).
 
 ### Execution semantics
 
@@ -178,6 +182,42 @@ The feed entry surfaces a small count when a run has recommendations ("3 recomme
 
 ## AI integration
 
+### LLM providers (`llm-providers.yaml`)
+
+First-party LLM steps reference named endpoints declared in a workspace-root `llm-providers.yaml` — kiri's first workspace-level config file. It's a single `providers:` map keyed by a name of your choosing:
+
+```yaml
+providers:
+  anthropic:
+    type: anthropic                  # required — anthropic | openai | openai-compatible
+  work-openai:
+    type: openai
+    api_key: { env: WORK_OPENAI_KEY }
+  local:
+    type: openai-compatible
+    base_url: http://localhost:1234/v1
+```
+
+- **`type` is always required** and selects the API the endpoint speaks; there is no inference from the entry's key. Each entry is a discriminated union on `type`, so the published JSON Schema enforces every rule in-editor — notably that `openai-compatible` requires a `base_url`.
+- **`api_key` is an `{ env: <NAME> }` reference only**, never a literal key. This mirrors the `{ input: }` idiom in workflow `env:` and keeps secrets out of the git-tracked YAML. When omitted, `anthropic`/`openai` fall back to the conventional `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`; `openai-compatible` needs no key.
+- Kiri reads the config at startup into an in-memory registry. A **missing file is first-class** — an empty registry, not an error. A present file is validated, and a declared `{ env: }` ref must name a variable set in the kiri process or the load fails with the offending key named — the same posture as a workflow referencing a missing bundle. Only *declared* refs are checked at load; conventional fallbacks resolve when a provider is used. Resolved key **values are never persisted, snapshotted, or echoed in errors** — the registry keeps only the env var's name.
+- **Env source.** Bun auto-loads `.env` from the workspace root, so the variables your `{ env: }` refs name resolve from there (or the ambient environment) with no extra wiring.
+- **Editor support.** Kiri publishes `.kiri/llm-providers.schema.json` on every launch, alongside the workflow schema, for YAML validation and autocomplete — map it the same way (modeline or `yaml.schemas`).
+- **Workflows validate against it.** An `llm:` step's `model` is a `provider:model` id; the prefix must name a provider in this registry or the workflow fails to load — the same posture as a missing bundle.
+- **Reloading.** The registry is read once at startup; there is no dev-mode file watcher for it — restart kiri to pick up edits.
+
+### LLM step execution
+
+An `llm:` step runs as a single non-streaming completion inside the kiri process — nothing is spawned. The runner renders the prompt template, calls the model through the provider registry, and maps the result onto the standard step envelope:
+
+- **Prompt rendering.** Same `{{VAR}}` semantics as the script bundles' renderer (ASCII `[A-Z_][A-Z0-9_]*` names, one left-to-right pass, unknown names resolve to empty, substituted values never re-scanned), so existing bundle prompt templates port to `llm:` steps unchanged. The vars map is the step's env scope — its own `env:` plus the kiri-injected vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) — and `{{KIRI_INPUT}}` carries the previous step's stdout with one trailing newline trimmed, exactly what a bundle's `KIRI_INPUT="$(cat)"` sees.
+- **Envelope mapping.** The completion text becomes `output` and `traces.stdout`; `traces.stderr` stays empty — there is no second stream. Token counts from the response are persisted on `traces.usage` (input/output/total, fields omitted when the provider doesn't report them). A provider or API error fails the step with the provider's message; halt-on-failure semantics match every other step.
+- **No file channels.** A completion can't read or write files, so llm steps are not offered `KIRI_RECOMMENDATIONS_FILE`, and llm `publish:`/`summarize:` entries get the run envelope inlined as `{{KIRI_RUN_CONTEXT}}` instead of a `KIRI_RUN_CONTEXT_FILE` path — no context file is written for them. The inlined JSON caps each step's stdout/stderr at 64 KB (`[truncated]` marker) so a verbose step can't blow the model's context window; the context file bundle steps read is built by the same serialiser and carries the same caps.
+- **Zero-config summariser.** A `summarize: { llm: { model } }` entry that declares neither `prompt` nor `prompt_file` falls back to a baked-in feed-summary prompt reading the inlined envelope. The fallback is applied at execution time only — the run's definition snapshot keeps what was authored.
+- **Cancellation.** Cancelling a run aborts the in-flight HTTP request; the step and run finalise as `cancelled` through the same path as a killed child process.
+
+Scope is completion-shaped steps: one prompt in, text out. Agentic work (tool use, multi-turn sessions) stays on script bundles like `claude-code`.
+
 ### Claude Code via the `claude-code` bundle
 
 Kiri integrates with Claude Code through a `claude-code` script bundle — a worked example carried in the repo's `examples/` that the user copies into their workspace's `scripts/` and owns from then on. Kiri itself has no CC-specific code; the bundle does the spawning, config translation, transcript parsing, and meta emission. Spawning CC's CLI directly keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
@@ -220,7 +260,9 @@ Three tiers, in order:
 
 ### Cost tracking
 
-Deferred. The earlier design carried a generic `meta` channel (`KIRI_META_FILE`) for steps to emit `{ cost_usd, tokens_in, tokens_out, model }`, with the UI promoting conventional keys to feed headers. The channel was never read back and the cost numbers never landed, so the wiring was retired to keep the runtime contract honest. Picking this up later means re-introducing both the file channel (or a different transport) and the UI promotion; ccusage's transcript-parsing approach remains the reference for the underlying numbers.
+First-party `llm:` steps persist token usage on their step row (`traces.usage`, straight off the provider response) — the numbers arrive without any side-channel, superseding the rationale for the retired `KIRI_META_FILE` meta channel where first-party calls are concerned. No cost/billing UI is built on top of them; the counts are simply kept.
+
+Bundle-spawned agents (e.g. `claude-code`) still have no usage capture. The earlier design's generic meta channel (`KIRI_META_FILE` emitting `{ cost_usd, tokens_in, tokens_out, model }`) was retired unread to keep the runtime contract honest; if bundle-side numbers are ever wanted, that means re-introducing a transport plus UI promotion, with ccusage's transcript-parsing approach as the reference.
 
 ### Permissions philosophy
 
@@ -260,6 +302,7 @@ Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
 ```
 <repo-root>/
   workflows/                  # YAML workflow definitions (in git)
+  llm-providers.yaml          # LLM endpoint declarations (in git; optional)
   scripts/                    # script bundles (in git)
     claude-code/              # an example bundle copied in; user owns it
       run.sh
@@ -322,6 +365,7 @@ Script execution is the central capability of this system, which means security 
 ### Secrets
 
 - **No secrets in workflow definitions.** Definitions are git-tracked. Secrets stay outside the repo, mode 600, referenced by name from the workflow.
+- **No secrets in LLM provider config.** `llm-providers.yaml` is git-tracked, so an `api_key` is an `{ env: <NAME> }` reference only — a literal key is a schema error. Resolved values are never persisted, snapshotted, or echoed in errors (see *AI integration → LLM providers*).
 - **No secrets in feed entries or traces.** Output rendering scrubs known secret patterns (tokens, AWS keys, etc.) before display and persistence.
 
 ### UI
@@ -372,6 +416,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 12. **Article publishing.** `publish: [...]` array on workflows. Markdown articles stored in `articles`, surfaced as a stacked list on each feed row and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:slug` pages via a sandboxed renderer.
 13. **Workflow inputs.** `inputs:` block on workflows — named parameters collected via a modal on invoke, snapshotted onto the run, and injected into step `env:` via `{ input: <name> }` refs. One definition, many targets.
 14. **Recommendations.** Workflows emit follow-up workflow invocations via a `KIRI_RECOMMENDATIONS_FILE` file channel. Stored as rows linked to the producing run, surfaced on the run detail page as a "Recommended" section beneath the run's phases, and triggered via the standard invoke modal with inputs pre-filled.
+15. **First-party LLM steps.** An `llm:` step kind that runs a model completion in-process against a provider declared in `llm-providers.yaml` (`provider:model` ids, `{ env: <NAME> }` API-key refs). Inline or file prompts with the bundles' `{{VAR}}` templating — `{{KIRI_INPUT}}` for pipeline steps, the inlined `{{KIRI_RUN_CONTEXT}}` for publish/summarise — token usage on the envelope, and a zero-config `llm:` summariser. The bundle-free path for completion-shaped steps; the model, prompt source, and token counts render across the run timeline and workflow schema surfaces.
 
 ## Open questions
 
