@@ -23,12 +23,18 @@ export type KiriEvent =
       actionedRunId: string;
       status: RunStatus;
     }
+  | { type: "session.started"; id: string }
+  | { type: "session.message.added"; sessionId: string }
+  | { type: "session.updated"; id: string; status: SessionStatus }
+  | { type: "session.finished"; id: string; status: SessionStatus }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string };
 
 export type RunStatus = "running" | "ok" | "failed" | "cancelled";
 export type StepStatus = "running" | "ok" | "failed" | "cancelled";
+/** Session lifecycle states. `idle` replaces a run's terminal `ok`: a session returns to it between turns rather than ending. */
+export type SessionStatus = "running" | "idle" | "failed" | "cancelled";
 
 export type EventListener = (event: KiriEvent) => void;
 

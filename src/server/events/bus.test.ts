@@ -117,4 +117,25 @@ describe("createEventBus", () => {
 
     expect(step).toBe(2);
   });
+
+  it("carries session lifecycle events", () => {
+    const bus = createEventBus();
+    const seen: KiriEvent[] = [];
+    let messageSessionId: string | undefined;
+    bus.subscribe((e) => {
+      seen.push(e);
+      if (e.type === "session.message.added") messageSessionId = e.sessionId;
+    });
+
+    bus.publish({ type: "session.started", id: "s1" });
+    bus.publish({ type: "session.message.added", sessionId: "s1" });
+    bus.publish({ type: "session.updated", id: "s1", status: "idle" });
+
+    expect(seen).toEqual([
+      { type: "session.started", id: "s1" },
+      { type: "session.message.added", sessionId: "s1" },
+      { type: "session.updated", id: "s1", status: "idle" },
+    ]);
+    expect(messageSessionId).toBe("s1");
+  });
 });
