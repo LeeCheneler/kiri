@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "./bootstrap.ts";
 import type { KiriDb } from "./db/index.ts";
-import { runSteps, runs } from "./db/schema.ts";
-import { reconcileInterruptedRuns } from "./reconcile.ts";
+import { runSteps, runs, sessions } from "./db/schema.ts";
+import { reconcileInterruptedRuns, reconcileInterruptedSessions } from "./reconcile.ts";
 
 describe("reconcileInterruptedRuns", () => {
   let cwd: string;
@@ -94,5 +94,54 @@ describe("reconcileInterruptedRuns", () => {
     const row = db.select().from(runs).where(eq(runs.id, "done")).get();
     expect(row?.status).toBe("ok");
     expect(row?.error).toBeNull();
+  });
+});
+
+describe("reconcileInterruptedSessions", () => {
+  let cwd: string;
+  let db: KiriDb;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "kiri-reconcile-"));
+    db = bootstrap(cwd);
+  });
+
+  afterEach(() => {
+    db.$client.close();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  const insertSession = (id: string, status: "running" | "idle" | "failed") => {
+    db.insert(sessions)
+      .values({
+        id,
+        status,
+        model: "lmstudio:gemma-4-26b-a4b-qat",
+        startedAt: new Date(0),
+        finishedAt: status === "running" || status === "idle" ? null : new Date(0),
+      })
+      .run();
+  };
+
+  it("marks a stuck running session as failed with finishedAt and an interrupted error", () => {
+    insertSession("stuck", "running");
+
+    reconcileInterruptedSessions(db);
+
+    const row = db.select().from(sessions).where(eq(sessions.id, "stuck")).get();
+    expect(row?.status).toBe("failed");
+    expect(row?.finishedAt).toBeInstanceOf(Date);
+    expect(row?.error).toEqual({ message: "interrupted by server restart" });
+  });
+
+  it("leaves idle and terminal sessions untouched", () => {
+    insertSession("resting", "idle");
+    insertSession("broke", "failed");
+
+    reconcileInterruptedSessions(db);
+
+    expect(db.select().from(sessions).where(eq(sessions.id, "resting")).get()?.status).toBe("idle");
+    expect(db.select().from(sessions).where(eq(sessions.id, "resting")).get()?.error).toBeNull();
+    expect(db.select().from(sessions).where(eq(sessions.id, "broke")).get()?.status).toBe("failed");
   });
 });

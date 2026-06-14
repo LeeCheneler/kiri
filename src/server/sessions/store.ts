@@ -1,0 +1,122 @@
+import type { UIMessage } from "ai";
+import { asc, eq, sql } from "drizzle-orm";
+import type { KiriDb } from "../db/index.ts";
+import { messages, sessions } from "../db/schema.ts";
+import type { SessionStatus } from "../events/index.ts";
+import type { LlmUsage } from "../llm/index.ts";
+
+/** A persisted session row. */
+export type Session = typeof sessions.$inferSelect;
+/** A persisted message row. `parts` is an AI SDK `UIMessage` parts array (typed `unknown` by drizzle's JSON column). */
+export type Message = typeof messages.$inferSelect;
+
+/** A message to append, ahead of being assigned its row id, index, and timestamp. */
+export interface NewMessage {
+  role: "user" | "assistant" | "system";
+  parts: UIMessage["parts"];
+  /** Token usage for the turn that produced this message; omitted for user messages. */
+  usage?: LlmUsage;
+}
+
+/**
+ * Insert a new session against `model` (a `provider:model` id), starting it
+ * `idle` with zero token totals. Returns the persisted row.
+ */
+export function createSession(
+  db: KiriDb,
+  model: string,
+  opts: { id?: string; startedAt?: Date } = {},
+): Session {
+  const id = opts.id ?? crypto.randomUUID();
+  db.insert(sessions)
+    .values({
+      id,
+      status: "idle",
+      model,
+      startedAt: opts.startedAt ?? new Date(),
+    })
+    .run();
+  return getSession(db, id) as Session;
+}
+
+/** Read a session by id, or `undefined` if none exists. */
+export function getSession(db: KiriDb, id: string): Session | undefined {
+  return db.select().from(sessions).where(eq(sessions.id, id)).get();
+}
+
+/** Read a session's messages in order. */
+export function getSessionMessages(db: KiriDb, sessionId: string): Message[] {
+  return db
+    .select()
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .orderBy(asc(messages.index))
+    .all();
+}
+
+/**
+ * Append `message` to a session at the next index. Messages are only ever
+ * appended, so the current count is the next index. Returns the persisted row.
+ */
+export function appendMessage(
+  db: KiriDb,
+  sessionId: string,
+  message: NewMessage,
+  opts: { id?: string; createdAt?: Date } = {},
+): Message {
+  const index = db
+    .select({ index: messages.index })
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .all().length;
+  const id = opts.id ?? crypto.randomUUID();
+  db.insert(messages)
+    .values({
+      id,
+      sessionId,
+      index,
+      role: message.role,
+      parts: message.parts,
+      usage: message.usage ?? null,
+      createdAt: opts.createdAt ?? new Date(),
+    })
+    .run();
+  return db.select().from(messages).where(eq(messages.id, id)).get() as Message;
+}
+
+/**
+ * Add a completed turn's token usage to a session's running totals. A count
+ * the provider omitted contributes nothing to its column. Increments in SQL so
+ * the read-modify-write is atomic.
+ */
+export function addTurnUsage(db: KiriDb, sessionId: string, usage: LlmUsage): void {
+  db.update(sessions)
+    .set({
+      inputTokens: sql`${sessions.inputTokens} + ${usage.inputTokens ?? 0}`,
+      outputTokens: sql`${sessions.outputTokens} + ${usage.outputTokens ?? 0}`,
+      totalTokens: sql`${sessions.totalTokens} + ${usage.totalTokens ?? 0}`,
+    })
+    .where(eq(sessions.id, sessionId))
+    .run();
+}
+
+/**
+ * Move a session to `status`. Pass `error` and/or `finishedAt` to set them in
+ * the same write (a terminal `failed`/`cancelled` carries both); omit them to
+ * leave the existing values untouched.
+ */
+export function setSessionStatus(
+  db: KiriDb,
+  sessionId: string,
+  status: SessionStatus,
+  update: { error?: unknown; finishedAt?: Date | null } = {},
+): void {
+  db.update(sessions)
+    .set({
+      status,
+      ...("error" in update ? { error: update.error } : {}),
+      ...("finishedAt" in update ? { finishedAt: update.finishedAt } : {}),
+    })
+    .where(eq(sessions.id, sessionId))
+    .run();
+}

@@ -5,10 +5,13 @@ import { FakeIntersectionObserver } from "./fake-intersection-observer.ts";
 // replaces fetch primitives with browser-spec implementations. Three of those
 // implementations break us: its Request strips the Origin header (Hono CORS
 // tests), its AbortSignal/EventTarget aren't recognised by MSW's
-// interceptor, and Hono's `streamSSE` needs the WHATWG stream classes
-// (Bun's natives have `getWriter` etc.; happy-dom's polyfills don't). Stash
-// the natives, register happy-dom, then put the natives back so server
-// tests and MSW continue to work.
+// interceptor, and the WHATWG stream classes — which Hono's `streamSSE` and
+// the AI SDK's `streamText` both pipe through — must stay native and
+// consistent (Bun's have `getWriter`/spec-correct `pipeTo`; happy-dom's
+// polyfills don't, and mixing a native TransformStream with a polyfilled
+// WritableStream trips `pipeTo`'s `instanceof` check). Stash the natives,
+// register happy-dom, then put the natives back so server tests and MSW
+// continue to work.
 //
 // `Event` and `MessageEvent` stay as happy-dom's classes: happy-dom's
 // EventTarget.dispatchEvent does an `instanceof Event` check against its
@@ -26,6 +29,8 @@ const nativeKeys = [
   "AbortController",
   "AbortSignal",
   "EventTarget",
+  "ReadableStream",
+  "WritableStream",
   "TransformStream",
 ] as const;
 
