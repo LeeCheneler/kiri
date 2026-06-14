@@ -99,6 +99,13 @@
       "when": 1780607152428,
       "tag": "0013_rename_article_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1781475032691,
+      "tag": "0014_add_sessions_and_messages",
+      "breakpoints": true
     }
   ]
 }

@@ -156,3 +156,75 @@ export const recommendations = sqliteTable(
     index("recommendations_actioned_run_id_idx").on(t.actionedRunId),
   ],
 );
+
+/**
+ * One row per agentic conversation — the session pillar's instance, mirroring
+ * `runs`. `agent_config_snapshot` captures the resolved agent definition
+ * (model, system prompt, …) at session start so a session always reflects the
+ * agent it began with, even after the agent definition changes. The running
+ * token columns are a deliberate denormalisation over per-message `usage`
+ * (see `messages.usage`): an agent loop needs live budget/context visibility,
+ * so each turn's usage is summed onto the row rather than recomputed by
+ * scanning every message.
+ */
+export const sessions = sqliteTable("sessions", {
+  id: text("id").primaryKey(),
+  agentName: text("agent_name").notNull(),
+  /**
+   * Session lifecycle: `"idle"` at create and between turns, `"running"`
+   * while a turn streams, and terminal `"failed"` / `"cancelled"` when a
+   * turn errors or is cancelled. Unlike a run, a session is long-lived —
+   * it returns to `"idle"` after each successful turn rather than reaching
+   * a single terminal state.
+   */
+  status: text("status").notNull(),
+  /** `provider:model` id the session's turns run against, resolved through the same registry `llm:` steps use. */
+  model: text("model").notNull(),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+  /** Stamped when the session reaches a terminal `failed`/`cancelled` state; null while it remains usable. */
+  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+  error: text("error", { mode: "json" }),
+  /** Resolved agent definition snapshotted at session start; editing the agent never mutates an existing session. */
+  agentConfigSnapshot: text("agent_config_snapshot", { mode: "json" }).notNull(),
+  /**
+   * Running token totals across every completed turn, summed from each
+   * turn's `messages.usage` on completion. Default 0; a provider that omits
+   * a count contributes nothing to its column. Powers the session's live
+   * budget readout without re-aggregating the message rows.
+   */
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+});
+
+/**
+ * One row per message in a session, ordered by `index`. `parts` holds the
+ * AI SDK `UIMessage` parts array as JSON — text, tool-call, tool-result,
+ * file/image, reasoning — the canonical, provider-agnostic representation
+ * the client renders and `convertToModelMessages` round-trips to the model.
+ * Storing parts is what makes later tools and image uploads storage no-ops:
+ * they are simply additional part types this column already holds. Per-message
+ * `usage` rides the row as JSON, mirroring `traces.usage` on a run step.
+ */
+export const messages = sqliteTable(
+  "messages",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    /** Order within the session, assistant and user messages alike. */
+    index: integer("index").notNull(),
+    /** `"user"` | `"assistant"` | `"system"`, matching the `UIMessage` role. */
+    role: text("role").notNull(),
+    parts: text("parts", { mode: "json" }).notNull(),
+    /**
+     * Token usage for the turn that produced this message, null for user
+     * messages and for assistant messages a provider returned no counts for.
+     * Same shape as `traces.usage`: `{ inputTokens?, outputTokens?, totalTokens? }`.
+     */
+    usage: text("usage", { mode: "json" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("messages_session_id_idx").on(t.sessionId)],
+);
