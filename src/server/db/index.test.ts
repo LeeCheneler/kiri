@@ -709,11 +709,9 @@ describe("db", () => {
     db.insert(sessions)
       .values({
         id: "sess-1",
-        agentName: "default",
         status: "idle",
-        model: "anthropic:claude-haiku-4-5",
+        model: "lmstudio:gemma-4-26b-a4b-qat",
         startedAt,
-        agentConfigSnapshot: { model: "anthropic:claude-haiku-4-5", systemPrompt: "Be helpful." },
         inputTokens: 12,
         outputTokens: 34,
         totalTokens: 46,
@@ -734,14 +732,9 @@ describe("db", () => {
       .run();
 
     const session = db.select().from(sessions).where(eq(sessions.id, "sess-1")).get();
-    expect(session?.agentName).toBe("default");
     expect(session?.status).toBe("idle");
-    expect(session?.model).toBe("anthropic:claude-haiku-4-5");
+    expect(session?.model).toBe("lmstudio:gemma-4-26b-a4b-qat");
     expect(session?.startedAt).toEqual(startedAt);
-    expect(session?.agentConfigSnapshot).toEqual({
-      model: "anthropic:claude-haiku-4-5",
-      systemPrompt: "Be helpful.",
-    });
     expect(session?.totalTokens).toBe(46);
 
     const message = db.select().from(messages).where(eq(messages.id, "msg-1")).get();
@@ -758,11 +751,9 @@ describe("db", () => {
     db.insert(sessions)
       .values({
         id: "sess-min",
-        agentName: "default",
         status: "idle",
-        model: "anthropic:claude-haiku-4-5",
+        model: "lmstudio:gemma-4-26b-a4b-qat",
         startedAt: new Date(),
-        agentConfigSnapshot: {},
       })
       .run();
 
@@ -807,8 +798,9 @@ describe("db", () => {
     sqlite.run(
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
     );
-    // Seed the migration ledger through 0013 so only 0014 is outstanding;
-    // the run-side tables it doesn't touch are irrelevant to this assertion.
+    // Seed the migration ledger through 0013 so the session migrations
+    // (0014 creating the tables, 0015 dropping the agent columns) are the
+    // ones outstanding; the run-side tables they don't touch are irrelevant.
     const priorMigrations = [
       "0000_initial",
       "0001_index_run_nodes_run_id",
@@ -848,8 +840,6 @@ describe("db", () => {
       .sort();
     expect(sessionCols).toEqual(
       [
-        "agent_config_snapshot",
-        "agent_name",
         "error",
         "finished_at",
         "id",

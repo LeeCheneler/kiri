@@ -159,17 +159,16 @@ export const recommendations = sqliteTable(
 
 /**
  * One row per agentic conversation — the session pillar's instance, mirroring
- * `runs`. `agent_config_snapshot` captures the resolved agent definition
- * (model, system prompt, …) at session start so a session always reflects the
- * agent it began with, even after the agent definition changes. The running
- * token columns are a deliberate denormalisation over per-message `usage`
+ * `runs`. A session runs against a chosen `model`; the agent layer (a snapshot
+ * of system prompt, allowed tools, generation params) arrives with the
+ * `agents/*.yaml` pillar and is not modelled here yet. The running token
+ * columns are a deliberate denormalisation over per-message `usage`
  * (see `messages.usage`): an agent loop needs live budget/context visibility,
  * so each turn's usage is summed onto the row rather than recomputed by
  * scanning every message.
  */
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
-  agentName: text("agent_name").notNull(),
   /**
    * Session lifecycle: `"idle"` at create and between turns, `"running"`
    * while a turn streams, and terminal `"failed"` / `"cancelled"` when a
@@ -184,8 +183,6 @@ export const sessions = sqliteTable("sessions", {
   /** Stamped when the session reaches a terminal `failed`/`cancelled` state; null while it remains usable. */
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   error: text("error", { mode: "json" }),
-  /** Resolved agent definition snapshotted at session start; editing the agent never mutates an existing session. */
-  agentConfigSnapshot: text("agent_config_snapshot", { mode: "json" }).notNull(),
   /**
    * Running token totals across every completed turn, summed from each
    * turn's `messages.usage` on completion. Default 0; a provider that omits
