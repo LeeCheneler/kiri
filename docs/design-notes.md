@@ -4,7 +4,14 @@
 
 ## Concept
 
-A local-first, git-based workflow orchestrator for personal automation. Scripts and AI workflows invoked by hand. A feed UI streams activity, and each run can surface recommended follow-up runs as one-click trigger buttons on its detail page. Single user (me), running while the app is active.
+A local-first, git-based tool for personal automation. Scripts, AI workflows, and agentic chat invoked by hand. A feed UI streams activity, and each run can surface recommended follow-up runs as one-click trigger buttons on its detail page. Single user (me), running while the app is active.
+
+Kiri has **two pillars**, both feeding the same activity feed:
+
+- **Workflows** — the original pillar. YAML-defined linear pipelines (`script → ai → script`) invoked by hand. Deterministic, fixed-shape; an `llm:` step is one prompt in, text out. The pillar everything below under *Architecture* and *AI integration* describes.
+- **Agentic sessions** — a multi-turn agentic chat against a configured model: system prompt, tools, streaming, images. A conversation, not a pipeline. Described under *Agentic sessions*; build sequence in `docs/agentic-work.md`.
+
+The two are **separate concepts with separate config, storage, execution, and UI** — they share infrastructure (config dir, SQLite, the event bus, the LLM provider registry) and the activity feed, but a workflow is never an agent and an agent is never a workflow. They stay decoupled by design; the only planned bridge is an eventual *run-a-workflow tool* an agent could call — a tool the agent invokes, not a merging of the two models.
 
 What sets kiri apart from Windmill, Kestra, n8n, Inngest et al. is the **feed-first UI** — activity stream as the primary surface, not a node-graph canvas.
 
@@ -13,8 +20,9 @@ What sets kiri apart from Windmill, Kestra, n8n, Inngest et al. is the **feed-fi
 - **App-active scope.** Everything runs while the app is open. No daemons, no launchd, no overnight execution. Sleep/wake is not our problem.
 - **Single user.** No auth, no multi-tenancy, no scaling.
 - **Git as source of truth.** Workflow definitions, prompts, and scripts live in a git repo.
-- **Linear pipelines only.** No branches, no conditionals, no fan-out/fan-in. `script → ai → script` covers most real cases.
-- **Everything is a workflow.** A workflow is N≥1 steps. Single-step workflows wrap "just run a script" cases. Todos invoke workflows. Manual menu items are workflows. One concept, uniform treatment everywhere.
+- **Linear pipelines only (workflows).** Workflows have no branches, no conditionals, no fan-out/fan-in. `script → ai → script` covers most real cases. (Agentic sessions are iterative by nature; this constraint is a property of the workflow pillar, not of kiri.)
+- **Everything in the workflow pillar is a workflow.** A workflow is N≥1 steps. Single-step workflows wrap "just run a script" cases. Todos invoke workflows. Manual menu items are workflows. One concept, uniform treatment — within the workflow pillar.
+- **Two pillars, no crossover.** Workflows and agentic sessions are independent. They share infrastructure and the activity feed, never each other's execution, config, or storage. Don't reach for a workflow primitive to build a session feature, or vice versa.
 
 ## Design invariants
 
@@ -216,7 +224,7 @@ An `llm:` step runs as a single non-streaming completion inside the kiri process
 - **Zero-config summariser.** A `summarize: { llm: { model } }` entry that declares neither `prompt` nor `prompt_file` falls back to a baked-in feed-summary prompt reading the inlined envelope. The fallback is applied at execution time only — the run's definition snapshot keeps what was authored.
 - **Cancellation.** Cancelling a run aborts the in-flight HTTP request; the step and run finalise as `cancelled` through the same path as a killed child process.
 
-Scope is completion-shaped steps: one prompt in, text out. Agentic work (tool use, multi-turn sessions) stays on script bundles like `claude-code`.
+Scope is completion-shaped steps: one prompt in, text out. Agentic work — tool use, multi-turn conversation — is **not** a workflow step: it lives in the separate agentic sessions pillar (see *Agentic sessions*). A workflow that wants a one-shot completion uses an `llm:` step; anything multi-turn or tool-driven is a session, not a step. (A `claude-code` script bundle remains a legitimate way to run an agent *inside a workflow step*, but that's a user-authored bundle, not kiri driving an agent loop.)
 
 ### Claude Code via the `claude-code` bundle
 
@@ -269,6 +277,57 @@ Bundle-spawned agents (e.g. `claude-code`) still have no usage capture. The earl
 Static policy per step via `ALLOWED_TOOLS` in the workflow's `env:`. The `claude-code` bundle's `run.sh` synthesises a `.claude/settings.json` at spawn time and points CC at it — so the workflow YAML is the load-bearing source of permission truth, no hand-edited settings files anywhere in the user's repo. **No runtime hooks for v1.** Hooks are reserved for if/when dynamic per-call policy is wanted (token budget caps, mid-session escalation, tool-granular propose-to-approve).
 
 For workflows using broad `Bash(*)` permissions, the load-bearing defence is the static `ALLOWED_TOOLS` allowlist on the step itself, plus the user's own claude config. Kiri does not wrap steps in a kernel sandbox: bundles are user-authored scripts in the user's own repo, with the same trust posture as any shell script they'd run themselves. If a bundle-install mechanism is ever added (a marketplace, `kiri install <bundle>`, etc.), revisit — the trust boundary changes at that point.
+
+## Agentic sessions
+
+The second pillar. Where a workflow is a fixed pipeline, an **agentic session** is a multi-turn conversation with a model that can reason, call tools, and stream its response. It is *not* built on the workflow engine and shares none of its execution model — only the surrounding infrastructure (config dir, SQLite, event bus, LLM provider registry) and the activity feed. This section is the design intent; the build sequence and milestone breakdown live in `docs/agentic-work.md`, and decisions still in flux are flagged inline.
+
+The pillar holds the **app-active and single-user invariants** unchanged: a session runs while the app is open, in-process, foreground, user-driven, and cancellable. A "running" session is an in-flight turn, exactly like a "running" run — there is no background agent, no overnight loop, no daemon turning the crank while the user is away.
+
+### Agent : Session :: Workflow : Run
+
+The pillar mirrors the workflow pillar's definition/instance split, so the mental model and the snapshot discipline carry over:
+
+| Workflow pillar | Agentic pillar | Notes |
+|---|---|---|
+| `workflows/*.yaml` (definition) | `agents/*.yaml` (definition) | Git-tracked, Zod-validated, JSON-Schema for editor LSP, directory + watcher into an in-memory registry. No `agents` table. |
+| `runs` row (instance) | `sessions` row (instance) | One row per conversation; feeds the activity feed. |
+| `run_steps` (child) | `messages` (child) | The turns. |
+| `definitionSnapshot` | agent config snapshot at session start | Editing the YAML never mutates an in-flight or historical session. |
+
+An **agent** is a pre-baked configuration: system prompt (inline or file), default model (a `provider:model` id resolved through the same `llm-providers.yaml` registry the `llm:` step uses), allowed tools, and generation params. A **session** is one conversation started against a chosen agent, with the resolved agent config snapshotted onto the session row at start.
+
+### Storage
+
+Two new tables alongside the existing four, following the runs/run_steps shape:
+
+- **`sessions`** — one row per conversation: agent name, the snapshotted agent config, chosen model, status (`running` | `idle` | `failed` | `cancelled`), timestamps, and a **running token total** (see *Usage* below).
+- **`messages`** — one row per message, child of `sessions`, ordered. Each message stores its role and an array of **AI SDK `UIMessage` parts** as JSON — text, tool-call, tool-result, file/image, reasoning. Per-message token usage rides on the row as JSON, mirroring `traces.usage`.
+
+**Messages are stored as `UIMessage` parts, canonical and provider-agnostic** — this is the load-bearing early decision. Because parts already model tool calls and file/image attachments, adding tools and adding image uploads become *storage no-ops*: they are simply additional part types that were always persistable. Round-tripping to the model uses the SDK's `convertToModelMessages(history)`.
+
+Large blob payloads (e.g. pasted image bytes) follow the same guidance as workflow traces: inline in SQLite to start, move to disk-backed blobs in `.kiri/` referenced by path only when payload size starts dragging feed queries. Decision deferred until it bites.
+
+### Execution & streaming
+
+A turn runs in-process against the provider registry — the same registry and `{ env: }` secret resolution as `llm:` steps — and is cancellable through the existing `CancelRegistry` (a turn, or a tool loop within a turn, is the cancellable unit). Two transports, each for what it is good at:
+
+- **Per-turn token stream.** The turn endpoint returns the AI SDK's streamed response (`streamText(...).toUIMessageStreamResponse()`); the client renders tokens live via `@ai-sdk/react`'s `useChat`. The SDK owns the streaming protocol and the multi-step tool loop, which keeps kiri's bespoke surface small.
+- **Coarse lifecycle on the existing SSE bus.** `session.*` events (started, turn added, idle, finished) ride the in-process event bus as thin cache-invalidation signals, exactly like `run.*`. **Token deltas do not go through this bus** — it is a status channel, and per-token fan-out is the wrong load for it.
+
+On turn completion the new messages and their usage are persisted, and the session's running token total is updated.
+
+### Tools
+
+Tools are **generic, first-party agent capabilities** — read file, write file, edit file, web search, and so on — gated per session by the agent's allowed-tools config. They are emphatically **not script bundles**: bundles are a workflow concept and the two pillars do not cross over. A tool maps to an AI SDK `tool()` with a Zod parameter schema and an `execute`; the SDK drives the call/result loop and the calls/results persist as `UIMessage` parts. The catalogue starts with **read file** and is fleshed out as its own effort (write/edit file, web search, and eventually a *run-a-workflow* tool — the single sanctioned bridge to the other pillar — plus possibly MCP). Provider note: the OpenAI provider is wired to Chat Completions (`.chat()`), so tool-calling parity there needs verifying when tools land.
+
+### Usage & context
+
+Sessions deliberately diverge from the workflow pillar's "usage lives only in per-step traces" stance (a dedicated usage column was once dropped there for lack of a reader). An agent loop genuinely needs **budget visibility** — cumulative input/output tokens and proximity to the model's context window, surfaced on every turn and likely on the feed row. So sessions keep **both** per-message usage *and* a denormalised running total on the `sessions` row, justified by that concrete read pattern. Long-running context management (truncation/summarisation as a conversation outgrows the window) is its own concern, deferred.
+
+### Activity feed
+
+Sessions are activity and belong in the feed. *How* they share the home feed with workflow runs is an open decision (see `docs/agentic-work.md`): a polymorphic union over `runs` + `sessions` with a composite cursor, versus a separate sessions feed. The feed cursor is being designed as `(startedAt, id)` from the outset so a later union stays a query change rather than a rewrite.
 
 ## UI
 
@@ -391,7 +450,7 @@ Non-goals to resist scope creep:
 - Dynamic per-call permission policy (static per step only)
 - Persistent execution across app restarts (graceful halt on close, manual re-run on reopen)
 - Custom DSL for workflows
-- Agent-driven control surface — kiri is not an agent harness
+- Agent-driven *workflow* control — workflows stay deterministic linear pipelines; no agent decides which step runs next. (Agentic behaviour is a separate pillar, see *Agentic sessions* — it does not reach into the workflow engine.)
 - Publishing to external destinations (gist, git commit, webhook POST); `publish:` is in-app only for v1
 
 Deliberately not built (single-user ephemeral local tool): persistent auth tokens, audit logs, on-host HTTPS/TLS (the `https://local.kiri.build` shell is hosted, not on-host), `ulimit`/resource caps and kernel sandboxing of step execution, and a dedicated secret store (use env vars; revisit if it becomes painful).
@@ -417,6 +476,10 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 13. **Workflow inputs.** `inputs:` block on workflows — named parameters collected via a modal on invoke, snapshotted onto the run, and injected into step `env:` via `{ input: <name> }` refs. One definition, many targets.
 14. **Recommendations.** Workflows emit follow-up workflow invocations via a `KIRI_RECOMMENDATIONS_FILE` file channel. Stored as rows linked to the producing run, surfaced on the run detail page as a "Recommended" section beneath the run's phases, and triggered via the standard invoke modal with inputs pre-filled.
 15. **First-party LLM steps.** An `llm:` step kind that runs a model completion in-process against a provider declared in `llm-providers.yaml` (`provider:model` ids, `{ env: <NAME> }` API-key refs). Inline or file prompts with the bundles' `{{VAR}}` templating — `{{KIRI_INPUT}}` for pipeline steps, the inlined `{{KIRI_RUN_CONTEXT}}` for publish/summarise — token usage on the envelope, and a zero-config `llm:` summariser. The bundle-free path for completion-shaped steps; the model, prompt source, and token counts render across the run timeline and workflow schema surfaces.
+
+**In progress:**
+
+- **Agentic sessions** — the second pillar (see *Agentic sessions*). Built on a long-lived `agentic-support` branch and merged in one release; the milestone sequence is tracked in `docs/agentic-work.md`.
 
 ## Open questions
 
