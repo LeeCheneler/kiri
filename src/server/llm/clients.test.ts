@@ -94,6 +94,20 @@ describe("llm clients", () => {
     expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 13, totalTokens: 20 });
   });
 
+  it("lists models across configured providers via listModels", async () => {
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "claude-haiku-4-5" }] }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    const result = await clients.listModels();
+
+    expect(result.models).toEqual([{ id: "anthropic:claude-haiku-4-5", provider: "anthropic" }]);
+    expect(result.failures).toEqual([]);
+  });
+
   it("resolves and completes in one call via the generateText method", async () => {
     server.use(anthropicMessages("hi from claude"));
     const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });

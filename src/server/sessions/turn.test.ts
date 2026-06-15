@@ -26,6 +26,7 @@ const USER_MESSAGE: UIMessage = {
 const clientsFor = (model: LlmModel): LlmClients => ({
   resolveModel: () => model,
   generateText: async () => ({ text: "", usage: {} }),
+  listModels: async () => ({ models: [], failures: [] }),
 });
 
 // Capturing event bus: records every published event, never delivers.
@@ -122,6 +123,7 @@ describe("runTurn", () => {
         throw new Error('unknown llm provider "anthropic"');
       },
       generateText: async () => ({ text: "", usage: {} }),
+      listModels: async () => ({ models: [], failures: [] }),
     };
     const session = createSession(db, MODEL, { id: "s1" });
 

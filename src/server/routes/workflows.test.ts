@@ -230,6 +230,7 @@ describe("workflows routes", () => {
             throw new Error("resolveModel is not part of the runner contract");
           },
           generateText: async () => ({ text: "hi back", usage: {} }),
+          listModels: async () => ({ models: [], failures: [] }),
         },
       });
       const res = await app.request("/api/workflows/llm-flow/runs", {

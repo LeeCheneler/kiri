@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { type LanguageModel, generateText } from "ai";
+import { type LlmModelsResult, listLlmModels } from "./models.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
 
@@ -44,6 +45,14 @@ export interface LlmClients {
     prompt: string;
     abortSignal?: AbortSignal;
   }): Promise<GenerateLlmTextResult>;
+  /**
+   * List the models every configured provider currently offers, namespaced as
+   * `provider:model` ids ready to hand back to `resolveModel`. A provider that
+   * is down or unauthorised is collected as a failure, never fatal. Lives here
+   * so callers list models off the same object they resolve them through,
+   * without touching the registry or AI SDK directly.
+   */
+  listModels(): Promise<LlmModelsResult>;
 }
 
 /**
@@ -65,6 +74,9 @@ export function createLlmClients(
         prompt: options.prompt,
         abortSignal: options.abortSignal,
       });
+    },
+    listModels() {
+      return listLlmModels(registry, env);
     },
     resolveModel(id) {
       const separator = id.indexOf(":");
