@@ -79,9 +79,16 @@ function Chat({ detail }: { detail: SessionDetail }) {
     window.scrollTo({ top: document.documentElement.scrollHeight });
   }, [messages]);
 
-  // Return focus to the composer once a turn settles, so the next message can
-  // be typed straight away (the field disables while busy, dropping focus).
-  // Only on the falling edge of `busy`, so landing on the page doesn't steal it.
+  // Focus the composer on landing so a message can be typed straight away.
+  // `Chat` only mounts once the session has loaded, so this fires when the page
+  // has settled rather than mid-load.
+  useEffect(() => {
+    document.getElementById(inputId)?.focus();
+  }, [inputId]);
+
+  // Also return focus to the composer once a turn settles (the field disables
+  // while busy, dropping focus), so the next message follows straight on. Only
+  // on the falling edge of `busy`, so a streamed delta mid-turn doesn't grab it.
   const wasBusy = useRef(false);
   useEffect(() => {
     if (wasBusy.current && !busy) document.getElementById(inputId)?.focus();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { http, HttpResponse } from "msw";
@@ -109,6 +109,14 @@ describe("<SessionChat>", () => {
     renderChat();
     expect(await screen.findByText("First question")).toBeDefined();
     expect(screen.getByText("An answer")).toBeDefined();
+  });
+
+  it("focuses the composer on landing", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderChat();
+
+    const textbox = await screen.findByRole("textbox", { name: /message/i });
+    await waitFor(() => expect(document.activeElement).toBe(textbox));
   });
 
   it("sends a message and streams the assistant reply", async () => {
