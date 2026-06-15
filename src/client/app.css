@@ -23,6 +23,10 @@
   /* Declared-but-not-yet-started activity rows. Quieter than `cancelled`
      so pending and skipped rows read distinctly. */
   --color-status-pending: #555048;
+  /* Session vocabulary, sharing the run hues: `working` is the session's
+     in-flight blue (a turn streaming), `idle` its green resting state. */
+  --color-status-working: #7aaedb;
+  --color-status-idle: #88a579;
 
   --font-display: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;

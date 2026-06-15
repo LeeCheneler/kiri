@@ -3,6 +3,7 @@ import { Button } from "../design-system/actions/button.tsx";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
 import { Select } from "../design-system/actions/select.tsx";
 import { TextInput } from "../design-system/actions/text-input.tsx";
+import { Textarea } from "../design-system/actions/textarea.tsx";
 import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.tsx";
 import { Code, CodeBlock } from "../design-system/content/code.tsx";
 import { Disclosure } from "../design-system/content/disclosure.tsx";
@@ -145,6 +146,24 @@ function TextInputDemo() {
   );
 }
 
+// Interactive specimen for the Textarea control — a labelled multi-line field
+// and a bare one, both bound to the same state to show either form.
+function TextareaDemo() {
+  const [draft, setDraft] = useState("");
+  return (
+    <div className="space-y-4">
+      <Textarea
+        label="Notes"
+        description="A multi-line jotting; resize it with the grip."
+        placeholder="Anything you want to remember…"
+        value={draft}
+        onChange={setDraft}
+      />
+      <Textarea value={draft} onChange={setDraft} placeholder="Bare, unlabelled" rows={2} />
+    </div>
+  );
+}
+
 // Interactive specimen for the Modal — a button opens a confirm dialog.
 function ModalDemo() {
   const [open, setOpen] = useState(false);
@@ -204,7 +223,16 @@ const TOC_ENTRIES: TocEntry[] = [
   { id: "feedback", label: "Feedback" },
 ];
 
-const STATUSES: StatusKind[] = ["pending", "running", "ok", "failed", "cancelled", "interrupted"];
+const STATUSES: StatusKind[] = [
+  "pending",
+  "running",
+  "working",
+  "idle",
+  "ok",
+  "failed",
+  "cancelled",
+  "interrupted",
+];
 
 // A fortnight of made-up run durations (ms), oldest → newest, for the Sparkline
 // specimen: a mostly-healthy run of work with two slower spikes and one failure.
@@ -748,7 +776,9 @@ export function DesignSystemContent() {
                 <Code>StatList</Code> lays its <Code>Stat</Code> children out in a row; each{" "}
                 <Code>Stat</Code> sets its figure in mono — a figure is a number, so it stays in the
                 machine layer — and takes a <Code>tone</Code>: <Code>ok</Code> tints it green,{" "}
-                <Code>failed</Code> red, and the default leaves it in ink.
+                <Code>failed</Code> red, and the default leaves it in ink. <Code>size</Code> scales
+                the figure: <Code>lg</Code> (default) for a headline strip, <Code>sm</Code> for a
+                side rail where a hero number would shout over its neighbours.
               </p>
             </Prose>
             <div className="mt-5">
@@ -763,6 +793,21 @@ export function DesignSystemContent() {
                   </Stat>
                   <Stat label="Articles">0</Stat>
                   <Stat label="Avg duration">601ms</Stat>
+                </StatList>
+              </Card>
+            </div>
+            <div className="mt-3">
+              <Card>
+                <StatList>
+                  <Stat label="in" size="sm">
+                    128
+                  </Stat>
+                  <Stat label="out" size="sm">
+                    512
+                  </Stat>
+                  <Stat label="total" size="sm">
+                    640
+                  </Stat>
                 </StatList>
               </Card>
             </div>
@@ -1049,6 +1094,28 @@ export function DesignSystemContent() {
               </Card>
             </div>
           </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Textarea</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Textarea</span> · design-system/actions/textarea.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                The multi-line counterpart to the text input — a styled wrapper over the native{" "}
+                <Code>textarea</Code>, controlled with <Code>value</Code> / <Code>onChange</Code>{" "}
+                and sharing the same field lockup and assistive-tech wiring. Pass <Code>rows</Code>{" "}
+                to hint the initial height; it stays vertically resizable. Reach for it over the
+                text input whenever the value runs long — a chat message, a prompt, freeform notes.
+                Omit the label for the bare control when the caller owns the labelling.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <TextareaDemo />
+              </Card>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -1293,18 +1360,19 @@ export function DesignSystemContent() {
             </p>
             <Prose>
               <p className="mt-3">
-                The status word for a run or step, tinted in its state's colour. Pass{" "}
-                <Code>status</Code> — one of <Code>pending</Code>, <Code>running</Code>,{" "}
-                <Code>ok</Code>, <Code>failed</Code>, <Code>cancelled</Code>,{" "}
-                <Code>interrupted</Code>. The <Code>running</Code> state adds a pulsing dot as an
-                in-flight cue. It exposes the state as <Code>data-status</Code> for containers to
-                anchor on, and stays mono — but leaves size and case to the caller, so it drops
-                cleanly into a row's chrome.
+                The status word for a run, step, or session, tinted in its state's colour. Pass{" "}
+                <Code>status</Code> — runs use <Code>pending</Code>, <Code>running</Code>,{" "}
+                <Code>ok</Code>, <Code>interrupted</Code>; sessions use <Code>idle</Code> (resting
+                between turns) and <Code>working</Code> (a turn streaming); <Code>failed</Code> and{" "}
+                <Code>cancelled</Code> are shared. The in-flight states (<Code>running</Code>,{" "}
+                <Code>working</Code>) add a pulsing dot as a live cue. It exposes the state as{" "}
+                <Code>data-status</Code> for containers to anchor on, and upper-cases the word and
+                stays mono — leaving size to the caller, so it drops cleanly into a row's chrome.
               </p>
             </Prose>
             <div className="mt-5">
               <Card>
-                <div className="flex flex-wrap gap-x-8 gap-y-3 text-xs tracking-widest uppercase">
+                <div className="flex flex-wrap gap-x-8 gap-y-3 text-xs tracking-widest">
                   {STATUSES.map((status) => (
                     <Status key={status} status={status} />
                   ))}
@@ -1322,10 +1390,11 @@ export function DesignSystemContent() {
             <Prose>
               <p className="mt-3">
                 A content block edged on the left with its status colour — the callout for a run or
-                step's outcome. Pass <Code>status</Code> and the content as children; the block
-                draws a <Code>border-status-*</Code> left edge and exposes <Code>data-status</Code>{" "}
-                for containers to anchor on. It owns its border and inset only — stack several with
-                your own spacing.
+                step's outcome, or a session row (a green <Code>idle</Code> edge, a blue{" "}
+                <Code>working</Code> one). Pass <Code>status</Code> and the content as children; the
+                block draws a <Code>border-status-*</Code> left edge and exposes{" "}
+                <Code>data-status</Code> for containers to anchor on. It owns its border and inset
+                only — stack several with your own spacing.
               </p>
             </Prose>
             <div className="mt-5">
@@ -1344,6 +1413,14 @@ export function DesignSystemContent() {
                   <StatusBlock status="running">
                     <p className="font-mono text-sm text-ink">sh: gather sources</p>
                     <p className="mt-1 font-mono text-xs text-ink-muted">in progress…</p>
+                  </StatusBlock>
+                  <StatusBlock status="working">
+                    <p className="font-mono text-sm text-ink">anthropic:claude-haiku-4-5</p>
+                    <p className="mt-1 font-mono text-xs text-ink-muted">session · working</p>
+                  </StatusBlock>
+                  <StatusBlock status="idle">
+                    <p className="font-mono text-sm text-ink">openai:gpt-4o-mini</p>
+                    <p className="mt-1 font-mono text-xs text-ink-muted">session · idle</p>
                   </StatusBlock>
                 </div>
               </Card>
