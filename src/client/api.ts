@@ -652,6 +652,17 @@ export const cancelSession = async (id: string): Promise<{ sessionId: string }> 
   );
 
 /**
+ * Permanently delete a session and its messages. Resolves on 204 — the server
+ * has removed the session row and its messages and published a `session.deleted`
+ * event so live surfaces drop the row without a refetch. Throws `ApiError` on
+ * non-2xx — 404 if the session doesn't exist (or was already deleted), 409 if a
+ * turn is in flight (caller must cancel first).
+ */
+export const deleteSession = async (id: string): Promise<void> => {
+  await assertOk(await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }));
+};
+
+/**
  * The turn endpoint for a session's `useChat` transport: the origin-aware URL
  * plus the `X-Kiri-Client` header the CSRF gate requires. `useChat` posts only
  * the newest message here; the server loads the prior turns from storage.

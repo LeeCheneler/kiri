@@ -160,6 +160,15 @@ describe("sessions state", () => {
     await screen.findByText("s-2");
   });
 
+  it("refetches the feed when a session is deleted", async () => {
+    serveCountingFeed();
+    const { sources } = renderProbe(<FeedProbe />);
+    await screen.findByText("s-1");
+
+    act(() => sources[0]?.emit({ type: "session.deleted", id: "s-1" }));
+    await screen.findByText("s-2");
+  });
+
   it("requests a cursored page of sessions", async () => {
     server.use(
       http.get("*/api/sessions", ({ request }) => {

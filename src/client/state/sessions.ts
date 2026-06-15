@@ -68,7 +68,13 @@ export function useSessionsFeed(): UseInfiniteQueryResult<SessionListEntry[], Er
 export function useSessionsLive(): void {
   const queryClient = useQueryClient();
   useLiveEvent({
-    on: ["session.started", "session.message.added", "session.updated", "session.finished"],
+    on: [
+      "session.started",
+      "session.message.added",
+      "session.updated",
+      "session.finished",
+      "session.deleted",
+    ],
     handler: (event) => {
       const id = "sessionId" in event ? event.sessionId : event.id;
       void queryClient.invalidateQueries({ queryKey: sessionKey(id) });
