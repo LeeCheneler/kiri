@@ -6,6 +6,7 @@ import { createApp } from "../index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  appendMessage,
   createSession,
   getSession,
   getSessionMessages,
@@ -175,6 +176,23 @@ describe("sessions routes", () => {
       ).json()) as { sessions: { id: string }[]; nextCursor: string | null };
       expect(page2.sessions.map((s) => s.id)).toEqual(["s1"]);
       expect(page2.nextCursor).toBeNull();
+    });
+
+    it("labels each session with a preview of its first user message", async () => {
+      createSession(env.db, MODEL, { id: "s1", startedAt: new Date(1000) });
+      appendMessage(env.db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "Summarise the readme" }],
+      });
+      createSession(env.db, MODEL, { id: "s2", startedAt: new Date(2000) }); // no messages
+      const app = makeApp(fakeClients());
+
+      const page = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string; preview: string | null }[];
+      };
+      const byId = new Map(page.sessions.map((s) => [s.id, s.preview]));
+      expect(byId.get("s1")).toBe("Summarise the readme");
+      expect(byId.get("s2")).toBeNull();
     });
 
     it("400s an unknown cursor", async () => {

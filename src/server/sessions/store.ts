@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { messages, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
@@ -42,6 +42,43 @@ export function createSession(
 /** Read a session by id, or `undefined` if none exists. */
 export function getSession(db: KiriDb, id: string): Session | undefined {
   return db.select().from(sessions).where(eq(sessions.id, id)).get();
+}
+
+/** Length cap for a session's preview label. */
+const PREVIEW_LENGTH = 100;
+
+// A message's text parts, joined and tidied into a single capped line — a
+// human-readable label drawn from what the user typed.
+function messagePreview(parts: UIMessage["parts"]): string {
+  return parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, PREVIEW_LENGTH);
+}
+
+/**
+ * Preview label for each of `sessionIds`, taken from its first user message
+ * (whitespace collapsed, capped at 100 chars). A single batched query, ordered
+ * so the lowest-index user message per session wins. Sessions without a user
+ * message yet — or whose first one has no text — are absent from the map.
+ */
+export function getSessionPreviews(db: KiriDb, sessionIds: string[]): Map<string, string> {
+  const previews = new Map<string, string>();
+  if (sessionIds.length === 0) return previews;
+  const rows = db
+    .select({ sessionId: messages.sessionId, parts: messages.parts })
+    .from(messages)
+    .where(and(inArray(messages.sessionId, sessionIds), eq(messages.role, "user")))
+    .orderBy(asc(messages.index))
+    .all();
+  for (const row of rows) {
+    if (previews.has(row.sessionId)) continue;
+    const text = messagePreview(row.parts as UIMessage["parts"]);
+    if (text !== "") previews.set(row.sessionId, text);
+  }
+  return previews;
 }
 
 /** Read a session's messages in order. */

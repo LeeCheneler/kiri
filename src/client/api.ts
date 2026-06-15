@@ -585,11 +585,20 @@ export interface SessionMessage {
 }
 
 /**
+ * A session as it appears in the list: the row plus a `preview` label drawn
+ * from its first user message (`null` until one has been sent), which the list
+ * leads with as the session's identifier.
+ */
+export interface SessionListEntry extends Session {
+  preview: string | null;
+}
+
+/**
  * One page of the reverse-chronological session list. `nextCursor` is the last
  * row's `id` when a further page exists; `null` on the final page.
  */
 export interface SessionsPage {
-  sessions: Session[];
+  sessions: SessionListEntry[];
   nextCursor: string | null;
 }
 

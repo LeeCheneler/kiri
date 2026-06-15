@@ -7,8 +7,8 @@ import {
 } from "@tanstack/react-query";
 import {
   type ModelsResult,
-  type Session,
   type SessionDetail,
+  type SessionListEntry,
   fetchModels,
   fetchSession,
   fetchSessionsPage,
@@ -46,7 +46,7 @@ export function useSession(id: string): UseQueryResult<SessionDetail> {
  * previous page's `nextCursor` until it runs dry. `data` is the loaded pages
  * flattened into one newest-first array. Kept current by `useSessionsLive`.
  */
-export function useSessionsFeed(): UseInfiniteQueryResult<Session[], Error> {
+export function useSessionsFeed(): UseInfiniteQueryResult<SessionListEntry[], Error> {
   return useInfiniteQuery({
     queryKey: sessionsFeedKey,
     queryFn: ({ pageParam }) => fetchSessionsPage({ cursor: pageParam, limit: FEED_PAGE_SIZE }),

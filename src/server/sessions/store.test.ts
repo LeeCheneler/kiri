@@ -12,6 +12,7 @@ import {
   createSession,
   getSession,
   getSessionMessages,
+  getSessionPreviews,
   setSessionStatus,
 } from "./store.ts";
 
@@ -59,6 +60,43 @@ describe("sessions store", () => {
     expect(rows[0]?.parts).toEqual([{ type: "text", text: "Hi" }]);
     expect(rows[0]?.usage).toBeNull();
     expect(rows[1]?.usage).toEqual({ inputTokens: 3, outputTokens: 5, totalTokens: 8 });
+  });
+
+  it("previews each session's first user message, collapsed to one capped line", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "user",
+      parts: [{ type: "text", text: `Refactor the\nauth   middleware ${"x".repeat(200)}` }],
+    });
+    appendMessage(db, "s1", { role: "assistant", parts: [{ type: "text", text: "On it" }] });
+    // A later user turn must not displace the first as the preview.
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "And add tests" }] });
+    createSession(db, MODEL, { id: "s2" }); // no messages yet
+
+    expect(getSessionPreviews(db, []).size).toBe(0);
+
+    const previews = getSessionPreviews(db, ["s1", "s2"]);
+    const s1 = previews.get("s1") ?? "";
+    expect(s1).toHaveLength(100);
+    expect(s1.startsWith("Refactor the auth middleware ")).toBe(true);
+    expect(previews.has("s2")).toBe(false);
+  });
+
+  it("skips non-text parts and omits a first message that carries no text", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "user",
+      parts: [
+        { type: "text", text: "Ship it" },
+        { type: "reasoning", text: "weighing options" },
+      ],
+    });
+    createSession(db, MODEL, { id: "s2" });
+    appendMessage(db, "s2", { role: "user", parts: [{ type: "reasoning", text: "no prose" }] });
+
+    const previews = getSessionPreviews(db, ["s1", "s2"]);
+    expect(previews.get("s1")).toBe("Ship it");
+    expect(previews.has("s2")).toBe(false);
   });
 
   it("accumulates turn usage onto the running totals, ignoring omitted counts", () => {

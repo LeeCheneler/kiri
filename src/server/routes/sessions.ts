@@ -8,7 +8,13 @@ import { sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
-import { createSession, getSession, getSessionMessages, runTurn } from "../sessions/index.ts";
+import {
+  createSession,
+  getSession,
+  getSessionMessages,
+  getSessionPreviews,
+  runTurn,
+} from "../sessions/index.ts";
 import { onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
@@ -117,7 +123,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .all();
 
       const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
-      return c.json({ sessions: rows, nextCursor });
+      // Label each row with a preview of its first user message — the
+      // human-readable identifier the list leads with.
+      const previews = getSessionPreviews(
+        db,
+        rows.map((row) => row.id),
+      );
+      const sessions = rows.map((row) => ({ ...row, preview: previews.get(row.id) ?? null }));
+      return c.json({ sessions, nextCursor });
     },
   );
 
