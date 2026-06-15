@@ -133,6 +133,27 @@ describe("<SessionChat>", () => {
 
     expect(await screen.findByText("Hello there")).toBeDefined();
     expect(await screen.findByText("Hi back")).toBeDefined();
+    // The reply has content, so the turn is labelled.
+    expect(screen.getByText("Assistant")).toBeDefined();
+  });
+
+  it("holds the assistant label until its reply streams", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.post("*/api/sessions/:id/messages", () => parkedReply()),
+    );
+    renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+
+    // The turn is in flight (the cancel affordance is up) but no token has
+    // streamed, so the assistant turn isn't labelled yet — only the user's is.
+    await screen.findByRole("button", { name: /cancel/i });
+    expect(screen.getByText("You")).toBeDefined();
+    expect(screen.queryByText("Assistant")).toBeNull();
   });
 
   it("surfaces a turn error", async () => {
