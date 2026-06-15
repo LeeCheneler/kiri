@@ -190,6 +190,7 @@ describe("<SessionChat>", () => {
 
     // Wait for the turn to go in flight, then hit Escape from the window.
     await screen.findByText(/working/i);
+    expect(screen.getByText(/escape to cancel/i)).toBeDefined();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(cancelled).toBe(true));
   });

@@ -137,26 +137,30 @@ function Chat({ detail }: { detail: SessionDetail }) {
         )}
       </div>
 
-      <div className="sticky bottom-0 mt-8 border-t border-rule bg-canvas pt-4 pb-6">
-        {/* Only the states worth acting on: a turn in flight, or one that failed. */}
-        {busy || error ? (
-          <div className="mb-3">
-            <div className="font-mono text-xs">
-              <Status status={busy ? "working" : "failed"} />
-            </div>
-            {error ? (
-              <p role="alert" className="mt-1 font-mono text-sm text-status-failed">
-                {error.message}
-              </p>
-            ) : null}
+      {/* In-flight / failed cue at the transcript foot, above the composer rule:
+          the working (or failed) status, with the cancel hint alongside while a
+          turn streams; a failed turn shows the provider's message instead. */}
+      {busy || error ? (
+        <div className="mt-8 font-mono text-xs">
+          <div className="flex items-baseline gap-3">
+            <Status status={busy ? "working" : "failed"} />
+            {busy ? <span className="text-ink-muted">Escape to cancel</span> : null}
           </div>
-        ) : null}
+          {error ? (
+            <p role="alert" className="mt-1 font-mono text-sm text-status-failed">
+              {error.message}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="sticky bottom-0 mt-8 border-t border-rule bg-canvas pt-4 pb-6">
         <Textarea
           id={inputId}
           label="Message"
           value={input}
           onChange={setInput}
-          placeholder="Send a message…  (Enter to send, Shift + Enter for newline, Esc to cancel)"
+          placeholder="Send a message…  (Enter to send, Shift + Enter for newline)"
           disabled={busy}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
