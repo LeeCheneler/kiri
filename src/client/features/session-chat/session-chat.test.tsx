@@ -62,14 +62,18 @@ const parkedReply = () =>
   });
 
 const renderChat = (id = "s1") => {
+  const queryClient = createQueryClient();
   const { hook } = memoryLocation({ path: `/sessions/${id}` });
-  return render(
-    <QueryClientProvider client={createQueryClient()}>
-      <Router hook={hook}>
-        <SessionChat id={id} />
-      </Router>
-    </QueryClientProvider>,
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <Router hook={hook}>
+          <SessionChat id={id} />
+        </Router>
+      </QueryClientProvider>,
+    ),
+    queryClient,
+  };
 };
 
 describe("<SessionChat>", () => {
@@ -193,6 +197,62 @@ describe("<SessionChat>", () => {
     expect(screen.getByText(/escape to cancel/i)).toBeDefined();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(cancelled).toBe(true));
+  });
+
+  it("reflects an in-flight turn on revisit", async () => {
+    // Return to a session whose turn was started elsewhere, or left running when
+    // we navigated away: the row is `running` with only the user message so far.
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "Question")], { status: "running" }),
+        ),
+      ),
+    );
+    renderChat();
+
+    expect(await screen.findByText("Question")).toBeDefined();
+    // The working cue is up even though this view isn't streaming the turn, and
+    // it can still be cancelled from here.
+    await screen.findByText(/working/i);
+    expect(screen.getByText(/escape to cancel/i)).toBeDefined();
+  });
+
+  it("folds in a turn that finished while away", async () => {
+    let detail = sessionDetail([message("m1", "user", "Question")], { status: "running" });
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(detail)));
+    const { queryClient } = renderChat();
+
+    await screen.findByText(/working/i);
+
+    // The turn finishes elsewhere; the row settles with the assistant reply. A
+    // live event would invalidate the cached session — drive that refetch here.
+    detail = sessionDetail(
+      [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+      { status: "idle" },
+    );
+    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+
+    expect(await screen.findByText("An answer")).toBeDefined();
+    await waitFor(() => expect(screen.queryByText(/working/i)).toBeNull());
+  });
+
+  it("surfaces a turn that failed while away", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "Question")], {
+            status: "failed",
+            error: { message: "provider exploded" },
+          }),
+        ),
+      ),
+    );
+    renderChat();
+
+    expect(await screen.findByText("Question")).toBeDefined();
+    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(screen.getByText(/provider exploded/i)).toBeDefined();
   });
 
   it("inserts a newline on Shift+Enter instead of sending", async () => {

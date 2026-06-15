@@ -10,6 +10,18 @@ import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useSession } from "../../state/sessions.ts";
 import { ChatMessage } from "./chat-message.tsx";
 
+// The session row stores a terminal turn's failure as `{ message }`. Pull that
+// out so a turn that failed while this view was away still surfaces its error on
+// return — where `useChat`'s own `error`, set only for a turn driven from here,
+// is empty.
+function sessionErrorText(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "message" in error) {
+    const { message } = error as { message: unknown };
+    return typeof message === "string" ? message : undefined;
+  }
+  return undefined;
+}
+
 /**
  * Session chat route content. Loads the session (its model, running token total,
  * and persisted transcript), then hands off to the live chat once it has
@@ -59,14 +71,22 @@ function Chat({ detail }: { detail: SessionDetail }) {
     });
   }, [session.id]);
 
-  const { messages, sendMessage, status, stop, error } = useChat({
+  const { messages, sendMessage, status, stop, error, setMessages } = useChat({
     id: session.id,
     messages: initialMessages,
     transport,
   });
   const [input, setInput] = useState("");
   const inputId = useId();
-  const busy = status === "submitted" || status === "streaming";
+  // `streaming` is this view driving the turn. `busy` is a turn in flight at all
+  // — including one started elsewhere, or left running when we navigated away:
+  // the session row reports `running` while `useChat` sits idle here.
+  const streaming = status === "submitted" || status === "streaming";
+  const busy = streaming || session.status === "running";
+  // A failure to surface at the transcript foot: this view's own turn errored,
+  // or — on revisit — the row records a turn that failed while we were away.
+  const failed = !busy && (error != null || session.status === "failed");
+  const failureText = error?.message ?? sessionErrorText(session.error);
 
   // Keep the foot of the transcript in view: on landing (the seeded history),
   // as messages are added, and through the assistant's streamed reply — `useChat`
@@ -93,6 +113,16 @@ function Chat({ detail }: { detail: SessionDetail }) {
     if (wasBusy.current && !busy) document.getElementById(inputId)?.focus();
     wasBusy.current = busy;
   }, [busy, inputId]);
+
+  // A turn can finish while this view is unmounted (we navigated away) or be
+  // driven from elsewhere: it persists without `useChat` — which ignores
+  // re-seeds after mount — ever seeing it. When we're not the one streaming and
+  // the stored transcript has pulled ahead, fold it in so the finished turn
+  // shows up here.
+  useEffect(() => {
+    if (streaming) return;
+    if (initialMessages.length > messages.length) setMessages(initialMessages);
+  }, [streaming, initialMessages, messages.length, setMessages]);
 
   const send = () => {
     const text = input.trim();
@@ -140,15 +170,15 @@ function Chat({ detail }: { detail: SessionDetail }) {
       {/* In-flight / failed cue at the transcript foot, above the composer rule:
           the working (or failed) status, with the cancel hint alongside while a
           turn streams; a failed turn shows the provider's message instead. */}
-      {busy || error ? (
+      {busy || failed ? (
         <div className="mt-8 font-mono text-xs">
           <div className="flex items-baseline gap-3">
             <Status status={busy ? "working" : "failed"} />
             {busy ? <span className="text-ink-muted">Escape to cancel</span> : null}
           </div>
-          {error ? (
+          {failed ? (
             <p role="alert" className="mt-1 font-mono text-sm text-status-failed">
-              {error.message}
+              {failureText}
             </p>
           ) : null}
         </div>
