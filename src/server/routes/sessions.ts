@@ -168,11 +168,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       };
       // Persistence rides the stream's completion (runTurn's `onFinish`), so the
       // route just hands back the streamed response — there's no `done` to await.
+      // The turn is drained server-side, so a client that disconnects (navigates
+      // away, reloads, closes the tab) doesn't cancel it; only an explicit cancel
+      // through `POST /api/sessions/:id/cancel` does.
       const { response } = await runTurn(
         { db, llmClients, bus, cancelRegistry },
-        // The request signal aborts on client disconnect, finalising the turn
-        // instead of stranding the session in `running`.
-        { session, userMessage, abortSignal: c.req.raw.signal },
+        { session, userMessage },
       );
       return response;
     },

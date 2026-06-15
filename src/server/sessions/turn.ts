@@ -27,13 +27,6 @@ export interface RunTurnArgs {
   session: Session;
   /** The incoming user message, persisted before the assistant response streams. */
   userMessage: UIMessage;
-  /**
-   * The request's abort signal, if any. When the client disconnects mid-turn
-   * (navigates away, refreshes, closes the tab) it fires, aborting the turn so
-   * it finalises as `cancelled` rather than stranding the session in `running`
-   * with no consumer left to drive the stream to completion.
-   */
-  abortSignal?: AbortSignal;
 }
 
 export interface StartedTurn {
@@ -59,6 +52,26 @@ const toUiMessage = (row: Message): UIMessage => ({
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+// Read a stream to completion, discarding its content. Draining the turn's SSE
+// stream server-side guarantees the turn reaches `onFinish` — and so persists
+// and settles — even when no client is reading the response (the user navigated
+// away, reloaded, or dropped the connection). A turn is only ever cancelled by
+// an explicit request through the `CancelRegistry`, never by a lost consumer.
+// Any failure is recorded via the stream's own error handling, so it's swallowed
+// here; the drain just has to not raise.
+async function drainStream(stream: ReadableStream<string>): Promise<void> {
+  const reader = stream.getReader();
+  try {
+    while (!(await reader.read()).done) {
+      // discard
+    }
+  } catch {
+    // settled through the stream's error path
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /**
  * Run one agentic turn: persist the user message, stream the assistant response
  * against the session's model, and persist that response plus its token usage
@@ -67,7 +80,9 @@ const errorMessage = (cause: unknown): string =>
  *
  * Cancellation rides the shared registry: a cancel aborts the in-flight stream
  * (there is no child process), which lands the turn as `cancelled`. A provider
- * error lands it as `failed`. Either way the session leaves `running`.
+ * error lands it as `failed`. Either way the session leaves `running`. A dropped
+ * client connection does *not* cancel: the stream is drained server-side, so the
+ * turn runs to completion and persists whether or not anyone is reading it.
  *
  * Resolving the model can throw (bad id, unknown provider); it does so before
  * any state changes, so the route surfaces it as a clean error with nothing
@@ -75,7 +90,7 @@ const errorMessage = (cause: unknown): string =>
  */
 export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<StartedTurn> {
   const { db, llmClients, bus, cancelRegistry } = deps;
-  const { session, userMessage, abortSignal } = args;
+  const { session, userMessage } = args;
 
   const model = llmClients.resolveModel(session.model);
 
@@ -91,13 +106,6 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   const controller = new AbortController();
   cancelRegistry?.register(session.id);
   cancelRegistry?.setChild(session.id, { kill: () => controller.abort() });
-
-  // A dropped client connection aborts the turn too, so it finalises rather
-  // than hanging in `running` once `onFinish` has no consumer driving it.
-  if (abortSignal) {
-    if (abortSignal.aborted) controller.abort();
-    else abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
-  }
 
   const history = getSessionMessages(db, session.id).map(toUiMessage);
   const modelMessages = await convertToModelMessages(history);
@@ -152,6 +160,14 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
         cancelRegistry?.release(session.id);
         settle();
       }
+    },
+    // Drive the stream server-side so the turn always reaches `onFinish` —
+    // persisting and settling — even if the client never reads the response.
+    // A turn is cancelled only by an explicit request (the `CancelRegistry`),
+    // never by a dropped connection: navigating away, reloading, or losing the
+    // connection leaves it running to completion for the client to pick back up.
+    consumeSseStream: ({ stream }) => {
+      void drainStream(stream);
     },
   });
 

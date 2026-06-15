@@ -180,37 +180,32 @@ describe("runTurn", () => {
     expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
   });
 
-  it("finalises the turn when the request aborts mid-stream (client disconnect)", async () => {
+  it("completes and persists when the client never reads the response", async () => {
+    // No consumer reads the streamed response — the client navigated away,
+    // reloaded, or dropped the connection. The turn is drained server-side, so
+    // it still runs to completion, persists, and settles `idle` rather than
+    // being cancelled.
+    const model = streamingModel([
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Hello" },
+      { type: "text-end", id: "t1" },
+      { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
+    ]);
     const events: KiriEvent[] = [];
     const session = createSession(db, MODEL, { id: "s1" });
-    const request = new AbortController();
 
-    const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(pendingModel()), bus: recordingBus(events) },
-      { session, userMessage: USER_MESSAGE, abortSignal: request.signal },
+    const { done } = await runTurn(
+      { db, llmClients: clientsFor(model), bus: recordingBus(events) },
+      { session, userMessage: USER_MESSAGE },
     );
-    // The connection drops; the turn aborts rather than hanging in `running`.
-    request.abort();
-    await response.text();
+    // Deliberately never read `response`; only the server-side drain advances it.
     await done;
 
-    expect(getSession(db, "s1")?.status).toBe("cancelled");
-    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
-  });
-
-  it("finalises immediately when the request is already aborted", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    const request = new AbortController();
-    request.abort();
-
-    const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(pendingModel()) },
-      { session, userMessage: USER_MESSAGE, abortSignal: request.signal },
-    );
-    await response.text();
-    await done;
-
-    expect(getSession(db, "s1")?.status).toBe("cancelled");
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    expect(textParts(rows[1]?.parts).find((p) => p.type === "text")?.text).toBe("Hello");
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
   });
 
   it("resumes a session after a failed turn, clearing the prior error", async () => {
