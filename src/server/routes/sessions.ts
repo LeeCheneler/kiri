@@ -141,11 +141,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { message } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
-      // A turn requires an idle session — rejects a concurrent turn (already
-      // running) and a terminal one (failed/cancelled). Mirrors a run's
-      // "in flight; cancel it first" guard.
-      if (session.status !== "idle") {
-        return c.json({ error: `session "${id}" is not idle` }, 409);
+      // Reject only a concurrent turn (one already in flight). A session is
+      // long-lived and resumable: after an idle, failed, or cancelled turn it
+      // accepts the next message, picking the conversation back up.
+      if (session.status === "running") {
+        return c.json({ error: `session "${id}" already has a turn in flight` }, 409);
       }
 
       const userMessage: UIMessage = {
@@ -157,7 +157,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // route just hands back the streamed response — there's no `done` to await.
       const { response } = await runTurn(
         { db, llmClients, bus, cancelRegistry },
-        { session, userMessage },
+        // The request signal aborts on client disconnect, finalising the turn
+        // instead of stranding the session in `running`.
+        { session, userMessage, abortSignal: c.req.raw.signal },
       );
       return response;
     },

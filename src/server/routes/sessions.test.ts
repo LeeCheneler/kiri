@@ -251,7 +251,7 @@ describe("sessions routes", () => {
       expect(res.status).toBe(404);
     });
 
-    it("409s when the session is not idle", async () => {
+    it("409s when a turn is already in flight", async () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });
       setSessionStatus(env.db, "s1", "running");
@@ -261,6 +261,28 @@ describe("sessions routes", () => {
       expect(res.status).toBe(409);
       // No turn ran: still just the (none) persisted messages.
       expect(getSessionMessages(env.db, "s1")).toHaveLength(0);
+    });
+
+    it("resumes a session after a previous turn failed", async () => {
+      const model = streamingModel([
+        { type: "text-start", id: "t1" },
+        { type: "text-delta", id: "t1", delta: "Back again" },
+        { type: "text-end", id: "t1" },
+        { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
+      ]);
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "failed");
+
+      const settled = waitForSettled("s1");
+      const res = await postMessage(app, "s1", "try again");
+      expect(res.status).toBe(200);
+      await res.text();
+      await settled;
+
+      expect(getSessionMessages(env.db, "s1").map((r) => r.role)).toEqual(["user", "assistant"]);
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
     });
   });
 

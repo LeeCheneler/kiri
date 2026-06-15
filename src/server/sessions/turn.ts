@@ -23,10 +23,17 @@ export interface RunTurnDeps {
 }
 
 export interface RunTurnArgs {
-  /** The target session; must be idle (the caller rejects concurrent turns). */
+  /** The target session; must not have a turn in flight (the caller rejects a concurrent turn). */
   session: Session;
   /** The incoming user message, persisted before the assistant response streams. */
   userMessage: UIMessage;
+  /**
+   * The request's abort signal, if any. When the client disconnects mid-turn
+   * (navigates away, refreshes, closes the tab) it fires, aborting the turn so
+   * it finalises as `cancelled` rather than stranding the session in `running`
+   * with no consumer left to drive the stream to completion.
+   */
+  abortSignal?: AbortSignal;
 }
 
 export interface StartedTurn {
@@ -68,13 +75,15 @@ const errorMessage = (cause: unknown): string =>
  */
 export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<StartedTurn> {
   const { db, llmClients, bus, cancelRegistry } = deps;
-  const { session, userMessage } = args;
+  const { session, userMessage, abortSignal } = args;
 
   const model = llmClients.resolveModel(session.model);
 
   appendMessage(db, session.id, { role: "user", parts: userMessage.parts });
   bus?.publish({ type: "session.message.added", sessionId: session.id });
-  setSessionStatus(db, session.id, "running");
+  // Clear any prior terminal markers: a session resumed after a failed or
+  // cancelled turn starts the new turn clean.
+  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
   bus?.publish({ type: "session.updated", id: session.id, status: "running" });
 
   // A cancel aborts the controller; the registry treats it like any child
@@ -82,6 +91,13 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   const controller = new AbortController();
   cancelRegistry?.register(session.id);
   cancelRegistry?.setChild(session.id, { kill: () => controller.abort() });
+
+  // A dropped client connection aborts the turn too, so it finalises rather
+  // than hanging in `running` once `onFinish` has no consumer driving it.
+  if (abortSignal) {
+    if (abortSignal.aborted) controller.abort();
+    else abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
 
   const history = getSessionMessages(db, session.id).map(toUiMessage);
   const modelMessages = await convertToModelMessages(history);

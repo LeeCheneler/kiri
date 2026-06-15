@@ -10,7 +10,7 @@ import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
-import { createSession, getSession, getSessionMessages } from "./store.ts";
+import { createSession, getSession, getSessionMessages, setSessionStatus } from "./store.ts";
 import { runTurn } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -178,5 +178,61 @@ describe("runTurn", () => {
     expect(settled?.finishedAt).toBeInstanceOf(Date);
     expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
     expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
+  });
+
+  it("finalises the turn when the request aborts mid-stream (client disconnect)", async () => {
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+    const request = new AbortController();
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(pendingModel()), bus: recordingBus(events) },
+      { session, userMessage: USER_MESSAGE, abortSignal: request.signal },
+    );
+    // The connection drops; the turn aborts rather than hanging in `running`.
+    request.abort();
+    await response.text();
+    await done;
+
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
+    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
+  });
+
+  it("finalises immediately when the request is already aborted", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const request = new AbortController();
+    request.abort();
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(pendingModel()) },
+      { session, userMessage: USER_MESSAGE, abortSignal: request.signal },
+    );
+    await response.text();
+    await done;
+
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
+  });
+
+  it("resumes a session after a failed turn, clearing the prior error", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    setSessionStatus(db, "s1", "failed", { error: { message: "boom" }, finishedAt: new Date() });
+    const model = streamingModel([
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Hello again" },
+      { type: "text-end", id: "t1" },
+      { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
+    ]);
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(model) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    const settled = getSession(db, "s1");
+    expect(settled?.status).toBe("idle");
+    expect(settled?.error).toBeNull();
+    expect(settled?.finishedAt).toBeNull();
   });
 });
