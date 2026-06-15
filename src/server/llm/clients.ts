@@ -119,10 +119,15 @@ function buildModel(
       return createOpenAI({ apiKey, baseURL: provider.baseUrl }).chat(modelId);
     case "openai-compatible":
       // The schema requires `base_url` for this type, so it is always present.
+      // `includeUsage` opts into `stream_options: { include_usage: true }` so
+      // streamed turns (sessions) report token usage — unlike the `openai`
+      // provider, this one omits it by default, which otherwise leaves every
+      // streamed session turn with zero token counts.
       return createOpenAICompatible({
         name: provider.name,
         baseURL: provider.baseUrl as string,
         apiKey,
+        includeUsage: true,
       })(modelId);
   }
 }
