@@ -7,7 +7,7 @@ import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionAside } from "./session-aside.tsx";
 
-const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
+const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknown[] = []) => ({
   session: {
     id: "s1",
     status: "idle",
@@ -20,7 +20,17 @@ const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
     totalTokens: 0,
     ...overrides,
   },
-  messages: [],
+  messages,
+});
+
+const assistantMessage = (usage: unknown) => ({
+  id: "m1",
+  sessionId: "s1",
+  index: 1,
+  role: "assistant",
+  parts: [{ type: "text", text: "hi" }],
+  usage,
+  createdAt: "2026-05-09T12:00:00.000Z",
 });
 
 const renderAside = (ui: ReactNode) =>
@@ -45,5 +55,29 @@ describe("<SessionAside>", () => {
     server.use(http.get("*/api/sessions/:id", () => new Promise<Response>(() => {})));
     const { container } = renderAside(<SessionAside id="s1" />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it("shows the current context size from the last settled turn", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail({}, [
+            assistantMessage({ inputTokens: 1200, outputTokens: 345, totalTokens: 1545 }),
+          ]),
+        ),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    // input + output of the last turn, formatted.
+    expect(await screen.findByText("1,545 tokens")).toBeDefined();
+  });
+
+  it("omits the context size until a turn has settled", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderAside(<SessionAside id="s1" />);
+
+    await screen.findByText("anthropic:claude");
+    expect(screen.queryByText("Context")).toBeNull();
   });
 });
