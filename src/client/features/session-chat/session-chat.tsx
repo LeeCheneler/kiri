@@ -2,7 +2,6 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiError, type SessionDetail, cancelSession, sessionTurnEndpoint } from "../../api.ts";
-import { Button } from "../../design-system/actions/button.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
@@ -152,38 +151,20 @@ function Chat({ detail }: { detail: SessionDetail }) {
             ) : null}
           </div>
         ) : null}
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            send();
+        <Textarea
+          id={inputId}
+          label="Message"
+          value={input}
+          onChange={setInput}
+          placeholder="Send a message…  (Enter to send, Shift + Enter for newline, Esc to cancel)"
+          disabled={busy}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              send();
+            }
           }}
-          className="space-y-3"
-        >
-          <Textarea
-            id={inputId}
-            label="Message"
-            value={input}
-            onChange={setInput}
-            placeholder="Send a message…  (Enter to send, Shift+Enter for a new line)"
-            disabled={busy}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                send();
-              }
-            }}
-          />
-          <div className="flex items-center gap-3">
-            <Button type="submit" variant="primary" disabled={busy || input.trim() === ""}>
-              Send
-            </Button>
-            {busy ? (
-              <Button type="button" variant="dismissive" onClick={cancel}>
-                Cancel
-              </Button>
-            ) : null}
-          </div>
-        </form>
+        />
       </div>
     </section>
   );

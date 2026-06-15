@@ -129,7 +129,7 @@ describe("<SessionChat>", () => {
 
     await screen.findByText(/no messages yet/i);
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello there");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await user.keyboard("{Enter}");
 
     expect(await screen.findByText("Hello there")).toBeDefined();
     expect(await screen.findByText("Hi back")).toBeDefined();
@@ -147,11 +147,11 @@ describe("<SessionChat>", () => {
 
     await screen.findByText(/no messages yet/i);
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await user.keyboard("{Enter}");
 
-    // The turn is in flight (the cancel affordance is up) but no token has
+    // The turn is in flight (the working status is up) but no token has
     // streamed, so the assistant turn isn't labelled yet — only the user's is.
-    await screen.findByRole("button", { name: /cancel/i });
+    await screen.findByText(/working/i);
     expect(screen.getByText("You")).toBeDefined();
     expect(screen.queryByText("Assistant")).toBeNull();
   });
@@ -166,31 +166,9 @@ describe("<SessionChat>", () => {
 
     await screen.findByText(/no messages yet/i);
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await user.keyboard("{Enter}");
 
     expect(await screen.findByRole("alert")).toBeDefined();
-  });
-
-  it("cancels an in-flight turn", async () => {
-    const user = userEvent.setup();
-    let cancelled = false;
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.post("*/api/sessions/:id/messages", () => parkedReply()),
-      http.post("*/api/sessions/:id/cancel", () => {
-        cancelled = true;
-        // A 409 exercises the best-effort catch — the turn may have already settled.
-        return HttpResponse.json({ error: "not in flight" }, { status: 409 });
-      }),
-    );
-    renderChat();
-
-    await screen.findByText(/no messages yet/i);
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
-
-    await user.click(await screen.findByRole("button", { name: /cancel/i }));
-    expect(cancelled).toBe(true);
   });
 
   it("cancels an in-flight turn on Escape", async () => {
@@ -208,28 +186,12 @@ describe("<SessionChat>", () => {
 
     await screen.findByText(/no messages yet/i);
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
-
-    // Wait for the turn to go in flight, then hit Escape from the window.
-    await screen.findByRole("button", { name: /cancel/i });
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(cancelled).toBe(true));
-  });
-
-  it("sends on Enter", async () => {
-    const user = userEvent.setup();
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.post("*/api/sessions/:id/messages", () => assistantReply("Hi back")),
-    );
-    renderChat();
-
-    await screen.findByText(/no messages yet/i);
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello there");
     await user.keyboard("{Enter}");
 
-    expect(await screen.findByText("Hello there")).toBeDefined();
-    expect(await screen.findByText("Hi back")).toBeDefined();
+    // Wait for the turn to go in flight, then hit Escape from the window.
+    await screen.findByText(/working/i);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(cancelled).toBe(true));
   });
 
   it("inserts a newline on Shift+Enter instead of sending", async () => {
