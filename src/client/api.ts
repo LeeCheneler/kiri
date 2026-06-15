@@ -1,3 +1,4 @@
+import type { UIMessage } from "ai";
 import { z } from "zod";
 
 /**
@@ -527,6 +528,119 @@ export const actionRecommendation = async (
     ),
   );
 };
+
+/** A model offered by a configured provider, as returned by `GET /api/models`. */
+export interface ModelInfo {
+  /** `provider:model` id — ready to start a session against. */
+  id: string;
+  /** The provider the model came from. */
+  provider: string;
+}
+
+/** A provider whose model listing failed, surfaced so the picker can explain a gap. */
+export interface ModelsFailure {
+  provider: string;
+  reason: string;
+}
+
+/** Available models across configured providers, plus any per-provider failures. */
+export interface ModelsResult {
+  models: ModelInfo[];
+  failures: ModelsFailure[];
+}
+
+/** Fetch the models every configured provider offers. Throws on non-2xx. */
+export const fetchModels = async (): Promise<ModelsResult> =>
+  json<ModelsResult>(await apiFetch("/api/models"));
+
+/** Session lifecycle status. `idle` is the resting state between turns. */
+export type SessionStatus = "running" | "idle" | "failed" | "cancelled";
+
+/** A session row as returned by the sessions API. */
+export interface Session {
+  id: string;
+  status: SessionStatus;
+  /** `provider:model` id the session's turns run against. */
+  model: string;
+  startedAt: string;
+  /** Set once the session reaches a terminal `failed`/`cancelled`; null while usable. */
+  finishedAt: string | null;
+  error: unknown;
+  /** Running token totals summed across completed turns. */
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+/** A persisted message on a session. `parts` is an AI SDK `UIMessage` parts array. */
+export interface SessionMessage {
+  id: string;
+  sessionId: string;
+  index: number;
+  role: "user" | "assistant" | "system";
+  parts: UIMessage["parts"];
+  /** Per-turn token usage; null for user messages and when a provider reported none. */
+  usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null;
+  createdAt: string;
+}
+
+/**
+ * One page of the reverse-chronological session list. `nextCursor` is the last
+ * row's `id` when a further page exists; `null` on the final page.
+ */
+export interface SessionsPage {
+  sessions: Session[];
+  nextCursor: string | null;
+}
+
+/**
+ * Fetch one page of the session list, newest first. Pass `cursor` from the
+ * previous page's `nextCursor` to advance and `limit` (1–100) to size the page.
+ * Throws on non-2xx.
+ */
+export const fetchSessionsPage = async (
+  opts: { cursor?: string; limit?: number } = {},
+): Promise<SessionsPage> => {
+  const params = new URLSearchParams();
+  if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return json<SessionsPage>(await apiFetch(`/api/sessions${qs ? `?${qs}` : ""}`));
+};
+
+/** A session with its ordered messages, as returned by `GET /api/sessions/:id`. */
+export interface SessionDetail {
+  session: Session;
+  messages: SessionMessage[];
+}
+
+/** Fetch a single session with its messages. Throws on non-2xx (404 for unknown ids). */
+export const fetchSession = async (id: string): Promise<SessionDetail> =>
+  json<SessionDetail>(await apiFetch(`/api/sessions/${encodeURIComponent(id)}`));
+
+/**
+ * Create a session against `model` (a `provider:model` id), returning the new
+ * row — navigate to it to start chatting. Throws `ApiError` on non-2xx, notably
+ * 400 when the model can't be resolved against the provider registry.
+ */
+export const createSession = async (model: string): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    }),
+  );
+
+/**
+ * Request cancellation of a session's in-flight turn. Resolves on 202 — the
+ * turn's terminal `cancelled` status arrives on the SSE event stream. Throws
+ * `ApiError` on non-2xx (404 unknown session, 409 when no turn is in flight).
+ */
+export const cancelSession = async (id: string): Promise<{ sessionId: string }> =>
+  json<{ sessionId: string }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  );
 
 /**
  * The version string this kiri process advertises. Injected at release-time
