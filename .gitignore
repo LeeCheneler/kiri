@@ -8,3 +8,6 @@ playwright-report/
 *.lcov
 *.log
 .DS_Store
+
+# Local provider config used for development against a running LLM
+/llm-providers.yaml
