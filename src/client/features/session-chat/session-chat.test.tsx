@@ -193,6 +193,29 @@ describe("<SessionChat>", () => {
     expect(cancelled).toBe(true);
   });
 
+  it("cancels an in-flight turn on Escape", async () => {
+    const user = userEvent.setup();
+    let cancelled = false;
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.post("*/api/sessions/:id/messages", () => parkedReply()),
+      http.post("*/api/sessions/:id/cancel", () => {
+        cancelled = true;
+        return HttpResponse.json({ error: "not in flight" }, { status: 409 });
+      }),
+    );
+    renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+
+    // Wait for the turn to go in flight, then hit Escape from the window.
+    await screen.findByRole("button", { name: /cancel/i });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(cancelled).toBe(true));
+  });
+
   it("sends on Enter", async () => {
     const user = userEvent.setup();
     server.use(

@@ -1,6 +1,6 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiError, type SessionDetail, cancelSession, sessionTurnEndpoint } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
@@ -101,11 +101,22 @@ function Chat({ detail }: { detail: SessionDetail }) {
     void sendMessage({ text });
     setInput("");
   };
-  const cancel = () => {
+  const cancel = useCallback(() => {
     void stop();
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
     void cancelSession(session.id).catch(() => {});
-  };
+  }, [stop, session.id]);
+
+  // Esc cancels an in-flight turn. The composer is disabled mid-turn so it
+  // can't catch the key itself; listen on the window while a turn is busy.
+  useEffect(() => {
+    if (!busy) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, cancel]);
 
   return (
     <section>
