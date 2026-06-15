@@ -47,7 +47,12 @@ function RailContent({
 
   return (
     <>
-      <NavList items={[{ label: "Activity", href: "/", active: location === "/" }]} />
+      <NavList
+        items={[
+          { label: "Activity", href: "/", active: location === "/" },
+          { label: "Sessions", href: "/sessions", active: location.startsWith("/sessions") },
+        ]}
+      />
       <div className="mt-6 min-h-0 flex-1 overflow-y-auto">
         {workflows && <WorkflowsNav workflows={workflows} activeName={activeName} />}
       </div>

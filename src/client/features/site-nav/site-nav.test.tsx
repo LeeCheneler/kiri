@@ -35,6 +35,14 @@ describe("<SiteNav>", () => {
     await flushAsync();
   });
 
+  it("links to and highlights the sessions surface", async () => {
+    renderNav("/sessions/abc");
+    const link = await screen.findByRole("link", { name: /^sessions$/i });
+    expect(link.getAttribute("href")).toBe("/sessions");
+    expect(link.getAttribute("aria-current")).toBe("page");
+    await flushAsync();
+  });
+
   it("renders the rail without the workflows nav when the registry fetch fails", async () => {
     server.use(http.get("*/api/workflows", () => new HttpResponse("boom", { status: 500 })));
     renderNav();

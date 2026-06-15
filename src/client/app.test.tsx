@@ -56,6 +56,25 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /sessions to the sessions page", async () => {
+    server.use(
+      http.get("*/api/models", () => new Promise<Response>(() => {})),
+      http.get("*/api/sessions", () => new Promise<Response>(() => {})),
+    );
+    renderAt("/sessions");
+    expect(screen.getByText(/loading models/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
+  it("routes /sessions/:id to the session chat page", async () => {
+    server.use(http.get("*/api/sessions/:id", () => new Promise<Response>(() => {})));
+    renderAt("/sessions/abc");
+    expect(screen.getByText(/loading session/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
   it("renders 'page not found' for an unmatched path", async () => {
     renderAt("/totally-unknown");
     expect(screen.getByText(/page not found/i)).toBeDefined();

@@ -652,6 +652,18 @@ export const cancelSession = async (id: string): Promise<{ sessionId: string }> 
   );
 
 /**
+ * The turn endpoint for a session's `useChat` transport: the origin-aware URL
+ * plus the `X-Kiri-Client` header the CSRF gate requires. `useChat` posts only
+ * the newest message here; the server loads the prior turns from storage.
+ */
+export const sessionTurnEndpoint = (
+  id: string,
+): { url: string; headers: Record<string, string> } => ({
+  url: apiUrl(`/api/sessions/${encodeURIComponent(id)}/messages`),
+  headers: { [CLIENT_HEADER_NAME]: CLIENT_HEADER_VALUE },
+});
+
+/**
  * The version string this kiri process advertises. Injected at release-time
  * via `bun build --define KIRI_VERSION=…`; falls back to `"dev"` for local
  * `bun start` and tests.
