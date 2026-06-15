@@ -304,6 +304,51 @@ describe("sessions routes", () => {
     });
   });
 
+  describe("DELETE /api/sessions/:id", () => {
+    it("deletes the session and its messages and publishes session.deleted", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Hi" }] });
+
+      const res = await app.request("/api/sessions/s1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      expect(getSession(env.db, "s1")).toBeUndefined();
+      expect(getSessionMessages(env.db, "s1")).toHaveLength(0);
+      expect(events).toContainEqual({ type: "session.deleted", id: "s1" });
+    });
+
+    it("404s an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("409s a session with a turn in flight", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "running");
+
+      const res = await app.request("/api/sessions/s1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(409);
+      // A rejected delete leaves the session in place.
+      expect(getSession(env.db, "s1")?.id).toBe("s1");
+    });
+  });
+
   describe("POST /api/sessions/:id/cancel", () => {
     it("cancels an in-flight turn", async () => {
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });

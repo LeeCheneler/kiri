@@ -10,6 +10,7 @@ import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   createSession,
+  deleteSession,
   getSession,
   getSessionMessages,
   getSessionPreviews,
@@ -176,6 +177,24 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         { session, userMessage },
       );
       return response;
+    },
+  );
+
+  app.delete(
+    "/sessions/:id",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const session = getSession(db, id);
+      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      // A running session has a turn streaming and persisting server-side;
+      // deleting mid-turn would orphan that write, so require a cancel first.
+      if (session.status === "running") {
+        return c.json({ error: `session "${id}" has a turn in flight; cancel it first` }, 409);
+      }
+      deleteSession(db, id);
+      bus?.publish({ type: "session.deleted", id });
+      return c.body(null, 204);
     },
   );
 

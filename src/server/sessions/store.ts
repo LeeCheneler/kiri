@@ -157,3 +157,16 @@ export function setSessionStatus(
     .where(eq(sessions.id, sessionId))
     .run();
 }
+
+/**
+ * Permanently delete a session and its messages in one transaction. Messages
+ * hold an FK to the session, so they go first — an in-code cascade matching the
+ * rest of the codebase rather than a schema-level ON DELETE. Deleting an absent
+ * session removes nothing.
+ */
+export function deleteSession(db: KiriDb, id: string): void {
+  db.transaction((tx) => {
+    tx.delete(messages).where(eq(messages.sessionId, id)).run();
+    tx.delete(sessions).where(eq(sessions.id, id)).run();
+  });
+}

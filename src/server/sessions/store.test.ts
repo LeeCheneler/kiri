@@ -10,6 +10,7 @@ import {
   addTurnUsage,
   appendMessage,
   createSession,
+  deleteSession,
   getSession,
   getSessionMessages,
   getSessionPreviews,
@@ -132,5 +133,26 @@ describe("sessions store", () => {
     expect(session?.status).toBe("idle");
     expect(session?.error).toBeNull();
     expect(session?.finishedAt).toBeNull();
+  });
+
+  it("deletes a session with its messages, leaving other sessions intact", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Hi" }] });
+    appendMessage(db, "s1", { role: "assistant", parts: [{ type: "text", text: "Hello" }] });
+    createSession(db, MODEL, { id: "s2" });
+    appendMessage(db, "s2", { role: "user", parts: [{ type: "text", text: "Keep me" }] });
+
+    deleteSession(db, "s1");
+
+    expect(getSession(db, "s1")).toBeUndefined();
+    expect(getSessionMessages(db, "s1")).toHaveLength(0);
+    expect(getSession(db, "s2")?.id).toBe("s2");
+    expect(getSessionMessages(db, "s2")).toHaveLength(1);
+  });
+
+  it("is a no-op deleting a session that does not exist", () => {
+    createSession(db, MODEL, { id: "s1" });
+    deleteSession(db, "ghost");
+    expect(getSession(db, "s1")?.id).toBe("s1");
   });
 });

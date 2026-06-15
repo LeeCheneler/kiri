@@ -5,6 +5,7 @@ export {
   addTurnUsage,
   appendMessage,
   createSession,
+  deleteSession,
   getSession,
   getSessionMessages,
   getSessionPreviews,
