@@ -22,7 +22,9 @@ const renderHomePage = () => {
 
 describe("<HomePage>", () => {
   it("anchors the page on the Activity breadcrumb", async () => {
-    server.use(http.get("*/api/runs", () => HttpResponse.json({ runs: [], nextCursor: null })));
+    server.use(
+      http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
+    );
     renderHomePage();
     const current = screen.getByText("Activity");
     expect(current.getAttribute("aria-current")).toBe("page");
@@ -30,8 +32,10 @@ describe("<HomePage>", () => {
   });
 
   it("composes the activity feed below the breadcrumb", async () => {
-    server.use(http.get("*/api/runs", () => HttpResponse.json({ runs: [], nextCursor: null })));
+    server.use(
+      http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
+    );
     renderHomePage();
-    expect(await screen.findByText(/no runs yet/i)).toBeDefined();
+    expect(await screen.findByText(/no activity yet/i)).toBeDefined();
   });
 });
