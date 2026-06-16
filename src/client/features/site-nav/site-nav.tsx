@@ -6,6 +6,7 @@ import { Rule } from "../../design-system/content/rule.tsx";
 import { type NavItem, NavList } from "../../design-system/navigation/nav-list.tsx";
 import { Drawer } from "../../design-system/surfaces/drawer.tsx";
 import { useWorkflows } from "../../state/workflows.ts";
+import { NewSessionButton } from "../session-chat/new-session-button.tsx";
 import { VersionInfo } from "./version-info.tsx";
 import { WorkflowsNav } from "./workflows-nav.tsx";
 
@@ -53,6 +54,9 @@ function RailContent({
           { label: "Sessions", href: "/sessions", active: location.startsWith("/sessions") },
         ]}
       />
+      <div className="mt-4">
+        <NewSessionButton />
+      </div>
       <div className="mt-6 min-h-0 flex-1 overflow-y-auto">
         {workflows && <WorkflowsNav workflows={workflows} activeName={activeName} />}
       </div>
