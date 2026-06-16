@@ -9,9 +9,17 @@ export type KiriEventType =
   | "run.deleted"
   | "recommendation.actioned"
   | "recommendation.updated"
+  | "session.started"
+  | "session.message.added"
+  | "session.updated"
+  | "session.finished"
+  | "session.deleted"
   | "workflow.added"
   | "workflow.updated"
   | "workflow.removed";
+
+/** Session lifecycle states; `idle` is the between-turns resting state, replacing a run's terminal `ok`. */
+type SessionStatus = "running" | "idle" | "failed" | "cancelled";
 
 /** Mirrors the server's discriminated union; payloads are thin invalidation signals. */
 export type KiriEvent =
@@ -38,6 +46,11 @@ export type KiriEvent =
       actionedRunId: string;
       status: "running" | "ok" | "failed" | "cancelled";
     }
+  | { type: "session.started"; id: string }
+  | { type: "session.message.added"; sessionId: string }
+  | { type: "session.updated"; id: string; status: SessionStatus }
+  | { type: "session.finished"; id: string; status: SessionStatus }
+  | { type: "session.deleted"; id: string }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string };
@@ -62,6 +75,11 @@ const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
   "run.deleted",
   "recommendation.actioned",
   "recommendation.updated",
+  "session.started",
+  "session.message.added",
+  "session.updated",
+  "session.finished",
+  "session.deleted",
   "workflow.added",
   "workflow.updated",
   "workflow.removed",

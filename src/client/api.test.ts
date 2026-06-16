@@ -6,6 +6,7 @@ import {
   actionRecommendation,
   cancelRun,
   deleteRun,
+  deleteSession,
   fetchRecentArticles,
   fetchRun,
   fetchRunsPage,
@@ -272,6 +273,44 @@ describe("api client", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).status).toBe(500);
+    }
+  });
+
+  it("deletes a session and resolves without a body on 204", async () => {
+    const seen: { method: string; header: string | null; id: string }[] = [];
+    server.use(
+      http.delete("*/api/sessions/:id", ({ request, params }) => {
+        seen.push({
+          method: request.method,
+          header: request.headers.get("X-Kiri-Client"),
+          id: String(params.id),
+        });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const result = await deleteSession("s1");
+    expect(result).toBeUndefined();
+    expect(seen).toEqual([{ method: "DELETE", header: "kiri-ui", id: "s1" }]);
+  });
+
+  it("throws an ApiError carrying 409 when delete races an in-flight turn", async () => {
+    server.use(
+      http.delete("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          { error: 'session "s1" has a turn in flight; cancel it first' },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    try {
+      await deleteSession("s1");
+      throw new Error("expected deleteSession to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(409);
+      expect((err as ApiError).message).toBe('session "s1" has a turn in flight; cancel it first');
     }
   });
 

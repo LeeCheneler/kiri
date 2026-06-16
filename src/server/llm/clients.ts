@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { type LanguageModel, generateText } from "ai";
+import { type LlmModelsResult, listLlmModels } from "./models.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
 
@@ -44,6 +45,14 @@ export interface LlmClients {
     prompt: string;
     abortSignal?: AbortSignal;
   }): Promise<GenerateLlmTextResult>;
+  /**
+   * List the models every configured provider currently offers, namespaced as
+   * `provider:model` ids ready to hand back to `resolveModel`. A provider that
+   * is down or unauthorised is collected as a failure, never fatal. Lives here
+   * so callers list models off the same object they resolve them through,
+   * without touching the registry or AI SDK directly.
+   */
+  listModels(): Promise<LlmModelsResult>;
 }
 
 /**
@@ -65,6 +74,9 @@ export function createLlmClients(
         prompt: options.prompt,
         abortSignal: options.abortSignal,
       });
+    },
+    listModels() {
+      return listLlmModels(registry, env);
     },
     resolveModel(id) {
       const separator = id.indexOf(":");
@@ -107,10 +119,15 @@ function buildModel(
       return createOpenAI({ apiKey, baseURL: provider.baseUrl }).chat(modelId);
     case "openai-compatible":
       // The schema requires `base_url` for this type, so it is always present.
+      // `includeUsage` opts into `stream_options: { include_usage: true }` so
+      // streamed turns (sessions) report token usage — unlike the `openai`
+      // provider, this one omits it by default, which otherwise leaves every
+      // streamed session turn with zero token counts.
       return createOpenAICompatible({
         name: provider.name,
         baseURL: provider.baseUrl as string,
         apiKey,
+        includeUsage: true,
       })(modelId);
   }
 }

@@ -3,6 +3,7 @@ export {
   type EventListener,
   type KiriEvent,
   type RunStatus,
+  type SessionStatus,
   type StepStatus,
   createEventBus,
 } from "./bus.ts";

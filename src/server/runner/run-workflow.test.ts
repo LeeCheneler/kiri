@@ -52,6 +52,7 @@ describe("runWorkflow", () => {
       throw new Error("resolveModel is not part of the runner contract");
     },
     generateText,
+    listModels: async () => ({ models: [], failures: [] }),
   });
 
   it("persists a single use: step run + envelope and reports ok", async () => {

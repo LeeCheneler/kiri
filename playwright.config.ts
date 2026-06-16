@@ -8,6 +8,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = here;
 const KIRI_BIN = resolve(here, "bin/kiri.ts");
 
+// The OpenAI-compatible stub the fixture's llm-providers.yaml points at. Booted
+// as its own webServer so sessions and `llm:` steps have a live provider to
+// resolve, list models from, and stream turns against. Its port is fixed so the
+// checked-in fixture config can reference it.
+const FAKE_LLM_PORT = 4243;
+const FAKE_LLM = resolve(here, "tests/support/fake-openai-server.ts");
+
 // Reset state and link the SPA bundle into the fixture cwd just before
 // booting kiri. Runs as the webServer command (not globalSetup) so the
 // wipe completes before kiri opens the SQLite handle — Playwright starts
@@ -31,15 +38,27 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: fixtureBoot,
-    cwd: "tests/e2e/fixture",
-    url: `${BASE_URL}/api/health`,
-    // Always start a fresh kiri pointed at the fixture cwd. A reused dev
-    // server would have a different workflow registry and different state.
-    reuseExistingServer: false,
-    timeout: 30_000,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: [
+    // The stub first, so kiri's model listing has something to resolve against.
+    {
+      command: `bun ${FAKE_LLM}`,
+      env: { FAKE_OPENAI_PORT: String(FAKE_LLM_PORT) },
+      url: `http://127.0.0.1:${FAKE_LLM_PORT}/v1/models`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
+      command: fixtureBoot,
+      cwd: "tests/e2e/fixture",
+      url: `${BASE_URL}/api/health`,
+      // Always start a fresh kiri pointed at the fixture cwd. A reused dev
+      // server would have a different workflow registry and different state.
+      reuseExistingServer: false,
+      timeout: 30_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  ],
 });

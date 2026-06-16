@@ -237,6 +237,7 @@ describe("runStep", () => {
             throw new Error("unused");
           },
           generateText: async ({ prompt }) => ({ text: `completed: ${prompt}`, usage: {} }),
+          listModels: async () => ({ models: [], failures: [] }),
         },
       });
 

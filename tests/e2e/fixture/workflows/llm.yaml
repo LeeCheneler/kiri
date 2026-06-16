@@ -1,0 +1,6 @@
+name: llm
+steps:
+  - llm:
+      model: fake:echo
+      prompt: "Say hello"
+    name: Ask the model

@@ -30,3 +30,9 @@ export {
   createLlmClients,
   generateLlmText,
 } from "./clients.ts";
+export {
+  type LlmModelInfo,
+  type LlmModelsFailure,
+  type LlmModelsResult,
+  listLlmModels,
+} from "./models.ts";

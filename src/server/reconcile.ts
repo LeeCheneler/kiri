@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { KiriDb } from "./db/index.ts";
-import { runSteps, runs } from "./db/schema.ts";
+import { runSteps, runs, sessions } from "./db/schema.ts";
 
 const INTERRUPTED_ERROR = { message: "interrupted by server restart" } as const;
 
@@ -21,5 +21,20 @@ export function reconcileInterruptedRuns(db: KiriDb): void {
   db.update(runSteps)
     .set({ status: "failed", error: INTERRUPTED_ERROR })
     .where(eq(runSteps.status, "running"))
+    .run();
+}
+
+/**
+ * Sweep `sessions` still marked `running` into a terminal `failed` state. A
+ * `running` session is an in-flight turn; at startup any such row is a remnant
+ * of a prior process that died mid-turn (the turn streamed in-process, so it
+ * cannot have survived the restart). Idle sessions are left untouched — they
+ * are resumable. Idempotent, like `reconcileInterruptedRuns`, and intended to
+ * run alongside it once at startup.
+ */
+export function reconcileInterruptedSessions(db: KiriDb): void {
+  db.update(sessions)
+    .set({ status: "failed", finishedAt: new Date(), error: INTERRUPTED_ERROR })
+    .where(eq(sessions.status, "running"))
     .run();
 }

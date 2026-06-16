@@ -8,6 +8,7 @@ import { type EventBus, mountEventsRoute, mountRecommendationReflector } from ".
 import type { LlmClients } from "./llm/index.ts";
 import { articlesRoutes } from "./routes/articles.ts";
 import { runsRoutes } from "./routes/runs.ts";
+import { sessionsRoutes } from "./routes/sessions.ts";
 import { mountStaticRoutes } from "./routes/static.ts";
 import { systemRoutes } from "./routes/system.ts";
 import { workflowsRoutes } from "./routes/workflows.ts";
@@ -158,6 +159,12 @@ export function createApp(deps: AppDeps): Hono {
   );
   app.route("/api/runs", runsRoutes({ db, registry, cwd, bus, cancelRegistry, llmClients }));
   app.route("/api/articles", articlesRoutes({ db }));
+
+  // Sessions resolve, stream, and list models off `llmClients`; without it the
+  // surface is inert, so its routes (and `/api/models`) only mount when present.
+  if (llmClients) {
+    app.route("/api", sessionsRoutes({ db, llmClients, bus, cancelRegistry }));
+  }
 
   if (bus) {
     mountEventsRoute(

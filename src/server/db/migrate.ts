@@ -16,6 +16,12 @@ import migration0010 from "../../../drizzle/0010_add_recommendations.sql" with {
 import migration0011 from "../../../drizzle/0011_drop_run_trigger.sql" with { type: "text" };
 import migration0012 from "../../../drizzle/0012_add_run_step_timing.sql" with { type: "text" };
 import migration0013 from "../../../drizzle/0013_rename_article_columns.sql" with { type: "text" };
+import migration0014 from "../../../drizzle/0014_add_sessions_and_messages.sql" with {
+  type: "text",
+};
+import migration0015 from "../../../drizzle/0015_drop_session_agent_columns.sql" with {
+  type: "text",
+};
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -52,6 +58,8 @@ const MIGRATIONS: Migration[] = [
   { name: "0011_drop_run_trigger", sql: migration0011 },
   { name: "0012_add_run_step_timing", sql: migration0012 },
   { name: "0013_rename_article_columns", sql: migration0013 },
+  { name: "0014_add_sessions_and_messages", sql: migration0014 },
+  { name: "0015_drop_session_agent_columns", sql: migration0015 },
 ];
 
 /**

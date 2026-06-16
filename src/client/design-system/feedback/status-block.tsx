@@ -4,6 +4,8 @@ import type { StatusKind } from "./status.tsx";
 const STATUS_BORDER: Record<StatusKind, string> = {
   pending: "border-status-pending",
   running: "border-status-running",
+  working: "border-status-working",
+  idle: "border-status-idle",
   ok: "border-status-ok",
   failed: "border-status-failed",
   cancelled: "border-status-cancelled",
@@ -11,11 +13,12 @@ const STATUS_BORDER: Record<StatusKind, string> = {
 };
 
 /**
- * A content block edged on the left with its status colour — the callout for
- * a run or step's outcome (a failed block edged red, an ok block green). Wraps
- * `children` behind the coloured border and exposes the state as `data-status`.
- * Carries its own left border and inset padding only; vertical rhythm between
- * stacked blocks is the caller's.
+ * A content block edged on the left with its status colour — the callout for a
+ * run or step's outcome (a failed block edged red, an ok block green) or a
+ * session row (a green idle edge, a blue working one). Wraps `children` behind
+ * the coloured border and exposes the state as `data-status`. Carries its own
+ * left border and inset padding only; vertical rhythm between stacked blocks is
+ * the caller's.
  */
 export function StatusBlock({
   status,

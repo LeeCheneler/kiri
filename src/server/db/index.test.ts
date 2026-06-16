@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { type KiriDb, openDatabase } from "./index.ts";
 import { migrate } from "./migrate.ts";
-import { articles, recommendations, runSteps, runs } from "./schema.ts";
+import { articles, messages, recommendations, runSteps, runs, sessions } from "./schema.ts";
 
 describe("db", () => {
   let dir: string;
@@ -700,5 +700,164 @@ describe("db", () => {
       .map((r) => r.name)
       .sort();
     expect(indexes).toEqual(["recommendations_actioned_run_id_idx", "recommendations_run_id_idx"]);
+  });
+
+  it("round-trips a session + message with parts and usage", () => {
+    migrate(db);
+
+    const startedAt = new Date(1_700_000_000_000);
+    db.insert(sessions)
+      .values({
+        id: "sess-1",
+        status: "idle",
+        model: "lmstudio:gemma-4-26b-a4b-qat",
+        startedAt,
+        inputTokens: 12,
+        outputTokens: 34,
+        totalTokens: 46,
+      })
+      .run();
+
+    const createdAt = new Date(1_700_000_005_000);
+    db.insert(messages)
+      .values({
+        id: "msg-1",
+        sessionId: "sess-1",
+        index: 0,
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there." }],
+        usage: { inputTokens: 12, outputTokens: 34, totalTokens: 46 },
+        createdAt,
+      })
+      .run();
+
+    const session = db.select().from(sessions).where(eq(sessions.id, "sess-1")).get();
+    expect(session?.status).toBe("idle");
+    expect(session?.model).toBe("lmstudio:gemma-4-26b-a4b-qat");
+    expect(session?.startedAt).toEqual(startedAt);
+    expect(session?.totalTokens).toBe(46);
+
+    const message = db.select().from(messages).where(eq(messages.id, "msg-1")).get();
+    expect(message?.sessionId).toBe("sess-1");
+    expect(message?.role).toBe("assistant");
+    expect(message?.parts).toEqual([{ type: "text", text: "Hello there." }]);
+    expect(message?.usage).toEqual({ inputTokens: 12, outputTokens: 34, totalTokens: 46 });
+    expect(message?.createdAt).toEqual(createdAt);
+  });
+
+  it("defaults session token totals to 0 and nullable fields to null", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({
+        id: "sess-min",
+        status: "idle",
+        model: "lmstudio:gemma-4-26b-a4b-qat",
+        startedAt: new Date(),
+      })
+      .run();
+
+    db.insert(messages)
+      .values({
+        id: "msg-user",
+        sessionId: "sess-min",
+        index: 0,
+        role: "user",
+        parts: [{ type: "text", text: "Hi" }],
+        createdAt: new Date(),
+      })
+      .run();
+
+    const session = db.select().from(sessions).where(eq(sessions.id, "sess-min")).get();
+    expect(session?.inputTokens).toBe(0);
+    expect(session?.outputTokens).toBe(0);
+    expect(session?.totalTokens).toBe(0);
+    expect(session?.finishedAt).toBeNull();
+    expect(session?.error).toBeNull();
+
+    const message = db.select().from(messages).where(eq(messages.id, "msg-user")).get();
+    expect(message?.usage).toBeNull();
+  });
+
+  it("declares messages.session_id → sessions.id foreign key", () => {
+    const fks = getTableConfig(messages).foreignKeys;
+    expect(fks).toHaveLength(1);
+    const fk = fks[0] as unknown as {
+      reference: () => {
+        columns: { name: string }[];
+        foreignColumns: { name: string }[];
+      };
+    };
+    const ref = fk.reference();
+    expect(ref.columns.map((c) => c.name)).toEqual(["session_id"]);
+    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+  });
+
+  it("adds the sessions + messages tables when migrating a pre-sessions DB", () => {
+    const sqlite = db.$client;
+    sqlite.run(
+      "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
+    );
+    // Seed the migration ledger through 0013 so the session migrations
+    // (0014 creating the tables, 0015 dropping the agent columns) are the
+    // ones outstanding; the run-side tables they don't touch are irrelevant.
+    const priorMigrations = [
+      "0000_initial",
+      "0001_index_run_nodes_run_id",
+      "0002_rename_run_nodes_to_run_steps",
+      "0003_add_run_summary_columns",
+      "0004_add_publish_support",
+      "0005_add_run_git_columns",
+      "0006_drop_step_materials",
+      "0007_drop_step_usage",
+      "0008_rename_run_artefacts_to_articles",
+      "0009_add_run_inputs",
+      "0010_add_recommendations",
+      "0011_drop_run_trigger",
+      "0012_add_run_step_timing",
+      "0013_rename_article_columns",
+    ];
+    sqlite.run(
+      `INSERT INTO __kiri_migrations (name, applied_at) VALUES ${priorMigrations
+        .map((name) => `('${name}', 0)`)
+        .join(", ")}`,
+    );
+
+    migrate(db);
+
+    const tables = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions','messages') ORDER BY name",
+      )
+      .all()
+      .map((r) => r.name);
+    expect(tables).toEqual(["messages", "sessions"]);
+
+    const sessionCols = sqlite
+      .query<{ name: string }, []>("PRAGMA table_info(sessions)")
+      .all()
+      .map((r) => r.name)
+      .sort();
+    expect(sessionCols).toEqual(
+      [
+        "error",
+        "finished_at",
+        "id",
+        "input_tokens",
+        "model",
+        "output_tokens",
+        "started_at",
+        "status",
+        "total_tokens",
+      ].sort(),
+    );
+
+    const indexes = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='messages' AND name NOT LIKE 'sqlite_%'",
+      )
+      .all()
+      .map((r) => r.name);
+    expect(indexes).toEqual(["messages_session_id_idx"]);
   });
 });
