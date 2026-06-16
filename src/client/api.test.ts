@@ -7,7 +7,6 @@ import {
   cancelRun,
   deleteRun,
   deleteSession,
-  fetchRecentArticles,
   fetchRun,
   fetchRunsPage,
   fetchWorkflows,
@@ -74,49 +73,6 @@ describe("api client", () => {
         createdAt: "2026-05-09T12:00:00.000Z",
       },
     ]);
-  });
-
-  it("returns the recent articles list from the default handler", async () => {
-    expect(await fetchRecentArticles()).toEqual([]);
-  });
-
-  it("fetches recent articles and surfaces an ApiError on non-2xx", async () => {
-    server.use(
-      http.get("*/api/articles/recent", () =>
-        HttpResponse.json(
-          [
-            {
-              runId: "run-1",
-              slug: "digest",
-              name: "Digest",
-              heading: "This Week in PRs",
-              workflowName: "pr-review",
-              createdAt: "2026-05-09T12:00:00.000Z",
-            },
-          ],
-          { status: 200 },
-        ),
-      ),
-    );
-    const articles = await fetchRecentArticles();
-    expect(articles).toEqual([
-      {
-        runId: "run-1",
-        slug: "digest",
-        name: "Digest",
-        heading: "This Week in PRs",
-        workflowName: "pr-review",
-        createdAt: "2026-05-09T12:00:00.000Z",
-      },
-    ]);
-
-    server.use(http.get("*/api/articles/recent", () => new HttpResponse("boom", { status: 500 })));
-    try {
-      await fetchRecentArticles();
-      throw new Error("expected fetchRecentArticles to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ApiError);
-    }
   });
 
   it("triggers a manual run and returns the runId with running status", async () => {

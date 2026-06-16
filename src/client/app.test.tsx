@@ -70,19 +70,7 @@ describe("<App>", () => {
     await flushAsync();
   });
 
-  it("shows the Recently Published rail on the home route", async () => {
-    renderAt("/");
-    expect(await screen.findByRole("heading", { name: /recently published/i })).toBeDefined();
-    await flushAsync();
-  });
-
-  it("omits the Recently Published rail on the workflow route", async () => {
-    renderAt("/workflows/example");
-    await flushAsync();
-    expect(screen.queryByRole("heading", { name: /recently published/i })).toBeNull();
-  });
-
-  it("swaps the right rail for the article TOC on the article route", async () => {
+  it("shows the article TOC in the right rail on the article route", async () => {
     // Article body carries a `##` section so the TOC has an entry to show.
     server.use(
       http.get("*/api/runs/:id/published/:slug", ({ params }) =>
@@ -105,10 +93,8 @@ describe("<App>", () => {
 
     renderAt("/runs/run-1/published/demo");
 
-    // The article TOC marginalia is present; the cross-run Recently
-    // Published shortlist is not.
+    // The article route swaps in the TOC marginalia.
     expect(await screen.findByRole("heading", { name: /in this article/i })).toBeDefined();
-    expect(screen.queryByRole("heading", { name: /recently published/i })).toBeNull();
     await flushAsync();
   });
 
