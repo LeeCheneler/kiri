@@ -37,10 +37,8 @@ interface ChatMessage {
 
 const textOf = (content: ChatMessage["content"]): string => {
   if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
-  }
-  return "";
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
 };
 
 const lastUserText = (messages: ChatMessage[]): string => {
