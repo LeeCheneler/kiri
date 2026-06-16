@@ -37,7 +37,7 @@ export function SessionActions({ id }: { id: string }) {
         return;
       }
     }
-    navigate("/sessions");
+    navigate("/?view=sessions");
   };
 
   return (

@@ -32,9 +32,9 @@ describe("<App>", () => {
 
   it("routes / to the home page", async () => {
     renderAt("/");
-    // The home page renders its Activity breadcrumb synchronously; the
-    // "Page not found" copy must not appear when the route matched.
-    expect(screen.getByText("Activity").getAttribute("aria-current")).toBe("page");
+    // The activity view tabs are unique to the home page; their presence
+    // confirms the route matched rather than falling through to not-found.
+    expect(screen.getByRole("tab", { name: /^all$/i })).toBeDefined();
     expect(screen.queryByText(/page not found/i)).toBeNull();
     await flushAsync();
   });
@@ -52,17 +52,6 @@ describe("<App>", () => {
     server.use(http.get("*/api/runs/:id", () => new Promise<Response>(() => {})));
     renderAt("/runs/abc");
     expect(screen.getByText(/loading run/i)).toBeDefined();
-    expect(screen.queryByText(/page not found/i)).toBeNull();
-    await flushAsync();
-  });
-
-  it("routes /sessions to the sessions page", async () => {
-    server.use(
-      http.get("*/api/models", () => new Promise<Response>(() => {})),
-      http.get("*/api/sessions", () => new Promise<Response>(() => {})),
-    );
-    renderAt("/sessions");
-    expect(screen.getByText(/loading models/i)).toBeDefined();
     expect(screen.queryByText(/page not found/i)).toBeNull();
     await flushAsync();
   });
