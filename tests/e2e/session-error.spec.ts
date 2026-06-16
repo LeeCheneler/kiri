@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { sendMessage, startSession, useModel } from "./support/session.ts";
 
 // `boom` responds with a provider error, so a turn against it fails.
 const startBoomSession = async (page: import("@playwright/test").Page) => {
-  await page.goto("/sessions");
-  await page.getByLabel(/model/i).selectOption("fake:boom");
-  await page.getByRole("button", { name: /new session/i }).click();
-  await expect(page).toHaveURL(/\/sessions\/[0-9a-f-]+$/);
+  await startSession(page);
+  await useModel(page, "fake:boom");
 };
 
 test("a provider error surfaces a failure at the transcript foot, and the session stays usable", async ({
@@ -13,9 +12,7 @@ test("a provider error surfaces a failure at the transcript foot, and the sessio
 }) => {
   await startBoomSession(page);
 
-  const composer = page.getByLabel(/message/i);
-  await composer.fill("this will fail");
-  await composer.press("Enter");
+  await sendMessage(page, "this will fail");
 
   // The failed turn shows the failed status and the error message, not a reply.
   await expect(page.locator('[data-status="failed"]')).toBeVisible({ timeout: 10_000 });
