@@ -10,5 +10,6 @@ export {
   getSessionMessages,
   getSessionPreviews,
   setSessionStatus,
+  updateSessionModel,
 } from "./store.ts";
 export { type RunTurnArgs, type RunTurnDeps, type StartedTurn, runTurn } from "./turn.ts";

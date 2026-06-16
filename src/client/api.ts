@@ -675,6 +675,21 @@ export const createSession = async (model: string): Promise<{ session: Session }
   );
 
 /**
+ * Change a session's model (a `provider:model` id), returning the updated row.
+ * The model resolves at the start of each turn, so the change takes effect from
+ * the next turn. Throws `ApiError` on non-2xx — 404 for an unknown session, 400
+ * when the model can't be resolved against the provider registry.
+ */
+export const patchSessionModel = async (id: string, model: string): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    }),
+  );
+
+/**
  * Request cancellation of a session's in-flight turn. Resolves on 202 — the
  * turn's terminal `cancelled` status arrives on the SSE event stream. Throws
  * `ApiError` on non-2xx (404 unknown session, 409 when no turn is in flight).

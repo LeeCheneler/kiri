@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { server } from "../../../../tests/setup/msw.ts";
@@ -45,10 +46,47 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" now={new Date("2026-05-09T12:00:30.000Z")} />);
 
-    expect(await screen.findByText("anthropic:claude")).toBeDefined();
+    const select = (await screen.findByRole("combobox", { name: /model/i })) as HTMLSelectElement;
+    expect(select.value).toBe("anthropic:claude");
     expect(screen.getByText("7")).toBeDefined();
     expect(screen.getByText("2")).toBeDefined();
     expect(screen.getByText("9")).toBeDefined();
+  });
+
+  it("changes the session's model when another is picked", async () => {
+    let patched: { model?: string } = {};
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic" },
+            { id: "openai:gpt", provider: "openai" },
+          ],
+          failures: [],
+        }),
+      ),
+      http.patch("*/api/sessions/:id", async ({ request }) => {
+        patched = (await request.json()) as { model?: string };
+        return HttpResponse.json(sessionDetail({ model: "openai:gpt" }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const select = await screen.findByRole("combobox", { name: /model/i });
+    await userEvent.selectOptions(select, "openai:gpt");
+
+    await waitFor(() => expect(patched.model).toBe("openai:gpt"));
+  });
+
+  it("disables the model select while a turn is in flight", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail({ status: "running" }))),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const select = (await screen.findByRole("combobox", { name: /model/i })) as HTMLSelectElement;
+    expect(select.disabled).toBe(true);
   });
 
   it("renders nothing until the session loads", () => {
@@ -77,7 +115,7 @@ describe("<SessionAside>", () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
     renderAside(<SessionAside id="s1" />);
 
-    await screen.findByText("anthropic:claude");
+    await screen.findByRole("combobox", { name: /model/i });
     expect(screen.queryByText("Context")).toBeNull();
   });
 });

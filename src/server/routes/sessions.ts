@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import { sessions as sessionsTable } from "../db/schema.ts";
-import type { EventBus } from "../events/index.ts";
+import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
@@ -15,6 +15,7 @@ import {
   getSessionMessages,
   getSessionPreviews,
   runTurn,
+  updateSessionModel,
 } from "../sessions/index.ts";
 import { onZodFail } from "./shared.ts";
 
@@ -40,6 +41,8 @@ const MAX_SESSION_LIMIT = 100;
 const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
+
+const patchSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
 
 const sessionListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
@@ -143,6 +146,31 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       return c.json({ session, messages: getSessionMessages(db, id) });
+    },
+  );
+
+  app.patch(
+    "/sessions/:id",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const { model } = c.req.valid("json");
+      const session = getSession(db, id);
+      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      // Validate the model resolves now, mirroring create, so a bad id fails the
+      // patch with the resolver's own message rather than a later turn.
+      try {
+        llmClients.resolveModel(model);
+      } catch (cause) {
+        return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
+      }
+      const updated = updateSessionModel(db, id, model);
+      // The turn endpoint resolves the model per turn, so this applies from the
+      // next turn. Announce it like any other session change so the feed and the
+      // open chat refresh; the status is unchanged.
+      bus?.publish({ type: "session.updated", id, status: updated.status as SessionStatus });
+      return c.json({ session: updated });
     },
   );
 

@@ -235,6 +235,50 @@ describe("sessions routes", () => {
     });
   });
 
+  describe("PATCH /api/sessions/:id", () => {
+    const patchModel = (app: ReturnType<typeof createApp>, id: string, model: string) =>
+      app.request(`/api/sessions/${id}`, {
+        method: "PATCH",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
+      });
+
+    it("updates the session's model and publishes session.updated", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await patchModel(app, "s1", "anthropic:claude");
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { session: { model: string } };
+      expect(body.session.model).toBe("anthropic:claude");
+      expect(getSession(env.db, "s1")?.model).toBe("anthropic:claude");
+      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+    });
+
+    it("404s an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await patchModel(app, "ghost", "anthropic:claude");
+      expect(res.status).toBe(404);
+    });
+
+    it("rejects a model that does not resolve and leaves the model unchanged", async () => {
+      const app = makeApp(fakeClients({ resolveError: 'unknown llm provider "ghost"' }));
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await patchModel(app, "s1", "ghost:model");
+
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'unknown llm provider "ghost"',
+      });
+      expect(getSession(env.db, "s1")?.model).toBe(MODEL);
+    });
+  });
+
   describe("POST /api/sessions/:id/messages", () => {
     it("streams a turn and persists the messages, usage, and totals", async () => {
       const model = streamingModel([

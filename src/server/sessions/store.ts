@@ -44,6 +44,16 @@ export function getSession(db: KiriDb, id: string): Session | undefined {
   return db.select().from(sessions).where(eq(sessions.id, id)).get();
 }
 
+/**
+ * Set the `provider:model` id a session's turns run against. The turn endpoint
+ * resolves the model per turn, so the change takes effect from the next turn.
+ * Returns the updated row.
+ */
+export function updateSessionModel(db: KiriDb, id: string, model: string): Session {
+  db.update(sessions).set({ model }).where(eq(sessions.id, id)).run();
+  return getSession(db, id) as Session;
+}
+
 /** Length cap for a session's preview label. */
 const PREVIEW_LENGTH = 100;
 
