@@ -106,18 +106,18 @@ test("a failed run surfaces a run-level failure block on the detail page", async
   await expect(alert).toContainText(/run failed/i);
 });
 
-test("triggering a workflow from the side nav lands on the run detail", async ({ page }) => {
+test("launching a workflow from the catalog lands on the run detail", async ({ page }) => {
   await page.goto("/");
 
-  const nav = page.getByRole("navigation", { name: /workflows/i });
-  await expect(nav).toBeVisible();
-  await expect(nav.getByRole("link", { name: /golden/i })).toBeVisible();
-  await expect(nav.getByRole("link", { name: /failing/i })).toBeVisible();
+  // The rail's Workflows link opens the catalog of launchable workflows.
+  await page.getByRole("link", { name: /^workflows$/i }).click();
+  await expect(page).toHaveURL("/workflows");
+  await expect(page.getByPlaceholder(/filter workflows/i)).toBeVisible();
 
-  await nav.getByRole("link", { name: /golden/i }).click();
+  // Open a workflow from its card, then launch it from the detail page.
+  await page.getByRole("link", { name: /golden/i }).click();
   await expect(page).toHaveURL("/workflows/golden");
   await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
-  await expect(nav.getByRole("link", { name: /golden/i })).toHaveAttribute("aria-current", "page");
 
   await page.getByRole("button", { name: /^run/i }).click();
   await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
