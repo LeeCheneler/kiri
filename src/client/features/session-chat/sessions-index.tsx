@@ -1,27 +1,14 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { type SessionStatus, createSession } from "../../api.ts";
+import { createSession } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { Select } from "../../design-system/actions/select.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
-import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
-import { Meta } from "../../design-system/content/meta.tsx";
-import { StatusBlock } from "../../design-system/feedback/status-block.tsx";
-import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
-import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useModels, useSessionsFeed } from "../../state/sessions.ts";
-
-// Session lifecycle mapped onto the shared status vocabulary: a running turn
-// reads as "working", the resting state as "idle".
-const SESSION_STATUS: Record<SessionStatus, StatusKind> = {
-  idle: "idle",
-  running: "working",
-  failed: "failed",
-  cancelled: "cancelled",
-};
+import { SessionRow } from "./session-row.tsx";
 
 /**
  * Sessions index route content: start a new session against a chosen model,
@@ -120,20 +107,7 @@ function SessionList({ now }: { now?: Date }) {
       <ul className="mt-3 space-y-4">
         {sessions.map((session) => (
           <li key={session.id}>
-            <StatusBlock status={SESSION_STATUS[session.status]}>
-              {/* Lead with the first message as the session's identifier; before
-                  one is sent there's nothing to show, so fall back to the id. */}
-              <HeadlineLink href={`/sessions/${session.id}`}>
-                {session.preview ?? session.id.slice(0, 8)}
-              </HeadlineLink>
-              <div className="mt-1">
-                <Meta>
-                  <Status status={SESSION_STATUS[session.status]} />
-                  <span>{session.model}</span>
-                  <span>{formatRelativeTime(session.startedAt, now)}</span>
-                </Meta>
-              </div>
-            </StatusBlock>
+            <SessionRow session={session} now={now} />
           </li>
         ))}
       </ul>
