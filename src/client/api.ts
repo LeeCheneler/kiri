@@ -617,6 +617,39 @@ export const fetchSessionsPage = async (
   return json<SessionsPage>(await apiFetch(`/api/sessions${qs ? `?${qs}` : ""}`));
 };
 
+/**
+ * One entry in the unified activity feed: a workflow run or a session, tagged
+ * by `kind` so the feed renders the right row. Entries are ordered newest-first
+ * by start time across both kinds.
+ */
+export type ActivityEntry =
+  | { kind: "run"; run: RunListEntry }
+  | { kind: "session"; session: SessionListEntry };
+
+/**
+ * One page of the unified activity feed. `nextCursor` is an opaque token for
+ * the next page when a further one exists; `null` on the final page.
+ */
+export interface ActivityPage {
+  entries: ActivityEntry[];
+  nextCursor: string | null;
+}
+
+/**
+ * Fetch one page of the unified activity feed (runs and sessions interleaved),
+ * newest first. Pass `cursor` from the previous page's `nextCursor` to advance
+ * and `limit` (1–100) to size the page. Throws on non-2xx.
+ */
+export const fetchActivityPage = async (
+  opts: { cursor?: string; limit?: number } = {},
+): Promise<ActivityPage> => {
+  const params = new URLSearchParams();
+  if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return json<ActivityPage>(await apiFetch(`/api/activity${qs ? `?${qs}` : ""}`));
+};
+
 /** A session with its ordered messages, as returned by `GET /api/sessions/:id`. */
 export interface SessionDetail {
   session: Session;

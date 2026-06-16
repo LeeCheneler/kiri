@@ -1,3 +1,4 @@
+import { useActivityFeedLive } from "./activity.ts";
 import { useRecentArticlesLive } from "./articles.ts";
 import { useRunFeedsLive, useRunWindowsLive, useRunsLive } from "./runs.ts";
 import { useSessionsLive } from "./sessions.ts";
@@ -13,6 +14,7 @@ export function LiveSync(): null {
   useRunsLive();
   useRunWindowsLive();
   useRunFeedsLive();
+  useActivityFeedLive();
   useRecentArticlesLive();
   useWorkflowsLive();
   useSessionsLive();
