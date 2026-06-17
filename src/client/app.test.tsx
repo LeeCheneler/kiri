@@ -93,14 +93,20 @@ describe("<App>", () => {
 
     renderAt("/runs/run-1/published/demo");
 
-    // The article route swaps in the TOC marginalia.
-    expect(await screen.findByRole("heading", { name: /in this article/i })).toBeDefined();
+    // The article route swaps in the TOC marginalia. Rendering the markdown body
+    // can run past the default findBy window on a cold, slower CI runner, so give
+    // it room rather than racing the 1s timeout.
+    expect(
+      await screen.findByRole("heading", { name: /in this article/i }, { timeout: 5000 }),
+    ).toBeDefined();
     await flushAsync();
   });
 
   it("shows the design-system TOC in the right rail on the design-system route", async () => {
     renderAt("/dev/design-system");
-    expect(await screen.findByRole("navigation", { name: "On this page" })).toBeDefined();
+    expect(
+      await screen.findByRole("navigation", { name: "On this page" }, { timeout: 5000 }),
+    ).toBeDefined();
     await flushAsync();
   });
 });
