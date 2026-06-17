@@ -7,7 +7,6 @@ import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
 import type { LlmClients } from "./llm/index.ts";
 import { activityRoutes } from "./routes/activity.ts";
-import { articlesRoutes } from "./routes/articles.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { sessionsRoutes } from "./routes/sessions.ts";
 import { mountStaticRoutes } from "./routes/static.ts";
@@ -160,7 +159,6 @@ export function createApp(deps: AppDeps): Hono {
   );
   app.route("/api/runs", runsRoutes({ db, registry, cwd, bus, cancelRegistry, llmClients }));
   app.route("/api/activity", activityRoutes({ db, registry }));
-  app.route("/api/articles", articlesRoutes({ db }));
 
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
