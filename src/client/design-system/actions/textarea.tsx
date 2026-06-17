@@ -1,4 +1,4 @@
-import { type KeyboardEventHandler, useId } from "react";
+import { type ClipboardEventHandler, type KeyboardEventHandler, useId } from "react";
 import { Field } from "./field.tsx";
 
 /**
@@ -8,9 +8,10 @@ import { Field } from "./field.tsx";
  * assistive-tech wiring (label associates via a generated or supplied `id`, the
  * help line becomes `aria-describedby`, `required` sets `aria-required`) plus a
  * `rows` hint for the initial height. Pass `label` to render the lockup; omit it
- * for the bare control. `onKeyDown` is forwarded for callers that need key
- * handling (e.g. a chat composer's Enter-to-send). It owns the control's chrome
- * — and, when labelled, the field rhythm — but no width or margin.
+ * for the bare control. `onKeyDown` and `onPaste` are forwarded for callers that
+ * need key/clipboard handling (e.g. a chat composer's Enter-to-send and
+ * paste-an-image). It owns the control's chrome — and, when labelled, the field
+ * rhythm — but no width or margin.
  */
 export function Textarea({
   value,
@@ -24,6 +25,7 @@ export function Textarea({
   placeholder,
   rows = 3,
   onKeyDown,
+  onPaste,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -36,6 +38,7 @@ export function Textarea({
   placeholder?: string;
   rows?: number;
   onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>;
+  onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
   const generatedId = useId();
   const fieldId = id ?? generatedId;
@@ -49,6 +52,7 @@ export function Textarea({
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={onKeyDown}
+      onPaste={onPaste}
       aria-describedby={description ? `${fieldId}-description` : undefined}
       aria-required={required ? true : undefined}
       className="resize-y border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent disabled:cursor-not-allowed disabled:opacity-50"

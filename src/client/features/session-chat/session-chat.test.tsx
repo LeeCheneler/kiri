@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { http, HttpResponse } from "msw";
@@ -318,5 +318,130 @@ describe("<SessionChat>", () => {
     await user.keyboard("{Enter}");
 
     await waitFor(() => expect(localStorage.getItem("kiri:session-draft:s1")).toBeNull());
+  });
+
+  it("uploads an image and sends it as a leading file part", async () => {
+    const user = userEvent.setup();
+    let body:
+      | { message: { parts: { type: string; mediaType?: string; text?: string }[] } }
+      | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.post("*/api/sessions/:id/messages", async ({ request }) => {
+        body = (await request.json()) as typeof body;
+        return assistantReply("a cat");
+      }),
+    );
+    const { container } = renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, new File(["img"], "shot.png", { type: "image/png" }));
+
+    // The staged image previews in the composer before sending.
+    expect(await screen.findByAltText("shot.png")).toBeDefined();
+
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "what is this?");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(body).toBeDefined());
+    const parts = body?.message.parts ?? [];
+    // Image leads, text follows.
+    expect(parts[0]).toMatchObject({ type: "file", mediaType: "image/png" });
+    expect(parts.at(-1)).toMatchObject({ type: "text", text: "what is this?" });
+  });
+
+  it("sends an image-only message with no text", async () => {
+    const user = userEvent.setup();
+    let body: { message: { parts: { type: string }[] } } | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.post("*/api/sessions/:id/messages", async ({ request }) => {
+        body = (await request.json()) as typeof body;
+        return assistantReply("ok");
+      }),
+    );
+    const { container } = renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, new File(["img"], "only.png", { type: "image/png" }));
+    await screen.findByAltText("only.png");
+    await user.click(screen.getByRole("textbox", { name: /message/i }));
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(body).toBeDefined());
+    const parts = body?.message.parts ?? [];
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toMatchObject({ type: "file" });
+  });
+
+  it("stages an image pasted into the composer", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderChat();
+
+    const textbox = await screen.findByRole("textbox", { name: /message/i });
+    fireEvent.paste(textbox, {
+      clipboardData: { files: [new File(["img"], "pasted.png", { type: "image/png" })] },
+    });
+
+    expect(await screen.findByAltText("pasted.png")).toBeDefined();
+  });
+
+  it("removes a staged image", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    const { container } = renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, new File(["img"], "drop-me.png", { type: "image/png" }));
+
+    await screen.findByAltText("drop-me.png");
+    await user.click(screen.getByRole("button", { name: /remove image/i }));
+
+    await waitFor(() => expect(screen.queryByAltText("drop-me.png")).toBeNull());
+  });
+
+  it("nudges towards a multimodal model when an image turn fails", async () => {
+    const imageMessage = {
+      ...message("m1", "user", ""),
+      parts: [
+        {
+          type: "file",
+          mediaType: "image/png",
+          filename: "shot.png",
+          url: "data:image/png;base64,AAAA",
+        },
+      ],
+    };
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([imageMessage], { status: "failed", error: { message: "no vision" } }),
+        ),
+      ),
+    );
+    renderChat();
+
+    expect(await screen.findByText(/no vision/i)).toBeDefined();
+    expect(screen.getByText(/switch to a multimodal model/i)).toBeDefined();
+  });
+
+  it("omits the multimodal nudge when a text-only turn fails", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "Hi")], {
+            status: "failed",
+            error: { message: "boom" },
+          }),
+        ),
+      ),
+    );
+    renderChat();
+
+    expect(await screen.findByText(/boom/i)).toBeDefined();
+    expect(screen.queryByText(/switch to a multimodal model/i)).toBeNull();
   });
 });

@@ -1,14 +1,27 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  type ChangeEventHandler,
+  type ClipboardEventHandler,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ApiError, type SessionDetail, cancelSession, sessionTurnEndpoint } from "../../api.ts";
+import { Button } from "../../design-system/actions/button.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useSession } from "../../state/sessions.ts";
+import { type PendingImage, imageFilesFrom, readPendingImages } from "./attachments.ts";
 import { ChatMessage } from "./chat-message.tsx";
+import { ImageThumb } from "./image-thumb.tsx";
 import { useSessionDraft } from "./session-draft.ts";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
@@ -21,6 +34,12 @@ function sessionErrorText(error: unknown): string | undefined {
     return typeof message === "string" ? message : undefined;
   }
   return undefined;
+}
+
+// Whether a message carries an image attachment — used to nudge towards a
+// multimodal model when a turn that included one fails (the likeliest cause).
+function messageHasImage(message: UIMessage): boolean {
+  return message.parts.some((part) => part.type === "file" && part.mediaType.startsWith("image/"));
 }
 
 /**
@@ -68,7 +87,9 @@ function Chat({ detail }: { detail: SessionDetail }) {
       api: url,
       headers,
       // Send only the new message; the server loads the prior turns.
-      prepareSendMessagesRequest: ({ messages }) => ({ body: { message: messages.at(-1) } }),
+      prepareSendMessagesRequest: ({ messages }) => ({
+        body: { message: messages.at(-1) },
+      }),
     });
   }, [session.id]);
 
@@ -78,6 +99,18 @@ function Chat({ detail }: { detail: SessionDetail }) {
     transport,
   });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
+  // Images staged in the composer, sent as file parts on the next message.
+  // Component state (not the persisted draft) — they're session-ephemeral, and
+  // base64 blobs don't belong in local storage. Cleared when the session changes
+  // since this view stays mounted across sessions.
+  const [attachments, setAttachments] = useState<PendingImage[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string>();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset staged images on session switch, not on the array identity changing.
+  useEffect(() => {
+    setAttachments([]);
+    setAttachmentError(undefined);
+  }, [session.id]);
   const inputId = useId();
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
   // — including one started elsewhere, or left running when we navigated away:
@@ -88,6 +121,13 @@ function Chat({ detail }: { detail: SessionDetail }) {
   // or — on revisit — the row records a turn that failed while we were away.
   const failed = !busy && (error != null || session.status === "failed");
   const failureText = error?.message ?? sessionErrorText(session.error);
+  // A turn that carried an image and failed most likely hit a text-only model;
+  // nudge towards switching models rather than reading the provider's error.
+  const failedWithImage = useMemo(() => {
+    if (!failed) return false;
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    return lastUser ? messageHasImage(lastUser) : false;
+  }, [failed, messages]);
 
   // Keep the foot of the transcript in view: on landing (the seeded history),
   // as messages are added, and through the assistant's streamed reply — `useChat`
@@ -125,11 +165,41 @@ function Chat({ detail }: { detail: SessionDetail }) {
     if (initialMessages.length > messages.length) setMessages(initialMessages);
   }, [streaming, initialMessages, messages.length, setMessages]);
 
+  const addImageFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    const { images, error } = await readPendingImages(files);
+    if (images.length > 0) setAttachments((prev) => [...prev, ...images]);
+    setAttachmentError(error);
+  }, []);
+  // Paste an image straight into the composer. Plain-text (and other) pastes
+  // carry no image files, so they fall through to the textarea's default.
+  const onPaste: ClipboardEventHandler<HTMLTextAreaElement> = (event) => {
+    const files = imageFilesFrom(event.clipboardData.files);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void addImageFiles(files);
+  };
+  const onPickFiles: ChangeEventHandler<HTMLInputElement> = (event) => {
+    void addImageFiles(imageFilesFrom(event.target.files));
+    event.target.value = ""; // let the same file be picked again after removal
+  };
+  const removeAttachment = (id: string) =>
+    setAttachments((prev) => prev.filter((image) => image.id !== id));
+
   const send = () => {
+    if (busy) return;
     const text = draft.trim();
-    if (busy || text === "") return;
-    void sendMessage({ text });
+    if (text === "" && attachments.length === 0) return;
+    // Images first, then the text, so the model reads the picture before the
+    // question (and a single image needs no naming to be referenced).
+    const parts: UIMessage["parts"] = [
+      ...attachments.map((image) => image.part),
+      ...(text === "" ? [] : [{ type: "text" as const, text }]),
+    ];
+    void sendMessage({ parts });
     clearDraft();
+    setAttachments([]);
+    setAttachmentError(undefined);
   };
   const cancel = useCallback(() => {
     void stop();
@@ -182,10 +252,35 @@ function Chat({ detail }: { detail: SessionDetail }) {
               {failureText}
             </p>
           ) : null}
+          {failedWithImage ? (
+            <p className="mt-1 text-ink-muted">
+              This turn included an image. If the model can't read images, switch to a multimodal
+              model in the panel and resend.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
       <div className="sticky bottom-0 mt-8 border-t border-rule bg-canvas pt-4 pb-6">
+        {attachments.length > 0 ? (
+          <ul className="mb-3 flex flex-wrap gap-2">
+            {attachments.map((image) => (
+              <li key={image.id} className="relative">
+                <ImageThumb src={image.part.url} alt={image.part.filename ?? "Attached image"} />
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(image.id)}
+                  disabled={busy}
+                  title="Remove image"
+                  aria-label="Remove image"
+                  className="-top-2 -right-2 absolute flex h-5 w-5 items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <Textarea
           id={inputId}
           label="Message"
@@ -193,6 +288,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
           onChange={setDraft}
           placeholder="Send a message…  (Enter to send, Shift + Enter for newline)"
           disabled={busy}
+          onPaste={onPaste}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
@@ -200,6 +296,28 @@ function Chat({ detail }: { detail: SessionDetail }) {
             }
           }}
         />
+        <div className="mt-2 flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={onPickFiles}
+          />
+          <Button
+            variant="dismissive"
+            disabled={busy}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            add image
+          </Button>
+          {attachmentError ? (
+            <span role="alert" className="font-mono text-status-failed text-xs">
+              {attachmentError}
+            </span>
+          ) : null}
+        </div>
       </div>
     </section>
   );
