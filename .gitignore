@@ -11,3 +11,6 @@ playwright-report/
 
 # Local provider config used for development against a running LLM
 /llm-providers.yaml
+
+# Local workflow fixtures used when dogfooding kiri against its own repo
+/workflows/
