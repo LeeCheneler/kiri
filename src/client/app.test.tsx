@@ -93,9 +93,11 @@ describe("<App>", () => {
 
     renderAt("/runs/run-1/published/demo");
 
-    // The article route swaps in the TOC marginalia. Rendering the markdown body
-    // can run past the default findBy window on a cold, slower CI runner, so give
-    // it room rather than racing the 1s timeout.
+    // Wait for the markdown body's section heading to land first: the right-rail
+    // TOC is derived from those section anchors once they're in the document, so
+    // asserting it before the body has rendered races that collection (flaky on a
+    // slower CI runner). Both lookups get a wide window for a cold render.
+    await screen.findByRole("heading", { level: 2, name: /a section/i }, { timeout: 5000 });
     expect(
       await screen.findByRole("heading", { name: /in this article/i }, { timeout: 5000 }),
     ).toBeDefined();
