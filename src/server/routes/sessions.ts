@@ -10,6 +10,7 @@ import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   createSession,
+  createSystemPromptBuilder,
   deleteSession,
   getSession,
   getSessionMessages,
@@ -21,6 +22,8 @@ import { onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
+  /** Workspace root; the session system prompt reads `agent.md` (and personas) against it. */
+  cwd: string;
   /**
    * Required: every session resolves and streams turns against a model, and
    * the picker lists models off this same client — a session surface without
@@ -67,8 +70,12 @@ const turnBodySchema = z.object({
  * cancel. Mounted under `/api` by `createApp`, alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, llmClients, bus, cancelRegistry } = deps;
+  const { db, cwd, llmClients, bus, cancelRegistry } = deps;
   const app = new Hono();
+
+  // Composes each turn's system prompt (kiri core + agent.md + persona) from the
+  // session and workspace files. Built once; reads the files fresh per turn.
+  const buildSystemPrompt = createSystemPromptBuilder(cwd);
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
 
@@ -201,7 +208,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // away, reloads, closes the tab) doesn't cancel it; only an explicit cancel
       // through `POST /api/sessions/:id/cancel` does.
       const { response } = await runTurn(
-        { db, llmClients, bus, cancelRegistry },
+        { db, llmClients, bus, cancelRegistry, buildSystemPrompt },
         { session, userMessage },
       );
       return response;

@@ -163,7 +163,7 @@ export function createApp(deps: AppDeps): Hono {
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
   if (llmClients) {
-    app.route("/api", sessionsRoutes({ db, llmClients, bus, cancelRegistry }));
+    app.route("/api", sessionsRoutes({ db, cwd, llmClients, bus, cancelRegistry }));
   }
 
   if (bus) {
