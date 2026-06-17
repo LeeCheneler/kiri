@@ -1,6 +1,6 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { ApiError, type SessionDetail, cancelSession, sessionTurnEndpoint } from "../../api.ts";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
@@ -9,6 +9,7 @@ import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useSession } from "../../state/sessions.ts";
 import { ChatMessage } from "./chat-message.tsx";
+import { useSessionDraft } from "./session-draft.ts";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
 // out so a turn that failed while this view was away still surfaces its error on
@@ -76,7 +77,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
     messages: initialMessages,
     transport,
   });
-  const [input, setInput] = useState("");
+  const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
   const inputId = useId();
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
   // — including one started elsewhere, or left running when we navigated away:
@@ -125,10 +126,10 @@ function Chat({ detail }: { detail: SessionDetail }) {
   }, [streaming, initialMessages, messages.length, setMessages]);
 
   const send = () => {
-    const text = input.trim();
+    const text = draft.trim();
     if (busy || text === "") return;
     void sendMessage({ text });
-    setInput("");
+    clearDraft();
   };
   const cancel = useCallback(() => {
     void stop();
@@ -188,8 +189,8 @@ function Chat({ detail }: { detail: SessionDetail }) {
         <Textarea
           id={inputId}
           label="Message"
-          value={input}
-          onChange={setInput}
+          value={draft}
+          onChange={setDraft}
           placeholder="Send a message…  (Enter to send, Shift + Enter for newline)"
           disabled={busy}
           onKeyDown={(event) => {

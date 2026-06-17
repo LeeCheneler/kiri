@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -42,8 +42,10 @@ const renderActions = () => {
 const deleteButton = () => screen.findByRole("button", { name: /delete session/i });
 
 const originalConfirm = window.confirm;
+beforeEach(() => localStorage.clear());
 afterEach(() => {
   window.confirm = originalConfirm;
+  localStorage.clear();
 });
 
 describe("<SessionActions>", () => {
@@ -63,6 +65,19 @@ describe("<SessionActions>", () => {
 
     await waitFor(() => expect(history[history.length - 1]).toBe("/?view=sessions"));
     expect(deleted).toBe(true);
+  });
+
+  it("drops the session's saved draft on delete", async () => {
+    window.confirm = () => true;
+    localStorage.setItem("kiri:session-draft:s1", "unsent words");
+    serveSession();
+    server.use(http.delete("*/api/sessions/:id", () => new HttpResponse(null, { status: 204 })));
+    const { history } = renderActions();
+
+    await userEvent.click(await deleteButton());
+
+    await waitFor(() => expect(history[history.length - 1]).toBe("/?view=sessions"));
+    expect(localStorage.getItem("kiri:session-draft:s1")).toBeNull();
   });
 
   it("does nothing when the confirm is dismissed", async () => {

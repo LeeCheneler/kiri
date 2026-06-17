@@ -16,15 +16,17 @@ export const startSession = async (page: Page): Promise<string> => {
  * to persist so the next turn runs against it. The one-click create lands on a
  * default model that carries across the run, so this is a no-op when the session
  * already uses `model` — re-selecting an unchanged value fires no request to
- * await.
+ * await. Drives the searchable combobox: open it, type to filter, pick the match.
  */
 export const useModel = async (page: Page, model: string): Promise<void> => {
-  const select = page.getByLabel(/model/i);
-  if ((await select.inputValue()) === model) return;
+  const combobox = page.getByLabel(/model/i);
+  if ((await combobox.inputValue()) === model) return;
   const persisted = page.waitForResponse(
     (res) => res.request().method() === "PATCH" && res.url().includes("/api/sessions/"),
   );
-  await select.selectOption(model);
+  await combobox.click();
+  await combobox.fill(model);
+  await page.getByRole("option", { name: model, exact: true }).click();
   await persisted;
 };
 
