@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "../design-system/actions/button.tsx";
+import { Combobox } from "../design-system/actions/combobox.tsx";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
 import { Select } from "../design-system/actions/select.tsx";
 import { TextInput } from "../design-system/actions/text-input.tsx";
@@ -129,6 +130,31 @@ function SelectDemo() {
       <option value="weekly">weekly</option>
       <option value="monthly">monthly</option>
     </Select>
+  );
+}
+
+// Interactive specimen for the Combobox — a long, searchable list it filters as
+// you type. Owns its controlled value, seeded to one of the options.
+function ComboboxDemo() {
+  const [model, setModel] = useState("anthropic:claude-opus");
+  const models = [
+    "anthropic:claude-haiku",
+    "anthropic:claude-opus",
+    "anthropic:claude-sonnet",
+    "google:gemini-flash",
+    "google:gemini-pro",
+    "openai:gpt-4o",
+    "openai:gpt-4o-mini",
+    "openai:o3",
+  ];
+  return (
+    <Combobox
+      label="Model"
+      description="Type to filter a long list down to the one you want."
+      options={models}
+      value={model}
+      onChange={setModel}
+    />
   );
 }
 
@@ -1068,6 +1094,31 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <SelectDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Combobox</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Combobox</span> · design-system/actions/combobox.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                The searchable single-select — a text input that filters a long list as you type,
+                with a listbox popup beneath it. Drive it with <Code>value</Code> /{" "}
+                <Code>onChange</Code> and pass the full set as <Code>options</Code> (each string its
+                own label). <Code>↑</Code>/<Code>↓</Code> move the highlight, <Code>Enter</Code> or
+                a click commits it, and <Code>Escape</Code> or a click outside dismisses without
+                changing the value. It shares the field lockup — pass a <Code>label</Code> for the
+                label, optional <Code>description</Code>, and <Code>required</Code> marker. Reach
+                for it over <Code>Select</Code> once the list is long enough that scanning a native
+                dropdown is painful.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <ComboboxDemo />
               </Card>
             </div>
           </article>
