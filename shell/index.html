@@ -30,6 +30,12 @@
         line-height: 1.55;
       }
       #kiri-offline {
+        /* Fixed overlay so the hidden panel never adds layout height to the page
+           (visibility: hidden alone keeps it in flow, leaving a tall empty buffer). */
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
         opacity: 0;
         visibility: hidden;
         max-width: 36rem;
