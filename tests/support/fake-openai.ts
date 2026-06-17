@@ -35,6 +35,13 @@ interface ChatMessage {
   content?: string | Array<{ type?: string; text?: string }>;
 }
 
+/** A chat-completion request body the stub received — captured for assertions. */
+export interface ChatCompletionRequest {
+  model?: string;
+  messages?: ChatMessage[];
+  stream?: boolean;
+}
+
 const textOf = (content: ChatMessage["content"]): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -183,20 +190,35 @@ export interface FakeOpenAi {
   /** Base URL to put in `llm-providers.yaml` `base_url` — includes `/v1`. */
   url: string;
   port: number;
+  /** Chat-completion request bodies the stub received, in order — for asserting what kiri sent the model. */
+  requests: ChatCompletionRequest[];
   stop(): void;
 }
 
 /**
  * Start the stub on an ephemeral port (or `port` if given) and return its base
  * URL. Used by integration tests; e2e boots `fake-openai-server.ts` as its own
- * process instead.
+ * process instead. Records each chat-completion request body on `requests` so a
+ * test can assert what kiri sent — notably the composed system prompt.
  */
 export const startFakeOpenAi = (port = 0): FakeOpenAi => {
-  const server = Bun.serve({ port, fetch: fakeOpenAiFetch });
+  const requests: ChatCompletionRequest[] = [];
+  const server = Bun.serve({
+    port,
+    fetch: async (req) => {
+      // Capture chat-completion bodies; clone first so the handler can still
+      // read the stream.
+      if (req.method === "POST" && new URL(req.url).pathname.endsWith("/chat/completions")) {
+        requests.push((await req.clone().json()) as ChatCompletionRequest);
+      }
+      return fakeOpenAiFetch(req);
+    },
+  });
   const actualPort = server.port ?? port;
   return {
     url: `http://127.0.0.1:${actualPort}/v1`,
     port: actualPort,
+    requests,
     stop: () => server.stop(true),
   };
 };
