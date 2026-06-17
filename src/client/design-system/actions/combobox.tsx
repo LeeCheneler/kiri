@@ -141,6 +141,12 @@ export function Combobox({
         onKeyDown={onKeyDown}
         className="w-full cursor-text border border-rule bg-canvas py-2 pr-10 pl-3 font-mono text-sm text-ink outline-none focus-visible:border-accent disabled:cursor-not-allowed disabled:opacity-50"
       />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 font-mono text-xs text-ink-muted"
+      >
+        ▾
+      </span>
       {open ? (
         // biome-ignore lint/a11y/useFocusableInteractive lint/a11y/useSemanticElements lint/a11y/noNoninteractiveElementToInteractiveRole: ARIA combobox pattern — the listbox isn't focusable and isn't a native <select>; focus stays on the input, which drives selection through aria-activedescendant.
         <ul id={listboxId} role="listbox" className={LISTBOX_CLASS}>
