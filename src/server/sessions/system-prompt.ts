@@ -1,9 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
 export const AGENT_INSTRUCTIONS_FILENAME = "agent.md";
+
+/** Workspace directory holding optional persona overlays — one markdown file per persona. */
+export const PERSONAS_DIRNAME = "personas";
 
 // How kiri's markdown renderer turns a fenced `chart` block into a chart. The
 // chat transcript renders assistant replies through the same renderer the
@@ -58,34 +61,68 @@ function readInstructions(path: string): string | null {
   }
 }
 
+/**
+ * List the persona names available in the workspace — the `<name>` of each
+ * `personas/<name>.md` file, sorted. An absent `personas/` directory yields an
+ * empty list (first-class: a workspace need not define any).
+ */
+export function listPersonas(cwd: string): string[] {
+  const dir = join(cwd, PERSONAS_DIRNAME);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => entry.name.slice(0, -".md".length))
+    .sort();
+}
+
+/**
+ * Read a persona's instructions by name, or null when it's absent or empty.
+ * The resolved path is confined to the `personas/` directory, so a crafted name
+ * (`../secrets`, an absolute path) resolves to null rather than escaping it —
+ * defence in depth on top of the create-time check that the name is one of
+ * `listPersonas`.
+ */
+export function loadPersona(cwd: string, name: string): string | null {
+  const dir = resolve(join(cwd, PERSONAS_DIRNAME));
+  const path = resolve(dir, `${name}.md`);
+  if (!path.startsWith(dir + sep)) return null;
+  return readInstructions(path);
+}
+
 export interface BuildSystemPromptOptions {
-  /** Workspace root; `agent.md` resolves against it. */
+  /** Workspace root; `agent.md` and `personas/` resolve against it. */
   cwd: string;
+  /** Name of the persona to overlay after `agent.md`, or null/undefined for none. */
+  persona?: string | null;
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
 }
 
 /**
- * Compose a session's system prompt: the immutable kiri core layer followed by
- * the workspace's `agent.md` standing instructions when present. Always returns
- * a non-empty string — the core layer is always included. Read fresh from disk
- * each turn so an edit to `agent.md` takes effect on the next turn, with git as
+ * Compose a session's system prompt: the immutable kiri core layer, then the
+ * workspace's `agent.md` standing instructions when present, then the attached
+ * persona's instructions when one is named and found. Always returns a
+ * non-empty string — the core layer is always included. Every layer is read
+ * fresh from disk each turn so edits take effect on the next turn, with git as
  * the source of truth and nothing snapshotted onto the session.
  */
 export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   const sections = [buildCorePrompt(opts.now ?? new Date())];
   const instructions = readInstructions(join(opts.cwd, AGENT_INSTRUCTIONS_FILENAME));
   if (instructions !== null) sections.push(instructions);
+  if (opts.persona) {
+    const persona = loadPersona(opts.cwd, opts.persona);
+    if (persona !== null) sections.push(persona);
+  }
   return sections.join("\n\n");
 }
 
 /**
  * Build the per-turn system-prompt resolver for a workspace. The returned
- * function composes the prompt for a session and is handed to `runTurn`, so a
- * turn streams with its system prompt in place. The `session` argument is the
- * seam the persona layer plugs into — a session's attached persona will append
- * after `agent.md`.
+ * function composes the prompt for a session — core, `agent.md`, then the
+ * session's attached persona — and is handed to `runTurn`, so a turn streams
+ * with its system prompt in place.
  */
 export function createSystemPromptBuilder(cwd: string): (session: Session) => string {
-  return (_session: Session) => buildSystemPrompt({ cwd });
+  return (session: Session) => buildSystemPrompt({ cwd, persona: session.persona });
 }

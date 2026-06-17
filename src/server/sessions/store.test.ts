@@ -15,6 +15,7 @@ import {
   getSessionMessages,
   getSessionPreviews,
   setSessionStatus,
+  updateSessionPersona,
 } from "./store.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -34,15 +35,27 @@ describe("sessions store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("creates an idle session snapshotting the agent config", () => {
+  it("creates an idle session against the model with no persona by default", () => {
     const session = createSession(db, MODEL, { id: "s1" });
 
     expect(session.id).toBe("s1");
     expect(session.status).toBe("idle");
     expect(session.model).toBe(MODEL);
+    expect(session.persona).toBeNull();
     expect(session.totalTokens).toBe(0);
     expect(session.finishedAt).toBeNull();
     expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("attaches and detaches a persona", () => {
+    createSession(db, MODEL, { id: "s1" });
+    expect(getSession(db, "s1")?.persona).toBeNull();
+
+    expect(updateSessionPersona(db, "s1", "code-reviewer").persona).toBe("code-reviewer");
+    expect(getSession(db, "s1")?.persona).toBe("code-reviewer");
+
+    expect(updateSessionPersona(db, "s1", null).persona).toBeNull();
+    expect(getSession(db, "s1")?.persona).toBeNull();
   });
 
   it("appends messages at incrementing indices in order", () => {

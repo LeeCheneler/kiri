@@ -20,7 +20,8 @@ export interface NewMessage {
 
 /**
  * Insert a new session against `model` (a `provider:model` id), starting it
- * `idle` with zero token totals. Returns the persisted row.
+ * `idle` with zero token totals and no persona. A persona is attached later via
+ * `updateSessionPersona`, not at creation. Returns the persisted row.
  */
 export function createSession(
   db: KiriDb,
@@ -51,6 +52,17 @@ export function getSession(db: KiriDb, id: string): Session | undefined {
  */
 export function updateSessionModel(db: KiriDb, id: string, model: string): Session {
   db.update(sessions).set({ model }).where(eq(sessions.id, id)).run();
+  return getSession(db, id) as Session;
+}
+
+/**
+ * Attach a persona to a session (`personas/<name>.md`), or pass `null` to
+ * detach. Like the model, the persona is read into the system prompt at the
+ * start of each turn, so the change takes effect from the next turn. Returns
+ * the updated row.
+ */
+export function updateSessionPersona(db: KiriDb, id: string, persona: string | null): Session {
+  db.update(sessions).set({ persona }).where(eq(sessions.id, id)).run();
   return getSession(db, id) as Session;
 }
 

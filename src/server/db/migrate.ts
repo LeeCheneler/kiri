@@ -22,6 +22,7 @@ import migration0014 from "../../../drizzle/0014_add_sessions_and_messages.sql" 
 import migration0015 from "../../../drizzle/0015_drop_session_agent_columns.sql" with {
   type: "text",
 };
+import migration0016 from "../../../drizzle/0016_add_session_persona.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -60,6 +61,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0013_rename_article_columns", sql: migration0013 },
   { name: "0014_add_sessions_and_messages", sql: migration0014 },
   { name: "0015_drop_session_agent_columns", sql: migration0015 },
+  { name: "0016_add_session_persona", sql: migration0016 },
 ];
 
 /**

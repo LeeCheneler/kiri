@@ -15,8 +15,10 @@ import {
   getSession,
   getSessionMessages,
   getSessionPreviews,
+  listPersonas,
   runTurn,
   updateSessionModel,
+  updateSessionPersona,
 } from "../sessions/index.ts";
 import { onZodFail } from "./shared.ts";
 
@@ -45,7 +47,12 @@ const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
 
-const patchSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
+// Either field may be set independently: the aside swaps the model and the
+// persona through this one endpoint. `persona: null` detaches; omitting a field
+// leaves it unchanged.
+const patchSessionBodySchema = z
+  .object({ model: z.string().min(1).optional(), persona: z.string().min(1).nullable().optional() })
+  .strict();
 
 const sessionListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
@@ -78,6 +85,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const buildSystemPrompt = createSystemPromptBuilder(cwd);
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
+
+  // The personas available to attach at session creation — the `<name>` of each
+  // `personas/<name>.md` in the workspace. Empty when none are defined.
+  app.get("/personas", (c) => c.json({ personas: listPersonas(cwd) }));
 
   app.post(
     "/sessions",
@@ -162,20 +173,30 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model } = c.req.valid("json");
+      const { model, persona } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Validate the model resolves now, mirroring create, so a bad id fails the
       // patch with the resolver's own message rather than a later turn.
-      try {
-        llmClients.resolveModel(model);
-      } catch (cause) {
-        return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
+      if (model !== undefined) {
+        try {
+          llmClients.resolveModel(model);
+        } catch (cause) {
+          return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
+        }
+        updateSessionModel(db, id, model);
       }
-      const updated = updateSessionModel(db, id, model);
-      // The turn endpoint resolves the model per turn, so this applies from the
-      // next turn. Announce it like any other session change so the feed and the
-      // open chat refresh; the status is unchanged.
+      // A named persona must be one the workspace defines; `null` detaches.
+      if (persona !== undefined) {
+        if (persona !== null && !listPersonas(cwd).includes(persona)) {
+          return c.json({ error: `unknown persona "${persona}"` }, 400);
+        }
+        updateSessionPersona(db, id, persona);
+      }
+      const updated = getSession(db, id) as typeof session;
+      // The turn endpoint resolves the model and composes the persona per turn,
+      // so either change applies from the next turn. Announce it like any other
+      // session change so the feed and the open chat refresh; status is unchanged.
       bus?.publish({ type: "session.updated", id, status: updated.status as SessionStatus });
       return c.json({ session: updated });
     },
