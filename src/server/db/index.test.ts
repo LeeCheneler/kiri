@@ -799,8 +799,9 @@ describe("db", () => {
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
     );
     // Seed the migration ledger through 0013 so the session migrations
-    // (0014 creating the tables, 0015 dropping the agent columns) are the
-    // ones outstanding; the run-side tables they don't touch are irrelevant.
+    // (0014 creating the tables, 0015 dropping the agent columns, 0016 adding
+    // the persona column) are the ones outstanding; the run-side tables they
+    // don't touch are irrelevant.
     const priorMigrations = [
       "0000_initial",
       "0001_index_run_nodes_run_id",
@@ -846,6 +847,7 @@ describe("db", () => {
         "input_tokens",
         "model",
         "output_tokens",
+        "persona",
         "started_at",
         "status",
         "total_tokens",

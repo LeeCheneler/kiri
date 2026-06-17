@@ -145,4 +145,32 @@ describe("<SessionAside>", () => {
     await screen.findByRole("combobox", { name: /model/i });
     expect(screen.queryByText("Context")).toBeNull();
   });
+
+  it("hides the persona picker when the workspace defines none", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderAside(<SessionAside id="s1" />);
+
+    await screen.findByRole("combobox", { name: /model/i });
+    expect(screen.queryByRole("combobox", { name: /persona/i })).toBeNull();
+  });
+
+  it("attaches a persona when one is picked", async () => {
+    let patched: { persona?: string | null } = {};
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/personas", () =>
+        HttpResponse.json({ personas: ["code-reviewer", "pirate"] }),
+      ),
+      http.patch("*/api/sessions/:id", async ({ request }) => {
+        patched = (await request.json()) as { persona?: string | null };
+        return HttpResponse.json(sessionDetail({ persona: "pirate" }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /persona/i }));
+    await userEvent.click(screen.getByRole("option", { name: "pirate" }));
+
+    await waitFor(() => expect(patched.persona).toBe("pirate"));
+  });
 });

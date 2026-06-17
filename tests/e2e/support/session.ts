@@ -30,6 +30,23 @@ export const useModel = async (page: Page, model: string): Promise<void> => {
   await persisted;
 };
 
+/**
+ * Attach `persona` to the open session via the chat aside, waiting for the
+ * change to persist so the next turn composes it into the system prompt. Drives
+ * the persona combobox (a sibling of the model picker, shown only when the
+ * workspace defines personas); pass "None" to detach. A no-op when already set.
+ */
+export const usePersona = async (page: Page, persona: string): Promise<void> => {
+  const combobox = page.getByLabel(/persona/i);
+  if ((await combobox.inputValue()) === persona) return;
+  const persisted = page.waitForResponse(
+    (res) => res.request().method() === "PATCH" && res.url().includes("/api/sessions/"),
+  );
+  await combobox.click();
+  await page.getByRole("option", { name: persona, exact: true }).click();
+  await persisted;
+};
+
 /** Type `text` into the chat composer and submit the turn. */
 export const sendMessage = async (page: Page, text: string): Promise<void> => {
   const composer = page.getByLabel(/message/i);

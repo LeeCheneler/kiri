@@ -529,6 +529,14 @@ export interface ModelsResult {
 export const fetchModels = async (): Promise<ModelsResult> =>
   json<ModelsResult>(await apiFetch("/api/models"));
 
+/**
+ * Fetch the persona names available to attach at session creation — the
+ * `<name>` of each `personas/<name>.md` in the workspace. Empty when none are
+ * defined. Throws on non-2xx.
+ */
+export const fetchPersonas = async (): Promise<string[]> =>
+  (await json<{ personas: string[] }>(await apiFetch("/api/personas"))).personas;
+
 /** Session lifecycle status. `idle` is the resting state between turns. */
 export type SessionStatus = "running" | "idle" | "failed" | "cancelled";
 
@@ -538,6 +546,8 @@ export interface Session {
   status: SessionStatus;
   /** `provider:model` id the session's turns run against. */
   model: string;
+  /** Name of the persona attached at creation (`personas/<name>.md`), or null for none. */
+  persona: string | null;
   startedAt: string;
   /** Set once the session reaches a terminal `failed`/`cancelled`; null while usable. */
   finishedAt: string | null;
@@ -639,7 +649,8 @@ export const fetchSession = async (id: string): Promise<SessionDetail> =>
 /**
  * Create a session against `model` (a `provider:model` id), returning the new
  * row — navigate to it to start chatting. Throws `ApiError` on non-2xx, notably
- * 400 when the model can't be resolved against the provider registry.
+ * 400 when the model can't be resolved against the provider registry. A persona
+ * is attached afterwards from the session itself, not at creation.
  */
 export const createSession = async (model: string): Promise<{ session: Session }> =>
   json<{ session: Session }>(
@@ -662,6 +673,24 @@ export const patchSessionModel = async (id: string, model: string): Promise<{ se
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model }),
+    }),
+  );
+
+/**
+ * Attach a persona to a session (`personas/<name>.md`), or pass `null` to
+ * detach. The system prompt is composed per turn, so the change takes effect
+ * from the next turn. Throws `ApiError` on non-2xx — 404 for an unknown
+ * session, 400 when the persona isn't one the workspace defines.
+ */
+export const patchSessionPersona = async (
+  id: string,
+  persona: string | null,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ persona }),
     }),
   );
 

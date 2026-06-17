@@ -230,4 +230,60 @@ describe("runTurn", () => {
     expect(settled?.error).toBeNull();
     expect(settled?.finishedAt).toBeNull();
   });
+
+  it("sends the composed system prompt to the model when a builder is provided", async () => {
+    let captured: unknown;
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        captured = options.prompt;
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "Hi" },
+            { type: "text-end", id: "t1" },
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(model), buildSystemPrompt: () => "SYSTEM-UNDER-TEST" },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    // The builder's output reaches the provider as a system message.
+    expect(JSON.stringify(captured)).toContain("SYSTEM-UNDER-TEST");
+  });
+
+  it("sends no system message when no builder is provided", async () => {
+    let captured: unknown;
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        captured = options.prompt;
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "Hi" },
+            { type: "text-end", id: "t1" },
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(model) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    const roles = (captured as { role: string }[]).map((m) => m.role);
+    expect(roles).not.toContain("system");
+  });
 });

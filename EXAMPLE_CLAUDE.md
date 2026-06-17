@@ -1,6 +1,6 @@
 # Kiri — Workflow Authoring Reference
 
-Drop this file into a kiri workspace (or copy it into the workspace's `CLAUDE.md`) so an AI assistant has full context on how to write workflows, bundles, prompts, and `publish:` / `summarize:` steps without hunting around for the schema.
+Drop this file into a kiri workspace (or copy it into the workspace's `CLAUDE.md`) so an AI assistant has full context on how to write workflows, bundles, prompts, and `publish:` / `summarize:` steps — and how to shape agentic sessions with `agent.md` and personas — without hunting around for the schema.
 
 Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a linear pipeline of shell steps. The previous step's stdout becomes the next step's stdin. Workflows are YAML, bundles are bash scripts on disk, prompts are plain text templates.
 
@@ -759,6 +759,32 @@ The JSON Schemas under `.kiri/` are generated from the Zod schemas and ship with
 
 ---
 
+## Agentic sessions: `agent.md` & personas
+
+Sessions are kiri's second pillar — a multi-turn chat with a model, separate from workflows. You don't author a session the way you author a workflow; instead two optional workspace files shape every session's **system prompt**, which kiri composes fresh on each turn from three layers, in order:
+
+**core (kiri) → `agent.md` → persona**
+
+- **`agent.md`** — a single markdown file at the workspace root, applied to *every* session. Its body is your standing instructions: the session equivalent of a global "how I want you to behave." Optional — with no `agent.md`, sessions run on kiri's core layer alone.
+- **`personas/<name>.md`** — optional role overlays. Each file is one persona; the filename minus `.md` is its name. A persona is **attached per session** from the chat's right-hand aside (a combobox under the model picker) and is injected *after* `agent.md`. Use one to put a session into a specific role — a code reviewer, a release-notes writer, a particular voice.
+
+Authoring notes:
+
+- Both are **plain markdown — no frontmatter, no schema.** The whole file body is the instruction text. Just write prose.
+- The **kiri core layer is not user-editable.** It already tells the model the environment it runs in, that replies render as GitHub-flavoured markdown, and how to draw inline charts (fence a code block as `chart` with a Vega-Lite spec — the same renderer as published articles; see *Charts in published articles*). Build on top of it rather than repeating it.
+- Every layer is **read fresh from disk each turn**, so an edit takes effect on the next turn — git is the source of truth, nothing is snapshotted.
+- The persona is **swappable mid-conversation** from the aside (applies from the next turn), alongside the model. There is no persona at creation: a session starts with none, and you attach one when you want it. The leading **None** option detaches.
+- Persona names come from filenames — keep them tidy and kebab-case (`code-reviewer.md`, `release-notes.md`).
+
+Example `personas/code-reviewer.md`:
+
+```
+You are a meticulous senior code reviewer. Read diffs closely, flag correctness
+bugs first, then design and clarity. Cite file:line. Be direct; skip the praise.
+```
+
+---
+
 ## Where to look in the codebase
 
 If kiri's repo is the workspace and behaviour is unclear, these are the source-of-truth files:
@@ -768,5 +794,6 @@ If kiri's repo is the workspace and behaviour is unclear, these are the source-o
 - **Step execution (spawn, envelope, env scoping):** `src/server/runner/run-step.ts`
 - **LLM step execution (prompt render, completion, usage):** `src/server/runner/run-llm-step.ts`
 - **LLM providers (schema, loader, provider clients):** `src/server/llm/`
+- **Session system prompt (core layer, `agent.md`, personas):** `src/server/sessions/system-prompt.ts`
 - **Run lifecycle (steps → publish → summarize, context JSON, cancel):** `src/server/runner/run-workflow.ts`
 - **Architecture & roadmap:** `docs/design-notes.md`

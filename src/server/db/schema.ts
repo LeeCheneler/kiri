@@ -159,13 +159,12 @@ export const recommendations = sqliteTable(
 
 /**
  * One row per agentic conversation — the session pillar's instance, mirroring
- * `runs`. A session runs against a chosen `model`; the agent layer (a snapshot
- * of system prompt, allowed tools, generation params) arrives with the
- * `agents/*.yaml` pillar and is not modelled here yet. The running token
- * columns are a deliberate denormalisation over per-message `usage`
- * (see `messages.usage`): an agent loop needs live budget/context visibility,
- * so each turn's usage is summed onto the row rather than recomputed by
- * scanning every message.
+ * `runs`. A session runs against a chosen `model` and optionally an attached
+ * `persona`; the rest of the agent layer (allowed tools, generation params)
+ * is not modelled here yet. The running token columns are a deliberate
+ * denormalisation over per-message `usage` (see `messages.usage`): an agent
+ * loop needs live budget/context visibility, so each turn's usage is summed
+ * onto the row rather than recomputed by scanning every message.
  */
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
@@ -179,6 +178,14 @@ export const sessions = sqliteTable("sessions", {
   status: text("status").notNull(),
   /** `provider:model` id the session's turns run against, resolved through the same registry `llm:` steps use. */
   model: text("model").notNull(),
+  /**
+   * Name of the persona (`personas/<name>.md`) attached when the session was
+   * created, or null for none. A selection reference like `model` — not a
+   * snapshot of the persona's text, which is read fresh from disk each turn so
+   * git stays the source of truth. A persona renamed or removed after the fact
+   * degrades to no overlay on the next turn.
+   */
+  persona: text("persona"),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   /** Stamped when the session reaches a terminal `failed`/`cancelled` state; null while it remains usable. */
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),

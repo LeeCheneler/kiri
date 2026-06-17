@@ -20,6 +20,13 @@ export interface RunTurnDeps {
   bus?: EventBus;
   /** When supplied, the turn is registered so it can be cancelled mid-stream. */
   cancelRegistry?: CancelRegistry;
+  /**
+   * Composes the turn's system prompt from the session (its attached persona)
+   * and the workspace's instruction files. Omit for a plain chat with no system
+   * prompt — the previous behaviour, kept for tests and any caller that wants a
+   * bare conversation.
+   */
+  buildSystemPrompt?: (session: Session) => string | undefined;
 }
 
 export interface RunTurnArgs {
@@ -89,7 +96,7 @@ async function drainStream(stream: ReadableStream<string>): Promise<void> {
  * half-persisted.
  */
 export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<StartedTurn> {
-  const { db, llmClients, bus, cancelRegistry } = deps;
+  const { db, llmClients, bus, cancelRegistry, buildSystemPrompt } = deps;
   const { session, userMessage } = args;
 
   const model = llmClients.resolveModel(session.model);
@@ -110,11 +117,15 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   const history = getSessionMessages(db, session.id).map(toUiMessage);
   const modelMessages = await convertToModelMessages(history);
 
-  // No system prompt yet — the agent layer (system prompt, tools, params)
-  // arrives with the `agents/*.yaml` pillar; a session is a plain model chat.
+  // Compose the turn's system prompt — the kiri core layer, the workspace's
+  // `agent.md`, and any persona attached to the session — read fresh from disk
+  // each turn. Undefined when no builder is wired (a bare chat with no system
+  // prompt), which leaves `streamText` to send the messages alone.
+  const system = buildSystemPrompt?.(session);
   let streamError: unknown;
   const result = streamText({
     model,
+    system,
     messages: modelMessages,
     abortSignal: controller.signal,
     onError: ({ error }) => {

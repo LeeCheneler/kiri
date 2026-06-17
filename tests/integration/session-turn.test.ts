@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UIMessage } from "ai";
@@ -14,9 +14,11 @@ import {
 import { createCancelRegistry } from "../../src/server/runner/cancel-registry.ts";
 import {
   createSession,
+  createSystemPromptBuilder,
   getSession,
   getSessionMessages,
   runTurn,
+  updateSessionPersona,
 } from "../../src/server/sessions/index.ts";
 import { type FakeOpenAi, startFakeOpenAi } from "../support/fake-openai.ts";
 
@@ -92,6 +94,35 @@ describe("session turn streaming", () => {
     // Running totals are denormalised onto the session row from the streamed
     // `include_usage` chunk — the whole point of the openai-compatible wiring.
     expect(after).toMatchObject({ inputTokens: 12, outputTokens: 8, totalTokens: 20 });
+  });
+
+  it("composes the layered system prompt — core, agent.md, persona — and sends it to the model", async () => {
+    writeFileSync(join(cwd, "agent.md"), "Always answer in British English.");
+    mkdirSync(join(cwd, "personas"), { recursive: true });
+    writeFileSync(join(cwd, "personas", "pirate.md"), "Talk like a pirate.");
+    const session = updateSessionPersona(db, createSession(db, "fake:echo").id, "pirate");
+
+    const { done } = await runTurn(
+      { db, llmClients, buildSystemPrompt: createSystemPromptBuilder(cwd) },
+      { session, userMessage: userMessage("hi") },
+    );
+    await done;
+
+    const sent = fake.requests[fake.requests.length - 1];
+    const system = sent?.messages?.find((m) => m.role === "system");
+    const systemText = typeof system?.content === "string" ? system.content : "";
+    // All three layers reached the model, in order: core → agent.md → persona.
+    expect(systemText).toContain("running inside kiri");
+    expect(systemText).toContain("Always answer in British English.");
+    expect(systemText).toContain("Talk like a pirate.");
+    expect(systemText.indexOf("running inside kiri")).toBeLessThan(
+      systemText.indexOf("Always answer in British English."),
+    );
+    expect(systemText.indexOf("Always answer in British English.")).toBeLessThan(
+      systemText.indexOf("Talk like a pirate."),
+    );
+    // The turn still completed normally with the system prompt in place.
+    expect(getSession(db, session.id)?.status).toBe("idle");
   });
 
   it("accumulates running token totals across turns", async () => {
