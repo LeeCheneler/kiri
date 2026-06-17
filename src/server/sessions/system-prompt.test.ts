@@ -58,6 +58,15 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("treats an unreadable agent.md as absent", () => {
+    // A directory at the agent.md path makes readFileSync throw (EISDIR); the
+    // read-error path degrades to "no instructions" rather than failing.
+    mkdirSync(join(dir, AGENT_INSTRUCTIONS_FILENAME));
+    const withUnreadable = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const withNone = buildSystemPrompt({ cwd: join(dir, "absent"), now: FIXED_NOW });
+    expect(withUnreadable).toBe(withNone);
+  });
+
   it("returns just the core layer when agent.md is absent", () => {
     const withFile = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
     expect(withFile).toContain("running inside kiri");
