@@ -43,7 +43,7 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
 
 name: My Workflow            # required, unique across workflows/
 description: "..."           # optional — one-line summary, shown as the workflow page deck
-group: Dev                   # optional — grouping label; buckets the workflow in the side nav + shows as the workflow page eyebrow
+group: Dev                   # optional — grouping label; buckets the workflow in the catalog + shows as the workflow page eyebrow
 
 inputs:                      # optional — parameters collected via a modal at invoke
   - name: pr_number          # identifier referenced from a step's env (`{ input: pr_number }`)
@@ -538,7 +538,7 @@ steps:
 ```yaml
 # workflows/pr-review.yaml
 name: PR Review
-group: Dev                   # clusters under "Dev" in the side nav
+group: Dev                   # clusters under "Dev" in the catalog
 inputs:
   - name: pr_number
     description: GitHub PR to review (number, not URL)

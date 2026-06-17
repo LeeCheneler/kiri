@@ -9,7 +9,7 @@ A local-first, git-based tool for personal automation. Scripts, AI workflows, an
 Kiri has **two pillars**, both feeding the same activity feed:
 
 - **Workflows** — the original pillar. YAML-defined linear pipelines (`script → ai → script`) invoked by hand. Deterministic, fixed-shape; an `llm:` step is one prompt in, text out. The pillar everything below under *Architecture* and *AI integration* describes.
-- **Agentic sessions** — a multi-turn agentic chat against a configured model: system prompt, tools, streaming, images. A conversation, not a pipeline. Described under *Agentic sessions*; build sequence in `docs/agentic-work.md`.
+- **Agentic sessions** — a multi-turn agentic chat against a configured model: system prompt, tools, streaming, images. A conversation, not a pipeline. Described under *Agentic sessions*.
 
 The two are **separate concepts with separate config, storage, execution, and UI** — they share infrastructure (config dir, SQLite, the event bus, the LLM provider registry) and the activity feed, but a workflow is never an agent and an agent is never a workflow. They stay decoupled by design; the only planned bridge is an eventual *run-a-workflow tool* an agent could call — a tool the agent invokes, not a merging of the two models.
 
@@ -48,7 +48,7 @@ YAML files validated against a Zod schema. No custom DSL.
 ```yaml
 name: pr-review
 description: Review a pull request and summarise findings.  # optional, shown on the workflow page
-group: Dev                 # optional, buckets related workflows in the side nav + page eyebrow
+group: Dev                 # optional, buckets related workflows in the catalog + page eyebrow
 inputs:                    # optional — parameters collected via a modal at invocation
   - name: pr_number
     description: The PR to review
@@ -92,7 +92,7 @@ The optional `name` is a short label rendered as the step's title in the Schema 
 Two workflow-level sibling fields run alongside `steps:`:
 
 - **`summarize:`** — a single `{ use | sh | llm, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. The `claude-code-summarizer` example bundle ships with a baked-in prompt and `MODEL=haiku` so it produces summaries out of the box once copied into a workspace. Prompt and model are configurable via `env:` without forking the bundle.
-- **`publish:`** — an array of named long-form markdown articles. Each entry has the shape `{ slug, name?, use | sh | llm, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference articles in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Articles are stored as rows in `articles`, surfaced as a stacked list on each activity-feed row, in a "Recently Published" right-rail section, in a "Published" section of the run detail page's right rail, and rendered on dedicated `/runs/:id/published/:slug` pages via a sandboxed markdown parser. The article page lifts the body's first markdown `# heading` out as the page title — dropping any preamble before it — shows the publish name as the eyebrow series label (suppressed when it just restates the workflow name), and treats the body's `##` headings as the sections that fill the page's table of contents; a body with no `# heading` falls back to the publish name for its page title. Each surface that lists articles shows the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Article markdown may embed fenced `chart` blocks — Vega-Lite JSON specs rendered inline as SVG charts through that same parser, with the charting library code-split so it loads only for articles that use one.
+- **`publish:`** — an array of named long-form markdown articles. Each entry has the shape `{ slug, name?, use | sh | llm, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so the summariser can reference articles in its context. Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. Sibling publishes keep running after one fails, but a failing publish flips the run to `failed` and skips the summariser. Articles are stored as rows in `articles`, surfaced as a stacked list on each activity-feed row, in a "Published" section of the run detail page's right rail, and rendered on dedicated `/runs/:id/published/:slug` pages via a sandboxed markdown parser. The article page lifts the body's first markdown `# heading` out as the page title — dropping any preamble before it — shows the publish name as the eyebrow series label (suppressed when it just restates the workflow name), and treats the body's `##` headings as the sections that fill the page's table of contents; a body with no `# heading` falls back to the publish name for its page title. Each surface that lists articles shows the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Article markdown may embed fenced `chart` blocks — Vega-Lite JSON specs rendered inline as SVG charts through that same parser, with the charting library code-split so it loads only for articles that use one.
 
 Both fields share the same load-time validation as `steps:` (a step is exactly one of `use:` / `sh:` / `llm:`, `KIRI_` prefix banned on `env:` keys; a missing `use:` bundle, an unknown llm provider prefix, or a missing `prompt_file` is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing publish flips `runs.status` to `failed`.
 
@@ -123,7 +123,7 @@ Full I/O captured at every step. Linked from the corresponding feed entry for de
 
 ### Invocation & inputs
 
-Runs are invoked manually — from the workflows nav, by re-running an existing run, or by triggering a recommendation. There is no time-based or file-based triggering: under the app-active scope a scheduler would only ever fire while the user is already at the keyboard, where clicking Run is the same gesture for no extra capability. Polling shapes (webhooks, inboxes) are served by a workflow whose first step does the poll, invoked when the user wants it.
+Runs are invoked manually — from the workflow catalog, by re-running an existing run, or by triggering a recommendation. There is no time-based or file-based triggering: under the app-active scope a scheduler would only ever fire while the user is already at the keyboard, where clicking Run is the same gesture for no extra capability. Polling shapes (webhooks, inboxes) are served by a workflow whose first step does the poll, invoked when the user wants it.
 
 A workflow optionally declares `inputs:` — named parameters collected at invocation time, so one definition can be aimed at many targets (one `pr-review` workflow with a `pr_number` input reviews any PR, instead of one YAML file per PR).
 
@@ -280,7 +280,7 @@ For workflows using broad `Bash(*)` permissions, the load-bearing defence is the
 
 ## Agentic sessions
 
-The second pillar. Where a workflow is a fixed pipeline, an **agentic session** is a multi-turn conversation with a model that can reason, call tools, and stream its response. It is *not* built on the workflow engine and shares none of its execution model — only the surrounding infrastructure (config dir, SQLite, event bus, LLM provider registry) and the activity feed. This section is the design intent; the build sequence and milestone breakdown live in `docs/agentic-work.md`, and decisions still in flux are flagged inline.
+The second pillar. Where a workflow is a fixed pipeline, an **agentic session** is a multi-turn conversation with a model that can reason, call tools, and stream its response. It is *not* built on the workflow engine and shares none of its execution model — only the surrounding infrastructure (config dir, SQLite, event bus, LLM provider registry) and the activity feed.
 
 The pillar holds the **app-active and single-user invariants** unchanged: a session runs while the app is open, in-process, foreground, user-driven, and cancellable. A "running" session is an in-flight turn, exactly like a "running" run — there is no background agent, no overnight loop, no daemon turning the crank while the user is away.
 
@@ -327,15 +327,16 @@ Sessions deliberately diverge from the workflow pillar's "usage lives only in pe
 
 ### Activity feed
 
-Sessions are activity and belong in the feed. *How* they share the home feed with workflow runs is an open decision (see `docs/agentic-work.md`): a polymorphic union over `runs` + `sessions` with a composite cursor, versus a separate sessions feed. The feed cursor is being designed as `(startedAt, id)` from the outset so a later union stays a query change rather than a rewrite.
+Sessions are activity and belong in the feed. The home feed is a polymorphic union over `runs` + `sessions`, newest-first by `startedAt` with a composite `(startedAt, id)` cursor, fronted by an `All · Workflows · Sessions` tab strip that filters it to either kind. The filtered tabs reuse the per-kind `runs` and `sessions` feeds, so only the union carries the composite cursor.
 
 ## UI
 
-- **Left rail: workflows nav.** Lists workflows from the registry, each linking to its detail page. Below the `lg` breakpoint the rail collapses to a top bar (wordmark + menu button) that opens the same nav in a left drawer.
-- **Center: feed.** Reverse-chronological activity log. Each row shows workflow name, status, duration, and (when present) the run's one-or-two-sentence summary plus a stacked list of published articles — one row per article, each carrying the publish-entry name and (when present) the article body's first markdown `# heading` as a sub-byline so identically-titled articles from the same workflow are distinguishable. A small count signals when a run carries recommendations. Clicking a row opens the run detail page (`/runs/:id`) with full traces, the run's recommendations, and its published articles; clicking an article entry opens its dedicated page (`/runs/:id/published/:slug`).
-- **Right rail: recently published.** Lists the most recent articles across all runs, each linking to its article page; each entry's link shows the article body's first markdown `# heading` (falling back to the publish-entry name when the body has none), above a byline naming the originating workflow and the relative publish time. Live-updates as runs publish and as runs are deleted.
+- **Left rail: navigation.** `Activity` (the home feed), `Workflows` (the catalog), a one-click **+ New session** action, then the documentation links and version footer. Below the `lg` breakpoint the rail collapses to a top bar (wordmark + menu button) that opens the same nav in a left drawer.
+- **Center: blended activity feed.** A reverse-chronological log of both workflow runs and agentic sessions, interleaved newest-first and day-grouped, behind an `All · Workflows · Sessions` tab strip (deep-linked via `?view=`). A run row shows workflow name, status, duration, and (when present) the run's one-or-two-sentence summary plus a stacked list of published articles — one row per article, each carrying the publish-entry name and (when present) the article body's first markdown `# heading` as a sub-byline so identically-titled articles from the same workflow are distinguishable — and a small count when it carries recommendations. A session row shows its status, model, turn count, token total, and a preview of its first message. Clicking a run row opens the run detail page (`/runs/:id`) with full traces, the run's recommendations, and its published articles; a session row opens its chat (`/sessions/:id`); an article entry opens its dedicated page (`/runs/:id/published/:slug`).
+- **Workflow catalog (`/workflows`).** A searchable grid of every registered workflow, grouped by `group:`, each a launchable card showing its description and last-run status — the home for starting a workflow.
+- **Session chat (`/sessions/:id`).** The conversation transcript with a composer, and a right rail carrying the session's model — swappable mid-conversation, applying from the next turn — its running token totals, and current context fill.
 
-Cost visibility is deferred (see *Cost tracking* above).
+Home has no right rail; per-route marginalia (an article's table of contents, a run's Published section) appears only where a route has it. Cost visibility is deferred (see *Cost tracking* above).
 
 ## Application stack
 
@@ -476,10 +477,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 13. **Workflow inputs.** `inputs:` block on workflows — named parameters collected via a modal on invoke, snapshotted onto the run, and injected into step `env:` via `{ input: <name> }` refs. One definition, many targets.
 14. **Recommendations.** Workflows emit follow-up workflow invocations via a `KIRI_RECOMMENDATIONS_FILE` file channel. Stored as rows linked to the producing run, surfaced on the run detail page as a "Recommended" section beneath the run's phases, and triggered via the standard invoke modal with inputs pre-filled.
 15. **First-party LLM steps.** An `llm:` step kind that runs a model completion in-process against a provider declared in `llm-providers.yaml` (`provider:model` ids, `{ env: <NAME> }` API-key refs). Inline or file prompts with the bundles' `{{VAR}}` templating — `{{KIRI_INPUT}}` for pipeline steps, the inlined `{{KIRI_RUN_CONTEXT}}` for publish/summarise — token usage on the envelope, and a zero-config `llm:` summariser. The bundle-free path for completion-shaped steps; the model, prompt source, and token counts render across the run timeline and workflow schema surfaces.
-
-**In progress:**
-
-- **Agentic sessions** — the second pillar (see *Agentic sessions*). Built on a long-lived `agentic-support` branch and merged in one release; the milestone sequence is tracked in `docs/agentic-work.md`.
+16. **Agentic sessions.** The second pillar (see *Agentic sessions*) — multi-turn agentic chat against a model declared in `llm-providers.yaml`: streaming turns, cancel and resume, per-session token totals, one-click session creation, and a mid-conversation model swap. Sessions join workflow runs in the blended activity feed.
 
 ## Open questions
 
