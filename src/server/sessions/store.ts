@@ -58,14 +58,15 @@ export function updateSessionModel(db: KiriDb, id: string, model: string): Sessi
 const PREVIEW_LENGTH = 100;
 
 // A message's text parts, joined and tidied into a single capped line — a
-// human-readable label drawn from what the user typed.
+// human-readable label drawn from what the user typed. A capped line ends in an
+// ellipsis so it reads as truncated rather than as if the user stopped mid-word.
 function messagePreview(parts: UIMessage["parts"]): string {
-  return parts
+  const text = parts
     .map((part) => (part.type === "text" ? part.text : ""))
     .join("")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, PREVIEW_LENGTH);
+    .trim();
+  return text.length > PREVIEW_LENGTH ? `${text.slice(0, PREVIEW_LENGTH).trimEnd()}…` : text;
 }
 
 /**
