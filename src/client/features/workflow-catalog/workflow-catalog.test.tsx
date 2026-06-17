@@ -41,6 +41,12 @@ const renderCatalog = () =>
   );
 
 describe("<WorkflowCatalog>", () => {
+  it("surfaces an error when the workflow registry fails to load", async () => {
+    server.use(http.get("*/api/workflows", () => new HttpResponse("boom", { status: 500 })));
+    renderCatalog();
+    expect((await screen.findByRole("alert")).textContent).toMatch(/failed to load workflows/i);
+  });
+
   it("groups workflows and shows each one's last-run status", async () => {
     server.use(
       http.get("*/api/workflows", () =>
@@ -95,5 +101,19 @@ describe("<WorkflowCatalog>", () => {
     renderCatalog();
 
     expect(await screen.findByText(/no workflows yet/i)).toBeDefined();
+  });
+
+  it("shows a no-match state when the filter excludes every workflow", async () => {
+    server.use(
+      http.get("*/api/workflows", () => HttpResponse.json([wf("Greet")])),
+      http.get("*/api/runs", () => HttpResponse.json({ runs: [], nextCursor: null })),
+    );
+    const user = userEvent.setup();
+    renderCatalog();
+    await screen.findByRole("link", { name: "Greet" });
+
+    await user.type(screen.getByPlaceholderText(/filter workflows/i), "zzz-no-such-workflow");
+
+    expect(screen.getByText(/no workflows match/i)).toBeDefined();
   });
 });

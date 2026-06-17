@@ -39,6 +39,15 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /workflows to the workflow catalog", async () => {
+    renderAt("/workflows");
+    // The catalogue's filter box is unique to this route; its presence confirms
+    // the catalog rendered rather than falling through to not-found.
+    expect(screen.getByPlaceholderText(/filter workflows/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
   it("routes /workflows/:name to the workflow page", async () => {
     renderAt("/workflows/example");
     expect(screen.getByText(/loading workflow/i)).toBeDefined();

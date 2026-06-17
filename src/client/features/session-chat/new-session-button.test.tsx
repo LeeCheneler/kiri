@@ -89,6 +89,23 @@ describe("<NewSessionButton>", () => {
     await waitFor(() => expect(sentModel).toBe("openai:gpt"));
   });
 
+  it("re-enables and stays put when the create fails", async () => {
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.post("*/api/sessions", () => new HttpResponse("boom", { status: 500 })),
+    );
+    const user = userEvent.setup();
+    const { history } = renderButton();
+
+    const button = await enabledButton();
+    await user.click(button);
+
+    // The failed create re-enables the action for a retry, with no navigation.
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+    expect(history[history.length - 1]).toBe("/");
+  });
+
   it("is disabled when no models are configured", async () => {
     server.use(
       http.get("*/api/models", () => HttpResponse.json(models())),

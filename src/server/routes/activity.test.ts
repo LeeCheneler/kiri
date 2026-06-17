@@ -146,6 +146,18 @@ describe("activity routes", () => {
       expect(page3.body.nextCursor).toBeNull();
     });
 
+    it("breaks ties on equal start time by id, descending", async () => {
+      insertRun("r1", 100);
+      insertSession("s1", 100); // identical start time forces the id tie-break
+
+      const { body } = await getActivity();
+      // Same startedAt → ordered by id DESC, so "s1" precedes "r1".
+      expect(body.entries.map((e) => [e.kind, idOf(e)])).toEqual([
+        ["session", "s1"],
+        ["run", "r1"],
+      ]);
+    });
+
     it("returns an empty page when there is no activity", async () => {
       const { body } = await getActivity();
       expect(body.entries).toEqual([]);

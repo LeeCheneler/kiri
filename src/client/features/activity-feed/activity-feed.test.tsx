@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
@@ -113,6 +113,31 @@ describe("<ActivityFeed>", () => {
 
     await user.click(await screen.findByRole("tab", { name: /sessions/i }));
     expect(await screen.findByRole("link", { name: /sessions-tab/i })).toBeDefined();
+  });
+
+  it("loads the next page of the All feed when the sentinel intersects", async () => {
+    server.use(
+      http.get("*/api/activity", ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get("cursor");
+        return cursor
+          ? HttpResponse.json({
+              entries: [{ kind: "run", run: feedRun({ id: "r2", workflowName: "page-two" }) }],
+              nextCursor: null,
+            })
+          : HttpResponse.json({
+              entries: [{ kind: "run", run: feedRun({ id: "r1", workflowName: "page-one" }) }],
+              nextCursor: "c1",
+            });
+      }),
+    );
+    renderActivity();
+
+    expect(await screen.findByRole("link", { name: "page-one" })).toBeDefined();
+    const observer = FakeIntersectionObserver.latest();
+    if (!observer) throw new Error("expected the sentinel to register an observer");
+    act(() => observer.triggerIntersect());
+
+    expect(await screen.findByRole("link", { name: "page-two" })).toBeDefined();
   });
 
   it("deep-links the active view from the ?view param", async () => {
