@@ -284,24 +284,23 @@ The second pillar. Where a workflow is a fixed pipeline, an **agentic session** 
 
 The pillar holds the **app-active and single-user invariants** unchanged: a session runs while the app is open, in-process, foreground, user-driven, and cancellable. A "running" session is an in-flight turn, exactly like a "running" run — there is no background agent, no overnight loop, no daemon turning the crank while the user is away.
 
-### Agent : Session :: Workflow : Run
+### System prompt: core, `agent.md`, and personas
 
-The pillar mirrors the workflow pillar's definition/instance split, so the mental model and the snapshot discipline carry over:
+A session's behaviour is shaped by a layered system prompt, composed fresh on every turn from up to three layers:
 
-| Workflow pillar | Agentic pillar | Notes |
-|---|---|---|
-| `workflows/*.yaml` (definition) | `agents/*.yaml` (definition) | Git-tracked, Zod-validated, JSON-Schema for editor LSP, directory + watcher into an in-memory registry. No `agents` table. |
-| `runs` row (instance) | `sessions` row (instance) | One row per conversation; feeds the activity feed. |
-| `run_steps` (child) | `messages` (child) | The turns. |
-| `definitionSnapshot` | agent config snapshot at session start | Editing the YAML never mutates an in-flight or historical session. |
+- **The kiri core layer** — immutable, authored by kiri itself. States the model's identity and the environment it runs in (a local-first, single-user tool; an interactive multi-turn chat; the current date), that replies render as GitHub-flavoured markdown with inline Vega-Lite `chart` blocks (the same renderer the published articles use), and that quoted file/web/external text is untrusted data, not instructions. Composed per turn rather than held as a constant because it states the live date — and, in time, the session's available tools.
+- **`agent.md`** — an optional workspace-root markdown file of standing instructions, applied to every session when present: the user's always-on "how I want sessions to behave."
+- **A persona** — an optional `personas/<name>.md` overlay, attached per session and injected after `agent.md`, for putting a session into a specific role. Not applied by default.
 
-An **agent** is a pre-baked configuration: system prompt (inline or file), default model (a `provider:model` id resolved through the same `llm-providers.yaml` registry the `llm:` step uses), allowed tools, and generation params. A **session** is one conversation started against a chosen agent, with the resolved agent config snapshotted onto the session row at start.
+Layers compose in order — **core → `agent.md` → persona** — and all three are read fresh from disk each turn, so an edit takes effect on the next turn with git as the source of truth; nothing is snapshotted. A missing `agent.md` and no persona is a first-class default: the session runs on the core layer alone, a plain chat.
+
+This deliberately replaces an earlier `agents/*.yaml` registry idea (a pre-baked definition bundling system prompt, model, tools, and params, snapshotted onto the session). For a single-user tool, one always-on `agent.md` plus opt-in personas covers role-switching without a registry, a watcher, or a per-session config snapshot. The model is chosen at session creation and swappable mid-conversation; the persona is likewise attached and swappable from the session's aside — a nullable `persona` column on the `sessions` row records the selection, the same posture as `model` — applying from the next turn.
 
 ### Storage
 
 Two new tables alongside the existing four, following the runs/run_steps shape:
 
-- **`sessions`** — one row per conversation: agent name, the snapshotted agent config, chosen model, status (`running` | `idle` | `failed` | `cancelled`), timestamps, and a **running token total** (see *Usage* below).
+- **`sessions`** — one row per conversation: chosen model, the attached persona (a `personas/<name>.md` name, or null for none), status (`running` | `idle` | `failed` | `cancelled`), timestamps, and a **running token total** (see *Usage* below).
 - **`messages`** — one row per message, child of `sessions`, ordered. Each message stores its role and an array of **AI SDK `UIMessage` parts** as JSON — text, tool-call, tool-result, file/image, reasoning. Per-message token usage rides on the row as JSON, mirroring `traces.usage`.
 
 **Messages are stored as `UIMessage` parts, canonical and provider-agnostic** — this is the load-bearing early decision. Because parts already model tool calls and file/image attachments, adding tools and adding image uploads become *storage no-ops*: they are simply additional part types that were always persistable. Round-tripping to the model uses the SDK's `convertToModelMessages(history)`.
@@ -319,7 +318,7 @@ On turn completion the new messages and their usage are persisted, and the sessi
 
 ### Tools
 
-Tools are **generic, first-party agent capabilities** — read file, write file, edit file, web search, and so on — gated per session by the agent's allowed-tools config. They are emphatically **not script bundles**: bundles are a workflow concept and the two pillars do not cross over. A tool maps to an AI SDK `tool()` with a Zod parameter schema and an `execute`; the SDK drives the call/result loop and the calls/results persist as `UIMessage` parts. The catalogue starts with **read file** and is fleshed out as its own effort (write/edit file, web search, and eventually a *run-a-workflow* tool — the single sanctioned bridge to the other pillar — plus possibly MCP). Provider note: the OpenAI provider is wired to Chat Completions (`.chat()`), so tool-calling parity there needs verifying when tools land.
+Tools are **generic, first-party agent capabilities** — read file, write file, edit file, web search, and so on — gated per session by a workspace-level tool config (planned: a `session-tools.yml`). They are emphatically **not script bundles**: bundles are a workflow concept and the two pillars do not cross over. A tool maps to an AI SDK `tool()` with a Zod parameter schema and an `execute`; the SDK drives the call/result loop and the calls/results persist as `UIMessage` parts. The catalogue starts with **read file** and is fleshed out as its own effort (write/edit file, web search, and eventually a *run-a-workflow* tool — the single sanctioned bridge to the other pillar — plus possibly MCP). Provider note: the OpenAI provider is wired to Chat Completions (`.chat()`), so tool-calling parity there needs verifying when tools land.
 
 ### Usage & context
 
@@ -478,6 +477,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 14. **Recommendations.** Workflows emit follow-up workflow invocations via a `KIRI_RECOMMENDATIONS_FILE` file channel. Stored as rows linked to the producing run, surfaced on the run detail page as a "Recommended" section beneath the run's phases, and triggered via the standard invoke modal with inputs pre-filled.
 15. **First-party LLM steps.** An `llm:` step kind that runs a model completion in-process against a provider declared in `llm-providers.yaml` (`provider:model` ids, `{ env: <NAME> }` API-key refs). Inline or file prompts with the bundles' `{{VAR}}` templating — `{{KIRI_INPUT}}` for pipeline steps, the inlined `{{KIRI_RUN_CONTEXT}}` for publish/summarise — token usage on the envelope, and a zero-config `llm:` summariser. The bundle-free path for completion-shaped steps; the model, prompt source, and token counts render across the run timeline and workflow schema surfaces.
 16. **Agentic sessions.** The second pillar (see *Agentic sessions*) — multi-turn agentic chat against a model declared in `llm-providers.yaml`: streaming turns, cancel and resume, per-session token totals, one-click session creation, and a mid-conversation model swap. Sessions join workflow runs in the blended activity feed.
+17. **Session system prompt.** A layered system prompt for sessions (see *Agentic sessions → System prompt*): an immutable kiri core layer (identity, environment, markdown + chart rendering, untrusted-content framing), a workspace-root `agent.md` of standing instructions, and optional `personas/<name>.md` overlays attached per session and swappable from the session aside. Composed fresh each turn (core → `agent.md` → persona); the attached persona rides a `persona` column on the `sessions` row.
 
 ## Open questions
 

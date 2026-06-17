@@ -348,6 +348,21 @@ steps:
       <p><code>KIRI_RECOMMENDATIONS_FILE</code> is set on main <code>use:</code> / <code>sh:</code> <code>steps:</code> only — not on <code>publish:</code>, <code>summarize:</code>, or <code>llm:</code> steps (a completion can't write files). A failed or cancelled step's file is discarded, even if it wrote lines before failing.</p>
       <p>Acting on a recommendation spawns the proposed workflow and pins the spawned run's id to the recommendation row. If the spawned run is later deleted the recommendation becomes triggerable again; if the named workflow is removed from your repo the trigger button disables with a "workflow not found" tooltip.</p>
 
+      <h2>Agentic sessions</h2>
+      <p>Alongside workflows, kiri runs <strong>agentic chat sessions</strong> — a multi-turn conversation with a model that streams its reply. Start one with <strong>+ New session</strong> in the side nav; it runs against your configured models (the same <code>llm-providers.yaml</code> registry the <code>llm:</code> step uses) and joins workflow runs in the activity feed. The model is swappable from the session's right-hand aside at any point, applying from the next turn.</p>
+
+      <h3>Session system prompt — <code>agent.md</code> &amp; personas</h3>
+      <p>Every session's behaviour is shaped by a layered system prompt, composed fresh on each turn from three layers, in order:</p>
+      <pre><code>core (kiri)  →  agent.md  →  persona</code></pre>
+      <p>The <strong>core layer</strong> is authored by kiri and not editable — it tells the model the environment it runs in, that replies render as markdown (including inline <code>chart</code> blocks, just like published articles), and that quoted external text is untrusted data. You shape the two layers on top of it with optional workspace files.</p>
+      <p><strong><code>agent.md</code></strong> is a single markdown file at the workspace root, applied to <em>every</em> session — your standing "how I want you to behave." With no <code>agent.md</code>, sessions run on the core layer alone.</p>
+      <p><strong><code>personas/&lt;name&gt;.md</code></strong> are optional role overlays, one file per persona (the filename, minus <code>.md</code>, is its name). Attach one to a session from the aside — a picker under the model — to put it in a specific role; its contents are injected after <code>agent.md</code>. None is attached by default, and you can swap or detach it mid-conversation from the same picker.</p>
+      <p>Both are plain markdown — no frontmatter, no schema, just prose — and are read fresh from disk each turn, so an edit takes effect on the next turn with git as the source of truth. A workspace with sessions configured might look like:</p>
+      <pre><code>agent.md
+personas/
+  code-reviewer.md
+  release-notes.md</code></pre>
+
       <h2>Trust model</h2>
       <p>Kiri runs scripts with your user's permissions. <code>scripts/&lt;name&gt;/run.sh</code> and inline <code>sh:</code> steps are shell scripts you wrote into your own repo — kiri does not sandbox them. Treat them like any shell script you'd run yourself: read it before you use it.</p>
       <p>The defences kiri does provide are external: the HTTP API binds to <code>127.0.0.1</code> only and requires a custom <code>X-Kiri-Client</code> header on state-changing requests, so other browser tabs and arbitrary LAN clients can't trigger workflow runs.</p>
