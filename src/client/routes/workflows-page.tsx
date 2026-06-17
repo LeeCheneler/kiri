@@ -8,7 +8,7 @@ import { WorkflowCatalog } from "../features/workflow-catalog/workflow-catalog.t
  */
 export function WorkflowsPage() {
   return (
-    <PageShell left={<SiteNav />}>
+    <PageShell left={<SiteNav />} wide>
       <WorkflowCatalog />
     </PageShell>
   );
