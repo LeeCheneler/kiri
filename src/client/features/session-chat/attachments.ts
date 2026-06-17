@@ -16,13 +16,17 @@ export function imageFilesFrom(files: FileList | null | undefined): File[] {
   return Array.from(files).filter((file) => file.type.startsWith("image/"));
 }
 
-function readDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
-    reader.readAsDataURL(file);
-  });
+// Encode the file as a base64 data URL from its bytes. The image rides inline
+// in the message part, so there's no separate upload channel. Reading the byte
+// buffer (rather than FileReader's callback pair) keeps this a single path; a
+// read failure just rejects and bubbles.
+async function fileToDataUrl(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return `data:${file.type};base64,${btoa(binary)}`;
 }
 
 export type PendingImagesResult = { images: PendingImage[]; error?: string };
@@ -40,7 +44,7 @@ export async function readPendingImages(files: File[]): Promise<PendingImagesRes
       error = `Images must be under ${MAX_IMAGE_MB} MB.`;
       continue;
     }
-    const url = await readDataUrl(file);
+    const url = await fileToDataUrl(file);
     images.push({
       id: crypto.randomUUID(),
       part: { type: "file", mediaType: file.type, filename: file.name, url },

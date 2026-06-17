@@ -2,7 +2,7 @@ import type { FileUIPart } from "ai";
 import { useState } from "react";
 import { Modal } from "../../design-system/surfaces/modal.tsx";
 
-const THUMB_CLASS = "h-24 w-24 border border-rule object-cover";
+const THUMB_CLASS = "h-16 w-16 rounded-sm border border-rule object-cover";
 
 /**
  * A fixed-size image thumbnail, shared by the composer's staged attachments and
@@ -31,7 +31,7 @@ export function PreviewableImage({ part }: { part: FileUIPart }) {
       </button>
       {open ? (
         <Modal title={part.filename ?? "Image"} onClose={() => setOpen(false)}>
-          <img src={part.url} alt={alt} className="mx-auto max-h-[70vh] w-auto" />
+          <img src={part.url} alt={alt} className="mx-auto max-h-[70vh] w-auto rounded-sm" />
         </Modal>
       ) : null}
     </>

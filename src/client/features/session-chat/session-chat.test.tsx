@@ -403,6 +403,38 @@ describe("<SessionChat>", () => {
     await waitFor(() => expect(screen.queryByAltText("drop-me.png")).toBeNull());
   });
 
+  it("opens the file picker from the add image button", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    const { container } = renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    let clicked = false;
+    fileInput.click = () => {
+      clicked = true;
+    };
+    await user.click(screen.getByRole("button", { name: /add image/i }));
+    expect(clicked).toBe(true);
+  });
+
+  it("rejects an oversize image with an inline error", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    const { container } = renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const tooBig = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "huge.png", {
+      type: "image/png",
+    });
+    await user.upload(fileInput, tooBig);
+
+    expect(await screen.findByText(/must be under 10 MB/i)).toBeDefined();
+    // The file was not staged.
+    expect(screen.queryByAltText("huge.png")).toBeNull();
+  });
+
   it("nudges towards a multimodal model when an image turn fails", async () => {
     const imageMessage = {
       ...message("m1", "user", ""),
