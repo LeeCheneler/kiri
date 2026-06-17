@@ -181,12 +181,18 @@ dialog[open]::backdrop {
   animation: modal-backdrop-in 180ms ease-out;
 }
 
-/* Custom chevron for <select>: the user-agent chevron sits flush against
-   the right border with no breathing room. Replace with a muted-ink
-   chevron positioned 0.75rem off the right edge. Selects pair this with
-   `pr-10` so the selected value never runs under the chevron. */
+/* Down-chevron affordance for closed dropdown controls: a muted-ink chevron
+   0.75rem off the right edge. The user-agent <select> chevron sits flush
+   against the border with no breathing room, so we draw our own — and the
+   combobox input, which has no native chevron at all, shares the same glyph
+   via `.dropdown-chevron`. Both pair it with `pr-10` so the value never runs
+   under the chevron. */
 select {
   appearance: none;
+}
+
+select,
+.dropdown-chevron {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%238b8579' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.75rem center;
