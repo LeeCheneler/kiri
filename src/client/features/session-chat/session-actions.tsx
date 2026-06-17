@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { ApiError, deleteSession } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { useSession } from "../../state/sessions.ts";
+import { clearSessionDraft } from "./session-draft.ts";
 
 /**
  * Session-level controls for the chat right rail. Deleting confirms, removes the
@@ -37,6 +38,9 @@ export function SessionActions({ id }: { id: string }) {
         return;
       }
     }
+    // The session (or its already-deleted remains) is gone — drop any unsent
+    // draft we were holding for it before leaving.
+    clearSessionDraft(id);
     navigate("/?view=sessions");
   };
 

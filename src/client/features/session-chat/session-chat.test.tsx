@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -77,6 +77,9 @@ const renderChat = (id = "s1") => {
 };
 
 describe("<SessionChat>", () => {
+  // Composer drafts persist to local storage; isolate it between tests.
+  beforeEach(() => localStorage.clear());
+
   it("shows a loading state while the session loads", () => {
     server.use(http.get("*/api/sessions/:id", () => new Promise<Response>(() => {})));
     renderChat();
@@ -278,5 +281,42 @@ describe("<SessionChat>", () => {
     await user.keyboard("{Enter}");
 
     expect(screen.getByText(/no messages yet/i)).toBeDefined();
+  });
+
+  it("restores a saved draft into the composer", async () => {
+    localStorage.setItem("kiri:session-draft:s1", "a half-typed question");
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderChat();
+
+    const textbox = (await screen.findByRole("textbox", {
+      name: /message/i,
+    })) as HTMLTextAreaElement;
+    expect(textbox.value).toBe("a half-typed question");
+  });
+
+  it("persists the composer draft as you type", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "draft me");
+
+    await waitFor(() => expect(localStorage.getItem("kiri:session-draft:s1")).toBe("draft me"));
+  });
+
+  it("clears the saved draft once the message is sent", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.post("*/api/sessions/:id/messages", () => assistantReply("ok")),
+    );
+    renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "send and forget");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(localStorage.getItem("kiri:session-draft:s1")).toBeNull());
   });
 });
