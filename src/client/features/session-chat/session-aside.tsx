@@ -1,13 +1,17 @@
-import { type SessionMessage, patchSessionModel } from "../../api.ts";
+import { type SessionMessage, patchSessionModel, patchSessionPersona } from "../../api.ts";
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Stat, StatList } from "../../design-system/content/stat.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
-import { useModels, useSession } from "../../state/sessions.ts";
+import { useModels, usePersonas, useSession } from "../../state/sessions.ts";
 
 // Each rail section carries its own vertical rhythm; the divide-y draws the
 // hairline between adjacent ones, the first/last reset keeps the edges flush.
 const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
+
+// The picker entry that means "no persona". A persona file literally named
+// "None" would collide with it — an acceptable edge for a personal tool.
+const PERSONA_NONE = "None";
 
 // The live context fill, approximated by the most recent settled turn's
 // footprint: the tokens it sent (all prior messages) plus the reply it
@@ -30,6 +34,7 @@ function currentContextTokens(messages: SessionMessage[]): number | undefined {
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
   const models = useModels().data?.models ?? [];
+  const personas = usePersonas().data ?? [];
   if (!detail) return null;
   const { session } = detail;
   const contextTokens = currentContextTokens(detail.messages);
@@ -44,6 +49,17 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   );
   const turnInFlight = session.status === "running";
 
+  // Persona, same pattern as model: pin the attached one into the list even if
+  // the workspace no longer defines it, so the control can show and clear it.
+  // `None` leads the list as the detach option. The picker hides entirely when
+  // there are no personas to choose and none is attached.
+  const personaNames =
+    session.persona && !personas.includes(session.persona)
+      ? [session.persona, ...personas]
+      : personas;
+  const personaOptions = [PERSONA_NONE, ...personaNames];
+  const showPersona = personaNames.length > 0;
+
   return (
     <div className="divide-y divide-rule">
       <section className={SECTION_CLASS}>
@@ -55,6 +71,17 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           onChange={(model) => void patchSessionModel(id, model)}
         />
       </section>
+      {showPersona ? (
+        <section className={SECTION_CLASS}>
+          <Combobox
+            label="Persona"
+            options={personaOptions}
+            value={session.persona ?? PERSONA_NONE}
+            disabled={turnInFlight}
+            onChange={(name) => void patchSessionPersona(id, name === PERSONA_NONE ? null : name)}
+          />
+        </section>
+      ) : null}
       <section className={SECTION_CLASS}>
         <Eyebrow tone="muted">Tokens</Eyebrow>
         <div className="mt-3">

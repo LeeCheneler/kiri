@@ -8,7 +8,8 @@ import { useModels, useSessionsFeed } from "../../state/sessions.ts";
  * One-click new-session action. Starts a session against a default model — the
  * most recent session's model, falling back to the first available model — and
  * navigates to its chat, no model picker in the way (the model is swappable
- * once inside). Disabled, with a hint, when no models are configured.
+ * once inside, as is the persona). Disabled, with a hint, when no models are
+ * configured.
  */
 export function NewSessionButton() {
   const [, navigate] = useLocation();

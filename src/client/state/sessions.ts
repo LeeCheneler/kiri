@@ -10,6 +10,7 @@ import {
   type SessionDetail,
   type SessionListEntry,
   fetchModels,
+  fetchPersonas,
   fetchSession,
   fetchSessionsPage,
 } from "../api.ts";
@@ -18,6 +19,7 @@ import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 const sessionKey = (id: string) => ["session", id] as const;
 const sessionsFeedKey = ["sessions", "feed"] as const;
 const modelsKey = ["models"] as const;
+const personasKey = ["personas"] as const;
 
 /** Page size for the session feed; mirrors the server's default. */
 const FEED_PAGE_SIZE = 25;
@@ -29,6 +31,16 @@ const FEED_PAGE_SIZE = 25;
  */
 export function useModels(): UseQueryResult<ModelsResult> {
   return useQuery({ queryKey: modelsKey, queryFn: fetchModels });
+}
+
+/**
+ * Read the persona names available to attach at session creation. Like the
+ * models list, this is fetched on first use and served from cache — personas
+ * are workspace files read per turn on the server, so the picker need not
+ * live-sync; a restart (or cache invalidation) refreshes it.
+ */
+export function usePersonas(): UseQueryResult<string[]> {
+  return useQuery({ queryKey: personasKey, queryFn: fetchPersonas });
 }
 
 /**
