@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { FakeIntersectionObserver } from "../../../../tests/setup/fake-intersection-observer.ts";
-import { flushAsync } from "../../../../tests/setup/flush-async.ts";
 import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { ActivityFeed } from "./activity-feed.tsx";
@@ -14,12 +14,8 @@ afterEach(() => {
   FakeIntersectionObserver.reset();
 });
 
-// A fixed clock three minutes after the default `startedAt` so day markers and
-// relative times render deterministically.
 const NOW = new Date("2026-05-09T12:03:00.000Z");
 
-// A feed row carries only the fields RunRow reads; `summary` doubles as a
-// per-page handle so a freshly-loaded page is observable by its copy.
 const feedRun = (over: Record<string, unknown> = {}) => ({
   id: "r1",
   workflowName: "deploy",
@@ -38,9 +34,23 @@ const feedRun = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const renderFeed = () =>
+const sessionRow = (over: Record<string, unknown> = {}) => ({
+  id: "s1",
+  status: "idle",
+  model: "anthropic:claude",
+  startedAt: "2026-05-09T12:00:00.000Z",
+  finishedAt: null,
+  error: null,
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  preview: "all-session",
+  ...over,
+});
+
+const renderActivity = (path = "/") =>
   render(
-    <Router hook={memoryLocation({ path: "/" }).hook}>
+    <Router hook={memoryLocation({ path }).hook}>
       <QueryClientProvider client={createQueryClient()}>
         <ActivityFeed now={NOW} />
       </QueryClientProvider>
@@ -48,174 +58,99 @@ const renderFeed = () =>
   );
 
 describe("<ActivityFeed>", () => {
-  it("shows a loading message until the first page resolves", () => {
-    server.use(http.get("*/api/runs", () => new Promise(() => {})));
-    renderFeed();
-    expect(screen.getByText(/loading runs/i)).toBeDefined();
-  });
-
-  it("surfaces a fetch failure via an alert", async () => {
-    server.use(http.get("*/api/runs", () => new HttpResponse("boom", { status: 500 })));
-    renderFeed();
-    await waitFor(() => expect(screen.getByRole("alert")).toBeDefined());
-    expect(screen.getByRole("alert").textContent).toMatch(/failed to load runs/i);
-  });
-
-  it("shows the empty state when there are no runs", async () => {
-    server.use(http.get("*/api/runs", () => HttpResponse.json({ runs: [], nextCursor: null })));
-    renderFeed();
-    expect(await screen.findByText(/no runs yet/i)).toBeDefined();
-  });
-
-  it("spans every workflow, naming each run's workflow and linking to its page", async () => {
-    const seen: (string | null)[] = [];
+  it("defaults to the All view, blending runs and sessions", async () => {
     server.use(
-      http.get("*/api/runs", ({ request }) => {
-        seen.push(new URL(request.url).searchParams.get("workflow"));
-        return HttpResponse.json({
-          runs: [feedRun({ id: "r1", workflowName: "deploy" })],
-          nextCursor: null,
-        });
-      }),
-    );
-    renderFeed();
-
-    // No workflow filter — the home feed is unscoped.
-    expect(await screen.findByRole("link", { name: "deploy" })).toBeDefined();
-    expect(seen).toEqual([null]);
-    expect(screen.getByRole("link", { name: "deploy" }).getAttribute("href")).toBe(
-      "/workflows/deploy",
-    );
-    expect(screen.getByRole("link", { name: "r1" }).getAttribute("href")).toBe("/runs/r1");
-    expect(screen.getByText(/end of feed/i)).toBeDefined();
-  });
-
-  it("segments runs under Today / Yesterday day markers", async () => {
-    server.use(
-      http.get("*/api/runs", () =>
+      http.get("*/api/activity", () =>
         HttpResponse.json({
-          runs: [
-            feedRun({ id: "r1", workflowName: "today-wf", startedAt: "2026-05-09T09:00:00.000Z" }),
-            feedRun({
-              id: "r2",
-              workflowName: "yesterday-wf",
-              startedAt: "2026-05-08T09:00:00.000Z",
-            }),
+          entries: [
+            { kind: "run", run: feedRun({ workflowName: "deploy" }) },
+            { kind: "session", session: sessionRow({ preview: "all-session" }) },
           ],
           nextCursor: null,
         }),
       ),
     );
-    renderFeed();
+    renderActivity();
 
-    expect(await screen.findByText("Today")).toBeDefined();
-    expect(screen.getByText("Yesterday")).toBeDefined();
-    expect(screen.getByRole("link", { name: "today-wf" })).toBeDefined();
-    expect(screen.getByRole("link", { name: "yesterday-wf" })).toBeDefined();
+    expect(await screen.findByRole("link", { name: "deploy" })).toBeDefined();
+    expect(screen.getByRole("link", { name: /all-session/i }).getAttribute("href")).toBe(
+      "/sessions/s1",
+    );
   });
 
-  it("loads the next page when the sentinel scrolls into view", async () => {
+  it("filters to runs on the Workflows tab", async () => {
+    let runsHit = false;
     server.use(
-      http.get("*/api/runs", ({ request }) => {
-        const cursor = new URL(request.url).searchParams.get("cursor");
-        if (cursor === null) {
-          return HttpResponse.json({
-            runs: [feedRun({ id: "r1", summary: "page one" })],
-            nextCursor: "r1",
-          });
-        }
+      http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
+      http.get("*/api/runs", () => {
+        runsHit = true;
         return HttpResponse.json({
-          runs: [feedRun({ id: "r2", summary: "page two" })],
+          runs: [feedRun({ workflowName: "wf-runs" })],
           nextCursor: null,
         });
       }),
     );
-    renderFeed();
-    await screen.findByText("page one");
-    expect(screen.queryByText("page two")).toBeNull();
+    const user = userEvent.setup();
+    renderActivity();
 
-    const observer = FakeIntersectionObserver.latest();
-    if (!observer) throw new Error("expected the sentinel to register an observer");
-    act(() => observer.triggerIntersect());
-
-    await screen.findByText("page two");
-    expect(screen.getByText(/end of feed/i)).toBeDefined();
+    await user.click(await screen.findByRole("tab", { name: /workflows/i }));
+    expect(await screen.findByRole("link", { name: "wf-runs" })).toBeDefined();
+    expect(runsHit).toBe(true);
   });
 
-  it("shows a loading indicator while the next page is in flight", async () => {
+  it("filters to sessions on the Sessions tab", async () => {
     server.use(
-      http.get("*/api/runs", ({ request }) => {
-        const cursor = new URL(request.url).searchParams.get("cursor");
-        if (cursor === null) {
-          return HttpResponse.json({
-            runs: [feedRun({ id: "r1", summary: "page one" })],
-            nextCursor: "r1",
-          });
-        }
-        return new Promise(() => {});
-      }),
+      http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
+      http.get("*/api/sessions", () =>
+        HttpResponse.json({
+          sessions: [sessionRow({ preview: "sessions-tab" })],
+          nextCursor: null,
+        }),
+      ),
     );
-    renderFeed();
-    await screen.findByText("page one");
+    const user = userEvent.setup();
+    renderActivity();
 
-    const observer = FakeIntersectionObserver.latest();
-    if (!observer) throw new Error("expected the sentinel to register an observer");
-    act(() => observer.triggerIntersect());
-
-    expect(await screen.findByText(/loading more/i)).toBeDefined();
+    await user.click(await screen.findByRole("tab", { name: /sessions/i }));
+    expect(await screen.findByRole("link", { name: /sessions-tab/i })).toBeDefined();
   });
 
-  it("ignores a sentinel callback that is not intersecting", async () => {
-    let nextPageFetches = 0;
+  it("loads the next page of the All feed when the sentinel intersects", async () => {
     server.use(
-      http.get("*/api/runs", ({ request }) => {
+      http.get("*/api/activity", ({ request }) => {
         const cursor = new URL(request.url).searchParams.get("cursor");
-        if (cursor === null) {
-          return HttpResponse.json({
-            runs: [feedRun({ id: "r1", summary: "page one" })],
-            nextCursor: "r1",
-          });
-        }
-        nextPageFetches++;
-        return HttpResponse.json({ runs: [], nextCursor: null });
+        return cursor
+          ? HttpResponse.json({
+              entries: [{ kind: "run", run: feedRun({ id: "r2", workflowName: "page-two" }) }],
+              nextCursor: null,
+            })
+          : HttpResponse.json({
+              entries: [{ kind: "run", run: feedRun({ id: "r1", workflowName: "page-one" }) }],
+              nextCursor: "c1",
+            });
       }),
     );
-    renderFeed();
-    await screen.findByText("page one");
+    renderActivity();
 
+    expect(await screen.findByRole("link", { name: "page-one" })).toBeDefined();
     const observer = FakeIntersectionObserver.latest();
     if (!observer) throw new Error("expected the sentinel to register an observer");
-    act(() => observer.triggerIntersect(false));
-    await flushAsync();
+    act(() => observer.triggerIntersect());
 
-    expect(nextPageFetches).toBe(0);
+    expect(await screen.findByRole("link", { name: "page-two" })).toBeDefined();
   });
 
-  it("does not advance while a page is already loading", async () => {
-    let nextPageFetches = 0;
+  it("deep-links the active view from the ?view param", async () => {
     server.use(
-      http.get("*/api/runs", ({ request }) => {
-        const cursor = new URL(request.url).searchParams.get("cursor");
-        if (cursor === null) {
-          return HttpResponse.json({
-            runs: [feedRun({ id: "r1", summary: "page one" })],
-            nextCursor: "r1",
-          });
-        }
-        nextPageFetches++;
-        return new Promise(() => {});
-      }),
+      http.get("*/api/sessions", () =>
+        HttpResponse.json({
+          sessions: [sessionRow({ preview: "deep-linked" })],
+          nextCursor: null,
+        }),
+      ),
     );
-    renderFeed();
-    await screen.findByText("page one");
+    renderActivity("/?view=sessions");
 
-    const observer = FakeIntersectionObserver.latest();
-    if (!observer) throw new Error("expected the sentinel to register an observer");
-    act(() => observer.triggerIntersect());
-    await screen.findByText(/loading more/i);
-    act(() => observer.triggerIntersect());
-    await flushAsync();
-
-    expect(nextPageFetches).toBe(1);
+    expect(await screen.findByRole("link", { name: /deep-linked/i })).toBeDefined();
   });
 });

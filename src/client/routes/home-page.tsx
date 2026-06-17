@@ -1,7 +1,6 @@
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ActivityFeed } from "../features/activity-feed/activity-feed.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
-import { RecentArticles } from "../features/recent-articles/recent-articles.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
 /**
@@ -9,7 +8,7 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
  */
 export function HomePage() {
   return (
-    <PageShell left={<SiteNav />} right={<RecentArticles />}>
+    <PageShell left={<SiteNav />}>
       <HomeContent />
     </PageShell>
   );

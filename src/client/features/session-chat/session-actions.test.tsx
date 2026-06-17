@@ -61,7 +61,7 @@ describe("<SessionActions>", () => {
 
     await userEvent.click(await deleteButton());
 
-    await waitFor(() => expect(history[history.length - 1]).toBe("/sessions"));
+    await waitFor(() => expect(history[history.length - 1]).toBe("/?view=sessions"));
     expect(deleted).toBe(true);
   });
 
@@ -95,7 +95,7 @@ describe("<SessionActions>", () => {
 
     await userEvent.click(await deleteButton());
 
-    await waitFor(() => expect(history[history.length - 1]).toBe("/sessions"));
+    await waitFor(() => expect(history[history.length - 1]).toBe("/?view=sessions"));
   });
 
   it("surfaces an error and stays put when the delete fails", async () => {

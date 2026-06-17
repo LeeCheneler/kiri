@@ -36,7 +36,7 @@ branches, conditionals, or fan-out/fan-in.
 
 \`description\` and \`group\` are optional top-level metadata: \`description\`
 renders as the deck beneath the workflow's title; \`group\` buckets the
-workflow under that label in the side navigation and becomes the page
+workflow under that label in the workflow catalog and becomes the page
 eyebrow, so related workflows read as a set.
 
 ### Step variants

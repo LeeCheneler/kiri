@@ -9,32 +9,32 @@ test.use({ viewport: { width: 390, height: 760 } });
 test("collapses the rail to a top bar and opens the nav in a drawer", async ({ page }) => {
   await page.goto("/");
 
-  // The top bar keeps the wordmark and a menu button; the full workflows nav is
-  // collapsed away rather than stacked above the feed.
+  // The top bar keeps the wordmark and a menu button; the rail's nav is
+  // collapsed into the drawer rather than stacked above the feed.
   await expect(page.getByRole("heading", { level: 1, name: /kiri/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /menu/i })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: /workflows/i })).not.toBeVisible();
+  await expect(page.getByRole("link", { name: /^activity$/i })).not.toBeVisible();
 
   await page.getByRole("button", { name: /menu/i }).click();
 
   const drawer = page.getByRole("dialog", { name: /navigation/i });
   await expect(drawer).toBeVisible();
-  // The drawer hosts the same rail content — Activity and the live workflows nav.
+  // The drawer hosts the same rail content — the Activity and Workflows nav.
   await expect(drawer.getByRole("link", { name: /^activity$/i })).toBeVisible();
-  await expect(drawer.getByRole("link", { name: /golden/i })).toBeVisible();
+  await expect(drawer.getByRole("link", { name: /^workflows$/i })).toBeVisible();
 });
 
-test("selecting a workflow in the drawer navigates and closes it", async ({ page }) => {
+test("selecting Workflows in the drawer opens the catalog and closes it", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: /menu/i }).click();
   const drawer = page.getByRole("dialog", { name: /navigation/i });
   await expect(drawer).toBeVisible();
 
-  await drawer.getByRole("link", { name: /golden/i }).click();
+  await drawer.getByRole("link", { name: /^workflows$/i }).click();
 
-  await expect(page).toHaveURL("/workflows/golden");
-  await expect(page.getByRole("heading", { level: 2, name: /golden/i })).toBeVisible();
+  await expect(page).toHaveURL("/workflows");
+  await expect(page.getByPlaceholder(/filter workflows/i)).toBeVisible();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 });
 

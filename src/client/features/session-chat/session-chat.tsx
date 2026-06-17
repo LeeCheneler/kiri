@@ -36,7 +36,7 @@ export function SessionChat({ id }: { id: string }) {
     return (
       <section>
         <Breadcrumb
-          items={[{ label: "Sessions", href: "/sessions" }]}
+          items={[{ label: "Sessions", href: "/?view=sessions" }]}
           current={notFound ? "Not found" : "Error"}
         />
         <p role="alert" className="mt-6 font-mono text-sm text-status-failed">
@@ -154,7 +154,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
           the sticky composer at the foot. The transcript scrolls behind it. */}
       <div className="sticky top-0 z-10 -mt-6 border-b border-rule bg-canvas pt-6 pb-4 lg:-mt-8 lg:pt-8">
         <Breadcrumb
-          items={[{ label: "Sessions", href: "/sessions" }]}
+          items={[{ label: "Sessions", href: "/?view=sessions" }]}
           current={session.id.slice(0, 8)}
         />
       </div>

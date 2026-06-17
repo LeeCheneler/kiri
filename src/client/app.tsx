@@ -8,8 +8,8 @@ import { HomePage } from "./routes/home-page.tsx";
 import { NotFoundPage } from "./routes/not-found-page.tsx";
 import { RunPage } from "./routes/run-page.tsx";
 import { SessionPage } from "./routes/session-page.tsx";
-import { SessionsPage } from "./routes/sessions-page.tsx";
 import { WorkflowPage } from "./routes/workflow-page.tsx";
+import { WorkflowsPage } from "./routes/workflows-page.tsx";
 import { LiveSync } from "./state/live-sync.tsx";
 import { createQueryClient } from "./state/query-client.ts";
 
@@ -32,9 +32,9 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
         <LiveSync />
         <Switch>
           <Route path="/" component={HomePage} />
+          <Route path="/workflows" component={WorkflowsPage} />
           <Route path="/workflows/:name" component={WorkflowPage} />
           <Route path="/sessions/:id" component={SessionPage} />
-          <Route path="/sessions" component={SessionsPage} />
           <Route path="/runs/:id/published/:slug" component={ArticlePage} />
           <Route path="/runs/:id" component={RunPage} />
           <Route path="/dev/design-system" component={DesignSystemPage} />

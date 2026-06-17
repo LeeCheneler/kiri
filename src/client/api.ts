@@ -410,30 +410,6 @@ export const fetchArticle = async (runId: string, slug: string): Promise<Article
   );
 
 /**
- * One entry in the cross-run "recently published" list. Carries only the
- * metadata the right rail renders: the link target (`runId` + `slug`),
- * the display `name`, the article body's first markdown `# heading` (or
- * null when the body has none) for use as a sub-byline, the originating
- * `workflowName`, and `createdAt` for the relative timestamp. The full
- * markdown body lives on the dedicated article route.
- */
-export interface RecentArticle {
-  runId: string;
-  slug: string;
-  name: string;
-  heading: string | null;
-  workflowName: string;
-  createdAt: string;
-}
-
-/**
- * Fetch the most recently published articles across all runs, newest
- * first. The server caps the list (currently at 10). Throws on non-2xx.
- */
-export const fetchRecentArticles = async (): Promise<RecentArticle[]> =>
-  json<RecentArticle[]>(await apiFetch("/api/articles/recent"));
-
-/**
  * Trigger a manual run for the named workflow. Resolves the moment the run
  * row is inserted server-side — the returned `status` is `"running"`, and
  * terminal transitions arrive on the SSE event stream. Pass `inputs` to
@@ -617,6 +593,39 @@ export const fetchSessionsPage = async (
   return json<SessionsPage>(await apiFetch(`/api/sessions${qs ? `?${qs}` : ""}`));
 };
 
+/**
+ * One entry in the unified activity feed: a workflow run or a session, tagged
+ * by `kind` so the feed renders the right row. Entries are ordered newest-first
+ * by start time across both kinds.
+ */
+export type ActivityEntry =
+  | { kind: "run"; run: RunListEntry }
+  | { kind: "session"; session: SessionListEntry };
+
+/**
+ * One page of the unified activity feed. `nextCursor` is an opaque token for
+ * the next page when a further one exists; `null` on the final page.
+ */
+export interface ActivityPage {
+  entries: ActivityEntry[];
+  nextCursor: string | null;
+}
+
+/**
+ * Fetch one page of the unified activity feed (runs and sessions interleaved),
+ * newest first. Pass `cursor` from the previous page's `nextCursor` to advance
+ * and `limit` (1–100) to size the page. Throws on non-2xx.
+ */
+export const fetchActivityPage = async (
+  opts: { cursor?: string; limit?: number } = {},
+): Promise<ActivityPage> => {
+  const params = new URLSearchParams();
+  if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return json<ActivityPage>(await apiFetch(`/api/activity${qs ? `?${qs}` : ""}`));
+};
+
 /** A session with its ordered messages, as returned by `GET /api/sessions/:id`. */
 export interface SessionDetail {
   session: Session;
@@ -636,6 +645,21 @@ export const createSession = async (model: string): Promise<{ session: Session }
   json<{ session: Session }>(
     await apiFetch("/api/sessions", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    }),
+  );
+
+/**
+ * Change a session's model (a `provider:model` id), returning the updated row.
+ * The model resolves at the start of each turn, so the change takes effect from
+ * the next turn. Throws `ApiError` on non-2xx — 404 for an unknown session, 400
+ * when the model can't be resolved against the provider registry.
+ */
+export const patchSessionModel = async (id: string, model: string): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model }),
     }),

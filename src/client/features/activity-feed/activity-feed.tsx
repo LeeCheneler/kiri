@@ -1,108 +1,58 @@
-import { useCallback, useRef } from "react";
-import type { RunListEntry } from "../../api.ts";
-import { EmptyState } from "../../design-system/content/empty-state.tsx";
-import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
-import { Rule } from "../../design-system/content/rule.tsx";
-import { formatDayMarker } from "../../formatters/format-time.ts";
+import type { UseInfiniteQueryResult } from "@tanstack/react-query";
+import type { ActivityEntry } from "../../api.ts";
+import { type TabDef, Tabs } from "../../design-system/navigation/tabs.tsx";
+import { useActivityFeed } from "../../state/activity.ts";
 import { useRunFeed } from "../../state/runs.ts";
-import { RunRow } from "../workflow-details/run-row.tsx";
+import { useSessionsFeed } from "../../state/sessions.ts";
+import { Feed, type FeedState } from "./feed.tsx";
 
-type DayGroup = { marker: string; runs: RunListEntry[] };
+// Normalise an infinite feed query into the shape `Feed` renders, mapping its
+// rows to tagged activity entries. Keeps the three view wrappers to one line each.
+function toState<T>(
+  feed: UseInfiniteQueryResult<T[], Error>,
+  toEntries: (rows: T[]) => ActivityEntry[],
+): FeedState {
+  return {
+    isPending: feed.isPending,
+    isError: feed.isError,
+    error: feed.error,
+    entries: feed.data ? toEntries(feed.data) : [],
+    hasNextPage: feed.hasNextPage,
+    isFetchingNextPage: feed.isFetchingNextPage,
+    fetchNextPage: () => void feed.fetchNextPage(),
+  };
+}
 
-// Segment the newest-first feed into contiguous local-day buckets. Runs of one
-// day are adjacent, so a marker change is a bucket boundary; the marker text is
-// unique per calendar day, so it doubles as the group's React key.
-const groupByDay = (runs: RunListEntry[], now?: Date): DayGroup[] => {
-  const groups: DayGroup[] = [];
-  for (const run of runs) {
-    const marker = formatDayMarker(run.startedAt, now);
-    const last = groups.at(-1);
-    if (last?.marker === marker) last.runs.push(run);
-    else groups.push({ marker, runs: [run] });
-  }
-  return groups;
-};
+function AllFeed({ now }: { now?: Date }) {
+  const state = toState(useActivityFeed(), (entries) => entries);
+  return <Feed state={state} noun="activity" now={now} />;
+}
+
+function WorkflowsFeed({ now }: { now?: Date }) {
+  const state = toState(useRunFeed(), (runs) => runs.map((run) => ({ kind: "run", run })));
+  return <Feed state={state} noun="runs" now={now} />;
+}
+
+function SessionsFeed({ now }: { now?: Date }) {
+  const state = toState(useSessionsFeed(), (sessions) =>
+    sessions.map((session) => ({ kind: "session", session })),
+  );
+  return <Feed state={state} noun="sessions" now={now} />;
+}
 
 /**
- * The home activity feed: every workflow's runs as one live, infinite,
- * reverse-chronological stream, segmented by day marker (Today / Yesterday /
- * date). Reads the unscoped run feed and renders one of loading, error, empty,
- * or the grouped run list; an `IntersectionObserver` sentinel at the foot loads
- * the next page as it scrolls into view, and the feed stays current as runs
- * start, change, finish, and are deleted (see `useRunFeedsLive`). Each row names
- * its workflow, since the stream spans them all. `now` is injectable so tests
- * render deterministic day markers and relative times; production omits it.
+ * The home activity feed: a deep-linkable `All · Workflows · Sessions` tab strip
+ * over one of three reverse-chronological feeds. `All` is the union of runs and
+ * sessions; `Workflows` and `Sessions` are each kind on its own. The active view
+ * lives in the `?view=` search param (defaulting to `All`); only the active
+ * panel mounts, so just its query runs. `now` is injectable for deterministic
+ * tests; production omits it.
  */
 export function ActivityFeed({ now }: { now?: Date }) {
-  const feed = useRunFeed();
-
-  // The observer is created once when the sentinel mounts; a ref to the latest
-  // feed lets its callback read current paging state without re-subscribing on
-  // every render.
-  const feedRef = useRef(feed);
-  feedRef.current = feed;
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const sentinelRef = useCallback((el: HTMLDivElement | null) => {
-    observerRef.current?.disconnect();
-    if (!el) {
-      observerRef.current = null;
-      return;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      const current = feedRef.current;
-      if (entries.some((entry) => entry.isIntersecting) && !current.isFetchingNextPage) {
-        void current.fetchNextPage();
-      }
-    });
-    observer.observe(el);
-    observerRef.current = observer;
-  }, []);
-
-  if (feed.isPending) {
-    return <p className="font-mono text-sm text-ink-muted">Loading runs…</p>;
-  }
-  if (feed.isError) {
-    return (
-      <p role="alert" className="font-mono text-sm text-status-failed">
-        Failed to load runs: {feed.error.message}
-      </p>
-    );
-  }
-  const runs = feed.data;
-  if (runs.length === 0) {
-    return <EmptyState>no runs yet.</EmptyState>;
-  }
-
-  return (
-    <div>
-      {groupByDay(runs, now).map((group) => (
-        <section key={group.marker} className="mb-10">
-          <div className="mb-3">
-            <Eyebrow tone="muted">{group.marker}</Eyebrow>
-          </div>
-          <Rule />
-          <ul className="mt-6 space-y-8">
-            {group.runs.map((run) => (
-              <li key={run.id}>
-                <RunRow run={run} now={now} showWorkflow />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-      {feed.hasNextPage ? (
-        <div ref={sentinelRef} className="py-6 text-center">
-          {feed.isFetchingNextPage ? (
-            <output className="font-mono text-xs text-ink-muted uppercase tracking-widest">
-              loading more…
-            </output>
-          ) : null}
-        </div>
-      ) : (
-        <output className="block py-6 text-center font-mono text-xs text-ink-muted uppercase tracking-widest">
-          end of feed
-        </output>
-      )}
-    </div>
-  );
+  const tabs: TabDef[] = [
+    { id: "all", label: "All", content: <AllFeed now={now} /> },
+    { id: "workflows", label: "Workflows", content: <WorkflowsFeed now={now} /> },
+    { id: "sessions", label: "Sessions", content: <SessionsFeed now={now} /> },
+  ];
+  return <Tabs tabs={tabs} label="Activity views" param="view" />;
 }

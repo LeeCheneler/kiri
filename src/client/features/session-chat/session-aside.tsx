@@ -1,8 +1,9 @@
-import type { SessionMessage } from "../../api.ts";
+import { type SessionMessage, patchSessionModel } from "../../api.ts";
+import { Select } from "../../design-system/actions/select.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Stat, StatList } from "../../design-system/content/stat.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
-import { useSession } from "../../state/sessions.ts";
+import { useModels, useSession } from "../../state/sessions.ts";
 
 // Each rail section carries its own vertical rhythm; the divide-y draws the
 // hairline between adjacent ones, the first/last reset keeps the edges flush.
@@ -28,15 +29,32 @@ function currentContextTokens(messages: SessionMessage[]): number | undefined {
  */
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
+  const models = useModels().data?.models ?? [];
   if (!detail) return null;
   const { session } = detail;
   const contextTokens = currentContextTokens(detail.messages);
+  // Pin the current model into the options even if the provider no longer lists
+  // it, so the control always has a value to show. Swapping is blocked mid-turn:
+  // the in-flight turn already resolved its model and the change applies next.
+  const modelIds = models.map((model) => model.id);
+  const modelOptions = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
+  const turnInFlight = session.status === "running";
 
   return (
     <div className="divide-y divide-rule">
       <section className={SECTION_CLASS}>
-        <Eyebrow tone="muted">Model</Eyebrow>
-        <p className="mt-1 font-mono text-sm break-words text-ink">{session.model}</p>
+        <Select
+          label="Model"
+          value={session.model}
+          disabled={turnInFlight}
+          onChange={(model) => void patchSessionModel(id, model)}
+        >
+          {modelOptions.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </Select>
       </section>
       <section className={SECTION_CLASS}>
         <Eyebrow tone="muted">Tokens</Eyebrow>

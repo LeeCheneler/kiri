@@ -199,7 +199,7 @@ const baseWorkflowSchema = z
       ),
     /**
      * Optional grouping label for related workflows (e.g. "Dev"). Buckets the
-     * workflow under that label in the side navigation, and renders as the
+     * workflow under that label in the workflow catalog, and renders as the
      * eyebrow above the workflow's title on its detail page.
      */
     group: z
@@ -207,7 +207,7 @@ const baseWorkflowSchema = z
       .min(1)
       .optional()
       .describe(
-        'Optional grouping label for related workflows (e.g. "Dev"). Groups the workflow under that label in the side navigation, and shows as the eyebrow on the workflow page.',
+        'Optional grouping label for related workflows (e.g. "Dev"). Groups the workflow under that label in the workflow catalog, and shows as the eyebrow on the workflow page.',
       ),
     /**
      * Optional named parameters collected via a modal at invocation time.

@@ -78,8 +78,10 @@ describe("sessions store", () => {
 
     const previews = getSessionPreviews(db, ["s1", "s2"]);
     const s1 = previews.get("s1") ?? "";
-    expect(s1).toHaveLength(100);
+    // Capped to one line and marked truncated with a trailing ellipsis.
     expect(s1.startsWith("Refactor the auth middleware ")).toBe(true);
+    expect(s1.endsWith("…")).toBe(true);
+    expect(s1.length).toBeLessThanOrEqual(101);
     expect(previews.has("s2")).toBe(false);
   });
 

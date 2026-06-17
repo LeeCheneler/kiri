@@ -27,8 +27,16 @@ export function ArticlePage({
   params: { id: string; slug: string };
   now?: Date;
 }) {
+  // The right-rail TOC reads the rendered body straight from the document. Remount
+  // it once the article resolves so its initial collect runs with the body — and
+  // its `section-NN` anchors — already committed, rather than depending on a
+  // mutation observer to catch the load transition.
+  const article = useArticle(params.id, params.slug);
   return (
-    <PageShell left={<SiteNav />} right={<ArticleToc />}>
+    <PageShell
+      left={<SiteNav />}
+      right={<ArticleToc key={article.isSuccess ? `${params.id}/${params.slug}` : "pending"} />}
+    >
       <ArticleContent params={params} now={now} />
     </PageShell>
   );

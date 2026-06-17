@@ -12,7 +12,7 @@ Kiri is a single local app for running your personal scripts and AI workflows. Y
 
 - **An activity feed, not a canvas.** Every run — script or AI — streams into one reverse-chronological feed with its status, duration, and a one-line AI summary. The feed *is* the UI; there's no node graph to wire up.
 - **Runs become launch pads.** A run can surface one-click follow-up workflows on its detail page — an aggregator that lists your open PRs turns each one into a pre-filled "review this PR" button. No global queue, no inbox: the proposals live on the run that produced them.
-- **Long-form output, rendered.** Workflows can publish markdown articles — briefings, code reviews, digests — with inline charts, surfaced in the feed and a "recently published" rail.
+- **Long-form output, rendered.** Workflows can publish markdown articles — briefings, code reviews, digests — with inline charts, surfaced in the activity feed and on each run's page.
 - **Local-first and git-based.** Workflows are YAML in your own git repo; runs execute on your machine while the app is open — no daemons, no cloud, no multi-tenancy. AI steps either call a model provider directly (a first-party `llm:` step) or spawn an agentic CLI like Claude Code — your choice, on your own keys or subscription.
 
 ## Install

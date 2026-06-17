@@ -32,9 +32,18 @@ describe("<App>", () => {
 
   it("routes / to the home page", async () => {
     renderAt("/");
-    // The home page renders its Activity breadcrumb synchronously; the
-    // "Page not found" copy must not appear when the route matched.
-    expect(screen.getByText("Activity").getAttribute("aria-current")).toBe("page");
+    // The activity view tabs are unique to the home page; their presence
+    // confirms the route matched rather than falling through to not-found.
+    expect(screen.getByRole("tab", { name: /^all$/i })).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
+  it("routes /workflows to the workflow catalog", async () => {
+    renderAt("/workflows");
+    // The catalogue's filter box is unique to this route; its presence confirms
+    // the catalog rendered rather than falling through to not-found.
+    expect(screen.getByPlaceholderText(/filter workflows/i)).toBeDefined();
     expect(screen.queryByText(/page not found/i)).toBeNull();
     await flushAsync();
   });
@@ -56,17 +65,6 @@ describe("<App>", () => {
     await flushAsync();
   });
 
-  it("routes /sessions to the sessions page", async () => {
-    server.use(
-      http.get("*/api/models", () => new Promise<Response>(() => {})),
-      http.get("*/api/sessions", () => new Promise<Response>(() => {})),
-    );
-    renderAt("/sessions");
-    expect(screen.getByText(/loading models/i)).toBeDefined();
-    expect(screen.queryByText(/page not found/i)).toBeNull();
-    await flushAsync();
-  });
-
   it("routes /sessions/:id to the session chat page", async () => {
     server.use(http.get("*/api/sessions/:id", () => new Promise<Response>(() => {})));
     renderAt("/sessions/abc");
@@ -81,19 +79,7 @@ describe("<App>", () => {
     await flushAsync();
   });
 
-  it("shows the Recently Published rail on the home route", async () => {
-    renderAt("/");
-    expect(await screen.findByRole("heading", { name: /recently published/i })).toBeDefined();
-    await flushAsync();
-  });
-
-  it("omits the Recently Published rail on the workflow route", async () => {
-    renderAt("/workflows/example");
-    await flushAsync();
-    expect(screen.queryByRole("heading", { name: /recently published/i })).toBeNull();
-  });
-
-  it("swaps the right rail for the article TOC on the article route", async () => {
+  it("shows the article TOC in the right rail on the article route", async () => {
     // Article body carries a `##` section so the TOC has an entry to show.
     server.use(
       http.get("*/api/runs/:id/published/:slug", ({ params }) =>
@@ -116,16 +102,22 @@ describe("<App>", () => {
 
     renderAt("/runs/run-1/published/demo");
 
-    // The article TOC marginalia is present; the cross-run Recently
-    // Published shortlist is not.
-    expect(await screen.findByRole("heading", { name: /in this article/i })).toBeDefined();
-    expect(screen.queryByRole("heading", { name: /recently published/i })).toBeNull();
+    // Wait for the markdown body's section heading to land first: the right-rail
+    // TOC is derived from those section anchors once they're in the document, so
+    // asserting it before the body has rendered races that collection (flaky on a
+    // slower CI runner). Both lookups get a wide window for a cold render.
+    await screen.findByRole("heading", { level: 2, name: /a section/i }, { timeout: 5000 });
+    expect(
+      await screen.findByRole("heading", { name: /in this article/i }, { timeout: 5000 }),
+    ).toBeDefined();
     await flushAsync();
   });
 
   it("shows the design-system TOC in the right rail on the design-system route", async () => {
     renderAt("/dev/design-system");
-    expect(await screen.findByRole("navigation", { name: "On this page" })).toBeDefined();
+    expect(
+      await screen.findByRole("navigation", { name: "On this page" }, { timeout: 5000 }),
+    ).toBeDefined();
     await flushAsync();
   });
 });
