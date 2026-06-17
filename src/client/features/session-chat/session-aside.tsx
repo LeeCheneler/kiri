@@ -1,5 +1,5 @@
 import { type SessionMessage, patchSessionModel } from "../../api.ts";
-import { Select } from "../../design-system/actions/select.tsx";
+import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Stat, StatList } from "../../design-system/content/stat.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
@@ -34,27 +34,26 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const { session } = detail;
   const contextTokens = currentContextTokens(detail.messages);
   // Pin the current model into the options even if the provider no longer lists
-  // it, so the control always has a value to show. Swapping is blocked mid-turn:
-  // the in-flight turn already resolved its model and the change applies next.
+  // it, so the control always has a value to show. Sorted so the long list is
+  // scannable. Swapping is blocked mid-turn: the in-flight turn already resolved
+  // its model and the change applies next.
   const modelIds = models.map((model) => model.id);
-  const modelOptions = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
+  const withCurrent = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
+  const modelOptions = [...withCurrent].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
   const turnInFlight = session.status === "running";
 
   return (
     <div className="divide-y divide-rule">
       <section className={SECTION_CLASS}>
-        <Select
+        <Combobox
           label="Model"
+          options={modelOptions}
           value={session.model}
           disabled={turnInFlight}
           onChange={(model) => void patchSessionModel(id, model)}
-        >
-          {modelOptions.map((model) => (
-            <option key={model} value={model}>
-              {model}
-            </option>
-          ))}
-        </Select>
+        />
       </section>
       <section className={SECTION_CLASS}>
         <Eyebrow tone="muted">Tokens</Eyebrow>

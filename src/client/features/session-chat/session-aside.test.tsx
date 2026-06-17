@@ -46,8 +46,8 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" now={new Date("2026-05-09T12:00:30.000Z")} />);
 
-    const select = (await screen.findByRole("combobox", { name: /model/i })) as HTMLSelectElement;
-    expect(select.value).toBe("anthropic:claude");
+    const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
+    expect(combobox.value).toBe("anthropic:claude");
     expect(screen.getByText("7")).toBeDefined();
     expect(screen.getByText("2")).toBeDefined();
     expect(screen.getByText("9")).toBeDefined();
@@ -73,10 +73,37 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const select = await screen.findByRole("combobox", { name: /model/i });
-    await userEvent.selectOptions(select, "openai:gpt");
+    const combobox = await screen.findByRole("combobox", { name: /model/i });
+    await userEvent.click(combobox);
+    await userEvent.click(screen.getByRole("option", { name: "openai:gpt" }));
 
     await waitFor(() => expect(patched.model).toBe("openai:gpt"));
+  });
+
+  it("lists the models alphabetically", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ model: "openai:gpt" })),
+      ),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "openai:gpt", provider: "openai" },
+            { id: "anthropic:claude", provider: "anthropic" },
+            { id: "google:gemini", provider: "google" },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /model/i }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "anthropic:claude",
+      "google:gemini",
+      "openai:gpt",
+    ]);
   });
 
   it("disables the model select while a turn is in flight", async () => {
@@ -85,8 +112,8 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const select = (await screen.findByRole("combobox", { name: /model/i })) as HTMLSelectElement;
-    expect(select.disabled).toBe(true);
+    const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
+    expect(combobox.disabled).toBe(true);
   });
 
   it("renders nothing until the session loads", () => {
