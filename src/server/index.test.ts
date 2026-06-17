@@ -80,6 +80,22 @@ describe("createApp", () => {
       expect(res.headers.get("Access-Control-Allow-Methods")).toContain("DELETE");
       expect(res.headers.get("Access-Control-Allow-Headers")).toContain("X-Kiri-Client");
     });
+
+    it("answers OPTIONS preflight on PATCH /api/sessions/:id with 204 and permits the PATCH method", async () => {
+      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const res = await app.request("/api/sessions/anything", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://local.kiri.build",
+          "Access-Control-Request-Method": "PATCH",
+          "Access-Control-Request-Headers": "Content-Type, X-Kiri-Client",
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://local.kiri.build");
+      expect(res.headers.get("Access-Control-Allow-Methods")).toContain("PATCH");
+      expect(res.headers.get("Access-Control-Allow-Headers")).toContain("X-Kiri-Client");
+    });
   });
 
   describe("X-Kiri-Client gate", () => {
