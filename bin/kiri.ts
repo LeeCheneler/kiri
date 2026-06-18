@@ -100,8 +100,8 @@ if (llmProviders.failure) {
 const providerNames = new Set(llmProviders.providers.keys());
 const llmClients = createLlmClients(llmRegistry, process.env);
 // Tools are offered to every session's model; each self-gates on its own
-// precondition (web_search on TAVILY_API_KEY), so an env without those keys
-// yields an empty set and sessions run as plain chat.
+// precondition (web_search and web_extract on TAVILY_API_KEY), so an env
+// without those keys yields an empty set and sessions run as plain chat.
 const sessionTools = createSessionTools(process.env);
 
 const workflowsDir = join(cwd, "workflows");

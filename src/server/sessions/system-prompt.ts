@@ -45,6 +45,11 @@ function buildToolGuidance(tools: string[]): string | null {
       "Use the web_search tool whenever the user asks about current events or recent information, anything that may have changed since or falls outside your training data, or any fact you are not confident you know. Prefer searching over answering from stale memory or saying you don't know.",
     );
   }
+  if (tools.includes("web_extract")) {
+    lines.push(
+      "Use the web_extract tool to read the full text of a specific page when you have its URL — one the user gave you, or one returned by web_search — and need more than a snippet.",
+    );
+  }
   return lines.join("\n");
 }
 
