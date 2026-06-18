@@ -1,3 +1,4 @@
+import type { ToolSet } from "ai";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -51,6 +52,12 @@ export interface AppDeps {
    */
   llmClients?: LlmClients;
   /**
+   * Tools offered to each session's model (e.g. `web_search`), assembled by
+   * `createSessionTools`. Forwarded to the sessions routes; omitted leaves
+   * sessions as a plain chat with no tools.
+   */
+  sessionTools?: ToolSet;
+  /**
    * Inject the embedded-SPA map directly (test seam). Production reads
    * from `embedded-assets.ts`; tests pass a `Map` to exercise the
    * embedded code path without going through `bun build --compile`.
@@ -93,7 +100,8 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const { db, registry, cwd, bus, eventsHeartbeatMs, cancelRegistry, llmClients } = deps;
+  const { db, registry, cwd, bus, eventsHeartbeatMs, cancelRegistry, llmClients, sessionTools } =
+    deps;
   const version = deps.version ?? "dev";
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
   const app = new Hono();
@@ -163,7 +171,7 @@ export function createApp(deps: AppDeps): Hono {
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
   if (llmClients) {
-    app.route("/api", sessionsRoutes({ db, cwd, llmClients, bus, cancelRegistry }));
+    app.route("/api", sessionsRoutes({ db, cwd, llmClients, bus, cancelRegistry, sessionTools }));
   }
 
   if (bus) {

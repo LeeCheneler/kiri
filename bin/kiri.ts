@@ -12,6 +12,7 @@ import {
   loadLlmProviders,
 } from "../src/server/llm/index.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
+import { createSessionTools } from "../src/server/sessions/index.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
 // Replaced at build time via `bun build --define`; falls back to "dev" for local runs.
@@ -98,6 +99,10 @@ if (llmProviders.failure) {
 }
 const providerNames = new Set(llmProviders.providers.keys());
 const llmClients = createLlmClients(llmRegistry, process.env);
+// Tools are offered to every session's model; each self-gates on its own
+// precondition (web_search on TAVILY_API_KEY), so an env without those keys
+// yields an empty set and sessions run as plain chat.
+const sessionTools = createSessionTools(process.env);
 
 const workflowsDir = join(cwd, "workflows");
 const initial = await loadWorkflows(workflowsDir, cwd, providerNames);
@@ -108,7 +113,16 @@ for (const failure of initial.failures) {
 
 const watcher = watchWorkflows(workflowsDir, cwd, registry, initial, { bus, providerNames });
 
-const app = createApp({ db, registry, cwd, bus, cancelRegistry, llmClients, version: VERSION });
+const app = createApp({
+  db,
+  registry,
+  cwd,
+  bus,
+  cancelRegistry,
+  llmClients,
+  sessionTools,
+  version: VERSION,
+});
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
 
