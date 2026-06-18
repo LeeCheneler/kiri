@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Button } from "../design-system/actions/button.tsx";
+import { Checkbox } from "../design-system/actions/checkbox.tsx";
 import { Combobox } from "../design-system/actions/combobox.tsx";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
 import { Select } from "../design-system/actions/select.tsx";
 import { TextInput } from "../design-system/actions/text-input.tsx";
 import { Textarea } from "../design-system/actions/textarea.tsx";
+import { ToggleChip } from "../design-system/actions/toggle-chip.tsx";
 import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.tsx";
 import { Code, CodeBlock } from "../design-system/content/code.tsx";
 import { Disclosure } from "../design-system/content/disclosure.tsx";
@@ -158,6 +160,51 @@ function ComboboxDemo() {
   );
 }
 
+// Interactive specimen for the Checkbox — a small set of independently
+// toggleable options, including a disabled one, each owning its checked state.
+function CheckboxDemo() {
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({
+    recipes: true,
+    architecture: false,
+  });
+  const toggle = (name: string) => (checked: boolean) =>
+    setEnabled((prev) => ({ ...prev, [name]: checked }));
+  return (
+    <div className="flex flex-col gap-2">
+      <Checkbox label="recipes" checked={enabled.recipes} onChange={toggle("recipes")} />
+      <Checkbox
+        label="architecture"
+        checked={enabled.architecture}
+        onChange={toggle("architecture")}
+      />
+      <Checkbox label="archived (locked)" checked={false} onChange={toggle("archived")} disabled />
+    </div>
+  );
+}
+
+// Interactive specimen for the ToggleChip — a wrap-flow group of independently
+// toggleable chips, including a disabled one, each owning its checked state.
+function ToggleChipDemo() {
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({
+    drinks: true,
+    science: false,
+  });
+  const toggle = (name: string) => (checked: boolean) =>
+    setEnabled((prev) => ({ ...prev, [name]: checked }));
+  return (
+    <div className="flex flex-wrap gap-2">
+      <ToggleChip label="drinks" checked={enabled.drinks} onChange={toggle("drinks")} />
+      <ToggleChip label="science" checked={enabled.science} onChange={toggle("science")} />
+      <ToggleChip
+        label="archived (locked)"
+        checked={false}
+        onChange={toggle("archived")}
+        disabled
+      />
+    </div>
+  );
+}
+
 // Interactive specimen for the TextInput control, which owns its controlled value.
 function TextInputDemo() {
   const [topic, setTopic] = useState("");
@@ -196,15 +243,19 @@ function TextareaDemo() {
   );
 }
 
-// Interactive specimen for the Modal — a button opens a confirm dialog.
+// Interactive specimen for the Modal — a button per size opens a confirm dialog,
+// so the `md` (default) and `lg` widths can be compared side by side.
 function ModalDemo() {
-  const [open, setOpen] = useState(false);
-  const close = () => setOpen(false);
+  const [size, setSize] = useState<"md" | "lg" | null>(null);
+  const close = () => setSize(null);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>open dialog</Button>
-      {open && (
-        <Modal title="Discard draft?" onClose={close}>
+      <div className="flex gap-4">
+        <Button onClick={() => setSize("md")}>open dialog (md)</Button>
+        <Button onClick={() => setSize("lg")}>open dialog (lg)</Button>
+      </div>
+      {size && (
+        <Modal title={`Discard draft? (${size})`} onClose={close} size={size}>
           <Prose>
             <p>This can't be undone — the draft and its unsaved edits will be cleared.</p>
           </Prose>
@@ -445,8 +496,9 @@ export function DesignSystemContent() {
                 close, all natively. It is open while mounted: render it to open it, and let{" "}
                 <Code>onClose</Code> (fired by Escape or a backdrop click) tell the parent to
                 unmount. <Code>title</Code> labels the dialog; the body is the children, so the
-                footer actions are yours to compose. Reserve it for a focused decision or a short
-                form — anything longer belongs on its own page.
+                footer actions are yours to compose, and <Code>size</Code> (<Code>md</Code> default,{" "}
+                <Code>lg</Code>) widens it for a richer body. Reserve it for a focused decision or a
+                short form — anything longer belongs on its own page.
               </p>
             </Prose>
             <div className="mt-5">
@@ -1172,6 +1224,53 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <TextareaDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Checkbox</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Checkbox</span> · design-system/actions/checkbox.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A single on/off toggle with an inline <Code>label</Code> — a styled wrapper over the
+                native checkbox, driven by <Code>checked</Code> / <Code>onChange</Code> (which
+                receives the next boolean). The whole label is the click target, and{" "}
+                <Code>disabled</Code> dims the row and blocks it. It stays native, so the checkbox
+                role and keyboard toggle come for free. Reach for it to switch an independent option
+                on or off; to choose one value from a set use <Code>Select</Code> or{" "}
+                <Code>Combobox</Code>, and stack several checkboxes for a multi-select.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <CheckboxDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">ToggleChip</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">ToggleChip</span> ·
+              design-system/actions/toggle-chip.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A pill-shaped on/off toggle — a <Code>Checkbox</Code> rendered as a chip, driven by
+                the same <Code>checked</Code> / <Code>onChange</Code> contract. The whole pill is
+                the click target and fills with the accent when on; <Code>disabled</Code> dims and
+                blocks it. It wraps a visually-hidden native checkbox, so the role and keyboard
+                toggle come for free. Reach for it for compact multi-select that wraps inline —
+                filter tags and facets — laid out in a <Code>flex flex-wrap</Code>; for a vertical
+                list of options use <Code>Checkbox</Code>.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <ToggleChipDemo />
               </Card>
             </div>
           </article>
