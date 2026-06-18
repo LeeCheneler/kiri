@@ -15,8 +15,8 @@ export function createSessionTools(env: Record<string, string | undefined>): Too
   return tools;
 }
 
+export { TAVILY_API_KEY_ENV } from "./tavily.ts";
 export {
-  TAVILY_API_KEY_ENV,
   type WebSearchOutput,
   type WebSearchResult,
   searchTavily,
