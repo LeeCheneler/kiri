@@ -42,6 +42,19 @@ function messageHasImage(message: UIMessage): boolean {
   return message.parts.some((part) => part.type === "file" && part.mediaType.startsWith("image/"));
 }
 
+// How close to the transcript foot still counts as "pinned" to it. A little
+// slack absorbs sub-pixel rounding so a user sitting at the bottom isn't read as
+// having scrolled away.
+const PIN_SLACK_PX = 64;
+
+// Whether the page is scrolled to (near) the foot of the transcript. We follow a
+// streaming reply only while pinned; once the user scrolls up past the slack
+// they've taken over, so we leave their position be until the next turn.
+function isPinnedToBottom(): boolean {
+  const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
+  return scrollHeight - scrollTop - clientHeight <= PIN_SLACK_PX;
+}
+
 /**
  * Session chat route content. Loads the session (its model, running token total,
  * and persisted transcript), then hands off to the live chat once it has
@@ -129,14 +142,30 @@ function Chat({ detail }: { detail: SessionDetail }) {
     return lastUser ? messageHasImage(lastUser) : false;
   }, [failed, messages]);
 
-  // Keep the foot of the transcript in view: on landing (the seeded history),
-  // as messages are added, and through the assistant's streamed reply — `useChat`
-  // hands back a fresh `messages` array on each delta, so this re-pins the whole
-  // turn. The page itself scrolls behind the sticky composer, so we drive the
-  // window; a layout effect lands at the bottom without a flash of the top first.
+  // Whether the transcript foot is "pinned" to the viewport bottom — we only
+  // follow new content while it is. Starts pinned so landing snaps to the latest
+  // message; the user un-pins by scrolling up mid-stream, and `send` re-pins for
+  // the next turn.
+  const pinnedToBottom = useRef(true);
+  useEffect(() => {
+    const onScroll = () => {
+      pinnedToBottom.current = isPinnedToBottom();
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Keep the foot of the transcript in view while pinned: on landing (the seeded
+  // history), as messages are added, and through the assistant's streamed reply —
+  // `useChat` hands back a fresh `messages` array on each delta, so this re-pins
+  // the whole turn. The page scrolls behind the sticky composer, so we drive the
+  // window. A layout effect lands at the foot before paint (no flash of the top),
+  // and `behavior: "instant"` opts out of the document's smooth scroll-behavior:
+  // it snaps rather than animating, and so fires no intermediate scroll events
+  // that would read as the user scrolling away.
   useLayoutEffect(() => {
-    if (messages.length === 0) return;
-    window.scrollTo({ top: document.documentElement.scrollHeight });
+    if (messages.length === 0 || !pinnedToBottom.current) return;
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
   }, [messages]);
 
   // Focus the composer on landing so a message can be typed straight away.
@@ -196,6 +225,9 @@ function Chat({ detail }: { detail: SessionDetail }) {
       ...attachments.map((image) => image.part),
       ...(text === "" ? [] : [{ type: "text" as const, text }]),
     ];
+    // A new turn pulls the transcript back to the foot, even if the user had
+    // scrolled up to read the previous reply.
+    pinnedToBottom.current = true;
     void sendMessage({ parts });
     clearDraft();
     setAttachments([]);

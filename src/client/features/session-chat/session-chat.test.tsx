@@ -476,4 +476,76 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText(/boom/i)).toBeDefined();
     expect(screen.queryByText(/switch to a multimodal model/i)).toBeNull();
   });
+
+  it("snaps to the foot instantly on landing, not a smooth scroll", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([message("m1", "assistant", "Latest reply")])),
+      ),
+    );
+    const scrollCalls: ScrollToOptions[] = [];
+    const originalScrollTo = window.scrollTo;
+    window.scrollTo = ((options: ScrollToOptions) => {
+      scrollCalls.push(options);
+    }) as typeof window.scrollTo;
+
+    try {
+      renderChat();
+      await screen.findByText("Latest reply");
+
+      // Landing jumps straight to the latest message: an instant scroll that
+      // opts out of the document's smooth scroll-behavior.
+      expect(scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+      expect(scrollCalls.some((o) => o.behavior === "smooth")).toBe(false);
+    } finally {
+      window.scrollTo = originalScrollTo;
+    }
+  });
+
+  it("stops following the transcript once the user scrolls up", async () => {
+    let detail = sessionDetail([message("m1", "user", "Question")], { status: "running" });
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(detail)));
+    const { queryClient } = renderChat();
+
+    await screen.findByText(/working/i);
+
+    // happy-dom has no layout, so report the page as scrolled well above the foot
+    // before firing the scroll that un-pins us.
+    const metrics: Record<string, number> = { scrollTop: 0, scrollHeight: 5000, clientHeight: 800 };
+    const originalDescriptors = Object.keys(metrics).map(
+      (key) => [key, Object.getOwnPropertyDescriptor(document.documentElement, key)] as const,
+    );
+    for (const [key, value] of Object.entries(metrics)) {
+      Object.defineProperty(document.documentElement, key, {
+        configurable: true,
+        get: () => value,
+      });
+    }
+    const scrollCalls: ScrollToOptions[] = [];
+    const originalScrollTo = window.scrollTo;
+    window.scrollTo = ((options: ScrollToOptions) => {
+      scrollCalls.push(options);
+    }) as typeof window.scrollTo;
+
+    try {
+      window.dispatchEvent(new Event("scroll"));
+
+      // The turn settles off-screen and folds in. Because the user scrolled up,
+      // the new message must not yank the page back to the foot.
+      detail = sessionDetail(
+        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+        { status: "idle" },
+      );
+      await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+      await screen.findByText("An answer");
+
+      expect(scrollCalls).toHaveLength(0);
+    } finally {
+      window.scrollTo = originalScrollTo;
+      for (const [key, descriptor] of originalDescriptors) {
+        if (descriptor) Object.defineProperty(document.documentElement, key, descriptor);
+        else delete (document.documentElement as unknown as Record<string, unknown>)[key];
+      }
+    }
+  });
 });
