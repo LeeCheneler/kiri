@@ -3,7 +3,7 @@ import { join, resolve, sep } from "node:path";
 import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
-export const AGENT_INSTRUCTIONS_FILENAME = "agent.md";
+export const INSTRUCTIONS_FILENAME = "kiri.md";
 
 /** Workspace directory holding optional persona overlays — one markdown file per persona. */
 export const PERSONAS_DIRNAME = "personas";
@@ -32,7 +32,7 @@ function buildChartGuidance(): string {
 // session runs in, and the rendering capabilities (markdown, charts) of the
 // surface its replies land in. Built per turn rather than kept as a constant
 // because it states the live date; the session's available tools join it when
-// the tools pillar lands. This layer is not user-editable — `agent.md` (and,
+// the tools pillar lands. This layer is not user-editable — `kiri.md` (and,
 // later, personas) customise on top of it.
 function buildCorePrompt(now: Date): string {
   const today = now.toISOString().slice(0, 10);
@@ -90,9 +90,9 @@ export function loadPersona(cwd: string, name: string): string | null {
 }
 
 export interface BuildSystemPromptOptions {
-  /** Workspace root; `agent.md` and `personas/` resolve against it. */
+  /** Workspace root; `kiri.md` and `personas/` resolve against it. */
   cwd: string;
-  /** Name of the persona to overlay after `agent.md`, or null/undefined for none. */
+  /** Name of the persona to overlay after `kiri.md`, or null/undefined for none. */
   persona?: string | null;
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
@@ -100,7 +100,7 @@ export interface BuildSystemPromptOptions {
 
 /**
  * Compose a session's system prompt: the immutable kiri core layer, then the
- * workspace's `agent.md` standing instructions when present, then the attached
+ * workspace's `kiri.md` standing instructions when present, then the attached
  * persona's instructions when one is named and found. Always returns a
  * non-empty string — the core layer is always included. Every layer is read
  * fresh from disk each turn so edits take effect on the next turn, with git as
@@ -108,7 +108,7 @@ export interface BuildSystemPromptOptions {
  */
 export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   const sections = [buildCorePrompt(opts.now ?? new Date())];
-  const instructions = readInstructions(join(opts.cwd, AGENT_INSTRUCTIONS_FILENAME));
+  const instructions = readInstructions(join(opts.cwd, INSTRUCTIONS_FILENAME));
   if (instructions !== null) sections.push(instructions);
   if (opts.persona) {
     const persona = loadPersona(opts.cwd, opts.persona);
@@ -119,7 +119,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
 
 /**
  * Build the per-turn system-prompt resolver for a workspace. The returned
- * function composes the prompt for a session — core, `agent.md`, then the
+ * function composes the prompt for a session — core, `kiri.md`, then the
  * session's attached persona — and is handed to `runTurn`, so a turn streams
  * with its system prompt in place.
  */

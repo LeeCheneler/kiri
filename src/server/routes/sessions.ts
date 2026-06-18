@@ -24,7 +24,7 @@ import { onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
-  /** Workspace root; the session system prompt reads `agent.md` (and personas) against it. */
+  /** Workspace root; the session system prompt reads `kiri.md` (and personas) against it. */
   cwd: string;
   /**
    * Required: every session resolves and streams turns against a model, and
@@ -80,7 +80,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const { db, cwd, llmClients, bus, cancelRegistry } = deps;
   const app = new Hono();
 
-  // Composes each turn's system prompt (kiri core + agent.md + persona) from the
+  // Composes each turn's system prompt (kiri core + kiri.md + persona) from the
   // session and workspace files. Built once; reads the files fresh per turn.
   const buildSystemPrompt = createSystemPromptBuilder(cwd);
 
