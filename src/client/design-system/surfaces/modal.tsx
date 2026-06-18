@@ -1,23 +1,34 @@
 import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 
+// Caps the dialog's width. `md` is the default confirm/prompt width; `lg` suits
+// a richer body — a multi-section picker or a form — that the narrow column
+// would cramp.
+const WIDTH_CLASS: Record<"md" | "lg", string> = {
+  md: "max-w-md",
+  lg: "max-w-2xl",
+};
+
 /**
  * Modal dialog built on the native `<dialog>` element. Open while it is
  * mounted — render it to open it, and let `onClose` tell the parent to
  * unmount; the browser then supplies the inert background, focus trap, Escape
  * handling, and focus-restore to the trigger. `title` becomes the dialog
  * heading and its accessible label; the body is the children, so callers
- * compose any footer actions themselves. It owns the dialog frame, the centred
- * overlay, and its padding — nothing outside it.
+ * compose any footer actions themselves. `size` caps the width (`md` default,
+ * `lg` for a richer body). It owns the dialog frame, the centred overlay, and
+ * its padding — nothing outside it.
  */
 export function Modal({
   title,
   onClose,
   children,
+  size = "md",
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  size?: "md" | "lg";
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();
@@ -58,7 +69,7 @@ export function Modal({
       // dialog's content width exactly, the scale-in entrance tips that axis into
       // "scrollable" for a few sub-pixel frames and macOS flashes an overlay
       // scrollbar. Clipping x removes it; y stays scrollable for tall content.
-      className="m-auto w-full max-w-md overflow-x-hidden animate-[modal-in_180ms_ease-out] border border-rule bg-paper text-left text-ink shadow-xl backdrop:bg-canvas/80"
+      className={`m-auto w-full ${WIDTH_CLASS[size]} overflow-x-hidden animate-[modal-in_180ms_ease-out] border border-rule bg-paper text-left text-ink shadow-xl backdrop:bg-canvas/80`}
     >
       <div className="p-6">
         <h2 id={headingId} className="font-display text-2xl text-ink leading-tight">

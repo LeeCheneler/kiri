@@ -24,7 +24,7 @@ describe("<DesignSystemPage>", () => {
     await screen.findByRole("figure");
   });
 
-  it("opens and closes the Modal demo", async () => {
+  it("opens and closes the Modal demo at each size", async () => {
     const user = userEvent.setup();
     const { hook } = memoryLocation({ path: "/dev/design-system" });
     render(
@@ -34,9 +34,13 @@ describe("<DesignSystemPage>", () => {
     );
     await screen.findByRole("figure");
 
-    await user.click(screen.getByRole("button", { name: /open dialog/i }));
+    await user.click(screen.getByRole("button", { name: "open dialog (md)" }));
     expect(screen.getByRole("dialog", { name: /discard draft/i })).toBeDefined();
+    await user.click(screen.getByRole("button", { name: /discard/i }));
+    expect(screen.queryByRole("dialog")).toBeNull();
 
+    await user.click(screen.getByRole("button", { name: "open dialog (lg)" }));
+    expect(screen.getByRole("dialog", { name: /discard draft/i })).toBeDefined();
     await user.click(screen.getByRole("button", { name: /discard/i }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -75,5 +79,21 @@ describe("<DesignSystemPage>", () => {
     expect(architecture.checked).toBe(false);
     await user.click(architecture);
     expect(architecture.checked).toBe(true);
+  });
+
+  it("toggles a chip in the ToggleChip demo", async () => {
+    const user = userEvent.setup();
+    const { hook } = memoryLocation({ path: "/dev/design-system" });
+    render(
+      <Router hook={hook}>
+        <DesignSystemContent />
+      </Router>,
+    );
+    await screen.findByRole("figure");
+
+    const science = screen.getByRole("checkbox", { name: "science" }) as HTMLInputElement;
+    expect(science.checked).toBe(false);
+    await user.click(science);
+    expect(science.checked).toBe(true);
   });
 });
