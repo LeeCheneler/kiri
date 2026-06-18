@@ -14,7 +14,7 @@ export {
   updateSessionPersona,
 } from "./store.ts";
 export {
-  AGENT_INSTRUCTIONS_FILENAME,
+  INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
   type BuildSystemPromptOptions,
   buildSystemPrompt,

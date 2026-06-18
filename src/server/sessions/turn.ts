@@ -118,7 +118,7 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   const modelMessages = await convertToModelMessages(history);
 
   // Compose the turn's system prompt — the kiri core layer, the workspace's
-  // `agent.md`, and any persona attached to the session — read fresh from disk
+  // `kiri.md`, and any persona attached to the session — read fresh from disk
   // each turn. Undefined when no builder is wired (a bare chat with no system
   // prompt), which leaves `streamText` to send the messages alone.
   const system = buildSystemPrompt?.(session);

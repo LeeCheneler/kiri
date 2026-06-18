@@ -14,7 +14,7 @@ Kiri is a single local app for running your personal scripts and AI workflows. Y
 - **Runs become launch pads.** A run can surface one-click follow-up workflows on its detail page — an aggregator that lists your open PRs turns each one into a pre-filled "review this PR" button. No global queue, no inbox: the proposals live on the run that produced them.
 - **Long-form output, rendered.** Workflows can publish markdown articles — briefings, code reviews, digests — with inline charts, surfaced in the activity feed and on each run's page.
 - **Local-first and git-based.** Workflows are YAML in your own git repo; runs execute on your machine while the app is open — no daemons, no cloud, no multi-tenancy. AI steps either call a model provider directly (a first-party `llm:` step) or spawn an agentic CLI like Claude Code — your choice, on your own keys or subscription.
-- **Two pillars, one feed.** Alongside workflows, kiri runs **agentic chat sessions** against your configured models — multi-turn and streaming, with a layered system prompt you shape from a workspace `agent.md` (standing instructions) and optional `personas/` (role overlays you attach per session). Sessions stream into the same activity feed.
+- **Two pillars, one feed.** Alongside workflows, kiri runs **agentic chat sessions** against your configured models — multi-turn and streaming, with a layered system prompt you shape from a workspace `kiri.md` (standing instructions) and optional `personas/` (role overlays you attach per session). Sessions stream into the same activity feed.
 
 ## Install
 

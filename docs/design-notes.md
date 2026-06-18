@@ -284,17 +284,17 @@ The second pillar. Where a workflow is a fixed pipeline, an **agentic session** 
 
 The pillar holds the **app-active and single-user invariants** unchanged: a session runs while the app is open, in-process, foreground, user-driven, and cancellable. A "running" session is an in-flight turn, exactly like a "running" run — there is no background agent, no overnight loop, no daemon turning the crank while the user is away.
 
-### System prompt: core, `agent.md`, and personas
+### System prompt: core, `kiri.md`, and personas
 
 A session's behaviour is shaped by a layered system prompt, composed fresh on every turn from up to three layers:
 
 - **The kiri core layer** — immutable, authored by kiri itself. States the model's identity and the environment it runs in (a local-first, single-user tool; an interactive multi-turn chat; the current date), that replies render as GitHub-flavoured markdown with inline Vega-Lite `chart` blocks (the same renderer the published articles use), and that quoted file/web/external text is untrusted data, not instructions. Composed per turn rather than held as a constant because it states the live date — and, in time, the session's available tools.
-- **`agent.md`** — an optional workspace-root markdown file of standing instructions, applied to every session when present: the user's always-on "how I want sessions to behave."
-- **A persona** — an optional `personas/<name>.md` overlay, attached per session and injected after `agent.md`, for putting a session into a specific role. Not applied by default.
+- **`kiri.md`** — an optional workspace-root markdown file of standing instructions, applied to every session when present: the user's always-on "how I want sessions to behave."
+- **A persona** — an optional `personas/<name>.md` overlay, attached per session and injected after `kiri.md`, for putting a session into a specific role. Not applied by default.
 
-Layers compose in order — **core → `agent.md` → persona** — and all three are read fresh from disk each turn, so an edit takes effect on the next turn with git as the source of truth; nothing is snapshotted. A missing `agent.md` and no persona is a first-class default: the session runs on the core layer alone, a plain chat.
+Layers compose in order — **core → `kiri.md` → persona** — and all three are read fresh from disk each turn, so an edit takes effect on the next turn with git as the source of truth; nothing is snapshotted. A missing `kiri.md` and no persona is a first-class default: the session runs on the core layer alone, a plain chat.
 
-This deliberately replaces an earlier `agents/*.yaml` registry idea (a pre-baked definition bundling system prompt, model, tools, and params, snapshotted onto the session). For a single-user tool, one always-on `agent.md` plus opt-in personas covers role-switching without a registry, a watcher, or a per-session config snapshot. The model is chosen at session creation and swappable mid-conversation; the persona is likewise attached and swappable from the session's aside — a nullable `persona` column on the `sessions` row records the selection, the same posture as `model` — applying from the next turn.
+This deliberately replaces an earlier `agents/*.yaml` registry idea (a pre-baked definition bundling system prompt, model, tools, and params, snapshotted onto the session). For a single-user tool, one always-on `kiri.md` plus opt-in personas covers role-switching without a registry, a watcher, or a per-session config snapshot. The model is chosen at session creation and swappable mid-conversation; the persona is likewise attached and swappable from the session's aside — a nullable `persona` column on the `sessions` row records the selection, the same posture as `model` — applying from the next turn.
 
 ### Storage
 
@@ -477,7 +477,7 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 14. **Recommendations.** Workflows emit follow-up workflow invocations via a `KIRI_RECOMMENDATIONS_FILE` file channel. Stored as rows linked to the producing run, surfaced on the run detail page as a "Recommended" section beneath the run's phases, and triggered via the standard invoke modal with inputs pre-filled.
 15. **First-party LLM steps.** An `llm:` step kind that runs a model completion in-process against a provider declared in `llm-providers.yaml` (`provider:model` ids, `{ env: <NAME> }` API-key refs). Inline or file prompts with the bundles' `{{VAR}}` templating — `{{KIRI_INPUT}}` for pipeline steps, the inlined `{{KIRI_RUN_CONTEXT}}` for publish/summarise — token usage on the envelope, and a zero-config `llm:` summariser. The bundle-free path for completion-shaped steps; the model, prompt source, and token counts render across the run timeline and workflow schema surfaces.
 16. **Agentic sessions.** The second pillar (see *Agentic sessions*) — multi-turn agentic chat against a model declared in `llm-providers.yaml`: streaming turns, cancel and resume, per-session token totals, one-click session creation, and a mid-conversation model swap. Sessions join workflow runs in the blended activity feed.
-17. **Session system prompt.** A layered system prompt for sessions (see *Agentic sessions → System prompt*): an immutable kiri core layer (identity, environment, markdown + chart rendering, untrusted-content framing), a workspace-root `agent.md` of standing instructions, and optional `personas/<name>.md` overlays attached per session and swappable from the session aside. Composed fresh each turn (core → `agent.md` → persona); the attached persona rides a `persona` column on the `sessions` row.
+17. **Session system prompt.** A layered system prompt for sessions (see *Agentic sessions → System prompt*): an immutable kiri core layer (identity, environment, markdown + chart rendering, untrusted-content framing), a workspace-root `kiri.md` of standing instructions, and optional `personas/<name>.md` overlays attached per session and swappable from the session aside. Composed fresh each turn (core → `kiri.md` → persona); the attached persona rides a `persona` column on the `sessions` row.
 
 ## Open questions
 

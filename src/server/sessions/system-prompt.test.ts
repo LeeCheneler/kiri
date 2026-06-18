@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  AGENT_INSTRUCTIONS_FILENAME,
+  INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
   buildSystemPrompt,
   listPersonas,
@@ -46,8 +46,8 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("remote data");
   });
 
-  it("appends agent.md instructions after the core layer", () => {
-    writeFileSync(join(dir, AGENT_INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
+  it("appends kiri.md instructions after the core layer", () => {
+    writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
 
     expect(prompt).toContain("running inside kiri");
@@ -58,31 +58,31 @@ describe("buildSystemPrompt", () => {
     );
   });
 
-  it("treats an unreadable agent.md as absent", () => {
-    // A directory at the agent.md path makes readFileSync throw (EISDIR); the
+  it("treats an unreadable kiri.md as absent", () => {
+    // A directory at the kiri.md path makes readFileSync throw (EISDIR); the
     // read-error path degrades to "no instructions" rather than failing.
-    mkdirSync(join(dir, AGENT_INSTRUCTIONS_FILENAME));
+    mkdirSync(join(dir, INSTRUCTIONS_FILENAME));
     const withUnreadable = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
     const withNone = buildSystemPrompt({ cwd: join(dir, "absent"), now: FIXED_NOW });
     expect(withUnreadable).toBe(withNone);
   });
 
-  it("returns just the core layer when agent.md is absent", () => {
+  it("returns just the core layer when kiri.md is absent", () => {
     const withFile = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
     expect(withFile).toContain("running inside kiri");
     expect(withFile).not.toContain("Always answer");
   });
 
-  it("ignores an empty or whitespace-only agent.md", () => {
-    writeFileSync(join(dir, AGENT_INSTRUCTIONS_FILENAME), "   \n\t\n");
+  it("ignores an empty or whitespace-only kiri.md", () => {
+    writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "   \n\t\n");
     const withWhitespace = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
     // Identical to the no-file result: no trailing separator, no empty section.
     const withoutFile = buildSystemPrompt({ cwd: join(dir, "absent"), now: FIXED_NOW });
     expect(withWhitespace).toBe(withoutFile);
   });
 
-  it("appends the attached persona after agent.md", () => {
-    writeFileSync(join(dir, AGENT_INSTRUCTIONS_FILENAME), "Always answer in British English.");
+  it("appends the attached persona after kiri.md", () => {
+    writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.");
     writePersona(dir, "code-reviewer", "You are a meticulous code reviewer.");
 
     const prompt = buildSystemPrompt({ cwd: dir, persona: "code-reviewer", now: FIXED_NOW });
@@ -90,7 +90,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("running inside kiri");
     expect(prompt).toContain("Always answer in British English.");
     expect(prompt).toContain("You are a meticulous code reviewer.");
-    // Composition order: core → agent.md → persona.
+    // Composition order: core → kiri.md → persona.
     expect(prompt.indexOf("running inside kiri")).toBeLessThan(
       prompt.indexOf("Always answer in British English."),
     );
@@ -99,7 +99,7 @@ describe("buildSystemPrompt", () => {
     );
   });
 
-  it("overlays a persona even when agent.md is absent", () => {
+  it("overlays a persona even when kiri.md is absent", () => {
     writePersona(dir, "poet", "You speak only in verse.");
     const prompt = buildSystemPrompt({ cwd: dir, persona: "poet", now: FIXED_NOW });
     expect(prompt).toContain("running inside kiri");

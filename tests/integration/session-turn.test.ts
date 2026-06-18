@@ -96,8 +96,8 @@ describe("session turn streaming", () => {
     expect(after).toMatchObject({ inputTokens: 12, outputTokens: 8, totalTokens: 20 });
   });
 
-  it("composes the layered system prompt — core, agent.md, persona — and sends it to the model", async () => {
-    writeFileSync(join(cwd, "agent.md"), "Always answer in British English.");
+  it("composes the layered system prompt — core, kiri.md, persona — and sends it to the model", async () => {
+    writeFileSync(join(cwd, "kiri.md"), "Always answer in British English.");
     mkdirSync(join(cwd, "personas"), { recursive: true });
     writeFileSync(join(cwd, "personas", "pirate.md"), "Talk like a pirate.");
     const session = updateSessionPersona(db, createSession(db, "fake:echo").id, "pirate");
@@ -111,7 +111,7 @@ describe("session turn streaming", () => {
     const sent = fake.requests[fake.requests.length - 1];
     const system = sent?.messages?.find((m) => m.role === "system");
     const systemText = typeof system?.content === "string" ? system.content : "";
-    // All three layers reached the model, in order: core → agent.md → persona.
+    // All three layers reached the model, in order: core → kiri.md → persona.
     expect(systemText).toContain("running inside kiri");
     expect(systemText).toContain("Always answer in British English.");
     expect(systemText).toContain("Talk like a pirate.");
