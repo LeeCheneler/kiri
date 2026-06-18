@@ -320,6 +320,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
           onChange={setDraft}
           placeholder="Send a message…  (Enter to send, Shift + Enter for newline)"
           disabled={busy}
+          maxRows={14}
           onPaste={onPaste}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {

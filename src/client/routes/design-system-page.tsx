@@ -185,7 +185,13 @@ function TextareaDemo() {
         value={draft}
         onChange={setDraft}
       />
-      <Textarea value={draft} onChange={setDraft} placeholder="Bare, unlabelled" rows={2} />
+      <Textarea
+        value={draft}
+        onChange={setDraft}
+        placeholder="Bare, unlabelled — auto-grows up to four rows, then scrolls"
+        rows={2}
+        maxRows={4}
+      />
     </div>
   );
 }
@@ -1156,9 +1162,11 @@ export function DesignSystemContent() {
                 The multi-line counterpart to the text input — a styled wrapper over the native{" "}
                 <Code>textarea</Code>, controlled with <Code>value</Code> / <Code>onChange</Code>{" "}
                 and sharing the same field lockup and assistive-tech wiring. Pass <Code>rows</Code>{" "}
-                to hint the initial height; it stays vertically resizable. Reach for it over the
-                text input whenever the value runs long — a chat message, a prompt, freeform notes.
-                Omit the label for the bare control when the caller owns the labelling.
+                to set the resting height; it stays vertically resizable, or pass{" "}
+                <Code>maxRows</Code> to make it auto-grow with its content up to that many rows —
+                then scroll — with the grip removed. Reach for it over the text input whenever the
+                value runs long — a chat message, a prompt, freeform notes. Omit the label for the
+                bare control when the caller owns the labelling.
               </p>
             </Prose>
             <div className="mt-5">
