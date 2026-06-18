@@ -58,4 +58,22 @@ describe("<DesignSystemPage>", () => {
     await user.click(screen.getByRole("dialog"));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("toggles a checkbox in the Checkbox demo", async () => {
+    const user = userEvent.setup();
+    const { hook } = memoryLocation({ path: "/dev/design-system" });
+    render(
+      <Router hook={hook}>
+        <DesignSystemContent />
+      </Router>,
+    );
+    await screen.findByRole("figure");
+
+    const architecture = screen.getByRole("checkbox", {
+      name: "architecture",
+    }) as HTMLInputElement;
+    expect(architecture.checked).toBe(false);
+    await user.click(architecture);
+    expect(architecture.checked).toBe(true);
+  });
 });

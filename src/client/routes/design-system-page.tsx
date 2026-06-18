@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "../design-system/actions/button.tsx";
+import { Checkbox } from "../design-system/actions/checkbox.tsx";
 import { Combobox } from "../design-system/actions/combobox.tsx";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
 import { Select } from "../design-system/actions/select.tsx";
@@ -155,6 +156,28 @@ function ComboboxDemo() {
       value={model}
       onChange={setModel}
     />
+  );
+}
+
+// Interactive specimen for the Checkbox — a small set of independently
+// toggleable options, including a disabled one, each owning its checked state.
+function CheckboxDemo() {
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({
+    recipes: true,
+    architecture: false,
+  });
+  const toggle = (name: string) => (checked: boolean) =>
+    setEnabled((prev) => ({ ...prev, [name]: checked }));
+  return (
+    <div className="flex flex-col gap-2">
+      <Checkbox label="recipes" checked={enabled.recipes} onChange={toggle("recipes")} />
+      <Checkbox
+        label="architecture"
+        checked={enabled.architecture}
+        onChange={toggle("architecture")}
+      />
+      <Checkbox label="archived (locked)" checked={false} onChange={toggle("archived")} disabled />
+    </div>
   );
 }
 
@@ -1172,6 +1195,29 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <TextareaDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Checkbox</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Checkbox</span> · design-system/actions/checkbox.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A single on/off toggle with an inline <Code>label</Code> — a styled wrapper over the
+                native checkbox, driven by <Code>checked</Code> / <Code>onChange</Code> (which
+                receives the next boolean). The whole label is the click target, and{" "}
+                <Code>disabled</Code> dims the row and blocks it. It stays native, so the checkbox
+                role and keyboard toggle come for free. Reach for it to switch an independent option
+                on or off; to choose one value from a set use <Code>Select</Code> or{" "}
+                <Code>Combobox</Code>, and stack several checkboxes for a multi-select.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <CheckboxDemo />
               </Card>
             </div>
           </article>
