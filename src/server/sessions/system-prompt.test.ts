@@ -66,6 +66,12 @@ describe("buildSystemPrompt", () => {
     expect(prompt.indexOf("web_search")).toBeLessThan(prompt.indexOf("```chart"));
   });
 
+  it("adds web_extract guidance when the tool is active", () => {
+    const prompt = buildSystemPrompt({ cwd: dir, tools: ["web_extract"], now: FIXED_NOW });
+    expect(prompt).toContain("web_extract");
+    expect(prompt).toContain("read the full text");
+  });
+
   it("gives generic tool guidance without web-search advice for other tools", () => {
     const prompt = buildSystemPrompt({ cwd: dir, tools: ["read_file"], now: FIXED_NOW });
     expect(prompt).toContain("You have tools available");

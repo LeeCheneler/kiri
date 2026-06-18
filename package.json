@@ -26,6 +26,7 @@
     "@ai-sdk/react": "^3.0.207",
     "@hono/zod-validator": "^0.8.0",
     "@tanstack/react-query": "^5.100.14",
+    "@tavily/core": "^0.7.6",
     "ai": "^6.0.203",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.0",
