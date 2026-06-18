@@ -51,8 +51,10 @@ const isWebSearchOutput = (output: unknown): output is WebSearchOutput =>
 const isHttpUrl = (url: string): boolean => /^https?:\/\//i.test(url);
 
 function WebSearchResults({ output }: { output: WebSearchOutput }) {
+  // break-words cascades (overflow-wrap is inherited) so long URLs and unbroken
+  // content wrap within the box instead of spilling out of it horizontally.
   return (
-    <div className="space-y-3 font-mono text-sm">
+    <div className="space-y-3 break-words font-mono text-sm">
       {output.answer ? <p className="whitespace-pre-wrap text-ink">{output.answer}</p> : null}
       <ul className="space-y-2">
         {output.results.map((result) => (
@@ -116,7 +118,11 @@ export function ToolInvocation({ part }: { part: ToolPart }) {
           </span>
         }
       >
-        <ToolPanel part={part} />
+        {/* Cap the expanded result at ~14 lines (of text-sm) and scroll past
+            that, so a long page or result set stays contained in the box. */}
+        <div className="max-h-[17.5rem] overflow-y-auto">
+          <ToolPanel part={part} />
+        </div>
       </Disclosure>
     </div>
   );
