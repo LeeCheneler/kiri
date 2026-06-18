@@ -46,6 +46,32 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("remote data");
   });
 
+  it("tells the model when not to render a chart", () => {
+    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    expect(prompt).toContain("only when a visualisation genuinely helps");
+    expect(prompt).toContain("don't chart");
+  });
+
+  it("omits tool guidance when no tools are active", () => {
+    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    expect(prompt).not.toContain("You have tools available");
+    expect(prompt).not.toContain("web_search");
+  });
+
+  it("adds web_search guidance, before the chart guidance, when the tool is active", () => {
+    const prompt = buildSystemPrompt({ cwd: dir, tools: ["web_search"], now: FIXED_NOW });
+    expect(prompt).toContain("web_search");
+    expect(prompt).toContain("current events");
+    // Tool guidance lives in the core layer, ahead of the chart guidance.
+    expect(prompt.indexOf("web_search")).toBeLessThan(prompt.indexOf("```chart"));
+  });
+
+  it("gives generic tool guidance without web-search advice for other tools", () => {
+    const prompt = buildSystemPrompt({ cwd: dir, tools: ["read_file"], now: FIXED_NOW });
+    expect(prompt).toContain("You have tools available");
+    expect(prompt).not.toContain("web_search");
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });

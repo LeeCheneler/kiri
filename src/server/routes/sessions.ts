@@ -87,8 +87,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const app = new Hono();
 
   // Composes each turn's system prompt (kiri core + kiri.md + persona) from the
-  // session and workspace files. Built once; reads the files fresh per turn.
-  const buildSystemPrompt = createSystemPromptBuilder(cwd);
+  // session and workspace files. Built once with the active tool names so the
+  // core layer can advise when to use them; reads the files fresh per turn.
+  const buildSystemPrompt = createSystemPromptBuilder(cwd, Object.keys(sessionTools ?? {}));
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
 
