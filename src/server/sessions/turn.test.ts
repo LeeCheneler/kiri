@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
-import type { UIMessage } from "ai";
+import { type UIMessage, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
+import { z } from "zod";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
@@ -45,7 +46,7 @@ const usage = (input: number, output: number) => ({
   outputTokens: { total: output, text: output, reasoning: 0 },
 });
 
-const finishReason = (unified: "stop" | "error") => ({ unified, raw: unified });
+const finishReason = (unified: "stop" | "error" | "tool-calls") => ({ unified, raw: unified });
 
 const streamingModel = (chunks: LanguageModelV3StreamPart[]): LlmModel =>
   new MockLanguageModelV3({
@@ -65,6 +66,43 @@ const pendingModel = (): LlmModel =>
       }),
     }),
   }) as unknown as LlmModel;
+
+// A model that calls a tool on its first step, then answers on the second once
+// the tool result is fed back — the multi-step loop a tool-enabled turn drives.
+const toolLoopModel = (): LlmModel => {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doStream: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "tool-call", toolCallId: "c1", toolName: "echo", input: '{"value":"hi"}' },
+            { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+          ]),
+        };
+      }
+      return {
+        stream: convertArrayToReadableStream([
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "Echoed: hi" },
+          { type: "text-end", id: "t1" },
+          { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 4) },
+        ]),
+      };
+    },
+  }) as unknown as LlmModel;
+};
+
+// A tool that echoes its input back — stands in for a real tool so the loop can
+// be exercised without an external dependency.
+const echoTools = {
+  echo: tool({
+    description: "Echo the value back.",
+    inputSchema: z.object({ value: z.string() }),
+    execute: async ({ value }: { value: string }) => ({ echoed: value }),
+  }),
+};
 
 describe("runTurn", () => {
   let dir: string;
@@ -229,6 +267,38 @@ describe("runTurn", () => {
     expect(settled?.status).toBe("idle");
     expect(settled?.error).toBeNull();
     expect(settled?.finishedAt).toBeNull();
+  });
+
+  it("drives a tool loop, persisting the tool call, its result, and the final text", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(toolLoopModel()), tools: echoTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+
+    const parts = rows[1]?.parts as Array<{
+      type: string;
+      text?: string;
+      state?: string;
+      input?: unknown;
+      output?: unknown;
+    }>;
+    const toolPart = parts.find((p) => p.type === "tool-echo");
+    expect(toolPart?.state).toBe("output-available");
+    expect(toolPart?.input).toEqual({ value: "hi" });
+    expect(toolPart?.output).toEqual({ echoed: "hi" });
+    expect(parts.find((p) => p.type === "text")?.text).toBe("Echoed: hi");
+
+    // Usage aggregates across both steps of the loop.
+    expect(rows[1]?.usage).toEqual({ inputTokens: 8, outputTokens: 5, totalTokens: 13 });
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    expect(getSession(db, "s1")?.totalTokens).toBe(13);
   });
 
   it("sends the composed system prompt to the model when a builder is provided", async () => {

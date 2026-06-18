@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import type { UIMessage } from "ai";
+import type { ToolSet, UIMessage } from "ai";
 import { and, desc, eq, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -38,6 +38,12 @@ export interface SessionsRoutesDeps {
    * `POST /api/sessions/:id/cancel`. Omit to leave the cancel route unmounted.
    */
   cancelRegistry?: CancelRegistry;
+  /**
+   * Tools offered to each session's model (e.g. `web_search`), assembled by
+   * `createSessionTools`. Omitted (or empty) leaves sessions as plain chat with
+   * no tools.
+   */
+  sessionTools?: ToolSet;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -77,12 +83,13 @@ const turnBodySchema = z.object({
  * cancel. Mounted under `/api` by `createApp`, alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, cwd, llmClients, bus, cancelRegistry } = deps;
+  const { db, cwd, llmClients, bus, cancelRegistry, sessionTools } = deps;
   const app = new Hono();
 
   // Composes each turn's system prompt (kiri core + kiri.md + persona) from the
-  // session and workspace files. Built once; reads the files fresh per turn.
-  const buildSystemPrompt = createSystemPromptBuilder(cwd);
+  // session and workspace files. Built once with the active tool names so the
+  // core layer can advise when to use them; reads the files fresh per turn.
+  const buildSystemPrompt = createSystemPromptBuilder(cwd, Object.keys(sessionTools ?? {}));
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
 
@@ -229,7 +236,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // away, reloads, closes the tab) doesn't cancel it; only an explicit cancel
       // through `POST /api/sessions/:id/cancel` does.
       const { response } = await runTurn(
-        { db, llmClients, bus, cancelRegistry, buildSystemPrompt },
+        { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools: sessionTools },
         { session, userMessage },
       );
       return response;

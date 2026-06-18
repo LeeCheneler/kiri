@@ -1,4 +1,4 @@
-import { type UIMessage, convertToModelMessages, streamText } from "ai";
+import { type ToolSet, type UIMessage, convertToModelMessages, stepCountIs, streamText } from "ai";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
@@ -27,7 +27,20 @@ export interface RunTurnDeps {
    * bare conversation.
    */
   buildSystemPrompt?: (session: Session) => string | undefined;
+  /**
+   * Tools offered to the model this turn. When non-empty, the turn runs as a
+   * multi-step loop — the model can call a tool, read its result, and continue —
+   * capped at `MAX_TURN_STEPS`. An empty set (the default) is a plain chat:
+   * `streamText` runs a single step with no tools.
+   */
+  tools?: ToolSet;
 }
+
+// Upper bound on model⇄tool round-trips in a single turn. With tools, a turn
+// loops — call a tool, feed the result back, maybe call again — and this cap
+// stops a misbehaving model from looping without end. Generous enough for
+// several search-and-reason cycles.
+const MAX_TURN_STEPS = 8;
 
 export interface RunTurnArgs {
   /** The target session; must not have a turn in flight (the caller rejects a concurrent turn). */
@@ -96,7 +109,7 @@ async function drainStream(stream: ReadableStream<string>): Promise<void> {
  * half-persisted.
  */
 export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<StartedTurn> {
-  const { db, llmClients, bus, cancelRegistry, buildSystemPrompt } = deps;
+  const { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools } = deps;
   const { session, userMessage } = args;
 
   const model = llmClients.resolveModel(session.model);
@@ -122,11 +135,16 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   // each turn. Undefined when no builder is wired (a bare chat with no system
   // prompt), which leaves `streamText` to send the messages alone.
   const system = buildSystemPrompt?.(session);
+  // With tools, the turn runs as a multi-step loop (call a tool, feed the
+  // result back, continue) capped at MAX_TURN_STEPS. An empty set leaves the
+  // call tool-less, a single-step plain chat — byte-identical to before.
+  const hasTools = tools !== undefined && Object.keys(tools).length > 0;
   let streamError: unknown;
   const result = streamText({
     model,
     system,
     messages: modelMessages,
+    ...(hasTools ? { tools, stopWhen: stepCountIs(MAX_TURN_STEPS) } : {}),
     abortSignal: controller.signal,
     onError: ({ error }) => {
       streamError = error;
