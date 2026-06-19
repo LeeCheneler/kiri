@@ -36,6 +36,16 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Today's date is 2026-06-17.");
   });
 
+  it("rules out LaTeX and other non-Markdown syntax in replies", () => {
+    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    // The renderer has no maths plugin, so TeX leaks through as raw text — the
+    // prompt must say so explicitly and point at the Markdown alternative.
+    expect(prompt).toContain("ONLY Markdown");
+    expect(prompt).toContain("LaTeX");
+    expect(prompt.toLowerCase()).toContain("do not render");
+    expect(prompt).toContain("Write maths and symbols in plain Markdown");
+  });
+
   it("documents the chart rendering capability with a worked example", () => {
     const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
     // The fence keyword the markdown renderer routes to the chart component.
