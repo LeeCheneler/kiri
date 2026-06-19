@@ -24,6 +24,10 @@ import { Table } from "./table.tsx";
 // nothing.
 const Chart = lazy(() => import("../charts/chart.tsx").then((m) => ({ default: m.Chart })));
 
+// mermaid is even heavier (~1 MB), so the diagram renderer is split out the
+// same way — only documents with a `mermaid` block pull it in.
+const Mermaid = lazy(() => import("./mermaid.tsx").then((m) => ({ default: m.Mermaid })));
+
 // `react-markdown` passes the AST `node` through to every custom
 // component. Each component below drops it so it never leaks to the DOM.
 
@@ -146,16 +150,26 @@ function CodeNode({ node: _node, children }: HTMLAttributes<HTMLElement> & Extra
 }
 
 function Pre({ node: _node, children }: HTMLAttributes<HTMLPreElement> & ExtraProps) {
-  // A fenced ```chart block reaches `Pre` as a single `<code>` child tagged
-  // `language-chart`. Route those to the lazy chart renderer.
+  // A fenced ```chart / ```mermaid block reaches `Pre` as a single `<code>`
+  // child tagged with its `language-*` class. Route those to their lazy
+  // renderers; every other fence falls through to a plain code block.
   if (isValidElement<{ className?: string; children?: string }>(children)) {
-    const language = children.props.className ?? "";
-    if (language.split(" ").includes("language-chart")) {
-      const source = typeof children.props.children === "string" ? children.props.children : "";
+    const languages = (children.props.className ?? "").split(" ");
+    const source = typeof children.props.children === "string" ? children.props.children : "";
+    if (languages.includes("language-chart")) {
       return (
         <div className="mt-4">
           <Suspense fallback={<p className="font-mono text-sm text-ink-muted">Loading chart…</p>}>
             <Chart source={source} />
+          </Suspense>
+        </div>
+      );
+    }
+    if (languages.includes("language-mermaid")) {
+      return (
+        <div className="mt-4">
+          <Suspense fallback={<p className="font-mono text-sm text-ink-muted">Loading diagram…</p>}>
+            <Mermaid source={source} />
           </Suspense>
         </div>
       );

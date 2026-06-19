@@ -715,6 +715,36 @@ line, area, scatter, arc (pie/donut), heatmap, and more.
 
 ---
 
+## Mermaid diagrams in published articles
+
+For relationships rather than numbers — flowcharts, sequence diagrams,
+state machines, ER diagrams — fence a block as `mermaid` and write
+[mermaid](https://mermaid.js.org/) syntax in the body. kiri renders it
+inline through the same sandboxed surface as the rest of the article.
+
+````markdown
+```mermaid
+flowchart LR
+  Poll[Poll source] --> Decide{New items?}
+  Decide -- yes --> Run[Run workflow]
+  Decide -- no --> Wait[Wait]
+  Run --> Publish[Publish article]
+```
+````
+
+- **The reader gets a diagram first, source on demand.** The rendered
+  diagram leads, with a tab to read the raw mermaid text (and copy it) and
+  an action to enlarge the diagram in a full-width modal.
+- **Theming is automatic.** Colours and fonts come from the site theme;
+  don't set a mermaid `theme` or hand-pick colours.
+- **Bad diagrams degrade, they don't crash.** Source mermaid can't parse
+  renders an inline error notice; the surrounding article is unaffected.
+- **Reach for a chart for quantities, a diagram for structure.** Use a
+  `chart` block when the point is the numbers; a `mermaid` block when the
+  point is how things connect.
+
+---
+
 ## Trust model & guardrails
 
 - Bundles and `sh:` steps run with **your user's permissions**. There's no sandbox. Read scripts before you run them, same as you'd read any shell script.
@@ -771,7 +801,7 @@ Sessions are kiri's second pillar — a multi-turn chat with a model, separate f
 Authoring notes:
 
 - Both are **plain markdown — no frontmatter, no schema.** The whole file body is the instruction text. Just write prose.
-- The **kiri core layer is not user-editable.** It already tells the model the environment it runs in, that replies render as GitHub-flavoured markdown, and how to draw inline charts (fence a code block as `chart` with a Vega-Lite spec — the same renderer as published articles; see *Charts in published articles*). Build on top of it rather than repeating it.
+- The **kiri core layer is not user-editable.** It already tells the model the environment it runs in, that replies render as GitHub-flavoured markdown, and how to draw inline charts (fence a code block as `chart` with a Vega-Lite spec) and mermaid diagrams (fence a block as `mermaid`) — the same renderer as published articles; see *Charts in published articles* and *Mermaid diagrams in published articles*. Build on top of it rather than repeating it.
 - Every layer is **read fresh from disk each turn**, so an edit takes effect on the next turn — git is the source of truth, nothing is snapshotted.
 - The persona is **swappable mid-conversation** from the aside (applies from the next turn), alongside the model. There is no persona at creation: a session starts with none, and you attach one when you want it. The leading **None** option detaches.
 - Persona names come from filenames — keep them tidy and kebab-case (`code-reviewer.md`, `release-notes.md`).

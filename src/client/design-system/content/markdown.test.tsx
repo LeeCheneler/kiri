@@ -3,10 +3,12 @@ import { render, screen } from "@testing-library/react";
 import { type ReactNode, StrictMode } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { mockMermaid } from "../../../../tests/setup/mermaid-mock.tsx";
 import { mockReactVega } from "../../../../tests/setup/react-vega-mock.tsx";
 import { Markdown } from "./markdown.tsx";
 
 mockReactVega();
+mockMermaid();
 
 // Internal links render through wouter's <Link>, so every render needs a
 // router in context.
@@ -180,6 +182,16 @@ describe("<Markdown>", () => {
     expect(await screen.findByRole("alert")).toBeDefined();
     expect(screen.getByText("Before.")).toBeDefined();
     expect(screen.getByText("After.")).toBeDefined();
+  });
+
+  it("routes a ```mermaid fence to the diagram component", async () => {
+    const { container } = renderMd(
+      <Markdown content={["```mermaid", "graph TD", "  A-->B", "```"].join("\n")} />,
+    );
+    await screen.findByRole("figure");
+    expect(container.querySelector("figure svg")).not.toBeNull();
+    // The raw mermaid source is not left lying around as a code block.
+    expect(container.querySelector("pre")).toBeNull();
   });
 
   describe("withSectionOrdinals", () => {
