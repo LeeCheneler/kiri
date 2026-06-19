@@ -1,0 +1,27 @@
+name: diagrams
+steps:
+  - sh: echo "diagram pipeline step"
+publish:
+  - slug: diagram-report
+    name: Diagram Report
+    sh: |
+      cat <<'EOF'
+      # Diagram Report
+
+      A flowchart rendered from an inline mermaid block:
+
+      ```mermaid
+      flowchart LR
+        Poll[Poll source] --> Decide{New items?}
+        Decide -- yes --> Run[Run workflow]
+        Decide -- no --> Wait[Wait]
+      ```
+
+      The next diagram is malformed and must not render:
+
+      ```mermaid
+      this will not parse as any mermaid diagram
+      ```
+
+      End of report.
+      EOF

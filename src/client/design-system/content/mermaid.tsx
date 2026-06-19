@@ -82,6 +82,12 @@ function MermaidDiagram({ source }: { source: string }) {
       // strict runs the rendered SVG through DOMPurify, stripping scripts and
       // event handlers, so untrusted diagram source can't smuggle markup out.
       securityLevel: "strict",
+      // On a parse failure mermaid otherwise draws a "bomb" error SVG into a
+      // temporary node it appends to document.body for layout, then throws
+      // without removing it — leaving the bomb stranded at the end of the page.
+      // Suppressing it makes mermaid clean up that node and just throw, so the
+      // catch below can degrade to our own inline notice with nothing leaked.
+      suppressErrorRendering: true,
       theme: "base",
       themeVariables,
     });
