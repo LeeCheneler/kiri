@@ -3,10 +3,12 @@ import type { ReactNode } from "react";
 
 // Caps the dialog's width. `md` is the default confirm/prompt width; `lg` suits
 // a richer body — a multi-section picker or a form — that the narrow column
-// would cramp.
-const WIDTH_CLASS: Record<"md" | "lg", string> = {
+// would cramp; `full` spans most of the viewport for content that wants maximum
+// room, like a zoomable diagram, and grows with the page.
+const WIDTH_CLASS: Record<"md" | "lg" | "full", string> = {
   md: "max-w-md",
   lg: "max-w-2xl",
+  full: "max-w-[92vw]",
 };
 
 /**
@@ -16,8 +18,8 @@ const WIDTH_CLASS: Record<"md" | "lg", string> = {
  * handling, and focus-restore to the trigger. `title` becomes the dialog
  * heading and its accessible label; the body is the children, so callers
  * compose any footer actions themselves. `size` caps the width (`md` default,
- * `lg` for a richer body). It owns the dialog frame, the centred overlay, and
- * its padding — nothing outside it.
+ * `lg` for a richer body, `full` to span most of the viewport). It owns the
+ * dialog frame, the centred overlay, and its padding — nothing outside it.
  */
 export function Modal({
   title,
@@ -28,7 +30,7 @@ export function Modal({
   title: string;
   onClose: () => void;
   children: ReactNode;
-  size?: "md" | "lg";
+  size?: "md" | "lg" | "full";
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();

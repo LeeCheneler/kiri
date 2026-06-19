@@ -715,6 +715,36 @@ line, area, scatter, arc (pie/donut), heatmap, and more.
 
 ---
 
+## Mermaid diagrams in published articles
+
+For relationships rather than numbers — flowcharts, sequence diagrams,
+state machines, ER diagrams — fence a block as `mermaid` and write
+[mermaid](https://mermaid.js.org/) syntax in the body. kiri renders it
+inline through the same sandboxed surface as the rest of the article.
+
+````markdown
+```mermaid
+flowchart LR
+  Poll[Poll source] --> Decide{New items?}
+  Decide -- yes --> Run[Run workflow]
+  Decide -- no --> Wait[Wait]
+  Run --> Publish[Publish article]
+```
+````
+
+- **The reader gets a diagram first, source on demand.** The rendered
+  diagram leads, with a tab to read the raw mermaid text (and copy it) and
+  an action to enlarge the diagram in a full-width modal.
+- **Theming is automatic.** Colours and fonts come from the site theme;
+  don't set a mermaid `theme` or hand-pick colours.
+- **Bad diagrams degrade, they don't crash.** Source mermaid can't parse
+  renders an inline error notice; the surrounding article is unaffected.
+- **Reach for a chart for quantities, a diagram for structure.** Use a
+  `chart` block when the point is the numbers; a `mermaid` block when the
+  point is how things connect.
+
+---
+
 ## Trust model & guardrails
 
 - Bundles and `sh:` steps run with **your user's permissions**. There's no sandbox. Read scripts before you run them, same as you'd read any shell script.

@@ -5,13 +5,16 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { captureEventSources } from "../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../tests/setup/flush-async.ts";
+import { mockMermaid } from "../../tests/setup/mermaid-mock.tsx";
 import { server } from "../../tests/setup/msw.ts";
 import { mockReactVega } from "../../tests/setup/react-vega-mock.tsx";
 import { App } from "./app.tsx";
 
-// The design-system route renders a Markdown demo with a lazy vega chart;
-// mock it so rendering that route doesn't pull in the charting bundle.
+// The design-system route renders Markdown demos with a lazy vega chart and a
+// lazy mermaid diagram; mock both so rendering that route doesn't pull in the
+// charting / diagram bundles.
 mockReactVega();
+mockMermaid();
 
 const renderAt = (path: string) => {
   const { hook } = memoryLocation({ path });

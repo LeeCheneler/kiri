@@ -244,15 +244,16 @@ function TextareaDemo() {
 }
 
 // Interactive specimen for the Modal — a button per size opens a confirm dialog,
-// so the `md` (default) and `lg` widths can be compared side by side.
+// so the `md` (default), `lg`, and `full` widths can be compared side by side.
 function ModalDemo() {
-  const [size, setSize] = useState<"md" | "lg" | null>(null);
+  const [size, setSize] = useState<"md" | "lg" | "full" | null>(null);
   const close = () => setSize(null);
   return (
     <>
       <div className="flex gap-4">
         <Button onClick={() => setSize("md")}>open dialog (md)</Button>
         <Button onClick={() => setSize("lg")}>open dialog (lg)</Button>
+        <Button onClick={() => setSize("full")}>open dialog (full)</Button>
       </div>
       {size && (
         <Modal title={`Discard draft? (${size})`} onClose={close} size={size}>
@@ -497,8 +498,9 @@ export function DesignSystemContent() {
                 <Code>onClose</Code> (fired by Escape or a backdrop click) tell the parent to
                 unmount. <Code>title</Code> labels the dialog; the body is the children, so the
                 footer actions are yours to compose, and <Code>size</Code> (<Code>md</Code> default,{" "}
-                <Code>lg</Code>) widens it for a richer body. Reserve it for a focused decision or a
-                short form — anything longer belongs on its own page.
+                <Code>lg</Code>, <Code>full</Code>) widens it — from a richer body up to a
+                viewport-spanning surface for content like a zoomable diagram. Reserve it for a
+                focused decision or a short form — anything longer belongs on its own page.
               </p>
             </Prose>
             <div className="mt-5">
@@ -908,8 +910,8 @@ export function DesignSystemContent() {
                 tables, and rules all flow through their components, headings carry the Foundations
                 scale, and the whole is wrapped in <Code>Prose</Code>. It also supports{" "}
                 <InlineLink href="https://vega.github.io/vega-lite/">vega-lite</InlineLink>{" "}
-                <Code>chart</Code> blocks, optional section ordinals, and header-level downgrade for
-                nesting beneath a page title.
+                <Code>chart</Code> blocks and <Code>mermaid</Code> diagrams (see below), optional
+                section ordinals, and header-level downgrade for nesting beneath a page title.
               </p>
             </Prose>
             <div className="mt-5">
@@ -928,6 +930,41 @@ export function DesignSystemContent() {
                     "```",
                     "",
                     "> A line lifted from a source.",
+                  ].join("\n")}
+                />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Mermaid</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Mermaid</span> · design-system/content/mermaid.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                Renders a fenced <Code>mermaid</Code> block — flowcharts, sequence diagrams, and the
+                rest of <InlineLink href="https://mermaid.js.org/">mermaid's</InlineLink> grammar —
+                as a diagram, themed from the design tokens so it sits in the same palette as the
+                page. The <span className="text-ink-muted">Diagram</span> tab leads; a{" "}
+                <span className="text-ink-muted">Source</span> tab reveals the raw text with a copy
+                action. mermaid renders in its <Code>strict</Code> security mode (its DOMPurify pass
+                sanitises the SVG), so a malformed or hostile diagram degrades to an inline notice
+                rather than breaking the surrounding article. The bundle is loaded lazily, only when
+                a document actually contains a diagram.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Markdown
+                  content={[
+                    "```mermaid",
+                    "flowchart LR",
+                    "  Poll[Poll source] --> Decide{New items?}",
+                    "  Decide -- yes --> Run[Run workflow]",
+                    "  Decide -- no --> Wait[Wait]",
+                    "  Run --> Publish[Publish article]",
+                    "```",
                   ].join("\n")}
                 />
               </Card>

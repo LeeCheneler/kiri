@@ -3,12 +3,14 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { mockMermaid } from "../../../tests/setup/mermaid-mock.tsx";
 import { mockReactVega } from "../../../tests/setup/react-vega-mock.tsx";
 import { DesignSystemContent } from "./design-system-page.tsx";
 
-// The Markdown demo embeds a lazy vega chart; mock it so the page renders
-// without pulling in the real charting bundle.
+// The catalogue embeds a lazy vega chart and a lazy mermaid diagram; mock both
+// so the page renders without pulling in the real charting / diagram bundles.
 mockReactVega();
+mockMermaid();
 
 describe("<DesignSystemPage>", () => {
   it("renders the design system page heading", async () => {
@@ -19,9 +21,9 @@ describe("<DesignSystemPage>", () => {
       </Router>,
     );
     expect(screen.getByRole("heading", { name: /design system/i })).toBeDefined();
-    // Let the lazy chart in the Markdown demo resolve so the test doesn't
+    // Let the lazy chart and mermaid diagram demos resolve so the test doesn't
     // leave a pending update behind.
-    await screen.findByRole("figure");
+    await screen.findAllByRole("figure");
   });
 
   it("opens and closes the Modal demo at each size", async () => {
@@ -32,7 +34,7 @@ describe("<DesignSystemPage>", () => {
         <DesignSystemContent />
       </Router>,
     );
-    await screen.findByRole("figure");
+    await screen.findAllByRole("figure");
 
     await user.click(screen.getByRole("button", { name: "open dialog (md)" }));
     expect(screen.getByRole("dialog", { name: /discard draft/i })).toBeDefined();
@@ -40,6 +42,11 @@ describe("<DesignSystemPage>", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "open dialog (lg)" }));
+    expect(screen.getByRole("dialog", { name: /discard draft/i })).toBeDefined();
+    await user.click(screen.getByRole("button", { name: /discard/i }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "open dialog (full)" }));
     expect(screen.getByRole("dialog", { name: /discard draft/i })).toBeDefined();
     await user.click(screen.getByRole("button", { name: /discard/i }));
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -53,7 +60,7 @@ describe("<DesignSystemPage>", () => {
         <DesignSystemContent />
       </Router>,
     );
-    await screen.findByRole("figure");
+    await screen.findAllByRole("figure");
 
     await user.click(screen.getByRole("button", { name: /open drawer/i }));
     expect(screen.getByRole("dialog", { name: /navigation/i })).toBeDefined();
@@ -71,7 +78,7 @@ describe("<DesignSystemPage>", () => {
         <DesignSystemContent />
       </Router>,
     );
-    await screen.findByRole("figure");
+    await screen.findAllByRole("figure");
 
     const architecture = screen.getByRole("checkbox", {
       name: "architecture",
@@ -89,7 +96,7 @@ describe("<DesignSystemPage>", () => {
         <DesignSystemContent />
       </Router>,
     );
-    await screen.findByRole("figure");
+    await screen.findAllByRole("figure");
 
     const science = screen.getByRole("checkbox", { name: "science" }) as HTMLInputElement;
     expect(science.checked).toBe(false);
