@@ -52,6 +52,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("don't chart");
   });
 
+  it("documents the mermaid diagram rendering capability with a worked example", () => {
+    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    // The fence keyword the markdown renderer routes to the diagram component.
+    expect(prompt).toContain("```mermaid");
+    // The when-to-use distinction from charts: structure, not quantities.
+    expect(prompt).toContain("structure or relationships");
+    expect(prompt).toContain("a diagram when the point is the structure");
+  });
+
   it("omits tool guidance when no tools are active", () => {
     const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
     expect(prompt).not.toContain("You have tools available");

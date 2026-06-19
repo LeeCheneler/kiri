@@ -801,7 +801,7 @@ Sessions are kiri's second pillar — a multi-turn chat with a model, separate f
 Authoring notes:
 
 - Both are **plain markdown — no frontmatter, no schema.** The whole file body is the instruction text. Just write prose.
-- The **kiri core layer is not user-editable.** It already tells the model the environment it runs in, that replies render as GitHub-flavoured markdown, and how to draw inline charts (fence a code block as `chart` with a Vega-Lite spec — the same renderer as published articles; see *Charts in published articles*). Build on top of it rather than repeating it.
+- The **kiri core layer is not user-editable.** It already tells the model the environment it runs in, that replies render as GitHub-flavoured markdown, and how to draw inline charts (fence a code block as `chart` with a Vega-Lite spec) and mermaid diagrams (fence a block as `mermaid`) — the same renderer as published articles; see *Charts in published articles* and *Mermaid diagrams in published articles*. Build on top of it rather than repeating it.
 - Every layer is **read fresh from disk each turn**, so an edit takes effect on the next turn — git is the source of truth, nothing is snapshotted.
 - The persona is **swappable mid-conversation** from the aside (applies from the next turn), alongside the model. There is no persona at creation: a session starts with none, and you attach one when you want it. The leading **None** option detaches.
 - Persona names come from filenames — keep them tidy and kebab-case (`code-reviewer.md`, `release-notes.md`).
