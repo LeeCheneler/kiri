@@ -1329,7 +1329,9 @@ export function DesignSystemContent() {
                 Home/End move between tabs. Pass the tabs as <Code>{"{ id, label, content }"}</Code>{" "}
                 with a <Code>label</Code> naming the strip; only the active panel renders, so a
                 panel's data isn't fetched until its tab is opened. Reach for tabs to switch between
-                views of one thing — not to page between unrelated destinations.
+                views of one thing — not to page between unrelated destinations. For an inline
+                widget that can appear many times in one document (where URL-coupled state would
+                collide), pass <Code>local</Code> to hold the active tab in component state instead.
               </p>
             </Prose>
             <div className="mt-5">

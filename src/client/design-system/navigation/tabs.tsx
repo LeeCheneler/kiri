@@ -1,4 +1,10 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useId, useRef } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "wouter";
 
 /** One entry in a tab strip: a URL id, a visible label, and the panel body. */
@@ -17,21 +23,29 @@ export type TabDef = {
  * — and any fetch it owns — isn't mounted until its tab is selected. `label`
  * names the strip for assistive tech. The space above the strip is the caller's;
  * it owns only the gap between the strip and its panel.
+ *
+ * Pass `local` for an inline, repeatable widget (several on one page) where the
+ * active tab belongs to the component, not the URL: state is held in React, the
+ * `param` is ignored, and nothing is written to the address bar. Still defaults
+ * to the first tab.
  */
 export function Tabs({
   tabs,
   label,
   param = "tab",
+  local = false,
 }: {
   tabs: TabDef[];
   label: string;
   param?: string;
+  local?: boolean;
 }) {
   const [params, setParams] = useSearchParams();
+  const [localId, setLocalId] = useState<string | null>(null);
   const baseId = useId();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  const requested = params.get(param);
+  const requested = local ? localId : params.get(param);
   const activeIndex = Math.max(
     0,
     tabs.findIndex((tab) => tab.id === requested),
@@ -39,6 +53,10 @@ export function Tabs({
   const activeTab = tabs[activeIndex];
 
   const selectTab = (id: string) => {
+    if (local) {
+      setLocalId(id);
+      return;
+    }
     setParams(
       (prev) => {
         prev.set(param, id);

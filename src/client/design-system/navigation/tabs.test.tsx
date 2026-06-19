@@ -105,4 +105,31 @@ describe("<Tabs>", () => {
       expect(tab.getAttribute("tabindex")).toBe(expected);
     }
   });
+
+  describe("local mode", () => {
+    const renderLocalTabs = (path = "/wf") => {
+      const { hook, history } = memoryLocation({ path, record: true });
+      render(
+        <Router hook={hook}>
+          <Tabs tabs={TABS} label="Workflow views" local />
+        </Router>,
+      );
+      return { user: userEvent.setup(), history };
+    };
+
+    it("defaults to the first tab, ignoring any tab param in the URL", () => {
+      renderLocalTabs("/wf?tab=steps");
+      expect(screen.getByRole("tab", { name: "Runs", selected: true })).toBeDefined();
+      expect(screen.getByText("runs panel")).toBeDefined();
+    });
+
+    it("switches the active panel on click without writing to the URL", async () => {
+      const { user, history } = renderLocalTabs("/wf");
+      await user.click(screen.getByRole("tab", { name: "Steps" }));
+      expect(screen.getByRole("tab", { name: "Steps", selected: true })).toBeDefined();
+      expect(screen.getByText("steps panel")).toBeDefined();
+      expect(screen.queryByText("runs panel")).toBeNull();
+      expect(history.every((entry) => !entry.includes("tab="))).toBe(true);
+    });
+  });
 });
