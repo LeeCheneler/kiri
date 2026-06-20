@@ -51,7 +51,7 @@ describe("session turn streaming", () => {
       join(cwd, "llm-providers.yaml"),
       `providers:\n  fake:\n    type: openai-compatible\n    base_url: ${fake.url}\n`,
     );
-    const loaded = loadLlmProviders(cwd, process.env);
+    const loaded = loadLlmProviders(createConfigStore(cwd), process.env);
     const registry = createLlmProviderRegistry();
     registry.replace(loaded.providers);
     llmClients = createLlmClients(registry, process.env);
@@ -104,7 +104,7 @@ describe("session turn streaming", () => {
     const session = updateSessionPersona(db, createSession(db, "fake:echo").id, "pirate");
 
     const { done } = await runTurn(
-      { db, llmClients, buildSystemPrompt: createSystemPromptBuilder(cwd) },
+      { db, llmClients, buildSystemPrompt: createSystemPromptBuilder(createConfigStore(cwd)) },
       { session, userMessage: userMessage("hi") },
     );
     await done;

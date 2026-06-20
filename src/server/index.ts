@@ -174,7 +174,7 @@ export function createApp(deps: AppDeps): Hono {
   if (llmClients) {
     app.route(
       "/api",
-      sessionsRoutes({ db, cwd: config.cwd(), llmClients, bus, cancelRegistry, sessionTools }),
+      sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, sessionTools }),
     );
   }
 

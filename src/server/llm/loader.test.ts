@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import { loadLlmProviders } from "./loader.ts";
 
 const write = (cwd: string, yaml: string): void =>
@@ -9,9 +10,11 @@ const write = (cwd: string, yaml: string): void =>
 
 describe("loadLlmProviders", () => {
   let cwd: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-llm-"));
+    config = createConfigStore(cwd);
   });
 
   afterEach(() => {
@@ -19,14 +22,14 @@ describe("loadLlmProviders", () => {
   });
 
   it("returns an empty registry when the file is absent (not a failure)", () => {
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.providers.size).toBe(0);
     expect(result.failure).toBeUndefined();
   });
 
   it("returns an empty registry for an empty providers map", () => {
     write(cwd, "providers: {}\n");
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.providers.size).toBe(0);
     expect(result.failure).toBeUndefined();
   });
@@ -41,7 +44,7 @@ describe("loadLlmProviders", () => {
       env: MY_KEY
 `,
     );
-    const result = loadLlmProviders(cwd, { MY_KEY: "secret" });
+    const result = loadLlmProviders(config, { MY_KEY: "secret" });
     expect(result.failure).toBeUndefined();
     expect(result.providers.get("anthropic")).toEqual({
       name: "anthropic",
@@ -61,7 +64,7 @@ describe("loadLlmProviders", () => {
     type: openai
 `,
     );
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.failure).toBeUndefined();
     expect(result.providers.get("anthropic")?.apiKeyEnv).toBe("ANTHROPIC_API_KEY");
     expect(result.providers.get("openai")?.apiKeyEnv).toBe("OPENAI_API_KEY");
@@ -76,7 +79,7 @@ describe("loadLlmProviders", () => {
     base_url: http://localhost:1234/v1
 `,
     );
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.failure).toBeUndefined();
     expect(result.providers.get("local")).toEqual({
       name: "local",
@@ -96,7 +99,7 @@ describe("loadLlmProviders", () => {
       env: MISSING_KEY
 `,
     );
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.providers.size).toBe(0);
     expect(result.failure?.path).toBe(join(cwd, "llm-providers.yaml"));
     expect(result.failure?.reason).toContain("anthropic");
@@ -113,7 +116,7 @@ describe("loadLlmProviders", () => {
       env: MY_KEY
 `,
     );
-    const result = loadLlmProviders(cwd, { MY_KEY: "super-secret-value" });
+    const result = loadLlmProviders(config, { MY_KEY: "super-secret-value" });
     expect(result.providers.get("anthropic")?.apiKeyEnv).toBe("MY_KEY");
     expect(JSON.stringify(result.providers.get("anthropic"))).not.toContain("super-secret-value");
   });
@@ -127,7 +130,7 @@ describe("loadLlmProviders", () => {
     api_key: sk-literal
 `,
     );
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.providers.size).toBe(0);
     expect(result.failure).toBeDefined();
   });
@@ -140,21 +143,21 @@ describe("loadLlmProviders", () => {
     type: openai-compatible
 `,
     );
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.providers.size).toBe(0);
     expect(result.failure).toBeDefined();
   });
 
   it("fails load on a YAML parse error", () => {
     write(cwd, "providers: {\n");
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.providers.size).toBe(0);
     expect(result.failure?.reason.length).toBeGreaterThan(0);
   });
 
   it("fails load when the YAML is not an object", () => {
     write(cwd, "just a string\n");
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.providers.size).toBe(0);
     expect(result.failure).toBeDefined();
   });
@@ -162,7 +165,7 @@ describe("loadLlmProviders", () => {
   it("fails load when the path exists but can't be read as a file", () => {
     // A directory at the config path: existsSync is true, readFileSync throws.
     mkdirSync(join(cwd, "llm-providers.yaml"));
-    const result = loadLlmProviders(cwd, {});
+    const result = loadLlmProviders(config, {});
     expect(result.providers.size).toBe(0);
     expect(result.failure?.reason.length).toBeGreaterThan(0);
   });

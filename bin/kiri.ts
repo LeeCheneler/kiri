@@ -91,7 +91,7 @@ const cancelRegistry = createCancelRegistry();
 
 // Providers load first: workflow validation needs the provider names to
 // check `llm:` model prefixes against.
-const llmProviders = loadLlmProviders(cwd, process.env);
+const llmProviders = loadLlmProviders(config, process.env);
 llmRegistry.replace(llmProviders.providers);
 if (llmProviders.failure) {
   console.error(

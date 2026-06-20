@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { resolve, sep } from "node:path";
+import type { ConfigStore } from "../config/store.ts";
 import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
@@ -116,8 +117,8 @@ function readInstructions(path: string): string | null {
  * `personas/<name>.md` file, sorted. An absent `personas/` directory yields an
  * empty list (first-class: a workspace need not define any).
  */
-export function listPersonas(cwd: string): string[] {
-  const dir = join(cwd, PERSONAS_DIRNAME);
+export function listPersonas(config: ConfigStore): string[] {
+  const dir = config.personasDir();
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
@@ -132,16 +133,16 @@ export function listPersonas(cwd: string): string[] {
  * defence in depth on top of the create-time check that the name is one of
  * `listPersonas`.
  */
-export function loadPersona(cwd: string, name: string): string | null {
-  const dir = resolve(join(cwd, PERSONAS_DIRNAME));
+export function loadPersona(config: ConfigStore, name: string): string | null {
+  const dir = resolve(config.personasDir());
   const path = resolve(dir, `${name}.md`);
   if (!path.startsWith(dir + sep)) return null;
   return readInstructions(path);
 }
 
 export interface BuildSystemPromptOptions {
-  /** Workspace root; `kiri.md` and `personas/` resolve against it. */
-  cwd: string;
+  /** Workspace config; `kiri.md` and `personas/` resolve against it. */
+  config: ConfigStore;
   /** Name of the persona to overlay after `kiri.md`, or null/undefined for none. */
   persona?: string | null;
   /** Names of the tools active this session; drives the core layer's tool-use guidance. */
@@ -160,10 +161,10 @@ export interface BuildSystemPromptOptions {
  */
 export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   const sections = [buildCorePrompt(opts.now ?? new Date(), opts.tools ?? [])];
-  const instructions = readInstructions(join(opts.cwd, INSTRUCTIONS_FILENAME));
+  const instructions = readInstructions(opts.config.instructionsFile());
   if (instructions !== null) sections.push(instructions);
   if (opts.persona) {
-    const persona = loadPersona(opts.cwd, opts.persona);
+    const persona = loadPersona(opts.config, opts.persona);
     if (persona !== null) sections.push(persona);
   }
   return sections.join("\n\n");
@@ -176,8 +177,8 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
  * handed to `runTurn`, so a turn streams with its system prompt in place.
  */
 export function createSystemPromptBuilder(
-  cwd: string,
+  config: ConfigStore,
   tools: string[] = [],
 ): (session: Session) => string {
-  return (session: Session) => buildSystemPrompt({ cwd, persona: session.persona, tools });
+  return (session: Session) => buildSystemPrompt({ config, persona: session.persona, tools });
 }

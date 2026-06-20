@@ -3,6 +3,7 @@ import type { ToolSet, UIMessage } from "ai";
 import { and, desc, eq, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
@@ -25,8 +26,8 @@ import { onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
-  /** Workspace root; the session system prompt reads `kiri.md` (and personas) against it. */
-  cwd: string;
+  /** Workspace config; the session system prompt reads `kiri.md` (and personas) against it. */
+  config: ConfigStore;
   /**
    * Required: every session resolves and streams turns against a model, and
    * the picker lists models off this same client — a session surface without
@@ -86,19 +87,19 @@ const turnBodySchema = z.object({
  * cancel. Mounted under `/api` by `createApp`, alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, cwd, llmClients, bus, cancelRegistry, sessionTools } = deps;
+  const { db, config, llmClients, bus, cancelRegistry, sessionTools } = deps;
   const app = new Hono();
 
   // Composes each turn's system prompt (kiri core + kiri.md + persona) from the
   // session and workspace files. Built once with the active tool names so the
   // core layer can advise when to use them; reads the files fresh per turn.
-  const buildSystemPrompt = createSystemPromptBuilder(cwd, Object.keys(sessionTools ?? {}));
+  const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(sessionTools ?? {}));
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
 
   // The personas available to attach at session creation — the `<name>` of each
   // `personas/<name>.md` in the workspace. Empty when none are defined.
-  app.get("/personas", (c) => c.json({ personas: listPersonas(cwd) }));
+  app.get("/personas", (c) => c.json({ personas: listPersonas(config) }));
 
   app.post(
     "/sessions",
@@ -198,7 +199,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
       // A named persona must be one the workspace defines; `null` detaches.
       if (persona !== undefined) {
-        if (persona !== null && !listPersonas(cwd).includes(persona)) {
+        if (persona !== null && !listPersonas(config).includes(persona)) {
           return c.json({ error: `unknown persona "${persona}"` }, 400);
         }
         updateSessionPersona(db, id, persona);

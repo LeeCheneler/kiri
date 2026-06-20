@@ -1,9 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import type { ConfigStore } from "../config/store.ts";
 import { type LlmProvider, type ProviderType, llmProvidersSchema } from "./schema.ts";
-
-/** Name of the workspace-root config file. */
-export const LLM_PROVIDERS_FILENAME = "llm-providers.yaml";
 
 /**
  * Conventional environment variable an `api_key`-less provider falls back to,
@@ -33,7 +30,7 @@ const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
 /**
- * Load `<cwd>/llm-providers.yaml` and resolve it into providers keyed by name.
+ * Load the workspace's `llm-providers.yaml` and resolve it into providers keyed by name.
  * An absent file is first-class: an empty registry, not a failure. A present
  * file that fails to read, parse, or validate — or whose declared `{ env: }`
  * refs name a variable missing from `env` — yields an empty registry plus a
@@ -43,10 +40,10 @@ const reasonOf = (cause: unknown): string =>
  * only the env var's name.
  */
 export function loadLlmProviders(
-  cwd: string,
+  config: ConfigStore,
   env: Record<string, string | undefined>,
 ): LlmProvidersLoadResult {
-  const path = join(cwd, LLM_PROVIDERS_FILENAME);
+  const path = config.providersFile();
   const providers = new Map<string, LlmProvider>();
 
   if (!existsSync(path)) return { providers };

@@ -47,7 +47,7 @@ describe("llm step pipeline", () => {
       join(cwd, "llm-providers.yaml"),
       `providers:\n  fake:\n    type: openai-compatible\n    base_url: ${fake.url}\n`,
     );
-    const loaded = loadLlmProviders(cwd, process.env);
+    const loaded = loadLlmProviders(createConfigStore(cwd), process.env);
     expect(loaded.failure).toBeUndefined();
     const registry = createLlmProviderRegistry();
     registry.replace(loaded.providers);
