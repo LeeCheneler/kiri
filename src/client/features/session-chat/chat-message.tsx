@@ -1,6 +1,7 @@
 import { type FileUIPart, type UIMessage, isToolUIPart } from "ai";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
+import { Card } from "../../design-system/surfaces/card.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import { ToolInvocation } from "./tool-invocation.tsx";
 
@@ -21,25 +22,28 @@ const hasAssistantContent = (message: UIMessage): boolean =>
   message.parts.some((part) => (part.type === "text" && part.text !== "") || isToolUIPart(part));
 
 // A user message: image thumbnails above its text, the text rendered verbatim
-// (whitespace preserved) since it's exactly what the user typed.
+// (whitespace preserved) since it's exactly what the user typed. Boxed in a card
+// so the user's turn reads as visually distinct from the assistant's open prose.
 function UserMessage({ message }: { message: UIMessage }) {
   const text = messageText(message);
   const images = imageParts(message);
   return (
     <article>
-      <Eyebrow tone="muted">You</Eyebrow>
-      <div className="mt-2 space-y-3">
-        {images.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {images.map((part) => (
-              <PreviewableImage key={part.url} part={part} />
-            ))}
-          </div>
-        ) : null}
-        {text !== "" ? (
-          <p className="whitespace-pre-wrap font-mono text-sm text-ink">{text}</p>
-        ) : null}
-      </div>
+      <Card>
+        <Eyebrow tone="muted">You</Eyebrow>
+        <div className="mt-2 space-y-3">
+          {images.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {images.map((part) => (
+                <PreviewableImage key={part.url} part={part} />
+              ))}
+            </div>
+          ) : null}
+          {text !== "" ? (
+            <p className="whitespace-pre-wrap font-mono text-sm text-ink">{text}</p>
+          ) : null}
+        </div>
+      </Card>
     </article>
   );
 }
