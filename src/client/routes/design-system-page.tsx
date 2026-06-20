@@ -1490,7 +1490,7 @@ export function DesignSystemContent() {
                   <NavList
                     heading="Documentation"
                     items={[
-                      { label: "Managing kiri", href: "https://local.kiri.build/docs" },
+                      { label: "Managing kiri", href: "https://kiri.build/docs" },
                       { label: "GitHub", href: "https://github.com/LeeCheneler/kiri" },
                     ]}
                   />
