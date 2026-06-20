@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { resolveConfigDir } from "../src/server/config-dir.ts";
+import { loadWorkspaceEnv } from "../src/server/config/env.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
@@ -80,6 +81,14 @@ if (args.length > 0) {
   console.error(`kiri: unknown command "${args[0]}"\n`);
   console.error(HELP);
   process.exit(1);
+}
+
+// Load the workspace's own .env before anything reads process.env, so a
+// workspace pinned via KIRI_CONFIG_DIR resolves its `{ env: }` refs from there
+// rather than from the directory kiri happened to be launched from.
+const loadedEnv = loadWorkspaceEnv(config);
+if (loadedEnv.length > 0) {
+  console.log(`Loaded ${loadedEnv.length} variable(s) from ${config.envFile()}`);
 }
 
 const db = bootstrap(config);

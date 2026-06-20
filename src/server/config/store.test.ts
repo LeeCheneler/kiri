@@ -33,4 +33,8 @@ describe("createConfigStore", () => {
     expect(config.instructionsFile()).toBe(join(root, "kiri.md"));
     expect(config.providersFile()).toBe(join(root, "llm-providers.yaml"));
   });
+
+  it("derives the workspace env file", () => {
+    expect(config.envFile()).toBe(join(root, ".env"));
+  });
 });

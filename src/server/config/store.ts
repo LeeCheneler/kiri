@@ -7,6 +7,7 @@ const DATA_DIRNAME = ".kiri";
 const RUNS_DIRNAME = "runs";
 const INSTRUCTIONS_FILENAME = "kiri.md";
 const PROVIDERS_FILENAME = "llm-providers.yaml";
+const ENV_FILENAME = ".env";
 
 /**
  * Resolved configuration for a kiri workspace. Owns the workspace root and
@@ -35,6 +36,8 @@ export interface ConfigStore {
   instructionsFile(): string;
   /** `<cwd>/llm-providers.yaml` — the LLM provider declarations. */
   providersFile(): string;
+  /** `<cwd>/.env` — the workspace's environment variables, loaded at startup. */
+  envFile(): string;
 }
 
 /**
@@ -55,5 +58,6 @@ export function createConfigStore(cwd: string): ConfigStore {
     runDir: (runId) => join(dataDir, RUNS_DIRNAME, runId),
     instructionsFile: () => join(cwd, INSTRUCTIONS_FILENAME),
     providersFile: () => join(cwd, PROVIDERS_FILENAME),
+    envFile: () => join(cwd, ENV_FILENAME),
   };
 }
