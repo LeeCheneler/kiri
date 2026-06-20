@@ -18,7 +18,7 @@ const REPO_ROOT = join(import.meta.dir, "..", "..");
 const FIXTURES = join(import.meta.dir, "fixtures", "claude-code");
 
 interface Workspace {
-  /** Tmp dir that mimics a kiri repo root: workflows/, prompts/, scripts/. */
+  /** Tmp dir that mimics a kiri repo root: workflows/, prompts/, bundles/. */
   cwd: string;
   /** Per-run scratch dir (steps spawn here as cwd). */
   scratchDir: string;
@@ -30,7 +30,7 @@ interface Workspace {
 
 /**
  * Materialise a fresh workspace for one scenario: stubs claude on PATH,
- * copies the real `examples/scripts/claude-code/run.sh` from this repo,
+ * copies the real `examples/bundles/claude-code/run.sh` from this repo,
  * and stages every checked-in fixture workflow + prompt.
  */
 const setupWorkspace = (): Workspace => {
@@ -46,10 +46,10 @@ const setupWorkspace = (): Workspace => {
   copyFileSync(join(FIXTURES, "bin", "claude"), stubDst);
   chmodSync(stubDst, 0o755);
 
-  const bundleDir = join(cwd, "scripts", "claude-code");
+  const bundleDir = join(cwd, "bundles", "claude-code");
   mkdirSync(bundleDir, { recursive: true });
   const runDst = join(bundleDir, "run.sh");
-  copyFileSync(join(REPO_ROOT, "examples", "scripts", "claude-code", "run.sh"), runDst);
+  copyFileSync(join(REPO_ROOT, "examples", "bundles", "claude-code", "run.sh"), runDst);
   chmodSync(runDst, 0o755);
 
   const wfDir = join(cwd, "workflows");
@@ -114,7 +114,7 @@ const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]>
       KIRI_REPO_ROOT: ws.cwd,
       TEST_CAPTURE_DIR: ws.captureDir,
     };
-    if ("use" in step) env.KIRI_BUNDLE_DIR = join(ws.cwd, "scripts", step.use);
+    if ("use" in step) env.KIRI_BUNDLE_DIR = join(ws.cwd, "bundles", step.use);
     const envelope = await runStep({
       step,
       config: createConfigStore(ws.cwd),
@@ -261,7 +261,7 @@ describe("claude-code bundle: integration", () => {
         KIRI_RUN_ID: "test-run",
         KIRI_STEP_INDEX: "0",
         KIRI_REPO_ROOT: ws.cwd,
-        KIRI_BUNDLE_DIR: join(ws.cwd, "scripts", "claude-code"),
+        KIRI_BUNDLE_DIR: join(ws.cwd, "bundles", "claude-code"),
       },
     });
 

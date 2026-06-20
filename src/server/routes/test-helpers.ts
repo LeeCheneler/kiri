@@ -41,11 +41,11 @@ export function createTestEnv(): TestEnv {
 }
 
 /**
- * Write an executable `scripts/<name>/run.sh` under `cwd` with the given
+ * Write an executable `bundles/<name>/run.sh` under `cwd` with the given
  * body. Returns the absolute path to the created script.
  */
 export function writeBundle(cwd: string, name: string, body: string): string {
-  const dir = join(cwd, "scripts", name);
+  const dir = join(cwd, "bundles", name);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "run.sh");
   writeFileSync(path, body);

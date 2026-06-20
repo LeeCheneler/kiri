@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 const WORKFLOWS_DIRNAME = "workflows";
-const BUNDLES_DIRNAME = "scripts";
+const BUNDLES_DIRNAME = "bundles";
 const PERSONAS_DIRNAME = "personas";
 const DATA_DIRNAME = ".kiri";
 const RUNS_DIRNAME = "runs";
@@ -21,11 +21,11 @@ export interface ConfigStore {
   cwd(): string;
   /** `<cwd>/workflows` — the workflow definition files. */
   workflowsDir(): string;
-  /** `<cwd>/scripts` — the script bundles, one directory per `use:` step. */
+  /** `<cwd>/bundles` — the script bundles, one directory per `use:` step. */
   bundlesDir(): string;
-  /** `<cwd>/scripts/<name>` — a single bundle's directory. */
+  /** `<cwd>/bundles/<name>` — a single bundle's directory. */
   bundleDir(name: string): string;
-  /** `<cwd>/scripts/<name>/run.sh` — a bundle's entry script. */
+  /** `<cwd>/bundles/<name>/run.sh` — a bundle's entry script. */
   bundleRunPath(name: string): string;
   /** `<cwd>/personas` — optional session persona overlays. */
   personasDir(): string;

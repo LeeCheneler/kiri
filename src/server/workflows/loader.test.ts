@@ -12,7 +12,7 @@ steps:
 `;
 
 const writeBundle = (cwd: string, name: string): void => {
-  const dir = join(cwd, "scripts", name);
+  const dir = join(cwd, "bundles", name);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "run.sh");
   writeFileSync(path, "#!/bin/sh\necho hi\n");

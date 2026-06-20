@@ -17,7 +17,7 @@ const REPO_ROOT = join(import.meta.dir, "..", "..");
 const FIXTURES = join(import.meta.dir, "fixtures", "claude-code-summarizer");
 
 interface Workspace {
-  /** Tmp dir that mimics a kiri repo root: scripts/. */
+  /** Tmp dir that mimics a kiri repo root: bundles/. */
   cwd: string;
   /** Per-run scratch dir (steps spawn here as cwd). */
   scratchDir: string;
@@ -31,7 +31,7 @@ interface Workspace {
 
 /**
  * Materialise a fresh workspace: stubs claude on PATH, copies the real
- * `examples/scripts/claude-code-summarizer/run.sh` from this repo, and
+ * `examples/bundles/claude-code-summarizer/run.sh` from this repo, and
  * pre-writes a default run-context.json under the scratch dir.
  */
 const setupWorkspace = (contextOverride?: unknown): Workspace => {
@@ -47,10 +47,10 @@ const setupWorkspace = (contextOverride?: unknown): Workspace => {
   copyFileSync(join(FIXTURES, "bin", "claude"), stubDst);
   chmodSync(stubDst, 0o755);
 
-  const bundleDir = join(cwd, "scripts", "claude-code-summarizer");
+  const bundleDir = join(cwd, "bundles", "claude-code-summarizer");
   mkdirSync(bundleDir, { recursive: true });
   const runDst = join(bundleDir, "run.sh");
-  copyFileSync(join(REPO_ROOT, "examples", "scripts", "claude-code-summarizer", "run.sh"), runDst);
+  copyFileSync(join(REPO_ROOT, "examples", "bundles", "claude-code-summarizer", "run.sh"), runDst);
   chmodSync(runDst, 0o755);
 
   const contextFile = join(scratchDir, "run-context.json");
@@ -108,7 +108,7 @@ const baseEnv = (
     KIRI_RUN_ID: "test-run",
     KIRI_STEP_INDEX: "1",
     KIRI_REPO_ROOT: ws.cwd,
-    KIRI_BUNDLE_DIR: join(ws.cwd, "scripts", "claude-code-summarizer"),
+    KIRI_BUNDLE_DIR: join(ws.cwd, "bundles", "claude-code-summarizer"),
     TEST_CAPTURE_DIR: ws.captureDir,
     ...extra,
   };

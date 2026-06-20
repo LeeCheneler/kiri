@@ -15,9 +15,9 @@ describe("createConfigStore", () => {
   });
 
   it("derives the bundles directory and per-bundle paths", () => {
-    expect(config.bundlesDir()).toBe(join(root, "scripts"));
-    expect(config.bundleDir("daily")).toBe(join(root, "scripts", "daily"));
-    expect(config.bundleRunPath("daily")).toBe(join(root, "scripts", "daily", "run.sh"));
+    expect(config.bundlesDir()).toBe(join(root, "bundles"));
+    expect(config.bundleDir("daily")).toBe(join(root, "bundles", "daily"));
+    expect(config.bundleRunPath("daily")).toBe(join(root, "bundles", "daily", "run.sh"));
   });
 
   it("derives the personas directory", () => {
