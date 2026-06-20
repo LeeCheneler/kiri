@@ -1,0 +1,9 @@
+/* Reuse the app's stylesheet wholesale: the `@theme` brand tokens (colour,
+   type) and base layer are the single source of truth, so the site stays in
+   lockstep with the app's look. */
+@import "../client/app.css";
+
+/* The design-system primitives the site composes from live in src/client,
+   outside this Vite project's root (src/site). Point Tailwind's class scanner
+   at them so their utilities are emitted in the site build. */
+@source "../client";
