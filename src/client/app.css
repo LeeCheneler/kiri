@@ -28,6 +28,13 @@
   --color-status-working: #7aaedb;
   --color-status-idle: #88a579;
 
+  /* Advisory tones for Notice callouts — escalating concern, on the same
+     palette as the run hues but a separate vocabulary (config health,
+     degraded features) so the two can diverge without coupling. */
+  --color-notice-info: #7aaedb;
+  --color-notice-warning: #c99858;
+  --color-notice-negative: #d1493e;
+
   --font-display: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
