@@ -529,6 +529,26 @@ export interface ModelsResult {
 export const fetchModels = async (): Promise<ModelsResult> =>
   json<ModelsResult>(await apiFetch("/api/models"));
 
+/** Severity of a config-health check: wired correctly, working-but-reduced, or broken. */
+export type ConfigCheckLevel = "ok" | "degraded" | "error";
+
+/** A single configuration-health finding, as returned by `GET /api/config/health`. */
+export interface ConfigCheck {
+  area: string;
+  level: ConfigCheckLevel;
+  title: string;
+  detail: string;
+}
+
+/** The workspace's configuration-health report. */
+export interface ConfigHealth {
+  checks: ConfigCheck[];
+}
+
+/** Fetch the workspace's configuration-health report. Throws on non-2xx. */
+export const fetchConfigHealth = async (): Promise<ConfigHealth> =>
+  json<ConfigHealth>(await apiFetch("/api/config/health"));
+
 /**
  * Fetch the persona names available to attach at session creation — the
  * `<name>` of each `personas/<name>.md` in the workspace. Empty when none are
