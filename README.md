@@ -1,31 +1,49 @@
 # Kiri
 
-> A local-first, git-based workflow orchestrator for personal automation — with an **activity feed** as the main surface, not a node-graph canvas.
+> A local-first AI workbench for workflows and agentic sessions — on your own machine, against your own git repo.
 
-<p align="center">
-  <img src="docs/assets/home-activity-hero.png" alt="Kiri's activity feed: a reverse-chronological stream of script and AI workflow runs, each with its status, duration, an AI-written summary, and any published articles, alongside a workflows nav and a recently-published rail." width="900">
-</p>
+Define a workflow or open an agentic session, run it against your machine and repo, and publish the result. Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. Kiri runs only while the app is open: no daemons, no scheduler, no cloud.
 
-Kiri is a single local app for running your personal scripts and AI workflows. You define them as YAML in a git repo, invoke them by hand, and watch each run stream into an activity feed — with full traces, published articles, and one-click follow-ups. It runs only while the app is open: no daemons, no scheduler, no cloud.
+```yaml
+# workflows/release-notes.yaml
+name: Release Notes
+steps:
+  - sh: git log --oneline v1.4.0..HEAD
+    name: Collect changes
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: |
+        Rewrite these commits as release notes,
+        grouped under Features and Fixes.
 
-## What makes it different
+        {{KIRI_INPUT}}
+    name: Draft the notes
+publish:
+  - slug: release-notes
+    llm:
+      model: anthropic:claude-haiku-4-5
+      prompt_file: prompts/release-notes.tpl
+```
 
-- **An activity feed, not a canvas.** Every run — script or AI — streams into one reverse-chronological feed with its status, duration, and a one-line AI summary. The feed *is* the UI; there's no node graph to wire up.
-- **Runs become launch pads.** A run can surface one-click follow-up workflows on its detail page — an aggregator that lists your open PRs turns each one into a pre-filled "review this PR" button. No global queue, no inbox: the proposals live on the run that produced them.
-- **Long-form output, rendered.** Workflows can publish markdown articles — briefings, code reviews, digests — with inline charts and mermaid diagrams, surfaced in the activity feed and on each run's page.
-- **Local-first and git-based.** Workflows are YAML in your own git repo; runs execute on your machine while the app is open — no daemons, no cloud, no multi-tenancy. AI steps either call a model provider directly (a first-party `llm:` step) or spawn an agentic CLI like Claude Code — your choice, on your own keys or subscription.
-- **Two pillars, one feed.** Alongside workflows, kiri runs **agentic chat sessions** against your configured models — multi-turn and streaming, with a layered system prompt you shape from a workspace `kiri.md` (standing instructions) and optional `personas/` (role overlays you attach per session). Sessions can call first-party tools too — **web search** and **web extract** (Tavily) switch on whenever `TAVILY_API_KEY` is set. Sessions stream into the same activity feed.
+**📖 Full documentation → [kiri.build/docs](https://kiri.build/docs)**
+
+## Two ways to work
+
+- **Workflows** — versioned YAML pipelines. Chain shell commands (`sh:`), reusable script bundles (`use:`, e.g. one that spawns an agentic CLI like Claude Code), and first-party model completions (`llm:`); pipe each step into the next; publish the run as a markdown article with inline charts and Mermaid diagrams. A run can even propose one-click follow-ups.
+- **Agentic sessions** — open-ended, streaming chat against your configured models, with your workspace context and first-party tools (web search via Tavily). A layered system prompt — a workspace `kiri.md` plus optional `personas/` — shapes every session.
+
+Both stream into a single activity feed.
 
 ## Install
 
-macOS ARM64 only for now — [open an issue](https://github.com/LeeCheneler/kiri/issues) if you'd like another platform.
+macOS on Apple silicon (ARM64) — [open an issue](https://github.com/LeeCheneler/kiri/issues) if you'd like another platform.
 
 ```sh
 brew install LeeCheneler/kiri/kiri
 kiri --version
 ```
 
-Homebrew auto-taps [`LeeCheneler/homebrew-kiri`](https://github.com/LeeCheneler/homebrew-kiri) on first install. To upgrade later, `brew upgrade kiri`.
+Homebrew auto-taps [`LeeCheneler/homebrew-kiri`](https://github.com/LeeCheneler/homebrew-kiri) on first install; upgrade later with `brew upgrade kiri`.
 
 <details>
 <summary>Without Homebrew</summary>
@@ -41,37 +59,29 @@ kiri --version
 
 </details>
 
-## Use
+## Quickstart
 
-Kiri runs per-directory: each working directory is its own workspace.
+Kiri runs per-directory — each working directory is its own workspace.
 
 ```sh
 cd ~/projects/some-workspace
-kiri init    # scaffold a starter workflow
-kiri         # boot the orchestrator on :4242
+kiri init    # scaffold a starter workflow and config
+kiri         # boot on :4242
 ```
 
-To pin a fixed workspace regardless of where you launch from, set `KIRI_CONFIG_DIR` (a leading `~` is expanded). It applies to both `kiri init` and the server:
+Then open **[local.kiri.build](https://local.kiri.build)** — the hosted shell loads kiri's UI from your locally-running process. To pin a workspace regardless of where you launch from, set `KIRI_CONFIG_DIR` (a leading `~` is expanded).
 
-```sh
-KIRI_CONFIG_DIR=~/projects/some-workspace kiri
-```
+> **Safari / Brave:** both block HTTP-localhost requests from an HTTPS page, so use **http://localhost:4242** directly there. Chrome and Firefox work either way.
 
-Then open **https://local.kiri.build** in your browser. The hosted shell at that URL loads kiri's UI from your locally-running process. Bookmark it — same URL across machines and projects.
-
-> **Safari / Brave note.** Both browsers block HTTP-localhost subresource loads from an HTTPS page, so the shell won't fetch kiri's bundle there. Use **http://localhost:4242** directly on those browsers. Chrome and Firefox work either way.
-
-`kiri init` scaffolds a minimal **Hello World** workflow — a single inline shell step that runs on first launch with no external tools or LLM provider installed. It declares one input (`name`); clicking **Run** opens a modal to collect it, then echoes a greeting to the feed.
-
-Richer worked examples live in [`examples/`](./examples/): bundles that spawn the Claude Code CLI or a local LM Studio model, a Daily Briefing workflow that composes a fetch step, a published article, and a summary, and a Release Notes workflow built entirely from first-party `llm:` steps — a model completion, an `llm:` published article, and a zero-config `llm:` summary — that calls a provider directly with no bundle. For `llm:` steps, declare providers under `providers:` in a workspace-root `kiri.yaml` (API keys are `{ env: <NAME> }` references, never literals).
+From here, the [getting-started guide](https://kiri.build/docs/getting-started) covers configuration, model providers, and your first real workflow.
 
 ## Trust model
 
-Kiri runs scripts with **your user's permissions**. Bundles under `bundles/<name>/run.sh` and inline `sh:` steps in your workflow YAML are shell scripts you wrote (or pasted into your own repo) — kiri does not sandbox them. Treat them like any shell script you'd run yourself: read it before you use it.
-
-The defences kiri *does* provide are external: the HTTP API binds to `127.0.0.1` only and requires a custom `X-Kiri-Client` header on state-changing requests, so other browser tabs and arbitrary LAN clients can't trigger workflow runs.
+Kiri runs `sh:` steps and `bundles/<name>/run.sh` with **your user's permissions** — there's no sandbox, so read scripts before you run them, like any shell script. The defences kiri does provide are external: the HTTP API binds to `127.0.0.1` only and requires an `X-Kiri-Client` header on state-changing requests. More in [Trust & security](https://kiri.build/docs/trust-and-security).
 
 ## Learn more
 
-- [`docs/design-notes.md`](./docs/design-notes.md) — architecture, workflows, script bundles, what's shipped, todos.
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — repo setup, dev workflow, deploying the shell.
+- **[kiri.build/docs](https://kiri.build/docs)** — full documentation: workflows, providers, sessions, the CLI, and examples.
+- [`examples/`](./examples/) — a complete, runnable example workspace.
+- [`docs/design-notes.md`](./docs/design-notes.md) — architecture and design invariants.
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — repo setup and dev workflow.

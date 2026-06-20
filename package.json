@@ -1,6 +1,7 @@
 {
   "name": "kiri",
   "version": "0.0.0",
+  "description": "A local-first AI workbench for workflows and agentic sessions.",
   "private": true,
   "type": "module",
   "bin": {
