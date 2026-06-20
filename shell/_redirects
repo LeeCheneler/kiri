@@ -1,0 +1,5 @@
+# The documentation moved to its own site at kiri.build/docs. The old
+# hand-written page that used to live here is retired; forward visitors
+# (and any lingering bookmarks) to the new home.
+/docs https://kiri.build/docs 301
+/docs/* https://kiri.build/docs/:splat 301
