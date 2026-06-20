@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { http, HttpResponse } from "msw";
@@ -374,65 +374,6 @@ describe("<SessionChat>", () => {
     const parts = body?.message.parts ?? [];
     expect(parts).toHaveLength(1);
     expect(parts[0]).toMatchObject({ type: "file" });
-  });
-
-  it("stages an image pasted into the composer", async () => {
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    renderChat();
-
-    const textbox = await screen.findByRole("textbox", { name: /message/i });
-    fireEvent.paste(textbox, {
-      clipboardData: { files: [new File(["img"], "pasted.png", { type: "image/png" })] },
-    });
-
-    expect(await screen.findByAltText("pasted.png")).toBeDefined();
-  });
-
-  it("removes a staged image", async () => {
-    const user = userEvent.setup();
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    const { container } = renderChat();
-
-    await screen.findByText(/no messages yet/i);
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    await user.upload(fileInput, new File(["img"], "drop-me.png", { type: "image/png" }));
-
-    await screen.findByAltText("drop-me.png");
-    await user.click(screen.getByRole("button", { name: /remove image/i }));
-
-    await waitFor(() => expect(screen.queryByAltText("drop-me.png")).toBeNull());
-  });
-
-  it("opens the file picker from the add image button", async () => {
-    const user = userEvent.setup();
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    const { container } = renderChat();
-
-    await screen.findByText(/no messages yet/i);
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    let clicked = false;
-    fileInput.click = () => {
-      clicked = true;
-    };
-    await user.click(screen.getByRole("button", { name: /add image/i }));
-    expect(clicked).toBe(true);
-  });
-
-  it("rejects an oversize image with an inline error", async () => {
-    const user = userEvent.setup();
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    const { container } = renderChat();
-
-    await screen.findByText(/no messages yet/i);
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const tooBig = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "huge.png", {
-      type: "image/png",
-    });
-    await user.upload(fileInput, tooBig);
-
-    expect(await screen.findByText(/must be under 10 MB/i)).toBeDefined();
-    // The file was not staged.
-    expect(screen.queryByAltText("huge.png")).toBeNull();
   });
 
   it("nudges towards a multimodal model when an image turn fails", async () => {

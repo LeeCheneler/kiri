@@ -98,7 +98,7 @@ export function Textarea({
       onPaste={onPaste}
       aria-describedby={description ? `${fieldId}-description` : undefined}
       aria-required={required ? true : undefined}
-      className="border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+      className="w-full border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent disabled:cursor-not-allowed disabled:opacity-50"
     />
   );
   if (label === undefined) return control;
