@@ -224,6 +224,7 @@ providers:
   local:
     type: openai-compatible
     base_url: http://localhost:1234/v1   # required for openai-compatible (LM Studio, Ollama, …)</code></pre>
+      <p>Kiri reports configuration health rather than blocking on it: missing keys and the like are surfaced, never fatal. It prints a health report at startup and shows the same checks in-app as a banner on the activity page. What's "required" is contextual — a workspace with only <code>sh:</code>/<code>use:</code> steps needs no providers, a declared provider with an unset API key (or an unparseable <code>kiri.yaml</code>) is flagged as an error, and a missing <code>TAVILY_API_KEY</code> just turns web search off. Edits to <code>kiri.yaml</code> update the banner live.</p>
 
       <h3>Labelling a step — <code>name:</code> / <code>description:</code></h3>
       <p>Both optional, both work on either step shape. <code>name:</code> is a short label shown as the step's title in the Schema tab and the run timeline; without it a step falls back to its <code>use:</code> reference or the first line of its <code>sh:</code> script, so set it to keep multi-line steps readable. <code>description:</code> is longer detail revealed when the step's row is expanded.</p>

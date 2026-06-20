@@ -1,5 +1,6 @@
 import { type FSWatcher, watch } from "node:fs";
 import { basename } from "node:path";
+import type { EventBus } from "../events/index.ts";
 import type { LlmProviderRegistry } from "../llm/index.ts";
 import { loadKiriConfig } from "./loader.ts";
 import type { ConfigStore } from "./store.ts";
@@ -10,6 +11,8 @@ export interface WatchConfigOptions {
   watchFn?: typeof watch;
   /** Called after a successful reload swaps the registry, so dependents (workflow `llm:` validation) can re-run. */
   onReload?: () => void;
+  /** Publishes `config.changed` on every settled reload (success or failure) so live clients refetch config-derived state. */
+  bus?: EventBus;
 }
 
 export interface KiriConfigWatcher {
@@ -26,6 +29,9 @@ const DEFAULT_DEBOUNCE_MS = 50;
  * re-check their provider against the new set). A reload that fails to parse or
  * validate is logged and the last-known-good registry is kept, so a mid-edit
  * typo never wipes a working provider out from under an in-flight session.
+ * Every settled reload — success or failure — publishes `config.changed` on
+ * `bus`, so live clients refetch config-derived state (including a newly
+ * introduced error, not just a successful swap).
  *
  * Watches the workspace root (filtered to the config file names) rather than a
  * single inode, so an editor's atomic rename-on-save is still observed and a
@@ -40,6 +46,7 @@ export function watchKiriConfig(
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const watchFn = options.watchFn ?? watch;
   const onReload = options.onReload;
+  const bus = options.bus;
   const configNames = new Set(config.configFiles().map((path) => basename(path)));
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -50,11 +57,14 @@ export function watchKiriConfig(
     if (result.failure) {
       // Keep the last-known-good registry on an invalid edit; just surface why.
       console.error(`kiri.yaml: failed to load ${result.failure.path}: ${result.failure.reason}`);
-      return;
+    } else {
+      registry.replace(result.providers);
+      console.log(`kiri.yaml: reloaded ${result.providers.size} provider(s)`);
+      onReload?.();
     }
-    registry.replace(result.providers);
-    console.log(`kiri.yaml: reloaded ${result.providers.size} provider(s)`);
-    onReload?.();
+    // Notify live clients on every settled reload — including a failure — so the
+    // in-app config-health panel reflects a newly introduced error too.
+    bus?.publish({ type: "config.changed" });
   };
 
   const schedule = () => {

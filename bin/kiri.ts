@@ -2,6 +2,11 @@
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { resolveConfigDir } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
+import {
+  type ConfigCheckLevel,
+  type ConfigHealth,
+  evaluateConfigHealth,
+} from "../src/server/config/health.ts";
 import { loadKiriConfig } from "../src/server/config/loader.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { watchKiriConfig } from "../src/server/config/watcher.ts";
@@ -48,6 +53,22 @@ Existing files are never overwritten; only missing files are created.
 The schema files are always (re)written from the live Zod schemas, so a
 plain \`kiri\` launch also keeps them in sync after a binary upgrade.
 `;
+
+// Boot-time console stream per severity, so errors land on stderr.
+const HEALTH_STREAM: Record<ConfigCheckLevel, (line: string) => void> = {
+  ok: console.log,
+  degraded: console.warn,
+  error: console.error,
+};
+
+/** Print the configuration-health report at boot, one aligned line per check. */
+function printConfigHealth(health: ConfigHealth): void {
+  if (health.checks.length === 0) return;
+  console.log("Config health:");
+  for (const check of health.checks) {
+    HEALTH_STREAM[check.level](`  ${check.level.padEnd(8)} ${check.title} — ${check.detail}`);
+  }
+}
 
 const args = process.argv.slice(2);
 const config = createConfigStore(resolveConfigDir(process.env, process.cwd()));
@@ -100,14 +121,10 @@ const cancelRegistry = createCancelRegistry();
 // check `llm:` model prefixes against.
 const kiriConfig = loadKiriConfig(config, process.env);
 llmRegistry.replace(kiriConfig.providers);
-if (kiriConfig.warning) {
-  console.warn(`kiri.yaml: ${kiriConfig.warning}`);
-}
-if (kiriConfig.failure) {
-  console.error(
-    `kiri.yaml: failed to load ${kiriConfig.failure.path}: ${kiriConfig.failure.reason}`,
-  );
-}
+
+// Surface configuration health at boot — warn-and-continue, never blocking the
+// server from starting. The same report is served at GET /api/config/health.
+printConfigHealth(evaluateConfigHealth({ kiriConfig, env: process.env }));
 // Provider names come live off the registry so a kiri.yaml reload re-validates
 // workflows against the new set (see the config watcher below).
 const getProviderNames = () => new Set(llmRegistry.listProviders().map((p) => p.name));
@@ -128,6 +145,7 @@ const watcher = watchWorkflows(config, registry, initial, { bus, getProviderName
 // registry, then revalidate workflows so `llm:` steps re-check their provider.
 const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
   onReload: () => watcher.revalidate(),
+  bus,
 });
 
 const app = createApp({
@@ -139,6 +157,7 @@ const app = createApp({
   llmClients,
   sessionTools,
   version: VERSION,
+  env: process.env,
 });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");

@@ -30,7 +30,8 @@ export type KiriEvent =
   | { type: "session.deleted"; id: string }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
-  | { type: "workflow.removed"; name: string };
+  | { type: "workflow.removed"; name: string }
+  | { type: "config.changed" };
 
 export type RunStatus = "running" | "ok" | "failed" | "cancelled";
 export type StepStatus = "running" | "ok" | "failed" | "cancelled";

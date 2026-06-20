@@ -16,7 +16,8 @@ export type KiriEventType =
   | "session.deleted"
   | "workflow.added"
   | "workflow.updated"
-  | "workflow.removed";
+  | "workflow.removed"
+  | "config.changed";
 
 /** Session lifecycle states; `idle` is the between-turns resting state, replacing a run's terminal `ok`. */
 type SessionStatus = "running" | "idle" | "failed" | "cancelled";
@@ -53,7 +54,8 @@ export type KiriEvent =
   | { type: "session.deleted"; id: string }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
-  | { type: "workflow.removed"; name: string };
+  | { type: "workflow.removed"; name: string }
+  | { type: "config.changed" };
 
 /** Minimal `EventSource` surface so tests can swap in a controllable fake. */
 export interface EventSourceLike {
@@ -83,6 +85,7 @@ const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
   "workflow.added",
   "workflow.updated",
   "workflow.removed",
+  "config.changed",
 ];
 
 const KIRI_ORIGIN = "http://127.0.0.1:4242";

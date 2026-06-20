@@ -23,6 +23,7 @@ import { Quote } from "../design-system/content/quote.tsx";
 import { Rule } from "../design-system/content/rule.tsx";
 import { Stat, StatList } from "../design-system/content/stat.tsx";
 import { Table } from "../design-system/content/table.tsx";
+import { Notice } from "../design-system/feedback/notice.tsx";
 import { StatusBlock } from "../design-system/feedback/status-block.tsx";
 import { Status, type StatusKind } from "../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
@@ -1619,6 +1620,41 @@ export function DesignSystemContent() {
                     <p className="font-mono text-sm text-ink">openai:gpt-4o-mini</p>
                     <p className="mt-1 font-mono text-xs text-ink-muted">session · idle</p>
                   </StatusBlock>
+                </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Notice</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Notice</span> · design-system/feedback/notice.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A toned advisory callout for config-health findings, degraded-feature notices, and
+                similar messages. Pass <Code>tone</Code> — <Code>informational</Code>,{" "}
+                <Code>warning</Code>, or <Code>negative</Code> — a <Code>title</Code>, and optional
+                detail as children; the block draws a tone-coloured left edge with a tinted title
+                over muted detail, and exposes <Code>data-tone</Code> for containers to anchor on.
+                Set <Code>announce</Code> (<Code>polite</Code> renders a native <Code>output</Code>;{" "}
+                <Code>assertive</Code> interrupts) to have a screen reader read it out when it
+                appears. Distinct from StatusBlock, which speaks the run/session status vocabulary;
+                reach for Notice when the message is advisory rather than a run's outcome.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="space-y-4">
+                  <Notice tone="informational" title="No personas defined">
+                    Add a <Code>personas/&lt;name&gt;.md</Code> file to offer session overlays.
+                  </Notice>
+                  <Notice tone="warning" title="Web search disabled">
+                    TAVILY_API_KEY is not set, so sessions run without web_search and web_extract.
+                  </Notice>
+                  <Notice tone="negative" title="anthropic: ANTHROPIC_API_KEY is not set">
+                    The provider cannot authenticate until the key is set in the environment.
+                  </Notice>
                 </div>
               </Card>
             </div>
