@@ -54,12 +54,12 @@ inputs:                    # optional — parameters collected via a modal at in
     description: The PR to review
     required: true
 steps:
-  - use: fetch-pr           # script bundle: scripts/fetch-pr/run.sh
+  - use: fetch-pr           # script bundle: bundles/fetch-pr/run.sh
     name: Fetch the PR      # optional short label, shown as the step title in the UI
     env:
       PR_NUMBER:
         input: pr_number    # resolved at spawn from the run's inputs snapshot
-  - use: claude-code        # script bundle: scripts/claude-code/run.sh (example, see examples/)
+  - use: claude-code        # script bundle: bundles/claude-code/run.sh (example, see examples/)
     env:
       PROMPT_FILE: prompts/pr-review.tpl
       MAX_TURNS: "50"
@@ -81,7 +81,7 @@ summarize:                 # optional one or two sentence feed summary
 
 A step is exactly one of three shapes:
 
-- `{ use: <name>, name?, description?, env?: { ... } }` — references a **script bundle** at `scripts/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
+- `{ use: <name>, name?, description?, env?: { ... } }` — references a **script bundle** at `bundles/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
 - `{ sh: <string>, name?, description?, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
 - `{ llm: { model, prompt? | prompt_file? }, name?, description?, env?: { ... } }` — **first-party LLM completion** against a model declared in `kiri.yaml` (see *AI integration → LLM providers*). `model` is a `provider:model` id; the prefix must name a registered provider or the workflow fails to load. The prompt is inline (`prompt`) or a workspace-root-relative file (`prompt_file`) — declaring both is a schema error, and a declared `prompt_file` must exist on disk at load. `steps:` and `publish:` require one of the two; `summarize:` may omit both, falling back to a baked-in summary prompt.
 
@@ -96,7 +96,7 @@ Two workflow-level sibling fields run alongside `steps:`:
 
 Both fields share the same load-time validation as `steps:` (a step is exactly one of `use:` / `sh:` / `llm:`, `KIRI_` prefix banned on `env:` keys; a missing `use:` bundle, an unknown llm provider prefix, or a missing `prompt_file` is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing publish flips `runs.status` to `failed`.
 
-The script bundle is the primitive for everything kiri reaches by spawning a process; first-party `llm:` steps cover the plain-completion case without forcing a bundle. The repo's `examples/` carries `claude-code` and `lm-studio` starter bundles; LM Studio support is `cp -r examples/scripts/claude-code scripts/lm-studio` and editing the script. For a **script step** kiri stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way. An `llm:` step is the deliberate exception — kiri makes the completion call in-process against the configured provider — but its result maps onto the same envelope, so everything downstream (traces, `publish:`, `summarize:`) is identical to a script step's.
+The script bundle is the primitive for everything kiri reaches by spawning a process; first-party `llm:` steps cover the plain-completion case without forcing a bundle. The repo's `examples/` carries `claude-code` and `lm-studio` starter bundles; LM Studio support is `cp -r examples/bundles/claude-code bundles/lm-studio` and editing the script. For a **script step** kiri stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way. An `llm:` step is the deliberate exception — kiri makes the completion call in-process against the configured provider — but its result maps onto the same envelope, so everything downstream (traces, `publish:`, `summarize:`) is identical to a script step's.
 
 Rationale for YAML over TS: workflow files live in arbitrary user repos, but kiri ships as a single Bun-compiled binary. Resolving a TS `import { defineWorkflow } from "kiri"` from those repos would require both a Bun plugin baked into the binary to intercept the import *and* generated `.d.ts` files dropped into each repo for IDE support — both maintenance costs that compound forever. YAML is pure data, validated at load time, and a JSON schema can be published alongside the binary for editor LSP integration with no per-repo footprint.
 
@@ -137,7 +137,7 @@ A workflow optionally declares `inputs:` — named parameters collected at invoc
 
 State lives in three tiers, by what kind of state it is:
 
-- **In git** — workflow definitions (`.yaml` files), script bundles (`scripts/<name>/`), prompt files, sandbox profiles. Everything that benefits from review and version history.
+- **In git** — workflow definitions (`.yaml` files), script bundles (`bundles/<name>/`), prompt files, sandbox profiles. Everything that benefits from review and version history.
 - **In SQLite** — runtime state: runs, todos, app state (paused/running, in-flight counter), run metadata + envelopes. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
 - **On disk (data dir)** — large blob payloads referenced by path from SQLite rows: full CC transcripts, big stdout dumps, anything that'd bloat the DB. Same pattern CI systems use to keep the DB lean.
 
@@ -230,9 +230,9 @@ Scope is completion-shaped steps: one prompt in, text out. Agentic work — tool
 
 ### Claude Code via the `claude-code` bundle
 
-Kiri integrates with Claude Code through a `claude-code` script bundle — a worked example carried in the repo's `examples/` that the user copies into their workspace's `scripts/` and owns from then on. Kiri itself has no CC-specific code; the bundle does the spawning, config translation, transcript parsing, and meta emission. Spawning CC's CLI directly keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
+Kiri integrates with Claude Code through a `claude-code` script bundle — a worked example carried in the repo's `examples/` that the user copies into their workspace's `bundles/` and owns from then on. Kiri itself has no CC-specific code; the bundle does the spawning, config translation, transcript parsing, and meta emission. Spawning CC's CLI directly keeps Max subscription billing in play — the Agent SDK is API-billed only and not on the table for this personal tool.
 
-Bundle layout (`examples/scripts/claude-code/`):
+Bundle layout (`examples/bundles/claude-code/`):
 
 ```
 claude-code/
@@ -258,7 +258,7 @@ What `run.sh` does at spawn time:
 - Loads the prompt from `PROMPT_FILE` (resolved against `KIRI_REPO_ROOT`) and **prepends the allowlist as positive framing** ("You have access to: …. If you need anything else, end the session with a final message describing what you needed and why.") so the agent doesn't burn turns on denied tools.
 - Spawns `claude -p "$PROMPT" --max-turns "$MAX_TURNS"` and forwards its stdout/stderr to kiri's standard step envelope.
 
-The bundle is plain bash — readable, modifiable, replaceable. Adding LM Studio support is `cp -r examples/scripts/claude-code scripts/lm-studio` and editing. The example lives in the repo; the user owns their copy from there.
+The bundle is plain bash — readable, modifiable, replaceable. Adding LM Studio support is `cp -r examples/bundles/claude-code bundles/lm-studio` and editing. The example lives in the repo; the user owns their copy from there.
 
 ### Output validation (for LLM steps producing structured output)
 
@@ -366,7 +366,7 @@ Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
 <repo-root>/
   workflows/                  # YAML workflow definitions (in git)
   kiri.yaml                   # structured config: LLM providers, … (in git; optional)
-  scripts/                    # script bundles (in git)
+  bundles/                    # script bundles (in git)
     claude-code/              # an example bundle copied in; user owns it
       run.sh
       README.md

@@ -96,8 +96,8 @@ If the env-var contract still isn't enough — for example you need
 custom dep handling or a different CLI entirely — fork the bundle:
 
 ```
-cp -r scripts/lm-studio-summarizer scripts/my-summarizer
-$EDITOR scripts/my-summarizer/run.sh
+cp -r bundles/lm-studio-summarizer bundles/my-summarizer
+$EDITOR bundles/my-summarizer/run.sh
 ```
 
 Then reference your fork:

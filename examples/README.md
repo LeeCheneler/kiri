@@ -10,7 +10,7 @@ being forced on every new repo.
 ```
 examples/
   kiri.yaml                   # structured config (providers for first-party llm: steps)
-  scripts/
+  bundles/
     claude-code/              # spawn the Claude Code CLI with a rendered prompt
     claude-code-summarizer/   # summarise: step backed by Claude Code
     lm-studio/                # one-shot completion against an OpenAI-compatible local server
@@ -33,10 +33,10 @@ load-bearing reference for authoring your own bundles.
 ## Using a bundle
 
 Bundles are plain bash. Copy the one you want into your own workspace's
-`scripts/` directory and reference it from a workflow's `use:` field:
+`bundles/` directory and reference it from a workflow's `use:` field:
 
 ```sh
-cp -r examples/scripts/claude-code path/to/your/workspace/scripts/
+cp -r examples/bundles/claude-code path/to/your/workspace/bundles/
 ```
 
 ## First-party `llm:` steps — the release-notes example
