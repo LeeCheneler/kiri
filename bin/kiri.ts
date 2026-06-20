@@ -145,6 +145,7 @@ const watcher = watchWorkflows(config, registry, initial, { bus, getProviderName
 // registry, then revalidate workflows so `llm:` steps re-check their provider.
 const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
   onReload: () => watcher.revalidate(),
+  bus,
 });
 
 const app = createApp({

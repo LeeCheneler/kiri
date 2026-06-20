@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { type FSWatcher, mkdtempSync, rmSync, type watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createEventBus } from "../events/index.ts";
 import { type LlmProviderRegistry, createLlmProviderRegistry } from "../llm/index.ts";
 import { loadKiriConfig } from "./loader.ts";
 import { type ConfigStore, createConfigStore } from "./store.ts";
@@ -158,6 +159,37 @@ describe("watchKiriConfig", () => {
 
     expect(registry.getProvider("anthropic")).toBeDefined();
     expect(reloaded).toBe(0);
+    watcher.stop();
+  });
+
+  it("publishes config.changed on a successful reload", async () => {
+    const events: string[] = [];
+    const bus = createEventBus();
+    bus.subscribe((e) => events.push(e.type));
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn, bus });
+
+    writeConfig(PROVIDER);
+    triggerChange("kiri.yaml");
+    await waitFor(() => events.includes("config.changed"));
+
+    expect(registry.getProvider("local")).toBeDefined();
+    watcher.stop();
+  });
+
+  it("publishes config.changed even when the reload fails to load", async () => {
+    const events: string[] = [];
+    const bus = createEventBus();
+    bus.subscribe((e) => events.push(e.type));
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchKiriConfig(config, registry, {}, { debounceMs: 10, watchFn, bus });
+
+    writeConfig("providers:\n  x:\n    type: not-a-real-type\n");
+    triggerChange("kiri.yaml");
+    await waitFor(() => errs.some((m) => m.includes("failed to load")));
+
+    // The client still needs to learn of the change so it can show the error.
+    expect(events).toContain("config.changed");
     watcher.stop();
   });
 
