@@ -158,14 +158,20 @@ describe("<MessageComposer>", () => {
     expect(clicked).toBe(true);
   });
 
-  it("disables the textarea and the add image button while busy", () => {
+  it("keeps the field and controls editable while busy but blocks submitting", async () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
     composer(onSubmit, true);
 
-    expect((textbox() as HTMLTextAreaElement).disabled).toBe(true);
+    // The field and the add-image control stay usable, so the next message can
+    // be drafted while a turn is in flight.
+    expect((textbox() as HTMLTextAreaElement).disabled).toBe(false);
     expect((screen.getByRole("button", { name: /add image/i }) as HTMLButtonElement).disabled).toBe(
-      true,
+      false,
     );
+
+    // …but Enter doesn't send until the turn settles.
+    await userEvent.type(textbox(), "drafted ahead{Enter}");
+    expect(onSubmit.mock.calls).toHaveLength(0);
   });
 
   it("fires onCancel on Escape without submitting", async () => {

@@ -156,15 +156,6 @@ function Chat({ detail }: { detail: SessionDetail }) {
     document.getElementById(inputId)?.focus();
   }, [inputId]);
 
-  // Also return focus to the composer once a turn settles (the field disables
-  // while busy, dropping focus), so the next message follows straight on. Only
-  // on the falling edge of `busy`, so a streamed delta mid-turn doesn't grab it.
-  const wasBusy = useRef(false);
-  useEffect(() => {
-    if (wasBusy.current && !busy) document.getElementById(inputId)?.focus();
-    wasBusy.current = busy;
-  }, [busy, inputId]);
-
   // A turn can finish while this view is unmounted (we navigated away) or be
   // driven from elsewhere: it persists without `useChat` — which ignores
   // re-seeds after mount — ever seeing it. When we're not the one streaming and
@@ -206,8 +197,8 @@ function Chat({ detail }: { detail: SessionDetail }) {
     void cancelSession(session.id).catch(() => {});
   }, [stop, session.id]);
 
-  // Esc cancels an in-flight turn. The composer is disabled mid-turn so it
-  // can't catch the key itself; listen on the window while a turn is busy.
+  // Esc cancels an in-flight turn. The composer has no `onCancel` in this view,
+  // so it leaves Escape alone; catch it on the window while a turn is busy.
   useEffect(() => {
     if (!busy) return;
     const onKeyDown = (event: KeyboardEvent) => {

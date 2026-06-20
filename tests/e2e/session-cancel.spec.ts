@@ -14,13 +14,12 @@ test("Escape cancels an in-flight turn and leaves the session usable", async ({ 
   await sendMessage(page, "take your time");
 
   // The transcript foot shows the working status while the turn streams; the
-  // composer disables for the duration.
+  // composer stays editable so the next message can be drafted in the meantime.
   await expect(page.locator('[data-status="working"]')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByLabel(/message/i)).toBeDisabled();
+  await expect(page.getByLabel(/message/i)).toBeEnabled();
 
-  // Esc aborts the turn (client stop + server cancel). The working cue clears
-  // and the composer re-enables — without a failure, since a cancel is not an
-  // error.
+  // Esc aborts the turn (client stop + server cancel). The working cue clears —
+  // without a failure, since a cancel is not an error.
   await page.keyboard.press("Escape");
   await expect(page.locator('[data-status="working"]')).not.toBeVisible({ timeout: 10_000 });
   await expect(page.getByLabel(/message/i)).toBeEnabled();
