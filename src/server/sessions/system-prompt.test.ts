@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import {
   INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
@@ -21,9 +22,11 @@ function writePersona(dir: string, name: string, body: string): void {
 
 describe("buildSystemPrompt", () => {
   let dir: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-sysprompt-"));
+    config = createConfigStore(dir);
   });
 
   afterEach(() => {
@@ -31,13 +34,13 @@ describe("buildSystemPrompt", () => {
   });
 
   it("always includes the kiri core layer with the current date", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(prompt).toContain("running inside kiri");
     expect(prompt).toContain("Today's date is 2026-06-17.");
   });
 
   it("rules out LaTeX and other non-Markdown syntax in replies", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     // The renderer has no maths plugin, so TeX leaks through as raw text — the
     // prompt must say so explicitly and point at the Markdown alternative.
     expect(prompt).toContain("ONLY Markdown");
@@ -47,7 +50,7 @@ describe("buildSystemPrompt", () => {
   });
 
   it("documents the chart rendering capability with a worked example", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     // The fence keyword the markdown renderer routes to the chart component.
     expect(prompt).toContain("```chart");
     // The load-bearing constraints: Vega-Lite, inline data, no remote fetch.
@@ -57,13 +60,13 @@ describe("buildSystemPrompt", () => {
   });
 
   it("tells the model when not to render a chart", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(prompt).toContain("only when a visualisation genuinely helps");
     expect(prompt).toContain("don't chart");
   });
 
   it("documents the mermaid diagram rendering capability with a worked example", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     // The fence keyword the markdown renderer routes to the diagram component.
     expect(prompt).toContain("```mermaid");
     // The when-to-use distinction from charts: structure, not quantities.
@@ -72,13 +75,13 @@ describe("buildSystemPrompt", () => {
   });
 
   it("omits tool guidance when no tools are active", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(prompt).not.toContain("You have tools available");
     expect(prompt).not.toContain("web_search");
   });
 
   it("adds web_search guidance, before the chart guidance, when the tool is active", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, tools: ["web_search"], now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, tools: ["web_search"], now: FIXED_NOW });
     expect(prompt).toContain("web_search");
     expect(prompt).toContain("current events");
     // Tool guidance lives in the core layer, ahead of the chart guidance.
@@ -86,20 +89,20 @@ describe("buildSystemPrompt", () => {
   });
 
   it("adds web_extract guidance when the tool is active", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, tools: ["web_extract"], now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, tools: ["web_extract"], now: FIXED_NOW });
     expect(prompt).toContain("web_extract");
     expect(prompt).toContain("read the full text");
   });
 
   it("gives generic tool guidance without web-search advice for other tools", () => {
-    const prompt = buildSystemPrompt({ cwd: dir, tools: ["read_file"], now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, tools: ["read_file"], now: FIXED_NOW });
     expect(prompt).toContain("You have tools available");
     expect(prompt).not.toContain("web_search");
   });
 
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
-    const prompt = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
 
     expect(prompt).toContain("running inside kiri");
     expect(prompt).toContain("Always answer in British English.");
@@ -113,22 +116,28 @@ describe("buildSystemPrompt", () => {
     // A directory at the kiri.md path makes readFileSync throw (EISDIR); the
     // read-error path degrades to "no instructions" rather than failing.
     mkdirSync(join(dir, INSTRUCTIONS_FILENAME));
-    const withUnreadable = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
-    const withNone = buildSystemPrompt({ cwd: join(dir, "absent"), now: FIXED_NOW });
+    const withUnreadable = buildSystemPrompt({ config, now: FIXED_NOW });
+    const withNone = buildSystemPrompt({
+      config: createConfigStore(join(dir, "absent")),
+      now: FIXED_NOW,
+    });
     expect(withUnreadable).toBe(withNone);
   });
 
   it("returns just the core layer when kiri.md is absent", () => {
-    const withFile = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const withFile = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(withFile).toContain("running inside kiri");
     expect(withFile).not.toContain("Always answer");
   });
 
   it("ignores an empty or whitespace-only kiri.md", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "   \n\t\n");
-    const withWhitespace = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const withWhitespace = buildSystemPrompt({ config, now: FIXED_NOW });
     // Identical to the no-file result: no trailing separator, no empty section.
-    const withoutFile = buildSystemPrompt({ cwd: join(dir, "absent"), now: FIXED_NOW });
+    const withoutFile = buildSystemPrompt({
+      config: createConfigStore(join(dir, "absent")),
+      now: FIXED_NOW,
+    });
     expect(withWhitespace).toBe(withoutFile);
   });
 
@@ -136,7 +145,7 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.");
     writePersona(dir, "code-reviewer", "You are a meticulous code reviewer.");
 
-    const prompt = buildSystemPrompt({ cwd: dir, persona: "code-reviewer", now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, persona: "code-reviewer", now: FIXED_NOW });
 
     expect(prompt).toContain("running inside kiri");
     expect(prompt).toContain("Always answer in British English.");
@@ -152,23 +161,25 @@ describe("buildSystemPrompt", () => {
 
   it("overlays a persona even when kiri.md is absent", () => {
     writePersona(dir, "poet", "You speak only in verse.");
-    const prompt = buildSystemPrompt({ cwd: dir, persona: "poet", now: FIXED_NOW });
+    const prompt = buildSystemPrompt({ config, persona: "poet", now: FIXED_NOW });
     expect(prompt).toContain("running inside kiri");
     expect(prompt).toContain("You speak only in verse.");
   });
 
   it("ignores a persona that does not exist", () => {
-    const withMissing = buildSystemPrompt({ cwd: dir, persona: "ghost", now: FIXED_NOW });
-    const withNone = buildSystemPrompt({ cwd: dir, now: FIXED_NOW });
+    const withMissing = buildSystemPrompt({ config, persona: "ghost", now: FIXED_NOW });
+    const withNone = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(withMissing).toBe(withNone);
   });
 });
 
 describe("listPersonas", () => {
   let dir: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-personas-"));
+    config = createConfigStore(dir);
   });
 
   afterEach(() => {
@@ -176,22 +187,24 @@ describe("listPersonas", () => {
   });
 
   it("returns an empty list when there is no personas directory", () => {
-    expect(listPersonas(dir)).toEqual([]);
+    expect(listPersonas(config)).toEqual([]);
   });
 
   it("lists the markdown persona names, sorted, ignoring non-markdown files", () => {
     writePersona(dir, "reviewer", "r");
     writePersona(dir, "architect", "a");
     writeFileSync(join(dir, PERSONAS_DIRNAME, "notes.txt"), "ignored");
-    expect(listPersonas(dir)).toEqual(["architect", "reviewer"]);
+    expect(listPersonas(config)).toEqual(["architect", "reviewer"]);
   });
 });
 
 describe("loadPersona", () => {
   let dir: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-personas-"));
+    config = createConfigStore(dir);
   });
 
   afterEach(() => {
@@ -200,12 +213,12 @@ describe("loadPersona", () => {
 
   it("reads a persona's trimmed instructions", () => {
     writePersona(dir, "reviewer", "  Review carefully.\n");
-    expect(loadPersona(dir, "reviewer")).toBe("Review carefully.");
+    expect(loadPersona(config, "reviewer")).toBe("Review carefully.");
   });
 
   it("refuses a name that escapes the personas directory", () => {
     writeFileSync(join(dir, "secret.md"), "should never be read");
     // `../secret` would resolve outside personas/ — the guard returns null.
-    expect(loadPersona(dir, "../secret")).toBeNull();
+    expect(loadPersona(config, "../secret")).toBeNull();
   });
 });

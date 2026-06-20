@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConfigStore } from "../../src/server/config/store.ts";
 import { runStep } from "../../src/server/runner/run-step.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -126,7 +127,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     ws = setupWorkspace();
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true),
@@ -161,7 +162,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     ws = setupWorkspace(context);
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true),
@@ -189,7 +190,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     ws = setupWorkspace();
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, false),
@@ -204,7 +205,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     rmSync(ws.contextFile);
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true),
@@ -221,7 +222,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     env.PATH = "/usr/bin:/bin";
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env,
@@ -236,7 +237,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     ws = setupWorkspace();
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true, {
@@ -263,7 +264,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     );
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true, { PROMPT_FILE: "prompts/summary.tpl" }),
@@ -281,7 +282,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     writeFileSync(join(ws.cwd, "prompts", "ignored.tpl"), "File content must not appear.");
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true, {
@@ -300,7 +301,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     ws = setupWorkspace();
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true, { MODEL: "sonnet" }),
@@ -315,7 +316,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     ws = setupWorkspace();
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true, { MAX_TURNS: "3" }),
@@ -332,7 +333,7 @@ describe("claude-code-summarizer bundle: integration", () => {
     ws = setupWorkspace();
     const envelope = await runStep({
       step: { use: "claude-code-summarizer" },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: baseEnv(ws, true, { PROMPT_FILE: "prompts/missing.tpl" }),

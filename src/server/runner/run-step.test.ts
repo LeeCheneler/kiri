@@ -2,15 +2,18 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import type { ChildHandle } from "./cancel-registry.ts";
 import { runStep } from "./run-step.ts";
 
 describe("runStep", () => {
   let cwd: string;
+  let config: ConfigStore;
   let scratchDir: string;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-step-"));
+    config = createConfigStore(cwd);
     scratchDir = join(cwd, "scratch");
     mkdirSync(scratchDir);
   });
@@ -33,7 +36,7 @@ describe("runStep", () => {
 
       const envelope = await runStep({
         step: { use: "ok" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -52,7 +55,7 @@ describe("runStep", () => {
 
       const envelope = await runStep({
         step: { use: "fail" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -68,7 +71,7 @@ describe("runStep", () => {
 
       const envelope = await runStep({
         step: { use: "err" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -83,7 +86,7 @@ describe("runStep", () => {
 
       const envelope = await runStep({
         step: { use: "cat" },
-        cwd,
+        config,
         scratchDir,
         input: "echo me back",
         env: {},
@@ -97,7 +100,7 @@ describe("runStep", () => {
 
       const envelope = await runStep({
         step: { use: "pwd" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -116,7 +119,7 @@ describe("runStep", () => {
 
       const envelope = await runStep({
         step: { use: "env" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: { FOO: "bar" },
@@ -129,7 +132,7 @@ describe("runStep", () => {
     it("returns a failed envelope when the bundle script does not exist", async () => {
       const envelope = await runStep({
         step: { use: "missing" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -145,7 +148,7 @@ describe("runStep", () => {
       const captured: ChildHandle[] = [];
       const envelope = await runStep({
         step: { sh: "echo hi" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -163,7 +166,7 @@ describe("runStep", () => {
     it("runs an inline shell snippet via sh -c and reports ok on exit 0", async () => {
       const envelope = await runStep({
         step: { sh: "echo from-sh" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -176,7 +179,7 @@ describe("runStep", () => {
     it("returns a failed envelope on non-zero exit", async () => {
       const envelope = await runStep({
         step: { sh: "echo bye; exit 3" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -190,7 +193,7 @@ describe("runStep", () => {
     it("pipes input into the inline snippet's stdin", async () => {
       const envelope = await runStep({
         step: { sh: "cat" },
-        cwd,
+        config,
         scratchDir,
         input: "piped",
         env: {},
@@ -202,7 +205,7 @@ describe("runStep", () => {
     it("uses scratchDir as cwd", async () => {
       const envelope = await runStep({
         step: { sh: "pwd" },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},
@@ -214,7 +217,7 @@ describe("runStep", () => {
     it("scopes env to exactly what was passed", async () => {
       const envelope = await runStep({
         step: { sh: 'echo "FOO=$FOO USER=$USER"' },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: { FOO: "bar" },
@@ -228,7 +231,7 @@ describe("runStep", () => {
     it("dispatches to the llm executor instead of spawning", async () => {
       const envelope = await runStep({
         step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise {{KIRI_INPUT}}" } },
-        cwd,
+        config,
         scratchDir,
         input: "the news\n",
         env: {},
@@ -248,7 +251,7 @@ describe("runStep", () => {
     it("returns a failed envelope when no llm clients are configured", async () => {
       const envelope = await runStep({
         step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
-        cwd,
+        config,
         scratchDir,
         input: "",
         env: {},

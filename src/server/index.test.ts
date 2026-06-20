@@ -25,7 +25,7 @@ describe("createApp", () => {
     const ALLOWED = ["https://local.kiri.build", "http://127.0.0.1:4242", "http://localhost:4242"];
 
     it("echoes the origin on /api responses for every allowed origin", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       for (const origin of ALLOWED) {
         const res = await app.request("/api/health", { headers: { Origin: origin } });
         expect(res.headers.get("Access-Control-Allow-Origin")).toBe(origin);
@@ -33,7 +33,7 @@ describe("createApp", () => {
     });
 
     it("echoes the origin on stable-path static assets", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/app.js", {
         headers: { Origin: "https://local.kiri.build" },
       });
@@ -41,7 +41,7 @@ describe("createApp", () => {
     });
 
     it("omits CORS headers for disallowed origins", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/health", {
         headers: { Origin: "https://evil.example" },
       });
@@ -49,7 +49,7 @@ describe("createApp", () => {
     });
 
     it("answers OPTIONS preflight on /api/workflows/:name/runs with 204 and the allow-* headers", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows/anything/runs", {
         method: "OPTIONS",
         headers: {
@@ -66,7 +66,7 @@ describe("createApp", () => {
     });
 
     it("answers OPTIONS preflight on DELETE /api/runs/:id with 204 and permits the DELETE method", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/anything", {
         method: "OPTIONS",
         headers: {
@@ -82,7 +82,7 @@ describe("createApp", () => {
     });
 
     it("answers OPTIONS preflight on PATCH /api/sessions/:id with 204 and permits the PATCH method", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/sessions/anything", {
         method: "OPTIONS",
         headers: {
@@ -100,7 +100,7 @@ describe("createApp", () => {
 
   describe("X-Kiri-Client gate", () => {
     it("rejects state-changing requests without the header with 403", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows/anything/runs", { method: "POST" });
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
@@ -112,7 +112,7 @@ describe("createApp", () => {
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request("/api/workflows/kept/runs", {
         method: "POST",
         headers: { "X-Kiri-Client": "anything" },
@@ -126,7 +126,7 @@ describe("createApp", () => {
     });
 
     it("does not require the header on safe (GET) requests", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs");
       expect(res.status).toBe(200);
     });
@@ -135,7 +135,7 @@ describe("createApp", () => {
   describe("GET /api/events", () => {
     it("is mounted when a bus is supplied", async () => {
       const bus = createEventBus();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request("/api/events");
       expect(res.status).toBe(200);
       expect(res.headers.get("Content-Type")).toContain("text/event-stream");
@@ -143,7 +143,7 @@ describe("createApp", () => {
     });
 
     it("is not mounted when no bus is supplied", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/events");
       expect(res.status).toBe(404);
     });
@@ -151,7 +151,7 @@ describe("createApp", () => {
 
   describe("global error handling", () => {
     it("returns JSON 404 honouring the { error } contract for unmatched /api/* routes", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/does-not-exist");
       expect(res.status).toBe(404);
       expect(res.headers.get("content-type")).toContain("application/json");
@@ -159,7 +159,7 @@ describe("createApp", () => {
     });
 
     it("translates HTTPException thrown from a handler into its status and message", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       app.get("/api/teapot", () => {
         throw new HTTPException(418, { message: "i am a teapot" });
       });
@@ -169,7 +169,7 @@ describe("createApp", () => {
     });
 
     it("returns an opaque JSON 500 for uncaught throws and logs the cause", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       app.get("/api/boom", () => {
         throw new Error("secret internal detail");
       });

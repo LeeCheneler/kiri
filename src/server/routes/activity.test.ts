@@ -53,7 +53,7 @@ describe("activity routes", () => {
   const idOf = (e: ActivityBody["entries"][number]) => (e.kind === "run" ? e.run.id : e.session.id);
 
   const getActivity = async (query = "") => {
-    const res = await createApp({ db: env.db, registry: env.registry, cwd: env.cwd }).request(
+    const res = await createApp({ db: env.db, registry: env.registry, config: env.config }).request(
       `/api/activity${query}`,
     );
     return { status: res.status, body: (await res.json()) as ActivityBody };
@@ -170,7 +170,7 @@ describe("activity routes", () => {
       const res = await createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
       }).request(`/api/activity?cursor=${bad}`);
       expect(res.status).toBe(400);
     });

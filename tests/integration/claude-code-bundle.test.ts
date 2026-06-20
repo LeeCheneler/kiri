@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConfigStore } from "../../src/server/config/store.ts";
 import { type StepEnvelope, runStep } from "../../src/server/runner/run-step.ts";
 import { loadWorkflows } from "../../src/server/workflows/index.ts";
 
@@ -91,7 +92,7 @@ const readCapture = (ws: Workspace): Capture => {
  * pipeline behaviour.
  */
 const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]> => {
-  const result = await loadWorkflows(join(ws.cwd, "workflows"), ws.cwd);
+  const result = await loadWorkflows(createConfigStore(ws.cwd));
   expect(result.failures).toEqual([]);
   const def = result.workflows.get(name);
   if (!def) throw new Error(`workflow not found in fixtures: ${name}`);
@@ -116,7 +117,7 @@ const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]>
     if ("use" in step) env.KIRI_BUNDLE_DIR = join(ws.cwd, "scripts", step.use);
     const envelope = await runStep({
       step,
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input,
       env,
@@ -248,7 +249,7 @@ describe("claude-code bundle: integration", () => {
     // dep-check fires first and exits non-zero.
     const envelope = await runStep({
       step: { use: "claude-code", env: { PROMPT_FILE: "prompts/single-line-input.tpl" } },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: {

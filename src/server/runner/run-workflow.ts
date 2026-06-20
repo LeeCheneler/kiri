@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { resolvePublishName } from "../../shared/publish-name.ts";
+import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
@@ -28,8 +29,8 @@ import { ingestStepRecommendations } from "./recommendations.ts";
 import { type StepEnvelope, runStep } from "./run-step.ts";
 
 export interface RunWorkflowArgs {
-  /** Repo root. Bundles resolve under `<cwd>/scripts/<name>/run.sh`; the scratch dir lives at `<cwd>/.kiri/runs/<run-id>/`. */
-  cwd: string;
+  /** Workspace config. Bundles resolve via `config.bundleDir()`; the scratch dir lives at `config.runDir(runId)`. */
+  config: ConfigStore;
   /** Optional event bus. When supplied, the runner publishes lifecycle events at run/step transitions. */
   bus?: EventBus;
   /** Optional cancel registry. When supplied, the runner registers the run, publishes the active step's child handle for SIGTERM/SIGKILL, checks for cancellation between steps, and translates a cancel-induced step failure into a `cancelled` terminal status. */
@@ -125,7 +126,7 @@ const buildEnv = (
   step: WorkflowStep,
   runId: string,
   stepIndex: number,
-  cwd: string,
+  config: ConfigStore,
   inputs: Record<string, string> | null,
 ): Record<string, string> => {
   // User env is applied first; kiri- and OS-controlled vars overwrite on
@@ -159,11 +160,11 @@ const buildEnv = (
   env.LOGNAME = process.env.LOGNAME ?? "";
   env.KIRI_RUN_ID = runId;
   env.KIRI_STEP_INDEX = String(stepIndex);
-  env.KIRI_REPO_ROOT = cwd;
+  env.KIRI_REPO_ROOT = config.cwd();
   // use: steps run with cwd = scratchDir, so the bundle can't reach its
   // own sidecar files via relative paths. KIRI_BUNDLE_DIR points at the
   // bundle source; sh: steps don't have a bundle so it stays unset.
-  if (isUseStep(step)) env.KIRI_BUNDLE_DIR = join(cwd, "scripts", step.use);
+  if (isUseStep(step)) env.KIRI_BUNDLE_DIR = config.bundleDir(step.use);
   return env;
 };
 
@@ -200,9 +201,9 @@ export function runWorkflow(
   args: RunWorkflowArgs,
 ): StartedRun {
   const runId = args.runId ?? crypto.randomUUID();
-  const scratchDir = join(args.cwd, ".kiri", "runs", runId);
+  const scratchDir = args.config.runDir(runId);
   const startedAt = new Date();
-  const gitHead = resolveGitHead(args.cwd);
+  const gitHead = resolveGitHead(args.config.cwd());
   const resolvedInputs = resolveInputs(definition, args.inputs);
 
   if (args.runId === undefined) {
@@ -273,12 +274,12 @@ export function runWorkflow(
 
     args.bus?.publish({ type: "run.step.updated", runId, step: opts.index, status: "running" });
 
-    const env = buildEnv(opts.step, runId, opts.index, args.cwd, resolvedInputs);
+    const env = buildEnv(opts.step, runId, opts.index, args.config, resolvedInputs);
     if (opts.envExtras) Object.assign(env, opts.envExtras);
 
     const envelope = await runStep({
       step: opts.step,
-      cwd: args.cwd,
+      config: args.config,
       scratchDir,
       input: opts.input,
       env,

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
@@ -18,7 +19,7 @@ import type { Registry } from "./workflows/index.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
- * workflow registry, and the repo root passed to the runner.
+ * workflow registry, and the workspace config passed to the runner.
  *
  * `staticRoot` locates the built SPA bundle on disk. When omitted and the
  * `embedded-assets.ts` module has been populated by the release pipeline
@@ -35,7 +36,7 @@ import type { Registry } from "./workflows/index.ts";
 export interface AppDeps {
   db: KiriDb;
   registry: Registry;
-  cwd: string;
+  config: ConfigStore;
   staticRoot?: string;
   bus?: EventBus;
   eventsHeartbeatMs?: number;
@@ -100,7 +101,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const { db, registry, cwd, bus, eventsHeartbeatMs, cancelRegistry, llmClients, sessionTools } =
+  const { db, registry, config, bus, eventsHeartbeatMs, cancelRegistry, llmClients, sessionTools } =
     deps;
   const version = deps.version ?? "dev";
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
@@ -163,15 +164,18 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api", systemRoutes({ version }));
   app.route(
     "/api/workflows",
-    workflowsRoutes({ db, registry, cwd, bus, cancelRegistry, llmClients }),
+    workflowsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }),
   );
-  app.route("/api/runs", runsRoutes({ db, registry, cwd, bus, cancelRegistry, llmClients }));
+  app.route("/api/runs", runsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }));
   app.route("/api/activity", activityRoutes({ db, registry }));
 
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
   if (llmClients) {
-    app.route("/api", sessionsRoutes({ db, cwd, llmClients, bus, cancelRegistry, sessionTools }));
+    app.route(
+      "/api",
+      sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, sessionTools }),
+    );
   }
 
   if (bus) {

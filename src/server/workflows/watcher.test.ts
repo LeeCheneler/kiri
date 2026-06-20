@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
 import { loadWorkflows } from "./loader.ts";
 import { createRegistry } from "./registry.ts";
@@ -65,6 +66,7 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 500): Promise<void>
 describe("watchWorkflows", () => {
   let cwd: string;
   let dir: string;
+  let config: ConfigStore;
   let logs: string[];
   let errs: string[];
   let origLog: typeof console.log;
@@ -74,6 +76,7 @@ describe("watchWorkflows", () => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-watch-"));
     dir = join(cwd, "workflows");
     mkdirSync(dir);
+    config = createConfigStore(cwd);
     logs = [];
     errs = [];
     origLog = console.log;
@@ -95,11 +98,11 @@ describe("watchWorkflows", () => {
   it("logs added when a new workflow file appears", async () => {
     writeBundle(cwd, "new");
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
 
     writeFileSync(join(dir, "new.yaml"), yamlSource("new"));
     triggerChange();
@@ -117,11 +120,11 @@ steps:
       prompt: Summarise this.
 `;
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    const initial = await loadWorkflows(config, new Set(["anthropic"]));
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, {
+    const watcher = watchWorkflows(config, registry, initial, {
       debounceMs: 10,
       watchFn,
       providerNames: new Set(["anthropic"]),
@@ -137,11 +140,11 @@ steps:
 
   it("fails an llm workflow on rebuild when its provider is not registered", async () => {
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
 
     writeFileSync(
       join(dir, "llm-flow.yaml"),
@@ -164,11 +167,11 @@ steps:
     writeBundle(cwd, "v2");
     writeFileSync(join(dir, "foo.yaml"), yamlSource("foo", "v1"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
 
     // Ensure mtime ticks even on coarse-grained filesystems.
     await Bun.sleep(20);
@@ -190,11 +193,11 @@ steps:
     writeFileSync(join(dir, "alpha.yaml"), yamlSource("alpha"));
     writeFileSync(join(dir, "beta.yaml"), yamlSource("beta"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
 
     unlinkSync(join(dir, "alpha.yaml"));
     triggerChange();
@@ -210,11 +213,11 @@ steps:
     writeBundle(cwd, "ok");
     writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
 
     writeFileSync(join(dir, "bad.yaml"), "name: foo\nsteps: [\n");
     triggerChange();
@@ -233,11 +236,11 @@ steps:
     writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
     writeFileSync(join(dir, "bad.yaml"), "name: foo\nsteps: [\n");
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
 
     // Touching an unrelated file forces a rebuild but should not re-log
     // the still-failing bad.yaml.
@@ -263,14 +266,14 @@ steps:
     writeBundle(cwd, "trigger");
     writeFileSync(join(dir, "ok.yaml"), yamlSource("ok"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
     // Long debounce so the event-driven timer is comfortably pending
     // when we delete the dir; the timer then fires rebuild() against a
     // missing directory and exercises the catch.
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 100, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 100, watchFn });
 
     writeFileSync(join(dir, "trigger.yaml"), yamlSource("trigger"));
     triggerChange();
@@ -286,11 +289,11 @@ steps:
     writeBundle(cwd, "alpha");
     writeFileSync(join(dir, "alpha.yaml"), yamlSource("alpha"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, watcher: fakeWatcher } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
 
     unlinkSync(join(dir, "alpha.yaml"));
     fakeWatcher.emit("error", new Error("simulated inotify hiccup"));
@@ -304,11 +307,11 @@ steps:
 
   it("stringifies non-Error values from the fs watcher's error event", async () => {
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, watcher: fakeWatcher } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
 
     fakeWatcher.emit("error", "raw string");
     await waitFor(() => errs.some((m) => m.includes("raw string")));
@@ -320,7 +323,7 @@ steps:
   it("publishes workflow.added when a new workflow file appears", async () => {
     writeBundle(cwd, "evt-add");
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const bus = createEventBus();
@@ -328,7 +331,7 @@ steps:
     bus.subscribe((e) => seen.push(e));
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, {
+    const watcher = watchWorkflows(config, registry, initial, {
       debounceMs: 10,
       bus,
       watchFn,
@@ -347,7 +350,7 @@ steps:
     writeBundle(cwd, "v2");
     writeFileSync(join(dir, "evt-upd.yaml"), yamlSource("evt-upd", "v1"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const bus = createEventBus();
@@ -355,7 +358,7 @@ steps:
     bus.subscribe((e) => seen.push(e));
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, {
+    const watcher = watchWorkflows(config, registry, initial, {
       debounceMs: 10,
       bus,
       watchFn,
@@ -377,7 +380,7 @@ steps:
     writeBundle(cwd, "evt-rm");
     writeFileSync(join(dir, "evt-rm.yaml"), yamlSource("evt-rm"));
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const bus = createEventBus();
@@ -385,7 +388,7 @@ steps:
     bus.subscribe((e) => seen.push(e));
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, {
+    const watcher = watchWorkflows(config, registry, initial, {
       debounceMs: 10,
       bus,
       watchFn,
@@ -402,11 +405,11 @@ steps:
   it("stop() halts further rebuilds", async () => {
     writeBundle(cwd, "late");
     const registry = createRegistry();
-    const initial = await loadWorkflows(dir, cwd);
+    const initial = await loadWorkflows(config);
     registry.replace(initial.workflows);
 
     const { watchFn, triggerChange } = createFakeWatcher();
-    const watcher = watchWorkflows(dir, cwd, registry, initial, { debounceMs: 10, watchFn });
+    const watcher = watchWorkflows(config, registry, initial, { debounceMs: 10, watchFn });
     watcher.stop();
 
     writeFileSync(join(dir, "late.yaml"), yamlSource("late"));

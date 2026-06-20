@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "../../src/server/bootstrap.ts";
+import { createConfigStore } from "../../src/server/config/store.ts";
 import type { KiriDb } from "../../src/server/db/index.ts";
 import { runSteps } from "../../src/server/db/schema.ts";
 import {
@@ -40,13 +41,13 @@ describe("llm step pipeline", () => {
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-int-llm-"));
-    db = bootstrap(cwd);
+    db = bootstrap(createConfigStore(cwd));
     mkdirSync(join(cwd, "workflows"), { recursive: true });
     writeFileSync(
       join(cwd, "llm-providers.yaml"),
       `providers:\n  fake:\n    type: openai-compatible\n    base_url: ${fake.url}\n`,
     );
-    const loaded = loadLlmProviders(cwd, process.env);
+    const loaded = loadLlmProviders(createConfigStore(cwd), process.env);
     expect(loaded.failure).toBeUndefined();
     const registry = createLlmProviderRegistry();
     registry.replace(loaded.providers);
@@ -66,11 +67,11 @@ describe("llm step pipeline", () => {
   };
 
   const loadAndRun = async (name: string) => {
-    const result = await loadWorkflows(join(cwd, "workflows"), cwd, providerNames);
+    const result = await loadWorkflows(createConfigStore(cwd), providerNames);
     expect(result.failures).toEqual([]);
     const def = result.workflows.get(name);
     if (!def) throw new Error(`workflow not found: ${name}`);
-    return runWorkflow(db, def, { cwd, llmClients }).done;
+    return runWorkflow(db, def, { config: createConfigStore(cwd), llmClients }).done;
   };
 
   const onlyStep = (runId: string) =>
@@ -139,7 +140,7 @@ describe("llm step pipeline", () => {
     // An undeclared provider is caught at load (against the names from the real
     // llm-providers.yaml), the same gate as a missing bundle — it never reaches
     // a run.
-    const result = await loadWorkflows(join(cwd, "workflows"), cwd, providerNames);
+    const result = await loadWorkflows(createConfigStore(cwd), providerNames);
     expect(result.workflows.has("ghost")).toBe(false);
     const failure = result.failures.find((f) => f.path.endsWith("ghost.yaml"));
     expect(failure?.reason).toContain('unknown llm provider "ghost"');

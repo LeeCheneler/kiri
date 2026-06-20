@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ConfigStore } from "../config/store.ts";
 import { type LlmClients, renderPrompt } from "../llm/index.ts";
 import type { LlmStep } from "../workflows/index.ts";
 import type { ChildHandle } from "./cancel-registry.ts";
@@ -8,8 +9,8 @@ import type { StepEnvelope } from "./run-step.ts";
 export interface RunLlmStepArgs {
   /** The validated `llm:` step to execute. */
   step: LlmStep;
-  /** Repo root. `prompt_file` paths resolve against it. */
-  cwd: string;
+  /** Workspace config. `prompt_file` paths resolve against `config.cwd()`. */
+  config: ConfigStore;
   /** Bytes the previous step piped downstream. Exposed to the prompt as `{{KIRI_INPUT}}`. */
   input: string;
   /**
@@ -37,7 +38,7 @@ export interface RunLlmStepArgs {
  * error, abort — yields `status: "failed"` with the cause's message.
  */
 export async function runLlmStep(args: RunLlmStepArgs): Promise<StepEnvelope> {
-  const { step, cwd, input, env, llmClients, onSpawn } = args;
+  const { step, config, input, env, llmClients, onSpawn } = args;
   const startedAt = performance.now();
   const fail = (error: { message: string; stack?: string }): StepEnvelope => ({
     status: "failed",
@@ -59,7 +60,7 @@ export async function runLlmStep(args: RunLlmStepArgs): Promise<StepEnvelope> {
     // Validated to exist at workflow load, but read at run time — the file
     // can have been deleted since.
     try {
-      template = readFileSync(join(cwd, step.llm.prompt_file), "utf8");
+      template = readFileSync(join(config.cwd(), step.llm.prompt_file), "utf8");
     } catch (cause) {
       return fail({
         message: `failed to read prompt_file "${step.llm.prompt_file}": ${

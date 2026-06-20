@@ -1,4 +1,5 @@
 import { type FSWatcher, statSync, watch } from "node:fs";
+import type { ConfigStore } from "../config/store.ts";
 import type { EventBus } from "../events/index.ts";
 import { type LoadResult, loadWorkflows } from "./loader.ts";
 import type { Registry } from "./registry.ts";
@@ -36,13 +37,13 @@ const buildSnapshot = (result: LoadResult): Snapshot => {
 };
 
 /**
- * Watch `dir` for workflow file changes and keep `registry` in sync.
- * Logs `added` / `changed` / `removed` workflow names on each rebuild.
- * Per-file load failures are logged the first time a path enters the
- * failure set; recoveries are logged when a previously failing path drops
- * out.
+ * Watch the workspace's `workflows/` directory for file changes and keep
+ * `registry` in sync. Logs `added` / `changed` / `removed` workflow names on
+ * each rebuild. Per-file load failures are logged the first time a path
+ * enters the failure set; recoveries are logged when a previously failing
+ * path drops out.
  *
- * `cwd` is the repo root used by the loader to resolve `use:` bundles
+ * `config` resolves the watched directory and the loader's `use:` bundles
  * and `llm:` prompt files.
  * `initial` seeds the watcher's view so the first rebuild only logs
  * actual deltas relative to what the caller already loaded — not every
@@ -52,12 +53,12 @@ const buildSnapshot = (result: LoadResult): Snapshot => {
  * collapses bursts into a single rebuild.
  */
 export function watchWorkflows(
-  dir: string,
-  cwd: string,
+  config: ConfigStore,
   registry: Registry,
   initial: LoadResult,
   options: WatchOptions = {},
 ): WorkflowWatcher {
+  const dir = config.workflowsDir();
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const watchFn = options.watchFn ?? watch;
   const bus = options.bus;
@@ -70,7 +71,7 @@ export function watchWorkflows(
     timer = null;
     let result: LoadResult;
     try {
-      result = await loadWorkflows(dir, cwd, providerNames);
+      result = await loadWorkflows(config, providerNames);
     } catch (cause) {
       // Directory disappeared between an fs.watch event and the debounced
       // rebuild — usually a teardown race. Log and bail; if it's transient

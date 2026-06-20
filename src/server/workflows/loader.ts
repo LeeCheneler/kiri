@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import type { ConfigStore } from "../config/store.ts";
 import {
   type PublishEntry,
   type WorkflowDefinition,
@@ -35,20 +36,16 @@ const isYamlFile = (name: string): boolean => name.endsWith(".yaml") || name.end
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-/** Absolute path of the bundle's entry script for a `use:` step. */
-export const bundleRunPath = (cwd: string, name: string): string =>
-  resolve(cwd, "scripts", name, "run.sh");
-
-const validateBundles = (def: WorkflowDefinition, cwd: string): string[] => {
+const validateBundles = (def: WorkflowDefinition, config: ConfigStore): string[] => {
   const missing: string[] = [];
   const steps = def.summarize ? [...def.steps, def.summarize] : def.steps;
   for (const step of steps) {
     if (!isUseStep(step)) continue;
-    if (!existsSync(bundleRunPath(cwd, step.use))) missing.push(step.use);
+    if (!existsSync(config.bundleRunPath(step.use))) missing.push(step.use);
   }
   for (const entry of def.publish ?? []) {
     if (!isUsePublish(entry)) continue;
-    if (!existsSync(bundleRunPath(cwd, entry.use))) missing.push(entry.use);
+    if (!existsSync(config.bundleRunPath(entry.use))) missing.push(entry.use);
   }
   return missing;
 };
@@ -57,7 +54,7 @@ const validateBundles = (def: WorkflowDefinition, cwd: string): string[] => {
 // the registry, or a prompt_file absent from disk, is a per-file load failure.
 const validateLlmSteps = (
   def: WorkflowDefinition,
-  cwd: string,
+  config: ConfigStore,
   providerNames: ReadonlySet<string>,
 ): { unknownProviders: string[]; missingPromptFiles: string[] } => {
   const unknownProviders: string[] = [];
@@ -69,7 +66,10 @@ const validateLlmSteps = (
     // The schema guarantees `provider:model` form, so the prefix is non-empty.
     const provider = entry.llm.model.slice(0, entry.llm.model.indexOf(":"));
     if (!providerNames.has(provider)) unknownProviders.push(provider);
-    if (entry.llm.prompt_file !== undefined && !existsSync(resolve(cwd, entry.llm.prompt_file))) {
+    if (
+      entry.llm.prompt_file !== undefined &&
+      !existsSync(resolve(config.cwd(), entry.llm.prompt_file))
+    ) {
       missingPromptFiles.push(entry.llm.prompt_file);
     }
   }
@@ -77,22 +77,22 @@ const validateLlmSteps = (
 };
 
 /**
- * Scan `dir` for `*.yaml`/`*.yml` files (top-level only — nested files are
- * out of scope by design), parse each as YAML, validate against the
- * workflow schema, and collect the results. `cwd` is the repo root used
- * to resolve `use: <name>` bundles to `<cwd>/scripts/<name>/run.sh` and
- * `llm:` prompt files; a workflow referencing a missing bundle, a missing
- * prompt file, or an llm provider absent from `providerNames` (the names
- * registered from llm-providers.yaml) is recorded as a per-file failure.
- * Per-file failures (parse errors, validation, duplicates, missing
- * bundles) populate `result.failures` and the scan continues; only
- * directory-level errors (e.g. `dir` doesn't exist) throw.
+ * Scan the workspace's `workflows/` directory for `*.yaml`/`*.yml` files
+ * (top-level only — nested files are out of scope by design), parse each as
+ * YAML, validate against the workflow schema, and collect the results.
+ * `config` resolves `use: <name>` bundles and `llm:` prompt files against
+ * the workspace; a workflow referencing a missing bundle, a missing prompt
+ * file, or an llm provider absent from `providerNames` (the names registered
+ * from the provider config) is recorded as a per-file failure. Per-file
+ * failures (parse errors, validation, duplicates, missing bundles) populate
+ * `result.failures` and the scan continues; only directory-level errors
+ * (e.g. the workflows directory doesn't exist) throw.
  */
 export async function loadWorkflows(
-  dir: string,
-  cwd: string,
+  config: ConfigStore,
   providerNames: ReadonlySet<string> = new Set(),
 ): Promise<LoadResult> {
+  const dir = config.workflowsDir();
   const files = readdirSync(dir)
     .filter(isYamlFile)
     .map((name) => resolve(dir, name))
@@ -126,18 +126,18 @@ export async function loadWorkflows(
     }
     const wf = result.data;
 
-    const missing = validateBundles(wf, cwd);
+    const missing = validateBundles(wf, config);
     if (missing.length > 0) {
       const list = missing.map((n) => `"${n}"`).join(", ");
       const noun = missing.length === 1 ? "bundle" : "bundles";
       failures.push({
         path: file,
-        reason: `missing ${noun} ${list}: expected scripts/<name>/run.sh under ${cwd}`,
+        reason: `missing ${noun} ${list}: expected <name>/run.sh under ${config.bundlesDir()}`,
       });
       continue;
     }
 
-    const { unknownProviders, missingPromptFiles } = validateLlmSteps(wf, cwd, providerNames);
+    const { unknownProviders, missingPromptFiles } = validateLlmSteps(wf, config, providerNames);
     if (unknownProviders.length > 0) {
       const list = unknownProviders.map((n) => `"${n}"`).join(", ");
       const noun = unknownProviders.length === 1 ? "provider" : "providers";
@@ -152,7 +152,7 @@ export async function loadWorkflows(
       const noun = missingPromptFiles.length === 1 ? "file" : "files";
       failures.push({
         path: file,
-        reason: `missing prompt ${noun} ${list}: resolved against ${cwd}`,
+        reason: `missing prompt ${noun} ${list}: resolved against ${config.cwd()}`,
       });
       continue;
     }

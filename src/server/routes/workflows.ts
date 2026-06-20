@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { resolvePublishName } from "../../shared/publish-name.ts";
+import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
@@ -12,7 +13,7 @@ import { onZodFail, optionalInvokeBody, workflowNameParamSchema, zodErrorBody } 
 export interface WorkflowsRoutesDeps {
   db: KiriDb;
   registry: Registry;
-  cwd: string;
+  config: ConfigStore;
   bus?: EventBus;
   cancelRegistry?: CancelRegistry;
   /** Completion client forwarded to the runner so `llm:` steps can execute. Absent ⇒ they fail cleanly. */
@@ -49,7 +50,7 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
  * by `createApp`.
  */
 export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
-  const { db, registry, cwd, bus, cancelRegistry, llmClients } = deps;
+  const { db, registry, config, bus, cancelRegistry, llmClients } = deps;
   const app = new Hono();
 
   app.get("/", (c) => c.json(registry.listWorkflows().map(summarizeWorkflow)));
@@ -68,7 +69,7 @@ export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
       if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
 
       const { runId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         bus,
         cancelRegistry,
         inputs,
