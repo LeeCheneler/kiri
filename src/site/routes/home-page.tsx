@@ -178,7 +178,7 @@ function Install() {
             its interface from your own running process.
           </p>
           <div className="mt-7 text-lg">
-            <HeadlineLink href="/docs">Read the install guide</HeadlineLink>
+            <HeadlineLink href="/docs/getting-started">Read the install guide</HeadlineLink>
           </div>
         </div>
         <div className="lg:pt-1">

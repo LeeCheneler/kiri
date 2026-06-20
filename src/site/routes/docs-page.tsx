@@ -1,36 +1,42 @@
-import { Eyebrow } from "../../client/design-system/content/eyebrow.tsx";
-import { InlineLink } from "../../client/design-system/content/inline-link.tsx";
-import { Notice } from "../../client/design-system/feedback/notice.tsx";
-import { SiteFooter } from "../chrome/site-footer.tsx";
-import { SiteHeader } from "../chrome/site-header.tsx";
+import { useEffect } from "react";
+import { Markdown } from "../../client/design-system/content/markdown.tsx";
+import { DocsLayout } from "../chrome/docs-layout.tsx";
+import { DOCS_INDEX_SLUG, getDocsPage } from "../docs/docs-nav.ts";
 
 /**
- * Documentation shell. The page frame the multi-page docs will fill — for now
- * an honest empty state pointing at the README. Reuses the site chrome and the
- * design system so it matches the rest of the site.
+ * Documentation page. Resolves the page for the current slug — defaulting to
+ * the landing page served at `/docs` — and renders its markdown through the
+ * shared design-system `Markdown`, so prose, code, charts, and diagrams read
+ * exactly as they do in the app. Section headings carry the `section-NN`
+ * anchors the right-rail table of contents tracks.
  */
-export function DocsPage() {
-  return (
-    <div className="flex min-h-screen flex-col">
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-20 sm:px-8 lg:py-28">
-        <Eyebrow>Documentation</Eyebrow>
-        <h1 className="mt-4 font-display text-4xl text-ink italic leading-tight">
-          The docs are being written.
-        </h1>
-        <p className="mt-6 font-mono text-sm text-ink-muted leading-relaxed">
-          Full guides — getting started, workflows, agentic sessions, the CLI, and more — are on the
-          way. Until they land, the{" "}
-          <InlineLink href="https://github.com/LeeCheneler/kiri">README on GitHub</InlineLink> is
-          the best reference.
+export function DocsPage({ params }: { params?: { slug?: string } }) {
+  const slug = params?.slug ?? DOCS_INDEX_SLUG;
+
+  // wouter keeps the prior scroll position across client-side navigation, which
+  // would otherwise land the reader part-way down the next page; reset to the
+  // top whenever the page changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: slug is the change trigger to re-run on, not a value the body reads.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [slug]);
+
+  const page = getDocsPage(slug);
+
+  if (page === undefined) {
+    return (
+      <DocsLayout>
+        <h1 className="font-display text-3xl text-ink leading-tight">Page not found</h1>
+        <p className="mt-4 font-mono text-sm text-ink-muted leading-relaxed">
+          That documentation page doesn't exist. Pick one from the list on the left.
         </p>
-        <div className="mt-10">
-          <Notice tone="informational" title="Coming soon">
-            Bookmark this page — it's where the documentation will live.
-          </Notice>
-        </div>
-      </main>
-      <SiteFooter />
-    </div>
+      </DocsLayout>
+    );
+  }
+
+  return (
+    <DocsLayout>
+      <Markdown content={page.content} withSectionOrdinals sectionLevel={2} />
+    </DocsLayout>
   );
 }

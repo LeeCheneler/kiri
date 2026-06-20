@@ -14,6 +14,7 @@ export function App() {
     <Switch>
       <Route path="/" component={HomePage} />
       <Route path="/docs" component={DocsPage} />
+      <Route path="/docs/:slug" component={DocsPage} />
       <Route component={NotFoundPage} />
     </Switch>
   );
