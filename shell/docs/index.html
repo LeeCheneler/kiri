@@ -192,13 +192,13 @@ steps:
       gh pr list --state open</code></pre>
 
       <h3>Bundle — <code>use:</code></h3>
-      <p>A bundle is a folder <code>scripts/&lt;name&gt;/</code> in your repo containing an executable <code>run.sh</code>. A <code>use:</code> step runs that script. Bundles are reusable and version-controlled, and each one defines its own <code>env:</code> contract — the keys it expects (keys starting with <code>KIRI_</code> are reserved):</p>
+      <p>A bundle is a folder <code>bundles/&lt;name&gt;/</code> in your repo containing an executable <code>run.sh</code>. A <code>use:</code> step runs that script. Bundles are reusable and version-controlled, and each one defines its own <code>env:</code> contract — the keys it expects (keys starting with <code>KIRI_</code> are reserved):</p>
       <pre><code>name: build
 steps:
   - use: build-site
     env:
       TARGET: production</code></pre>
-      <p>Kiri passes the <code>env:</code> map through verbatim; what each key means is up to the bundle, documented in its own <code>README.md</code>. The project's <code>examples/</code> directory ships ready-made bundles — including a Claude Code runner — to copy into <code>scripts/</code> and adapt.</p>
+      <p>Kiri passes the <code>env:</code> map through verbatim; what each key means is up to the bundle, documented in its own <code>README.md</code>. The project's <code>examples/</code> directory ships ready-made bundles — including a Claude Code runner — to copy into <code>bundles/</code> and adapt.</p>
 
       <h3>Model completion — <code>llm:</code></h3>
       <p>For a plain model completion — send a prompt, get text back — an <code>llm:</code> step calls a provider directly, with no bundle to write. The model's text response becomes the step's stdout. <code>model</code> is a <code>provider:model</code> id whose prefix names an entry in <code>kiri.yaml</code> (below); supply exactly one of <code>prompt</code> (inline) or <code>prompt_file</code>. <code>{{KIRI_INPUT}}</code> in the prompt carries the previous step's stdout:</p>
@@ -268,7 +268,7 @@ steps:
           <tr>
             <td><code>KIRI_BUNDLE_DIR</code></td>
             <td><code>use:</code> steps</td>
-            <td>Absolute path to the bundle's <code>scripts/&lt;name&gt;/</code> directory. Useful for reaching sidecar files shipped with the bundle.</td>
+            <td>Absolute path to the bundle's <code>bundles/&lt;name&gt;/</code> directory. Useful for reaching sidecar files shipped with the bundle.</td>
           </tr>
           <tr>
             <td><code>KIRI_RUN_CONTEXT_FILE</code></td>
@@ -314,7 +314,7 @@ steps:
   - sh: echo "hello world"
 summarize:
   sh: echo "said hello to the world"</code></pre>
-      <p>A <code>summarize:</code> step receives empty stdin and reads the run via <code>KIRI_RUN_CONTEXT_FILE</code> (a bundle/<code>sh:</code> step) or the inlined <code>{{KIRI_RUN_CONTEXT}}</code> (an <code>llm:</code> step), so it can describe what the run did. For an AI-written summary, use a zero-config <code>llm:</code> summariser, or copy the <code>claude-code-summarizer</code> bundle from <code>examples/</code> into <code>scripts/</code> and reference it with <code>use:</code>.</p>
+      <p>A <code>summarize:</code> step receives empty stdin and reads the run via <code>KIRI_RUN_CONTEXT_FILE</code> (a bundle/<code>sh:</code> step) or the inlined <code>{{KIRI_RUN_CONTEXT}}</code> (an <code>llm:</code> step), so it can describe what the run did. For an AI-written summary, use a zero-config <code>llm:</code> summariser, or copy the <code>claude-code-summarizer</code> bundle from <code>examples/</code> into <code>bundles/</code> and reference it with <code>use:</code>.</p>
 
       <h3>Published articles — <code>publish:</code></h3>
       <p>An optional array of long-form markdown articles produced by the run. Each entry has the same <code>{ use | sh | llm, env? }</code> shape as a step, plus a <code>slug</code> (lowercase letters, digits, hyphens — unique within the workflow, used as the article's URL id) and an optional display <code>name</code>. Publish steps run serially after <code>steps:</code> and before <code>summarize:</code>; each step's stdout is captured as the article body. They receive empty stdin — to build an article from the run's data, read <code>KIRI_RUN_CONTEXT_FILE</code> (a bundle/<code>sh:</code> step) or reference the inlined <code>{{KIRI_RUN_CONTEXT}}</code> (an <code>llm:</code> step):</p>
@@ -369,7 +369,7 @@ personas/
       <p>The first tool is <strong>web search</strong>, backed by <a href="https://tavily.com">Tavily</a>. Set <code>TAVILY_API_KEY</code> in your environment (or a workspace <code>.env</code>, which kiri auto-loads) and the model can search the live web whenever it needs current or unknown information — like the ChatGPT app, it just works when the key is present and is simply off when it isn't. Each search shows inline in the transcript as a collapsed block you can expand to see what was searched and what came back; results are treated as untrusted data.</p>
 
       <h2>Trust model</h2>
-      <p>Kiri runs scripts with your user's permissions. <code>scripts/&lt;name&gt;/run.sh</code> and inline <code>sh:</code> steps are shell scripts you wrote into your own repo — kiri does not sandbox them. Treat them like any shell script you'd run yourself: read it before you use it.</p>
+      <p>Kiri runs scripts with your user's permissions. <code>bundles/&lt;name&gt;/run.sh</code> and inline <code>sh:</code> steps are shell scripts you wrote into your own repo — kiri does not sandbox them. Treat them like any shell script you'd run yourself: read it before you use it.</p>
       <p>The defences kiri does provide are external: the HTTP API binds to <code>127.0.0.1</code> only and requires a custom <code>X-Kiri-Client</code> header on state-changing requests, so other browser tabs and arbitrary LAN clients can't trigger workflow runs.</p>
 
       <footer>

@@ -14,7 +14,7 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
 <repo-root>/
   workflows/                  # YAML workflow definitions (in git)
     my-workflow.yaml
-  scripts/                    # script bundles (in git)
+  bundles/                    # script bundles (in git)
     claude-code/
       run.sh
       README.md
@@ -53,7 +53,7 @@ inputs:                      # optional — parameters collected via a modal at 
     default: main            # optional, pre-fills the modal field
 
 steps:                       # required, ≥1
-  - use: <bundle-name>       # references scripts/<bundle-name>/run.sh
+  - use: <bundle-name>       # references bundles/<bundle-name>/run.sh
     name: "Fetch the PR"     # optional — short label shown as the step title in the Schema tab + run timeline
     description: "..."       # optional, longer detail surfaced when the step is expanded
     env:                     # optional, flat key→value map (value is string or `{ input: <name> }`)
@@ -99,7 +99,7 @@ Both optional, both pure presentation — neither affects execution.
 
 A step is **exactly one** of:
 
-- `{ use: <bundle>, name?, description?, env? }` — resolves to `scripts/<bundle>/run.sh`. Missing bundle → workflow fails to load with a clear error.
+- `{ use: <bundle>, name?, description?, env? }` — resolves to `bundles/<bundle>/run.sh`. Missing bundle → workflow fails to load with a clear error.
 - `{ sh: <string>, name?, description?, env? }` — inline shell, run via `sh -c`. Use YAML's `|` block scalar for multi-line.
 - `{ llm: { model, prompt? | prompt_file? }, name?, description?, env? }` — a first-party model completion, no bundle. See *First-party LLM steps* below.
 
@@ -203,7 +203,7 @@ steps[2] stdin = steps[1] stdout  steps[2] stdout
 | `KIRI_RUN_ID` | UUID of this run. |
 | `KIRI_STEP_INDEX` | 0-based index of this step within the run. Publish entries continue numbering after the last regular step. |
 | `KIRI_REPO_ROOT` | Absolute path of the workspace root (where `kiri` was launched). Resolve all relative paths (`prompts/foo.tpl`, etc.) against this. |
-| `KIRI_BUNDLE_DIR` | Absolute path to the bundle's own dir (e.g. `<root>/scripts/<name>/`). **Only set for `use:` steps** — sh-steps don't have a bundle. |
+| `KIRI_BUNDLE_DIR` | Absolute path to the bundle's own dir (e.g. `<root>/bundles/<name>/`). **Only set for `use:` steps** — sh-steps don't have a bundle. |
 | `KIRI_RUN_CONTEXT_FILE` | Absolute path to a JSON file with the run envelope so far. **Only set for `use:` / `sh:` `publish:` and `summarize:` steps** — an `llm:` entry can't open files, so it gets the same envelope inlined as `{{KIRI_RUN_CONTEXT}}` instead. |
 | `KIRI_RECOMMENDATIONS_FILE` | Absolute path the step may write JSON Lines to, one recommendation per line: `{title, workflow, description?, inputs?}`. Lines are ingested as `recommendations` rows after the step succeeds; failed and cancelled steps' files are discarded. **Only set on main `use:` / `sh:` `steps:` — not `publish:`, `summarize:`, or `llm:` steps** (a completion can't emit recommendations). |
 | `PATH`, `HOME`, `USER`, `LOGNAME` | Inherited from the kiri parent process. |
@@ -263,7 +263,7 @@ For a first-party `llm:` step, `{{KIRI_RUN_CONTEXT}}` is supplied **by kiri itse
 
 ## Example bundles
 
-Two bundles that show the common shape for an AI step — both spawn the Claude Code CLI, both use the same `{{VAR}}` templating, both are plain bash you can read and edit. They aren't created by `kiri init` (which scaffolds only a hello-world workflow); you author bundles yourself under `scripts/<name>/` — see *Authoring a custom bundle* below.
+Two bundles that show the common shape for an AI step — both spawn the Claude Code CLI, both use the same `{{VAR}}` templating, both are plain bash you can read and edit. They aren't created by `kiri init` (which scaffolds only a hello-world workflow); you author bundles yourself under `bundles/<name>/` — see *Authoring a custom bundle* below.
 
 ### `claude-code` — general-purpose CC step
 
@@ -392,10 +392,10 @@ providers:
 
 ## Authoring a custom bundle
 
-Add a folder under `scripts/<name>/` with `run.sh` + a `README.md` documenting its env-var contract:
+Add a folder under `bundles/<name>/` with `run.sh` + a `README.md` documenting its env-var contract:
 
 ```
-scripts/my-bundle/
+bundles/my-bundle/
   run.sh
   README.md
 ```
@@ -426,7 +426,7 @@ printf 'processed %s for %s\n' "$TARGET" "$input"
 - Don't `cd` away from the scratch dir unless you mean to — kiri restores nothing.
 - Anything you read from disk should be resolved against `$KIRI_REPO_ROOT`, not relative cwd.
 - Document the env-var contract in `README.md` next to `run.sh`.
-- Adding a fork? `cp -r scripts/claude-code scripts/my-bundle && $EDITOR scripts/my-bundle/run.sh`.
+- Adding a fork? `cp -r bundles/claude-code bundles/my-bundle && $EDITOR bundles/my-bundle/run.sh`.
 
 ---
 
@@ -598,7 +598,7 @@ The `full` publish step's `articles` array in the context file already contains 
 ### 6. Custom bundle with a typed env contract
 
 ```
-scripts/post-to-slack/
+bundles/post-to-slack/
   run.sh
   README.md
 ```

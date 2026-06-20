@@ -1,7 +1,7 @@
 #!/bin/sh
 # Test stub for the `claude` CLI used by the claude-code bundle's
 # integration suite. Captures argv and stdin to $TEST_CAPTURE_DIR so the
-# test can assert on what scripts/claude-code/run.sh invoked it with.
+# test can assert on what bundles/claude-code/run.sh invoked it with.
 # Each argument is written to its own file with raw bytes preserved
 # (no escaping needed for newlines or shell metacharacters).
 set -eu

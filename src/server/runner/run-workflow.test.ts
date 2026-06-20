@@ -31,7 +31,7 @@ describe("runWorkflow", () => {
   });
 
   const writeBundle = (name: string, body: string, sidecars: Record<string, string> = {}) => {
-    const bundleDir = join(cwd, "scripts", name);
+    const bundleDir = join(cwd, "bundles", name);
     mkdirSync(bundleDir, { recursive: true });
     const runPath = join(bundleDir, "run.sh");
     writeFileSync(runPath, body);
@@ -393,7 +393,7 @@ describe("runWorkflow", () => {
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(
-      `RUN=${result.runId} STEP=0 ROOT=${cwd} BUNDLE=${join(cwd, "scripts", "dump")}\n`,
+      `RUN=${result.runId} STEP=0 ROOT=${cwd} BUNDLE=${join(cwd, "bundles", "dump")}\n`,
     );
   });
 

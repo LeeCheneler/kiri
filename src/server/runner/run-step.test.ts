@@ -23,7 +23,7 @@ describe("runStep", () => {
   });
 
   const writeBundle = (name: string, body: string): void => {
-    const bundleDir = join(cwd, "scripts", name);
+    const bundleDir = join(cwd, "bundles", name);
     mkdirSync(bundleDir, { recursive: true });
     const path = join(bundleDir, "run.sh");
     writeFileSync(path, body);

@@ -46,7 +46,7 @@ Each step is exactly one of:
 
 #### \`use: <name>\`
 
-References a **script bundle** at \`scripts/<name>/run.sh\`. A bundle is a
+References a **script bundle** at \`bundles/<name>/run.sh\`. A bundle is a
 folder containing at minimum \`run.sh\` plus any sidecar files it needs.
 Kiri spawns the bundle's \`run.sh\` directly (no shell interpolation).
 

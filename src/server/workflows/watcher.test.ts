@@ -25,8 +25,8 @@ steps:
 `;
 
 const writeBundle = (cwd: string, name: string): void => {
-  const path = join(cwd, "scripts", name, "run.sh");
-  mkdirSync(join(cwd, "scripts", name), { recursive: true });
+  const path = join(cwd, "bundles", name, "run.sh");
+  mkdirSync(join(cwd, "bundles", name), { recursive: true });
   writeFileSync(path, "#!/bin/sh\necho hi\n");
   chmodSync(path, 0o755);
 };

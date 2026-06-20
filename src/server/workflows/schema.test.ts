@@ -114,7 +114,7 @@ describe("workflowSchema", () => {
     expect(() =>
       workflowSchema.parse({
         name: "extras",
-        steps: [{ use: "x", path: "scripts/x/run.sh" }],
+        steps: [{ use: "x", path: "bundles/x/run.sh" }],
       }),
     ).toThrow();
   });
@@ -248,7 +248,7 @@ describe("workflowSchema", () => {
       workflowSchema.parse({
         name: "extras-sum",
         steps: [{ use: "x" }],
-        summarize: { use: "y", path: "scripts/y/run.sh" },
+        summarize: { use: "y", path: "bundles/y/run.sh" },
       }),
     ).toThrow();
   });
@@ -385,7 +385,7 @@ describe("workflowSchema", () => {
       workflowSchema.parse({
         name: "extras-pub",
         steps: [{ use: "x" }],
-        publish: [{ slug: "digest", use: "writer", path: "scripts/writer/run.sh" }],
+        publish: [{ slug: "digest", use: "writer", path: "bundles/writer/run.sh" }],
       }),
     ).toThrow();
   });
