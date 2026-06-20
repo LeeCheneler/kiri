@@ -1,7 +1,13 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
-import { ApiError, type SessionDetail, cancelSession, sessionTurnEndpoint } from "../../api.ts";
+import {
+  ApiError,
+  type SessionDetail,
+  cancelSession,
+  sessionTurnEndpoint,
+  truncateSessionMessages,
+} from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
@@ -177,6 +183,23 @@ function Chat({ detail }: { detail: SessionDetail }) {
     void sendMessage({ parts });
     clearDraft();
   };
+
+  // Resend an edited user message, re-running the conversation from it. Truncate
+  // the stored transcript back to the message first (so the turn's server-side
+  // append lands at the right index), then drop the local messages from that
+  // point and send the edited turn in the same tick — `sendMessage` flips
+  // `streaming` before the fold-in effect could re-expand them from a now-stale
+  // refetch. A failed truncate aborts the resend, leaving the transcript intact.
+  const handleResubmit = async (messageId: string, parts: UIMessage["parts"]) => {
+    if (busy) return;
+    const index = messages.findIndex((message) => message.id === messageId);
+    if (index === -1) return;
+    await truncateSessionMessages(session.id, messageId);
+    pinnedToBottom.current = true;
+    setMessages(messages.slice(0, index));
+    void sendMessage({ parts });
+  };
+
   const cancel = useCallback(() => {
     void stop();
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
@@ -210,7 +233,14 @@ function Chat({ detail }: { detail: SessionDetail }) {
         {messages.length === 0 ? (
           <EmptyState>No messages yet. Send one to start the conversation.</EmptyState>
         ) : (
-          messages.map((message) => <ChatMessage key={message.id} message={message} />)
+          messages.map((message) => (
+            <ChatMessage
+              key={message.id}
+              message={message}
+              busy={busy}
+              onResubmit={handleResubmit}
+            />
+          ))
         )}
       </div>
 
@@ -246,9 +276,10 @@ function Chat({ detail }: { detail: SessionDetail }) {
           label="Message"
           value={draft}
           onChange={setDraft}
-          placeholder="Send a message…  (Enter to send, Shift + Enter for newline)"
+          placeholder="Send a message…"
           busy={busy}
           onSubmit={handleSend}
+          hint="Enter to send · Shift + Enter for newline"
         />
       </div>
     </section>

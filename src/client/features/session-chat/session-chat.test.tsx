@@ -144,6 +144,48 @@ describe("<SessionChat>", () => {
     expect(screen.getByText("Assistant")).toBeDefined();
   });
 
+  it("edits a user message, truncating the transcript and resending from it", async () => {
+    const user = userEvent.setup();
+    let truncatedId: string | undefined;
+    let sentText: string | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([
+            message("m1", "user", "First question"),
+            message("m2", "assistant", "An answer"),
+          ]),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/messages/:messageId", ({ params }) => {
+        truncatedId = String(params.messageId);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("*/api/sessions/:id/messages", async ({ request }) => {
+        const body = (await request.json()) as {
+          message: { parts: { type: string; text?: string }[] };
+        };
+        sentText = body.message.parts.find((part) => part.type === "text")?.text;
+        return assistantReply("A better answer");
+      }),
+    );
+    renderChat();
+
+    await screen.findByText("First question");
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    const field = screen.getByRole("textbox", { name: "Edit message" });
+    await user.clear(field);
+    await user.type(field, "A sharper question{Enter}");
+
+    // The edited message truncated the transcript server-side and was resent.
+    await waitFor(() => expect(truncatedId).toBe("m1"));
+    await waitFor(() => expect(sentText).toBe("A sharper question"));
+    // The fresh reply streams in; the dropped turn does not return.
+    expect(await screen.findByText("A better answer")).toBeDefined();
+    await waitFor(() => expect(screen.queryByText("An answer")).toBeNull());
+    expect(screen.queryByText("First question")).toBeNull();
+  });
+
   it("holds the assistant label until its reply streams", async () => {
     const user = userEvent.setup();
     server.use(

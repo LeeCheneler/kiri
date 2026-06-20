@@ -2,16 +2,23 @@ import { describe, expect, it, mock } from "bun:test";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+import type { PendingImage } from "./attachments.ts";
 import { MessageComposer } from "./message-composer.tsx";
 
 // A stateful host so the controlled textarea behaves as it does in the app.
 function Harness({
   onSubmit,
+  onCancel,
   busy = false,
+  hint,
+  initialImages,
 }: {
   onSubmit: (parts: UIMessage["parts"]) => void;
+  onCancel?: () => void;
   busy?: boolean;
+  hint?: ReactNode;
+  initialImages?: PendingImage[];
 }) {
   const [value, setValue] = useState("");
   return (
@@ -19,8 +26,11 @@ function Harness({
       value={value}
       onChange={setValue}
       onSubmit={onSubmit}
+      onCancel={onCancel}
       busy={busy}
       label="Message"
+      hint={hint}
+      initialImages={initialImages}
     />
   );
 }
@@ -156,5 +166,45 @@ describe("<MessageComposer>", () => {
     expect((screen.getByRole("button", { name: /add image/i }) as HTMLButtonElement).disabled).toBe(
       true,
     );
+  });
+
+  it("fires onCancel on Escape without submitting", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const onCancel = mock(() => {});
+    render(<Harness onSubmit={onSubmit} onCancel={onCancel} />);
+
+    await userEvent.type(textbox(), "{Escape}");
+
+    expect(onCancel.mock.calls).toHaveLength(1);
+    expect(onSubmit.mock.calls).toHaveLength(0);
+  });
+
+  it("renders a trailing key hint", () => {
+    render(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} hint="Enter to resend" />);
+    expect(screen.getByText("Enter to resend")).toBeDefined();
+  });
+
+  it("starts with the seeded images and submits them ahead of the text", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const seeded: PendingImage[] = [
+      {
+        id: "seed-1",
+        part: {
+          type: "file",
+          mediaType: "image/png",
+          filename: "seed.png",
+          url: "data:image/png;base64,AA",
+        },
+      },
+    ];
+    render(<Harness onSubmit={onSubmit} initialImages={seeded} />);
+
+    // The seeded image previews straight away.
+    expect(screen.getByAltText("seed.png")).toBeDefined();
+    await userEvent.type(textbox(), "describe it{Enter}");
+
+    const parts = onSubmit.mock.calls[0]?.[0] ?? [];
+    expect(parts[0]).toEqual(seeded[0].part);
+    expect(parts.at(-1)).toEqual({ type: "text", text: "describe it" });
   });
 });

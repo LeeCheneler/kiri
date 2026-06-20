@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import {
   type ChangeEventHandler,
   type ClipboardEventHandler,
+  type ReactNode,
   useCallback,
   useRef,
   useState,
@@ -15,29 +16,38 @@ import { ImageThumb } from "./image-thumb.tsx";
  * The shared message composer: a full-width auto-growing textarea with image
  * attachments (staged from the file picker or a paste), Enter to submit and
  * Shift+Enter for a newline. Text is controlled via `value`/`onChange`, so the
- * caller owns persistence; staged images are internal and cleared on submit.
- * `onSubmit` receives the assembled `UIMessage` parts — images first, then the
- * text — and the caller decides what they mean (send a turn, resend an edit).
- * Disabled while `busy`. Pass `id` to let the caller focus the field.
+ * caller owns persistence; staged images start from `initialImages` and are
+ * cleared on submit. `onSubmit` receives the assembled `UIMessage` parts —
+ * images first, then the text — and the caller decides what they mean (send a
+ * turn, resend an edit). `onCancel`, when given, fires on Escape (e.g. to close
+ * an inline editor). Disabled while `busy`. Pass `id` to let the caller focus
+ * the field, `label` for the field lockup, and `hint` for a trailing key-hint
+ * line.
  */
 export function MessageComposer({
   value,
   onChange,
   onSubmit,
+  onCancel,
   busy = false,
   id,
   label,
   placeholder,
+  hint,
+  initialImages = [],
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (parts: UIMessage["parts"]) => void;
+  onCancel?: () => void;
   busy?: boolean;
   id?: string;
   label?: string;
   placeholder?: string;
+  hint?: ReactNode;
+  initialImages?: PendingImage[];
 }) {
-  const [attachments, setAttachments] = useState<PendingImage[]>([]);
+  const [attachments, setAttachments] = useState<PendingImage[]>(initialImages);
   const [attachmentError, setAttachmentError] = useState<string>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -90,7 +100,7 @@ export function MessageComposer({
                 disabled={busy}
                 title="Remove image"
                 aria-label="Remove image"
-                className="-top-2 -right-2 absolute flex h-5 w-5 items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                className="-top-2 -right-2 absolute flex h-5 w-5 cursor-pointer items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
               >
                 ×
               </button>
@@ -111,6 +121,9 @@ export function MessageComposer({
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             submit();
+          } else if (event.key === "Escape" && onCancel) {
+            event.preventDefault();
+            onCancel();
           }
         }}
       />
@@ -131,6 +144,7 @@ export function MessageComposer({
             {attachmentError}
           </span>
         ) : null}
+        {hint ? <span className="ml-auto font-mono text-ink-muted text-xs">{hint}</span> : null}
       </div>
     </div>
   );

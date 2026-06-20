@@ -1,25 +1,33 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
-import { ChatMessage } from "./chat-message.tsx";
+import { ChatMessage, type ResubmitHandler } from "./chat-message.tsx";
 
 const message = (role: "user" | "assistant", parts: unknown[]): UIMessage =>
   ({ id: "m1", role, parts }) as UIMessage;
 
+const renderMessage = (
+  msg: UIMessage,
+  { busy = false, onResubmit = () => {} }: { busy?: boolean; onResubmit?: ResubmitHandler } = {},
+) => render(<ChatMessage message={msg} busy={busy} onResubmit={onResubmit} />);
+
+const editField = () =>
+  screen.queryByRole("textbox", { name: "Edit message" }) as HTMLTextAreaElement | null;
+const editButton = () => screen.getByRole("button", { name: "edit" });
+
 describe("<ChatMessage>", () => {
   it("renders a user message verbatim with its image attachments", () => {
-    render(
-      <ChatMessage
-        message={message("user", [
-          {
-            type: "file",
-            mediaType: "image/png",
-            filename: "shot.png",
-            url: "data:image/png;base64,AA",
-          },
-          { type: "text", text: "look at this" },
-        ])}
-      />,
+    renderMessage(
+      message("user", [
+        {
+          type: "file",
+          mediaType: "image/png",
+          filename: "shot.png",
+          url: "data:image/png;base64,AA",
+        },
+        { type: "text", text: "look at this" },
+      ]),
     );
 
     expect(screen.getByText("You")).toBeDefined();
@@ -28,41 +36,102 @@ describe("<ChatMessage>", () => {
   });
 
   it("renders assistant prose as markdown", () => {
-    render(<ChatMessage message={message("assistant", [{ type: "text", text: "Hello there" }])} />);
+    renderMessage(message("assistant", [{ type: "text", text: "Hello there" }]));
     expect(screen.getByText("Assistant")).toBeDefined();
     expect(screen.getByText("Hello there")).toBeDefined();
   });
 
   it("interleaves tool calls with the assistant's prose, in order", () => {
-    render(
-      <ChatMessage
-        message={message("assistant", [
-          // A step boundary and an empty text part both render nothing, sat
-          // between the parts that do.
-          { type: "step-start" },
-          { type: "text", text: "Let me search." },
-          {
-            type: "tool-web_search",
-            toolCallId: "c1",
-            state: "output-available",
-            input: { query: "kiri release" },
-            output: { results: [] },
-          },
-          { type: "text", text: "" },
-          { type: "text", text: "Here is what I found." },
-        ])}
-      />,
+    renderMessage(
+      message("assistant", [
+        // A step boundary and an empty text part both render nothing, sat
+        // between the parts that do.
+        { type: "step-start" },
+        { type: "text", text: "Let me search." },
+        {
+          type: "tool-web_search",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { query: "kiri release" },
+          output: { results: [] },
+        },
+        { type: "text", text: "" },
+        { type: "text", text: "Here is what I found." },
+      ]),
     );
 
     expect(screen.getByText("Let me search.")).toBeDefined();
     expect(screen.getByText("Here is what I found.")).toBeDefined();
-    // The tool block renders between the two prose parts.
     expect(screen.getByText("Web search")).toBeDefined();
     expect(screen.getByText("kiri release")).toBeDefined();
   });
 
   it("renders nothing for an assistant turn with no content yet", () => {
-    const { container } = render(<ChatMessage message={message("assistant", [])} />);
+    const { container } = renderMessage(message("assistant", []));
     expect(container.innerHTML).toBe("");
+  });
+
+  it("edits a user message and resends the new text", async () => {
+    const onResubmit = mock((_id: string, _parts: UIMessage["parts"]) => {});
+    renderMessage(message("user", [{ type: "text", text: "original" }]), { onResubmit });
+
+    await userEvent.click(editButton());
+    const field = editField();
+    expect(field?.value).toBe("original");
+
+    await userEvent.clear(field as HTMLTextAreaElement);
+    await userEvent.type(field as HTMLTextAreaElement, "edited{Enter}");
+
+    expect(onResubmit.mock.calls).toEqual([["m1", [{ type: "text", text: "edited" }]]]);
+  });
+
+  it("preserves image attachments when resending an edited message", async () => {
+    const onResubmit = mock((_id: string, _parts: UIMessage["parts"]) => {});
+    const image = {
+      type: "file" as const,
+      mediaType: "image/png",
+      filename: "shot.png",
+      url: "data:image/png;base64,AA",
+    };
+    renderMessage(message("user", [image, { type: "text", text: "look" }]), { onResubmit });
+
+    await userEvent.click(editButton());
+    // The seeded image previews in the editor.
+    expect(screen.getByAltText("shot.png")).toBeDefined();
+    await userEvent.clear(editField() as HTMLTextAreaElement);
+    await userEvent.type(editField() as HTMLTextAreaElement, "look again{Enter}");
+
+    expect(onResubmit.mock.calls).toEqual([["m1", [image, { type: "text", text: "look again" }]]]);
+  });
+
+  it("cancels editing on Escape without resending", async () => {
+    const onResubmit = mock((_id: string, _parts: UIMessage["parts"]) => {});
+    renderMessage(message("user", [{ type: "text", text: "original" }]), { onResubmit });
+
+    await userEvent.click(editButton());
+    await userEvent.type(editField() as HTMLTextAreaElement, " more{Escape}");
+
+    expect(onResubmit.mock.calls).toHaveLength(0);
+    // The editor closes and the original text is shown again.
+    expect(editField()).toBeNull();
+    expect(screen.getByText("original")).toBeDefined();
+  });
+
+  it("does not resend an edit cleared to empty with no attachments", async () => {
+    const onResubmit = mock((_id: string, _parts: UIMessage["parts"]) => {});
+    renderMessage(message("user", [{ type: "text", text: "original" }]), { onResubmit });
+
+    await userEvent.click(editButton());
+    await userEvent.clear(editField() as HTMLTextAreaElement);
+    await userEvent.type(editField() as HTMLTextAreaElement, "{Enter}");
+
+    expect(onResubmit.mock.calls).toHaveLength(0);
+    // Nothing to send, so the editor stays open.
+    expect(editField()).not.toBeNull();
+  });
+
+  it("disables the edit control while a turn is in flight", () => {
+    renderMessage(message("user", [{ type: "text", text: "x" }]), { busy: true });
+    expect((editButton() as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -716,6 +716,22 @@ export const deleteSession = async (id: string): Promise<void> => {
 };
 
 /**
+ * Truncate a session's transcript from `messageId` onward — the server deletes
+ * that message and every turn after it, then rebuilds the running token totals.
+ * Backs edit-and-resend: roll the conversation back to the edited message before
+ * re-running from it. Resolves on 204; throws `ApiError` on non-2xx — 404 (the
+ * session or message is unknown), 409 (a turn is in flight; cancel it first).
+ */
+export const truncateSessionMessages = async (id: string, messageId: string): Promise<void> => {
+  await assertOk(
+    await apiFetch(
+      `/api/sessions/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}`,
+      { method: "DELETE" },
+    ),
+  );
+};
+
+/**
  * The turn endpoint for a session's `useChat` transport: the origin-aware URL
  * plus the `X-Kiri-Client` header the CSRF gate requires. `useChat` posts only
  * the newest message here; the server loads the prior turns from storage.
