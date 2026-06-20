@@ -2,6 +2,7 @@ import { type SessionMessage, patchSessionModel, patchSessionPersona } from "../
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Stat, StatList } from "../../design-system/content/stat.tsx";
+import { Notice } from "../../design-system/feedback/notice.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useModels, usePersonas, useSession } from "../../state/sessions.ts";
 
@@ -33,7 +34,9 @@ function currentContextTokens(messages: SessionMessage[]): number | undefined {
  */
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
-  const models = useModels().data?.models ?? [];
+  const modelsData = useModels().data;
+  const models = modelsData?.models ?? [];
+  const modelFailures = modelsData?.failures ?? [];
   const personas = usePersonas().data ?? [];
   if (!detail) return null;
   const { session } = detail;
@@ -70,6 +73,22 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           disabled={turnInFlight}
           onChange={(model) => void patchSessionModel(id, model)}
         />
+        {/* A provider whose listing failed leaves a gap in the picker; name it
+            and why, so a missing model reads as a config issue, not an absence. */}
+        {modelFailures.length > 0 ? (
+          <div className="mt-4 space-y-3">
+            {modelFailures.map((failure) => (
+              <Notice
+                key={failure.provider}
+                tone="negative"
+                announce="polite"
+                title={`${failure.provider} models unavailable`}
+              >
+                {failure.reason}
+              </Notice>
+            ))}
+          </div>
+        ) : null}
       </section>
       {showPersona ? (
         <section className={SECTION_CLASS}>

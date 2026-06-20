@@ -106,6 +106,22 @@ describe("<SessionAside>", () => {
     ]);
   });
 
+  it("surfaces a provider whose model listing failed", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [{ id: "anthropic:claude", provider: "anthropic" }],
+          failures: [{ provider: "openai", reason: "401 Unauthorized" }],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    expect(await screen.findByText(/openai models unavailable/i)).toBeDefined();
+    expect(screen.getByText("401 Unauthorized")).toBeDefined();
+  });
+
   it("disables the model select while a turn is in flight", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail({ status: "running" }))),
