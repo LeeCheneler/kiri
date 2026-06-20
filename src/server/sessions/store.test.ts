@@ -10,6 +10,7 @@ import {
   addTurnUsage,
   appendMessage,
   createSession,
+  deleteMessagesFrom,
   deleteSession,
   getSession,
   getSessionMessages,
@@ -169,5 +170,66 @@ describe("sessions store", () => {
     createSession(db, MODEL, { id: "s1" });
     deleteSession(db, "ghost");
     expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("truncates from a message, dropping later turns and rebuilding token totals", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Q1" }] });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: "A1" }],
+      usage: { inputTokens: 3, outputTokens: 5, totalTokens: 8 },
+    });
+    const second = appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Q2" }] });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: "A2" }],
+      usage: { inputTokens: 7, outputTokens: 9, totalTokens: 16 },
+    });
+    addTurnUsage(db, "s1", { inputTokens: 3, outputTokens: 5, totalTokens: 8 });
+    addTurnUsage(db, "s1", { inputTokens: 7, outputTokens: 9, totalTokens: 16 });
+    // A second session's messages must be untouched.
+    createSession(db, MODEL, { id: "s2" });
+    appendMessage(db, "s2", { role: "user", parts: [{ type: "text", text: "Keep me" }] });
+
+    expect(deleteMessagesFrom(db, "s1", second.id)).toBe(true);
+
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.index)).toEqual([0, 1]);
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    // Totals rebuilt from the one surviving assistant turn alone.
+    const session = getSession(db, "s1");
+    expect(session?.inputTokens).toBe(3);
+    expect(session?.outputTokens).toBe(5);
+    expect(session?.totalTokens).toBe(8);
+    expect(getSessionMessages(db, "s2")).toHaveLength(1);
+  });
+
+  it("clears the transcript and zeroes totals when truncating from the first message", () => {
+    createSession(db, MODEL, { id: "s1" });
+    const first = appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Q1" }] });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: "A1" }],
+      usage: { inputTokens: 3, outputTokens: 5, totalTokens: 8 },
+    });
+    addTurnUsage(db, "s1", { inputTokens: 3, outputTokens: 5, totalTokens: 8 });
+
+    expect(deleteMessagesFrom(db, "s1", first.id)).toBe(true);
+
+    expect(getSessionMessages(db, "s1")).toHaveLength(0);
+    expect(getSession(db, "s1")?.totalTokens).toBe(0);
+  });
+
+  it("is a no-op truncating from a message that does not exist", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Q1" }] });
+    addTurnUsage(db, "s1", { inputTokens: 3, outputTokens: 5, totalTokens: 8 });
+
+    expect(deleteMessagesFrom(db, "s1", "ghost")).toBe(false);
+
+    expect(getSessionMessages(db, "s1")).toHaveLength(1);
+    // The early return leaves the running totals untouched.
+    expect(getSession(db, "s1")?.totalTokens).toBe(8);
   });
 });

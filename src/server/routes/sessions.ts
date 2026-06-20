@@ -11,6 +11,7 @@ import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   createSession,
   createSystemPromptBuilder,
+  deleteMessagesFrom,
   deleteSession,
   getSession,
   getSessionMessages,
@@ -50,6 +51,8 @@ const DEFAULT_SESSION_LIMIT = 25;
 const MAX_SESSION_LIMIT = 100;
 
 const sessionIdParamSchema = z.object({ id: z.string().min(1) });
+
+const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
 const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
 
@@ -257,6 +260,26 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
       deleteSession(db, id);
       bus?.publish({ type: "session.deleted", id });
+      return c.body(null, 204);
+    },
+  );
+
+  app.delete(
+    "/sessions/:id/messages/:messageId",
+    zValidator("param", messageParamSchema, onZodFail("invalid session or message id")),
+    (c) => {
+      const { id, messageId } = c.req.valid("param");
+      const session = getSession(db, id);
+      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      // A running session has a turn streaming and persisting server-side;
+      // truncating mid-turn would race that write, so require a cancel first —
+      // matching the delete/cancel guards.
+      if (session.status === "running") {
+        return c.json({ error: `session "${id}" has a turn in flight; cancel it first` }, 409);
+      }
+      if (!deleteMessagesFrom(db, id, messageId)) {
+        return c.json({ error: `message "${messageId}" not found in session "${id}"` }, 404);
+      }
       return c.body(null, 204);
     },
   );

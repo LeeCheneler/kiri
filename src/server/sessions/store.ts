@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { messages, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
@@ -142,6 +142,46 @@ export function appendMessage(
     })
     .run();
   return db.select().from(messages).where(eq(messages.id, id)).get() as Message;
+}
+
+/**
+ * Delete the message `messageId` and every message after it in the session,
+ * then rebuild the session's running token totals from the survivors. Rolls a
+ * transcript back to an earlier point — e.g. editing and resending a user
+ * message, which discards that message and the turns that followed. Trailing
+ * rows are removed wholesale rather than gapped, so the append-at-count
+ * invariant in `appendMessage` still holds. Returns whether the message
+ * existed; truncating from an absent message changes nothing.
+ */
+export function deleteMessagesFrom(db: KiriDb, sessionId: string, messageId: string): boolean {
+  const target = db
+    .select({ index: messages.index })
+    .from(messages)
+    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+    .get();
+  if (!target) return false;
+  db.transaction((tx) => {
+    tx.delete(messages)
+      .where(and(eq(messages.sessionId, sessionId), gte(messages.index, target.index)))
+      .run();
+    const survivors = tx
+      .select({ usage: messages.usage })
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId))
+      .all();
+    const totals = survivors.reduce(
+      (acc, { usage }) => {
+        const turn = (usage as LlmUsage | null) ?? {};
+        acc.inputTokens += turn.inputTokens ?? 0;
+        acc.outputTokens += turn.outputTokens ?? 0;
+        acc.totalTokens += turn.totalTokens ?? 0;
+        return acc;
+      },
+      { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    );
+    tx.update(sessions).set(totals).where(eq(sessions.id, sessionId)).run();
+  });
+  return true;
 }
 
 /**
