@@ -12,7 +12,7 @@ import { VersionInfo } from "./version-info.tsx";
 // lg+ column and the mobile drawer.
 function RailContent({ location }: { location: string }) {
   const docItems: NavItem[] = [
-    { label: "Managing kiri", href: "https://local.kiri.build/docs" },
+    { label: "Managing kiri", href: "https://kiri.build/docs" },
     {
       label: "Design system",
       href: "/dev/design-system",

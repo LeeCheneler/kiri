@@ -20,14 +20,10 @@ describe("isExternalHref", () => {
     expect(isExternalHref("mailto:hi@example.com")).toBe(true);
   });
 
-  it("treats the hosted /docs site as external, even at the same origin", () => {
-    expect(isExternalHref("/docs")).toBe(true);
-    expect(isExternalHref("/docs/managing-kiri")).toBe(true);
-    expect(isExternalHref(`${window.location.origin}/docs`)).toBe(true);
-  });
-
-  it("does not treat a route that merely starts with 'docs' as the docs site", () => {
-    expect(isExternalHref("/docsetup")).toBe(false);
+  it("treats same-origin docs routes as internal", () => {
+    expect(isExternalHref("/docs")).toBe(false);
+    expect(isExternalHref("/docs/workflows")).toBe(false);
+    expect(isExternalHref(`${window.location.origin}/docs`)).toBe(false);
   });
 
   it("treats a malformed href as internal rather than throwing", () => {
