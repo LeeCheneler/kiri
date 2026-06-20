@@ -19,8 +19,8 @@ export function bootstrap(config: ConfigStore): KiriDb {
   mkdirSync(config.workflowsDir(), { recursive: true });
   const dataDir = config.dataDir();
   mkdirSync(dataDir, { recursive: true });
-  writeSchemaFile(config.cwd());
-  writeLlmProvidersSchemaFile(config.cwd());
+  writeSchemaFile(config);
+  writeLlmProvidersSchemaFile(config);
 
   const db = openDatabase(join(dataDir, "state.db"));
   migrate(db);

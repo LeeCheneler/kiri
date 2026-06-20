@@ -50,8 +50,7 @@ plain \`kiri\` launch also keeps them in sync after a binary upgrade.
 `;
 
 const args = process.argv.slice(2);
-const cwd = resolveConfigDir(process.env, process.cwd());
-const config = createConfigStore(cwd);
+const config = createConfigStore(resolveConfigDir(process.env, process.cwd()));
 
 if (args[0] === "--help" || args[0] === "-h") {
   console.log(HELP);
@@ -68,7 +67,7 @@ if (args[0] === "init") {
     console.log(INIT_HELP);
     process.exit(0);
   }
-  const result = initRepo(cwd);
+  const result = initRepo(config);
   for (const path of result.created) console.log(`created  ${path}`);
   for (const path of result.skipped) console.log(`skipped  ${path} (already exists)`);
   console.log(`schema   ${result.schemaPath}`);

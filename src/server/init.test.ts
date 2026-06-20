@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConfigStore } from "./config/store.ts";
+import { type ConfigStore, createConfigStore } from "./config/store.ts";
 import {
   HELLO_WORLD_WORKFLOW,
   KIRI_README,
@@ -15,9 +15,11 @@ import { loadWorkflows, workflowJsonSchema } from "./workflows/index.ts";
 
 describe("writeSchemaFile", () => {
   let cwd: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-schema-"));
+    config = createConfigStore(cwd);
   });
 
   afterEach(() => {
@@ -25,7 +27,7 @@ describe("writeSchemaFile", () => {
   });
 
   it("creates .kiri/ and writes the JSON schema with a trailing newline", () => {
-    const path = writeSchemaFile(cwd);
+    const path = writeSchemaFile(config);
     expect(path).toBe(join(cwd, ".kiri", "workflow.schema.json"));
     const raw = readFileSync(path, "utf8");
     expect(raw.endsWith("\n")).toBe(true);
@@ -33,18 +35,20 @@ describe("writeSchemaFile", () => {
   });
 
   it("overwrites an existing schema file (always refreshed)", () => {
-    const path = writeSchemaFile(cwd);
+    const path = writeSchemaFile(config);
     writeFileSync(path, '{ "stale": true }');
-    writeSchemaFile(cwd);
+    writeSchemaFile(config);
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(workflowJsonSchema());
   });
 });
 
 describe("writeLlmProvidersSchemaFile", () => {
   let cwd: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-llm-schema-"));
+    config = createConfigStore(cwd);
   });
 
   afterEach(() => {
@@ -52,7 +56,7 @@ describe("writeLlmProvidersSchemaFile", () => {
   });
 
   it("creates .kiri/ and writes the JSON schema with a trailing newline", () => {
-    const path = writeLlmProvidersSchemaFile(cwd);
+    const path = writeLlmProvidersSchemaFile(config);
     expect(path).toBe(join(cwd, ".kiri", "llm-providers.schema.json"));
     const raw = readFileSync(path, "utf8");
     expect(raw.endsWith("\n")).toBe(true);
@@ -60,18 +64,20 @@ describe("writeLlmProvidersSchemaFile", () => {
   });
 
   it("overwrites an existing schema file (always refreshed)", () => {
-    const path = writeLlmProvidersSchemaFile(cwd);
+    const path = writeLlmProvidersSchemaFile(config);
     writeFileSync(path, '{ "stale": true }');
-    writeLlmProvidersSchemaFile(cwd);
+    writeLlmProvidersSchemaFile(config);
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(llmProvidersJsonSchema());
   });
 });
 
 describe("initRepo", () => {
   let cwd: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-init-"));
+    config = createConfigStore(cwd);
   });
 
   afterEach(() => {
@@ -79,7 +85,7 @@ describe("initRepo", () => {
   });
 
   it("scaffolds the README, hello-world workflow, and schema on a fresh repo", () => {
-    const result = initRepo(cwd);
+    const result = initRepo(config);
 
     expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe(KIRI_README);
     expect(readFileSync(join(cwd, "workflows", "hello-world.yaml"), "utf8")).toBe(
@@ -99,7 +105,7 @@ describe("initRepo", () => {
   });
 
   it("scaffolds a hello-world workflow that loads without failures", async () => {
-    initRepo(cwd);
+    initRepo(config);
 
     const { workflows, failures } = await loadWorkflows(createConfigStore(cwd));
 
@@ -108,11 +114,11 @@ describe("initRepo", () => {
   });
 
   it("does not overwrite user-authored scaffold files on re-run", () => {
-    initRepo(cwd);
+    initRepo(config);
     writeFileSync(join(cwd, "README.md"), "user notes");
     writeFileSync(join(cwd, "workflows", "hello-world.yaml"), "name: mine\nsteps: []\n");
 
-    const result = initRepo(cwd);
+    const result = initRepo(config);
 
     expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe("user notes");
     expect(readFileSync(join(cwd, "workflows", "hello-world.yaml"), "utf8")).toBe(
@@ -123,13 +129,13 @@ describe("initRepo", () => {
   });
 
   it("always refreshes the schema files even when scaffold files are skipped", () => {
-    initRepo(cwd);
+    initRepo(config);
     const schemaPath = join(cwd, ".kiri", "workflow.schema.json");
     const llmSchemaPath = join(cwd, ".kiri", "llm-providers.schema.json");
     writeFileSync(schemaPath, '{ "stale": true }');
     writeFileSync(llmSchemaPath, '{ "stale": true }');
 
-    initRepo(cwd);
+    initRepo(config);
     expect(JSON.parse(readFileSync(schemaPath, "utf8"))).toEqual(workflowJsonSchema());
     expect(JSON.parse(readFileSync(llmSchemaPath, "utf8"))).toEqual(llmProvidersJsonSchema());
   });
@@ -137,7 +143,7 @@ describe("initRepo", () => {
   it("appends `.kiri/` to an existing .gitignore that doesn't list it", () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules\n");
 
-    const result = initRepo(cwd);
+    const result = initRepo(config);
 
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe("node_modules\n.kiri/\n");
     expect(result.gitignoreUpdated).toBe(true);
@@ -146,7 +152,7 @@ describe("initRepo", () => {
   it("adds a trailing newline before appending if .gitignore lacks one", () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules");
 
-    initRepo(cwd);
+    initRepo(config);
 
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe("node_modules\n.kiri/\n");
   });
@@ -154,7 +160,7 @@ describe("initRepo", () => {
   it("leaves .gitignore alone when `.kiri/` is already listed", () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules\n.kiri/\ndist\n");
 
-    const result = initRepo(cwd);
+    const result = initRepo(config);
 
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe("node_modules\n.kiri/\ndist\n");
     expect(result.gitignoreUpdated).toBe(false);
@@ -163,14 +169,14 @@ describe("initRepo", () => {
   it("treats `.kiri` (no trailing slash) as already-listed", () => {
     writeFileSync(join(cwd, ".gitignore"), ".kiri\n");
 
-    const result = initRepo(cwd);
+    const result = initRepo(config);
 
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe(".kiri\n");
     expect(result.gitignoreUpdated).toBe(false);
   });
 
   it("creates .gitignore with `.kiri/` when one doesn't exist", () => {
-    const result = initRepo(cwd);
+    const result = initRepo(config);
 
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toBe(".kiri/\n");
     expect(result.gitignoreUpdated).toBe(true);
