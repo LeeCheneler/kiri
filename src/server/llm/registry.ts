@@ -1,9 +1,9 @@
 import type { LlmProvider } from "./schema.ts";
 
 /**
- * In-memory LLM provider registry. Holds the providers hydrated from
- * `<cwd>/llm-providers.yaml`. Mutated by the loader via `replace`; read by
- * callers via `getProvider` and `listProviders`.
+ * In-memory LLM provider registry. Holds the providers hydrated from the
+ * `providers:` map in `<cwd>/kiri.yaml`. Mutated by the loader via `replace`;
+ * read by callers via `getProvider` and `listProviders`.
  */
 export interface LlmProviderRegistry {
   getProvider(name: string): LlmProvider | undefined;

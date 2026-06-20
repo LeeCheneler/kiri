@@ -418,7 +418,7 @@ steps:
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "llm.yaml"));
     expect(result.failures[0].reason).toContain('"ghost"');
-    expect(result.failures[0].reason).toContain("llm-providers.yaml");
+    expect(result.failures[0].reason).toContain("kiri.yaml");
   });
 
   it("treats every llm provider as unknown when no provider names are passed", async () => {

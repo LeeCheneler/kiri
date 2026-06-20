@@ -56,7 +56,7 @@ const llmConfigSchema = z
         message: 'llm model must be in "provider:model" form',
       })
       .describe(
-        "Model id in `provider:model` form. The provider prefix must name an entry in llm-providers.yaml.",
+        "Model id in `provider:model` form. The provider prefix must name an entry in kiri.yaml.",
       ),
     prompt: z
       .string()
@@ -73,7 +73,7 @@ const llmConfigSchema = z
   })
   .strict()
   .describe(
-    "First-party LLM completion: sends the prompt to a model declared in llm-providers.yaml; the model's text response becomes the step's output.",
+    "First-party LLM completion: sends the prompt to a model declared in kiri.yaml; the model's text response becomes the step's output.",
   );
 
 const llmStepSchema = z

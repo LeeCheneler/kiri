@@ -10,12 +10,18 @@ export interface WatchOptions {
   watchFn?: typeof watch;
   /** Optional event bus. When supplied, the watcher publishes workflow.added / workflow.updated / workflow.removed on registry changes. */
   bus?: EventBus;
-  /** Provider names registered from llm-providers.yaml, forwarded to the loader so rebuilds validate `llm:` model prefixes. */
-  providerNames?: ReadonlySet<string>;
+  /**
+   * Returns the currently-registered provider names, called on each rebuild so
+   * `llm:` model prefixes validate against the live set — which lets a provider
+   * config reload re-validate workflows by triggering `revalidate()`.
+   */
+  getProviderNames?: () => ReadonlySet<string>;
 }
 
 export interface WorkflowWatcher {
   stop(): void;
+  /** Force a rebuild now (debounced) — e.g. after the provider set changed, so `llm:` validity re-flips. */
+  revalidate(): void;
 }
 
 const DEFAULT_DEBOUNCE_MS = 50;
@@ -62,7 +68,7 @@ export function watchWorkflows(
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const watchFn = options.watchFn ?? watch;
   const bus = options.bus;
-  const providerNames = options.providerNames ?? new Set<string>();
+  const getProviderNames = options.getProviderNames ?? (() => new Set<string>());
 
   let snapshot = buildSnapshot(initial);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -71,7 +77,7 @@ export function watchWorkflows(
     timer = null;
     let result: LoadResult;
     try {
-      result = await loadWorkflows(config, providerNames);
+      result = await loadWorkflows(config, getProviderNames());
     } catch (cause) {
       // Directory disappeared between an fs.watch event and the debounced
       // rebuild — usually a teardown race. Log and bail; if it's transient
@@ -137,6 +143,9 @@ export function watchWorkflows(
     stop() {
       if (timer !== null) clearTimeout(timer);
       fsWatcher.close();
+    },
+    revalidate() {
+      schedule();
     },
   };
 }

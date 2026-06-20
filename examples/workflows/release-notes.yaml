@@ -4,7 +4,7 @@ name: Release Notes
 description: "Turn a raw change list into polished release notes — first-party llm: steps, no bundle to maintain."
 
 # Every model id below is `provider:model`; the `anthropic:` prefix resolves
-# against the `anthropic` entry in this workspace's llm-providers.yaml. Point
+# against the `anthropic` entry in this workspace's kiri.yaml. Point
 # them at `local:<model>` instead to run against a local server.
 
 steps:

@@ -6,7 +6,9 @@ const PERSONAS_DIRNAME = "personas";
 const DATA_DIRNAME = ".kiri";
 const RUNS_DIRNAME = "runs";
 const INSTRUCTIONS_FILENAME = "kiri.md";
-const PROVIDERS_FILENAME = "llm-providers.yaml";
+// Canonical first: the loader reads whichever exists, preferring `kiri.yaml`.
+const CONFIG_FILENAMES = ["kiri.yaml", "kiri.yml"] as const;
+const ENV_FILENAME = ".env";
 
 /**
  * Resolved configuration for a kiri workspace. Owns the workspace root and
@@ -33,8 +35,12 @@ export interface ConfigStore {
   runDir(runId: string): string;
   /** `<cwd>/kiri.md` — the workspace's session standing instructions. */
   instructionsFile(): string;
-  /** `<cwd>/llm-providers.yaml` — the LLM provider declarations. */
-  providersFile(): string;
+  /** `<cwd>/kiri.yaml` — kiri's structured config file, canonical name (the write target for scaffolding). */
+  configFile(): string;
+  /** Candidate config-file paths in preference order — `kiri.yaml` then `kiri.yml`. The loader reads whichever exists. */
+  configFiles(): string[];
+  /** `<cwd>/.env` — the workspace's environment variables, loaded at startup. */
+  envFile(): string;
 }
 
 /**
@@ -54,6 +60,8 @@ export function createConfigStore(cwd: string): ConfigStore {
     dataDir: () => dataDir,
     runDir: (runId) => join(dataDir, RUNS_DIRNAME, runId),
     instructionsFile: () => join(cwd, INSTRUCTIONS_FILENAME),
-    providersFile: () => join(cwd, PROVIDERS_FILENAME),
+    configFile: () => join(cwd, CONFIG_FILENAMES[0]),
+    configFiles: () => CONFIG_FILENAMES.map((name) => join(cwd, name)),
+    envFile: () => join(cwd, ENV_FILENAME),
   };
 }

@@ -1,6 +1,7 @@
-# yaml-language-server: $schema=.kiri/llm-providers.schema.json
+# yaml-language-server: $schema=.kiri/kiri.schema.json
 
-# LLM endpoints that `llm:` steps reference by their `provider:model` id.
+# kiri.yaml — kiri's structured config. LLM endpoints that `llm:` steps
+# reference by their `provider:model` id live under `providers:`.
 # An API key is only ever a `{ env: <NAME> }` reference to an environment
 # variable — a literal key is rejected so secrets never land in git.
 providers:

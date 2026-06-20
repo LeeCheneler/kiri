@@ -47,16 +47,10 @@ const providerEntrySchema = z.discriminatedUnion("type", [
   openaiCompatibleProviderSchema,
 ]);
 
-const providersSchema = z
+/** Schema for the `providers:` map in `kiri.yaml`, keyed by provider name. */
+export const providersSchema = z
   .record(z.string().min(1), providerEntrySchema)
   .describe("LLM endpoints `llm:` steps can reference, keyed by name.");
-
-/** Zod schema for the workspace's `llm-providers.yaml`. */
-export const llmProvidersSchema = z
-  .object({
-    providers: providersSchema.optional(),
-  })
-  .strict();
 
 /** A single validated provider entry. */
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
@@ -66,9 +60,6 @@ export type ProviderType = ProviderEntry["type"];
 
 /** A structured `{ env: <NAME> }` reference to an environment variable. */
 export type EnvRef = z.infer<typeof envRefSchema>;
-
-/** The raw, validated `llm-providers.yaml` shape. */
-export type LlmProvidersConfig = z.infer<typeof llmProvidersSchema>;
 
 /**
  * A provider after the loader resolves it: its `type`, the optional base URL,

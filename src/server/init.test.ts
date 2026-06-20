@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { kiriConfigJsonSchema } from "./config/json-schema.ts";
 import { type ConfigStore, createConfigStore } from "./config/store.ts";
 import {
+  DEFAULT_KIRI_CONFIG,
   HELLO_WORLD_WORKFLOW,
   KIRI_README,
   initRepo,
-  writeLlmProvidersSchemaFile,
+  writeDefaultConfig,
+  writeKiriConfigSchemaFile,
   writeSchemaFile,
 } from "./init.ts";
-import { llmProvidersJsonSchema } from "./llm/index.ts";
 import { loadWorkflows, workflowJsonSchema } from "./workflows/index.ts";
 
 describe("writeSchemaFile", () => {
@@ -42,12 +44,12 @@ describe("writeSchemaFile", () => {
   });
 });
 
-describe("writeLlmProvidersSchemaFile", () => {
+describe("writeKiriConfigSchemaFile", () => {
   let cwd: string;
   let config: ConfigStore;
 
   beforeEach(() => {
-    cwd = mkdtempSync(join(tmpdir(), "kiri-llm-schema-"));
+    cwd = mkdtempSync(join(tmpdir(), "kiri-config-schema-"));
     config = createConfigStore(cwd);
   });
 
@@ -56,18 +58,49 @@ describe("writeLlmProvidersSchemaFile", () => {
   });
 
   it("creates .kiri/ and writes the JSON schema with a trailing newline", () => {
-    const path = writeLlmProvidersSchemaFile(config);
-    expect(path).toBe(join(cwd, ".kiri", "llm-providers.schema.json"));
+    const path = writeKiriConfigSchemaFile(config);
+    expect(path).toBe(join(cwd, ".kiri", "kiri.schema.json"));
     const raw = readFileSync(path, "utf8");
     expect(raw.endsWith("\n")).toBe(true);
-    expect(JSON.parse(raw)).toEqual(llmProvidersJsonSchema());
+    expect(JSON.parse(raw)).toEqual(kiriConfigJsonSchema());
   });
 
   it("overwrites an existing schema file (always refreshed)", () => {
-    const path = writeLlmProvidersSchemaFile(config);
+    const path = writeKiriConfigSchemaFile(config);
     writeFileSync(path, '{ "stale": true }');
-    writeLlmProvidersSchemaFile(config);
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(llmProvidersJsonSchema());
+    writeKiriConfigSchemaFile(config);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(kiriConfigJsonSchema());
+  });
+});
+
+describe("writeDefaultConfig", () => {
+  let cwd: string;
+  let config: ConfigStore;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "kiri-default-config-"));
+    config = createConfigStore(cwd);
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("writes a commented default kiri.yaml when no config file exists", () => {
+    expect(writeDefaultConfig(config)).toBe(true);
+    expect(readFileSync(join(cwd, "kiri.yaml"), "utf8")).toBe(DEFAULT_KIRI_CONFIG);
+  });
+
+  it("does not overwrite an existing kiri.yaml", () => {
+    writeFileSync(join(cwd, "kiri.yaml"), "providers: {}\n");
+    expect(writeDefaultConfig(config)).toBe(false);
+    expect(readFileSync(join(cwd, "kiri.yaml"), "utf8")).toBe("providers: {}\n");
+  });
+
+  it("does not create kiri.yaml when a kiri.yml already exists", () => {
+    writeFileSync(join(cwd, "kiri.yml"), "providers: {}\n");
+    expect(writeDefaultConfig(config)).toBe(false);
+    expect(existsSync(join(cwd, "kiri.yaml"))).toBe(false);
   });
 });
 
@@ -94,14 +127,15 @@ describe("initRepo", () => {
     expect(JSON.parse(readFileSync(join(cwd, ".kiri", "workflow.schema.json"), "utf8"))).toEqual(
       workflowJsonSchema(),
     );
-    expect(
-      JSON.parse(readFileSync(join(cwd, ".kiri", "llm-providers.schema.json"), "utf8")),
-    ).toEqual(llmProvidersJsonSchema());
+    expect(JSON.parse(readFileSync(join(cwd, ".kiri", "kiri.schema.json"), "utf8"))).toEqual(
+      kiriConfigJsonSchema(),
+    );
+    expect(readFileSync(join(cwd, "kiri.yaml"), "utf8")).toBe(DEFAULT_KIRI_CONFIG);
 
-    expect(result.created).toEqual(["README.md", "workflows/hello-world.yaml"]);
+    expect(result.created).toEqual(["README.md", "workflows/hello-world.yaml", "kiri.yaml"]);
     expect(result.skipped).toEqual([]);
     expect(result.schemaPath).toBe(".kiri/workflow.schema.json");
-    expect(result.llmSchemaPath).toBe(".kiri/llm-providers.schema.json");
+    expect(result.configSchemaPath).toBe(".kiri/kiri.schema.json");
   });
 
   it("scaffolds a hello-world workflow that loads without failures", async () => {
@@ -125,19 +159,19 @@ describe("initRepo", () => {
       "name: mine\nsteps: []\n",
     );
     expect(result.created).toEqual([]);
-    expect(result.skipped).toEqual(["README.md", "workflows/hello-world.yaml"]);
+    expect(result.skipped).toEqual(["README.md", "workflows/hello-world.yaml", "kiri.yaml"]);
   });
 
   it("always refreshes the schema files even when scaffold files are skipped", () => {
     initRepo(config);
     const schemaPath = join(cwd, ".kiri", "workflow.schema.json");
-    const llmSchemaPath = join(cwd, ".kiri", "llm-providers.schema.json");
+    const configSchemaPath = join(cwd, ".kiri", "kiri.schema.json");
     writeFileSync(schemaPath, '{ "stale": true }');
-    writeFileSync(llmSchemaPath, '{ "stale": true }');
+    writeFileSync(configSchemaPath, '{ "stale": true }');
 
     initRepo(config);
     expect(JSON.parse(readFileSync(schemaPath, "utf8"))).toEqual(workflowJsonSchema());
-    expect(JSON.parse(readFileSync(llmSchemaPath, "utf8"))).toEqual(llmProvidersJsonSchema());
+    expect(JSON.parse(readFileSync(configSchemaPath, "utf8"))).toEqual(kiriConfigJsonSchema());
   });
 
   it("appends `.kiri/` to an existing .gitignore that doesn't list it", () => {

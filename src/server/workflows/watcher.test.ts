@@ -112,7 +112,7 @@ describe("watchWorkflows", () => {
     watcher.stop();
   });
 
-  it("forwards providerNames to the loader so llm workflows validate on rebuild", async () => {
+  it("forwards provider names to the loader so llm workflows validate on rebuild", async () => {
     const llmSource = `name: llm-flow
 steps:
   - llm:
@@ -127,7 +127,7 @@ steps:
     const watcher = watchWorkflows(config, registry, initial, {
       debounceMs: 10,
       watchFn,
-      providerNames: new Set(["anthropic"]),
+      getProviderNames: () => new Set(["anthropic"]),
     });
 
     writeFileSync(join(dir, "llm-flow.yaml"), llmSource);
@@ -135,6 +135,40 @@ steps:
     await waitFor(() => registry.getWorkflow("llm-flow") !== undefined);
 
     expect(errs).toEqual([]);
+    watcher.stop();
+  });
+
+  it("revalidate() rebuilds against the current provider names", async () => {
+    writeFileSync(
+      join(dir, "llm-flow.yaml"),
+      `name: llm-flow
+steps:
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: Hi.
+`,
+    );
+    // The provider isn't registered yet, so the llm workflow fails to load.
+    let providers = new Set<string>();
+    const registry = createRegistry();
+    const initial = await loadWorkflows(config, providers);
+    registry.replace(initial.workflows);
+    expect(registry.getWorkflow("llm-flow")).toBeUndefined();
+
+    const { watchFn } = createFakeWatcher();
+    const watcher = watchWorkflows(config, registry, initial, {
+      debounceMs: 10,
+      watchFn,
+      getProviderNames: () => providers,
+    });
+
+    // The provider becomes available; revalidate re-runs the loader against the
+    // now-current set, so the workflow loads without any file change.
+    providers = new Set(["anthropic"]);
+    watcher.revalidate();
+    await waitFor(() => registry.getWorkflow("llm-flow") !== undefined);
+
+    expect(registry.getWorkflow("llm-flow")).toBeDefined();
     watcher.stop();
   });
 

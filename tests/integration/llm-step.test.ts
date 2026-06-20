@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "../../src/server/bootstrap.ts";
+import { loadKiriConfig } from "../../src/server/config/loader.ts";
 import { createConfigStore } from "../../src/server/config/store.ts";
 import type { KiriDb } from "../../src/server/db/index.ts";
 import { runSteps } from "../../src/server/db/schema.ts";
@@ -11,7 +12,6 @@ import {
   type LlmClients,
   createLlmClients,
   createLlmProviderRegistry,
-  loadLlmProviders,
 } from "../../src/server/llm/index.ts";
 import { runWorkflow } from "../../src/server/runner/run-workflow.ts";
 import { loadWorkflows } from "../../src/server/workflows/index.ts";
@@ -44,10 +44,10 @@ describe("llm step pipeline", () => {
     db = bootstrap(createConfigStore(cwd));
     mkdirSync(join(cwd, "workflows"), { recursive: true });
     writeFileSync(
-      join(cwd, "llm-providers.yaml"),
+      join(cwd, "kiri.yaml"),
       `providers:\n  fake:\n    type: openai-compatible\n    base_url: ${fake.url}\n`,
     );
-    const loaded = loadLlmProviders(createConfigStore(cwd), process.env);
+    const loaded = loadKiriConfig(createConfigStore(cwd), process.env);
     expect(loaded.failure).toBeUndefined();
     const registry = createLlmProviderRegistry();
     registry.replace(loaded.providers);
@@ -131,15 +131,14 @@ describe("llm step pipeline", () => {
     expect(step?.error).toMatchObject({ message: expect.any(String) });
   });
 
-  it("rejects a workflow whose llm step names a provider absent from llm-providers.yaml", async () => {
+  it("rejects a workflow whose llm step names a provider absent from kiri.yaml", async () => {
     writeWorkflow(
       "ghost",
       'name: ghost\nsteps:\n  - llm:\n      model: ghost:model\n      prompt: "hi"\n',
     );
 
     // An undeclared provider is caught at load (against the names from the real
-    // llm-providers.yaml), the same gate as a missing bundle — it never reaches
-    // a run.
+    // kiri.yaml), the same gate as a missing bundle — it never reaches a run.
     const result = await loadWorkflows(createConfigStore(cwd), providerNames);
     expect(result.workflows.has("ghost")).toBe(false);
     const failure = result.failures.find((f) => f.path.endsWith("ghost.yaml"));

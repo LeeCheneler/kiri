@@ -3,8 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootstrap } from "./bootstrap.ts";
+import { kiriConfigJsonSchema } from "./config/json-schema.ts";
 import { createConfigStore } from "./config/store.ts";
-import { llmProvidersJsonSchema } from "./llm/index.ts";
 import { workflowJsonSchema } from "./workflows/index.ts";
 
 describe("bootstrap", () => {
@@ -26,10 +26,22 @@ describe("bootstrap", () => {
     expect(JSON.parse(readFileSync(join(dir, ".kiri", "workflow.schema.json"), "utf8"))).toEqual(
       workflowJsonSchema(),
     );
-    expect(
-      JSON.parse(readFileSync(join(dir, ".kiri", "llm-providers.schema.json"), "utf8")),
-    ).toEqual(llmProvidersJsonSchema());
+    expect(JSON.parse(readFileSync(join(dir, ".kiri", "kiri.schema.json"), "utf8"))).toEqual(
+      kiriConfigJsonSchema(),
+    );
     db.$client.close();
+  });
+
+  it("scaffolds a commented default kiri.yaml on a fresh launch, never overwriting", () => {
+    const first = bootstrap(createConfigStore(dir));
+    first.$client.close();
+    const configPath = join(dir, "kiri.yaml");
+    expect(existsSync(configPath)).toBe(true);
+
+    writeFileSync(configPath, "providers: {}\n");
+    const second = bootstrap(createConfigStore(dir));
+    second.$client.close();
+    expect(readFileSync(configPath, "utf8")).toBe("providers: {}\n");
   });
 
   it("refreshes both schemas on every launch", () => {
@@ -37,14 +49,14 @@ describe("bootstrap", () => {
     first.$client.close();
 
     const schemaPath = join(dir, ".kiri", "workflow.schema.json");
-    const llmSchemaPath = join(dir, ".kiri", "llm-providers.schema.json");
+    const configSchemaPath = join(dir, ".kiri", "kiri.schema.json");
     writeFileSync(schemaPath, '{ "stale": true }');
-    writeFileSync(llmSchemaPath, '{ "stale": true }');
+    writeFileSync(configSchemaPath, '{ "stale": true }');
 
     const second = bootstrap(createConfigStore(dir));
     second.$client.close();
     expect(JSON.parse(readFileSync(schemaPath, "utf8"))).toEqual(workflowJsonSchema());
-    expect(JSON.parse(readFileSync(llmSchemaPath, "utf8"))).toEqual(llmProvidersJsonSchema());
+    expect(JSON.parse(readFileSync(configSchemaPath, "utf8"))).toEqual(kiriConfigJsonSchema());
   });
 
   it("is idempotent on re-launch", () => {

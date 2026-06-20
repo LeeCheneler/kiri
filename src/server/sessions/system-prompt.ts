@@ -101,7 +101,7 @@ function buildCorePrompt(now: Date, tools: string[]): string {
 // the file is absent or empty. A read error degrades to null (treated as
 // absent) rather than failing the turn: a missing or unreadable instructions
 // file is a first-class "no extra instructions", the same posture as an absent
-// llm-providers.yaml yielding an empty registry rather than an error.
+// kiri.yaml yielding an empty registry rather than an error.
 function readInstructions(path: string): string | null {
   if (!existsSync(path)) return null;
   try {

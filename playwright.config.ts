@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = here;
 const KIRI_BIN = resolve(here, "bin/kiri.ts");
 
-// The OpenAI-compatible stub the fixture's llm-providers.yaml points at. Booted
+// The OpenAI-compatible stub the fixture's kiri.yaml points at. Booted
 // as its own webServer so sessions and `llm:` steps have a live provider to
 // resolve, list models from, and stream turns against. Its port is fixed so the
 // checked-in fixture config can reference it.

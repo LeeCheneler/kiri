@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UIMessage } from "ai";
 import { bootstrap } from "../../src/server/bootstrap.ts";
+import { loadKiriConfig } from "../../src/server/config/loader.ts";
 import { createConfigStore } from "../../src/server/config/store.ts";
 import type { KiriDb } from "../../src/server/db/index.ts";
 import {
   type LlmClients,
   createLlmClients,
   createLlmProviderRegistry,
-  loadLlmProviders,
 } from "../../src/server/llm/index.ts";
 import { createCancelRegistry } from "../../src/server/runner/cancel-registry.ts";
 import {
@@ -48,10 +48,10 @@ describe("session turn streaming", () => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-int-turn-"));
     db = bootstrap(createConfigStore(cwd));
     writeFileSync(
-      join(cwd, "llm-providers.yaml"),
+      join(cwd, "kiri.yaml"),
       `providers:\n  fake:\n    type: openai-compatible\n    base_url: ${fake.url}\n`,
     );
-    const loaded = loadLlmProviders(createConfigStore(cwd), process.env);
+    const loaded = loadKiriConfig(createConfigStore(cwd), process.env);
     const registry = createLlmProviderRegistry();
     registry.replace(loaded.providers);
     llmClients = createLlmClients(registry, process.env);
