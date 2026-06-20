@@ -32,6 +32,7 @@ describe("createConfigStore", () => {
   it("derives the instructions and config files", () => {
     expect(config.instructionsFile()).toBe(join(root, "kiri.md"));
     expect(config.configFile()).toBe(join(root, "kiri.yaml"));
+    expect(config.configFiles()).toEqual([join(root, "kiri.yaml"), join(root, "kiri.yml")]);
   });
 
   it("derives the workspace env file", () => {

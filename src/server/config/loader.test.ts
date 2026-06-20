@@ -168,4 +168,26 @@ describe("loadKiriConfig", () => {
     expect(result.providers.size).toBe(0);
     expect(result.failure?.reason.length).toBeGreaterThan(0);
   });
+
+  it("loads providers from kiri.yml when only it exists", () => {
+    writeFileSync(
+      join(cwd, "kiri.yml"),
+      "providers:\n  local:\n    type: openai-compatible\n    base_url: http://localhost:1234/v1\n",
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect(result.warning).toBeUndefined();
+    expect(result.providers.get("local")?.type).toBe("openai-compatible");
+  });
+
+  it("prefers kiri.yaml and warns when both kiri.yaml and kiri.yml exist", () => {
+    write(cwd, "providers:\n  anthropic:\n    type: anthropic\n");
+    writeFileSync(join(cwd, "kiri.yml"), "providers:\n  openai:\n    type: openai\n");
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect(result.providers.has("anthropic")).toBe(true);
+    expect(result.providers.has("openai")).toBe(false);
+    expect(result.warning).toContain("kiri.yaml");
+    expect(result.warning).toContain("kiri.yml");
+  });
 });

@@ -206,6 +206,7 @@ providers:
     base_url: http://localhost:1234/v1
 ```
 
+- **File name.** The canonical name is `kiri.yaml`; `kiri.yml` is accepted too. If both exist, `kiri.yaml` wins and kiri logs a warning so the duplicate can be removed.
 - **`type` is always required** and selects the API the endpoint speaks; there is no inference from the entry's key. Each entry is a discriminated union on `type`, so the published JSON Schema enforces every rule in-editor — notably that `openai-compatible` requires a `base_url`.
 - **`api_key` is an `{ env: <NAME> }` reference only**, never a literal key. This mirrors the `{ input: }` idiom in workflow `env:` and keeps secrets out of the git-tracked YAML. When omitted, `anthropic`/`openai` fall back to the conventional `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`; `openai-compatible` needs no key.
 - Kiri reads the config at startup into an in-memory registry. A **missing file is first-class** — an empty registry, not an error. A present file is validated, and a declared `{ env: }` ref must name a variable set in the kiri process or the load fails with the offending key named — the same posture as a workflow referencing a missing bundle. Only *declared* refs are checked at load; conventional fallbacks resolve when a provider is used. Resolved key **values are never persisted, snapshotted, or echoed in errors** — the registry keeps only the env var's name.

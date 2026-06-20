@@ -98,6 +98,9 @@ const cancelRegistry = createCancelRegistry();
 // check `llm:` model prefixes against.
 const kiriConfig = loadKiriConfig(config, process.env);
 llmRegistry.replace(kiriConfig.providers);
+if (kiriConfig.warning) {
+  console.warn(`kiri.yaml: ${kiriConfig.warning}`);
+}
 if (kiriConfig.failure) {
   console.error(
     `kiri.yaml: failed to load ${kiriConfig.failure.path}: ${kiriConfig.failure.reason}`,

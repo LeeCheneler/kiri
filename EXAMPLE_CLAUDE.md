@@ -386,6 +386,7 @@ providers:
 - **`type`** is one of `anthropic`, `openai`, `openai-compatible`. `base_url` is optional for the first two (override the default endpoint) and **required** for `openai-compatible`.
 - **`api_key` is only ever `{ env: <NAME> }`** — a reference to the environment variable holding the key. A literal key string is rejected so secrets stay out of git; the key is read at run time, and a missing env var fails the step cleanly.
 - The `providers:` map is **optional** — a workspace with no `llm:` steps needs none. A worked example lives in `examples/kiri.yaml`.
+- **File name:** `kiri.yaml` is canonical; `kiri.yml` works too. If both exist, `kiri.yaml` wins (kiri warns).
 
 ---
 

@@ -25,29 +25,46 @@ export interface KiriConfigLoadResult {
   providers: Map<string, LlmProvider>;
   /** Set when a present file failed to load. An absent file is not a failure. */
   failure?: KiriConfigLoadFailure;
+  /** Non-fatal note — e.g. both `kiri.yaml` and `kiri.yml` exist and the canonical one was used. */
+  warning?: string;
 }
 
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
 /**
- * Load the workspace's `kiri.yaml` and resolve its `providers:` map into
- * providers keyed by name. An absent file is first-class: an empty registry,
- * not a failure. A present file that fails to read, parse, or validate — or
- * whose declared `{ env: }` refs name a variable missing from `env` — yields an
- * empty registry plus a `failure` describing why, the same posture as a
- * workflow that can't load. Only declared refs are presence-checked;
- * conventional fallbacks resolve at use time. Resolved key *values* are never
- * read or stored — the registry keeps only the env var's name.
+ * Load the workspace's `kiri.yaml` (or `kiri.yml`) and resolve its `providers:`
+ * map into providers keyed by name. An absent file is first-class: an empty
+ * registry, not a failure. A present file that fails to read, parse, or
+ * validate — or whose declared `{ env: }` refs name a variable missing from
+ * `env` — yields an empty registry plus a `failure` describing why, the same
+ * posture as a workflow that can't load. Only declared refs are
+ * presence-checked; conventional fallbacks resolve at use time. Resolved key
+ * *values* are never read or stored — the registry keeps only the env var's
+ * name. If both `kiri.yaml` and `kiri.yml` exist, the canonical `.yaml` wins
+ * and a `warning` flags the duplicate.
  */
 export function loadKiriConfig(
   config: ConfigStore,
   env: Record<string, string | undefined>,
 ): KiriConfigLoadResult {
-  const path = config.configFile();
-  const providers = new Map<string, LlmProvider>();
+  const candidates = config.configFiles();
+  const present = candidates.filter((path) => existsSync(path));
+  if (present.length === 0) return { providers: new Map() };
 
-  if (!existsSync(path)) return { providers };
+  const result = loadConfigFile(present[0], env);
+  if (present.length > 1) {
+    result.warning = `both ${candidates[0]} and ${candidates[1]} exist — using ${candidates[0]}`;
+  }
+  return result;
+}
+
+/** Read, parse, validate, and resolve a single config file known to exist. */
+function loadConfigFile(
+  path: string,
+  env: Record<string, string | undefined>,
+): KiriConfigLoadResult {
+  const providers = new Map<string, LlmProvider>();
 
   let raw: string;
   try {
