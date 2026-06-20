@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootstrap } from "../bootstrap.ts";
+import { createConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { type EventBus, createEventBus } from "../events/index.ts";
 import { type Registry, createRegistry } from "../workflows/index.ts";
@@ -23,7 +24,7 @@ export interface TestEnv {
 
 export function createTestEnv(): TestEnv {
   const cwd = mkdtempSync(join(tmpdir(), "kiri-app-"));
-  const db = bootstrap(cwd);
+  const db = bootstrap(createConfigStore(cwd));
   const registry = createRegistry();
   return {
     cwd,

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "./bootstrap.ts";
+import { createConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { runSteps, runs, sessions } from "./db/schema.ts";
 import { reconcileInterruptedRuns, reconcileInterruptedSessions } from "./reconcile.ts";
@@ -14,7 +15,7 @@ describe("reconcileInterruptedRuns", () => {
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-reconcile-"));
-    db = bootstrap(cwd);
+    db = bootstrap(createConfigStore(cwd));
   });
 
   afterEach(() => {
@@ -103,7 +104,7 @@ describe("reconcileInterruptedSessions", () => {
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-reconcile-"));
-    db = bootstrap(cwd);
+    db = bootstrap(createConfigStore(cwd));
   });
 
   afterEach(() => {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UIMessage } from "ai";
 import { bootstrap } from "../../src/server/bootstrap.ts";
+import { createConfigStore } from "../../src/server/config/store.ts";
 import type { KiriDb } from "../../src/server/db/index.ts";
 import {
   type LlmClients,
@@ -45,7 +46,7 @@ describe("session turn streaming", () => {
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-int-turn-"));
-    db = bootstrap(cwd);
+    db = bootstrap(createConfigStore(cwd));
     writeFileSync(
       join(cwd, "llm-providers.yaml"),
       `providers:\n  fake:\n    type: openai-compatible\n    base_url: ${fake.url}\n`,

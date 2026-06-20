@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootstrap } from "./bootstrap.ts";
+import { createConfigStore } from "./config/store.ts";
 import { llmProvidersJsonSchema } from "./llm/index.ts";
 import { workflowJsonSchema } from "./workflows/index.ts";
 
@@ -18,7 +19,7 @@ describe("bootstrap", () => {
   });
 
   it("scaffolds workflows/, .kiri/state.db, and the workflow schema on a fresh launch", () => {
-    const db = bootstrap(dir);
+    const db = bootstrap(createConfigStore(dir));
     expect(existsSync(join(dir, "workflows"))).toBe(true);
     expect(existsSync(join(dir, ".kiri"))).toBe(true);
     expect(existsSync(join(dir, ".kiri", "state.db"))).toBe(true);
@@ -32,7 +33,7 @@ describe("bootstrap", () => {
   });
 
   it("refreshes both schemas on every launch", () => {
-    const first = bootstrap(dir);
+    const first = bootstrap(createConfigStore(dir));
     first.$client.close();
 
     const schemaPath = join(dir, ".kiri", "workflow.schema.json");
@@ -40,16 +41,16 @@ describe("bootstrap", () => {
     writeFileSync(schemaPath, '{ "stale": true }');
     writeFileSync(llmSchemaPath, '{ "stale": true }');
 
-    const second = bootstrap(dir);
+    const second = bootstrap(createConfigStore(dir));
     second.$client.close();
     expect(JSON.parse(readFileSync(schemaPath, "utf8"))).toEqual(workflowJsonSchema());
     expect(JSON.parse(readFileSync(llmSchemaPath, "utf8"))).toEqual(llmProvidersJsonSchema());
   });
 
   it("is idempotent on re-launch", () => {
-    const first = bootstrap(dir);
+    const first = bootstrap(createConfigStore(dir));
     first.$client.close();
-    const second = bootstrap(dir);
+    const second = bootstrap(createConfigStore(dir));
     second.$client.close();
   });
 });

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { bootstrap } from "../bootstrap.ts";
+import { createConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
@@ -19,7 +20,7 @@ describe("runWorkflow", () => {
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-runner-"));
-    db = bootstrap(cwd);
+    db = bootstrap(createConfigStore(cwd));
   });
 
   afterEach(() => {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { bootstrap } from "../../src/server/bootstrap.ts";
+import { createConfigStore } from "../../src/server/config/store.ts";
 import type { KiriDb } from "../../src/server/db/index.ts";
 import { runSteps, runs } from "../../src/server/db/schema.ts";
 import { runWorkflow } from "../../src/server/runner/run-workflow.ts";
@@ -23,7 +24,7 @@ describe("run pipeline", () => {
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-int-pipeline-"));
-    db = bootstrap(cwd);
+    db = bootstrap(createConfigStore(cwd));
     mkdirSync(join(cwd, "workflows"), { recursive: true });
   });
 

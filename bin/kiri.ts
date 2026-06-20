@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import { join } from "node:path";
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { resolveConfigDir } from "../src/server/config-dir.ts";
+import { createConfigStore } from "../src/server/config/store.ts";
 import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
@@ -51,6 +51,7 @@ plain \`kiri\` launch also keeps them in sync after a binary upgrade.
 
 const args = process.argv.slice(2);
 const cwd = resolveConfigDir(process.env, process.cwd());
+const config = createConfigStore(cwd);
 
 if (args[0] === "--help" || args[0] === "-h") {
   console.log(HELP);
@@ -82,7 +83,7 @@ if (args.length > 0) {
   process.exit(1);
 }
 
-const db = bootstrap(cwd);
+const db = bootstrap(config);
 const registry = createRegistry();
 const llmRegistry = createLlmProviderRegistry();
 const bus = createEventBus();
@@ -104,7 +105,7 @@ const llmClients = createLlmClients(llmRegistry, process.env);
 // without those keys yields an empty set and sessions run as plain chat.
 const sessionTools = createSessionTools(process.env);
 
-const workflowsDir = join(cwd, "workflows");
+const workflowsDir = config.workflowsDir();
 const initial = await loadWorkflows(workflowsDir, cwd, providerNames);
 registry.replace(initial.workflows);
 for (const failure of initial.failures) {
