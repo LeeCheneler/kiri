@@ -114,7 +114,10 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
 
   const model = llmClients.resolveModel(session.model);
 
-  appendMessage(db, session.id, { role: "user", parts: userMessage.parts });
+  // Persist under the message's own id so the client and server agree on it —
+  // edit-and-resend truncates the transcript by this id, which only works if the
+  // stored row carries the id the client holds rather than a fresh one.
+  appendMessage(db, session.id, { role: "user", parts: userMessage.parts }, { id: userMessage.id });
   bus?.publish({ type: "session.message.added", sessionId: session.id });
   // Clear any prior terminal markers: a session resumed after a failed or
   // cancelled turn starts the new turn clean.

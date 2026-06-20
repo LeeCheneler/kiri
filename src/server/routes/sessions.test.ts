@@ -382,6 +382,36 @@ describe("sessions routes", () => {
       expect(settledSession?.totalTokens).toBe(9);
     });
 
+    it("persists the user message under the id the client sent", async () => {
+      const model = streamingModel([
+        { type: "text-start", id: "t1" },
+        { type: "text-delta", id: "t1", delta: "ok" },
+        { type: "text-end", id: "t1" },
+        { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+      ]);
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      const res = await app.request("/api/sessions/s1/messages", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: { id: "client-msg-1", role: "user", parts: [{ type: "text", text: "hi" }] },
+        }),
+      });
+      expect(res.status).toBe(200);
+      await res.text();
+      await settled;
+
+      // The stored user row keeps the client's id, so edit-and-resend can
+      // truncate the transcript by it.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(rows[0]?.role).toBe("user");
+      expect(rows[0]?.id).toBe("client-msg-1");
+    });
+
     it("404s an unknown session", async () => {
       const app = makeApp(fakeClients());
       const res = await postMessage(app, "ghost", "hi");
