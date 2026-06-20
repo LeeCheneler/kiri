@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConfigStore } from "./config/store.ts";
 import {
   HELLO_WORLD_WORKFLOW,
   KIRI_README,
@@ -100,7 +101,7 @@ describe("initRepo", () => {
   it("scaffolds a hello-world workflow that loads without failures", async () => {
     initRepo(cwd);
 
-    const { workflows, failures } = await loadWorkflows(join(cwd, "workflows"), cwd);
+    const { workflows, failures } = await loadWorkflows(createConfigStore(cwd));
 
     expect(failures).toEqual([]);
     expect([...workflows.keys()]).toEqual(["Hello World"]);

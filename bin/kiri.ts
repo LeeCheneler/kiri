@@ -105,14 +105,13 @@ const llmClients = createLlmClients(llmRegistry, process.env);
 // without those keys yields an empty set and sessions run as plain chat.
 const sessionTools = createSessionTools(process.env);
 
-const workflowsDir = config.workflowsDir();
-const initial = await loadWorkflows(workflowsDir, cwd, providerNames);
+const initial = await loadWorkflows(config, providerNames);
 registry.replace(initial.workflows);
 for (const failure of initial.failures) {
   console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
 }
 
-const watcher = watchWorkflows(workflowsDir, cwd, registry, initial, { bus, providerNames });
+const watcher = watchWorkflows(config, registry, initial, { bus, providerNames });
 
 const app = createApp({
   db,

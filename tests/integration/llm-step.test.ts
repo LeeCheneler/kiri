@@ -67,7 +67,7 @@ describe("llm step pipeline", () => {
   };
 
   const loadAndRun = async (name: string) => {
-    const result = await loadWorkflows(join(cwd, "workflows"), cwd, providerNames);
+    const result = await loadWorkflows(createConfigStore(cwd), providerNames);
     expect(result.failures).toEqual([]);
     const def = result.workflows.get(name);
     if (!def) throw new Error(`workflow not found: ${name}`);
@@ -140,7 +140,7 @@ describe("llm step pipeline", () => {
     // An undeclared provider is caught at load (against the names from the real
     // llm-providers.yaml), the same gate as a missing bundle — it never reaches
     // a run.
-    const result = await loadWorkflows(join(cwd, "workflows"), cwd, providerNames);
+    const result = await loadWorkflows(createConfigStore(cwd), providerNames);
     expect(result.workflows.has("ghost")).toBe(false);
     const failure = result.failures.find((f) => f.path.endsWith("ghost.yaml"));
     expect(failure?.reason).toContain('unknown llm provider "ghost"');

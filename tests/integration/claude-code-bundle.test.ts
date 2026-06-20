@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConfigStore } from "../../src/server/config/store.ts";
 import { type StepEnvelope, runStep } from "../../src/server/runner/run-step.ts";
 import { loadWorkflows } from "../../src/server/workflows/index.ts";
 
@@ -91,7 +92,7 @@ const readCapture = (ws: Workspace): Capture => {
  * pipeline behaviour.
  */
 const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]> => {
-  const result = await loadWorkflows(join(ws.cwd, "workflows"), ws.cwd);
+  const result = await loadWorkflows(createConfigStore(ws.cwd));
   expect(result.failures).toEqual([]);
   const def = result.workflows.get(name);
   if (!def) throw new Error(`workflow not found in fixtures: ${name}`);

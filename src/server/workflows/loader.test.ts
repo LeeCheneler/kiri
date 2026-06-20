@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import { loadWorkflows } from "./loader.ts";
 
 const yamlSource = (name: string, useName = name) =>
@@ -21,11 +22,13 @@ const writeBundle = (cwd: string, name: string): void => {
 describe("loadWorkflows", () => {
   let cwd: string;
   let dir: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-loader-"));
     dir = join(cwd, "workflows");
     mkdirSync(dir);
+    config = createConfigStore(cwd);
   });
 
   afterEach(() => {
@@ -33,7 +36,7 @@ describe("loadWorkflows", () => {
   });
 
   it("returns an empty result for an empty directory", async () => {
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(result.workflows.size).toBe(0);
     expect(result.sources.size).toBe(0);
     expect(result.failures).toEqual([]);
@@ -43,7 +46,7 @@ describe("loadWorkflows", () => {
     writeBundle(cwd, "foo");
     writeFileSync(join(dir, "foo.yaml"), yamlSource("foo"));
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys())).toEqual(["foo"]);
     expect(result.workflows.get("foo")?.name).toBe("foo");
     expect(result.sources.get("foo")).toBe(join(dir, "foo.yaml"));
@@ -56,7 +59,7 @@ describe("loadWorkflows", () => {
     writeFileSync(join(dir, "a.yaml"), yamlSource("a"));
     writeFileSync(join(dir, "b.yml"), yamlSource("b"));
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys()).sort()).toEqual(["a", "b"]);
     expect(result.sources.get("a")).toBe(join(dir, "a.yaml"));
     expect(result.sources.get("b")).toBe(join(dir, "b.yml"));
@@ -73,7 +76,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys())).toEqual(["echo"]);
     expect(result.failures).toEqual([]);
   });
@@ -84,7 +87,7 @@ steps:
     writeFileSync(join(dir, "stale.ts"), "export const x = 1;\n");
     writeFileSync(join(dir, "foo.yaml"), yamlSource("foo"));
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys())).toEqual(["foo"]);
     expect(result.failures).toEqual([]);
   });
@@ -94,7 +97,7 @@ steps:
     writeFileSync(join(dir, "good.yaml"), yamlSource("good"));
     writeFileSync(join(dir, "bad.yaml"), "name: foo\nsteps: [\n");
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
 
     expect(Array.from(result.workflows.keys())).toEqual(["good"]);
     expect(result.sources.get("good")).toBe(join(dir, "good.yaml"));
@@ -108,7 +111,7 @@ steps:
     writeFileSync(join(dir, "first.yaml"), yamlSource("dup"));
     writeFileSync(join(dir, "second.yaml"), yamlSource("dup"));
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
 
     expect(Array.from(result.workflows.keys())).toEqual(["dup"]);
     expect(result.sources.get("dup")).toBe(join(dir, "first.yaml"));
@@ -127,7 +130,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
 
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
@@ -138,13 +141,13 @@ steps:
   it("records a failure when a use: step references a missing bundle", async () => {
     writeFileSync(join(dir, "missing.yaml"), yamlSource("missing", "ghost"));
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
 
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "missing.yaml"));
     expect(result.failures[0].reason).toContain('"ghost"');
-    expect(result.failures[0].reason).toContain("scripts/<name>/run.sh");
+    expect(result.failures[0].reason).toContain("<name>/run.sh");
   });
 
   it("loads a workflow whose summarize step uses an existing bundle", async () => {
@@ -160,7 +163,7 @@ summarize:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
     expect(result.workflows.get("wf")?.summarize).toEqual({ use: "summer" });
     expect(result.failures).toEqual([]);
@@ -179,7 +182,7 @@ summarize:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
     expect(result.failures).toEqual([]);
   });
@@ -196,7 +199,7 @@ summarize:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "wf.yaml"));
@@ -217,7 +220,7 @@ publish:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
     expect(result.workflows.get("wf")?.publish).toEqual([{ slug: "digest", use: "writer" }]);
     expect(result.failures).toEqual([]);
@@ -237,7 +240,7 @@ publish:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
     expect(result.failures).toEqual([]);
   });
@@ -255,7 +258,7 @@ publish:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "wf.yaml"));
@@ -273,7 +276,7 @@ summarize:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].reason).toContain('"ghost-step"');
@@ -290,7 +293,7 @@ nodes:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
 
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
@@ -311,7 +314,7 @@ nodes:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
 
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
@@ -322,7 +325,7 @@ nodes:
     // Dangling symlink: readdir lists the entry, readFileSync fails ENOENT.
     symlinkSync("/nonexistent/kiri-loader-target", join(dir, "ghost.yaml"));
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
 
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
@@ -348,7 +351,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(result.failures).toEqual([]);
     const wf = result.workflows.get("pr-review");
     expect(wf?.inputs).toEqual([
@@ -375,7 +378,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "undeclared-ref.yaml"));
@@ -394,7 +397,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    const result = await loadWorkflows(config, new Set(["anthropic"]));
     expect(Array.from(result.workflows.keys())).toEqual(["llm"]);
     expect(result.failures).toEqual([]);
   });
@@ -410,7 +413,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    const result = await loadWorkflows(config, new Set(["anthropic"]));
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "llm.yaml"));
@@ -429,7 +432,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].reason).toContain('"anthropic"');
@@ -448,7 +451,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    const result = await loadWorkflows(config, new Set(["anthropic"]));
     expect(Array.from(result.workflows.keys())).toEqual(["llm"]);
     expect(result.failures).toEqual([]);
   });
@@ -464,7 +467,7 @@ steps:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    const result = await loadWorkflows(config, new Set(["anthropic"]));
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "llm.yaml"));
@@ -497,7 +500,7 @@ publish:
 `,
     );
 
-    const result = await loadWorkflows(dir, cwd, new Set(["anthropic"]));
+    const result = await loadWorkflows(config, new Set(["anthropic"]));
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(2);
     const reasons = result.failures.map((f) => f.reason).sort();
@@ -508,15 +511,15 @@ publish:
   it("records a failure when YAML parses but isn't an object", async () => {
     writeFileSync(join(dir, "scalar.yaml"), "just a string\n");
 
-    const result = await loadWorkflows(dir, cwd);
+    const result = await loadWorkflows(config);
 
     expect(result.workflows.size).toBe(0);
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].path).toBe(join(dir, "scalar.yaml"));
   });
 
-  it("throws when the directory does not exist", () => {
-    const missing = join(dir, "does-not-exist");
-    expect(loadWorkflows(missing, cwd)).rejects.toThrow();
+  it("throws when the workflows directory does not exist", () => {
+    const missingConfig = createConfigStore(join(cwd, "does-not-exist"));
+    expect(loadWorkflows(missingConfig)).rejects.toThrow();
   });
 });

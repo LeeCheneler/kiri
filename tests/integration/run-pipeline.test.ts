@@ -38,7 +38,7 @@ describe("run pipeline", () => {
   };
 
   const loadAndRun = async (name: string) => {
-    const result = await loadWorkflows(join(cwd, "workflows"), cwd);
+    const result = await loadWorkflows(createConfigStore(cwd));
     expect(result.failures).toEqual([]);
     const def = result.workflows.get(name);
     if (!def) throw new Error(`workflow not found: ${name}`);
