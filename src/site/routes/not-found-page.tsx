@@ -1,13 +1,22 @@
+import { InlineLink } from "../../client/design-system/content/inline-link.tsx";
+import { SiteFooter } from "../chrome/site-footer.tsx";
+import { SiteHeader } from "../chrome/site-header.tsx";
+
 /**
- * Catch-all for unknown routes.
+ * Catch-all for unknown routes. Wraps the same site chrome so a stray URL
+ * still lands somewhere coherent.
  */
 export function NotFoundPage() {
   return (
-    <main className="mx-auto max-w-2xl px-8 py-24">
-      <h1 className="font-display text-4xl text-ink">Not found</h1>
-      <p className="mt-4 font-mono text-sm text-ink-muted">
-        That page doesn't exist. <a href="/">Head home</a>.
-      </p>
-    </main>
+    <div className="flex min-h-screen flex-col">
+      <SiteHeader />
+      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-20 sm:px-8 lg:py-28">
+        <h1 className="font-display text-4xl text-ink italic leading-tight">Not found</h1>
+        <p className="mt-6 font-mono text-sm text-ink-muted leading-relaxed">
+          That page doesn't exist. <InlineLink href="/">Head home</InlineLink>.
+        </p>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
