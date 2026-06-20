@@ -9,6 +9,7 @@ import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
 import type { LlmClients } from "./llm/index.ts";
 import { activityRoutes } from "./routes/activity.ts";
+import { configRoutes } from "./routes/config.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { sessionsRoutes } from "./routes/sessions.ts";
 import { mountStaticRoutes } from "./routes/static.ts";
@@ -73,6 +74,11 @@ export interface AppDeps {
    * compare against the latest GitHub release.
    */
   version?: string;
+  /**
+   * Environment the config-health endpoint resolves provider and Tavily keys
+   * against. `bin/kiri.ts` passes `process.env`; defaults to it when omitted.
+   */
+  env?: Record<string, string | undefined>;
 }
 
 // Upper bound on request body size. Invoke bodies are
@@ -104,6 +110,7 @@ export function createApp(deps: AppDeps): Hono {
   const { db, registry, config, bus, eventsHeartbeatMs, cancelRegistry, llmClients, sessionTools } =
     deps;
   const version = deps.version ?? "dev";
+  const env = deps.env ?? process.env;
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
   const app = new Hono();
 
@@ -162,6 +169,9 @@ export function createApp(deps: AppDeps): Hono {
   app.notFound((c) => c.json({ error: "not found" }, 404));
 
   app.route("/api", systemRoutes({ version }));
+  // Mounted unconditionally — it reports *why* the workspace may have no
+  // providers, so it must answer even when the session surface is absent.
+  app.route("/api/config", configRoutes({ config, env }));
   app.route(
     "/api/workflows",
     workflowsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }),

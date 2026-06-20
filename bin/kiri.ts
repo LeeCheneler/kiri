@@ -156,6 +156,7 @@ const app = createApp({
   llmClients,
   sessionTools,
   version: VERSION,
+  env: process.env,
 });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
