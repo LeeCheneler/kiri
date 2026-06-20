@@ -32,6 +32,18 @@ describe("bootstrap", () => {
     db.$client.close();
   });
 
+  it("scaffolds a commented default kiri.yaml on a fresh launch, never overwriting", () => {
+    const first = bootstrap(createConfigStore(dir));
+    first.$client.close();
+    const configPath = join(dir, "kiri.yaml");
+    expect(existsSync(configPath)).toBe(true);
+
+    writeFileSync(configPath, "providers: {}\n");
+    const second = bootstrap(createConfigStore(dir));
+    second.$client.close();
+    expect(readFileSync(configPath, "utf8")).toBe("providers: {}\n");
+  });
+
   it("refreshes both schemas on every launch", () => {
     const first = bootstrap(createConfigStore(dir));
     first.$client.close();

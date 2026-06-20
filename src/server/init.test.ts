@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { kiriConfigJsonSchema } from "./config/json-schema.ts";
 import { type ConfigStore, createConfigStore } from "./config/store.ts";
 import {
+  DEFAULT_KIRI_CONFIG,
   HELLO_WORLD_WORKFLOW,
   KIRI_README,
   initRepo,
+  writeDefaultConfig,
   writeKiriConfigSchemaFile,
   writeSchemaFile,
 } from "./init.ts";
@@ -71,6 +73,37 @@ describe("writeKiriConfigSchemaFile", () => {
   });
 });
 
+describe("writeDefaultConfig", () => {
+  let cwd: string;
+  let config: ConfigStore;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "kiri-default-config-"));
+    config = createConfigStore(cwd);
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("writes a commented default kiri.yaml when no config file exists", () => {
+    expect(writeDefaultConfig(config)).toBe(true);
+    expect(readFileSync(join(cwd, "kiri.yaml"), "utf8")).toBe(DEFAULT_KIRI_CONFIG);
+  });
+
+  it("does not overwrite an existing kiri.yaml", () => {
+    writeFileSync(join(cwd, "kiri.yaml"), "providers: {}\n");
+    expect(writeDefaultConfig(config)).toBe(false);
+    expect(readFileSync(join(cwd, "kiri.yaml"), "utf8")).toBe("providers: {}\n");
+  });
+
+  it("does not create kiri.yaml when a kiri.yml already exists", () => {
+    writeFileSync(join(cwd, "kiri.yml"), "providers: {}\n");
+    expect(writeDefaultConfig(config)).toBe(false);
+    expect(existsSync(join(cwd, "kiri.yaml"))).toBe(false);
+  });
+});
+
 describe("initRepo", () => {
   let cwd: string;
   let config: ConfigStore;
@@ -97,8 +130,9 @@ describe("initRepo", () => {
     expect(JSON.parse(readFileSync(join(cwd, ".kiri", "kiri.schema.json"), "utf8"))).toEqual(
       kiriConfigJsonSchema(),
     );
+    expect(readFileSync(join(cwd, "kiri.yaml"), "utf8")).toBe(DEFAULT_KIRI_CONFIG);
 
-    expect(result.created).toEqual(["README.md", "workflows/hello-world.yaml"]);
+    expect(result.created).toEqual(["README.md", "workflows/hello-world.yaml", "kiri.yaml"]);
     expect(result.skipped).toEqual([]);
     expect(result.schemaPath).toBe(".kiri/workflow.schema.json");
     expect(result.configSchemaPath).toBe(".kiri/kiri.schema.json");
@@ -125,7 +159,7 @@ describe("initRepo", () => {
       "name: mine\nsteps: []\n",
     );
     expect(result.created).toEqual([]);
-    expect(result.skipped).toEqual(["README.md", "workflows/hello-world.yaml"]);
+    expect(result.skipped).toEqual(["README.md", "workflows/hello-world.yaml", "kiri.yaml"]);
   });
 
   it("always refreshes the schema files even when scaffold files are skipped", () => {

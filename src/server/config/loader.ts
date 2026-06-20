@@ -80,6 +80,10 @@ function loadConfigFile(
     return { providers, failure: { path, reason: reasonOf(cause) } };
   }
 
+  // An empty or comment-only file parses to null — treat it as "no config", the
+  // same as an absent file, so a commented starter kiri.yaml loads cleanly.
+  if (parsed === null || parsed === undefined) return { providers };
+
   const result = kiriConfigSchema.safeParse(parsed);
   if (!result.success) {
     return { providers, failure: { path, reason: result.error.message } };

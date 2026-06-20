@@ -161,6 +161,13 @@ describe("loadKiriConfig", () => {
     expect(result.failure).toBeDefined();
   });
 
+  it("treats an empty or comment-only file as no config (not a failure)", () => {
+    write(cwd, "# a commented starter kiri.yaml with nothing active\n");
+    const result = loadKiriConfig(config, {});
+    expect(result.providers.size).toBe(0);
+    expect(result.failure).toBeUndefined();
+  });
+
   it("fails load when the path exists but can't be read as a file", () => {
     // A directory at the config path: existsSync is true, readFileSync throws.
     mkdirSync(join(cwd, "kiri.yaml"));

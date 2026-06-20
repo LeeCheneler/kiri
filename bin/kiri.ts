@@ -38,6 +38,7 @@ const INIT_HELP = `Usage: kiri init
 Scaffold workflow authoring assets in the working directory:
   README.md                        Workflow DSL reference and IDE/LSP setup notes
   workflows/hello-world.yaml       Minimal one-step starter workflow
+  kiri.yaml                        Structured config (LLM providers, …) — commented
   .kiri/workflow.schema.json       JSON Schema for editor validation
   .kiri/kiri.schema.json           JSON Schema for kiri.yaml
 

@@ -119,8 +119,9 @@ scratch dir, so bundles must read sidecar files via this env var
 
 \`llm:\` steps reference a model by a \`provider:model\` id. The provider
 prefix names an entry under \`providers:\` in your workspace-root \`kiri.yaml\`
-(kept in git) — kiri's structured config file. You only need to declare
-providers if you use \`llm:\` steps.
+(kept in git) — kiri's structured config file. Kiri scaffolds a commented
+\`kiri.yaml\` for you; uncomment and edit it to declare providers. You only
+need them if you use \`llm:\` steps.
 
 \`\`\`yaml
 # kiri.yaml
@@ -267,9 +268,35 @@ steps:
       NAME: { input: name }
 `;
 
+/**
+ * Contents of the scaffolded `kiri.yaml`. Fully commented — a workspace with no
+ * `llm:` steps needs no providers, and an empty/comment-only file loads as "no
+ * config". Uncomment to declare providers.
+ */
+export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.schema.json
+
+# kiri.yaml — kiri's workspace configuration.
+#
+# Declare the LLM providers your \`llm:\` workflow steps and agentic chat
+# sessions use, under \`providers:\`. You only need this if you use them.
+# Reference a provider as \`provider:model\` (e.g. \`anthropic:claude-haiku-4-5\`).
+# An API key is ALWAYS a \`{ env: <NAME> }\` reference — never a literal — so
+# secrets stay out of git. Uncomment and edit to get started:
+#
+# providers:
+#   anthropic:
+#     type: anthropic
+#     api_key:
+#       env: ANTHROPIC_API_KEY
+#   local:
+#     type: openai-compatible          # LM Studio, Ollama, vLLM, …
+#     base_url: http://localhost:1234/v1
+`;
+
 /** Relative paths reported by `initRepo`. */
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
 const CONFIG_SCHEMA_REL_PATH = ".kiri/kiri.schema.json";
+const CONFIG_REL_PATH = "kiri.yaml";
 const README_REL_PATH = "README.md";
 const HELLO_WORLD_WORKFLOW_REL_PATH = "workflows/hello-world.yaml";
 const GITIGNORE_REL_PATH = ".gitignore";
@@ -315,6 +342,18 @@ export function writeKiriConfigSchemaFile(config: ConfigStore): string {
   return path;
 }
 
+/**
+ * Write a commented default `kiri.yaml` when the workspace has no config file
+ * yet (neither `kiri.yaml` nor `kiri.yml`). Never overwrites an existing one.
+ * Returns true if it created the file. Called on every launch so a fresh
+ * workspace gets a self-documenting config skeleton with no `kiri init` step.
+ */
+export function writeDefaultConfig(config: ConfigStore): boolean {
+  if (config.configFiles().some((path) => existsSync(path))) return false;
+  writeFileSync(config.configFile(), DEFAULT_KIRI_CONFIG);
+  return true;
+}
+
 const writeIfMissing = (
   absPath: string,
   relPath: string,
@@ -350,10 +389,10 @@ const ensureKiriIgnored = (config: ConfigStore): boolean => {
 
 /**
  * Bootstrap a kiri-ready workspace: create `workflows/`, drop in a repo
- * README and a minimal hello-world starter workflow, (re)write the workflow
- * and LLM-providers JSON Schema files, and add `.kiri/` to `.gitignore` if one
- * exists. User-authored files are never overwritten — only missing files are
- * created. The schema files are always refreshed.
+ * README, a minimal hello-world starter workflow, and a commented `kiri.yaml`,
+ * (re)write the workflow and kiri.yaml JSON Schema files, and add `.kiri/` to
+ * `.gitignore` if one exists. User-authored files are never overwritten — only
+ * missing files are created. The schema files are always refreshed.
  */
 export function initRepo(config: ConfigStore): InitResult {
   const workflowsDir = config.workflowsDir();
@@ -370,6 +409,7 @@ export function initRepo(config: ConfigStore): InitResult {
     created,
     skipped,
   );
+  (writeDefaultConfig(config) ? created : skipped).push(CONFIG_REL_PATH);
 
   writeSchemaFile(config);
   writeKiriConfigSchemaFile(config);
