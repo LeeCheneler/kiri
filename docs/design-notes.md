@@ -63,7 +63,7 @@ steps:
     env:
       PROMPT_FILE: prompts/pr-review.tpl
       MAX_TURNS: "50"
-  - llm:                    # first-party LLM completion — model from llm-providers.yaml
+  - llm:                    # first-party LLM completion — model from kiri.yaml
       model: anthropic:claude-haiku-4-5
       prompt_file: prompts/pr-summary.tpl
   - sh: |                   # inline shell — sugar for trivial steps
@@ -83,7 +83,7 @@ A step is exactly one of three shapes:
 
 - `{ use: <name>, name?, description?, env?: { ... } }` — references a **script bundle** at `scripts/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
 - `{ sh: <string>, name?, description?, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
-- `{ llm: { model, prompt? | prompt_file? }, name?, description?, env?: { ... } }` — **first-party LLM completion** against a model declared in `llm-providers.yaml` (see *AI integration → LLM providers*). `model` is a `provider:model` id; the prefix must name a registered provider or the workflow fails to load. The prompt is inline (`prompt`) or a workspace-root-relative file (`prompt_file`) — declaring both is a schema error, and a declared `prompt_file` must exist on disk at load. `steps:` and `publish:` require one of the two; `summarize:` may omit both, falling back to a baked-in summary prompt.
+- `{ llm: { model, prompt? | prompt_file? }, name?, description?, env?: { ... } }` — **first-party LLM completion** against a model declared in `kiri.yaml` (see *AI integration → LLM providers*). `model` is a `provider:model` id; the prefix must name a registered provider or the workflow fails to load. The prompt is inline (`prompt`) or a workspace-root-relative file (`prompt_file`) — declaring both is a schema error, and a declared `prompt_file` must exist on disk at load. `steps:` and `publish:` require one of the two; `summarize:` may omit both, falling back to a baked-in summary prompt.
 
 The optional `name` is a short label rendered as the step's title in the Schema tab and the run timeline; it falls back to the bundle reference, the llm model id, or the script's first non-empty line. `description` is longer detail shown when a step's row is expanded.
 
@@ -190,9 +190,9 @@ The feed entry surfaces a small count when a run has recommendations ("3 recomme
 
 ## AI integration
 
-### LLM providers (`llm-providers.yaml`)
+### LLM providers (in `kiri.yaml`)
 
-First-party LLM steps reference named endpoints declared in a workspace-root `llm-providers.yaml` — kiri's first workspace-level config file. It's a single `providers:` map keyed by a name of your choosing:
+First-party LLM steps reference named endpoints declared under `providers:` in the workspace-root `kiri.yaml` — kiri's structured config file (providers today; tools and settings will join them as siblings). It's a `providers:` map keyed by a name of your choosing:
 
 ```yaml
 providers:
@@ -210,7 +210,7 @@ providers:
 - **`api_key` is an `{ env: <NAME> }` reference only**, never a literal key. This mirrors the `{ input: }` idiom in workflow `env:` and keeps secrets out of the git-tracked YAML. When omitted, `anthropic`/`openai` fall back to the conventional `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`; `openai-compatible` needs no key.
 - Kiri reads the config at startup into an in-memory registry. A **missing file is first-class** — an empty registry, not an error. A present file is validated, and a declared `{ env: }` ref must name a variable set in the kiri process or the load fails with the offending key named — the same posture as a workflow referencing a missing bundle. Only *declared* refs are checked at load; conventional fallbacks resolve when a provider is used. Resolved key **values are never persisted, snapshotted, or echoed in errors** — the registry keeps only the env var's name.
 - **Env source.** Kiri loads `.env` from the workspace root — the resolved config dir, not the launch cwd — at startup, so a workspace pinned via `KIRI_CONFIG_DIR` gets its own `.env` regardless of where kiri was launched from. The variables your `{ env: }` refs name resolve from there or the ambient environment. Existing variables win: an ambient export of the same name is left untouched, and an absent `.env` is a no-op.
-- **Editor support.** Kiri publishes `.kiri/llm-providers.schema.json` on every launch, alongside the workflow schema, for YAML validation and autocomplete — map it the same way (modeline or `yaml.schemas`).
+- **Editor support.** Kiri publishes `.kiri/kiri.schema.json` on every launch, alongside the workflow schema, for YAML validation and autocomplete — map it the same way (modeline or `yaml.schemas`).
 - **Workflows validate against it.** An `llm:` step's `model` is a `provider:model` id; the prefix must name a provider in this registry or the workflow fails to load — the same posture as a missing bundle.
 - **Reloading.** The registry is read once at startup; there is no dev-mode file watcher for it — restart kiri to pick up edits.
 
@@ -363,7 +363,7 @@ Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
 ```
 <repo-root>/
   workflows/                  # YAML workflow definitions (in git)
-  llm-providers.yaml          # LLM endpoint declarations (in git; optional)
+  kiri.yaml                   # structured config: LLM providers, … (in git; optional)
   scripts/                    # script bundles (in git)
     claude-code/              # an example bundle copied in; user owns it
       run.sh
@@ -426,7 +426,7 @@ Script execution is the central capability of this system, which means security 
 ### Secrets
 
 - **No secrets in workflow definitions.** Definitions are git-tracked. Secrets stay outside the repo, mode 600, referenced by name from the workflow.
-- **No secrets in LLM provider config.** `llm-providers.yaml` is git-tracked, so an `api_key` is an `{ env: <NAME> }` reference only — a literal key is a schema error. Resolved values are never persisted, snapshotted, or echoed in errors (see *AI integration → LLM providers*).
+- **No secrets in LLM provider config.** `kiri.yaml` is git-tracked, so an `api_key` is an `{ env: <NAME> }` reference only — a literal key is a schema error. Resolved values are never persisted, snapshotted, or echoed in errors (see *AI integration → LLM providers*).
 - **No secrets in feed entries or traces.** Output rendering scrubs known secret patterns (tokens, AWS keys, etc.) before display and persistence.
 
 ### UI
@@ -478,8 +478,8 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 12. **Article publishing.** `publish: [...]` array on workflows. Markdown articles stored in `articles`, surfaced as a stacked list on each feed row and a "Published" section on run pages, opened on dedicated `/runs/:id/published/:slug` pages via a sandboxed renderer.
 13. **Workflow inputs.** `inputs:` block on workflows — named parameters collected via a modal on invoke, snapshotted onto the run, and injected into step `env:` via `{ input: <name> }` refs. One definition, many targets.
 14. **Recommendations.** Workflows emit follow-up workflow invocations via a `KIRI_RECOMMENDATIONS_FILE` file channel. Stored as rows linked to the producing run, surfaced on the run detail page as a "Recommended" section beneath the run's phases, and triggered via the standard invoke modal with inputs pre-filled.
-15. **First-party LLM steps.** An `llm:` step kind that runs a model completion in-process against a provider declared in `llm-providers.yaml` (`provider:model` ids, `{ env: <NAME> }` API-key refs). Inline or file prompts with the bundles' `{{VAR}}` templating — `{{KIRI_INPUT}}` for pipeline steps, the inlined `{{KIRI_RUN_CONTEXT}}` for publish/summarise — token usage on the envelope, and a zero-config `llm:` summariser. The bundle-free path for completion-shaped steps; the model, prompt source, and token counts render across the run timeline and workflow schema surfaces.
-16. **Agentic sessions.** The second pillar (see *Agentic sessions*) — multi-turn agentic chat against a model declared in `llm-providers.yaml`: streaming turns, cancel and resume, per-session token totals, one-click session creation, and a mid-conversation model swap. Sessions join workflow runs in the blended activity feed.
+15. **First-party LLM steps.** An `llm:` step kind that runs a model completion in-process against a provider declared in `kiri.yaml` (`provider:model` ids, `{ env: <NAME> }` API-key refs). Inline or file prompts with the bundles' `{{VAR}}` templating — `{{KIRI_INPUT}}` for pipeline steps, the inlined `{{KIRI_RUN_CONTEXT}}` for publish/summarise — token usage on the envelope, and a zero-config `llm:` summariser. The bundle-free path for completion-shaped steps; the model, prompt source, and token counts render across the run timeline and workflow schema surfaces.
+16. **Agentic sessions.** The second pillar (see *Agentic sessions*) — multi-turn agentic chat against a model declared in `kiri.yaml`: streaming turns, cancel and resume, per-session token totals, one-click session creation, and a mid-conversation model swap. Sessions join workflow runs in the blended activity feed.
 17. **Session system prompt.** A layered system prompt for sessions (see *Agentic sessions → System prompt*): an immutable kiri core layer (identity, environment, markdown + chart + diagram rendering, untrusted-content framing), a workspace-root `kiri.md` of standing instructions, and optional `personas/<name>.md` overlays attached per session and swappable from the session aside. Composed fresh each turn (core → `kiri.md` → persona); the attached persona rides a `persona` column on the `sessions` row.
 18. **Session tools — web search and extract.** A first-party tool framework for sessions (see *Agentic sessions → Tools*): each tool self-gates on a single precondition and plugs into the AI SDK tool loop, with calls and results persisted as message parts and rendered inline in the transcript as a collapsed block. The first tools are Tavily-backed **web search** and **web extract** (full-page content for a URL, typically one from a search result), offered whenever `TAVILY_API_KEY` is set. The core prompt gains when-to-use guidance for the active tools and chart/diagram restraint.
 

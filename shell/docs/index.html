@@ -201,7 +201,7 @@ steps:
       <p>Kiri passes the <code>env:</code> map through verbatim; what each key means is up to the bundle, documented in its own <code>README.md</code>. The project's <code>examples/</code> directory ships ready-made bundles — including a Claude Code runner — to copy into <code>scripts/</code> and adapt.</p>
 
       <h3>Model completion — <code>llm:</code></h3>
-      <p>For a plain model completion — send a prompt, get text back — an <code>llm:</code> step calls a provider directly, with no bundle to write. The model's text response becomes the step's stdout. <code>model</code> is a <code>provider:model</code> id whose prefix names an entry in <code>llm-providers.yaml</code> (below); supply exactly one of <code>prompt</code> (inline) or <code>prompt_file</code>. <code>{{KIRI_INPUT}}</code> in the prompt carries the previous step's stdout:</p>
+      <p>For a plain model completion — send a prompt, get text back — an <code>llm:</code> step calls a provider directly, with no bundle to write. The model's text response becomes the step's stdout. <code>model</code> is a <code>provider:model</code> id whose prefix names an entry in <code>kiri.yaml</code> (below); supply exactly one of <code>prompt</code> (inline) or <code>prompt_file</code>. <code>{{KIRI_INPUT}}</code> in the prompt carries the previous step's stdout:</p>
       <pre><code>name: summarise
 steps:
   - sh: cat notes.md
@@ -213,9 +213,10 @@ steps:
         {{KIRI_INPUT}}</code></pre>
       <p>Reach for a bundle when a step needs to <em>do</em> something agentic — open files, run tools, shell out; reach for <code>llm:</code> when it just needs a completion. <code>publish:</code> and <code>summarize:</code> accept <code>llm:</code> too, and token counts for each call show in the run timeline.</p>
 
-      <h3>LLM providers — <code>llm-providers.yaml</code></h3>
-      <p>Providers for <code>llm:</code> steps live in an optional workspace-root <code>llm-providers.yaml</code> (kept in git). Each <code>llm:</code> step's <code>provider:</code> prefix names an entry here. An API key is only ever a <code>{ env: &lt;NAME&gt; }</code> reference to an environment variable — a literal key is rejected so secrets stay out of git:</p>
-      <pre><code>providers:
+      <h3>LLM providers — in <code>kiri.yaml</code></h3>
+      <p>Providers for <code>llm:</code> steps live under <code>providers:</code> in the optional workspace-root <code>kiri.yaml</code> (kept in git) — kiri's structured config file. Each <code>llm:</code> step's <code>provider:</code> prefix names an entry here. An API key is only ever a <code>{ env: &lt;NAME&gt; }</code> reference to an environment variable — a literal key is rejected so secrets stay out of git:</p>
+      <pre><code># kiri.yaml
+providers:
   anthropic:
     type: anthropic          # anthropic | openai | openai-compatible
     api_key:
@@ -349,7 +350,7 @@ steps:
       <p>Acting on a recommendation spawns the proposed workflow and pins the spawned run's id to the recommendation row. If the spawned run is later deleted the recommendation becomes triggerable again; if the named workflow is removed from your repo the trigger button disables with a "workflow not found" tooltip.</p>
 
       <h2>Agentic sessions</h2>
-      <p>Alongside workflows, kiri runs <strong>agentic chat sessions</strong> — a multi-turn conversation with a model that streams its reply. Start one with <strong>+ New session</strong> in the side nav; it runs against your configured models (the same <code>llm-providers.yaml</code> registry the <code>llm:</code> step uses) and joins workflow runs in the activity feed. The model is swappable from the session's right-hand aside at any point, applying from the next turn.</p>
+      <p>Alongside workflows, kiri runs <strong>agentic chat sessions</strong> — a multi-turn conversation with a model that streams its reply. Start one with <strong>+ New session</strong> in the side nav; it runs against your configured models (the same <code>kiri.yaml</code> provider registry the <code>llm:</code> step uses) and joins workflow runs in the activity feed. The model is swappable from the session's right-hand aside at any point, applying from the next turn.</p>
 
       <h3>Session system prompt — <code>kiri.md</code> &amp; personas</h3>
       <p>Every session's behaviour is shaped by a layered system prompt, composed fresh on each turn from three layers, in order:</p>

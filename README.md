@@ -63,7 +63,7 @@ Then open **https://local.kiri.build** in your browser. The hosted shell at that
 
 `kiri init` scaffolds a minimal **Hello World** workflow — a single inline shell step that runs on first launch with no external tools or LLM provider installed. It declares one input (`name`); clicking **Run** opens a modal to collect it, then echoes a greeting to the feed.
 
-Richer worked examples live in [`examples/`](./examples/): bundles that spawn the Claude Code CLI or a local LM Studio model, a Daily Briefing workflow that composes a fetch step, a published article, and a summary, and a Release Notes workflow built entirely from first-party `llm:` steps — a model completion, an `llm:` published article, and a zero-config `llm:` summary — that calls a provider directly with no bundle. For `llm:` steps, declare providers in a workspace-root `llm-providers.yaml` (API keys are `{ env: <NAME> }` references, never literals).
+Richer worked examples live in [`examples/`](./examples/): bundles that spawn the Claude Code CLI or a local LM Studio model, a Daily Briefing workflow that composes a fetch step, a published article, and a summary, and a Release Notes workflow built entirely from first-party `llm:` steps — a model completion, an `llm:` published article, and a zero-config `llm:` summary — that calls a provider directly with no bundle. For `llm:` steps, declare providers under `providers:` in a workspace-root `kiri.yaml` (API keys are `{ env: <NAME> }` references, never literals).
 
 ## Trust model
 

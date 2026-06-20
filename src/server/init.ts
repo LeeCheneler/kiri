@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { kiriConfigJsonSchema } from "./config/json-schema.ts";
 import type { ConfigStore } from "./config/store.ts";
-import { llmProvidersJsonSchema } from "./llm/index.ts";
 import { workflowJsonSchema } from "./workflows/index.ts";
 
 /** Contents of the scaffolded repo-root `README.md`. */
@@ -71,7 +71,7 @@ deserve their own bundle. Multi-line via YAML's \`|\` block scalar.
 
 Runs a **first-party model completion** — no bundle. The model's text
 response becomes the step's output. \`model\` is a \`provider:model\` id whose
-prefix names an entry in \`llm-providers.yaml\` (see below); supply exactly one
+prefix names an entry in \`kiri.yaml\` (see below); supply exactly one
 of \`prompt\` (inline) or \`prompt_file\`. \`{{KIRI_INPUT}}\` in the prompt carries
 the previous step's output.
 
@@ -118,10 +118,12 @@ scratch dir, so bundles must read sidecar files via this env var
 ## LLM providers
 
 \`llm:\` steps reference a model by a \`provider:model\` id. The provider
-prefix names an entry in an optional workspace-root \`llm-providers.yaml\`
-(kept in git). You only need this file if you use \`llm:\` steps.
+prefix names an entry under \`providers:\` in your workspace-root \`kiri.yaml\`
+(kept in git) — kiri's structured config file. You only need to declare
+providers if you use \`llm:\` steps.
 
 \`\`\`yaml
+# kiri.yaml
 providers:
   anthropic:
     type: anthropic          # anthropic | openai | openai-compatible
@@ -205,9 +207,9 @@ becomes a one-click launch.
 ## IDE / LSP integration
 
 Kiri publishes its JSON Schemas at \`.kiri/workflow.schema.json\` (for
-\`workflows/*.yaml\`) and \`.kiri/llm-providers.schema.json\` (for
-\`llm-providers.yaml\`), refreshing them on every startup, so editor validation
-and autocomplete stays in sync after you upgrade kiri.
+\`workflows/*.yaml\`) and \`.kiri/kiri.schema.json\` (for \`kiri.yaml\`),
+refreshing them on every startup, so editor validation and autocomplete
+stays in sync after you upgrade kiri.
 
 ### VS Code (Red Hat YAML extension)
 
@@ -217,8 +219,8 @@ The simplest setup is a modeline at the top of each file:
 # workflows/*.yaml
 # yaml-language-server: $schema=../.kiri/workflow.schema.json
 
-# llm-providers.yaml
-# yaml-language-server: $schema=.kiri/llm-providers.schema.json
+# kiri.yaml
+# yaml-language-server: $schema=.kiri/kiri.schema.json
 \`\`\`
 
 Or configure \`yaml.schemas\` in your workspace \`.vscode/settings.json\`:
@@ -227,7 +229,7 @@ Or configure \`yaml.schemas\` in your workspace \`.vscode/settings.json\`:
 {
   "yaml.schemas": {
     ".kiri/workflow.schema.json": "workflows/*.yaml",
-    ".kiri/llm-providers.schema.json": "llm-providers.yaml"
+    ".kiri/kiri.schema.json": "kiri.yaml"
   }
 }
 \`\`\`
@@ -236,7 +238,7 @@ Or configure \`yaml.schemas\` in your workspace \`.vscode/settings.json\`:
 
 Settings → Languages & Frameworks → Schemas and DTDs → JSON Schema Mappings.
 Map \`.kiri/workflow.schema.json\` to \`workflows/*.yaml\` and
-\`.kiri/llm-providers.schema.json\` to \`llm-providers.yaml\`.
+\`.kiri/kiri.schema.json\` to \`kiri.yaml\`.
 
 ## Re-running \`kiri init\`
 
@@ -267,7 +269,7 @@ steps:
 
 /** Relative paths reported by `initRepo`. */
 const SCHEMA_REL_PATH = ".kiri/workflow.schema.json";
-const LLM_SCHEMA_REL_PATH = ".kiri/llm-providers.schema.json";
+const CONFIG_SCHEMA_REL_PATH = ".kiri/kiri.schema.json";
 const README_REL_PATH = "README.md";
 const HELLO_WORLD_WORKFLOW_REL_PATH = "workflows/hello-world.yaml";
 const GITIGNORE_REL_PATH = ".gitignore";
@@ -281,8 +283,8 @@ export interface InitResult {
   skipped: string[];
   /** Repo-relative path of the workflow schema file (always (re)written). */
   schemaPath: string;
-  /** Repo-relative path of the LLM providers schema file (always (re)written). */
-  llmSchemaPath: string;
+  /** Repo-relative path of the kiri.yaml config schema file (always (re)written). */
+  configSchemaPath: string;
   /** True if `.gitignore` was created or appended to add the `.kiri/` line. */
   gitignoreUpdated: boolean;
 }
@@ -301,15 +303,15 @@ export function writeSchemaFile(config: ConfigStore): string {
 }
 
 /**
- * (Re)write `.kiri/llm-providers.schema.json` from the live Zod schema, so
- * editor validation of `llm-providers.yaml` stays in sync after a binary
- * upgrade. Published on every startup alongside the workflow schema.
+ * (Re)write `.kiri/kiri.schema.json` from the live Zod schema, so editor
+ * validation of `kiri.yaml` stays in sync after a binary upgrade. Published on
+ * every startup alongside the workflow schema.
  */
-export function writeLlmProvidersSchemaFile(config: ConfigStore): string {
+export function writeKiriConfigSchemaFile(config: ConfigStore): string {
   const dir = config.dataDir();
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, "llm-providers.schema.json");
-  writeFileSync(path, `${JSON.stringify(llmProvidersJsonSchema(), null, 2)}\n`);
+  const path = join(dir, "kiri.schema.json");
+  writeFileSync(path, `${JSON.stringify(kiriConfigJsonSchema(), null, 2)}\n`);
   return path;
 }
 
@@ -370,14 +372,14 @@ export function initRepo(config: ConfigStore): InitResult {
   );
 
   writeSchemaFile(config);
-  writeLlmProvidersSchemaFile(config);
+  writeKiriConfigSchemaFile(config);
   const gitignoreUpdated = ensureKiriIgnored(config);
 
   return {
     created,
     skipped,
     schemaPath: SCHEMA_REL_PATH,
-    llmSchemaPath: LLM_SCHEMA_REL_PATH,
+    configSchemaPath: CONFIG_SCHEMA_REL_PATH,
     gitignoreUpdated,
   };
 }

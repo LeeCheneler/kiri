@@ -143,7 +143,7 @@ export async function loadWorkflows(
       const noun = unknownProviders.length === 1 ? "provider" : "providers";
       failures.push({
         path: file,
-        reason: `unknown llm ${noun} ${list}: not declared in llm-providers.yaml`,
+        reason: `unknown llm ${noun} ${list}: not declared in kiri.yaml`,
       });
       continue;
     }

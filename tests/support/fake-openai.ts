@@ -187,7 +187,7 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
 
 /** A running stub instance: its base URL (with the `/v1` suffix) and a stop handle. */
 export interface FakeOpenAi {
-  /** Base URL to put in `llm-providers.yaml` `base_url` — includes `/v1`. */
+  /** Base URL to put in `kiri.yaml` `base_url` — includes `/v1`. */
   url: string;
   port: number;
   /** Chat-completion request bodies the stub received, in order — for asserting what kiri sent the model. */

@@ -29,9 +29,9 @@ describe("createConfigStore", () => {
     expect(config.runDir("run-123")).toBe(join(root, ".kiri", "runs", "run-123"));
   });
 
-  it("derives the instructions and providers files", () => {
+  it("derives the instructions and config files", () => {
     expect(config.instructionsFile()).toBe(join(root, "kiri.md"));
-    expect(config.providersFile()).toBe(join(root, "llm-providers.yaml"));
+    expect(config.configFile()).toBe(join(root, "kiri.yaml"));
   });
 
   it("derives the workspace env file", () => {

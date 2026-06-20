@@ -2,16 +2,13 @@
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { resolveConfigDir } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
+import { loadKiriConfig } from "../src/server/config/loader.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
-import {
-  createLlmClients,
-  createLlmProviderRegistry,
-  loadLlmProviders,
-} from "../src/server/llm/index.ts";
+import { createLlmClients, createLlmProviderRegistry } from "../src/server/llm/index.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
 import { createSessionTools } from "../src/server/sessions/index.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
@@ -42,7 +39,7 @@ Scaffold workflow authoring assets in the working directory:
   README.md                        Workflow DSL reference and IDE/LSP setup notes
   workflows/hello-world.yaml       Minimal one-step starter workflow
   .kiri/workflow.schema.json       JSON Schema for editor validation
-  .kiri/llm-providers.schema.json  JSON Schema for llm-providers.yaml
+  .kiri/kiri.schema.json           JSON Schema for kiri.yaml
 
 The working directory is the current directory, or KIRI_CONFIG_DIR if set.
 Existing files are never overwritten; only missing files are created.
@@ -72,7 +69,7 @@ if (args[0] === "init") {
   for (const path of result.created) console.log(`created  ${path}`);
   for (const path of result.skipped) console.log(`skipped  ${path} (already exists)`);
   console.log(`schema   ${result.schemaPath}`);
-  console.log(`schema   ${result.llmSchemaPath}`);
+  console.log(`schema   ${result.configSchemaPath}`);
   if (result.gitignoreUpdated) console.log("updated  .gitignore (added .kiri/)");
   process.exit(0);
 }
@@ -99,14 +96,14 @@ const cancelRegistry = createCancelRegistry();
 
 // Providers load first: workflow validation needs the provider names to
 // check `llm:` model prefixes against.
-const llmProviders = loadLlmProviders(config, process.env);
-llmRegistry.replace(llmProviders.providers);
-if (llmProviders.failure) {
+const kiriConfig = loadKiriConfig(config, process.env);
+llmRegistry.replace(kiriConfig.providers);
+if (kiriConfig.failure) {
   console.error(
-    `llm-providers: failed to load ${llmProviders.failure.path}: ${llmProviders.failure.reason}`,
+    `kiri.yaml: failed to load ${kiriConfig.failure.path}: ${kiriConfig.failure.reason}`,
   );
 }
-const providerNames = new Set(llmProviders.providers.keys());
+const providerNames = new Set(kiriConfig.providers.keys());
 const llmClients = createLlmClients(llmRegistry, process.env);
 // Tools are offered to every session's model; each self-gates on its own
 // precondition (web_search and web_extract on TAVILY_API_KEY), so an env

@@ -9,8 +9,8 @@ playwright-report/
 *.log
 .DS_Store
 
-# Local provider config used for development against a running LLM
-/llm-providers.yaml
+# Local config (providers, …) used for development against a running LLM
+/kiri.yaml
 
 # Local workflow fixtures used when dogfooding kiri against its own repo
 /workflows/

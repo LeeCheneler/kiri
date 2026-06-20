@@ -1,6 +1,6 @@
 /**
  * Standalone entry point for the OpenAI-compatible stub, booted by Playwright as
- * a second `webServer` so the e2e fixture's `llm-providers.yaml` has a live
+ * a second `webServer` so the e2e fixture's `kiri.yaml` has a live
  * provider to resolve, list models from, and stream turns against. The behaviour
  * lives in `fake-openai.ts`; this file is just the process wrapper.
  */

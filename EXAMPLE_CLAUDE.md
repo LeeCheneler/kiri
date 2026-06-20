@@ -24,12 +24,12 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
       README.md               # documents the env-var contract
   prompts/                    # convention only; any path under repo works
     my-prompt.tpl
-  llm-providers.yaml          # optional — providers for first-party llm: steps (in git; keys are env refs)
+  kiri.yaml                   # optional — structured config: providers for first-party llm: steps (in git; keys are env refs)
   .kiri/                      # gitignored — runtime state
     state.db                  # SQLite (Drizzle-managed)
     runs/<run-id>/            # per-run scratch dir (auto-cleaned after run)
     workflow.schema.json          # JSON Schema for editor LSP
-    llm-providers.schema.json     # JSON Schema for llm-providers.yaml
+    kiri.schema.json              # JSON Schema for kiri.yaml
 ```
 
 `workflows/` is scanned top-level only — nested YAML files are ignored by design. The scan runs at startup and (in dev) on file change.
@@ -70,7 +70,7 @@ steps:                       # required, ≥1
       OTHER: "value"
 
   - llm:                     # OR a first-party model completion (no bundle) — see "First-party LLM steps"
-      model: anthropic:claude-haiku-4-5     # provider:model; provider names an llm-providers.yaml entry
+      model: anthropic:claude-haiku-4-5     # provider:model; provider names a kiri.yaml entry
       prompt: "Summarise {{KIRI_INPUT}}."   # inline OR prompt_file: prompts/x.tpl (exactly one)
     name: "Summarise"        # optional — defaults to the model id when omitted
 
@@ -336,7 +336,7 @@ When a step just needs a **model completion** — send a prompt, get text back �
 
 ```yaml
 - llm:
-    model: anthropic:claude-haiku-4-5   # provider:model — the prefix names an llm-providers.yaml entry
+    model: anthropic:claude-haiku-4-5   # provider:model — the prefix names a kiri.yaml entry
     prompt: |                           # inline prompt …
       Summarise the following in three bullets.
 
@@ -347,7 +347,7 @@ When a step just needs a **model completion** — send a prompt, get text back �
     prompt_file: prompts/review.tpl      # … OR a prompt file (exactly one of prompt / prompt_file)
 ```
 
-- **`model` is `provider:model`.** The prefix must name an entry in `llm-providers.yaml` (below); the rest is the provider's model id. A bare `model: claude-haiku` with no provider prefix is a load-time error.
+- **`model` is `provider:model`.** The prefix must name an entry under `providers:` in `kiri.yaml` (below); the rest is the provider's model id. A bare `model: claude-haiku` with no provider prefix is a load-time error.
 - **Exactly one of `prompt` / `prompt_file`** on a `steps:` / `publish:` entry. `prompt_file` resolves against the workspace root. (A `summarize:` step may omit both — see zero-config below.)
 - **Templating is the same `{{VAR}}` pass the bundles use.** `{{KIRI_INPUT}}` carries the previous step's stdout into a pipeline step's prompt (one trailing newline trimmed); the step's own `env:` vars are available too; unknown vars resolve empty.
 - **The completion text is the step's stdout** — it flows downstream / becomes the article / becomes the summary, exactly like a bundle's stdout. Token counts land on the envelope's `traces.usage` and show in the run timeline.
@@ -365,12 +365,13 @@ summarize:
 
 With no `prompt` / `prompt_file`, kiri uses a baked-in summary prompt over the inlined `{{KIRI_RUN_CONTEXT}}` — the first-party equivalent of `claude-code-summarizer`.
 
-### `llm-providers.yaml`
+### Providers in `kiri.yaml`
 
-Providers live in a workspace-root `llm-providers.yaml` (kept in git). Each `llm:` step's `provider:` prefix names an entry here.
+Providers live under `providers:` in the workspace-root `kiri.yaml` (kept in git) — kiri's structured config file. Each `llm:` step's `provider:` prefix names an entry here.
 
 ```yaml
-# yaml-language-server: $schema=.kiri/llm-providers.schema.json
+# kiri.yaml
+# yaml-language-server: $schema=.kiri/kiri.schema.json
 
 providers:
   anthropic:                  # entry name = the `provider:` prefix in a model id
@@ -384,7 +385,7 @@ providers:
 
 - **`type`** is one of `anthropic`, `openai`, `openai-compatible`. `base_url` is optional for the first two (override the default endpoint) and **required** for `openai-compatible`.
 - **`api_key` is only ever `{ env: <NAME> }`** — a reference to the environment variable holding the key. A literal key string is rejected so secrets stay out of git; the key is read at run time, and a missing env var fails the step cleanly.
-- The file is **optional** — a workspace with no `llm:` steps needs none. A worked example lives in `examples/llm-providers.yaml`.
+- The `providers:` map is **optional** — a workspace with no `llm:` steps needs none. A worked example lives in `examples/kiri.yaml`.
 
 ---
 
@@ -631,7 +632,7 @@ steps:
 ### 7. First-party `llm:` pipeline — completion, publish, and zero-config summary
 
 ```yaml
-# llm-providers.yaml (workspace root)
+# kiri.yaml (workspace root)
 providers:
   anthropic:
     type: anthropic
@@ -764,8 +765,8 @@ flowchart LR
 | Reading the parent shell's `MY_TOKEN` | Won't work. Set it explicitly under the step's `env:` (or pull it from a mode-600 file inside the script). |
 | Two `publish:` entries with the same `slug` | Slugs must be unique within a workflow. |
 | `publish:` step that depends on the previous step's stdout via stdin | `publish:` and `summarize:` get empty stdin. Read `KIRI_RUN_CONTEXT_FILE` (bundle/`sh:`) or `{{KIRI_RUN_CONTEXT}}` (`llm:`) instead. |
-| `llm: { model: claude-haiku }` (no provider prefix) | Use `provider:model`, e.g. `anthropic:claude-haiku-4-5`. The prefix must name an `llm-providers.yaml` entry. |
-| `api_key: sk-...` literal in `llm-providers.yaml` | Use `api_key: { env: ANTHROPIC_API_KEY }`. Literal keys are rejected so secrets stay out of git. |
+| `llm: { model: claude-haiku }` (no provider prefix) | Use `provider:model`, e.g. `anthropic:claude-haiku-4-5`. The prefix must name a `kiri.yaml` provider entry. |
+| `api_key: sk-...` literal in `kiri.yaml` | Use `api_key: { env: ANTHROPIC_API_KEY }`. Literal keys are rejected so secrets stay out of git. |
 | `llm:` step that writes to `$KIRI_RECOMMENDATIONS_FILE` | Not set for `llm:` steps — a completion can't emit recommendations. Use an `sh:` or bundle step. |
 | Multi-line `sh:` without `set -eu` | `sh -c` doesn't stop on first failure by default. Start every non-trivial `sh:` with `set -eu`. |
 | Using `dangerouslySetInnerHTML` in custom UI that renders articles | Don't. Articles render through a sandboxed markdown parser. AI/script output is untrusted. |
@@ -783,8 +784,8 @@ The JSON Schemas under `.kiri/` are generated from the Zod schemas and ship with
 ```
 
 ```yaml
-# llm-providers.yaml (workspace root)
-# yaml-language-server: $schema=.kiri/llm-providers.schema.json
+# kiri.yaml (workspace root)
+# yaml-language-server: $schema=.kiri/kiri.schema.json
 ```
 
 ---

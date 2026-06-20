@@ -10,7 +10,7 @@ export interface WatchOptions {
   watchFn?: typeof watch;
   /** Optional event bus. When supplied, the watcher publishes workflow.added / workflow.updated / workflow.removed on registry changes. */
   bus?: EventBus;
-  /** Provider names registered from llm-providers.yaml, forwarded to the loader so rebuilds validate `llm:` model prefixes. */
+  /** Provider names registered from kiri.yaml, forwarded to the loader so rebuilds validate `llm:` model prefixes. */
   providerNames?: ReadonlySet<string>;
 }
 

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { ConfigStore } from "../config/store.ts";
-import { type LlmProvider, type ProviderType, llmProvidersSchema } from "./schema.ts";
+import type { LlmProvider, ProviderType } from "../llm/schema.ts";
+import { kiriConfigSchema } from "./schema.ts";
+import type { ConfigStore } from "./store.ts";
 
 /**
  * Conventional environment variable an `api_key`-less provider falls back to,
@@ -11,39 +12,39 @@ const CONVENTIONAL_API_KEY_ENV: Partial<Record<ProviderType, string>> = {
   openai: "OPENAI_API_KEY",
 };
 
-/** A failure loading `llm-providers.yaml` — read, parse, validation, or env-ref. */
-export interface LlmProvidersLoadFailure {
+/** A failure loading `kiri.yaml` — read, parse, validation, or env-ref. */
+export interface KiriConfigLoadFailure {
   /** Absolute path of the config file. */
   path: string;
   /** Human-readable reason. Never echoes a resolved secret value. */
   reason: string;
 }
 
-export interface LlmProvidersLoadResult {
+export interface KiriConfigLoadResult {
   /** Providers keyed by `name`. Empty when the file is absent or failed to load. */
   providers: Map<string, LlmProvider>;
   /** Set when a present file failed to load. An absent file is not a failure. */
-  failure?: LlmProvidersLoadFailure;
+  failure?: KiriConfigLoadFailure;
 }
 
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
 /**
- * Load the workspace's `llm-providers.yaml` and resolve it into providers keyed by name.
- * An absent file is first-class: an empty registry, not a failure. A present
- * file that fails to read, parse, or validate — or whose declared `{ env: }`
- * refs name a variable missing from `env` — yields an empty registry plus a
- * `failure` describing why, the same posture as a workflow that can't load.
- * Only declared refs are presence-checked; conventional fallbacks resolve at
- * use time. Resolved key *values* are never read or stored — the registry keeps
- * only the env var's name.
+ * Load the workspace's `kiri.yaml` and resolve its `providers:` map into
+ * providers keyed by name. An absent file is first-class: an empty registry,
+ * not a failure. A present file that fails to read, parse, or validate — or
+ * whose declared `{ env: }` refs name a variable missing from `env` — yields an
+ * empty registry plus a `failure` describing why, the same posture as a
+ * workflow that can't load. Only declared refs are presence-checked;
+ * conventional fallbacks resolve at use time. Resolved key *values* are never
+ * read or stored — the registry keeps only the env var's name.
  */
-export function loadLlmProviders(
+export function loadKiriConfig(
   config: ConfigStore,
   env: Record<string, string | undefined>,
-): LlmProvidersLoadResult {
-  const path = config.providersFile();
+): KiriConfigLoadResult {
+  const path = config.configFile();
   const providers = new Map<string, LlmProvider>();
 
   if (!existsSync(path)) return { providers };
@@ -62,7 +63,7 @@ export function loadLlmProviders(
     return { providers, failure: { path, reason: reasonOf(cause) } };
   }
 
-  const result = llmProvidersSchema.safeParse(parsed);
+  const result = kiriConfigSchema.safeParse(parsed);
   if (!result.success) {
     return { providers, failure: { path, reason: result.error.message } };
   }

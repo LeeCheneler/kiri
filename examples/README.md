@@ -9,7 +9,7 @@ being forced on every new repo.
 
 ```
 examples/
-  llm-providers.yaml          # provider config for first-party llm: steps
+  kiri.yaml                   # structured config (providers for first-party llm: steps)
   scripts/
     claude-code/              # spawn the Claude Code CLI with a rendered prompt
     claude-code-summarizer/   # summarise: step backed by Claude Code
@@ -57,7 +57,7 @@ bundle at all. An `llm:` step calls a model provider directly:
 an `llm:` publish that writes the article, and a zero-config `llm:`
 summariser (`summarize: { llm: { model } }`, which uses a built-in prompt):
 
-- **Providers live in `llm-providers.yaml`.** Each `model:` is a
+- **Providers live in `kiri.yaml`** (under `providers:`)**.** Each `model:` is a
   `provider:model` id whose prefix names an entry there. API keys are
   always `{ env: <NAME> }` references — a literal key is rejected so
   secrets stay out of git. Point the example at `local:<model>` (the

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { llmProvidersJsonSchema } from "./json-schema.ts";
+import { kiriConfigJsonSchema } from "./json-schema.ts";
 
 type Branch = {
   properties: {
@@ -12,7 +12,7 @@ type Branch = {
 };
 
 const entryBranches = (): Branch[] => {
-  const schema = llmProvidersJsonSchema() as {
+  const schema = kiriConfigJsonSchema() as {
     properties: { providers: { additionalProperties: { oneOf: Branch[] } } };
   };
   return schema.properties.providers.additionalProperties.oneOf;
@@ -21,9 +21,9 @@ const entryBranches = (): Branch[] => {
 const branchFor = (type: string): Branch | undefined =>
   entryBranches().find((b) => b.properties.type?.const === type);
 
-describe("llmProvidersJsonSchema", () => {
+describe("kiriConfigJsonSchema", () => {
   it("emits a Draft 2020-12 object schema with a providers map", () => {
-    const schema = llmProvidersJsonSchema() as {
+    const schema = kiriConfigJsonSchema() as {
       $schema?: string;
       type?: string;
       additionalProperties?: boolean;
