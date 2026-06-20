@@ -12,6 +12,7 @@ import {
   fetchWorkflows,
   rerunRun,
   triggerRun,
+  truncateSessionMessages,
 } from "./api.ts";
 
 describe("api client", () => {
@@ -263,6 +264,45 @@ describe("api client", () => {
     try {
       await deleteSession("s1");
       throw new Error("expected deleteSession to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(409);
+      expect((err as ApiError).message).toBe('session "s1" has a turn in flight; cancel it first');
+    }
+  });
+
+  it("truncates a session's transcript from a message and resolves on 204", async () => {
+    const seen: { method: string; header: string | null; id: string; messageId: string }[] = [];
+    server.use(
+      http.delete("*/api/sessions/:id/messages/:messageId", ({ request, params }) => {
+        seen.push({
+          method: request.method,
+          header: request.headers.get("X-Kiri-Client"),
+          id: String(params.id),
+          messageId: String(params.messageId),
+        });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const result = await truncateSessionMessages("s1", "m2");
+    expect(result).toBeUndefined();
+    expect(seen).toEqual([{ method: "DELETE", header: "kiri-ui", id: "s1", messageId: "m2" }]);
+  });
+
+  it("throws an ApiError carrying 409 when truncation races an in-flight turn", async () => {
+    server.use(
+      http.delete("*/api/sessions/:id/messages/:messageId", () =>
+        HttpResponse.json(
+          { error: 'session "s1" has a turn in flight; cancel it first' },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    try {
+      await truncateSessionMessages("s1", "m2");
+      throw new Error("expected truncateSessionMessages to throw");
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).status).toBe(409);

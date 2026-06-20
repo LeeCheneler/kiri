@@ -1,8 +1,15 @@
 import { type FileUIPart, type UIMessage, isToolUIPart } from "ai";
+import { useEffect, useId, useState } from "react";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
+import { Card } from "../../design-system/surfaces/card.tsx";
+import type { PendingImage } from "./attachments.ts";
 import { PreviewableImage } from "./image-thumb.tsx";
+import { MessageComposer } from "./message-composer.tsx";
 import { ToolInvocation } from "./tool-invocation.tsx";
+
+/** Resend an edited user message, re-running the conversation from that point. */
+export type ResubmitHandler = (messageId: string, parts: UIMessage["parts"]) => void;
 
 // Join the message's text parts. Non-text parts (tool calls, files) are skipped
 // here — image file parts are rendered separately as thumbnails (below).
@@ -21,25 +28,88 @@ const hasAssistantContent = (message: UIMessage): boolean =>
   message.parts.some((part) => (part.type === "text" && part.text !== "") || isToolUIPart(part));
 
 // A user message: image thumbnails above its text, the text rendered verbatim
-// (whitespace preserved) since it's exactly what the user typed.
-function UserMessage({ message }: { message: UIMessage }) {
+// (whitespace preserved) since it's exactly what the user typed. Boxed in a card
+// so the user's turn reads as visually distinct from the assistant's open prose,
+// with a corner control to edit it. Editing swaps the body for the shared
+// composer (seeded with this turn's text and images); resending discards this
+// turn and everything after it and re-runs from here.
+function UserMessage({
+  message,
+  busy,
+  onResubmit,
+}: {
+  message: UIMessage;
+  busy: boolean;
+  onResubmit: ResubmitHandler;
+}) {
   const text = messageText(message);
   const images = imageParts(message);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+  const fieldId = useId();
+
+  // Focus the editor (caret at the end) when it opens, so the message can be
+  // amended straight away. Imperative rather than `autoFocus` to satisfy the
+  // a11y lint, mirroring the composer's focus-on-ready.
+  useEffect(() => {
+    if (!editing) return;
+    const el = document.getElementById(fieldId);
+    if (!(el instanceof HTMLTextAreaElement)) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [editing, fieldId]);
+
+  const startEditing = () => {
+    setDraft(text);
+    setEditing(true);
+  };
+
   return (
-    <article>
-      <Eyebrow tone="muted">You</Eyebrow>
-      <div className="mt-2 space-y-3">
-        {images.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {images.map((part) => (
-              <PreviewableImage key={part.url} part={part} />
-            ))}
-          </div>
-        ) : null}
-        {text !== "" ? (
-          <p className="whitespace-pre-wrap font-mono text-sm text-ink">{text}</p>
-        ) : null}
-      </div>
+    <article className="relative">
+      <Card>
+        {editing ? (
+          // The composer's "Edit message" label stands in for the "You" eyebrow
+          // while editing, so the card isn't headed by two stacked labels.
+          <MessageComposer
+            id={fieldId}
+            label="Edit message"
+            value={draft}
+            onChange={setDraft}
+            busy={busy}
+            initialImages={images.map((part) => ({ id: part.url, part }) satisfies PendingImage)}
+            onSubmit={(parts) => onResubmit(message.id, parts)}
+            onCancel={() => setEditing(false)}
+            hint="Enter to resend · Escape to cancel"
+          />
+        ) : (
+          <>
+            <Eyebrow tone="muted">You</Eyebrow>
+            <div className="mt-2 space-y-3">
+              {images.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {images.map((part) => (
+                    <PreviewableImage key={part.url} part={part} />
+                  ))}
+                </div>
+              ) : null}
+              {text !== "" ? (
+                <p className="whitespace-pre-wrap font-mono text-sm text-ink">{text}</p>
+              ) : null}
+            </div>
+          </>
+        )}
+      </Card>
+      {editing ? null : (
+        <button
+          type="button"
+          onClick={startEditing}
+          disabled={busy}
+          title="Edit message"
+          className="absolute top-3 right-3 cursor-pointer font-mono text-ink-muted text-xs hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          edit
+        </button>
+      )}
     </article>
   );
 }
@@ -67,13 +137,24 @@ function AssistantMessage({ message }: { message: UIMessage }) {
 
 /**
  * One chat message. A user message renders its text verbatim with any image
- * attachments as thumbnails; an assistant message renders its parts in order —
- * markdown prose interleaved with collapsible tool-call blocks. Labelled with
- * who spoke so the transcript reads as a conversation. A just-submitted
- * assistant turn, still awaiting its first chunk, renders nothing.
+ * attachments as thumbnails, boxed in a card with an edit control — editing and
+ * resending it (`onResubmit`) re-runs the conversation from that point. An
+ * assistant message renders its parts in order — markdown prose interleaved with
+ * collapsible tool-call blocks. Labelled with who spoke so the transcript reads
+ * as a conversation. A just-submitted assistant turn, still awaiting its first
+ * chunk, renders nothing. `busy` disables editing while a turn is in flight.
  */
-export function ChatMessage({ message }: { message: UIMessage }) {
-  if (message.role === "user") return <UserMessage message={message} />;
+export function ChatMessage({
+  message,
+  busy,
+  onResubmit,
+}: {
+  message: UIMessage;
+  busy: boolean;
+  onResubmit: ResubmitHandler;
+}) {
+  if (message.role === "user")
+    return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
   if (!hasAssistantContent(message)) return null;
   return <AssistantMessage message={message} />;
 }

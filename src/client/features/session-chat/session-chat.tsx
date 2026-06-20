@@ -1,27 +1,20 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import {
-  type ChangeEventHandler,
-  type ClipboardEventHandler,
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { ApiError, type SessionDetail, cancelSession, sessionTurnEndpoint } from "../../api.ts";
-import { Button } from "../../design-system/actions/button.tsx";
-import { Textarea } from "../../design-system/actions/textarea.tsx";
+  ApiError,
+  type SessionDetail,
+  cancelSession,
+  sessionTurnEndpoint,
+  truncateSessionMessages,
+} from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useSession } from "../../state/sessions.ts";
-import { type PendingImage, imageFilesFrom, readPendingImages } from "./attachments.ts";
 import { ChatMessage } from "./chat-message.tsx";
-import { ImageThumb } from "./image-thumb.tsx";
+import { MessageComposer } from "./message-composer.tsx";
 import { useSessionDraft } from "./session-draft.ts";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
@@ -112,18 +105,6 @@ function Chat({ detail }: { detail: SessionDetail }) {
     transport,
   });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
-  // Images staged in the composer, sent as file parts on the next message.
-  // Component state (not the persisted draft) — they're session-ephemeral, and
-  // base64 blobs don't belong in local storage. Cleared when the session changes
-  // since this view stays mounted across sessions.
-  const [attachments, setAttachments] = useState<PendingImage[]>([]);
-  const [attachmentError, setAttachmentError] = useState<string>();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset staged images on session switch, not on the array identity changing.
-  useEffect(() => {
-    setAttachments([]);
-    setAttachmentError(undefined);
-  }, [session.id]);
   const inputId = useId();
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
   // — including one started elsewhere, or left running when we navigated away:
@@ -194,45 +175,31 @@ function Chat({ detail }: { detail: SessionDetail }) {
     if (initialMessages.length > messages.length) setMessages(initialMessages);
   }, [streaming, initialMessages, messages.length, setMessages]);
 
-  const addImageFiles = useCallback(async (files: File[]) => {
-    if (files.length === 0) return;
-    const { images, error } = await readPendingImages(files);
-    if (images.length > 0) setAttachments((prev) => [...prev, ...images]);
-    setAttachmentError(error);
-  }, []);
-  // Paste an image straight into the composer. Plain-text (and other) pastes
-  // carry no image files, so they fall through to the textarea's default.
-  const onPaste: ClipboardEventHandler<HTMLTextAreaElement> = (event) => {
-    const files = imageFilesFrom(event.clipboardData.files);
-    if (files.length === 0) return;
-    event.preventDefault();
-    void addImageFiles(files);
-  };
-  const onPickFiles: ChangeEventHandler<HTMLInputElement> = (event) => {
-    void addImageFiles(imageFilesFrom(event.target.files));
-    event.target.value = ""; // let the same file be picked again after removal
-  };
-  const removeAttachment = (id: string) =>
-    setAttachments((prev) => prev.filter((image) => image.id !== id));
-
-  const send = () => {
-    if (busy) return;
-    const text = draft.trim();
-    if (text === "" && attachments.length === 0) return;
-    // Images first, then the text, so the model reads the picture before the
-    // question (and a single image needs no naming to be referenced).
-    const parts: UIMessage["parts"] = [
-      ...attachments.map((image) => image.part),
-      ...(text === "" ? [] : [{ type: "text" as const, text }]),
-    ];
-    // A new turn pulls the transcript back to the foot, even if the user had
-    // scrolled up to read the previous reply.
+  // Send a composed turn. The composer assembles the parts (text + any staged
+  // images); a new turn pulls the transcript back to the foot, even if the user
+  // had scrolled up to read the previous reply.
+  const handleSend = (parts: UIMessage["parts"]) => {
     pinnedToBottom.current = true;
     void sendMessage({ parts });
     clearDraft();
-    setAttachments([]);
-    setAttachmentError(undefined);
   };
+
+  // Resend an edited user message, re-running the conversation from it. Truncate
+  // the stored transcript back to the message first (so the turn's server-side
+  // append lands at the right index), then drop the local messages from that
+  // point and send the edited turn in the same tick — `sendMessage` flips
+  // `streaming` before the fold-in effect could re-expand them from a now-stale
+  // refetch. A failed truncate aborts the resend, leaving the transcript intact.
+  const handleResubmit = async (messageId: string, parts: UIMessage["parts"]) => {
+    if (busy) return;
+    const index = messages.findIndex((message) => message.id === messageId);
+    if (index === -1) return;
+    await truncateSessionMessages(session.id, messageId);
+    pinnedToBottom.current = true;
+    setMessages(messages.slice(0, index));
+    void sendMessage({ parts });
+  };
+
   const cancel = useCallback(() => {
     void stop();
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
@@ -266,7 +233,14 @@ function Chat({ detail }: { detail: SessionDetail }) {
         {messages.length === 0 ? (
           <EmptyState>No messages yet. Send one to start the conversation.</EmptyState>
         ) : (
-          messages.map((message) => <ChatMessage key={message.id} message={message} />)
+          messages.map((message) => (
+            <ChatMessage
+              key={message.id}
+              message={message}
+              busy={busy}
+              onResubmit={handleResubmit}
+            />
+          ))
         )}
       </div>
 
@@ -294,63 +268,19 @@ function Chat({ detail }: { detail: SessionDetail }) {
       ) : null}
 
       <div className="sticky bottom-0 mt-8 border-t border-rule bg-canvas pt-4 pb-6">
-        {attachments.length > 0 ? (
-          <ul className="mb-3 flex flex-wrap gap-2">
-            {attachments.map((image) => (
-              <li key={image.id} className="relative">
-                <ImageThumb src={image.part.url} alt={image.part.filename ?? "Attached image"} />
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(image.id)}
-                  disabled={busy}
-                  title="Remove image"
-                  aria-label="Remove image"
-                  className="-top-2 -right-2 absolute flex h-5 w-5 items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <Textarea
+        {/* Keyed by session so switching sessions remounts a fresh composer,
+            clearing any staged images (the draft text is per-session already). */}
+        <MessageComposer
+          key={session.id}
           id={inputId}
           label="Message"
           value={draft}
           onChange={setDraft}
-          placeholder="Send a message…  (Enter to send, Shift + Enter for newline)"
-          disabled={busy}
-          maxRows={14}
-          onPaste={onPaste}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              send();
-            }
-          }}
+          placeholder="Send a message…"
+          busy={busy}
+          onSubmit={handleSend}
+          hint="Enter to send · Shift + Enter for newline"
         />
-        <div className="mt-2 flex items-center gap-3">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={onPickFiles}
-          />
-          <Button
-            variant="dismissive"
-            disabled={busy}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            add image
-          </Button>
-          {attachmentError ? (
-            <span role="alert" className="font-mono text-status-failed text-xs">
-              {attachmentError}
-            </span>
-          ) : null}
-        </div>
       </div>
     </section>
   );

@@ -382,6 +382,36 @@ describe("sessions routes", () => {
       expect(settledSession?.totalTokens).toBe(9);
     });
 
+    it("persists the user message under the id the client sent", async () => {
+      const model = streamingModel([
+        { type: "text-start", id: "t1" },
+        { type: "text-delta", id: "t1", delta: "ok" },
+        { type: "text-end", id: "t1" },
+        { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+      ]);
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      const res = await app.request("/api/sessions/s1/messages", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: { id: "client-msg-1", role: "user", parts: [{ type: "text", text: "hi" }] },
+        }),
+      });
+      expect(res.status).toBe(200);
+      await res.text();
+      await settled;
+
+      // The stored user row keeps the client's id, so edit-and-resend can
+      // truncate the transcript by it.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(rows[0]?.role).toBe("user");
+      expect(rows[0]?.id).toBe("client-msg-1");
+    });
+
     it("404s an unknown session", async () => {
       const app = makeApp(fakeClients());
       const res = await postMessage(app, "ghost", "hi");
@@ -465,6 +495,67 @@ describe("sessions routes", () => {
       expect(res.status).toBe(409);
       // A rejected delete leaves the session in place.
       expect(getSession(env.db, "s1")?.id).toBe("s1");
+    });
+  });
+
+  describe("DELETE /api/sessions/:id/messages/:messageId", () => {
+    it("truncates the transcript from the message and 204s", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Q1" }] });
+      appendMessage(env.db, "s1", { role: "assistant", parts: [{ type: "text", text: "A1" }] });
+      const second = appendMessage(env.db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "Q2" }],
+      });
+      appendMessage(env.db, "s1", { role: "assistant", parts: [{ type: "text", text: "A2" }] });
+
+      const res = await app.request(`/api/sessions/s1/messages/${second.id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      // The edited message and the turn after it are gone; the prior turn stays.
+      expect(getSessionMessages(env.db, "s1").map((m) => m.index)).toEqual([0, 1]);
+    });
+
+    it("404s an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost/messages/m1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("404s a message absent from the session", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/messages/ghost", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("409s a session with a turn in flight", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const message = appendMessage(env.db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "Q1" }],
+      });
+      setSessionStatus(env.db, "s1", "running");
+
+      const res = await app.request(`/api/sessions/s1/messages/${message.id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(409);
+      // A rejected truncate leaves the transcript in place.
+      expect(getSessionMessages(env.db, "s1")).toHaveLength(1);
     });
   });
 

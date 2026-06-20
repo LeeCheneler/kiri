@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { http, HttpResponse } from "msw";
@@ -142,6 +142,48 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText("Hi back")).toBeDefined();
     // The reply has content, so the turn is labelled.
     expect(screen.getByText("Assistant")).toBeDefined();
+  });
+
+  it("edits a user message, truncating the transcript and resending from it", async () => {
+    const user = userEvent.setup();
+    let truncatedId: string | undefined;
+    let sentText: string | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([
+            message("m1", "user", "First question"),
+            message("m2", "assistant", "An answer"),
+          ]),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/messages/:messageId", ({ params }) => {
+        truncatedId = String(params.messageId);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("*/api/sessions/:id/messages", async ({ request }) => {
+        const body = (await request.json()) as {
+          message: { parts: { type: string; text?: string }[] };
+        };
+        sentText = body.message.parts.find((part) => part.type === "text")?.text;
+        return assistantReply("A better answer");
+      }),
+    );
+    renderChat();
+
+    await screen.findByText("First question");
+    await user.click(screen.getByRole("button", { name: "edit" }));
+    const field = screen.getByRole("textbox", { name: "Edit message" });
+    await user.clear(field);
+    await user.type(field, "A sharper question{Enter}");
+
+    // The edited message truncated the transcript server-side and was resent.
+    await waitFor(() => expect(truncatedId).toBe("m1"));
+    await waitFor(() => expect(sentText).toBe("A sharper question"));
+    // The fresh reply streams in; the dropped turn does not return.
+    expect(await screen.findByText("A better answer")).toBeDefined();
+    await waitFor(() => expect(screen.queryByText("An answer")).toBeNull());
+    expect(screen.queryByText("First question")).toBeNull();
   });
 
   it("holds the assistant label until its reply streams", async () => {
@@ -374,65 +416,6 @@ describe("<SessionChat>", () => {
     const parts = body?.message.parts ?? [];
     expect(parts).toHaveLength(1);
     expect(parts[0]).toMatchObject({ type: "file" });
-  });
-
-  it("stages an image pasted into the composer", async () => {
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    renderChat();
-
-    const textbox = await screen.findByRole("textbox", { name: /message/i });
-    fireEvent.paste(textbox, {
-      clipboardData: { files: [new File(["img"], "pasted.png", { type: "image/png" })] },
-    });
-
-    expect(await screen.findByAltText("pasted.png")).toBeDefined();
-  });
-
-  it("removes a staged image", async () => {
-    const user = userEvent.setup();
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    const { container } = renderChat();
-
-    await screen.findByText(/no messages yet/i);
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    await user.upload(fileInput, new File(["img"], "drop-me.png", { type: "image/png" }));
-
-    await screen.findByAltText("drop-me.png");
-    await user.click(screen.getByRole("button", { name: /remove image/i }));
-
-    await waitFor(() => expect(screen.queryByAltText("drop-me.png")).toBeNull());
-  });
-
-  it("opens the file picker from the add image button", async () => {
-    const user = userEvent.setup();
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    const { container } = renderChat();
-
-    await screen.findByText(/no messages yet/i);
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    let clicked = false;
-    fileInput.click = () => {
-      clicked = true;
-    };
-    await user.click(screen.getByRole("button", { name: /add image/i }));
-    expect(clicked).toBe(true);
-  });
-
-  it("rejects an oversize image with an inline error", async () => {
-    const user = userEvent.setup();
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    const { container } = renderChat();
-
-    await screen.findByText(/no messages yet/i);
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const tooBig = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "huge.png", {
-      type: "image/png",
-    });
-    await user.upload(fileInput, tooBig);
-
-    expect(await screen.findByText(/must be under 10 MB/i)).toBeDefined();
-    // The file was not staged.
-    expect(screen.queryByAltText("huge.png")).toBeNull();
   });
 
   it("nudges towards a multimodal model when an image turn fails", async () => {
