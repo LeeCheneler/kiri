@@ -1,0 +1,7 @@
+# Revalidate HTML on every visit so a fresh deploy is picked up promptly;
+# fingerprinted assets never change, so cache them hard.
+/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

@@ -36,6 +36,8 @@ jobs:
 
       - run: bun run test
 
+      - run: bun run build:site
+
   e2e:
     name: e2e
     needs: check

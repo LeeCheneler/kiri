@@ -1,0 +1,4 @@
+# SPA fallback: serve the app shell for any route that isn't a built file,
+# so client-side routes (e.g. /docs) resolve on a direct visit. Static assets
+# are matched before this catch-all and served directly.
+/*    /index.html    200
