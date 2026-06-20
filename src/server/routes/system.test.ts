@@ -15,7 +15,7 @@ describe("system routes", () => {
 
   describe("GET /api/health", () => {
     it("returns ok", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/health");
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ status: "ok" });
@@ -27,7 +27,7 @@ describe("system routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         version: "v9.9.9",
       });
       const res = await app.request("/api/version");
@@ -36,7 +36,7 @@ describe("system routes", () => {
     });
 
     it('defaults to "dev" when version is not provided', async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/version");
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ version: "dev" });

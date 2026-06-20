@@ -1,5 +1,6 @@
+import type { ConfigStore } from "../config/store.ts";
 import type { LlmClients, LlmUsage } from "../llm/index.ts";
-import { type WorkflowStep, bundleRunPath, isLlmStep, isUseStep } from "../workflows/index.ts";
+import { type WorkflowStep, isLlmStep, isUseStep } from "../workflows/index.ts";
 import type { ChildHandle } from "./cancel-registry.ts";
 import { runLlmStep } from "./run-llm-step.ts";
 
@@ -19,8 +20,8 @@ export interface StepEnvelope {
 export interface RunStepArgs {
   /** The validated workflow step — a `use:` bundle reference, an inline `sh:` snippet, or an `llm:` completion. */
   step: WorkflowStep;
-  /** Repo root. Used to resolve `use:` bundles to `<cwd>/scripts/<name>/run.sh` and `llm:` prompt files. */
-  cwd: string;
+  /** Workspace config. Resolves `use:` bundles via `config.bundleRunPath()` and `llm:` prompt files. */
+  config: ConfigStore;
   /** Working directory for the spawned process — typically a per-run scratch dir. */
   scratchDir: string;
   /** Bytes piped to the step's stdin. Pass `""` for the first step in a pipeline. */
@@ -55,11 +56,11 @@ export interface RunStepArgs {
  * their prompt and run a completion instead (see `runLlmStep`).
  */
 export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
-  const { step, cwd, scratchDir, input, env, llmClients, onSpawn } = args;
+  const { step, config, scratchDir, input, env, llmClients, onSpawn } = args;
   if (isLlmStep(step)) {
-    return runLlmStep({ step, cwd, input, env, llmClients, onSpawn });
+    return runLlmStep({ step, config, input, env, llmClients, onSpawn });
   }
-  const cmd = isUseStep(step) ? [bundleRunPath(cwd, step.use)] : ["sh", "-c", step.sh];
+  const cmd = isUseStep(step) ? [config.bundleRunPath(step.use)] : ["sh", "-c", step.sh];
   const startedAt = performance.now();
 
   let stdout: string;

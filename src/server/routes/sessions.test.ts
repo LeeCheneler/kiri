@@ -97,7 +97,13 @@ describe("sessions routes", () => {
     clients: LlmClients,
     extra: { bus?: EventBus; cancelRegistry?: CancelRegistry } = {},
   ) =>
-    createApp({ db: env.db, registry: env.registry, cwd: env.cwd, llmClients: clients, ...extra });
+    createApp({
+      db: env.db,
+      registry: env.registry,
+      config: env.config,
+      llmClients: clients,
+      ...extra,
+    });
 
   const postMessage = (app: ReturnType<typeof createApp>, id: string, text: string) =>
     app.request(`/api/sessions/${id}/messages`, {

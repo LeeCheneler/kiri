@@ -116,7 +116,7 @@ const watcher = watchWorkflows(config, registry, initial, { bus, providerNames }
 const app = createApp({
   db,
   registry,
-  cwd,
+  config,
   bus,
   cancelRegistry,
   llmClients,

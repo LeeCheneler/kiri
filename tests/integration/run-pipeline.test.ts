@@ -42,7 +42,7 @@ describe("run pipeline", () => {
     expect(result.failures).toEqual([]);
     const def = result.workflows.get(name);
     if (!def) throw new Error(`workflow not found: ${name}`);
-    return runWorkflow(db, def, { cwd }).done;
+    return runWorkflow(db, def, { config: createConfigStore(cwd) }).done;
   };
 
   it("runs a single sh step, captures stdout, and persists the run as ok", async () => {

@@ -1,11 +1,11 @@
 import { rmSync } from "node:fs";
-import { join } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
@@ -24,7 +24,7 @@ import {
 export interface RunsRoutesDeps {
   db: KiriDb;
   registry: Registry;
-  cwd: string;
+  config: ConfigStore;
   bus?: EventBus;
   /**
    * When supplied, in-flight runs are reachable via
@@ -56,7 +56,7 @@ const recommendationActionParamSchema = z.object({
  * fetch. Mounted at `/api/runs` by `createApp`.
  */
 export function runsRoutes(deps: RunsRoutesDeps): Hono {
-  const { db, registry, cwd, bus, cancelRegistry, llmClients } = deps;
+  const { db, registry, config, bus, cancelRegistry, llmClients } = deps;
   const app = new Hono();
 
   app.get("/", zValidator("query", runListQuerySchema, onZodFail("invalid query")), (c) => {
@@ -286,7 +286,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     });
     // Catches scratch-dir leftovers from a crashed runner; on a normal
     // run the dir is already gone, and `force: true` makes that a no-op.
-    rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
+    rmSync(config.runDir(id), { recursive: true, force: true });
     bus?.publish({ type: "run.deleted", id });
     return c.body(null, 204);
   });
@@ -327,9 +327,9 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
         tx.delete(recommendations).where(eq(recommendations.runId, id)).run();
       });
-      rmSync(join(cwd, ".kiri", "runs", id), { recursive: true, force: true });
+      rmSync(config.runDir(id), { recursive: true, force: true });
       const { done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         bus,
         cancelRegistry,
         runId: id,
@@ -373,7 +373,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
 
       const { runId: actionedRunId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         bus,
         cancelRegistry,
         inputs,

@@ -59,7 +59,7 @@ describe("runs routes", () => {
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const firstId = await triggerAndAwait(app, "alpha", waitForFinished);
       const secondId = await triggerAndAwait(app, "beta", waitForFinished);
 
@@ -82,7 +82,7 @@ describe("runs routes", () => {
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const ids: string[] = [];
       for (let i = 0; i < 3; i++) ids.push(await triggerAndAwait(app, "wf", waitForFinished));
 
@@ -106,7 +106,7 @@ describe("runs routes", () => {
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const onlyId = await triggerAndAwait(app, "wf", waitForFinished);
 
       const past = (await (await app.request(`/api/runs?cursor=${onlyId}`)).json()) as RunsPageBody;
@@ -115,7 +115,7 @@ describe("runs routes", () => {
     });
 
     it("rejects an out-of-range limit with 400", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
 
       const tooSmall = await app.request("/api/runs?limit=0");
       expect(tooSmall.status).toBe(400);
@@ -136,7 +136,7 @@ describe("runs routes", () => {
     });
 
     it("rejects an unknown cursor with 400", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs?cursor=does-not-exist");
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: 'cursor "does-not-exist" not found' });
@@ -155,7 +155,7 @@ describe("runs routes", () => {
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const alpha1 = await triggerAndAwait(app, "alpha", waitForFinished);
       await triggerAndAwait(app, "beta", waitForFinished);
       const alpha2 = await triggerAndAwait(app, "alpha", waitForFinished);
@@ -175,7 +175,7 @@ describe("runs routes", () => {
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       await triggerAndAwait(app, "wf", waitForFinished);
 
       const res = await app.request("/api/runs?workflow=ghost");
@@ -198,7 +198,7 @@ describe("runs routes", () => {
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       // Interleave beta runs between the alpha runs so the keyset cursor has
       // to step over them rather than landing on an adjacent row.
       const alpha1 = await triggerAndAwait(app, "alpha", waitForFinished);
@@ -247,7 +247,7 @@ describe("runs routes", () => {
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = async (name: string) => {
         const res = await app.request(`/api/workflows/${name}/runs`, {
           method: "POST",
@@ -306,7 +306,7 @@ describe("runs routes", () => {
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request(`/api/workflows/${wf.name}/runs`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -347,7 +347,7 @@ describe("runs routes", () => {
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = async (name: string) => {
         const res = await app.request(`/api/workflows/${name}/runs`, {
           method: "POST",
@@ -382,7 +382,7 @@ describe("runs routes", () => {
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request("/api/workflows/plain/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -432,7 +432,7 @@ EOF
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = async (name: string) => {
         const res = await app.request(`/api/workflows/${name}/runs`, {
           method: "POST",
@@ -486,7 +486,7 @@ EOF
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = async (name: string) => {
         const res = await app.request(`/api/workflows/${name}/runs`, {
           method: "POST",
@@ -518,7 +518,7 @@ EOF
 
   describe("GET /api/runs/:id", () => {
     it("returns 404 for an unknown run id", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/missing");
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'run "missing" not found' });
@@ -533,7 +533,7 @@ EOF
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/two-step/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -560,7 +560,7 @@ EOF
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/ephemeral/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -581,7 +581,7 @@ EOF
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/plain/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -618,7 +618,7 @@ EOF
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/with-publish/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -682,7 +682,7 @@ EOF
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/pub-fail/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -732,7 +732,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         bus,
         cancelRegistry,
       });
@@ -774,7 +774,7 @@ EOF
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/no-recs/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -800,7 +800,7 @@ echo '{"title":"Review PR #1","workflow":"pr-review","description":"+10/-2","inp
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/single-rec/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -858,7 +858,7 @@ EOF
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/multi-rec/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -897,7 +897,7 @@ echo '{"title":"Spawn","workflow":"target"}' > "$KIRI_RECOMMENDATIONS_FILE"
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const producerRes = await app.request("/api/workflows/producer/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -961,7 +961,7 @@ EOF
       );
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const producerRes = await app.request("/api/workflows/mixed/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -1015,7 +1015,7 @@ EOF
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const trigger = await app.request("/api/workflows/with-publish/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -1063,7 +1063,7 @@ EOF
     });
 
     it("returns 404 when the run id is unknown", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/missing-run/published/digest");
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'run "missing-run" not found' });
@@ -1079,7 +1079,7 @@ EOF
     });
 
     it("returns 400 when the article slug fails the schema regex", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/any-id/published/Bad_Name");
       expect(res.status).toBe(400);
       const body = (await res.json()) as {
@@ -1096,7 +1096,7 @@ EOF
 
   describe("POST /api/runs/:id/cancel", () => {
     it("is not mounted when no cancel registry is supplied", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/anything/cancel", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -1109,7 +1109,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         cancelRegistry,
       });
       const res = await app.request("/api/runs/missing/cancel", {
@@ -1130,7 +1130,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         bus,
         cancelRegistry,
       });
@@ -1166,7 +1166,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         bus,
         cancelRegistry,
       });
@@ -1197,7 +1197,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         cancelRegistry,
       });
       const res = await app.request("/api/runs/anything/cancel", { method: "POST" });
@@ -1226,7 +1226,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         cancelRegistry,
       });
       const res = await app.request(`/api/runs/${interruptedId}/cancel`, {
@@ -1280,7 +1280,7 @@ EOF
     };
 
     it("returns 404 for an unknown run id", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/missing", {
         method: "DELETE",
         headers: CLIENT_HEADERS,
@@ -1302,7 +1302,7 @@ EOF
         })
         .run();
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${id}`, {
         method: "DELETE",
         headers: CLIENT_HEADERS,
@@ -1315,7 +1315,7 @@ EOF
     });
 
     it("rejects DELETE without the X-Kiri-Client header (CSRF gate)", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/anything", { method: "DELETE" });
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
@@ -1335,7 +1335,7 @@ EOF
       const seen: KiriEvent[] = [];
       bus.subscribe((e) => seen.push(e));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request(`/api/runs/${id}`, {
         method: "DELETE",
         headers: CLIENT_HEADERS,
@@ -1354,7 +1354,7 @@ EOF
       const id = "no-scratch";
       seedTerminalRun(id);
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${id}`, {
         method: "DELETE",
         headers: CLIENT_HEADERS,
@@ -1367,7 +1367,7 @@ EOF
       const id = "twice";
       seedTerminalRun(id);
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const first = await app.request(`/api/runs/${id}`, {
         method: "DELETE",
         headers: CLIENT_HEADERS,
@@ -1414,7 +1414,7 @@ EOF
       seedRecommendation("rec-a", { runId: id, index: 0 });
       seedRecommendation("rec-b", { runId: id, index: 1 });
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${id}`, {
         method: "DELETE",
         headers: CLIENT_HEADERS,
@@ -1437,7 +1437,7 @@ EOF
         actionedAt: new Date("2026-05-09T13:00:00.000Z"),
       });
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${deletedId}`, {
         method: "DELETE",
         headers: CLIENT_HEADERS,
@@ -1470,7 +1470,7 @@ EOF
         actionedAt: new Date(),
       });
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${deletedId}`, {
         method: "DELETE",
         headers: CLIENT_HEADERS,
@@ -1536,7 +1536,7 @@ EOF
     };
 
     it("returns 404 for an unknown run id", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/missing/rerun", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -1558,7 +1558,7 @@ EOF
         })
         .run();
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${id}/rerun`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -1571,7 +1571,7 @@ EOF
       const id = "interrupted";
       seedTerminalRun(id, { workflowName: "gone" });
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${id}/rerun`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -1587,7 +1587,7 @@ EOF
     });
 
     it("rejects POST without the X-Kiri-Client header (CSRF gate)", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/anything/rerun", { method: "POST" });
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
@@ -1627,7 +1627,7 @@ EOF
         const app = createApp({
           db: env.db,
           registry: env.registry,
-          cwd: env.cwd,
+          config: env.config,
           bus,
           cancelRegistry: throwingRegistry,
         });
@@ -1684,7 +1684,7 @@ EOF
         seedTerminalRun(id, { workflowName: inputsWorkflow.name });
 
         const { bus, waitForFinished } = createRunWaiter();
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
         const res = await app.request(`/api/runs/${id}/rerun`, {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -1705,7 +1705,7 @@ EOF
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
         seedTerminalRun(id, { workflowName: inputsWorkflow.name });
 
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request(`/api/runs/${id}/rerun`, {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -1735,7 +1735,7 @@ EOF
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
         seedTerminalRun(id, { workflowName: inputsWorkflow.name });
 
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request(`/api/runs/${id}/rerun`, {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -1757,7 +1757,7 @@ EOF
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
         seedTerminalRun(id, { workflowName: inputsWorkflow.name });
 
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request(`/api/runs/${id}/rerun`, {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -1773,7 +1773,7 @@ EOF
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
         seedTerminalRun(id, { workflowName: inputsWorkflow.name });
 
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request(`/api/runs/${id}/rerun`, {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -1789,7 +1789,7 @@ EOF
         env.registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
         seedTerminalRun(id, { workflowName: noInputsWorkflow.name });
 
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request(`/api/runs/${id}/rerun`, {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -1813,7 +1813,7 @@ EOF
         seedTerminalRun(id, { workflowName: noInputsWorkflow.name });
 
         const { bus, waitForFinished } = createRunWaiter();
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
         const res = await app.request(`/api/runs/${id}/rerun`, {
           method: "POST",
           headers: CLIENT_HEADERS,
@@ -1841,7 +1841,7 @@ EOF
       writeFileSync(join(scratch, "leftover.txt"), "crash residue");
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request(`/api/runs/${id}/rerun`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -1920,7 +1920,7 @@ EOF
         .run();
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request(`/api/runs/${id}/rerun`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -1988,7 +1988,7 @@ EOF
       const seen: KiriEvent[] = [];
       bus.subscribe((e) => seen.push(e));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const before = Date.now();
       const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
         method: "POST",
@@ -2034,7 +2034,7 @@ EOF
       seedUntriggeredRec(recId, { runId: producerId, inputs: { pr_number: "1" } });
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
         method: "POST",
         headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -2054,7 +2054,7 @@ EOF
       const producerId = "producer-404";
       seedProducerRun(producerId);
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${producerId}/recommendations/missing-rec/action`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -2073,7 +2073,7 @@ EOF
       seedProducerRun(producerB);
       seedUntriggeredRec(recId, { runId: producerA });
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${producerB}/recommendations/${recId}/action`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -2103,7 +2103,7 @@ EOF
         })
         .run();
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -2121,7 +2121,7 @@ EOF
       seedUntriggeredRec(recId, { runId: producerId, workflow: "deleted-target" });
       // Registry intentionally empty.
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -2150,7 +2150,7 @@ EOF
       seedProducerRun(producerId);
       seedUntriggeredRec(recId, { runId: producerId });
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request(`/api/runs/${producerId}/recommendations/${recId}/action`, {
         method: "POST",
         headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -2170,7 +2170,7 @@ EOF
     });
 
     it("rejects action without the X-Kiri-Client header (CSRF gate)", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/runs/any/recommendations/any/action", { method: "POST" });
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: "X-Kiri-Client header required" });
@@ -2211,7 +2211,7 @@ EOF
         const app = createApp({
           db: env.db,
           registry: env.registry,
-          cwd: env.cwd,
+          config: env.config,
           bus,
           cancelRegistry: throwingRegistry,
         });
@@ -2270,7 +2270,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         bus,
         cancelRegistry,
       });
@@ -2298,7 +2298,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         bus,
         cancelRegistry,
       });
@@ -2322,7 +2322,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         bus,
         cancelRegistry,
       });
@@ -2352,7 +2352,7 @@ EOF
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         bus,
         cancelRegistry,
       });

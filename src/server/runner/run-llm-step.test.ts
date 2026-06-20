@@ -2,15 +2,18 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import type { GenerateLlmTextResult, LlmClients } from "../llm/index.ts";
 import type { ChildHandle } from "./cancel-registry.ts";
 import { runLlmStep } from "./run-llm-step.ts";
 
 describe("runLlmStep", () => {
   let cwd: string;
+  let config: ConfigStore;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-llm-step-"));
+    config = createConfigStore(cwd);
   });
 
   afterEach(() => {
@@ -45,7 +48,7 @@ describe("runLlmStep", () => {
 
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
-      cwd,
+      config,
       input: "",
       env: {},
       llmClients: clients,
@@ -65,7 +68,7 @@ describe("runLlmStep", () => {
 
     await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "{{TONE}} take on: {{KIRI_INPUT}}" } },
-      cwd,
+      config,
       input: "previous stdout\n",
       env: { TONE: "cheery" },
       llmClients: clients,
@@ -80,7 +83,7 @@ describe("runLlmStep", () => {
 
     await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "{{KIRI_INPUT}}" } },
-      cwd,
+      config,
       input: "lines\n\n",
       env: {},
       llmClients: clients,
@@ -96,7 +99,7 @@ describe("runLlmStep", () => {
 
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt_file: "prompts/greet.tpl" } },
-      cwd,
+      config,
       input: "",
       env: { NAME: "kiri" },
       llmClients: clients,
@@ -111,7 +114,7 @@ describe("runLlmStep", () => {
 
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt_file: "prompts/gone.tpl" } },
-      cwd,
+      config,
       input: "",
       env: {},
       llmClients: clients,
@@ -135,7 +138,7 @@ describe("runLlmStep", () => {
 
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "p" } },
-      cwd,
+      config,
       input: "",
       env: {},
       llmClients: clients,
@@ -158,7 +161,7 @@ describe("runLlmStep", () => {
 
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "p" } },
-      cwd,
+      config,
       input: "",
       env: {},
       llmClients: clients,
@@ -184,7 +187,7 @@ describe("runLlmStep", () => {
     let handle: ChildHandle | undefined;
     const pending = runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "p" } },
-      cwd,
+      config,
       input: "",
       env: {},
       llmClients: clients,
@@ -206,7 +209,7 @@ describe("runLlmStep", () => {
   it("fails cleanly when no llm clients are configured", async () => {
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "p" } },
-      cwd,
+      config,
       input: "",
       env: {},
     });
@@ -220,7 +223,7 @@ describe("runLlmStep", () => {
 
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m" } },
-      cwd,
+      config,
       input: "",
       env: {},
       llmClients: clients,

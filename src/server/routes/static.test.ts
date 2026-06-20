@@ -17,7 +17,7 @@ describe("static routes", () => {
 
   describe("Cache-Control on stable-path SPA assets", () => {
     it("sends no-store on /app.js, /app.css, /, and /index.html", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       for (const path of ["/app.js", "/app.css", "/", "/index.html"]) {
         const res = await app.request(path);
         expect(res.headers.get("Cache-Control")).toBe("no-store");
@@ -25,13 +25,13 @@ describe("static routes", () => {
     });
 
     it("does not send no-store on hashed /assets/* paths", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/assets/anything-abc123.js");
       expect(res.headers.get("Cache-Control")).toBeNull();
     });
 
     it("does not send no-store on /api routes", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/health");
       expect(res.headers.get("Cache-Control")).toBeNull();
     });
@@ -52,7 +52,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         staticRoot,
       });
 
@@ -68,7 +68,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         staticRoot,
       });
 
@@ -81,7 +81,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         staticRoot,
       });
 
@@ -94,7 +94,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         staticRoot,
       });
 
@@ -107,7 +107,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         staticRoot,
       });
 
@@ -138,7 +138,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         embeddedFiles: embeddedFiles(),
       });
       const res = await app.request("/app.js");
@@ -152,7 +152,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         embeddedFiles: embeddedFiles(),
       });
       const res = await app.request("/app.css");
@@ -166,7 +166,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         embeddedFiles: embeddedFiles(),
       });
       const res = await app.request("/");
@@ -180,7 +180,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         embeddedFiles: embeddedFiles(),
       });
       const res = await app.request("/runs/abc-123");
@@ -193,7 +193,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         embeddedFiles: embeddedFiles(),
       });
       const res = await app.request("/api/nope");
@@ -204,7 +204,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         embeddedFiles: embeddedFiles(),
       });
       const res = await app.request("/assets/icon-abc123.png");
@@ -221,7 +221,7 @@ describe("static routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         staticRoot: root,
         embeddedFiles: embeddedFiles(),
       });

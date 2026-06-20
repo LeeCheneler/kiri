@@ -71,7 +71,7 @@ describe("llm step pipeline", () => {
     expect(result.failures).toEqual([]);
     const def = result.workflows.get(name);
     if (!def) throw new Error(`workflow not found: ${name}`);
-    return runWorkflow(db, def, { cwd, llmClients }).done;
+    return runWorkflow(db, def, { config: createConfigStore(cwd), llmClients }).done;
   };
 
   const onlyStep = (runId: string) =>

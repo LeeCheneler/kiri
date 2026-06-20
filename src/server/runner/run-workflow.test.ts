@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { bootstrap } from "../bootstrap.ts";
-import { createConfigStore } from "../config/store.ts";
+import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
@@ -16,11 +16,13 @@ import { runWorkflow } from "./run-workflow.ts";
 
 describe("runWorkflow", () => {
   let cwd: string;
+  let config: ConfigStore;
   let db: KiriDb;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "kiri-runner-"));
-    db = bootstrap(createConfigStore(cwd));
+    config = createConfigStore(cwd);
+    db = bootstrap(config);
   });
 
   afterEach(() => {
@@ -60,7 +62,7 @@ describe("runWorkflow", () => {
     writeBundle("hello", "#!/bin/sh\necho hi from kiri\n");
     const wf = makeWorkflow("greeter", useSteps("hello"));
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     expect(result.status).toBe("ok");
 
@@ -87,7 +89,7 @@ describe("runWorkflow", () => {
   it("persists an inline sh: step", async () => {
     const wf = makeWorkflow("inline", [{ sh: "echo from-inline" }]);
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     expect(result.status).toBe("ok");
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
@@ -99,7 +101,7 @@ describe("runWorkflow", () => {
     writeBundle("emit", "#!/bin/sh\necho first-output\n");
     const wf = makeWorkflow("pipe", [{ use: "emit" }, { sh: "cat" }]);
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     expect(result.status).toBe("ok");
     const steps = db
@@ -118,7 +120,7 @@ describe("runWorkflow", () => {
       { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
     ]);
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     expect(result.status).toBe("failed");
 
@@ -148,7 +150,7 @@ describe("runWorkflow", () => {
         { sh: "cat" },
       ]);
 
-      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+      const result = await runWorkflow(db, wf, { config, llmClients }).done;
 
       expect(result.status).toBe("ok");
       expect(prompts).toEqual(["Reply to: first-output"]);
@@ -172,7 +174,7 @@ describe("runWorkflow", () => {
         { use: "never" },
       ]);
 
-      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+      const result = await runWorkflow(db, wf, { config, llmClients }).done;
 
       expect(result.status).toBe("failed");
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -194,7 +196,7 @@ describe("runWorkflow", () => {
         { llm: { model: "anthropic:m", prompt: "rec={{KIRI_RECOMMENDATIONS_FILE}}" } },
       ]);
 
-      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+      const result = await runWorkflow(db, wf, { config, llmClients }).done;
 
       expect(result.status).toBe("ok");
       // The file channel is absent for llm steps, so the placeholder renders empty.
@@ -223,7 +225,7 @@ describe("runWorkflow", () => {
       );
       const wf = makeWorkflow("llm-cancel", [{ llm: { model: "anthropic:m", prompt: "p" } }]);
 
-      const { runId, done } = runWorkflow(db, wf, { cwd, cancelRegistry, llmClients });
+      const { runId, done } = runWorkflow(db, wf, { config, cancelRegistry, llmClients });
       await started;
       expect(cancelRegistry.requestCancel(runId)).toBe(true);
 
@@ -242,7 +244,7 @@ describe("runWorkflow", () => {
     writeBundle("wont-run", "#!/bin/sh\necho should-not-run\n");
     const wf = makeWorkflow("halts", useSteps("boom", "wont-run"));
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     expect(result.status).toBe("failed");
 
@@ -267,7 +269,7 @@ describe("runWorkflow", () => {
       writeBundle("n", "#!/bin/sh\necho hi\n");
       const wf = makeWorkflow("no-git", useSteps("n"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.gitSha).toBeNull();
@@ -283,7 +285,7 @@ describe("runWorkflow", () => {
       git(cwd, "commit", "-q", "-m", "init");
       const wf = makeWorkflow("clean", useSteps("n"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.gitSha).toMatch(/^[0-9a-f]{40}$/);
@@ -302,7 +304,7 @@ describe("runWorkflow", () => {
       writeFileSync(join(cwd, "uncommitted.txt"), "hello");
       const wf = makeWorkflow("dirty", useSteps("n"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.gitSha).toMatch(/^[0-9a-f]{40}$/);
@@ -317,7 +319,7 @@ describe("runWorkflow", () => {
       steps: [{ use: "n", env: { FOO: "bar" } }],
     };
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
     expect(run?.definitionSnapshot).toEqual({
@@ -330,7 +332,7 @@ describe("runWorkflow", () => {
     writeBundle("ok", "#!/bin/sh\necho ok\n");
     const wf = makeWorkflow("clean-ok", useSteps("ok"));
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     expect(existsSync(join(cwd, ".kiri", "runs", result.runId))).toBe(false);
   });
@@ -339,7 +341,7 @@ describe("runWorkflow", () => {
     writeBundle("fail", "#!/bin/sh\nexit 1\n");
     const wf = makeWorkflow("clean-fail", useSteps("fail"));
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     expect(result.status).toBe("failed");
     expect(existsSync(join(cwd, ".kiri", "runs", result.runId))).toBe(false);
@@ -348,7 +350,7 @@ describe("runWorkflow", () => {
   it("fails the step when the bundle directory is missing on disk", async () => {
     const wf = makeWorkflow("missing", useSteps("ghost"));
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     expect(result.status).toBe("failed");
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
@@ -366,7 +368,7 @@ describe("runWorkflow", () => {
 
     let caught: unknown;
     try {
-      await runWorkflow(db, wf, { cwd }).done;
+      await runWorkflow(db, wf, { config }).done;
     } catch (e) {
       caught = e;
     }
@@ -387,7 +389,7 @@ describe("runWorkflow", () => {
     );
     const wf = makeWorkflow("env-vars", useSteps("dump"));
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(
@@ -401,7 +403,7 @@ describe("runWorkflow", () => {
       steps: [{ sh: 'echo "BUNDLE=${KIRI_BUNDLE_DIR-unset}"' }],
     };
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe("BUNDLE=unset\n");
@@ -416,7 +418,7 @@ describe("runWorkflow", () => {
       steps: [{ use: "path", env: { PATH: "/sneaky/bin" } }],
     };
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
@@ -429,7 +431,7 @@ describe("runWorkflow", () => {
       steps: [{ use: "greet", env: { NAME: "lee" } }],
     };
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe("name=lee\n");
@@ -439,7 +441,7 @@ describe("runWorkflow", () => {
     writeBundle("who", '#!/bin/sh\necho "USER=$USER LOGNAME=$LOGNAME"\n');
     const wf = makeWorkflow("who", useSteps("who"));
 
-    const result = await runWorkflow(db, wf, { cwd }).done;
+    const result = await runWorkflow(db, wf, { config }).done;
 
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
     expect(step?.output).toBe(
@@ -459,7 +461,7 @@ describe("runWorkflow", () => {
     // step env build can't resolve the ref. The invoke API enforces
     // required-but-missing earlier; reaching the runner is an invariant
     // violation we still surface clearly.
-    const { runId, done } = runWorkflow(db, wf, { cwd });
+    const { runId, done } = runWorkflow(db, wf, { config });
     const thrown = await done.catch((e: unknown) => e);
 
     expect(thrown).toBeInstanceOf(Error);
@@ -486,7 +488,7 @@ describe("runWorkflow", () => {
     const seen: KiriEvent[] = [];
     bus.subscribe((e) => seen.push(e));
 
-    const result = await runWorkflow(db, wf, { cwd, bus }).done;
+    const result = await runWorkflow(db, wf, { config, bus }).done;
 
     expect(result.status).toBe("ok");
     expect(seen).toEqual([
@@ -509,7 +511,7 @@ describe("runWorkflow", () => {
     const seen: KiriEvent[] = [];
     bus.subscribe((e) => seen.push(e));
 
-    const result = await runWorkflow(db, wf, { cwd, bus }).done;
+    const result = await runWorkflow(db, wf, { config, bus }).done;
 
     expect(result.status).toBe("failed");
     expect(seen).toEqual([
@@ -533,7 +535,7 @@ describe("runWorkflow", () => {
 
     let caught: unknown;
     try {
-      await runWorkflow(db, wf, { cwd, bus }).done;
+      await runWorkflow(db, wf, { config, bus }).done;
     } catch (e) {
       caught = e;
     }
@@ -569,7 +571,7 @@ describe("runWorkflow", () => {
 
       const startedAt = Date.now();
       const { runId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         bus,
         cancelRegistry,
       });
@@ -612,7 +614,7 @@ describe("runWorkflow", () => {
       };
 
       const startedAt = Date.now();
-      const { runId, done } = runWorkflow(db, wf, { cwd, cancelRegistry });
+      const { runId, done } = runWorkflow(db, wf, { config, cancelRegistry });
 
       await new Promise((resolve) => setTimeout(resolve, 50));
       cancelRegistry.requestCancel(runId);
@@ -648,7 +650,7 @@ describe("runWorkflow", () => {
       });
 
       const { runId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         bus,
         cancelRegistry,
       });
@@ -674,7 +676,7 @@ describe("runWorkflow", () => {
       const wf = makeWorkflow("ok-run", useSteps("ok"));
       const cancelRegistry = createCancelRegistry();
 
-      const result = await runWorkflow(db, wf, { cwd, cancelRegistry }).done;
+      const result = await runWorkflow(db, wf, { config, cancelRegistry }).done;
       expect(result.status).toBe("ok");
 
       // requestCancel returns false because release() deleted the entry.
@@ -706,7 +708,7 @@ describe("runWorkflow", () => {
       });
 
       const { runId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         bus,
         cancelRegistry,
       });
@@ -744,7 +746,7 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, {
-        cwd,
+        config,
         cancelRegistry: wrapped,
       }).done;
 
@@ -763,7 +765,7 @@ describe("runWorkflow", () => {
         summarize: { use: "summer" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -779,7 +781,7 @@ describe("runWorkflow", () => {
         summarize: { use: "summer" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       const stepsRows = db
         .select()
         .from(runSteps)
@@ -801,7 +803,7 @@ describe("runWorkflow", () => {
         summarize: { sh: "echo inline-summary" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -826,7 +828,7 @@ describe("runWorkflow", () => {
         summarize: { use: "bad-summer" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -857,7 +859,7 @@ describe("runWorkflow", () => {
         summarize: { use: "summer-marker" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("failed");
 
       // No summariser row inserted; the marker file was never created.
@@ -883,7 +885,7 @@ describe("runWorkflow", () => {
         summarize: { use: "summer-marker" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("failed");
 
       expect(existsSync(join(cwd, "summer-marker"))).toBe(false);
@@ -903,7 +905,7 @@ describe("runWorkflow", () => {
         summarize: { use: "blank" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.summary).toBeNull();
     });
@@ -921,7 +923,7 @@ describe("runWorkflow", () => {
       };
 
       const { runId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         cancelRegistry,
       });
 
@@ -949,7 +951,7 @@ describe("runWorkflow", () => {
         summarize: { use: "context-dump" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       const summary = run?.summary;
       expect(summary).toBeDefined();
@@ -984,7 +986,7 @@ describe("runWorkflow", () => {
         summarize: { use: "context-dump" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       const parsed = JSON.parse(run?.summary as string);
       expect(parsed.steps[0].stdout.endsWith("\n[truncated]")).toBe(true);
@@ -1007,7 +1009,7 @@ describe("runWorkflow", () => {
         summarize: { use: "context-dump" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -1029,7 +1031,7 @@ describe("runWorkflow", () => {
       const seen: KiriEvent[] = [];
       bus.subscribe((e) => seen.push(e));
 
-      const result = await runWorkflow(db, wf, { cwd, bus }).done;
+      const result = await runWorkflow(db, wf, { config, bus }).done;
       expect(result.status).toBe("ok");
       expect(seen).toEqual([
         { type: "run.started", id: result.runId },
@@ -1051,7 +1053,7 @@ describe("runWorkflow", () => {
         summarize: { use: "summer", env: { KEEP: "yes" } },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.definitionSnapshot).toMatchObject({
         name: "snap-sum",
@@ -1063,7 +1065,7 @@ describe("runWorkflow", () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       const wf = makeWorkflow("plain", useSteps("step"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
       expect(stepsRows).toHaveLength(1);
       expect(stepsRows[0].isSummary).toBe(false);
@@ -1090,7 +1092,7 @@ describe("runWorkflow", () => {
         },
       };
 
-      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+      const result = await runWorkflow(db, wf, { config, llmClients }).done;
 
       expect(result.status).toBe("ok");
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -1117,7 +1119,7 @@ describe("runWorkflow", () => {
         summarize: { llm: { model: "anthropic:m" } },
       };
 
-      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+      const result = await runWorkflow(db, wf, { config, llmClients }).done;
 
       expect(result.status).toBe("ok");
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -1149,7 +1151,7 @@ describe("runWorkflow", () => {
         ],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const stepsRows = db
@@ -1181,7 +1183,7 @@ describe("runWorkflow", () => {
         summarize: { use: "summer" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const stepsRows = db
@@ -1206,7 +1208,7 @@ describe("runWorkflow", () => {
         publish: [{ slug: "art", name: "Custom Title", use: "art", env: { KEEP: "yes" } }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.definitionSnapshot).toMatchObject({
@@ -1228,7 +1230,7 @@ describe("runWorkflow", () => {
         ],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("failed");
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -1266,7 +1268,7 @@ describe("runWorkflow", () => {
         ],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const articleRows = db
@@ -1297,7 +1299,7 @@ describe("runWorkflow", () => {
         publish: [{ slug: "empty", sh: "true" }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
@@ -1315,7 +1317,7 @@ describe("runWorkflow", () => {
         publish: [{ slug: "bad", use: "bad" }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("failed");
 
       const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
@@ -1335,7 +1337,7 @@ describe("runWorkflow", () => {
         ],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const secondRow = db
@@ -1363,7 +1365,7 @@ describe("runWorkflow", () => {
         publish: [{ slug: "art", use: "pub-marker" }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("failed");
 
       // No publish row inserted; the marker file was never created.
@@ -1385,7 +1387,7 @@ describe("runWorkflow", () => {
       };
 
       const { runId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         cancelRegistry,
       });
 
@@ -1410,7 +1412,7 @@ describe("runWorkflow", () => {
         publish: [{ slug: "ctx", use: "context-dump" }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const publishRow = db
@@ -1458,7 +1460,7 @@ describe("runWorkflow", () => {
       });
 
       const { runId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         bus,
         cancelRegistry,
       });
@@ -1505,7 +1507,7 @@ describe("runWorkflow", () => {
       });
 
       const { runId, done } = runWorkflow(db, wf, {
-        cwd,
+        config,
         bus,
         cancelRegistry,
       });
@@ -1541,7 +1543,7 @@ describe("runWorkflow", () => {
       const seen: KiriEvent[] = [];
       bus.subscribe((e) => seen.push(e));
 
-      const result = await runWorkflow(db, wf, { cwd, bus }).done;
+      const result = await runWorkflow(db, wf, { config, bus }).done;
       expect(result.status).toBe("ok");
       expect(seen).toEqual([
         { type: "run.started", id: result.runId },
@@ -1575,7 +1577,7 @@ describe("runWorkflow", () => {
         ],
       };
 
-      const result = await runWorkflow(db, wf, { cwd, llmClients }).done;
+      const result = await runWorkflow(db, wf, { config, llmClients }).done;
 
       expect(result.status).toBe("ok");
       const stored = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
@@ -1598,7 +1600,7 @@ describe("runWorkflow", () => {
       writeBundle("hi", "#!/bin/sh\necho ok\n");
 
       const failing = makeWorkflow("rerun-target", useSteps("boom"));
-      const first = await runWorkflow(db, failing, { cwd }).done;
+      const first = await runWorkflow(db, failing, { config }).done;
       expect(first.status).toBe("failed");
 
       const original = db.select().from(runs).where(eq(runs.id, first.runId)).get();
@@ -1615,7 +1617,7 @@ describe("runWorkflow", () => {
 
       const succeeding = makeWorkflow("rerun-target", useSteps("hi"));
       const second = await runWorkflow(db, succeeding, {
-        cwd,
+        config,
         runId: first.runId,
       }).done;
 
@@ -1644,7 +1646,7 @@ describe("runWorkflow", () => {
       writeBundle("fail", "#!/bin/sh\nexit 3\n");
       const wf = makeWorkflow("clear-fields", useSteps("fail"));
 
-      const first = await runWorkflow(db, wf, { cwd }).done;
+      const first = await runWorkflow(db, wf, { config }).done;
       expect(first.status).toBe("failed");
 
       const before = db.select().from(runs).where(eq(runs.id, first.runId)).get();
@@ -1658,7 +1660,7 @@ describe("runWorkflow", () => {
       // terminal fields immediately after the synchronous setup.
       writeBundle("slow-ok", "#!/bin/sh\nsleep 0.05\necho done\n");
       const wf2 = makeWorkflow("clear-fields", useSteps("slow-ok"));
-      const { done } = runWorkflow(db, wf2, { cwd, runId: first.runId });
+      const { done } = runWorkflow(db, wf2, { config, runId: first.runId });
 
       const midflight = db.select().from(runs).where(eq(runs.id, first.runId)).get();
       expect(midflight?.status).toBe("running");
@@ -1675,7 +1677,7 @@ describe("runWorkflow", () => {
       writeBundle("hello", "#!/bin/sh\necho hi\n");
       const wf = makeWorkflow("no-inputs", useSteps("hello"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.inputs).toBeNull();
@@ -1690,7 +1692,7 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, {
-        cwd,
+        config,
         inputs: { pr_number: "42", owner: "kiri" },
       }).done;
 
@@ -1709,7 +1711,7 @@ describe("runWorkflow", () => {
         steps: [{ use: "hello" }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.inputs).toEqual({ branch: "main", owner: "kiri" });
@@ -1724,7 +1726,7 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, {
-        cwd,
+        config,
         inputs: { branch: "release" },
       }).done;
 
@@ -1743,7 +1745,7 @@ describe("runWorkflow", () => {
         steps: [{ use: "hello" }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.inputs).toEqual({ owner: "kiri" });
@@ -1758,7 +1760,7 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, {
-        cwd,
+        config,
         inputs: { pr_number: "42" },
       }).done;
 
@@ -1781,7 +1783,7 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, {
-        cwd,
+        config,
         inputs: { pr_number: "7" },
       }).done;
 
@@ -1798,7 +1800,7 @@ describe("runWorkflow", () => {
         steps: [{ use: "dump", env: { BRANCH: { input: "branch" } } }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       expect(result.status).toBe("ok");
       const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
@@ -1817,7 +1819,7 @@ describe("runWorkflow", () => {
         steps: [{ use: "path", env: { PATH: { input: "evil_path" } } }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
 
       const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
       expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
@@ -1834,7 +1836,7 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, {
-        cwd,
+        config,
         inputs: { branch: "release" },
       }).done;
 
@@ -1854,7 +1856,7 @@ describe("runWorkflow", () => {
       };
 
       const result = await runWorkflow(db, wf, {
-        cwd,
+        config,
         inputs: { pr_number: "9" },
       }).done;
 
@@ -1873,7 +1875,7 @@ describe("runWorkflow", () => {
       };
 
       const first = await runWorkflow(db, wf, {
-        cwd,
+        config,
         inputs: { pr_number: "1" },
       }).done;
       expect(first.status).toBe("ok");
@@ -1884,7 +1886,7 @@ describe("runWorkflow", () => {
       db.delete(runSteps).where(eq(runSteps.runId, first.runId)).run();
 
       const second = await runWorkflow(db, wf, {
-        cwd,
+        config,
         runId: first.runId,
         inputs: { pr_number: "2" },
       }).done;
@@ -1922,7 +1924,7 @@ echo '{"title":"Review PR #1","workflow":"pr-review","description":"+10/-2","inp
       );
       const wf = makeWorkflow("single", useSteps("emit-one"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const rows = db
@@ -1956,7 +1958,7 @@ EOF
       );
       const wf = makeWorkflow("many", useSteps("emit-many"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const rows = db
@@ -1983,7 +1985,7 @@ EOF
       writeBundle("no-emit", "#!/bin/sh\necho nothing\n");
       const wf = makeWorkflow("silent", useSteps("no-emit"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const rows = db
@@ -2004,7 +2006,7 @@ exit 1
       );
       const wf = makeWorkflow("failer", useSteps("emit-then-fail"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("failed");
 
       const rows = db
@@ -2029,7 +2031,7 @@ exit 1
         ],
       };
 
-      const { runId, done } = runWorkflow(db, wf, { cwd, cancelRegistry });
+      const { runId, done } = runWorkflow(db, wf, { config, cancelRegistry });
       await new Promise((r) => setTimeout(r, 50));
       expect(cancelRegistry.requestCancel(runId)).toBe(true);
       const result = await done;
@@ -2057,7 +2059,9 @@ EOF
       );
       const wf = makeWorkflow("malformed", useSteps("emit-mixed-json"));
 
-      const { result, warnings } = await withSilencedWarn(() => runWorkflow(db, wf, { cwd }).done);
+      const { result, warnings } = await withSilencedWarn(
+        () => runWorkflow(db, wf, { config }).done,
+      );
       expect(result.status).toBe("ok");
       expect(warnings.some((w) => w.includes("malformed recommendation"))).toBe(true);
 
@@ -2086,7 +2090,9 @@ EOF
       );
       const wf = makeWorkflow("schemafail", useSteps("emit-mixed-schema"));
 
-      const { result, warnings } = await withSilencedWarn(() => runWorkflow(db, wf, { cwd }).done);
+      const { result, warnings } = await withSilencedWarn(
+        () => runWorkflow(db, wf, { config }).done,
+      );
       expect(result.status).toBe("ok");
       expect(warnings.some((w) => w.includes("failing schema"))).toBe(true);
 
@@ -2111,7 +2117,7 @@ EOF
         publish: [{ slug: "article", use: "pub-echo-env" }],
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const stepRows = db
@@ -2141,7 +2147,7 @@ EOF
         summarize: { use: "sum-echo-env" },
       };
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
@@ -2174,7 +2180,7 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       );
       const wf = makeWorkflow("cross-step", useSteps("emit-ab", "emit-c"));
 
-      const result = await runWorkflow(db, wf, { cwd }).done;
+      const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const rows = db

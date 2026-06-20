@@ -27,7 +27,7 @@ describe("workflows routes", () => {
 
   describe("GET /api/workflows", () => {
     it("returns an empty array when the registry is empty", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual([]);
@@ -40,7 +40,7 @@ describe("workflows routes", () => {
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       expect(res.status).toBe(200);
       const body = (await res.json()) as Array<Record<string, unknown>>;
@@ -60,7 +60,7 @@ describe("workflows routes", () => {
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body[0].description).toBe("Patches Dependabot alerts and opens a PR.");
@@ -71,7 +71,7 @@ describe("workflows routes", () => {
       const wf: WorkflowDefinition = { name: "bare", steps: [{ sh: "echo hi" }] };
       env.registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
       expect("description" in body[0]).toBe(false);
@@ -82,7 +82,7 @@ describe("workflows routes", () => {
       const wf: WorkflowDefinition = { name: "steps-only", steps: [{ sh: "echo hi" }] };
       env.registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
       // Absence is signalled by missing keys (JSON.stringify drops `undefined`),
@@ -104,7 +104,7 @@ describe("workflows routes", () => {
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body[0].inputs).toEqual([
@@ -124,7 +124,7 @@ describe("workflows routes", () => {
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body[0].publish).toEqual([
@@ -142,7 +142,7 @@ describe("workflows routes", () => {
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body[0].summarize).toEqual({
@@ -161,7 +161,7 @@ describe("workflows routes", () => {
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body[0].publish).toEqual([{ slug: "digest", name: "Digest", sh: "echo body" }]);
@@ -171,7 +171,7 @@ describe("workflows routes", () => {
 
   describe("POST /api/workflows/:name/runs", () => {
     it("returns 404 for an unknown workflow name", async () => {
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows/nope/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -189,7 +189,7 @@ describe("workflows routes", () => {
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request("/api/workflows/greeter/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -223,7 +223,7 @@ describe("workflows routes", () => {
       const app = createApp({
         db: env.db,
         registry: env.registry,
-        cwd: env.cwd,
+        config: env.config,
         bus,
         llmClients: {
           resolveModel: () => {
@@ -262,7 +262,7 @@ describe("workflows routes", () => {
 
       try {
         const { bus, waitForFinished } = createRunWaiter();
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
         const res = await app.request("/api/workflows/throwy/runs", {
           method: "POST",
           headers: CLIENT_HEADERS,
@@ -296,7 +296,7 @@ describe("workflows routes", () => {
         });
       });
 
-      const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
       const res = await app.request("/api/workflows/greeter/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
@@ -345,7 +345,7 @@ describe("workflows routes", () => {
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
 
         const { bus, waitForFinished } = createRunWaiter();
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
         const res = await app.request("/api/workflows/with-inputs/runs", {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -364,7 +364,7 @@ describe("workflows routes", () => {
 
       it("returns 400 when a required input is missing", async () => {
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request("/api/workflows/with-inputs/runs", {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -387,7 +387,7 @@ describe("workflows routes", () => {
 
       it("returns 400 when a required input is supplied as an empty string", async () => {
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request("/api/workflows/with-inputs/runs", {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -403,7 +403,7 @@ describe("workflows routes", () => {
 
       it("returns 400 when the payload contains an unknown key", async () => {
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request("/api/workflows/with-inputs/runs", {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -425,7 +425,7 @@ describe("workflows routes", () => {
 
       it("returns 400 when an input value is not a string", async () => {
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request("/api/workflows/with-inputs/runs", {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -446,7 +446,7 @@ describe("workflows routes", () => {
 
       it("returns 400 when the body is malformed JSON", async () => {
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request("/api/workflows/with-inputs/runs", {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -458,7 +458,7 @@ describe("workflows routes", () => {
 
       it("returns 413 when the request body exceeds the size limit", async () => {
         env.registry.replace(new Map([[inputsWorkflow.name, inputsWorkflow]]));
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         // 256 KB + 1 — the bodyLimit middleware reads Content-Length and
         // rejects before optionalInvokeBody ever touches the payload.
         const oversized = "a".repeat(256 * 1024 + 1);
@@ -474,7 +474,7 @@ describe("workflows routes", () => {
       it("returns 400 when a no-inputs workflow receives a non-empty payload", async () => {
         writePassthroughBundle(env.cwd);
         env.registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config });
         const res = await app.request("/api/workflows/no-inputs/runs", {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -496,7 +496,7 @@ describe("workflows routes", () => {
         env.registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
 
         const { bus, waitForFinished } = createRunWaiter();
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
         const res = await app.request("/api/workflows/no-inputs/runs", {
           method: "POST",
           headers: CLIENT_HEADERS,
@@ -515,7 +515,7 @@ describe("workflows routes", () => {
         env.registry.replace(new Map([[noInputsWorkflow.name, noInputsWorkflow]]));
 
         const { bus, waitForFinished } = createRunWaiter();
-        const app = createApp({ db: env.db, registry: env.registry, cwd: env.cwd, bus });
+        const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
         const res = await app.request("/api/workflows/no-inputs/runs", {
           method: "POST",
           headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },

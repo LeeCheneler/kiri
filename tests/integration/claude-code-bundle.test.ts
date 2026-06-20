@@ -117,7 +117,7 @@ const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]>
     if ("use" in step) env.KIRI_BUNDLE_DIR = join(ws.cwd, "scripts", step.use);
     const envelope = await runStep({
       step,
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input,
       env,
@@ -249,7 +249,7 @@ describe("claude-code bundle: integration", () => {
     // dep-check fires first and exits non-zero.
     const envelope = await runStep({
       step: { use: "claude-code", env: { PROMPT_FILE: "prompts/single-line-input.tpl" } },
-      cwd: ws.cwd,
+      config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
       input: "",
       env: {

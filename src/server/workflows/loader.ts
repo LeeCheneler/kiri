@@ -36,10 +36,6 @@ const isYamlFile = (name: string): boolean => name.endsWith(".yaml") || name.end
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-/** Absolute path of the bundle's entry script for a `use:` step. */
-export const bundleRunPath = (cwd: string, name: string): string =>
-  resolve(cwd, "scripts", name, "run.sh");
-
 const validateBundles = (def: WorkflowDefinition, config: ConfigStore): string[] => {
   const missing: string[] = [];
   const steps = def.summarize ? [...def.steps, def.summarize] : def.steps;
