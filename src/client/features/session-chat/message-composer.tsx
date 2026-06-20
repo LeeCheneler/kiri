@@ -20,9 +20,10 @@ import { ImageThumb } from "./image-thumb.tsx";
  * cleared on submit. `onSubmit` receives the assembled `UIMessage` parts —
  * images first, then the text — and the caller decides what they mean (send a
  * turn, resend an edit). `onCancel`, when given, fires on Escape (e.g. to close
- * an inline editor). Disabled while `busy`. Pass `id` to let the caller focus
- * the field, `label` for the field lockup, and `hint` for a trailing key-hint
- * line.
+ * an inline editor). While `busy` — a turn is in flight — the field and its
+ * controls stay editable so the next message can be drafted, but submitting is
+ * blocked until the turn settles. Pass `id` to let the caller focus the field,
+ * `label` for the field lockup, and `hint` for a trailing key-hint line.
  */
 export function MessageComposer({
   value,
@@ -97,7 +98,6 @@ export function MessageComposer({
               <button
                 type="button"
                 onClick={() => removeAttachment(image.id)}
-                disabled={busy}
                 title="Remove image"
                 aria-label="Remove image"
                 className="-top-2 -right-2 absolute flex h-5 w-5 cursor-pointer items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
@@ -114,7 +114,6 @@ export function MessageComposer({
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        disabled={busy}
         maxRows={14}
         onPaste={onPaste}
         onKeyDown={(event) => {
@@ -136,7 +135,7 @@ export function MessageComposer({
           hidden
           onChange={onPickFiles}
         />
-        <Button variant="dismissive" disabled={busy} onClick={() => fileInputRef.current?.click()}>
+        <Button variant="dismissive" onClick={() => fileInputRef.current?.click()}>
           add image
         </Button>
         {attachmentError ? (
