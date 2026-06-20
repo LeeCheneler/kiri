@@ -214,7 +214,7 @@ providers:
 - **Env source.** Kiri loads `.env` from the workspace root — the resolved config dir, not the launch cwd — at startup, so a workspace pinned via `KIRI_CONFIG_DIR` gets its own `.env` regardless of where kiri was launched from. The variables your `{ env: }` refs name resolve from there or the ambient environment. Existing variables win: an ambient export of the same name is left untouched, and an absent `.env` is a no-op.
 - **Editor support.** Kiri publishes `.kiri/kiri.schema.json` on every launch, alongside the workflow schema, for YAML validation and autocomplete — map it the same way (modeline or `yaml.schemas`).
 - **Workflows validate against it.** An `llm:` step's `model` is a `provider:model` id; the prefix must name a provider in this registry or the workflow fails to load — the same posture as a missing bundle.
-- **Reloading.** The registry is read once at startup; there is no dev-mode file watcher for it — restart kiri to pick up edits.
+- **Reloading.** Edits to `kiri.yaml` hot-reload while kiri runs, the same as `workflows/`. A valid change swaps the provider registry and re-validates workflows so `llm:` steps re-check their provider against the new set; an invalid edit is logged and the last-known-good providers are kept, so a mid-edit typo never breaks an in-flight session.
 
 ### LLM step execution
 

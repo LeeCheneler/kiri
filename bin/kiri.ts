@@ -4,6 +4,7 @@ import { resolveConfigDir } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
 import { loadKiriConfig } from "../src/server/config/loader.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
+import { watchKiriConfig } from "../src/server/config/watcher.ts";
 import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
@@ -107,20 +108,27 @@ if (kiriConfig.failure) {
     `kiri.yaml: failed to load ${kiriConfig.failure.path}: ${kiriConfig.failure.reason}`,
   );
 }
-const providerNames = new Set(kiriConfig.providers.keys());
+// Provider names come live off the registry so a kiri.yaml reload re-validates
+// workflows against the new set (see the config watcher below).
+const getProviderNames = () => new Set(llmRegistry.listProviders().map((p) => p.name));
 const llmClients = createLlmClients(llmRegistry, process.env);
 // Tools are offered to every session's model; each self-gates on its own
 // precondition (web_search and web_extract on TAVILY_API_KEY), so an env
 // without those keys yields an empty set and sessions run as plain chat.
 const sessionTools = createSessionTools(process.env);
 
-const initial = await loadWorkflows(config, providerNames);
+const initial = await loadWorkflows(config, getProviderNames());
 registry.replace(initial.workflows);
 for (const failure of initial.failures) {
   console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
 }
 
-const watcher = watchWorkflows(config, registry, initial, { bus, providerNames });
+const watcher = watchWorkflows(config, registry, initial, { bus, getProviderNames });
+// Hot-reload kiri.yaml the way workflows already reload: swap the provider
+// registry, then revalidate workflows so `llm:` steps re-check their provider.
+const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
+  onReload: () => watcher.revalidate(),
+});
 
 const app = createApp({
   db,
@@ -136,6 +144,9 @@ const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
 
 const shutdown = () => {
+  // Stop the config watcher first so it can't schedule a revalidate after the
+  // workflow watcher is torn down.
+  configWatcher.stop();
   watcher.stop();
   server.stop();
   db.$client.close();
