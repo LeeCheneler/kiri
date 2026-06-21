@@ -7,3 +7,447 @@
    outside this Vite project's root (src/site). Point Tailwind's class scanner
    at them so their utilities are emitted in the site build. */
 @source "../client";
+
+/* --- Landing-page flow diagrams -----------------------------------------
+   Decorative illustrations of a workflow run and an agentic session. Items
+   reveal in sequence when the diagram scrolls into view, driven by `data-play`
+   (toggled by an IntersectionObserver) and an inline `--i` index per item. All
+   motion is additive: the resting state is the finished, fully-visible diagram,
+   so no-JS readers see complete content and the global reduced-motion block in
+   app.css collapses every animation to its end (visible) state. Colours come
+   from the shared status/accent tokens, so the motion previews the real app. */
+
+.diagram {
+  --step: 0.42s; /* delay between successive items */
+  font-family: var(--font-mono);
+}
+
+/* Resting state: fully visible. The cascade overrides this only while playing. */
+.diagram .wf-node,
+.diagram .wf-feed,
+.diagram .se-turn {
+  opacity: 1;
+}
+
+/* ---- Workflow pipeline ---- */
+
+.wf-track {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The static rail the steps hang from. */
+.wf-track::before {
+  content: "";
+  position: absolute;
+  left: 0.3125rem;
+  top: 0.5rem;
+  bottom: 1.25rem;
+  width: 1.5px;
+  transform: translateX(-50%);
+  background: var(--color-rule);
+}
+
+.wf-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 0.625rem 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 1.25rem;
+}
+
+.wf-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+  background: var(--color-status-ok);
+  box-shadow: 0 0 0 3px var(--color-canvas-2);
+}
+
+.wf-node[data-tone="publish"] .wf-dot,
+.wf-node[data-tone="feed"] .wf-dot {
+  background: var(--color-accent);
+}
+
+.wf-name {
+  color: var(--color-ink);
+  font-size: 0.8125rem;
+}
+
+.wf-tag {
+  justify-self: end;
+  padding: 0.0625rem 0.375rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  color: var(--color-ink-faint);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* The spark that traces the rail as the steps light up. */
+.wf-spark {
+  position: absolute;
+  left: 0.3125rem;
+  top: 0.5rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: var(--color-accent);
+  box-shadow: 0 0 12px 3px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  opacity: 0;
+}
+
+/* The summary card the run lands in the feed. */
+.wf-feed {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-top: 0.25rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  background: var(--color-paper);
+}
+
+.wf-feed-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-accent);
+}
+
+.wf-feed-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.wf-feed-title {
+  color: var(--color-ink);
+  font-size: 0.75rem;
+}
+
+.wf-feed-meta {
+  color: var(--color-ink-faint);
+  font-size: 0.6875rem;
+}
+
+/* ---- Session transcript ---- */
+
+.se-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.se-turn {
+  display: flex;
+}
+
+.se-turn[data-role="user"] {
+  justify-content: flex-end;
+}
+
+.se-turn[data-role="tool"] {
+  justify-content: center;
+}
+
+.se-bubble {
+  max-width: 85%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.se-turn[data-role="user"] .se-bubble {
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+  border-bottom-right-radius: 0.125rem;
+}
+
+.se-turn[data-role="assistant"] .se-bubble {
+  background: var(--color-paper);
+  color: var(--color-ink-muted);
+  border-bottom-left-radius: 0.125rem;
+}
+
+.se-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.625rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 9999px;
+  background: var(--color-canvas-2);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.se-tool-dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 9999px;
+  background: var(--color-status-ok);
+}
+
+.se-tool-label {
+  color: var(--color-ink-muted);
+}
+
+/* ---- Reveal motion (only while in view, and only when motion is welcome) ----
+   Gated on prefers-reduced-motion: no-preference so reduced-motion readers keep
+   the resting, fully-visible state above with no animation — the staggered
+   delays here would otherwise hold items in their hidden `from` state. */
+
+@media (prefers-reduced-motion: no-preference) {
+  .diagram[data-play="true"] .wf-node,
+  .diagram[data-play="true"] .wf-feed,
+  .diagram[data-play="true"] .se-turn {
+    animation: flow-item-in 0.5s ease-out both;
+    animation-delay: calc(var(--i) * var(--step) + 0.15s);
+  }
+
+  .diagram[data-play="true"] .wf-dot {
+    animation: flow-dot-pop 0.5s ease-out both;
+    animation-delay: calc(var(--i) * var(--step) + 0.15s);
+  }
+
+  /* The spark crosses the rail across the whole step cascade. */
+  .diagram[data-play="true"] .wf-spark {
+    animation: wf-spark-fall calc(var(--step) * 4 + 0.6s) ease-in-out both;
+    animation-delay: 0.15s;
+  }
+
+  /* The tool turn's dot ripples in its working hue, then settles to done. */
+  .diagram[data-play="true"] .se-tool-dot {
+    animation: se-tool-working 1.4s ease-out both;
+    animation-delay: calc(var(--step) + 0.3s);
+  }
+}
+
+@keyframes flow-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flow-dot-pop {
+  0% {
+    transform: scale(0.2);
+    opacity: 0.3;
+  }
+  60% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes wf-spark-fall {
+  0% {
+    top: 0.5rem;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    top: calc(100% - 1.25rem);
+    opacity: 0;
+  }
+}
+
+@keyframes se-tool-working {
+  0% {
+    background: var(--color-status-running);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-status-running) 60%, transparent);
+  }
+  55% {
+    background: var(--color-status-running);
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    background: var(--color-status-ok);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* --- Hero graphic --------------------------------------------------------
+   A two-phase loop over the ways to work, drawn as the shapes of the features
+   themselves. Phase 0 builds a workflow as a stack of step cards; phase 1
+   builds an agentic session as a chat. The two phases are stacked and
+   crossfade on a timer (data-active toggled from JS); within each phase the
+   items rise into place. Skeleton bars stand in for content — no text. At rest
+   (reduced motion / no JS) the workflow phase shows statically. */
+
+.hero-graphic {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
+
+/* The two phases occupy the same box; opacity crossfades between them. */
+.hg-slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 1.75rem;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+.hg-slide[data-active="true"] {
+  opacity: 1;
+}
+
+.hg-item {
+  opacity: 1;
+}
+
+.hg-bar {
+  height: 0.32rem;
+  border-radius: 9999px;
+  background: var(--color-rule);
+}
+
+.hg-bar-sm {
+  width: 60%;
+  background: var(--color-ink-faint);
+}
+
+/* ---- Workflow phase: a stack of step cards ---- */
+
+.hg-wf-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.375rem;
+  background: var(--color-paper-2);
+}
+
+.hg-wf-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.hg-wf-title {
+  width: 9rem;
+}
+
+.hg-wf-card > .hg-bar {
+  width: 100%;
+}
+
+.hg-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  align-self: center;
+  border-radius: 9999px;
+  background: var(--color-status-ok);
+}
+
+.hg-wf-card[data-tone="accent"] .hg-dot {
+  background: var(--color-accent);
+}
+
+/* ---- Session phase: a chat ---- */
+
+.hg-bubble {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: fit-content;
+  max-width: 86%;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.6rem;
+}
+
+.hg-bubble .hg-bar {
+  width: 11rem;
+}
+
+.hg-bubble .hg-bar-sm {
+  width: 7rem;
+}
+
+.hg-bubble[data-side="out"] {
+  align-self: flex-end;
+  background: var(--color-paper-2);
+  border-bottom-right-radius: 0.15rem;
+}
+
+.hg-bubble[data-side="in"] {
+  align-self: flex-start;
+  background: var(--color-paper);
+  border-bottom-left-radius: 0.15rem;
+}
+
+.hg-tool {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 9999px;
+  background: var(--color-canvas-2);
+}
+
+.hg-tool-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  background: var(--color-status-running);
+}
+
+.hg-tool .hg-bar-sm {
+  width: 2.75rem;
+}
+
+/* Items rise into place as their phase becomes active. */
+@media (prefers-reduced-motion: no-preference) {
+  .hg-slide[data-active="true"] .hg-item {
+    animation: hg-rise 0.5s ease-out both;
+    animation-delay: calc(0.12s + var(--i) * 0.22s);
+  }
+}
+
+@keyframes hg-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

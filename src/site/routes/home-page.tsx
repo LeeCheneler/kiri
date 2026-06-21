@@ -5,31 +5,9 @@ import { Card } from "../../client/design-system/surfaces/card.tsx";
 import { SiteFooter } from "../chrome/site-footer.tsx";
 import { SiteHeader } from "../chrome/site-header.tsx";
 import { CodeWindow } from "../components/code-window.tsx";
-
-// A real, runnable workflow — the hero artifact. Shell output pipes into a
-// first-party llm: step, and the run publishes as an article. Kept short
-// enough to read at a glance; the syntax is exactly what kiri validates.
-const HERO_WORKFLOW = `name: Release Notes
-
-steps:
-  - sh: git log --oneline v1.4.0..HEAD
-    name: Collect changes
-
-  - llm:
-      model: anthropic:claude-haiku-4-5
-      prompt: |
-        Rewrite these commits as release notes,
-        grouped under Features and Fixes.
-
-        {{KIRI_INPUT}}
-    name: Draft the notes
-
-publish:
-  - slug: release-notes
-    llm:
-      model: anthropic:claude-haiku-4-5
-      prompt_file: prompts/release-notes.tpl
-`;
+import { HeroGraphic } from "../components/hero-graphic.tsx";
+import { SessionDiagram } from "../components/session-diagram.tsx";
+import { WorkflowDiagram } from "../components/workflow-diagram.tsx";
 
 const INSTALL = `brew install LeeCheneler/kiri/kiri
 cd your-project
@@ -109,10 +87,7 @@ function Hero() {
         </p>
       </div>
       <div className="lg:pt-1">
-        <CodeWindow filename="release-notes.yaml">{HERO_WORKFLOW}</CodeWindow>
-        <p className="mt-3 font-mono text-xs text-ink-faint leading-relaxed">
-          Shell in, a model in the middle, a published article out.
-        </p>
+        <HeroGraphic />
       </div>
     </section>
   );
@@ -132,13 +107,20 @@ function Pillars() {
             Versioned YAML pipelines. Chain shell commands, script bundles, and first-party LLM
             steps; pipe each step into the next; publish the run as an article you can share.
           </p>
+          <div className="mt-6">
+            <WorkflowDiagram />
+          </div>
         </Card>
         <Card>
           <Eyebrow>Agentic sessions</Eyebrow>
           <p className="mt-3 font-mono text-sm text-ink-muted leading-relaxed">
-            Open-ended chat with tools and your project's context. Personas and a kiri.md file layer
-            the system prompt; a one-click follow-up turns a session into the next run.
+            Open-ended chat with first-party tools — like web search — and your project's context. A
+            kiri.md file and optional personas layer the system prompt, read fresh from disk each
+            turn.
           </p>
+          <div className="mt-6">
+            <SessionDiagram />
+          </div>
         </Card>
       </div>
     </section>
