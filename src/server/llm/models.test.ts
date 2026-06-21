@@ -150,4 +150,71 @@ describe("listLlmModels", () => {
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]?.reason).not.toContain(secret);
   });
+
+  it("reads context window and output cap from an anthropic-style listing", async () => {
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({
+          data: [{ id: "claude-opus-4-8", max_input_tokens: 1000000, max_tokens: 128000 }],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(result.models).toEqual([
+      {
+        id: "anthropic:claude-opus-4-8",
+        provider: "anthropic",
+        contextWindow: 1000000,
+        outputLimit: 128000,
+      },
+    ]);
+  });
+
+  it("prefers an openai-compatible entry's served limit over its theoretical max", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            {
+              id: "anthropic/claude",
+              context_length: 200000,
+              top_provider: { context_length: 64000, max_completion_tokens: 8192 },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([
+      { id: "local:anthropic/claude", provider: "local", contextWindow: 64000, outputLimit: 8192 },
+    ]);
+  });
+
+  it("reads a vLLM-style max_model_len", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "qwen", max_model_len: 32768 }] }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([{ id: "local:qwen", provider: "local", contextWindow: 32768 }]);
+  });
+
+  it("ignores non-positive or non-numeric limit fields", async () => {
+    server.use(
+      http.get("https://api.openai.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "gpt-x", max_input_tokens: 0, context_length: "nope" }] }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+
+    expect(result.models).toEqual([{ id: "openai:gpt-x", provider: "openai" }]);
+  });
 });
