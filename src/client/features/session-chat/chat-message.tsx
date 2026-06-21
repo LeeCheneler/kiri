@@ -3,7 +3,8 @@ import { useEffect, useId, useState } from "react";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
-import type { PendingImage } from "./attachments.ts";
+import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
+import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import { MessageComposer } from "./message-composer.tsx";
 import { ToolInvocation } from "./tool-invocation.tsx";
@@ -11,16 +12,29 @@ import { ToolInvocation } from "./tool-invocation.tsx";
 /** Resend an edited user message, re-running the conversation from that point. */
 export type ResubmitHandler = (messageId: string, parts: UIMessage["parts"]) => void;
 
-// Join the message's text parts. Non-text parts (tool calls, files) are skipped
-// here — image file parts are rendered separately as thumbnails (below).
+// Join the message's typed text parts. Non-text parts (tool calls, files) and
+// attached-file text parts are skipped here — images render as thumbnails and
+// attached files as chips (below), both above the text.
 const messageText = (message: UIMessage): string =>
-  message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
+  message.parts
+    .map((part) => (part.type === "text" && parseAttachedFile(part.text) === null ? part.text : ""))
+    .join("");
 
 // The image attachments on a message, rendered as thumbnails above its text.
 const imageParts = (message: UIMessage): FileUIPart[] =>
   message.parts.filter(
     (part): part is FileUIPart => part.type === "file" && part.mediaType.startsWith("image/"),
   );
+
+// The text files attached to a message, rendered as previewable tiles above its
+// text. They ride as `<attached-file>` text parts so they reach the model as
+// plain text.
+const attachedFiles = (message: UIMessage): { filename: string; content: string }[] =>
+  message.parts.flatMap((part) => {
+    if (part.type !== "text") return [];
+    const parsed = parseAttachedFile(part.text);
+    return parsed ? [parsed] : [];
+  });
 
 // Whether an assistant message has anything worth rendering yet: non-empty text
 // or a tool call. A just-submitted turn has neither until its first chunk lands.
@@ -44,6 +58,7 @@ function UserMessage({
 }) {
   const text = messageText(message);
   const images = imageParts(message);
+  const files = attachedFiles(message);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
   const fieldId = useId();
@@ -77,6 +92,10 @@ function UserMessage({
             onChange={setDraft}
             busy={busy}
             initialImages={images.map((part) => ({ id: part.url, part }) satisfies PendingImage)}
+            initialTextFiles={files.map(
+              (file, index) =>
+                ({ id: `${message.id}-file-${index}`, ...file }) satisfies PendingTextFile,
+            )}
             onSubmit={(parts) => onResubmit(message.id, parts)}
             onCancel={() => setEditing(false)}
             hint="Enter to resend · Escape to cancel"
@@ -85,12 +104,20 @@ function UserMessage({
           <>
             <Eyebrow tone="muted">You</Eyebrow>
             <div className="mt-2 space-y-3">
-              {images.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
+              {images.length > 0 || files.length > 0 ? (
+                <ul className="flex flex-wrap gap-2">
                   {images.map((part) => (
-                    <PreviewableImage key={part.url} part={part} />
+                    <li key={part.url}>
+                      <PreviewableImage part={part} />
+                    </li>
                   ))}
-                </div>
+                  {files.map((file, index) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: attached files are fixed on a sent message and never reorder, so the index is a stable key.
+                    <li key={index}>
+                      <PreviewableFile filename={file.filename} content={file.content} />
+                    </li>
+                  ))}
+                </ul>
               ) : null}
               {text !== "" ? (
                 <p className="whitespace-pre-wrap font-mono text-sm text-ink">{text}</p>

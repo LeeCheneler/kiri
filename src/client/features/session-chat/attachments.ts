@@ -84,6 +84,9 @@ const TEXT_FILE_EXTENSIONS = new Set([
   ".sh",
 ]);
 
+/** The `accept` value for the composer's file picker: images plus text files. */
+export const ATTACHMENT_ACCEPT = ["image/*", ...TEXT_FILE_EXTENSIONS].join(",");
+
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf(".");
   return dot === -1 ? "" : name.slice(dot).toLowerCase();

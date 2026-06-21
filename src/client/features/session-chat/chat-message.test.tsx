@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
+import { wrapAttachedFile } from "./attachments.ts";
 import { ChatMessage, type ResubmitHandler } from "./chat-message.tsx";
 
 const message = (role: "user" | "assistant", parts: unknown[]): UIMessage =>
@@ -33,6 +34,20 @@ describe("<ChatMessage>", () => {
     expect(screen.getByText("You")).toBeDefined();
     expect(screen.getByText("look at this")).toBeDefined();
     expect(screen.getByAltText("shot.png")).toBeDefined();
+  });
+
+  it("renders an attached text file as a previewable tile, not as raw message text", () => {
+    renderMessage(
+      message("user", [
+        { type: "text", text: wrapAttachedFile("notes.md", "# secret stuff") },
+        { type: "text", text: "what do you think?" },
+      ]),
+    );
+
+    expect(screen.getByText("notes.md")).toBeDefined();
+    expect(screen.getByText("what do you think?")).toBeDefined();
+    // The wrapped contents are not dumped into the transcript.
+    expect(screen.queryByText(/secret stuff/)).toBeNull();
   });
 
   it("renders assistant prose as markdown", () => {
@@ -102,6 +117,22 @@ describe("<ChatMessage>", () => {
     await userEvent.type(editField() as HTMLTextAreaElement, "look again{Enter}");
 
     expect(onResubmit.mock.calls).toEqual([["m1", [image, { type: "text", text: "look again" }]]]);
+  });
+
+  it("preserves attached text files when resending an edited message", async () => {
+    const onResubmit = mock((_id: string, _parts: UIMessage["parts"]) => {});
+    const attached = { type: "text" as const, text: wrapAttachedFile("notes.md", "stuff") };
+    renderMessage(message("user", [attached, { type: "text", text: "thoughts?" }]), { onResubmit });
+
+    await userEvent.click(editButton());
+    // The seeded file previews in the editor as a chip.
+    expect(screen.getByText("notes.md")).toBeDefined();
+    await userEvent.clear(editField() as HTMLTextAreaElement);
+    await userEvent.type(editField() as HTMLTextAreaElement, "new thoughts{Enter}");
+
+    expect(onResubmit.mock.calls).toEqual([
+      ["m1", [attached, { type: "text", text: "new thoughts" }]],
+    ]);
   });
 
   it("cancels editing on Escape without resending", async () => {
