@@ -36,6 +36,20 @@ const message = (id: string, role: "user" | "assistant", text: string) => ({
   createdAt: "2026-05-09T12:00:00.000Z",
 });
 
+// A settled assistant turn reporting `inputTokens`, so the context fill is known.
+const assistantWithUsage = (inputTokens: number) => ({
+  ...message("m1", "assistant", "answer"),
+  usage: { inputTokens, outputTokens: 0, totalTokens: inputTokens },
+});
+
+const modelsWithWindow = (contextWindow: number) =>
+  http.get("*/api/models", () =>
+    HttpResponse.json({
+      models: [{ id: "anthropic:claude", provider: "anthropic", contextWindow }],
+      failures: [],
+    }),
+  );
+
 // A correctly-framed assistant UI-message stream, built with the SDK's own
 // helpers so the wire format matches what the real turn endpoint emits.
 const assistantReply = (text: string) =>
@@ -116,6 +130,31 @@ describe("<SessionChat>", () => {
     renderChat();
     expect(await screen.findByText("First question")).toBeDefined();
     expect(screen.getByText("An answer")).toBeDefined();
+  });
+
+  it("warns when the conversation nears the model's context window", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([assistantWithUsage(190000)])),
+      ),
+      modelsWithWindow(200000),
+    );
+    renderChat();
+
+    expect(await screen.findByText(/approaching context limit/i)).toBeDefined();
+  });
+
+  it("does not warn when the context fill is well within the window", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([assistantWithUsage(1000)])),
+      ),
+      modelsWithWindow(200000),
+    );
+    renderChat();
+
+    await screen.findByText("answer");
+    expect(screen.queryByText(/approaching context limit/i)).toBeNull();
   });
 
   it("focuses the composer on landing", async () => {

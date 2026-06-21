@@ -10,10 +10,16 @@ import {
 } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
+import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
-import { useSession } from "../../state/sessions.ts";
+import { useModels, useSession } from "../../state/sessions.ts";
 import { ChatMessage } from "./chat-message.tsx";
+import {
+  CONTEXT_WARNING_RATIO,
+  contextWindowForModel,
+  currentContextTokens,
+} from "./context-usage.ts";
 import { MessageComposer } from "./message-composer.tsx";
 import { useSessionDraft } from "./session-draft.ts";
 
@@ -79,6 +85,7 @@ export function SessionChat({ id }: { id: string }) {
 
 function Chat({ detail }: { detail: SessionDetail }) {
   const { session } = detail;
+  const models = useModels().data?.models ?? [];
 
   // Seed once from the persisted transcript; `useChat` owns the live state from
   // here. A later refetch (from a session.* event) re-runs this memo, but
@@ -122,6 +129,18 @@ function Chat({ detail }: { detail: SessionDetail }) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     return lastUser ? messageHasImage(lastUser) : false;
   }, [failed, messages]);
+
+  // Warn as the conversation nears the model's context window: the live fill from
+  // the last settled turn against the catalogued limit. Absent until a turn has
+  // settled and only when the model's window is known.
+  const contextTokens = currentContextTokens(detail.messages);
+  const contextLimit = contextWindowForModel(models, session.model);
+  const contextWarning =
+    contextTokens !== undefined &&
+    contextLimit !== undefined &&
+    contextTokens / contextLimit >= CONTEXT_WARNING_RATIO
+      ? { tokens: contextTokens, limit: contextLimit }
+      : undefined;
 
   // Whether the transcript foot is "pinned" to the viewport bottom — we only
   // follow new content while it is. Starts pinned so landing snaps to the latest
@@ -259,6 +278,17 @@ function Chat({ detail }: { detail: SessionDetail }) {
       ) : null}
 
       <div className="sticky bottom-0 mt-8 border-t border-rule bg-canvas pt-4 pb-6">
+        {/* Context-limit warning pinned above the input so it stays in view as
+            the conversation approaches the model's window. */}
+        {contextWarning ? (
+          <div className="mb-4">
+            <Notice tone="warning" announce="polite" title="Approaching context limit">
+              {`${contextWarning.tokens.toLocaleString("en")} of ${contextWarning.limit.toLocaleString(
+                "en",
+              )} tokens used — start a new session soon to avoid hitting the model's context window.`}
+            </Notice>
+          </div>
+        ) : null}
         {/* Keyed by session so switching sessions remounts a fresh composer,
             clearing any staged images (the draft text is per-session already). */}
         <MessageComposer
