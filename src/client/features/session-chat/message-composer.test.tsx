@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { type ReactNode, useState } from "react";
-import type { PendingImage } from "./attachments.ts";
+import { type PendingImage, type PendingTextFile, wrapAttachedFile } from "./attachments.ts";
 import { MessageComposer } from "./message-composer.tsx";
 
 // A stateful host so the controlled textarea behaves as it does in the app.
@@ -13,12 +13,14 @@ function Harness({
   busy = false,
   hint,
   initialImages,
+  initialTextFiles,
 }: {
   onSubmit: (parts: UIMessage["parts"]) => void;
   onCancel?: () => void;
   busy?: boolean;
   hint?: ReactNode;
   initialImages?: PendingImage[];
+  initialTextFiles?: PendingTextFile[];
 }) {
   const [value, setValue] = useState("");
   return (
@@ -31,6 +33,7 @@ function Harness({
       label="Message"
       hint={hint}
       initialImages={initialImages}
+      initialTextFiles={initialTextFiles}
     />
   );
 }
@@ -43,6 +46,7 @@ const fileInput = (container: HTMLElement) =>
   container.querySelector('input[type="file"]') as HTMLInputElement;
 const pngFile = (name: string, bytes: BlobPart = "img") =>
   new File([bytes], name, { type: "image/png" });
+const txtFile = (name: string, content: BlobPart = "hello") => new File([content], name);
 
 describe("<MessageComposer>", () => {
   it("submits the typed text as a single text part on Enter", async () => {
@@ -145,7 +149,7 @@ describe("<MessageComposer>", () => {
     expect(screen.queryByAltText("huge.png")).toBeNull();
   });
 
-  it("opens the file picker from the add image button", async () => {
+  it("opens the file picker from the add file button", async () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
     const { container } = composer(onSubmit);
 
@@ -153,7 +157,7 @@ describe("<MessageComposer>", () => {
     fileInput(container).click = () => {
       clicked = true;
     };
-    await userEvent.click(screen.getByRole("button", { name: /add image/i }));
+    await userEvent.click(screen.getByRole("button", { name: /add file/i }));
 
     expect(clicked).toBe(true);
   });
@@ -162,10 +166,10 @@ describe("<MessageComposer>", () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
     composer(onSubmit, true);
 
-    // The field and the add-image control stay usable, so the next message can
+    // The field and the add-file control stay usable, so the next message can
     // be drafted while a turn is in flight.
     expect((textbox() as HTMLTextAreaElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: /add image/i }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole("button", { name: /add file/i }) as HTMLButtonElement).disabled).toBe(
       false,
     );
 
@@ -212,5 +216,70 @@ describe("<MessageComposer>", () => {
     const parts = onSubmit.mock.calls[0]?.[0] ?? [];
     expect(parts[0]).toEqual(seeded[0].part);
     expect(parts.at(-1)).toEqual({ type: "text", text: "describe it" });
+  });
+
+  it("stages a text file as a tile and submits it as a wrapped text part before the text", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+
+    await userEvent.upload(fileInput(container), txtFile("notes.md", "# heading"));
+    // The staged file previews as a named chip before sending.
+    expect(await screen.findByText("notes.md")).toBeDefined();
+
+    await userEvent.type(textbox(), "summarise this{Enter}");
+
+    const parts = onSubmit.mock.calls[0]?.[0] ?? [];
+    expect(parts[0]).toEqual({ type: "text", text: wrapAttachedFile("notes.md", "# heading") });
+    expect(parts.at(-1)).toEqual({ type: "text", text: "summarise this" });
+  });
+
+  it("submits a text-file-only message with no typed text", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+
+    await userEvent.upload(fileInput(container), txtFile("only.txt", "body"));
+    await screen.findByText("only.txt");
+    await userEvent.click(textbox());
+    await userEvent.keyboard("{Enter}");
+
+    const parts = onSubmit.mock.calls[0]?.[0] ?? [];
+    expect(parts).toEqual([{ type: "text", text: wrapAttachedFile("only.txt", "body") }]);
+  });
+
+  it("removes a staged text file", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+
+    await userEvent.upload(fileInput(container), txtFile("drop.md", "x"));
+    await screen.findByText("drop.md");
+    await userEvent.click(screen.getByRole("button", { name: /remove drop\.md/i }));
+
+    await waitFor(() => expect(screen.queryByText("drop.md")).toBeNull());
+  });
+
+  it("rejects an oversize text file with an inline error and does not stage it", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+
+    const tooBig = txtFile("big.txt", new Uint8Array(256 * 1024 + 1));
+    await userEvent.upload(fileInput(container), tooBig);
+
+    expect(await screen.findByText(/must be under 256 KB/i)).toBeDefined();
+    expect(screen.queryByText("big.txt")).toBeNull();
+  });
+
+  it("starts with seeded text files and submits them ahead of the text", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const seeded: PendingTextFile[] = [
+      { id: "seed-1", filename: "seed.md", content: "seeded body" },
+    ];
+    render(<Harness onSubmit={onSubmit} initialTextFiles={seeded} />);
+
+    expect(screen.getByText("seed.md")).toBeDefined();
+    await userEvent.type(textbox(), "use it{Enter}");
+
+    const parts = onSubmit.mock.calls[0]?.[0] ?? [];
+    expect(parts[0]).toEqual({ type: "text", text: wrapAttachedFile("seed.md", "seeded body") });
+    expect(parts.at(-1)).toEqual({ type: "text", text: "use it" });
   });
 });

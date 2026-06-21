@@ -81,3 +81,18 @@ unknown information — like the ChatGPT app, it just works when the key is pres
 and is simply off when it isn't. Each search shows inline in the transcript as a
 collapsed block you can expand; results are treated as **untrusted data**. With
 no key, web search is off — a **degraded** config-health check, not an error.
+
+## Attachments
+
+Attach files to a message with **add file** in the composer — or paste an image
+straight in. Both images and text files (markdown, source, JSON, CSV, and the
+like) are supported; each stages as a tile you can remove before sending.
+
+A text file is sent **inline**: its contents ride in the message so the model
+reads the whole file as context — handy for dropping a spec, a sample, or some
+notes into the conversation without copy-pasting. Like all quoted external text,
+file contents are treated as **untrusted data**, and large files are capped to
+stay within the model's context window.
+
+Sent attachments appear as tiles in the transcript; click one to preview it — the
+full image, or the file's text.
