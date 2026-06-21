@@ -511,6 +511,10 @@ export interface ModelInfo {
   id: string;
   /** The provider the model came from. */
   provider: string;
+  /** Maximum context (input) tokens, when the provider's listing reports it. */
+  contextWindow?: number;
+  /** Maximum output tokens, when the provider's listing reports it. */
+  outputLimit?: number;
 }
 
 /** A provider whose model listing failed, surfaced so the picker can explain a gap. */

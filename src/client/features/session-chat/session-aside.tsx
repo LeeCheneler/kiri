@@ -1,10 +1,11 @@
-import { type SessionMessage, patchSessionModel, patchSessionPersona } from "../../api.ts";
+import { patchSessionModel, patchSessionPersona } from "../../api.ts";
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Stat, StatList } from "../../design-system/content/stat.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useModels, usePersonas, useSession } from "../../state/sessions.ts";
+import { contextWindowForModel, currentContextTokens } from "./context-usage.ts";
 
 // Each rail section carries its own vertical rhythm; the divide-y draws the
 // hairline between adjacent ones, the first/last reset keeps the edges flush.
@@ -13,17 +14,6 @@ const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
 // The picker entry that means "no persona". A persona file literally named
 // "None" would collide with it — an acceptable edge for a personal tool.
 const PERSONA_NONE = "None";
-
-// The live context fill, approximated by the most recent settled turn's
-// footprint: the tokens it sent (all prior messages) plus the reply it
-// produced, now part of history. The session's cumulative totals count every
-// turn's resend, so they overstate it. `undefined` until a turn has settled
-// with reported usage — there's nothing meaningful to show before then.
-function currentContextTokens(messages: SessionMessage[]): number | undefined {
-  const usage = messages.findLast((message) => message.usage)?.usage;
-  if (!usage || usage.inputTokens === undefined) return undefined;
-  return usage.inputTokens + (usage.outputTokens ?? 0);
-}
 
 /**
  * The session chat right rail: the session's model, running token totals, the
@@ -41,6 +31,7 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   if (!detail) return null;
   const { session } = detail;
   const contextTokens = currentContextTokens(detail.messages);
+  const contextLimit = contextWindowForModel(models, session.model);
   // Pin the current model into the options even if the provider no longer lists
   // it, so the control always has a value to show. Sorted so the long list is
   // scannable. Swapping is blocked mid-turn: the in-flight turn already resolved
@@ -121,7 +112,9 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
         <section className={SECTION_CLASS}>
           <Eyebrow tone="muted">Context</Eyebrow>
           <p className="mt-1 font-mono text-sm text-ink tabular-nums">
-            {`${contextTokens.toLocaleString("en")} tokens`}
+            {contextLimit !== undefined
+              ? `${contextTokens.toLocaleString("en")} / ${contextLimit.toLocaleString("en")} tokens`
+              : `${contextTokens.toLocaleString("en")} tokens`}
           </p>
         </section>
       ) : null}

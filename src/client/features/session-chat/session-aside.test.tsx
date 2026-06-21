@@ -154,6 +154,27 @@ describe("<SessionAside>", () => {
     expect(await screen.findByText("1,545 tokens")).toBeDefined();
   });
 
+  it("shows context as current / limit when the model's window is known", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail({}, [
+            assistantMessage({ inputTokens: 1200, outputTokens: 345, totalTokens: 1545 }),
+          ]),
+        ),
+      ),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [{ id: "anthropic:claude", provider: "anthropic", contextWindow: 200000 }],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    expect(await screen.findByText("1,545 / 200,000 tokens")).toBeDefined();
+  });
+
   it("omits the context size until a turn has settled", async () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
     renderAside(<SessionAside id="s1" />);

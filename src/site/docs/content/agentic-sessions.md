@@ -68,6 +68,20 @@ You are a meticulous senior code reviewer. Read diffs closely, flag correctness
 bugs first, then design and clarity. Cite file:line. Be direct; skip the praise.
 ```
 
+## Token usage and context
+
+The right-hand aside tracks what a session is spending. **Tokens** shows the
+running input, output, and total. **Context** shows how full the model's context
+window is — `current / limit` when kiri knows the window, or just the current
+figure when it doesn't.
+
+kiri reads the window from the provider's own model listing, so OpenRouter,
+Anthropic, vLLM, and LM Studio models show it — including the context length you
+set when loading a model in LM Studio. OpenAI's listing doesn't report one, so
+those models show the current figure alone. As a conversation nears the window, a
+warning appears above the message box: a cue to start a fresh session before a
+turn fails.
+
 ## Tools — web search
 
 Sessions can call **first-party tools** — generic agent capabilities, not

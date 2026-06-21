@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import type { LlmProvider, LlmProviderRegistry } from "./index.ts";
@@ -27,6 +27,18 @@ const modelList = (url: string, ids: unknown[]) =>
   http.get(url, () => HttpResponse.json({ data: ids.map((id) => ({ id })) }));
 
 describe("listLlmModels", () => {
+  // The openai-compatible context probe targets LM Studio's native endpoint;
+  // default it to absent so a bare listing never reaches a real localhost:1234.
+  // LM Studio tests override this.
+  beforeEach(() => {
+    server.use(
+      http.get(
+        "http://localhost:1234/api/v0/models",
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+    );
+  });
+
   it("lists an anthropic provider's models with the version and key headers", async () => {
     let headers: Headers | undefined;
     server.use(
@@ -149,5 +161,144 @@ describe("listLlmModels", () => {
 
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]?.reason).not.toContain(secret);
+  });
+
+  it("reads context window and output cap from an anthropic-style listing", async () => {
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({
+          data: [{ id: "claude-opus-4-8", max_input_tokens: 1000000, max_tokens: 128000 }],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(result.models).toEqual([
+      {
+        id: "anthropic:claude-opus-4-8",
+        provider: "anthropic",
+        contextWindow: 1000000,
+        outputLimit: 128000,
+      },
+    ]);
+  });
+
+  it("prefers an openai-compatible entry's served limit over its theoretical max", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            {
+              id: "anthropic/claude",
+              context_length: 200000,
+              top_provider: { context_length: 64000, max_completion_tokens: 8192 },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([
+      { id: "local:anthropic/claude", provider: "local", contextWindow: 64000, outputLimit: 8192 },
+    ]);
+  });
+
+  it("reads a vLLM-style max_model_len", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "qwen", max_model_len: 32768 }] }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([{ id: "local:qwen", provider: "local", contextWindow: 32768 }]);
+  });
+
+  it("ignores non-positive or non-numeric limit fields", async () => {
+    server.use(
+      http.get("https://api.openai.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "gpt-x", max_input_tokens: 0, context_length: "nope" }] }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+
+    expect(result.models).toEqual([{ id: "openai:gpt-x", provider: "openai" }]);
+  });
+
+  it("enriches an openai-compatible provider from LM Studio's native listing", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "google/gemma" }] }),
+      ),
+      http.get("http://localhost:1234/api/v0/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "google/gemma", loaded_context_length: 8192, max_context_length: 262144 },
+            "junk",
+            { id: "unloaded-elsewhere" },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    // Prefers the loaded (served) length over the model's maximum.
+    expect(result.models).toEqual([
+      { id: "local:google/gemma", provider: "local", contextWindow: 8192 },
+    ]);
+  });
+
+  it("falls back to a native model's max context when it is not loaded", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "google/gemma" }] }),
+      ),
+      http.get("http://localhost:1234/api/v0/models", () =>
+        HttpResponse.json({ data: [{ id: "google/gemma", max_context_length: 262144 }] }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([
+      { id: "local:google/gemma", provider: "local", contextWindow: 262144 },
+    ]);
+  });
+
+  it("does not probe the native listing when /v1/models already reports context", async () => {
+    let nativeProbed = false;
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "m", context_length: 200000 }] }),
+      ),
+      http.get("http://localhost:1234/api/v0/models", () => {
+        nativeProbed = true;
+        return HttpResponse.json({ data: [{ id: "m", max_context_length: 999 }] });
+      }),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([{ id: "local:m", provider: "local", contextWindow: 200000 }]);
+    expect(nativeProbed).toBe(false);
+  });
+
+  it("leaves models bare when the native probe errors", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "google/gemma" }] }),
+      ),
+      http.get("http://localhost:1234/api/v0/models", () => HttpResponse.error()),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([{ id: "local:google/gemma", provider: "local" }]);
   });
 });
