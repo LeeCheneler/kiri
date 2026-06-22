@@ -46,3 +46,43 @@ export type McpServerEntry = z.infer<typeof mcpServerEntrySchema>;
 
 /** An MCP server transport type. */
 export type McpServerType = McpServerEntry["type"];
+
+/**
+ * A resolved stdio MCP server: its command plus the *names* of the environment
+ * variables its process env is read from (values are read at connect time and
+ * never stored).
+ */
+export interface McpStdioServer {
+  name: string;
+  type: "stdio";
+  command: string;
+  args?: string[];
+  /** Child process env var name → source environment variable name. */
+  envRefs?: Record<string, string>;
+}
+
+/**
+ * A resolved http MCP server: its URL plus the *names* of the environment
+ * variables its request headers are read from (values are read at connect time
+ * and never stored).
+ */
+export interface McpHttpServer {
+  name: string;
+  type: "http";
+  url: string;
+  /** Header name → source environment variable name. */
+  headerRefs?: Record<string, string>;
+}
+
+/** A resolved MCP server, keyed by name in the loaded config. */
+export type McpServer = McpStdioServer | McpHttpServer;
+
+/**
+ * An MCP server excluded from the loaded config because a declared env ref
+ * names a variable that is unset, so the server can't be used until it's set.
+ */
+export interface McpServerUnresolved {
+  name: string;
+  /** Names of the referenced environment variables that are unset. */
+  missing: string[];
+}

@@ -5,7 +5,7 @@ import type { KiriConfigLoadResult } from "./loader.ts";
 export type ConfigCheckLevel = "ok" | "degraded" | "error";
 
 /** The configuration concern a check reports on. */
-export type ConfigArea = "config" | "providers" | "web-search";
+export type ConfigArea = "config" | "providers" | "mcp" | "web-search";
 
 /** A single configuration-health finding. */
 export interface ConfigCheck {
@@ -89,6 +89,31 @@ export function evaluateConfigHealth(input: {
           });
         }
       }
+    }
+  }
+
+  // MCP servers: silent when none are configured (an opt-in capability), an ok
+  // summary when present, and a per-server error when a declared env ref is
+  // unset. A failed config load already explains the empty maps, so skip it.
+  if (!kiriConfig.failure) {
+    const servers = [...kiriConfig.mcp.values()];
+    if (servers.length > 0) {
+      checks.push({
+        area: "mcp",
+        level: "ok",
+        title: `${servers.length} MCP server${servers.length === 1 ? "" : "s"} configured`,
+        detail: servers.map((s) => s.name).join(", "),
+      });
+    }
+    for (const { name, missing } of kiriConfig.mcpUnresolved) {
+      const vars = missing.join(", ");
+      const verb = missing.length === 1 ? "is" : "are";
+      checks.push({
+        area: "mcp",
+        level: "error",
+        title: `${name}: ${vars} not set`,
+        detail: `MCP server "${name}" is unavailable until ${vars} ${verb} set in the environment.`,
+      });
     }
   }
 

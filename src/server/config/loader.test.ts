@@ -197,4 +197,106 @@ describe("loadKiriConfig", () => {
     expect(result.warning).toContain("kiri.yaml");
     expect(result.warning).toContain("kiri.yml");
   });
+
+  it("leaves mcp empty when there is no mcp key", () => {
+    write(cwd, "providers: {}\n");
+    const result = loadKiriConfig(config, {});
+    expect(result.mcp.size).toBe(0);
+    expect(result.mcpUnresolved).toEqual([]);
+  });
+
+  it("resolves a minimal stdio server with no env", () => {
+    write(cwd, "mcp:\n  fs:\n    type: stdio\n    command: server\n");
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect(result.mcp.get("fs")).toEqual({ name: "fs", type: "stdio", command: "server" });
+  });
+
+  it("resolves a stdio server, flattening env refs to var names", () => {
+    write(
+      cwd,
+      `mcp:
+  fs:
+    type: stdio
+    command: npx
+    args: ["-y", "server"]
+    env:
+      TOKEN:
+        env: FS_TOKEN
+`,
+    );
+    const result = loadKiriConfig(config, { FS_TOKEN: "x" });
+    expect(result.failure).toBeUndefined();
+    expect(result.mcp.get("fs")).toEqual({
+      name: "fs",
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "server"],
+      envRefs: { TOKEN: "FS_TOKEN" },
+    });
+    expect(result.mcpUnresolved).toEqual([]);
+  });
+
+  it("resolves an http server, flattening header refs to var names", () => {
+    write(
+      cwd,
+      `mcp:
+  linear:
+    type: http
+    url: https://mcp.linear.app/mcp
+    headers:
+      Authorization:
+        env: LINEAR_TOKEN
+`,
+    );
+    const result = loadKiriConfig(config, { LINEAR_TOKEN: "x" });
+    expect(result.mcp.get("linear")).toEqual({
+      name: "linear",
+      type: "http",
+      url: "https://mcp.linear.app/mcp",
+      headerRefs: { Authorization: "LINEAR_TOKEN" },
+    });
+  });
+
+  it("excludes an mcp server whose env ref is unset without failing the load", () => {
+    write(
+      cwd,
+      `mcp:
+  linear:
+    type: http
+    url: https://mcp.linear.app/mcp
+    headers:
+      Authorization:
+        env: LINEAR_TOKEN
+`,
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect(result.mcp.size).toBe(0);
+    expect(result.mcpUnresolved).toEqual([{ name: "linear", missing: ["LINEAR_TOKEN"] }]);
+  });
+
+  it("keeps providers loading when an mcp server's env ref is unset", () => {
+    write(
+      cwd,
+      `providers:
+  anthropic:
+    type: anthropic
+    api_key:
+      env: A_KEY
+mcp:
+  linear:
+    type: http
+    url: https://mcp.linear.app/mcp
+    headers:
+      Authorization:
+        env: LINEAR_TOKEN
+`,
+    );
+    const result = loadKiriConfig(config, { A_KEY: "x" });
+    expect(result.failure).toBeUndefined();
+    expect(result.providers.has("anthropic")).toBe(true);
+    expect(result.mcp.size).toBe(0);
+    expect(result.mcpUnresolved.map((u) => u.name)).toEqual(["linear"]);
+  });
 });
