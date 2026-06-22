@@ -54,27 +54,13 @@ function buildDiagramGuidance(): string {
   ].join("\n");
 }
 
-// Guidance on when to reach for the session's active tools. The SDK sends each
-// tool's own definition (the *what*); this section adds the *when*, which the
-// model otherwise underuses — answering from stale memory instead of searching.
-// Returns null when no tools are active, so the section (and any web-search
-// advice) never appears in a plain chat with no key configured.
+// Guidance on reaching for the session's active tools. The SDK sends each
+// tool's own definition (the *what* and, for MCP tools, the *when*); this adds
+// only the general nudge to use them. Returns null when no tools are active, so
+// the section never appears in a plain chat with no tools configured.
 function buildToolGuidance(tools: string[]): string | null {
   if (tools.length === 0) return null;
-  const lines = [
-    "You have tools available. Reach for them rather than guessing, and never claim to have used a tool you did not call.",
-  ];
-  if (tools.includes("web_search")) {
-    lines.push(
-      "Use the web_search tool whenever the user asks about current events or recent information, anything that may have changed since or falls outside your training data, or any fact you are not confident you know. Prefer searching over answering from stale memory or saying you don't know.",
-    );
-  }
-  if (tools.includes("web_extract")) {
-    lines.push(
-      "Use the web_extract tool to read the full text of a specific page when you have its URL — one the user gave you, or one returned by web_search — and need more than a snippet.",
-    );
-  }
-  return lines.join("\n");
+  return "You have tools available. Reach for them rather than guessing, and never claim to have used a tool you did not call.";
 }
 
 // The kiri-authored core layer: the model's identity, the environment the

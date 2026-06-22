@@ -119,24 +119,6 @@ describe("evaluateConfigHealth", () => {
     expect(find(checks, "providers").map((c) => c.level)).toEqual(["ok"]);
   });
 
-  it("reports web search enabled when the Tavily key is set", () => {
-    const { checks } = evaluateConfigHealth({
-      kiriConfig: result(),
-      env: { TAVILY_API_KEY: "tvly-x" },
-    });
-    const web = find(checks, "web-search");
-    expect(web).toHaveLength(1);
-    expect(web[0].level).toBe("ok");
-  });
-
-  it("reports web search disabled (degraded) when the Tavily key is blank or unset", () => {
-    for (const env of [{}, { TAVILY_API_KEY: "   " }]) {
-      const { checks } = evaluateConfigHealth({ kiriConfig: result(), env });
-      const web = find(checks, "web-search");
-      expect(web[0].level).toBe("degraded");
-    }
-  });
-
   it("summarises configured mcp servers by name, pluralising the count", () => {
     const { checks } = evaluateConfigHealth({
       kiriConfig: result({

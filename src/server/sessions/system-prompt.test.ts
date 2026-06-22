@@ -77,27 +77,13 @@ describe("buildSystemPrompt", () => {
   it("omits tool guidance when no tools are active", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(prompt).not.toContain("You have tools available");
-    expect(prompt).not.toContain("web_search");
   });
 
-  it("adds web_search guidance, before the chart guidance, when the tool is active", () => {
-    const prompt = buildSystemPrompt({ config, tools: ["web_search"], now: FIXED_NOW });
-    expect(prompt).toContain("web_search");
-    expect(prompt).toContain("current events");
-    // Tool guidance lives in the core layer, ahead of the chart guidance.
-    expect(prompt.indexOf("web_search")).toBeLessThan(prompt.indexOf("```chart"));
-  });
-
-  it("adds web_extract guidance when the tool is active", () => {
-    const prompt = buildSystemPrompt({ config, tools: ["web_extract"], now: FIXED_NOW });
-    expect(prompt).toContain("web_extract");
-    expect(prompt).toContain("read the full text");
-  });
-
-  it("gives generic tool guidance without web-search advice for other tools", () => {
-    const prompt = buildSystemPrompt({ config, tools: ["read_file"], now: FIXED_NOW });
+  it("gives generic tool guidance, before the chart guidance, when any tool is active", () => {
+    const prompt = buildSystemPrompt({ config, tools: ["linear__create_issue"], now: FIXED_NOW });
     expect(prompt).toContain("You have tools available");
-    expect(prompt).not.toContain("web_search");
+    // Tool guidance lives in the core layer, ahead of the chart guidance.
+    expect(prompt.indexOf("You have tools available")).toBeLessThan(prompt.indexOf("```chart"));
   });
 
   it("appends kiri.md instructions after the core layer", () => {

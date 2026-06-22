@@ -19,7 +19,6 @@ import { createLlmClients, createLlmProviderRegistry } from "../src/server/llm/i
 import { type CreateMcpClient, connectMcpServer } from "../src/server/mcp/connect.ts";
 import { createMcpRegistry } from "../src/server/mcp/registry.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
-import { createSessionTools } from "../src/server/sessions/index.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
 // Replaced at build time via `bun build --define`; falls back to "dev" for local runs.
@@ -152,10 +151,6 @@ printConfigHealth(evaluateConfigHealth({ kiriConfig, env: process.env }));
 // workflows against the new set (see the config watcher below).
 const getProviderNames = () => new Set(llmRegistry.listProviders().map((p) => p.name));
 const llmClients = createLlmClients(llmRegistry, process.env);
-// Tools are offered to every session's model; each self-gates on its own
-// precondition (web_search and web_extract on TAVILY_API_KEY), so an env
-// without those keys yields an empty set and sessions run as plain chat.
-const sessionTools = createSessionTools(process.env);
 
 const initial = await loadWorkflows(config, getProviderNames());
 registry.replace(initial.workflows);
@@ -179,7 +174,6 @@ const app = createApp({
   bus,
   cancelRegistry,
   llmClients,
-  sessionTools,
   mcpRegistry,
   version: VERSION,
   env: process.env,

@@ -1,11 +1,10 @@
-import { TAVILY_API_KEY_ENV } from "../sessions/tools/index.ts";
 import type { KiriConfigLoadResult } from "./loader.ts";
 
 /** Severity of a config check: wired correctly, working-but-reduced, or broken. */
 export type ConfigCheckLevel = "ok" | "degraded" | "error";
 
 /** The configuration concern a check reports on. */
-export type ConfigArea = "config" | "providers" | "mcp" | "web-search";
+export type ConfigArea = "config" | "providers" | "mcp";
 
 /** A single configuration-health finding. */
 export interface ConfigCheck {
@@ -28,8 +27,8 @@ export interface ConfigHealth {
  * Pure: no disk, no console — the single source of truth both the CLI boot
  * report and `GET /api/config/health` render. "Required" is contextual: no
  * providers is *degraded* (sh/use workflows still run), a declared provider with
- * a missing API key is an *error*, and a missing Tavily key is *degraded* (web
- * search simply off). Never inspects a resolved key value, only its presence.
+ * a missing API key is an *error*, and an MCP server whose declared env ref is
+ * unset is an *error*. Never inspects a resolved key value, only its presence.
  */
 export function evaluateConfigHealth(input: {
   kiriConfig: KiriConfigLoadResult;
@@ -116,25 +115,6 @@ export function evaluateConfigHealth(input: {
       });
     }
   }
-
-  // Web search (Tavily): degraded, never an error — the tools self-gate on this
-  // exact key, so an absent one just means sessions run without them.
-  const tavily = env[TAVILY_API_KEY_ENV]?.trim();
-  checks.push(
-    tavily
-      ? {
-          area: "web-search",
-          level: "ok",
-          title: "Web search enabled",
-          detail: `${TAVILY_API_KEY_ENV} is set, so sessions can use web_search and web_extract.`,
-        }
-      : {
-          area: "web-search",
-          level: "degraded",
-          title: "Web search disabled",
-          detail: `${TAVILY_API_KEY_ENV} is not set, so sessions run without web_search and web_extract.`,
-        },
-  );
 
   return { checks };
 }
