@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { createMCPClient } from "@ai-sdk/mcp";
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { resolveConfigDir } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
@@ -15,6 +16,8 @@ import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
 import { createLlmClients, createLlmProviderRegistry } from "../src/server/llm/index.ts";
+import { type CreateMcpClient, connectMcpServer } from "../src/server/mcp/connect.ts";
+import { createMcpRegistry } from "../src/server/mcp/registry.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
 import { createSessionTools } from "../src/server/sessions/index.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
@@ -122,6 +125,26 @@ const cancelRegistry = createCancelRegistry();
 const kiriConfig = loadKiriConfig(config, process.env);
 llmRegistry.replace(kiriConfig.providers);
 
+// MCP servers connect at boot; their tools are offered to every session, merged
+// with the built-in tools. A server that fails to connect is recorded in the
+// registry's status and skipped — it never blocks boot. The third-party SDK's
+// tool type is stricter than the AI SDK's `ToolSet`, so the client factory is
+// cast at this single boundary.
+const mcpRegistry = createMcpRegistry((server, env) =>
+  connectMcpServer(server, env, createMCPClient as unknown as CreateMcpClient),
+);
+await mcpRegistry.replace(kiriConfig.mcp, process.env);
+const mcpStatuses = mcpRegistry.status();
+if (mcpStatuses.length > 0) {
+  const connected = mcpStatuses.filter((s) => s.state === "connected").length;
+  console.log(`mcp: connected ${connected}/${mcpStatuses.length} server(s)`);
+  for (const status of mcpStatuses) {
+    if (status.state === "failed") {
+      console.error(`mcp: ${status.name} failed to connect: ${status.error}`);
+    }
+  }
+}
+
 // Surface configuration health at boot — warn-and-continue, never blocking the
 // server from starting. The same report is served at GET /api/config/health.
 printConfigHealth(evaluateConfigHealth({ kiriConfig, env: process.env }));
@@ -156,18 +179,21 @@ const app = createApp({
   cancelRegistry,
   llmClients,
   sessionTools,
+  mcpRegistry,
   version: VERSION,
   env: process.env,
 });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
 
-const shutdown = () => {
+const shutdown = async () => {
   // Stop the config watcher first so it can't schedule a revalidate after the
   // workflow watcher is torn down.
   configWatcher.stop();
   watcher.stop();
   server.stop();
+  // Close MCP connections so spawned stdio subprocesses are terminated cleanly.
+  await mcpRegistry.close();
   db.$client.close();
   process.exit(0);
 };
