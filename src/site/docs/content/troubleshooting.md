@@ -41,11 +41,14 @@ fine until an `llm:` step runs. Add a provider (see
 [LLM providers](/docs/llm-providers)) when you need one. Workflows with only
 `sh:`/`use:` steps need none.
 
-## Web search isn't available
+## A session tool isn't available
 
-Web search in agentic sessions is gated on `TAVILY_API_KEY`. With no key it's
-simply off (a **degraded** health check, not an error). Set the key in your
-environment or workspace `.env` and it appears on the next turn.
+Session tools come from MCP servers declared under `mcp:` in `kiri.yaml`. A
+server's tools appear only when it's configured and connects; one whose
+`{ env: }` var is unset, or that fails to start, shows as a config-health check
+naming it. Set the missing variable (in your environment or workspace `.env`)
+and the server reconnects on the next `kiri.yaml` save. For web search, add an
+MCP server that provides it — e.g. the Tavily MCP server.
 
 ## Edits aren't taking effect
 

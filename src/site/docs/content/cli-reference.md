@@ -50,8 +50,7 @@ current directory, or `KIRI_CONFIG_DIR` if set.
 | Variable | Effect |
 | --- | --- |
 | `KIRI_CONFIG_DIR` | Workspace directory to use instead of the current directory. A leading `~` is expanded to your home. Applies to both `kiri init` and the server. |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, … | API keys referenced by `kiri.yaml` providers via `{ env: <NAME> }`. Read at run time; can live in a git-ignored workspace `.env`. |
-| `TAVILY_API_KEY` | Enables first-party web search in agentic sessions. Optional. |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, … | Secrets referenced by `kiri.yaml` providers and MCP servers via `{ env: <NAME> }`. Read at run time; can live in a git-ignored workspace `.env`. |
 
 Kiri auto-loads a workspace `.env` (from the config dir) at boot, before reading
 any environment variable — so a workspace pinned with `KIRI_CONFIG_DIR` resolves
