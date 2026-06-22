@@ -8,6 +8,7 @@ const defaultHandlers = [
   http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
   http.get("*/api/models", () => HttpResponse.json({ models: [], failures: [] })),
   http.get("*/api/config/health", () => HttpResponse.json({ checks: [] })),
+  http.get("*/api/mcp/servers", () => HttpResponse.json({ servers: [] })),
   http.get("*/api/personas", () => HttpResponse.json({ personas: [] })),
   http.get("*/api/sessions", () => HttpResponse.json({ sessions: [], nextCursor: null })),
   http.get("*/api/version", () => HttpResponse.json({ version: "dev" })),

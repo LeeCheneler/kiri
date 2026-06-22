@@ -1,6 +1,7 @@
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ActivityFeed } from "../features/activity-feed/activity-feed.tsx";
 import { ConfigHealthPanel } from "../features/config-health/config-health-panel.tsx";
+import { McpStatusPanel } from "../features/mcp/mcp-status-panel.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
@@ -23,6 +24,7 @@ export function HomeContent({ now }: { now?: Date }) {
   return (
     <section>
       <ConfigHealthPanel />
+      <McpStatusPanel />
       <Breadcrumb items={[]} current="Activity" />
       <div className="mt-6">
         <ActivityFeed now={now} />

@@ -553,6 +553,33 @@ export interface ConfigHealth {
 export const fetchConfigHealth = async (): Promise<ConfigHealth> =>
   json<ConfigHealth>(await apiFetch("/api/config/health"));
 
+/** Connection state of a configured MCP server, from `GET /api/mcp/servers`. */
+export type McpServerState = "connected" | "failed" | "needs-sign-in";
+
+/** A single MCP server's runtime status. */
+export interface McpServerStatus {
+  name: string;
+  type: "stdio" | "http";
+  state: McpServerState;
+  /** Tools discovered, when connected. */
+  toolCount?: number;
+  /** Failure reason, when the connection failed. */
+  error?: string;
+}
+
+/** Per-server MCP status for the UI. */
+export interface McpServersResult {
+  servers: McpServerStatus[];
+}
+
+/** Fetch the per-server MCP status. Throws on non-2xx. */
+export const fetchMcpServers = async (): Promise<McpServersResult> =>
+  json<McpServersResult>(await apiFetch("/api/mcp/servers"));
+
+/** The URL that begins OAuth sign-in for an MCP `server`, opened in a new browser tab. */
+export const mcpAuthStartUrl = (server: string): string =>
+  apiUrl(`/api/mcp/${encodeURIComponent(server)}/auth/start`);
+
 /** A persona available to attach to a session. */
 export interface Persona {
   /** The `personas/<id>.md` filename stem — what's stored on the session and sent to attach it. */
