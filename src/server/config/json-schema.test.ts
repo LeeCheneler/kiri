@@ -59,4 +59,20 @@ describe("kiriConfigJsonSchema", () => {
       expect(branch.additionalProperties).toBe(false);
     }
   });
+
+  it("publishes the mcp servers map as a union discriminated on type", () => {
+    const schema = kiriConfigJsonSchema() as {
+      properties: {
+        mcp: {
+          type?: string;
+          additionalProperties: { oneOf: { properties: { type?: { const?: string } } }[] };
+        };
+      };
+    };
+    expect(schema.properties.mcp.type).toBe("object");
+    const consts = schema.properties.mcp.additionalProperties.oneOf.map(
+      (b) => b.properties.type?.const,
+    );
+    expect(consts).toEqual(["stdio", "http"]);
+  });
 });
