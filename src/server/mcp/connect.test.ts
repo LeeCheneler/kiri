@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { MCPClientConfig } from "@ai-sdk/mcp";
+import type { MCPClientConfig, OAuthClientProvider } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import { type CreateMcpClient, connectMcpServer } from "./connect.ts";
 import type { McpServer } from "./schema.ts";
@@ -59,6 +59,13 @@ describe("connectMcpServer", () => {
     const cap = capturing();
     await connectMcpServer({ name: "x", type: "http", url: "u" }, {}, cap.create);
     expect(cap.config().transport).toEqual({ type: "http", url: "u" });
+  });
+
+  it("attaches the OAuth provider to an http transport when given one", async () => {
+    const cap = capturing();
+    const authProvider = { tokens: () => undefined } as unknown as OAuthClientProvider;
+    await connectMcpServer({ name: "x", type: "http", url: "u" }, {}, cap.create, authProvider);
+    expect(cap.config().transport).toEqual({ type: "http", url: "u", authProvider });
   });
 
   it("drops a header whose env var is unset at connect time", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { UnauthorizedError } from "@ai-sdk/mcp";
 import { type Tool, type ToolSet, tool } from "ai";
 import { z } from "zod";
 import { createMcpRegistry } from "./registry.ts";
@@ -48,6 +49,21 @@ describe("createMcpRegistry", () => {
       type: "stdio",
       state: "failed",
       error: "nope",
+    });
+    expect(registry.status().find((s) => s.name === "good")?.state).toBe("connected");
+  });
+
+  it("marks a server needs-sign-in when connect throws UnauthorizedError", async () => {
+    const registry = createMcpRegistry(async (server) => {
+      if (server.name === "oauth") throw new UnauthorizedError();
+      return { tools: async () => ({ search: aTool() }), close: async () => {} };
+    });
+    await registry.replace(serverMap(stdio("oauth"), stdio("good")), {});
+    expect(Object.keys(registry.tools())).toEqual(["good__search"]);
+    expect(registry.status().find((s) => s.name === "oauth")).toEqual({
+      name: "oauth",
+      type: "stdio",
+      state: "needs-sign-in",
     });
     expect(registry.status().find((s) => s.name === "good")?.state).toBe("connected");
   });

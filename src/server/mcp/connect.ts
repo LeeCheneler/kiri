@@ -1,4 +1,4 @@
-import type { MCPClientConfig } from "@ai-sdk/mcp";
+import type { MCPClientConfig, OAuthClientProvider } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { ToolSet } from "ai";
 import type { McpServer } from "./schema.ts";
@@ -36,6 +36,7 @@ function resolveValues(
 function mcpTransport(
   server: McpServer,
   env: Record<string, string | undefined>,
+  authProvider?: OAuthClientProvider,
 ): MCPClientConfig["transport"] {
   if (server.type === "stdio") {
     return new Experimental_StdioMCPTransport({
@@ -44,20 +45,30 @@ function mcpTransport(
       env: resolveValues(server.envRefs, env),
     });
   }
-  return { type: "http", url: server.url, headers: resolveValues(server.headerRefs, env) };
+  // The OAuth provider is the SDK's switch for token-based auth: with it, a 401
+  // drives discovery/refresh/sign-in; without it, a 401 is a hard error.
+  return {
+    type: "http",
+    url: server.url,
+    headers: resolveValues(server.headerRefs, env),
+    authProvider,
+  };
 }
 
 /**
  * Connect to one resolved MCP server. Builds its transport (a spawned
  * subprocess for `stdio`, a Streamable-HTTP session for `http`), reading secret
- * values from `env` at this point only — they are never stored. The MCP client
- * is created via the injected `createClient` (the real `createMCPClient` in
- * production).
+ * values from `env` at this point only — they are never stored. An `authProvider`
+ * (only for an OAuth http server) is attached so the SDK can present and refresh
+ * tokens; a server needing sign-in throws `UnauthorizedError` from here. The MCP
+ * client is created via the injected `createClient` (the real `createMCPClient`
+ * in production).
  */
 export function connectMcpServer(
   server: McpServer,
   env: Record<string, string | undefined>,
   createClient: CreateMcpClient,
+  authProvider?: OAuthClientProvider,
 ): Promise<McpClient> {
-  return createClient({ transport: mcpTransport(server, env) });
+  return createClient({ transport: mcpTransport(server, env, authProvider) });
 }
