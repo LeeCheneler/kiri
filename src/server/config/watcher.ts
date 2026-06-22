@@ -2,6 +2,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { basename } from "node:path";
 import type { EventBus } from "../events/index.ts";
 import type { LlmProviderRegistry } from "../llm/index.ts";
+import type { McpRegistry } from "../mcp/registry.ts";
 import { loadKiriConfig } from "./loader.ts";
 import type { ConfigStore } from "./store.ts";
 
@@ -13,6 +14,8 @@ export interface WatchConfigOptions {
   onReload?: () => void;
   /** Publishes `config.changed` on every settled reload (success or failure) so live clients refetch config-derived state. */
   bus?: EventBus;
+  /** When supplied, a successful reload also reconnects the MCP servers in the new config. */
+  mcpRegistry?: McpRegistry;
 }
 
 export interface KiriConfigWatcher {
@@ -23,8 +26,10 @@ const DEFAULT_DEBOUNCE_MS = 50;
 
 /**
  * Watch the workspace's `kiri.yaml` / `kiri.yml` for changes and keep the LLM
- * provider `registry` in sync — the same hot-reload `workflows/` already has. On
- * a successful reload the registry is swapped and `onReload` fires (the boot
+ * provider `registry` — and, when supplied, the MCP server `mcpRegistry` — in
+ * sync, the same hot-reload `workflows/` already has. On a successful reload the
+ * provider registry is swapped, the MCP servers are reconnected, and `onReload`
+ * fires (the boot
  * path wires this to the workflow watcher's `revalidate`, so `llm:` steps
  * re-check their provider against the new set). A reload that fails to parse or
  * validate is logged and the last-known-good registry is kept, so a mid-edit
@@ -47,19 +52,24 @@ export function watchKiriConfig(
   const watchFn = options.watchFn ?? watch;
   const onReload = options.onReload;
   const bus = options.bus;
+  const mcpRegistry = options.mcpRegistry;
   const configNames = new Set(config.configFiles().map((path) => basename(path)));
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const reload = () => {
+  const reload = async () => {
     timer = null;
     const result = loadKiriConfig(config, env);
     if (result.warning) console.warn(`kiri.yaml: ${result.warning}`);
     if (result.failure) {
-      // Keep the last-known-good registry on an invalid edit; just surface why.
+      // Keep the last-known-good registries on an invalid edit; just surface why.
       console.error(`kiri.yaml: failed to load ${result.failure.path}: ${result.failure.reason}`);
     } else {
       registry.replace(result.providers);
       console.log(`kiri.yaml: reloaded ${result.providers.size} provider(s)`);
+      if (mcpRegistry) {
+        await mcpRegistry.replace(result.mcp, env);
+        console.log(`kiri.yaml: reloaded ${result.mcp.size} mcp server(s)`);
+      }
       onReload?.();
     }
     // Notify live clients on every settled reload — including a failure — so the

@@ -169,6 +169,7 @@ const watcher = watchWorkflows(config, registry, initial, { bus, getProviderName
 const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
   onReload: () => watcher.revalidate(),
   bus,
+  mcpRegistry,
 });
 
 const app = createApp({
