@@ -553,13 +553,21 @@ export interface ConfigHealth {
 export const fetchConfigHealth = async (): Promise<ConfigHealth> =>
   json<ConfigHealth>(await apiFetch("/api/config/health"));
 
+/** A persona available to attach to a session. */
+export interface Persona {
+  /** The `personas/<id>.md` filename stem — what's stored on the session and sent to attach it. */
+  id: string;
+  /** Humanised display label derived from the id (`financial-advisor` → `Financial Advisor`). */
+  name: string;
+}
+
 /**
- * Fetch the persona names available to attach at session creation — the
- * `<name>` of each `personas/<name>.md` in the workspace. Empty when none are
- * defined. Throws on non-2xx.
+ * Fetch the personas available to attach at session creation — one `{ id, name }`
+ * per `personas/<id>.md` in the workspace. Empty when none are defined. Throws
+ * on non-2xx.
  */
-export const fetchPersonas = async (): Promise<string[]> =>
-  (await json<{ personas: string[] }>(await apiFetch("/api/personas"))).personas;
+export const fetchPersonas = async (): Promise<Persona[]> =>
+  (await json<{ personas: Persona[] }>(await apiFetch("/api/personas"))).personas;
 
 /** Session lifecycle status. `idle` is the resting state between turns. */
 export type SessionStatus = "running" | "idle" | "failed" | "cancelled";

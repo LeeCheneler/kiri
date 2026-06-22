@@ -50,7 +50,10 @@ that authoring guidance stays out of your sessions.
 Optional role overlays, one file per persona under `personas/<name>.md` (the
 filename minus `.md` is its name). A persona is **attached per session** from the
 chat's right-hand aside — a picker under the model — and injected *after*
-`kiri.md`. Use one to put a session into a specific role.
+`kiri.md`. Use one to put a session into a specific role. The picker shows a
+**humanised** label derived from the filename — `personas/financial-advisor.md`
+lists as *Financial Advisor* — so a tidy kebab-case filename reads cleanly
+without any extra config.
 
 ```
 kiri.md
@@ -61,7 +64,8 @@ personas/
 
 A session starts with **no** persona (the leading **None** option detaches one),
 and you can swap or detach mid-conversation from the same picker — it applies
-from the next turn. Keep persona filenames tidy and kebab-case.
+from the next turn. Keep persona filenames tidy and kebab-case — they drive both
+the attach id and the humanised label.
 
 ```
 You are a meticulous senior code reviewer. Read diffs closely, flag correctness

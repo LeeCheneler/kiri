@@ -190,11 +190,16 @@ describe("listPersonas", () => {
     expect(listPersonas(config)).toEqual([]);
   });
 
-  it("lists the markdown persona names, sorted, ignoring non-markdown files", () => {
+  it("lists the markdown personas, sorted, with humanised names, ignoring non-markdown files", () => {
     writePersona(dir, "reviewer", "r");
     writePersona(dir, "architect", "a");
+    writePersona(dir, "financial-advisor", "f");
     writeFileSync(join(dir, PERSONAS_DIRNAME, "notes.txt"), "ignored");
-    expect(listPersonas(config)).toEqual(["architect", "reviewer"]);
+    expect(listPersonas(config)).toEqual([
+      { id: "architect", name: "Architect" },
+      { id: "financial-advisor", name: "Financial Advisor" },
+      { id: "reviewer", name: "Reviewer" },
+    ]);
   });
 });
 

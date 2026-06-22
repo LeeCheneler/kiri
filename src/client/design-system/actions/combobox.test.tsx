@@ -166,4 +166,42 @@ describe("<Combobox>", () => {
       "true",
     );
   });
+
+  describe("with { value, label } options", () => {
+    const ITEMS = [
+      { value: "financial-advisor", label: "Financial Advisor" },
+      { value: "red-team", label: "Red Team" },
+    ];
+
+    it("shows the selected option's label, not its value, while closed", () => {
+      render(<Combobox label="Persona" options={ITEMS} value="red-team" onChange={() => {}} />);
+      expect((screen.getByRole("combobox", { name: "Persona" }) as HTMLInputElement).value).toBe(
+        "Red Team",
+      );
+    });
+
+    it("renders and filters by the labels", async () => {
+      const user = userEvent.setup();
+      render(<Combobox label="Persona" options={ITEMS} value="red-team" onChange={() => {}} />);
+      const input = screen.getByRole("combobox", { name: "Persona" });
+      await user.click(input);
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "Financial Advisor",
+        "Red Team",
+      ]);
+      await user.type(input, "advis");
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "Financial Advisor",
+      ]);
+    });
+
+    it("commits the chosen option's value, not its label", async () => {
+      const user = userEvent.setup();
+      const onChange = mock((_value: string) => {});
+      render(<Combobox label="Persona" options={ITEMS} value="red-team" onChange={onChange} />);
+      await user.click(screen.getByRole("combobox", { name: "Persona" }));
+      await user.click(screen.getByRole("option", { name: "Financial Advisor" }));
+      expect(onChange.mock.calls).toEqual([["financial-advisor"]]);
+    });
+  });
 });

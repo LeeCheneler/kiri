@@ -191,12 +191,17 @@ describe("<SessionAside>", () => {
     expect(screen.queryByRole("combobox", { name: /persona/i })).toBeNull();
   });
 
-  it("attaches a persona when one is picked", async () => {
+  it("attaches a persona by id when its humanised label is picked", async () => {
     let patched: { persona?: string | null } = {};
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
       http.get("*/api/personas", () =>
-        HttpResponse.json({ personas: ["code-reviewer", "pirate"] }),
+        HttpResponse.json({
+          personas: [
+            { id: "code-reviewer", name: "Code Reviewer" },
+            { id: "pirate", name: "Pirate" },
+          ],
+        }),
       ),
       http.patch("*/api/sessions/:id", async ({ request }) => {
         patched = (await request.json()) as { persona?: string | null };
@@ -206,7 +211,8 @@ describe("<SessionAside>", () => {
     renderAside(<SessionAside id="s1" />);
 
     await userEvent.click(await screen.findByRole("combobox", { name: /persona/i }));
-    await userEvent.click(screen.getByRole("option", { name: "pirate" }));
+    // The option shows the humanised label; the patch sends the underlying id.
+    await userEvent.click(screen.getByRole("option", { name: "Pirate" }));
 
     await waitFor(() => expect(patched.persona).toBe("pirate"));
   });

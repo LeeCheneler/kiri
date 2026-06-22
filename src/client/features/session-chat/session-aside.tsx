@@ -1,3 +1,4 @@
+import { humaniseSlug } from "../../../shared/humanise-slug.ts";
 import { patchSessionModel, patchSessionPersona } from "../../api.ts";
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
@@ -44,15 +45,19 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const turnInFlight = session.status === "running";
 
   // Persona, same pattern as model: pin the attached one into the list even if
-  // the workspace no longer defines it, so the control can show and clear it.
-  // `None` leads the list as the detach option. The picker hides entirely when
-  // there are no personas to choose and none is attached.
-  const personaNames =
-    session.persona && !personas.includes(session.persona)
-      ? [session.persona, ...personas]
+  // the workspace no longer defines it, so the control can show and clear it —
+  // humanising its id for the label since the server no longer lists it. `None`
+  // leads the list as the detach option. The picker hides entirely when there
+  // are no personas to choose and none is attached.
+  const personaItems =
+    session.persona && !personas.some((p) => p.id === session.persona)
+      ? [{ id: session.persona, name: humaniseSlug(session.persona) }, ...personas]
       : personas;
-  const personaOptions = [PERSONA_NONE, ...personaNames];
-  const showPersona = personaNames.length > 0;
+  const personaOptions = [
+    { value: PERSONA_NONE, label: "None" },
+    ...personaItems.map((p) => ({ value: p.id, label: p.name })),
+  ];
+  const showPersona = personaItems.length > 0;
 
   return (
     <div className="divide-y divide-rule">
@@ -88,7 +93,9 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
             options={personaOptions}
             value={session.persona ?? PERSONA_NONE}
             disabled={turnInFlight}
-            onChange={(name) => void patchSessionPersona(id, name === PERSONA_NONE ? null : name)}
+            onChange={(value) =>
+              void patchSessionPersona(id, value === PERSONA_NONE ? null : value)
+            }
           />
         </section>
       ) : null}
