@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
+import { humaniseSlug } from "../../shared/humanise-slug.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { Session } from "./store.ts";
 
@@ -113,17 +114,29 @@ function readInstructions(path: string): string | null {
 }
 
 /**
- * List the persona names available in the workspace — the `<name>` of each
- * `personas/<name>.md` file, sorted. An absent `personas/` directory yields an
- * empty list (first-class: a workspace need not define any).
+ * A persona available to attach to a session: its `id` — the `personas/<id>.md`
+ * filename stem, used to load and attach it — and a humanised `name` for
+ * display.
  */
-export function listPersonas(config: ConfigStore): string[] {
+export interface Persona {
+  id: string;
+  name: string;
+}
+
+/**
+ * List the personas available in the workspace — one per `personas/<id>.md`
+ * file, sorted by id, each carrying a humanised display `name` derived from its
+ * id (`financial-advisor` → `Financial Advisor`). An absent `personas/`
+ * directory yields an empty list (first-class: a workspace need not define any).
+ */
+export function listPersonas(config: ConfigStore): Persona[] {
   const dir = config.personasDir();
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
     .map((entry) => entry.name.slice(0, -".md".length))
-    .sort();
+    .sort()
+    .map((id) => ({ id, name: humaniseSlug(id) }));
 }
 
 /**

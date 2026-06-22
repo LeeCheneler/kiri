@@ -180,15 +180,20 @@ describe("sessions routes", () => {
       expect(await res.json()).toEqual({ personas: [] });
     });
 
-    it("lists the workspace's persona names", async () => {
+    it("lists the workspace's personas with humanised names", async () => {
       writePersona("reviewer", "r");
-      writePersona("architect", "a");
+      writePersona("financial-advisor", "f");
       const app = makeApp(fakeClients());
 
       const res = await app.request("/api/personas");
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ personas: ["architect", "reviewer"] });
+      expect(await res.json()).toEqual({
+        personas: [
+          { id: "financial-advisor", name: "Financial Advisor" },
+          { id: "reviewer", name: "Reviewer" },
+        ],
+      });
     });
   });
 

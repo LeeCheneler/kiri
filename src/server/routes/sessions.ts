@@ -97,8 +97,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
 
-  // The personas available to attach at session creation — the `<name>` of each
-  // `personas/<name>.md` in the workspace. Empty when none are defined.
+  // The personas available to attach at session creation — one `{ id, name }`
+  // per `personas/<id>.md` in the workspace, the `name` humanised for display.
+  // Empty when none are defined.
   app.get("/personas", (c) => c.json({ personas: listPersonas(config) }));
 
   app.post(
@@ -199,7 +200,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
       // A named persona must be one the workspace defines; `null` detaches.
       if (persona !== undefined) {
-        if (persona !== null && !listPersonas(config).includes(persona)) {
+        if (persona !== null && !listPersonas(config).some((p) => p.id === persona)) {
           return c.json({ error: `unknown persona "${persona}"` }, 400);
         }
         updateSessionPersona(db, id, persona);

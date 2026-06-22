@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import {
   type ModelsResult,
+  type Persona,
   type SessionDetail,
   type SessionListEntry,
   fetchModels,
@@ -34,12 +35,12 @@ export function useModels(): UseQueryResult<ModelsResult> {
 }
 
 /**
- * Read the persona names available to attach at session creation. Like the
- * models list, this is fetched on first use and served from cache — personas
- * are workspace files read per turn on the server, so the picker need not
- * live-sync; a restart (or cache invalidation) refreshes it.
+ * Read the personas available to attach at session creation. Like the models
+ * list, this is fetched on first use and served from cache — personas are
+ * workspace files read per turn on the server, so the picker need not live-sync;
+ * a restart (or cache invalidation) refreshes it.
  */
-export function usePersonas(): UseQueryResult<string[]> {
+export function usePersonas(): UseQueryResult<Persona[]> {
   return useQuery({ queryKey: personasKey, queryFn: fetchPersonas });
 }
 

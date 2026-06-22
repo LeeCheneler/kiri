@@ -18,6 +18,7 @@ export {
   INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
   type BuildSystemPromptOptions,
+  type Persona,
   buildSystemPrompt,
   createSystemPromptBuilder,
   listPersonas,
