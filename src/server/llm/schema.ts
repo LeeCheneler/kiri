@@ -1,13 +1,5 @@
 import { z } from "zod";
-
-const envRefSchema = z
-  .object({
-    env: z.string().min(1).describe("Name of an environment variable holding the API key."),
-  })
-  .strict()
-  .describe(
-    "Reference to an environment variable holding the API key. Only this `{ env: <NAME> }` form is allowed — a literal key string is rejected so secrets stay out of git-tracked YAML.",
-  );
+import { envRefSchema } from "../config/env-ref.ts";
 
 const baseUrlSchema = z.string().min(1);
 
@@ -58,8 +50,7 @@ export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 /** A built-in provider type. */
 export type ProviderType = ProviderEntry["type"];
 
-/** A structured `{ env: <NAME> }` reference to an environment variable. */
-export type EnvRef = z.infer<typeof envRefSchema>;
+export type { EnvRef } from "../config/env-ref.ts";
 
 /**
  * A provider after the loader resolves it: its `type`, the optional base URL,
