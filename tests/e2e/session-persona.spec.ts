@@ -8,17 +8,18 @@ test("attaching a persona from the aside persists across a reload", async ({ pag
   const persona = page.getByLabel(/persona/i);
   await expect(persona).toHaveValue("None");
 
-  await usePersona(page, "pirate");
-  await expect(persona).toHaveValue("pirate");
+  // The picker shows the humanised label; the id ("pirate") is what's stored.
+  await usePersona(page, "Pirate");
+  await expect(persona).toHaveValue("Pirate");
 
   // The attachment lives on the session row, so it survives a reload.
   await page.reload();
-  await expect(page.getByLabel(/persona/i)).toHaveValue("pirate");
+  await expect(page.getByLabel(/persona/i)).toHaveValue("Pirate");
 });
 
 test("a turn runs with a persona attached", async ({ page }) => {
   await startSession(page);
-  await usePersona(page, "pirate");
+  await usePersona(page, "Pirate");
 
   // The turn completes against the echo model with the persona composed into the
   // system prompt — attaching a persona doesn't break the turn path.
