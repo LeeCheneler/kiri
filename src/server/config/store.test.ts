@@ -29,6 +29,10 @@ describe("createConfigStore", () => {
     expect(config.runDir("run-123")).toBe(join(root, ".kiri", "runs", "run-123"));
   });
 
+  it("derives the mcp credentials file under the data dir", () => {
+    expect(config.mcpCredentialsFile()).toBe(join(root, ".kiri", "mcp-credentials.json"));
+  });
+
   it("derives the instructions and config files", () => {
     expect(config.instructionsFile()).toBe(join(root, "kiri.md"));
     expect(config.configFile()).toBe(join(root, "kiri.yaml"));

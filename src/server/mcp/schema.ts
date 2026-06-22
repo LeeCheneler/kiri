@@ -25,6 +25,12 @@ const httpServerSchema = z
       .describe(
         "Static request headers, e.g. Authorization. Each value is an { env: <NAME> } ref so secrets stay out of git.",
       ),
+    auth: z
+      .literal("oauth")
+      .optional()
+      .describe(
+        "Authenticate via OAuth instead of (or alongside) static headers. Kiri runs the OAuth sign-in in the browser and manages the tokens in .kiri/ (mode 0600); no { env: } ref is needed for the Authorization header.",
+      ),
   })
   .strict();
 
@@ -72,6 +78,11 @@ export interface McpHttpServer {
   url: string;
   /** Header name → source environment variable name. */
   headerRefs?: Record<string, string>;
+  /**
+   * When true, kiri authenticates to this server via OAuth, managing its tokens
+   * in the credential store rather than reading a static Authorization header.
+   */
+  oauth?: boolean;
 }
 
 /** A resolved MCP server, keyed by name in the loaded config. */

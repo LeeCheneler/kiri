@@ -156,7 +156,11 @@ function resolveMcpServers(
         envRefs: refs,
       });
     } else {
-      mcp.set(name, { name, type: "http", url: entry.url, headerRefs: refs });
+      const server: McpServer = { name, type: "http", url: entry.url, headerRefs: refs };
+      // OAuth servers carry no static-auth env ref; the token is obtained via the
+      // sign-in flow and managed in the credential store.
+      if (entry.auth === "oauth") server.oauth = true;
+      mcp.set(name, server);
     }
   }
 
