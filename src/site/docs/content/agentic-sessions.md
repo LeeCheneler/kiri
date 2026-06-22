@@ -86,19 +86,43 @@ those models show the current figure alone. As a conversation nears the window, 
 warning appears above the message box: a cue to start a fresh session before a
 turn fails.
 
-## Tools — web search
+## Tools — MCP servers
 
-Sessions can call **first-party tools** — generic agent capabilities, not
-workflow script bundles. A tool is offered to the model only when its single
-precondition is met; there's nothing to configure and no approve/deny prompts.
+Sessions can call **tools** — capabilities the model invokes mid-turn, not
+workflow script bundles. A session's tools come from **MCP servers** you declare
+under `mcp:` in `kiri.yaml`, each either a local `stdio` server kiri runs as a
+subprocess or a remote `http` (Streamable HTTP) server. Any secret — a server's
+API token, say — is an `{ env: <NAME> }` reference, never a literal in the file.
 
-The first tool is **web search**, backed by [Tavily](https://tavily.com). Set
-`TAVILY_API_KEY` in your environment (or a workspace `.env`, which kiri
-auto-loads) and the model can search the live web whenever it needs current or
-unknown information — like the ChatGPT app, it just works when the key is present
-and is simply off when it isn't. Each search shows inline in the transcript as a
-collapsed block you can expand; results are treated as **untrusted data**. With
-no key, web search is off — a **degraded** config-health check, not an error.
+Kiri connects each server when it starts and whenever you edit `kiri.yaml`,
+discovers the tools it offers, and namespaces them `<server>__<tool>` so two
+servers can't clash. A server's tools appear only when it's configured and
+connects; one whose env var is unset or that fails to connect is simply absent,
+with the reason shown as a config-health check. There's no approve/deny prompt —
+configuring a server is the decision to trust it.
+
+Each tool call shows inline in the transcript as a collapsed block you can
+expand; results are treated as **untrusted data**. Kiri ships no built-in tools
+of its own — for web search, for example, add an MCP server that provides it.
+
+### Example: web search via the Tavily MCP server
+
+Give sessions web search by adding [Tavily](https://tavily.com)'s remote MCP
+server under `mcp:` in your `kiri.yaml`:
+
+```yaml
+mcp:
+  tavily:
+    type: http
+    url: https://mcp.tavily.com/mcp/?tavilyApiKey=<api_key>
+```
+
+Kiri connects on startup and its tools appear in sessions namespaced
+`tavily__<tool>`. Tavily carries the key in the URL itself, so — unlike a
+provider `api_key` — it can't be an `{ env: }` reference; keep a `kiri.yaml`
+that embeds a literal key out of git. A server that authenticates with a header
+instead takes `headers: { Authorization: { env: <NAME> } }`, and a local server
+uses `type: stdio` with a `command`. Any MCP server is configured the same way.
 
 ## Attachments
 

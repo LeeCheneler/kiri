@@ -5,12 +5,12 @@ import { Notice } from "./notice.tsx";
 describe("<Notice>", () => {
   it("renders the title and detail", () => {
     render(
-      <Notice tone="warning" title="Web search disabled">
-        TAVILY_API_KEY is not set
+      <Notice tone="warning" title="No LLM providers configured">
+        Declare a provider in kiri.yaml.
       </Notice>,
     );
-    expect(screen.getByText("Web search disabled")).toBeDefined();
-    expect(screen.getByText("TAVILY_API_KEY is not set")).toBeDefined();
+    expect(screen.getByText("No LLM providers configured")).toBeDefined();
+    expect(screen.getByText("Declare a provider in kiri.yaml.")).toBeDefined();
   });
 
   it("exposes the tone as data-tone", () => {
@@ -33,7 +33,7 @@ describe("<Notice>", () => {
   });
 
   it("announces politely as a status region when asked", () => {
-    render(<Notice tone="warning" announce="polite" title="Web search disabled" />);
+    render(<Notice tone="warning" announce="polite" title="No LLM providers configured" />);
     expect(screen.getByRole("status")).toBeDefined();
   });
 

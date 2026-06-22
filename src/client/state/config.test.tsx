@@ -38,7 +38,7 @@ describe("config state", () => {
     server.use(
       http.get("*/api/config/health", () =>
         HttpResponse.json({
-          checks: [{ area: "web-search", level: "degraded", title: "off", detail: "no key" }],
+          checks: [{ area: "mcp", level: "error", title: "off", detail: "no key" }],
         }),
       ),
       http.get("*/api/models", () =>

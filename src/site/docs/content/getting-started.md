@@ -99,7 +99,8 @@ activity page. What counts as a problem is contextual:
   `llm:` step needs one.
 - A declared provider whose API-key env var is unset, or an unparseable
   `kiri.yaml`, is flagged as an **error**.
-- A missing `TAVILY_API_KEY` just turns web search off (**degraded**).
+- A declared MCP server whose `{ env: }` var is unset is flagged as an
+  **error**, naming the server.
 
 Edits to `kiri.yaml` update the in-app banner live. If something isn't working,
 [Troubleshooting](/docs/troubleshooting) starts here.

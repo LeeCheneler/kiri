@@ -42,15 +42,9 @@ export interface SessionsRoutesDeps {
    */
   cancelRegistry?: CancelRegistry;
   /**
-   * Tools offered to each session's model (e.g. `web_search`), assembled by
-   * `createSessionTools`. Omitted (or empty) leaves sessions as plain chat with
-   * no tools.
-   */
-  sessionTools?: ToolSet;
-  /**
-   * MCP server registry. Its discovered tools are merged into each turn's tool
-   * set alongside `sessionTools`, read live so a config reload is reflected on
-   * the next turn. Omitted leaves sessions with the built-in tools only.
+   * MCP server registry. Its discovered tools are offered to each turn's model,
+   * read live so a config reload is reflected on the next turn. Omitted leaves
+   * sessions as a plain chat with no tools.
    */
   mcpRegistry?: McpRegistry;
 }
@@ -94,13 +88,13 @@ const turnBodySchema = z.object({
  * cancel. Mounted under `/api` by `createApp`, alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, config, llmClients, bus, cancelRegistry, sessionTools, mcpRegistry } = deps;
+  const { db, config, llmClients, bus, cancelRegistry, mcpRegistry } = deps;
   const app = new Hono();
 
-  // The tools offered to a turn: the built-in set plus any live MCP server tools.
-  // Read per turn (not once) so a config reload that adds or drops MCP servers is
-  // reflected on the next turn rather than requiring a restart.
-  const activeTools = (): ToolSet => ({ ...sessionTools, ...mcpRegistry?.tools() });
+  // The tools offered to a turn — the live MCP server tools. Read per turn (not
+  // once) so a config reload that adds or drops MCP servers is reflected on the
+  // next turn rather than requiring a restart.
+  const activeTools = (): ToolSet => mcpRegistry?.tools() ?? {};
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
 

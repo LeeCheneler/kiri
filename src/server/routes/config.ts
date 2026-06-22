@@ -6,7 +6,7 @@ import type { ConfigStore } from "../config/store.ts";
 export interface ConfigRoutesDeps {
   /** Workspace config — the health check reads `kiri.yaml` against it. */
   config: ConfigStore;
-  /** Environment the health check resolves provider and Tavily keys against. */
+  /** Environment the health check resolves provider keys against. */
   env: Record<string, string | undefined>;
 }
 

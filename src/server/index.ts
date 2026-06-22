@@ -1,4 +1,3 @@
-import type { ToolSet } from "ai";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -55,15 +54,8 @@ export interface AppDeps {
    */
   llmClients?: LlmClients;
   /**
-   * Tools offered to each session's model (e.g. `web_search`), assembled by
-   * `createSessionTools`. Forwarded to the sessions routes; omitted leaves
-   * sessions as a plain chat with no tools.
-   */
-  sessionTools?: ToolSet;
-  /**
-   * MCP server registry whose discovered tools are merged into each session's
-   * tool set alongside `sessionTools`. Omitted leaves sessions with the
-   * built-in tools only.
+   * MCP server registry whose discovered tools are offered to each session's
+   * model. Omitted leaves sessions as a plain chat with no tools.
    */
   mcpRegistry?: McpRegistry;
   /**
@@ -82,8 +74,8 @@ export interface AppDeps {
    */
   version?: string;
   /**
-   * Environment the config-health endpoint resolves provider and Tavily keys
-   * against. `bin/kiri.ts` passes `process.env`; defaults to it when omitted.
+   * Environment the config-health endpoint resolves provider keys against.
+   * `bin/kiri.ts` passes `process.env`; defaults to it when omitted.
    */
   env?: Record<string, string | undefined>;
 }
@@ -114,17 +106,8 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const {
-    db,
-    registry,
-    config,
-    bus,
-    eventsHeartbeatMs,
-    cancelRegistry,
-    llmClients,
-    sessionTools,
-    mcpRegistry,
-  } = deps;
+  const { db, registry, config, bus, eventsHeartbeatMs, cancelRegistry, llmClients, mcpRegistry } =
+    deps;
   const version = deps.version ?? "dev";
   const env = deps.env ?? process.env;
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
@@ -198,10 +181,7 @@ export function createApp(deps: AppDeps): Hono {
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
   if (llmClients) {
-    app.route(
-      "/api",
-      sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, sessionTools, mcpRegistry }),
-    );
+    app.route("/api", sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, mcpRegistry }));
   }
 
   if (bus) {

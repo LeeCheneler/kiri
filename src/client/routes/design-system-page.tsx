@@ -1649,8 +1649,8 @@ export function DesignSystemContent() {
                   <Notice tone="informational" title="No personas defined">
                     Add a <Code>personas/&lt;name&gt;.md</Code> file to offer session overlays.
                   </Notice>
-                  <Notice tone="warning" title="Web search disabled">
-                    TAVILY_API_KEY is not set, so sessions run without web_search and web_extract.
+                  <Notice tone="warning" title="No LLM providers configured">
+                    Declare a provider in kiri.yaml to enable sessions and llm: steps.
                   </Notice>
                   <Notice tone="negative" title="anthropic: ANTHROPIC_API_KEY is not set">
                     The provider cannot authenticate until the key is set in the environment.

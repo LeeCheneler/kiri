@@ -23,12 +23,12 @@ describe("config routes", () => {
   });
 
   describe("GET /api/config/health", () => {
-    it("reports degraded providers and web search for an unconfigured workspace", async () => {
+    it("reports degraded providers for an unconfigured workspace", async () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config, env: {} });
       const res = await app.request("/api/config/health");
       expect(res.status).toBe(200);
       const { checks } = (await res.json()) as { checks: ConfigCheck[] };
-      expect(areasByLevel(checks, "degraded")).toEqual(["providers", "web-search"]);
+      expect(areasByLevel(checks, "degraded")).toEqual(["providers"]);
     });
 
     it("reads providers from disk and keys from the supplied env", async () => {

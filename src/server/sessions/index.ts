@@ -24,13 +24,4 @@ export {
   listPersonas,
   loadPersona,
 } from "./system-prompt.ts";
-export {
-  TAVILY_API_KEY_ENV,
-  type WebSearchOutput,
-  type WebSearchResult,
-  type WebExtractOutput,
-  type WebExtractResult,
-  type WebExtractFailure,
-  createSessionTools,
-} from "./tools/index.ts";
 export { type RunTurnArgs, type RunTurnDeps, type StartedTurn, runTurn } from "./turn.ts";

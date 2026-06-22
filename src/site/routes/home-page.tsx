@@ -27,8 +27,8 @@ const CAPABILITIES: Capability[] = [
     detail: "Any run can suggest its own follow-ups, one click away.",
   },
   {
-    term: "First-party tools",
-    detail: "Web search and page extraction, gated on your Tavily key.",
+    term: "MCP tools",
+    detail: "Sessions call tools from MCP servers you declare in kiri.yaml.",
   },
   {
     term: "One activity feed",
@@ -114,9 +114,9 @@ function Pillars() {
         <Card>
           <Eyebrow>Agentic sessions</Eyebrow>
           <p className="mt-3 font-mono text-sm text-ink-muted leading-relaxed">
-            Open-ended chat with first-party tools — like web search — and your project's context. A
-            kiri.md file and optional personas layer the system prompt, read fresh from disk each
-            turn.
+            Open-ended chat with tools from MCP servers you configure — like web search — and your
+            project's context. A kiri.md file and optional personas layer the system prompt, read
+            fresh from disk each turn.
           </p>
           <div className="mt-6">
             <SessionDiagram />

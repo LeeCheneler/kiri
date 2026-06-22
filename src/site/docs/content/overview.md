@@ -43,8 +43,8 @@ The article and summary land on the run's page and in the activity feed. See
   diagrams, rendered through a sandboxed parser.
 - **Recommendations** — a run can propose its own follow-ups, each a one-click
   trigger that pre-fills a workflow's inputs.
-- **First-party tools** — sessions can search and read the web, gated on a
-  Tavily key.
+- **MCP tools** — sessions call tools from MCP servers you declare in
+  `kiri.yaml` (web search, and more).
 - **Layered system prompts** — a `kiri.md` file and named personas shape every
   session.
 - **Bring your own model** — Anthropic, OpenAI, or any OpenAI-compatible server
