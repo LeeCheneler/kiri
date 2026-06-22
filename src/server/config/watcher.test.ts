@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus } from "../events/index.ts";
 import { type LlmProviderRegistry, createLlmProviderRegistry } from "../llm/index.ts";
+import type { McpRegistry } from "../mcp/registry.ts";
 import { loadKiriConfig } from "./loader.ts";
 import { type ConfigStore, createConfigStore } from "./store.ts";
 import { watchKiriConfig } from "./watcher.ts";
@@ -104,6 +105,33 @@ describe("watchKiriConfig", () => {
     expect(registry.getProvider("local")?.type).toBe("openai-compatible");
     expect(reloaded).toBe(1);
     expect(logs.some((m) => m.includes("reloaded 1 provider"))).toBe(true);
+    watcher.stop();
+  });
+
+  it("reconnects mcp servers when kiri.yaml changes", async () => {
+    const replaced: string[][] = [];
+    const fakeMcp: McpRegistry = {
+      tools: () => ({}),
+      status: () => [],
+      replace: async (servers) => {
+        replaced.push([...servers.keys()]);
+      },
+      close: async () => {},
+    };
+    const { watchFn, triggerChange } = createFakeWatcher();
+    const watcher = watchKiriConfig(
+      config,
+      registry,
+      {},
+      { debounceMs: 10, watchFn, mcpRegistry: fakeMcp },
+    );
+
+    writeConfig("mcp:\n  fs:\n    type: stdio\n    command: server\n");
+    triggerChange("kiri.yaml");
+    await waitFor(() => replaced.length > 0);
+
+    expect(replaced[0]).toEqual(["fs"]);
+    expect(logs.some((m) => m.includes("reloaded 1 mcp server"))).toBe(true);
     watcher.stop();
   });
 

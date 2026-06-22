@@ -2,10 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import { type Tool, type ToolSet, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
+import { z } from "zod";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
+import type { McpRegistry } from "../mcp/registry.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import {
   appendMessage,
@@ -95,7 +98,7 @@ describe("sessions routes", () => {
 
   const makeApp = (
     clients: LlmClients,
-    extra: { bus?: EventBus; cancelRegistry?: CancelRegistry } = {},
+    extra: { bus?: EventBus; cancelRegistry?: CancelRegistry; mcpRegistry?: McpRegistry } = {},
   ) =>
     createApp({
       db: env.db,
@@ -103,6 +106,21 @@ describe("sessions routes", () => {
       config: env.config,
       llmClients: clients,
       ...extra,
+    });
+
+  // A registry whose tools() returns a fixed set; the route only reads tools().
+  const fakeMcp = (tools: ToolSet): McpRegistry => ({
+    tools: () => tools,
+    status: () => [],
+    replace: async () => {},
+    close: async () => {},
+  });
+
+  const mcpTool = (): Tool =>
+    tool({
+      description: "create an issue",
+      inputSchema: z.object({ title: z.string() }),
+      execute: async () => "created",
     });
 
   const postMessage = (app: ReturnType<typeof createApp>, id: string, text: string) =>
@@ -391,6 +409,43 @@ describe("sessions routes", () => {
       const settledSession = getSession(env.db, "s1");
       expect(settledSession?.status).toBe("idle");
       expect(settledSession?.totalTokens).toBe(9);
+    });
+
+    it("merges MCP server tools into the turn and names them for the system prompt", async () => {
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), {
+        bus,
+        mcpRegistry: fakeMcp({ linear__create_issue: mcpTool() }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      const res = await postMessage(app, "s1", "open an issue");
+      await res.text();
+      await settled;
+
+      // The namespaced MCP tool was offered to the model, and the core prompt's
+      // tool guidance turned on because the active tool set is non-empty.
+      expect(toolNames).toContain("linear__create_issue");
+      expect(systemText).toContain("You have tools available.");
     });
 
     it("persists the user message under the id the client sent", async () => {

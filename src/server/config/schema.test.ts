@@ -40,6 +40,26 @@ describe("kiriConfigSchema", () => {
     });
   });
 
+  it("parses an mcp servers map", () => {
+    const result = kiriConfigSchema.parse({
+      mcp: { fs: { type: "stdio", command: "npx", args: ["-y", "server"] } },
+    });
+    expect(result.mcp?.fs).toEqual({ type: "stdio", command: "npx", args: ["-y", "server"] });
+  });
+
+  it("parses providers and mcp together", () => {
+    const result = kiriConfigSchema.parse({
+      providers: { anthropic: { type: "anthropic" } },
+      mcp: { linear: { type: "http", url: "https://mcp.linear.app/mcp" } },
+    });
+    expect(result.providers?.anthropic).toEqual({ type: "anthropic" });
+    expect(result.mcp?.linear).toEqual({ type: "http", url: "https://mcp.linear.app/mcp" });
+  });
+
+  it("leaves mcp undefined when the key is absent", () => {
+    expect(kiriConfigSchema.parse({}).mcp).toBeUndefined();
+  });
+
   it("requires an explicit type on every provider", () => {
     const result = kiriConfigSchema.safeParse({ providers: { anthropic: {} } });
     expect(result.success).toBe(false);

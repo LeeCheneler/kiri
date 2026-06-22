@@ -8,6 +8,7 @@ import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
 import type { LlmClients } from "./llm/index.ts";
+import type { McpRegistry } from "./mcp/registry.ts";
 import { activityRoutes } from "./routes/activity.ts";
 import { configRoutes } from "./routes/config.ts";
 import { runsRoutes } from "./routes/runs.ts";
@@ -60,6 +61,12 @@ export interface AppDeps {
    */
   sessionTools?: ToolSet;
   /**
+   * MCP server registry whose discovered tools are merged into each session's
+   * tool set alongside `sessionTools`. Omitted leaves sessions with the
+   * built-in tools only.
+   */
+  mcpRegistry?: McpRegistry;
+  /**
    * Inject the embedded-SPA map directly (test seam). Production reads
    * from `embedded-assets.ts`; tests pass a `Map` to exercise the
    * embedded code path without going through `bun build --compile`.
@@ -107,8 +114,17 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * serves the static client bundle.
  */
 export function createApp(deps: AppDeps): Hono {
-  const { db, registry, config, bus, eventsHeartbeatMs, cancelRegistry, llmClients, sessionTools } =
-    deps;
+  const {
+    db,
+    registry,
+    config,
+    bus,
+    eventsHeartbeatMs,
+    cancelRegistry,
+    llmClients,
+    sessionTools,
+    mcpRegistry,
+  } = deps;
   const version = deps.version ?? "dev";
   const env = deps.env ?? process.env;
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
@@ -184,7 +200,7 @@ export function createApp(deps: AppDeps): Hono {
   if (llmClients) {
     app.route(
       "/api",
-      sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, sessionTools }),
+      sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, sessionTools, mcpRegistry }),
     );
   }
 

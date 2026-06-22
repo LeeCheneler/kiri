@@ -8,6 +8,7 @@ import type { KiriDb } from "../db/index.ts";
 import { sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
+import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   createSession,
@@ -46,6 +47,12 @@ export interface SessionsRoutesDeps {
    * no tools.
    */
   sessionTools?: ToolSet;
+  /**
+   * MCP server registry. Its discovered tools are merged into each turn's tool
+   * set alongside `sessionTools`, read live so a config reload is reflected on
+   * the next turn. Omitted leaves sessions with the built-in tools only.
+   */
+  mcpRegistry?: McpRegistry;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -87,13 +94,13 @@ const turnBodySchema = z.object({
  * cancel. Mounted under `/api` by `createApp`, alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, config, llmClients, bus, cancelRegistry, sessionTools } = deps;
+  const { db, config, llmClients, bus, cancelRegistry, sessionTools, mcpRegistry } = deps;
   const app = new Hono();
 
-  // Composes each turn's system prompt (kiri core + kiri.md + persona) from the
-  // session and workspace files. Built once with the active tool names so the
-  // core layer can advise when to use them; reads the files fresh per turn.
-  const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(sessionTools ?? {}));
+  // The tools offered to a turn: the built-in set plus any live MCP server tools.
+  // Read per turn (not once) so a config reload that adds or drops MCP servers is
+  // reflected on the next turn rather than requiring a restart.
+  const activeTools = (): ToolSet => ({ ...sessionTools, ...mcpRegistry?.tools() });
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
 
@@ -240,8 +247,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // The turn is drained server-side, so a client that disconnects (navigates
       // away, reloads, closes the tab) doesn't cancel it; only an explicit cancel
       // through `POST /api/sessions/:id/cancel` does.
+      // Resolve the active tools (built-in + live MCP) for this turn, and compose
+      // the system prompt from their names so the core layer's tool guidance
+      // matches what the model is actually offered.
+      const tools = activeTools();
+      const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(tools));
       const { response } = await runTurn(
-        { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools: sessionTools },
+        { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools },
         { session, userMessage },
       );
       return response;
