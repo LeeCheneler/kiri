@@ -7,9 +7,11 @@ import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
 import type { LlmClients } from "./llm/index.ts";
+import type { McpCredentialStore } from "./mcp/oauth-store.ts";
 import type { McpRegistry } from "./mcp/registry.ts";
 import { activityRoutes } from "./routes/activity.ts";
 import { configRoutes } from "./routes/config.ts";
+import { type McpAuth, mcpRoutes } from "./routes/mcp.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { sessionsRoutes } from "./routes/sessions.ts";
 import { mountStaticRoutes } from "./routes/static.ts";
@@ -58,6 +60,14 @@ export interface AppDeps {
    * model. Omitted leaves sessions as a plain chat with no tools.
    */
   mcpRegistry?: McpRegistry;
+  /**
+   * Credential store backing the MCP OAuth surface. With `mcpAuth` and
+   * `mcpRegistry`, mounts `/api/mcp` (status + auth start/callback); omit any
+   * of the three to leave that surface off.
+   */
+  mcpCredentialStore?: McpCredentialStore;
+  /** @ai-sdk/mcp's `auth`, injected so the OAuth routes are testable. */
+  mcpAuth?: McpAuth;
   /**
    * Inject the embedded-SPA map directly (test seam). Production reads
    * from `embedded-assets.ts`; tests pass a `Map` to exercise the
@@ -144,6 +154,11 @@ export function createApp(deps: AppDeps): Hono {
   // satisfy it without an explicit Access-Control-Allow-Headers permitting
   // the header — so even if the CORS allow-list ever drifts, state-changing
   // requests from disallowed origins are still rejected here.
+  //
+  // Deliberate hole: `GET /api/mcp/:server/auth/callback` mutates state (it
+  // exchanges the OAuth code for tokens) yet is exempt here because it is a
+  // top-level provider redirect — a GET, which can't carry the header. Its CSRF
+  // defence is the OAuth `state` param instead, checked against the stored value.
   app.use("*", async (c, next) => {
     if (SAFE_METHODS.has(c.req.method)) return next();
     if (!c.req.header(REQUIRED_CLIENT_HEADER)) {
@@ -182,6 +197,23 @@ export function createApp(deps: AppDeps): Hono {
   // surface is inert, so its routes (and `/api/models`) only mount when present.
   if (llmClients) {
     app.route("/api", sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, mcpRegistry }));
+  }
+
+  // MCP OAuth surface: per-server status plus the browser sign-in start/callback.
+  // Needs the registry (to report status and reconnect), the credential store,
+  // and the injected `auth` — all three or it stays unmounted.
+  if (mcpRegistry && deps.mcpCredentialStore && deps.mcpAuth) {
+    app.route(
+      "/api/mcp",
+      mcpRoutes({
+        config,
+        env,
+        registry: mcpRegistry,
+        credentialStore: deps.mcpCredentialStore,
+        auth: deps.mcpAuth,
+        bus,
+      }),
+    );
   }
 
   if (bus) {
