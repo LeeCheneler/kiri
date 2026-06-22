@@ -62,22 +62,22 @@ describe("<ChatMessage>", () => {
         // A step boundary and an empty text part both render nothing, sat
         // between the parts that do.
         { type: "step-start" },
-        { type: "text", text: "Let me search." },
+        { type: "text", text: "Let me look that up." },
         {
-          type: "tool-web_search",
+          type: "tool-create_issue",
           toolCallId: "c1",
           state: "output-available",
           input: { query: "kiri release" },
-          output: { results: [] },
+          output: { id: 1 },
         },
         { type: "text", text: "" },
         { type: "text", text: "Here is what I found." },
       ]),
     );
 
-    expect(screen.getByText("Let me search.")).toBeDefined();
+    expect(screen.getByText("Let me look that up.")).toBeDefined();
     expect(screen.getByText("Here is what I found.")).toBeDefined();
-    expect(screen.getByText("Web search")).toBeDefined();
+    expect(screen.getByText("Create issue")).toBeDefined();
     expect(screen.getByText("kiri release")).toBeDefined();
   });
 

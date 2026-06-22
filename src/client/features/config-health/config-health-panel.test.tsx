@@ -17,16 +17,16 @@ describe("<ConfigHealthPanel>", () => {
         HttpResponse.json({
           checks: [
             {
-              area: "providers",
+              area: "mcp",
               level: "ok",
-              title: "1 LLM provider configured",
-              detail: "anthropic",
+              title: "1 MCP server configured",
+              detail: "linear",
             },
             {
-              area: "web-search",
+              area: "providers",
               level: "degraded",
-              title: "Web search disabled",
-              detail: "TAVILY_API_KEY is not set",
+              title: "No LLM providers configured",
+              detail: "Declare a provider in kiri.yaml.",
             },
             {
               area: "config",
@@ -40,10 +40,10 @@ describe("<ConfigHealthPanel>", () => {
     );
     const { container } = renderPanel(<ConfigHealthPanel />);
 
-    expect(await screen.findByText("Web search disabled")).toBeDefined();
+    expect(await screen.findByText("No LLM providers configured")).toBeDefined();
     expect(screen.getByText("kiri.yaml failed to load")).toBeDefined();
     // The ok check is not surfaced, even after the report resolves.
-    expect(screen.queryByText("1 LLM provider configured")).toBeNull();
+    expect(screen.queryByText("1 MCP server configured")).toBeNull();
     // A degraded check reads as a warning, an error as a negative.
     expect(container.querySelector("[data-tone='warning']")).not.toBeNull();
     expect(container.querySelector("[data-tone='negative']")).not.toBeNull();
