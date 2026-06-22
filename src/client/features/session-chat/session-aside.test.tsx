@@ -216,4 +216,23 @@ describe("<SessionAside>", () => {
 
     await waitFor(() => expect(patched.persona).toBe("pirate"));
   });
+
+  it("pins an attached persona absent from the workspace, with a humanised label", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ persona: "deleted-persona" })),
+      ),
+      // The workspace no longer defines the attached persona — it must still
+      // show (and be clearable), its id humanised since the server can't label it.
+      http.get("*/api/personas", () =>
+        HttpResponse.json({ personas: [{ id: "reviewer", name: "Reviewer" }] }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const persona = (await screen.findByRole("combobox", {
+      name: /persona/i,
+    })) as HTMLInputElement;
+    expect(persona.value).toBe("Deleted Persona");
+  });
 });
