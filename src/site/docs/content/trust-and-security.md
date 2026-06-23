@@ -37,6 +37,15 @@ Treat data from outside your repo as **untrusted**:
   session is flagged to the model as untrusted data. Don't reintroduce
   `dangerouslySetInnerHTML` in any custom UI that renders article content.
 
+## Tool calls in sessions
+
+In agentic sessions, the model can't run a tool behind your back. Every tool call
+pauses for an explicit **Allow / Always allow / Deny** before it executes — so
+even a prompt-injected instruction to call a tool still has to clear you first.
+**Always allow** persists a grant (by tool name) to a gitignored
+`.kiri/tool-grants.json` so that tool stops prompting; delete its entry from that
+file to revoke. See [Agentic sessions](/docs/agentic-sessions).
+
 ## Secrets
 
 Kiri has no first-class secrets store. Keep secrets **out of YAML and out of
