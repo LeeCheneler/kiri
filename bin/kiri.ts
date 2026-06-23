@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import { auth, createMCPClient } from "@ai-sdk/mcp";
+import { createMCPClient } from "@ai-sdk/mcp";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { resolveConfigDir } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";

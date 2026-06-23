@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { createMcpCredentialStore } from "./oauth-store.ts";
 
 const REDIRECT_BASE = "http://127.0.0.1:4242";
+const CLIENT = { client_id: "abc", redirect_uris: ["http://127.0.0.1:4242/cb"] };
+const TOKENS = { access_token: "at", token_type: "Bearer" };
 
 describe("createMcpCredentialStore", () => {
   let dir: string;
@@ -43,26 +45,16 @@ describe("createMcpCredentialStore", () => {
     expect(existsSync(filePath)).toBe(false);
   });
 
-  it("round-trips client information, preserving the SDK's embedded fields", () => {
+  it("round-trips client information", () => {
     const provider = createMcpCredentialStore(filePath, REDIRECT_BASE).providerFor("linear");
-    const info = {
-      client_id: "abc",
-      client_secret: "shh",
-      authorization_server: "https://auth.linear.app",
-      token_endpoint: "https://auth.linear.app/token",
-    };
+    const info = { ...CLIENT, client_secret: "shh" };
     provider.saveClientInformation(info);
     expect(provider.clientInformation()).toEqual(info);
   });
 
   it("round-trips tokens", () => {
     const provider = createMcpCredentialStore(filePath, REDIRECT_BASE).providerFor("linear");
-    const tokens = {
-      access_token: "at",
-      token_type: "Bearer",
-      refresh_token: "rt",
-      expires_in: 3600,
-    };
+    const tokens = { ...TOKENS, refresh_token: "rt", expires_in: 3600 };
     provider.saveTokens(tokens);
     expect(provider.tokens()).toEqual(tokens);
   });
@@ -74,14 +66,14 @@ describe("createMcpCredentialStore", () => {
     expect(provider.codeVerifier()).toBe("verifier-123");
   });
 
-  it("generates a fresh state each call and round-trips the saved one", () => {
-    const provider = createMcpCredentialStore(filePath, REDIRECT_BASE).providerFor("linear");
-    const a = provider.state();
-    const b = provider.state();
+  it("generates and persists a fresh CSRF state each call, readable across requests", () => {
+    const store = createMcpCredentialStore(filePath, REDIRECT_BASE);
+    const a = store.providerFor("linear").state();
+    const b = store.providerFor("linear").state();
     expect(a).not.toBe(b);
     expect(a.length).toBeGreaterThan(0);
-    provider.saveState("the-state");
-    expect(provider.storedState()).toBe("the-state");
+    // A fresh provider (a later request) reads the last-persisted state.
+    expect(store.providerFor("linear").storedState()).toBe(b);
   });
 
   it("captures the authorization URL once, then clears it", () => {
@@ -95,35 +87,42 @@ describe("createMcpCredentialStore", () => {
 
   it("invalidates only the tokens for scope 'tokens'", () => {
     const provider = createMcpCredentialStore(filePath, REDIRECT_BASE).providerFor("linear");
-    provider.saveClientInformation({ client_id: "abc" });
-    provider.saveTokens({ access_token: "at", token_type: "Bearer" });
+    provider.saveClientInformation(CLIENT);
+    provider.saveTokens(TOKENS);
     provider.invalidateCredentials("tokens");
     expect(provider.tokens()).toBeUndefined();
-    expect(provider.clientInformation()).toEqual({ client_id: "abc" });
+    expect(provider.clientInformation()).toEqual(CLIENT);
   });
 
   it("invalidates only the client info for scope 'client'", () => {
     const provider = createMcpCredentialStore(filePath, REDIRECT_BASE).providerFor("linear");
-    provider.saveClientInformation({ client_id: "abc" });
-    provider.saveTokens({ access_token: "at", token_type: "Bearer" });
+    provider.saveClientInformation(CLIENT);
+    provider.saveTokens(TOKENS);
     provider.invalidateCredentials("client");
     expect(provider.clientInformation()).toBeUndefined();
-    expect(provider.tokens()).toEqual({ access_token: "at", token_type: "Bearer" });
+    expect(provider.tokens()).toEqual(TOKENS);
   });
 
   it("invalidates only the verifier for scope 'verifier'", () => {
     const provider = createMcpCredentialStore(filePath, REDIRECT_BASE).providerFor("linear");
     provider.saveCodeVerifier("v");
-    provider.saveState("s");
+    provider.saveTokens(TOKENS);
     provider.invalidateCredentials("verifier");
     expect(() => provider.codeVerifier()).toThrow();
-    expect(provider.storedState()).toBe("s");
+    expect(provider.tokens()).toEqual(TOKENS);
+  });
+
+  it("is a no-op for scope 'discovery' (nothing is persisted for it)", () => {
+    const provider = createMcpCredentialStore(filePath, REDIRECT_BASE).providerFor("linear");
+    provider.saveTokens(TOKENS);
+    provider.invalidateCredentials("discovery");
+    expect(provider.tokens()).toEqual(TOKENS);
   });
 
   it("drops the whole server entry for scope 'all'", () => {
     const provider = createMcpCredentialStore(filePath, REDIRECT_BASE).providerFor("linear");
-    provider.saveTokens({ access_token: "at", token_type: "Bearer" });
-    provider.saveClientInformation({ client_id: "abc" });
+    provider.saveTokens(TOKENS);
+    provider.saveClientInformation(CLIENT);
     provider.invalidateCredentials("all");
     expect(provider.tokens()).toBeUndefined();
     expect(provider.clientInformation()).toBeUndefined();
@@ -145,7 +144,7 @@ describe("createMcpCredentialStore", () => {
   it("writes the credential file mode 0600, creating a missing parent dir", () => {
     const nested = join(dir, "deep", "mcp-credentials.json");
     const provider = createMcpCredentialStore(nested, REDIRECT_BASE).providerFor("linear");
-    provider.saveTokens({ access_token: "at", token_type: "Bearer" });
+    provider.saveTokens(TOKENS);
     expect(existsSync(nested)).toBe(true);
     expect(statSync(nested).mode & 0o777).toBe(0o600);
   });

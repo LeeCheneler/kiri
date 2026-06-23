@@ -1,21 +1,21 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
-  OAuthClientInformation,
+  OAuthClientInformationFull,
   OAuthClientMetadata,
-  OAuthClientProvider,
   OAuthTokens,
-} from "@ai-sdk/mcp";
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 
 /** Per-server OAuth state persisted to the credential file. */
 interface ServerCredentials {
-  /** Dynamically-registered client (carries the embedded authorization-server info the SDK adds). */
-  clientInformation?: OAuthClientInformation;
-  /** The OAuth token set (access/refresh), with the SDK's embedded authorization-server info. */
+  /** Dynamically-registered OAuth client. */
+  clientInformation?: OAuthClientInformationFull;
+  /** The OAuth token set (access/refresh). */
   tokens?: OAuthTokens;
   /** PKCE code verifier, held between the authorize redirect and the callback exchange. */
   codeVerifier?: string;
-  /** CSRF `state`, held between the authorize redirect and the callback for comparison. */
+  /** CSRF `state`, held between the authorize redirect and the callback for our own check. */
   state?: string;
 }
 
@@ -23,28 +23,31 @@ interface ServerCredentials {
 type CredentialsFile = Record<string, ServerCredentials>;
 
 /**
- * An {@link OAuthClientProvider} whose methods are all implemented synchronously
- * (file-backed), narrowing the SDK's optional/async-or-sync members so callers
- * read results directly. Adds a one-shot reader for the authorization URL the SDK
- * produced — the auth-start route captures it here to redirect the browser.
+ * A file-backed {@link OAuthClientProvider} for the official MCP SDK, implemented
+ * synchronously so callers read results directly. Adds two extensions the routes
+ * use: `takeAuthorizationUrl` (the start route captures the URL the SDK produced)
+ * and `storedState` (the callback route validates the OAuth `state` itself, since
+ * the official `auth()` performs no CSRF check — our `state()` persists it).
  */
 export interface KiriOAuthProvider extends OAuthClientProvider {
-  clientInformation(): OAuthClientInformation | undefined;
-  saveClientInformation(clientInformation: OAuthClientInformation): void;
+  get redirectUrl(): string;
+  get clientMetadata(): OAuthClientMetadata;
+  clientInformation(): OAuthClientInformationFull | undefined;
+  saveClientInformation(clientInformation: OAuthClientInformationFull): void;
   tokens(): OAuthTokens | undefined;
   saveTokens(tokens: OAuthTokens): void;
   codeVerifier(): string;
   saveCodeVerifier(codeVerifier: string): void;
   state(): string;
-  saveState(state: string): void;
-  storedState(): string | undefined;
   redirectToAuthorization(authorizationUrl: URL): void;
-  invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier"): void;
+  invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier" | "discovery"): void;
   /**
    * The authorization URL recorded by the most recent `redirectToAuthorization`,
    * cleared on read. Undefined when no redirect has been requested.
    */
   takeAuthorizationUrl(): URL | undefined;
+  /** The CSRF `state` persisted during the authorize redirect, for the callback to validate against. */
+  storedState(): string | undefined;
 }
 
 /** Issues file-backed OAuth providers, one per MCP server, sharing a single credential file. */
@@ -123,11 +126,11 @@ class FileOAuthProvider implements KiriOAuthProvider {
     };
   }
 
-  clientInformation(): OAuthClientInformation | undefined {
+  clientInformation(): OAuthClientInformationFull | undefined {
     return readServer(this.filePath, this.serverName).clientInformation;
   }
 
-  saveClientInformation(clientInformation: OAuthClientInformation): void {
+  saveClientInformation(clientInformation: OAuthClientInformationFull): void {
     updateServer(this.filePath, this.serverName, { clientInformation });
   }
 
@@ -152,11 +155,11 @@ class FileOAuthProvider implements KiriOAuthProvider {
   }
 
   state(): string {
-    return crypto.randomUUID();
-  }
-
-  saveState(state: string): void {
+    // The official auth() puts this in the authorize URL but does not validate it
+    // on callback, so persist it for our own CSRF check there.
+    const state = crypto.randomUUID();
     updateServer(this.filePath, this.serverName, { state });
+    return state;
   }
 
   storedState(): string | undefined {
@@ -167,11 +170,13 @@ class FileOAuthProvider implements KiriOAuthProvider {
     this.pendingAuthorizationUrl = authorizationUrl;
   }
 
-  invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier"): void {
+  invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier" | "discovery"): void {
     if (scope === "all") {
       clearServer(this.filePath, this.serverName);
       return;
     }
+    // Discovery metadata isn't persisted (the SDK re-discovers), so nothing to clear.
+    if (scope === "discovery") return;
     const key =
       scope === "client" ? "clientInformation" : scope === "tokens" ? "tokens" : "codeVerifier";
     clearServer(this.filePath, this.serverName, [key]);

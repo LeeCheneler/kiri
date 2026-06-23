@@ -1,4 +1,4 @@
-import type { OAuthClientProvider } from "@ai-sdk/mcp";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Hono } from "hono";
 import { loadKiriConfig } from "../config/loader.ts";
 import type { ConfigStore } from "../config/store.ts";
@@ -8,13 +8,15 @@ import type { McpRegistry } from "../mcp/registry.ts";
 import type { McpHttpServer } from "../mcp/schema.ts";
 
 /**
- * The subset of @ai-sdk/mcp's `auth` this surface calls: kick off authorization
- * (no code) or complete it (with `authorizationCode` + `callbackState`). Injected
- * so the routes are tested with a fake — no discovery, registration, or network.
+ * The subset of the official MCP SDK's `auth` this surface calls: kick off
+ * authorization (no code) or complete it (with `authorizationCode`). Injected so
+ * the routes are tested with a fake — no discovery, registration, or network.
+ * The official `auth` does no CSRF check, so the callback validates the OAuth
+ * `state` itself before calling it.
  */
 export type McpAuth = (
   provider: OAuthClientProvider,
-  options: { serverUrl: string | URL; authorizationCode?: string; callbackState?: string },
+  options: { serverUrl: string | URL; authorizationCode?: string },
 ) => Promise<"AUTHORIZED" | "REDIRECT">;
 
 export interface McpRoutesDeps {
@@ -119,12 +121,14 @@ export function mcpRoutes(deps: McpRoutesDeps): Hono {
     if (!server) return c.html(errorHtml(name, `no OAuth MCP server named "${name}"`), 404);
 
     const provider = credentialStore.providerFor(name);
+    // The official auth() performs no CSRF check, so validate the OAuth state here
+    // against the value persisted when the sign-in started.
+    const state = c.req.query("state");
+    if (state === undefined || state !== provider.storedState()) {
+      return c.html(errorHtml(name, "OAuth state mismatch — start the sign-in again"), 400);
+    }
     try {
-      await auth(provider, {
-        serverUrl: server.url,
-        authorizationCode: code,
-        callbackState: c.req.query("state"),
-      });
+      await auth(provider, { serverUrl: server.url, authorizationCode: code });
       await reconnect();
       return c.html(successHtml(name));
     } catch (cause) {

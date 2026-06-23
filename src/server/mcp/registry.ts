@@ -1,4 +1,4 @@
-import { UnauthorizedError } from "@ai-sdk/mcp";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { ToolSet } from "ai";
 import type { McpClient } from "./connect.ts";
 import type { McpServer, McpServerType } from "./schema.ts";

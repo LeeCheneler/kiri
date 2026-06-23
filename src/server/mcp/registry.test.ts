@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { UnauthorizedError } from "@ai-sdk/mcp";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { type Tool, type ToolSet, tool } from "ai";
 import { z } from "zod";
 import { createMcpRegistry } from "./registry.ts";

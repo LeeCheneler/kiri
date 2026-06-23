@@ -50,6 +50,12 @@ describe("mcp routes", () => {
       mcpAuth: auth,
     });
 
+  // Persist a CSRF state for a server (as the start flow would) and return it.
+  const seedState = (server: string): string =>
+    createMcpCredentialStore(env.config.mcpCredentialsFile(), REDIRECT_BASE)
+      .providerFor(server)
+      .state();
+
   describe("GET /api/mcp/servers", () => {
     it("returns the registry's per-server status", async () => {
       const statuses: McpServerStatus[] = [
@@ -116,6 +122,7 @@ describe("mcp routes", () => {
   describe("GET /api/mcp/:server/auth/callback", () => {
     it("exchanges the code, reconnects, and signals the UI", async () => {
       writeOauthConfig(env.cwd);
+      const state = seedState("linear");
       const bus = createEventBus();
       const events: string[] = [];
       bus.subscribe((e) => events.push(e.type));
@@ -132,14 +139,10 @@ describe("mcp routes", () => {
           replaced = true;
         }),
       });
-      const res = await app.request("/api/mcp/linear/auth/callback?code=abc&state=xyz");
+      const res = await app.request(`/api/mcp/linear/auth/callback?code=abc&state=${state}`);
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("Connected to linear");
-      expect(captured).toEqual({
-        serverUrl: SERVER_URL,
-        authorizationCode: "abc",
-        callbackState: "xyz",
-      });
+      expect(captured).toEqual({ serverUrl: SERVER_URL, authorizationCode: "abc" });
       expect(replaced).toBe(true);
       expect(events).toContain("config.changed");
     });
@@ -167,16 +170,33 @@ describe("mcp routes", () => {
       expect(res.status).toBe(404);
     });
 
-    it("400s with the message when the code exchange fails", async () => {
+    it("400s on an OAuth state mismatch, before exchanging", async () => {
       writeOauthConfig(env.cwd);
+      seedState("linear");
+      let called = false;
       const auth: McpAuth = async () => {
-        throw new Error("OAuth state parameter mismatch");
+        called = true;
+        return "AUTHORIZED";
       };
       const res = await buildApp(auth).request(
-        "/api/mcp/linear/auth/callback?code=abc&state=wrong",
+        "/api/mcp/linear/auth/callback?code=abc&state=wrong-state",
       );
       expect(res.status).toBe(400);
-      expect(await res.text()).toContain("state parameter mismatch");
+      expect(await res.text()).toContain("state mismatch");
+      expect(called).toBe(false);
+    });
+
+    it("400s with the message when the code exchange fails", async () => {
+      writeOauthConfig(env.cwd);
+      const state = seedState("linear");
+      const auth: McpAuth = async () => {
+        throw new Error("token endpoint rejected the code");
+      };
+      const res = await buildApp(auth).request(
+        `/api/mcp/linear/auth/callback?code=abc&state=${state}`,
+      );
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("token endpoint rejected");
     });
   });
 });
