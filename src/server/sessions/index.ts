@@ -24,4 +24,5 @@ export {
   listPersonas,
   loadPersona,
 } from "./system-prompt.ts";
+export { type ToolGrantStore, createToolGrantStore } from "./tool-grants.ts";
 export { type RunTurnArgs, type RunTurnDeps, type StartedTurn, runTurn } from "./turn.ts";

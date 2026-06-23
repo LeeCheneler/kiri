@@ -6,6 +6,7 @@ const PERSONAS_DIRNAME = "personas";
 const DATA_DIRNAME = ".kiri";
 const RUNS_DIRNAME = "runs";
 const MCP_CREDENTIALS_FILENAME = "mcp-credentials.json";
+const TOOL_GRANTS_FILENAME = "tool-grants.json";
 const INSTRUCTIONS_FILENAME = "kiri.md";
 // Canonical first: the loader reads whichever exists, preferring `kiri.yaml`.
 const CONFIG_FILENAMES = ["kiri.yaml", "kiri.yml"] as const;
@@ -36,6 +37,8 @@ export interface ConfigStore {
   runDir(runId: string): string;
   /** `<cwd>/.kiri/mcp-credentials.json` — OAuth tokens for MCP servers, kept mode 0600 and separate from the state DB so secrets never touch queryable feed data. */
   mcpCredentialsFile(): string;
+  /** `<cwd>/.kiri/tool-grants.json` — persisted "Always Allow" tool grants for agentic sessions (plain JSON; tool names aren't secrets). */
+  toolGrantsFile(): string;
   /** `<cwd>/kiri.md` — the workspace's session standing instructions. */
   instructionsFile(): string;
   /** `<cwd>/kiri.yaml` — kiri's structured config file, canonical name (the write target for scaffolding). */
@@ -63,6 +66,7 @@ export function createConfigStore(cwd: string): ConfigStore {
     dataDir: () => dataDir,
     runDir: (runId) => join(dataDir, RUNS_DIRNAME, runId),
     mcpCredentialsFile: () => join(dataDir, MCP_CREDENTIALS_FILENAME),
+    toolGrantsFile: () => join(dataDir, TOOL_GRANTS_FILENAME),
     instructionsFile: () => join(cwd, INSTRUCTIONS_FILENAME),
     configFile: () => join(cwd, CONFIG_FILENAMES[0]),
     configFiles: () => CONFIG_FILENAMES.map((name) => join(cwd, name)),
