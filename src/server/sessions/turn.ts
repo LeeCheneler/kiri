@@ -1,4 +1,11 @@
-import { type ToolSet, type UIMessage, convertToModelMessages, stepCountIs, streamText } from "ai";
+import {
+  type ToolSet,
+  type UIMessage,
+  convertToModelMessages,
+  isToolUIPart,
+  stepCountIs,
+  streamText,
+} from "ai";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
@@ -10,6 +17,7 @@ import {
   appendMessage,
   getSessionMessages,
   setSessionStatus,
+  updateMessage,
 } from "./store.ts";
 
 export interface RunTurnDeps {
@@ -47,6 +55,23 @@ export interface RunTurnArgs {
   session: Session;
   /** The incoming user message, persisted before the assistant response streams. */
   userMessage: UIMessage;
+}
+
+/** A user's verdict on one of a turn's pending tool-approval requests. */
+export interface ToolApprovalDecision {
+  /** The id of the tool call the verdict is for. */
+  toolCallId: string;
+  /** Allow the call to run (true) or refuse it (false). */
+  approved: boolean;
+  /** Optional note carried back to the model alongside the verdict. */
+  reason?: string;
+}
+
+export interface ResumeTurnArgs {
+  /** The session paused awaiting tool approval; its last message is the assistant turn to resume. */
+  session: Session;
+  /** Verdicts for the pending tool-approval requests on that assistant message. */
+  approvals: ToolApprovalDecision[];
 }
 
 export interface StartedTurn {
@@ -109,9 +134,10 @@ async function drainStream(stream: ReadableStream<string>): Promise<void> {
  * half-persisted.
  */
 export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<StartedTurn> {
-  const { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools } = deps;
+  const { db, llmClients, bus } = deps;
   const { session, userMessage } = args;
 
+  // Resolve before any writes so a bad id rejects with nothing half-persisted.
   const model = llmClients.resolveModel(session.model);
 
   // Persist under the message's own id so the client and server agree on it —
@@ -123,6 +149,77 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   // cancelled turn starts the new turn clean.
   setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
   bus?.publish({ type: "session.updated", id: session.id, status: "running" });
+
+  return streamCore(deps, session, model);
+}
+
+/**
+ * Resume a turn paused awaiting tool approval. Applies the user's verdicts to the
+ * session's last (assistant) message — each pending tool call flipped to allowed
+ * or denied — then streams the continuation: the AI SDK runs the allowed tools,
+ * tells the model the denied ones were refused, and the model carries on. The
+ * continuation extends that same assistant message in place rather than starting
+ * a new one.
+ *
+ * Throws (before any write) if the session isn't actually awaiting approval, or
+ * if no verdict matches a pending request — the route maps either to a 4xx.
+ */
+export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promise<StartedTurn> {
+  const { db, llmClients, bus } = deps;
+  const { session, approvals } = args;
+
+  const model = llmClients.resolveModel(session.model);
+
+  const last = getSessionMessages(db, session.id).at(-1);
+  if (!last || last.role !== "assistant") {
+    throw new Error(`session "${session.id}" has no turn awaiting tool approval`);
+  }
+  const { parts, applied } = applyApprovals(last.parts as UIMessage["parts"], approvals);
+  if (applied === 0) {
+    throw new Error(`session "${session.id}" has no pending tool approval matching the response`);
+  }
+  updateMessage(db, session.id, last.id, { parts });
+  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
+  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
+
+  return streamCore(deps, session, model);
+}
+
+// Flip each pending `approval-requested` tool part to `approval-responded`,
+// carrying the matching verdict and keeping the approval id the request was
+// issued under. Parts with no matching verdict (and non-tool parts) pass
+// through untouched. Returns the rewritten parts and how many verdicts landed,
+// so the caller can reject a resume that matched nothing.
+function applyApprovals(
+  parts: UIMessage["parts"],
+  approvals: ToolApprovalDecision[],
+): { parts: UIMessage["parts"]; applied: number } {
+  const byToolCallId = new Map(approvals.map((a) => [a.toolCallId, a]));
+  let applied = 0;
+  const next = parts.map((part) => {
+    if (!isToolUIPart(part) || part.state !== "approval-requested") return part;
+    const decision = byToolCallId.get(part.toolCallId);
+    if (!decision) return part;
+    applied += 1;
+    return {
+      ...part,
+      state: "approval-responded" as const,
+      approval: { ...part.approval, approved: decision.approved, reason: decision.reason },
+    };
+  });
+  return { parts: next, applied };
+}
+
+// Stream the model's response for an already-prepared turn (the user message
+// appended, or the pending approvals applied) and persist it on completion.
+// Shared by a fresh turn and an approval resume — the only difference is the
+// preamble each runs before calling in.
+async function streamCore(
+  deps: RunTurnDeps,
+  session: Session,
+  model: ReturnType<LlmClients["resolveModel"]>,
+): Promise<StartedTurn> {
+  const { db, bus, cancelRegistry, buildSystemPrompt, tools } = deps;
 
   // A cancel aborts the controller; the registry treats it like any child
   // process, so a cancel that arrives before the stream starts still fires.
@@ -161,7 +258,16 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   });
 
   const response = result.toUIMessageStreamResponse({
-    onFinish: async ({ responseMessage, isAborted }) => {
+    // Passing the history puts the stream in persistence mode: the response
+    // message reuses the last message's id when it continues an assistant turn
+    // (an approval resume), so the continuation lands on the same row, and a
+    // fresh turn gets a stable id the client and server share.
+    originalMessages: history,
+    // A fresh assistant message gets a unique id here rather than defaulting to
+    // the provider's stream id, which some providers reuse across requests and
+    // would collide on the message primary key from one turn to the next.
+    generateMessageId: () => crypto.randomUUID(),
+    onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
       try {
         const aborted = isAborted || controller.signal.aborted;
         if (aborted || streamError !== undefined) {
@@ -179,11 +285,22 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
           outputTokens: usage.outputTokens,
           totalTokens: usage.totalTokens,
         };
-        appendMessage(db, session.id, {
-          role: "assistant",
-          parts: responseMessage.parts,
-          usage: turnUsage,
-        });
+        // A continuation extends the assistant message that paused for approval;
+        // update it in place and accrue this step's usage. Otherwise it's a new
+        // assistant message, persisted under the id the stream assigned it.
+        if (isContinuation) {
+          updateMessage(db, session.id, responseMessage.id, {
+            parts: responseMessage.parts,
+            addUsage: turnUsage,
+          });
+        } else {
+          appendMessage(
+            db,
+            session.id,
+            { role: "assistant", parts: responseMessage.parts, usage: turnUsage },
+            { id: responseMessage.id },
+          );
+        }
         addTurnUsage(db, session.id, turnUsage);
         setSessionStatus(db, session.id, "idle");
         bus?.publish({ type: "session.message.added", sessionId: session.id });

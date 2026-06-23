@@ -145,6 +145,39 @@ export function appendMessage(
 }
 
 /**
+ * Replace a message's `parts`, optionally folding token usage into its running
+ * total. Drives the two writes of a tool-approval resume: first the pending
+ * assistant message is patched with the user's verdicts (parts only, usage
+ * untouched), then the streamed continuation extends it in place with the
+ * resumed step's usage added on — so the row ends up reflecting the whole turn,
+ * usage accrued before the pause kept rather than overwritten.
+ */
+export function updateMessage(
+  db: KiriDb,
+  sessionId: string,
+  messageId: string,
+  update: { parts: UIMessage["parts"]; addUsage?: LlmUsage },
+): void {
+  const prior =
+    (db
+      .select({ usage: messages.usage })
+      .from(messages)
+      .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+      .get()?.usage as LlmUsage | null) ?? {};
+  const usage = update.addUsage
+    ? {
+        inputTokens: (prior.inputTokens ?? 0) + (update.addUsage.inputTokens ?? 0),
+        outputTokens: (prior.outputTokens ?? 0) + (update.addUsage.outputTokens ?? 0),
+        totalTokens: (prior.totalTokens ?? 0) + (update.addUsage.totalTokens ?? 0),
+      }
+    : prior;
+  db.update(messages)
+    .set({ parts: update.parts, usage })
+    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
+    .run();
+}
+
+/**
  * Delete the message `messageId` and every message after it in the session,
  * then rebuild the session's running token totals from the survivors. Rolls a
  * transcript back to an earlier point — e.g. editing and resending a user

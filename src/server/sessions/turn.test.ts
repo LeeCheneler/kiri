@@ -11,8 +11,15 @@ import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
-import { createSession, getSession, getSessionMessages, setSessionStatus } from "./store.ts";
-import { runTurn } from "./turn.ts";
+import {
+  type Message,
+  appendMessage,
+  createSession,
+  getSession,
+  getSessionMessages,
+  setSessionStatus,
+} from "./store.ts";
+import { resumeTurn, runTurn } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -103,6 +110,29 @@ const echoTools = {
     execute: async ({ value }: { value: string }) => ({ echoed: value }),
   }),
 };
+
+// The same tool, but gated behind approval — a call pauses the turn until the
+// user allows or denies it, mirroring what `gateTools` does for an ungranted
+// MCP tool.
+const gatedEchoTools = {
+  echo: tool({
+    description: "Echo the value back.",
+    inputSchema: z.object({ value: z.string() }),
+    needsApproval: true,
+    execute: async ({ value }: { value: string }) => ({ echoed: value }),
+  }),
+};
+
+// The single tool part of an assistant message, for asserting its state.
+type ToolPart = {
+  type: string;
+  state?: string;
+  toolCallId?: string;
+  output?: unknown;
+  approval?: { id: string; approved?: boolean };
+};
+const toolPartOf = (row: Message | undefined): ToolPart =>
+  (row?.parts as ToolPart[]).find((p) => p.type === "tool-echo") as ToolPart;
 
 describe("runTurn", () => {
   let dir: string;
@@ -299,6 +329,132 @@ describe("runTurn", () => {
     expect(rows[1]?.usage).toEqual({ inputTokens: 8, outputTokens: 5, totalTokens: 13 });
     expect(getSession(db, "s1")?.status).toBe("idle");
     expect(getSession(db, "s1")?.totalTokens).toBe(13);
+  });
+
+  it("pauses for tool approval instead of running the tool, settling idle", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const events: KiriEvent[] = [];
+
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(toolLoopModel()),
+        bus: recordingBus(events),
+        tools: gatedEchoTools,
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    const toolPart = toolPartOf(rows[1]);
+    // The call was recorded awaiting approval — not executed.
+    expect(toolPart.state).toBe("approval-requested");
+    expect(toolPart.output).toBeUndefined();
+    expect(typeof toolPart.approval?.id).toBe("string");
+    // The session is back to idle, awaiting the user's decision.
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it("runs the tool and answers when a paused turn is resumed with approval", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const clients = clientsFor(toolLoopModel());
+
+    const first = await runTurn(
+      { db, llmClients: clients, tools: gatedEchoTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await first.response.text();
+    await first.done;
+    const paused = toolPartOf(getSessionMessages(db, "s1")[1]);
+
+    const second = await resumeTurn(
+      { db, llmClients: clients, tools: gatedEchoTools },
+      {
+        session,
+        approvals: [{ toolCallId: paused.toolCallId as string, approved: true }],
+      },
+    );
+    await second.response.text();
+    await second.done;
+
+    const rows = getSessionMessages(db, "s1");
+    // The continuation extended the same two rows — no extra assistant message.
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    const toolPart = toolPartOf(rows[1]);
+    expect(toolPart.state).toBe("output-available");
+    expect(toolPart.output).toEqual({ echoed: "hi" });
+    expect(textParts(rows[1]?.parts).find((p) => p.type === "text")?.text).toBe("Echoed: hi");
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    // Usage accrues across the pause: step 1 (5/1) plus step 2 (3/4).
+    expect(rows[1]?.usage).toEqual({ inputTokens: 8, outputTokens: 5, totalTokens: 13 });
+    expect(getSession(db, "s1")?.totalTokens).toBe(13);
+  });
+
+  it("refuses the tool and lets the model continue when resumed with a denial", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const clients = clientsFor(toolLoopModel());
+
+    const first = await runTurn(
+      { db, llmClients: clients, tools: gatedEchoTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await first.response.text();
+    await first.done;
+    const paused = toolPartOf(getSessionMessages(db, "s1")[1]);
+
+    const second = await resumeTurn(
+      { db, llmClients: clients, tools: gatedEchoTools },
+      {
+        session,
+        approvals: [{ toolCallId: paused.toolCallId as string, approved: false }],
+      },
+    );
+    await second.response.text();
+    await second.done;
+
+    const toolPart = toolPartOf(getSessionMessages(db, "s1")[1]);
+    // Denied: the tool never ran, and the model carried on to its answer.
+    expect(toolPart.state).toBe("output-denied");
+    expect(toolPart.output).toBeUndefined();
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it("rejects a resume when the session has no turn awaiting approval", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "hi" }] });
+
+    await expect(
+      resumeTurn(
+        { db, llmClients: clientsFor(streamingModel([])) },
+        { session, approvals: [{ toolCallId: "c1", approved: true }] },
+      ),
+    ).rejects.toThrow(/awaiting tool approval/);
+  });
+
+  it("rejects a resume whose verdict matches no pending request", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-echo",
+          toolCallId: "c1",
+          state: "approval-requested",
+          input: { value: "hi" },
+          approval: { id: "a1" },
+        },
+      ] as UIMessage["parts"],
+    });
+
+    await expect(
+      resumeTurn(
+        { db, llmClients: clientsFor(streamingModel([])) },
+        { session, approvals: [{ toolCallId: "does-not-exist", approved: true }] },
+      ),
+    ).rejects.toThrow(/no pending tool approval matching/);
   });
 
   it("sends the composed system prompt to the model when a builder is provided", async () => {
