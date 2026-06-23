@@ -24,4 +24,13 @@ export {
   listPersonas,
   loadPersona,
 } from "./system-prompt.ts";
-export { type RunTurnArgs, type RunTurnDeps, type StartedTurn, runTurn } from "./turn.ts";
+export { type ToolGrantStore, createToolGrantStore } from "./tool-grants.ts";
+export {
+  type ResumeTurnArgs,
+  type RunTurnArgs,
+  type RunTurnDeps,
+  type StartedTurn,
+  type ToolApprovalDecision,
+  resumeTurn,
+  runTurn,
+} from "./turn.ts";

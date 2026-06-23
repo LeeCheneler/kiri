@@ -102,12 +102,33 @@ discovers the tools it offers, and namespaces them `<server>__<tool>` so two
 servers can't clash. A server's tools appear only when it's configured and
 connects; one whose env var is unset, that fails to connect, or whose OAuth
 isn't signed in yet is simply absent, the reason shown on the activity page — an
-OAuth server awaiting sign-in as a one-click **Connect** button. There's no
-approve/deny prompt — configuring a server is the decision to trust it.
+OAuth server awaiting sign-in as a one-click **Connect** button. Configuring a
+server is the standing decision to trust it; each individual tool call is then
+approved before it runs (see below).
 
 Each tool call shows inline in the transcript as a collapsed block you can
 expand; results are treated as **untrusted data**. Kiri ships no built-in tools
 of its own — for web search, for example, add an MCP server that provides it.
+
+### Approving tool calls
+
+Before a tool runs, the session pauses and the transcript shows the call, its
+input, and three choices:
+
+- **Allow** — run it once. You'll be asked again next time the model wants that
+  tool.
+- **Always allow** — run it and remember the decision, so that tool never prompts
+  again — across sessions and restarts.
+- **Deny** — don't run it. The model is told the call was refused and carries on
+  without it.
+
+You can't send a new message while a call is waiting on your decision, and the
+prompt survives a reload, so a paused session picks back up where it left off.
+
+**Always allow** decisions are stored in `.kiri/tool-grants.json` (gitignored,
+keyed by the tool's `<server>__<tool>` name). There's no in-app list to manage
+them — to revoke a grant, delete its entry from that file; it takes effect on the
+next tool call, no restart needed.
 
 ### Example: web search via the Tavily MCP server
 

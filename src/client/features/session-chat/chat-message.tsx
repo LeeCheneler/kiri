@@ -7,7 +7,7 @@ import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./at
 import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import { MessageComposer } from "./message-composer.tsx";
-import { ToolInvocation } from "./tool-invocation.tsx";
+import { type ToolDecisionHandler, ToolInvocation } from "./tool-invocation.tsx";
 
 /** Resend an edited user message, re-running the conversation from that point. */
 export type ResubmitHandler = (messageId: string, parts: UIMessage["parts"]) => void;
@@ -143,8 +143,15 @@ function UserMessage({
 
 // An assistant message: its parts rendered in order so tool calls sit inline
 // with the prose — a lead-in line, the tool block, then the answer that follows.
-// Text renders as markdown; tool calls render as collapsible tool blocks.
-function AssistantMessage({ message }: { message: UIMessage }) {
+// Text renders as markdown; tool calls render as collapsible tool blocks, or an
+// Allow / Always allow / Deny prompt while one awaits the user's decision.
+function AssistantMessage({
+  message,
+  onToolDecision,
+}: {
+  message: UIMessage;
+  onToolDecision?: ToolDecisionHandler;
+}) {
   return (
     <article>
       <Eyebrow tone="accent">Assistant</Eyebrow>
@@ -154,7 +161,8 @@ function AssistantMessage({ message }: { message: UIMessage }) {
             // biome-ignore lint/suspicious/noArrayIndexKey: assistant parts are append-only within a turn and never reorder, so the index is a stable key.
             return <Markdown key={index} content={part.text} />;
           }
-          if (isToolUIPart(part)) return <ToolInvocation key={part.toolCallId} part={part} />;
+          if (isToolUIPart(part))
+            return <ToolInvocation key={part.toolCallId} part={part} onDecision={onToolDecision} />;
           return null;
         })}
       </div>
@@ -175,13 +183,15 @@ export function ChatMessage({
   message,
   busy,
   onResubmit,
+  onToolDecision,
 }: {
   message: UIMessage;
   busy: boolean;
   onResubmit: ResubmitHandler;
+  onToolDecision?: ToolDecisionHandler;
 }) {
   if (message.role === "user")
     return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
   if (!hasAssistantContent(message)) return null;
-  return <AssistantMessage message={message} />;
+  return <AssistantMessage message={message} onToolDecision={onToolDecision} />;
 }

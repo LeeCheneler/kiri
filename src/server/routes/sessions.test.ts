@@ -13,6 +13,7 @@ import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-regi
 import {
   appendMessage,
   createSession,
+  createToolGrantStore,
   getSession,
   getSessionMessages,
   setSessionStatus,
@@ -27,12 +28,51 @@ const usage = (input: number, output: number) => ({
   outputTokens: { total: output, text: output, reasoning: 0 },
 });
 
-const finishReason = (unified: "stop") => ({ unified, raw: unified });
+const finishReason = (unified: "stop" | "tool-calls") => ({ unified, raw: unified });
 
 const streamingModel = (chunks: LanguageModelV3StreamPart[]): LlmModel =>
   new MockLanguageModelV3({
     doStream: async () => ({ stream: convertArrayToReadableStream(chunks) }),
   }) as unknown as LlmModel;
+
+// Calls `toolName` on its first step, then answers once the result is fed back —
+// the multi-step loop a tool-enabled turn drives.
+const toolCallModel = (toolName: string): LlmModel => {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doStream: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "tool-call", toolCallId: "c1", toolName, input: '{"title":"Bug"}' },
+            { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+          ]),
+        };
+      }
+      return {
+        stream: convertArrayToReadableStream([
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "Done" },
+          { type: "text-end", id: "t1" },
+          { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 4) },
+        ]),
+      };
+    },
+  }) as unknown as LlmModel;
+};
+
+// The single tool part of an assistant message, for asserting its state.
+type ToolPart = {
+  type: string;
+  state?: string;
+  toolCallId?: string;
+  input?: unknown;
+  output?: unknown;
+  approval?: { id: string; approved?: boolean };
+};
+const toolPartOf = (row: { parts: unknown } | undefined): ToolPart =>
+  (row?.parts as ToolPart[]).find((p) => p.type.startsWith("tool-")) as ToolPart;
 
 // Emits a little then stays open: only an abort ends it, so a turn against it
 // parks until cancelled — making the cancel path deterministic.
@@ -684,6 +724,178 @@ describe("sessions routes", () => {
       });
 
       expect(res.status).toBe(409);
+    });
+  });
+
+  describe("tool permission prompts", () => {
+    const postRaw = (app: ReturnType<typeof createApp>, id: string, message: unknown) =>
+      app.request(`/api/sessions/${id}/messages`, {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+
+    it("pauses an ungranted tool for approval, then runs it when resumed", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolCallModel("linear__create_issue") }), {
+        bus,
+        mcpRegistry: fakeMcp({ linear__create_issue: mcpTool() }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      // Turn 1: the model calls the ungranted tool, so the turn pauses.
+      const firstSettled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "open an issue")).text();
+      await firstSettled;
+
+      const paused = getSessionMessages(env.db, "s1");
+      expect(paused.map((r) => r.role)).toEqual(["user", "assistant"]);
+      const pendingTool = toolPartOf(paused[1]);
+      expect(pendingTool.state).toBe("approval-requested");
+      expect(pendingTool.output).toBeUndefined();
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
+
+      // The client re-sends the paused assistant message with the verdict applied.
+      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
+        part.state === "approval-requested"
+          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
+          : part,
+      );
+      const secondSettled = waitForSettled("s1");
+      const res = await postRaw(app, "s1", { role: "assistant", parts: respondedParts });
+      expect(res.status).toBe(200);
+      await res.text();
+      await secondSettled;
+
+      const resumed = getSessionMessages(env.db, "s1");
+      // The continuation extended the same assistant message; no extra row.
+      expect(resumed.map((r) => r.role)).toEqual(["user", "assistant"]);
+      expect(toolPartOf(resumed[1]).state).toBe("output-available");
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
+    });
+
+    it("runs a paused tool granted just before the resume, instead of cancelling it", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolCallModel("linear__create_issue") }), {
+        bus,
+        mcpRegistry: fakeMcp({ linear__create_issue: mcpTool() }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const firstSettled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "open an issue")).text();
+      await firstSettled;
+      const paused = getSessionMessages(env.db, "s1")[1];
+
+      // "Always allow" records the grant before the resume lands. The AI SDK
+      // re-checks approval on resume, so the now-granted call must still run
+      // rather than be denied for no-longer-needing-approval.
+      createToolGrantStore(env.config.toolGrantsFile()).grant("linear__create_issue");
+      const respondedParts = (paused?.parts as ToolPart[]).map((part) =>
+        part.state === "approval-requested"
+          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
+          : part,
+      );
+
+      const secondSettled = waitForSettled("s1");
+      await (await postRaw(app, "s1", { role: "assistant", parts: respondedParts })).text();
+      await secondSettled;
+
+      expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-available");
+    });
+
+    it("runs a granted tool straight through without pausing", async () => {
+      createToolGrantStore(env.config.toolGrantsFile()).grant("linear__create_issue");
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolCallModel("linear__create_issue") }), {
+        bus,
+        mcpRegistry: fakeMcp({ linear__create_issue: mcpTool() }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "open an issue")).text();
+      await settled;
+
+      // One turn, no pause: the tool ran and the model answered.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
+    });
+
+    it("409s a new user message while a tool approval is pending", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      appendMessage(env.db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "open an issue" }],
+      });
+      appendMessage(env.db, "s1", {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-linear__create_issue",
+            toolCallId: "c1",
+            state: "approval-requested",
+            input: { title: "Bug" },
+            approval: { id: "a1" },
+          },
+        ] as never,
+      });
+
+      const res = await postMessage(app, "s1", "never mind");
+
+      expect(res.status).toBe(409);
+      // No new turn started — the transcript is unchanged.
+      expect(getSessionMessages(env.db, "s1")).toHaveLength(2);
+    });
+
+    it("409s an approval resume when nothing is pending", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "hi" }] });
+
+      const res = await postRaw(app, "s1", {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-x",
+            toolCallId: "c1",
+            state: "approval-responded",
+            input: {},
+            approval: { id: "a1", approved: true },
+          },
+        ],
+      });
+
+      expect(res.status).toBe(409);
+    });
+
+    it("persists an Always Allow grant via POST /api/tool-grants", async () => {
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/tool-grants", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "linear__create_issue" }),
+      });
+
+      expect(res.status).toBe(204);
+      expect(
+        createToolGrantStore(env.config.toolGrantsFile()).isGranted("linear__create_issue"),
+      ).toBe(true);
+    });
+
+    it("rejects a grant with no tool name", async () => {
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/tool-grants", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "" }),
+      });
+
+      expect(res.status).toBe(400);
     });
   });
 });

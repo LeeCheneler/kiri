@@ -63,6 +63,25 @@ const assistantReply = (text: string) =>
     }),
   });
 
+// A resume response: the paused tool resolves (ran, or refused), then the
+// assistant's follow-up text. Resolving the call clears its approval state, just
+// as the real server's continuation does, so the verdict isn't re-sent in a loop.
+const resumeReply = (resolution: { output?: unknown; denied?: boolean }, text: string) =>
+  createUIMessageStreamResponse({
+    stream: createUIMessageStream({
+      execute: ({ writer }) => {
+        writer.write(
+          resolution.denied
+            ? { type: "tool-output-denied", toolCallId: "c1" }
+            : { type: "tool-output-available", toolCallId: "c1", output: resolution.output ?? {} },
+        );
+        writer.write({ type: "text-start", id: "r1" });
+        writer.write({ type: "text-delta", id: "r1", delta: text });
+        writer.write({ type: "text-end", id: "r1" });
+      },
+    }),
+  });
+
 // A stream that opens then never closes, so the turn stays in flight until
 // it's cancelled — makes the cancel affordance deterministic.
 const parkedReply = () =>
@@ -74,6 +93,31 @@ const parkedReply = () =>
       },
     }),
   });
+
+// An assistant turn paused awaiting approval for a tool call — the shape the
+// transcript seeds from when a turn stopped to ask the user.
+const pausedToolTranscript = () => [
+  message("m1", "user", "open an issue"),
+  {
+    ...message("m2", "assistant", ""),
+    parts: [
+      {
+        type: "tool-linear__create_issue",
+        toolCallId: "c1",
+        state: "approval-requested",
+        input: { title: "Bug" },
+        approval: { id: "a1" },
+      },
+    ],
+  },
+];
+
+// The tool part of a resume request's assistant message.
+const sentToolPart = (body: unknown) => {
+  const parts = (body as { message: { parts: { type: string }[] } }).message.parts;
+  const part = parts.find((p) => p.type.startsWith("tool-"));
+  return part as unknown as { state: string; approval: { approved: boolean } };
+};
 
 const renderChat = (id = "s1") => {
   const queryClient = createQueryClient();
@@ -181,6 +225,96 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText("Hi back")).toBeDefined();
     // The reply has content, so the turn is labelled.
     expect(screen.getByText("Assistant")).toBeDefined();
+  });
+
+  it("allows a paused tool once, sending the verdict back to resume the turn", async () => {
+    const user = userEvent.setup();
+    let resumeBody: unknown;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(pausedToolTranscript())),
+      ),
+      http.post("*/api/sessions/:id/messages", async ({ request }) => {
+        resumeBody = await request.json();
+        return resumeReply({ output: { id: 7 } }, "Created the issue.");
+      }),
+    );
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: "Allow" }));
+
+    expect(await screen.findByText("Created the issue.")).toBeDefined();
+    const toolPart = sentToolPart(resumeBody);
+    expect(toolPart.state).toBe("approval-responded");
+    expect(toolPart.approval.approved).toBe(true);
+  });
+
+  it("always-allows a paused tool, recording a grant before resuming", async () => {
+    const user = userEvent.setup();
+    let grantBody: unknown;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(pausedToolTranscript())),
+      ),
+      http.post("*/api/tool-grants", async ({ request }) => {
+        grantBody = await request.json();
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("*/api/sessions/:id/messages", () =>
+        resumeReply({ output: { id: 7 } }, "Created the issue."),
+      ),
+    );
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: "Always allow" }));
+
+    expect(await screen.findByText("Created the issue.")).toBeDefined();
+    expect(grantBody).toEqual({ tool: "linear__create_issue" });
+  });
+
+  it("allows the call even if recording the always-allow grant fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(pausedToolTranscript())),
+      ),
+      http.post("*/api/tool-grants", () => HttpResponse.json({ error: "boom" }, { status: 500 })),
+      http.post("*/api/sessions/:id/messages", () =>
+        resumeReply({ output: { id: 7 } }, "Created the issue."),
+      ),
+    );
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: "Always allow" }));
+
+    // The grant write failed, but the call was still allowed and the turn resumed.
+    expect(await screen.findByText("Created the issue.")).toBeDefined();
+  });
+
+  it("denies a paused tool, sending the refusal back without recording a grant", async () => {
+    const user = userEvent.setup();
+    let grantCalled = false;
+    let resumeBody: unknown;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(pausedToolTranscript())),
+      ),
+      http.post("*/api/tool-grants", () => {
+        grantCalled = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("*/api/sessions/:id/messages", async ({ request }) => {
+        resumeBody = await request.json();
+        return resumeReply({ denied: true }, "Okay, I won't.");
+      }),
+    );
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: "Deny" }));
+
+    expect(await screen.findByText("Okay, I won't.")).toBeDefined();
+    expect(sentToolPart(resumeBody).approval.approved).toBe(false);
+    expect(grantCalled).toBe(false);
   });
 
   it("edits a user message, truncating the transcript and resending from it", async () => {
