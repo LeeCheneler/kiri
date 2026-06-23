@@ -39,14 +39,16 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Today's date is 2026-06-17.");
   });
 
-  it("rules out LaTeX and other non-Markdown syntax in replies", () => {
+  it("documents KaTeX maths rendering and its maths-only boundary", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
-    // The renderer has no maths plugin, so TeX leaks through as raw text — the
-    // prompt must say so explicitly and point at the Markdown alternative.
-    expect(prompt).toContain("ONLY Markdown");
-    expect(prompt).toContain("LaTeX");
-    expect(prompt.toLowerCase()).toContain("do not render");
-    expect(prompt).toContain("Write maths and symbols in plain Markdown");
+    // Maths renders via KaTeX, so the prompt must show how to invoke it
+    // (`$…$` / `$$…$$`) and where it stops: maths-only, no document-level
+    // LaTeX, no raw HTML.
+    expect(prompt).toContain("KaTeX");
+    expect(prompt).toContain("$$");
+    expect(prompt).toContain("maths-only");
+    expect(prompt.toLowerCase()).toContain("does not render");
+    expect(prompt.toLowerCase()).toContain("no support for raw html");
   });
 
   it("documents the chart rendering capability with a worked example", () => {

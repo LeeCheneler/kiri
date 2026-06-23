@@ -9,7 +9,9 @@ import {
   lazy,
 } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { Code, CodeBlock } from "./code.tsx";
 import { InlineLink } from "./inline-link.tsx";
 import { List } from "./list.tsx";
@@ -278,7 +280,11 @@ export function Markdown({
   });
   return (
     <Prose>
-      <ReactMarkdown components={resolvedComponents} remarkPlugins={[remarkGfm]}>
+      <ReactMarkdown
+        components={resolvedComponents}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+      >
         {content}
       </ReactMarkdown>
     </Prose>
