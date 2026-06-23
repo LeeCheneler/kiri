@@ -48,6 +48,19 @@ describe("<Markdown>", () => {
     expect(container.querySelector("pre code")?.textContent).toMatch(/block code/);
   });
 
+  it("renders inline and display maths via KaTeX", () => {
+    const { container } = renderMd(
+      <Markdown content={"Inline $E = mc^2$ and a block:\n\n$$\n\\frac{1}{2}\n$$"} />,
+    );
+    // KaTeX emits MathML alongside the visual HTML; assert on the TeX it carries
+    // in its annotation, not on KaTeX's styling classes.
+    const tex = Array.from(container.querySelectorAll('annotation[encoding="application/x-tex"]'))
+      .map((node) => node.textContent)
+      .join("\n");
+    expect(tex).toContain("E = mc^2");
+    expect(tex).toContain("\\frac{1}{2}");
+  });
+
   it("renders raw <script> tags from source as plain text, never as elements", () => {
     const { container } = renderMd(<Markdown content={"hello\n\n<script>alert(1)</script>\n"} />);
     expect(container.querySelector("script")).toBeNull();
