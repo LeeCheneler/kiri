@@ -291,6 +291,21 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #   local:
 #     type: openai-compatible          # LM Studio, Ollama, vLLM, …
 #     base_url: http://localhost:1234/v1
+#
+# Give agentic chat sessions tools from MCP servers, under \`mcp:\`. A remote
+# \`http\` server signs in with OAuth (\`auth: oauth\` — kiri runs the browser
+# flow and stores the tokens) or a static header (an \`{ env: <NAME> }\` ref);
+# a local \`stdio\` server is a command kiri spawns. Uncomment to get started:
+#
+# mcp:
+#   tavily:                            # web search — sign in from the app
+#     type: http
+#     url: https://mcp.tavily.com/mcp/
+#     auth: oauth
+#   filesystem:
+#     type: stdio
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
 `;
 
 /** Relative paths reported by `initRepo`. */

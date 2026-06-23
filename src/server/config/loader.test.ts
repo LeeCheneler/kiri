@@ -258,6 +258,27 @@ describe("loadKiriConfig", () => {
     });
   });
 
+  it("resolves an oauth http server, flagging it and gating on no env ref", () => {
+    write(
+      cwd,
+      `mcp:
+  linear:
+    type: http
+    url: https://mcp.linear.app/mcp
+    auth: oauth
+`,
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect(result.mcp.get("linear")).toEqual({
+      name: "linear",
+      type: "http",
+      url: "https://mcp.linear.app/mcp",
+      oauth: true,
+    });
+    expect(result.mcpUnresolved).toEqual([]);
+  });
+
   it("excludes an mcp server whose env ref is unset without failing the load", () => {
     write(
       cwd,

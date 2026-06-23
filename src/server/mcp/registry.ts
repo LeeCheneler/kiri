@@ -1,3 +1,4 @@
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { ToolSet } from "ai";
 import type { McpClient } from "./connect.ts";
 import type { McpServer, McpServerType } from "./schema.ts";
@@ -6,7 +7,11 @@ import type { McpServer, McpServerType } from "./schema.ts";
 export interface McpServerStatus {
   name: string;
   type: McpServerType;
-  state: "connected" | "failed";
+  /**
+   * `needs-sign-in` is an OAuth server with no valid tokens — an expected state
+   * surfaced as a Connect prompt, distinct from a `failed` connection.
+   */
+  state: "connected" | "failed" | "needs-sign-in";
   /** Tools discovered, when connected. */
   toolCount?: number;
   /** Failure reason, when the connection or tool discovery failed. */
@@ -70,7 +75,11 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
           } catch (cause) {
             // Close a client that connected but failed to list its tools.
             if (client) await closeAll([client]);
-            return { server, error: reasonOf(cause) } as const;
+            return {
+              server,
+              error: reasonOf(cause),
+              unauthorized: cause instanceof UnauthorizedError,
+            } as const;
           }
         }),
       );
@@ -80,12 +89,17 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
       const nextStatuses: McpServerStatus[] = [];
       for (const result of results) {
         if ("error" in result) {
-          nextStatuses.push({
-            name: result.server.name,
-            type: result.server.type,
-            state: "failed",
-            error: result.error,
-          });
+          // An OAuth server with no valid tokens isn't a failure — it needs sign-in.
+          nextStatuses.push(
+            result.unauthorized
+              ? { name: result.server.name, type: result.server.type, state: "needs-sign-in" }
+              : {
+                  name: result.server.name,
+                  type: result.server.type,
+                  state: "failed",
+                  error: result.error,
+                },
+          );
           continue;
         }
         nextClients.push(result.client);

@@ -34,6 +34,29 @@ describe("mcpServersSchema", () => {
     });
   });
 
+  it("parses an http server with auth: oauth", () => {
+    const result = mcpServersSchema.parse({
+      linear: { type: "http", url: "https://mcp.linear.app/mcp", auth: "oauth" },
+    });
+    expect(result.linear).toEqual({
+      type: "http",
+      url: "https://mcp.linear.app/mcp",
+      auth: "oauth",
+    });
+  });
+
+  it("rejects an unknown auth value", () => {
+    expect(() =>
+      mcpServersSchema.parse({ x: { type: "http", url: "u", auth: "basic" } }),
+    ).toThrow();
+  });
+
+  it("rejects auth on a stdio server (strict)", () => {
+    expect(() =>
+      mcpServersSchema.parse({ x: { type: "stdio", command: "s", auth: "oauth" } }),
+    ).toThrow();
+  });
+
   it("parses minimal stdio and http servers", () => {
     const result = mcpServersSchema.parse({
       a: { type: "stdio", command: "server" },

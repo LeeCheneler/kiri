@@ -91,15 +91,19 @@ turn fails.
 Sessions can call **tools** — capabilities the model invokes mid-turn, not
 workflow script bundles. A session's tools come from **MCP servers** you declare
 under `mcp:` in `kiri.yaml`, each either a local `stdio` server kiri runs as a
-subprocess or a remote `http` (Streamable HTTP) server. Any secret — a server's
-API token, say — is an `{ env: <NAME> }` reference, never a literal in the file.
+subprocess or a remote `http` (Streamable HTTP) server. An `http` server
+authenticates one of two ways: a static request header
+(`headers: { Authorization: { env: <NAME> } }`) whose value is an
+`{ env: <NAME> }` reference, never a literal in the file; or `auth: oauth` — a
+browser sign-in kiri runs on demand, storing the tokens for you.
 
 Kiri connects each server when it starts and whenever you edit `kiri.yaml`,
 discovers the tools it offers, and namespaces them `<server>__<tool>` so two
 servers can't clash. A server's tools appear only when it's configured and
-connects; one whose env var is unset or that fails to connect is simply absent,
-with the reason shown as a config-health check. There's no approve/deny prompt —
-configuring a server is the decision to trust it.
+connects; one whose env var is unset, that fails to connect, or whose OAuth
+isn't signed in yet is simply absent, the reason shown on the activity page — an
+OAuth server awaiting sign-in as a one-click **Connect** button. There's no
+approve/deny prompt — configuring a server is the decision to trust it.
 
 Each tool call shows inline in the transcript as a collapsed block you can
 expand; results are treated as **untrusted data**. Kiri ships no built-in tools
@@ -108,21 +112,24 @@ of its own — for web search, for example, add an MCP server that provides it.
 ### Example: web search via the Tavily MCP server
 
 Give sessions web search by adding [Tavily](https://tavily.com)'s remote MCP
-server under `mcp:` in your `kiri.yaml`:
+server under `mcp:` in your `kiri.yaml` and signing in:
 
 ```yaml
 mcp:
   tavily:
     type: http
-    url: https://mcp.tavily.com/mcp/?tavilyApiKey=<api_key>
+    url: https://mcp.tavily.com/mcp/
+    auth: oauth
 ```
 
-Kiri connects on startup and its tools appear in sessions namespaced
-`tavily__<tool>`. Tavily carries the key in the URL itself, so — unlike a
-provider `api_key` — it can't be an `{ env: }` reference; keep a `kiri.yaml`
-that embeds a literal key out of git. A server that authenticates with a header
-instead takes `headers: { Authorization: { env: <NAME> } }`, and a local server
-uses `type: stdio` with a `command`. Any MCP server is configured the same way.
+With `auth: oauth`, kiri runs Tavily's OAuth sign-in: the server appears on the
+activity page with a **Connect** button that opens the provider's authorization
+page in a new tab. Approve it and kiri stores the tokens (in a mode-0600 file
+under `.kiri/`, never in git), refreshes them as they expire, and the server's
+tools appear in sessions namespaced `tavily__<tool>`. A server that uses a static
+token instead takes `headers: { Authorization: { env: <NAME> } }`, and a local
+server uses `type: stdio` with a `command`. Any MCP server is configured the same
+way.
 
 ## Attachments
 

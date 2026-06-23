@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { createMCPClient } from "@ai-sdk/mcp";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { resolveConfigDir } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
@@ -17,6 +18,7 @@ import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
 import { createLlmClients, createLlmProviderRegistry } from "../src/server/llm/index.ts";
 import { type CreateMcpClient, connectMcpServer } from "../src/server/mcp/connect.ts";
+import { createMcpCredentialStore } from "../src/server/mcp/oauth-store.ts";
 import { createMcpRegistry } from "../src/server/mcp/registry.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
@@ -129,8 +131,22 @@ llmRegistry.replace(kiriConfig.providers);
 // registry's status and skipped — it never blocks boot. The third-party SDK's
 // tool type is stricter than the AI SDK's `ToolSet`, so the client factory is
 // cast at this single boundary.
+// OAuth tokens for `auth: oauth` http servers live in a mode-0600 file in .kiri/,
+// reached via the loopback origin below — the OAuth callback redirect is built
+// from it, so it must match the port the server binds.
+const mcpCredentialStore = createMcpCredentialStore(
+  config.mcpCredentialsFile(),
+  "http://127.0.0.1:4242",
+);
 const mcpRegistry = createMcpRegistry((server, env) =>
-  connectMcpServer(server, env, createMCPClient as unknown as CreateMcpClient),
+  connectMcpServer(
+    server,
+    env,
+    createMCPClient as unknown as CreateMcpClient,
+    server.type === "http" && server.oauth
+      ? mcpCredentialStore.providerFor(server.name)
+      : undefined,
+  ),
 );
 await mcpRegistry.replace(kiriConfig.mcp, process.env);
 const mcpStatuses = mcpRegistry.status();
@@ -140,6 +156,8 @@ if (mcpStatuses.length > 0) {
   for (const status of mcpStatuses) {
     if (status.state === "failed") {
       console.error(`mcp: ${status.name} failed to connect: ${status.error}`);
+    } else if (status.state === "needs-sign-in") {
+      console.warn(`mcp: ${status.name} needs sign-in — connect it from the app`);
     }
   }
 }
@@ -175,6 +193,8 @@ const app = createApp({
   cancelRegistry,
   llmClients,
   mcpRegistry,
+  mcpCredentialStore,
+  mcpAuth: auth,
   version: VERSION,
   env: process.env,
 });

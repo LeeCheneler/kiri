@@ -47,8 +47,11 @@ Session tools come from MCP servers declared under `mcp:` in `kiri.yaml`. A
 server's tools appear only when it's configured and connects; one whose
 `{ env: }` var is unset, or that fails to start, shows as a config-health check
 naming it. Set the missing variable (in your environment or workspace `.env`)
-and the server reconnects on the next `kiri.yaml` save. For web search, add an
-MCP server that provides it — e.g. the Tavily MCP server.
+and the server reconnects on the next `kiri.yaml` save. An `auth: oauth` server
+that you haven't signed into yet shows a **Connect** button on the activity
+page — click it, approve in the new tab, and its tools appear once kiri stores
+the tokens. For web search, add an MCP server that provides it — e.g. the Tavily
+MCP server.
 
 ## Edits aren't taking effect
 
