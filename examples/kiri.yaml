@@ -18,3 +18,30 @@ providers:
   local:
     type: openai-compatible
     base_url: http://localhost:1234/v1
+
+# MCP servers whose tools are offered to agentic chat sessions, keyed by name.
+# Tools appear in sessions namespaced `<server>__<tool>`.
+mcp:
+  # A remote Streamable-HTTP server that authenticates with OAuth. With
+  # `auth: oauth`, kiri runs the browser sign-in on demand — the server shows a
+  # Connect button in the app — and stores the tokens under `.kiri/` (mode 0600,
+  # never in git). Tavily provides web search.
+  tavily:
+    type: http
+    url: https://mcp.tavily.com/mcp/
+    auth: oauth
+
+  # A remote server that authenticates with a static token instead: the header
+  # value is an `{ env: <NAME> }` reference, never a literal.
+  # linear:
+  #   type: http
+  #   url: https://mcp.linear.app/mcp
+  #   headers:
+  #     Authorization:
+  #       env: LINEAR_TOKEN
+
+  # A local server kiri spawns as a subprocess.
+  # filesystem:
+  #   type: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
