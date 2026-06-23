@@ -185,9 +185,15 @@ export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promi
   return streamCore(deps, session, model);
 }
 
+// Reason handed to the model when a tool call is denied, so it understands the
+// refusal and moves on rather than re-requesting the same call in a loop.
+const DENIAL_REASON =
+  "The user denied permission to run this tool. Do not retry the same call — continue without it, or ask the user how to proceed.";
+
 // Flip each pending `approval-requested` tool part to `approval-responded`,
 // carrying the matching verdict and keeping the approval id the request was
-// issued under. Parts with no matching verdict (and non-tool parts) pass
+// issued under. A denial with no explicit reason gets a standing one so the
+// model is told why. Parts with no matching verdict (and non-tool parts) pass
 // through untouched. Returns the rewritten parts and how many verdicts landed,
 // so the caller can reject a resume that matched nothing.
 function applyApprovals(
@@ -201,10 +207,11 @@ function applyApprovals(
     const decision = byToolCallId.get(part.toolCallId);
     if (!decision) return part;
     applied += 1;
+    const reason = decision.approved ? decision.reason : (decision.reason ?? DENIAL_REASON);
     return {
       ...part,
       state: "approval-responded" as const,
-      approval: { ...part.approval, approved: decision.approved, reason: decision.reason },
+      approval: { ...part.approval, approved: decision.approved, reason },
     };
   });
   return { parts: next, applied };

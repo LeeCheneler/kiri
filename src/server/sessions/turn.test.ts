@@ -422,6 +422,53 @@ describe("runTurn", () => {
     expect(getSession(db, "s1")?.status).toBe("idle");
   });
 
+  it("tells the model why a denied tool was refused, so it can move on", async () => {
+    let resumedPrompt: unknown;
+    let step = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        step += 1;
+        if (step === 1) {
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "tool-call", toolCallId: "c1", toolName: "echo", input: '{"value":"hi"}' },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        }
+        resumedPrompt = options.prompt;
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "Understood." },
+            { type: "text-end", id: "t1" },
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+    const clients = clientsFor(model);
+
+    const first = await runTurn(
+      { db, llmClients: clients, tools: gatedEchoTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await first.response.text();
+    await first.done;
+    const paused = toolPartOf(getSessionMessages(db, "s1")[1]);
+
+    const second = await resumeTurn(
+      { db, llmClients: clients, tools: gatedEchoTools },
+      { session, approvals: [{ toolCallId: paused.toolCallId as string, approved: false }] },
+    );
+    await second.response.text();
+    await second.done;
+
+    // The continuation prompt carries the denial reason back to the model.
+    expect(JSON.stringify(resumedPrompt)).toContain("denied permission to run this tool");
+  });
+
   it("rejects a resume when the session has no turn awaiting approval", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
     appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "hi" }] });

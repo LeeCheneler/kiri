@@ -1,10 +1,17 @@
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import {
+  DefaultChatTransport,
+  type UIMessage,
+  getToolName,
+  isToolUIPart,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+} from "ai";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import {
   ApiError,
   type SessionDetail,
   cancelSession,
+  recordToolGrant,
   sessionTurnEndpoint,
   truncateSessionMessages,
 } from "../../api.ts";
@@ -22,6 +29,7 @@ import {
 } from "./context-usage.ts";
 import { MessageComposer } from "./message-composer.tsx";
 import { useSessionDraft } from "./session-draft.ts";
+import type { ToolDecisionHandler } from "./tool-invocation.tsx";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
 // out so a turn that failed while this view was away still surfaces its error on
@@ -106,11 +114,15 @@ function Chat({ detail }: { detail: SessionDetail }) {
     });
   }, [session.id]);
 
-  const { messages, sendMessage, status, stop, error, setMessages } = useChat({
-    id: session.id,
-    messages: initialMessages,
-    transport,
-  });
+  const { messages, sendMessage, status, stop, error, setMessages, addToolApprovalResponse } =
+    useChat({
+      id: session.id,
+      messages: initialMessages,
+      transport,
+      // Once every pending tool approval on the latest turn has a verdict, send
+      // it straight back so the turn resumes without another user action.
+      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
   const inputId = useId();
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
@@ -118,6 +130,16 @@ function Chat({ detail }: { detail: SessionDetail }) {
   // the session row reports `running` while `useChat` sits idle here.
   const streaming = status === "submitted" || status === "streaming";
   const busy = streaming || session.status === "running";
+  // A tool call on the latest turn is waiting on the user's Allow / Deny verdict.
+  // The turn is idle (not `busy`) meanwhile, but a new message can't be sent
+  // until it's resolved — the model can't continue past an unanswered call.
+  const awaitingApproval = useMemo(() => {
+    const last = messages.at(-1);
+    return (
+      last?.role === "assistant" &&
+      last.parts.some((part) => isToolUIPart(part) && part.state === "approval-requested")
+    );
+  }, [messages]);
   // A failure to surface at the transcript foot: this view's own turn errored,
   // or — on revisit — the row records a turn that failed while we were away.
   const failed = !busy && (error != null || session.status === "failed");
@@ -210,6 +232,21 @@ function Chat({ detail }: { detail: SessionDetail }) {
     void sendMessage({ parts });
   };
 
+  // Resolve a pending tool approval. Allow runs it once; Always allow also
+  // records a grant so the tool stops prompting; Deny refuses it. Responding
+  // makes `useChat` send the turn back to resume (via `sendAutomaticallyWhen`).
+  const handleToolDecision = useCallback<ToolDecisionHandler>(
+    (part, decision) => {
+      if (part.state !== "approval-requested") return;
+      // Persist the grant before approving; fire-and-forget, since a failed write
+      // just means we ask again next time — the safe default — and must not block
+      // allowing the call now.
+      if (decision === "always") void recordToolGrant(getToolName(part)).catch(() => {});
+      void addToolApprovalResponse({ id: part.approval.id, approved: decision !== "deny" });
+    },
+    [addToolApprovalResponse],
+  );
+
   const cancel = useCallback(() => {
     void stop();
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
@@ -249,6 +286,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
               message={message}
               busy={busy}
               onResubmit={handleResubmit}
+              onToolDecision={handleToolDecision}
             />
           ))
         )}
@@ -298,7 +336,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
           value={draft}
           onChange={setDraft}
           placeholder="Send a message…"
-          busy={busy}
+          busy={busy || awaitingApproval}
           onSubmit={handleSend}
           hint="Enter to send · Shift + Enter for newline"
         />

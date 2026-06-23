@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { type ToolSet, type UIMessage, isToolUIPart } from "ai";
+import { type ModelMessage, type ToolSet, type UIMessage, isToolUIPart } from "ai";
 import { and, desc, eq, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -95,6 +95,21 @@ const toolGrantBodySchema = z.object({ tool: z.string().min(1) }).strict();
 const hasPendingApproval = (parts: UIMessage["parts"]): boolean =>
   parts.some((part) => isToolUIPart(part) && part.state === "approval-requested");
 
+// Whether `toolCallId` already raised an approval request earlier in this
+// conversation. Distinguishes revalidating a call the user has already answered
+// (the AI SDK re-checks `needsApproval` on resume) from gating a fresh one.
+const hasPriorApprovalRequest = (messages: ModelMessage[], toolCallId: string): boolean =>
+  messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      Array.isArray(message.content) &&
+      message.content.some(
+        (part) =>
+          (part as { type?: string }).type === "tool-approval-request" &&
+          (part as { toolCallId?: string }).toolCallId === toolCallId,
+      ),
+  );
+
 // Pull the user's tool-approval verdicts out of a resumed assistant message.
 const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => {
   const decisions: ToolApprovalDecision[] = [];
@@ -131,9 +146,20 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     const tools = mcpRegistry?.tools() ?? {};
     const gated: ToolSet = {};
     for (const [name, tool] of Object.entries(tools)) {
-      // A granted tool runs straight away; everything else pauses the turn for an
-      // Allow / Always Allow / Deny decision before it executes.
-      gated[name] = { ...tool, needsApproval: () => !toolGrants.isGranted(name) };
+      gated[name] = {
+        ...tool,
+        // An ungranted tool always pauses for an Allow / Always allow / Deny
+        // decision. A granted tool runs straight away — except a call the user
+        // has already answered this turn, which must still report as needing
+        // approval so the SDK honours that answer on resume. (The SDK re-checks
+        // `needsApproval` when resuming and denies a call that no longer needs
+        // it — so a fresh Always-allow grant would otherwise cancel the very
+        // call the user just allowed.)
+        needsApproval: (
+          _input: unknown,
+          { toolCallId, messages }: { toolCallId: string; messages: ModelMessage[] },
+        ) => !toolGrants.isGranted(name) || hasPriorApprovalRequest(messages, toolCallId),
+      };
     }
     return gated;
   };

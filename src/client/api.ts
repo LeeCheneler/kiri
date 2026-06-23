@@ -791,6 +791,21 @@ export const truncateSessionMessages = async (id: string, messageId: string): Pr
 };
 
 /**
+ * Record an "Always Allow" grant for a tool, by its namespaced `<server>__<tool>`
+ * name, so the agent stops prompting for it on later turns. Resolves on 204;
+ * throws `ApiError` on non-2xx.
+ */
+export const recordToolGrant = async (tool: string): Promise<void> => {
+  await assertOk(
+    await apiFetch("/api/tool-grants", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool }),
+    }),
+  );
+};
+
+/**
  * The turn endpoint for a session's `useChat` transport: the origin-aware URL
  * plus the `X-Kiri-Client` header the CSRF gate requires. `useChat` posts only
  * the newest message here; the server loads the prior turns from storage.

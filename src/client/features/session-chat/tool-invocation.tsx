@@ -1,16 +1,27 @@
 import { type DynamicToolUIPart, type ToolUIPart, getToolName } from "ai";
+import { Button } from "../../design-system/actions/button.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
 
+/** A user's verdict on a tool the agent wants to run. */
+export type ToolDecision = "allow" | "always" | "deny";
+
+/** Resolve a pending tool-approval request with the user's verdict. */
+export type ToolDecisionHandler = (part: ToolPart, decision: ToolDecision) => void;
+
 // A tool's run state mapped to the shared status vocabulary: still resolving →
-// working, finished → ok, errored → failed.
+// working, awaiting the user's decision → pending, finished → ok, errored →
+// failed, refused → cancelled.
 const STATE_STATUS: Record<string, StatusKind> = {
   "input-streaming": "working",
   "input-available": "working",
+  "approval-requested": "pending",
+  "approval-responded": "working",
   "output-available": "ok",
   "output-error": "failed",
+  "output-denied": "cancelled",
 };
 
 // "create_issue" → "Create issue".
@@ -32,6 +43,15 @@ const summaryDetail = (input: unknown): string | null => {
   return null;
 };
 
+// The call's input rendered as formatted JSON — untrusted data, shown verbatim.
+function ToolInput({ input }: { input: unknown }) {
+  return (
+    <pre className="overflow-x-auto font-mono text-ink-muted text-xs">
+      {JSON.stringify(input, null, 2)}
+    </pre>
+  );
+}
+
 function ToolPanel({ part }: { part: ToolPart }) {
   if (part.state === "output-error") {
     return (
@@ -43,23 +63,77 @@ function ToolPanel({ part }: { part: ToolPart }) {
   if (part.state === "output-available") {
     // Tool output is untrusted data, never markdown — render it as formatted
     // JSON rather than interpreting it.
-    return (
-      <pre className="overflow-x-auto font-mono text-ink-muted text-xs">
-        {JSON.stringify(part.output, null, 2)}
-      </pre>
-    );
+    return <ToolInput input={part.output} />;
+  }
+  if (part.state === "output-denied") {
+    return <p className="font-mono text-ink-muted text-sm">You denied this call.</p>;
   }
   // No result yet — the call is still in flight.
   return <p className="font-mono text-ink-muted text-sm">Running…</p>;
 }
 
 /**
- * One tool call in the assistant transcript: a collapsible block showing the
- * tool, what it was called with, and its status, expanding to the result. Tool
- * output is untrusted data and renders as formatted JSON, never markdown.
+ * A tool call awaiting the user's go-ahead: the call and its input shown in full
+ * so the decision is informed, with Allow (run once), Always allow (run and stop
+ * prompting for this tool), and Deny (refuse and let the agent continue). Shown
+ * expanded rather than collapsed — it needs a response before the turn resumes.
  */
-export function ToolInvocation({ part }: { part: ToolPart }) {
+function ToolApproval({
+  part,
+  name,
+  onDecision,
+}: {
+  part: ToolPart;
+  name: string;
+  onDecision: ToolDecisionHandler;
+}) {
+  return (
+    <div className="border border-rule" data-tool={name}>
+      <div className="space-y-3 px-4 py-3">
+        <div className="flex items-baseline gap-3 font-mono text-xs">
+          <span className="uppercase tracking-widest text-ink-muted">{humanizeName(name)}</span>
+          <span className="ml-auto shrink-0">
+            <Status status="pending" />
+          </span>
+        </div>
+        <p className="font-mono text-ink text-sm">
+          The assistant wants to run this tool. Review its input, then decide.
+        </p>
+        <ToolInput input={part.input} />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" onClick={() => onDecision(part, "allow")}>
+            Allow
+          </Button>
+          <Button variant="default" onClick={() => onDecision(part, "always")}>
+            Always allow
+          </Button>
+          <Button variant="default" onClick={() => onDecision(part, "deny")}>
+            Deny
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One tool call in the assistant transcript. A call awaiting approval renders an
+ * open Allow / Always allow / Deny prompt (when `onDecision` is wired); every
+ * other state renders as a collapsible block showing the tool, what it was
+ * called with, and its status, expanding to the result. Tool output is untrusted
+ * data and renders as formatted JSON, never markdown.
+ */
+export function ToolInvocation({
+  part,
+  onDecision,
+}: {
+  part: ToolPart;
+  onDecision?: ToolDecisionHandler;
+}) {
   const name = getToolName(part);
+  if (part.state === "approval-requested" && onDecision) {
+    return <ToolApproval part={part} name={name} onDecision={onDecision} />;
+  }
   const detail = summaryDetail(part.input);
   const status = STATE_STATUS[part.state] ?? "working";
   return (

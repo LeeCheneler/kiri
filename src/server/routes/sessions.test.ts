@@ -774,6 +774,36 @@ describe("sessions routes", () => {
       expect(getSession(env.db, "s1")?.status).toBe("idle");
     });
 
+    it("runs a paused tool granted just before the resume, instead of cancelling it", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolCallModel("linear__create_issue") }), {
+        bus,
+        mcpRegistry: fakeMcp({ linear__create_issue: mcpTool() }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const firstSettled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "open an issue")).text();
+      await firstSettled;
+      const paused = getSessionMessages(env.db, "s1")[1];
+
+      // "Always allow" records the grant before the resume lands. The AI SDK
+      // re-checks approval on resume, so the now-granted call must still run
+      // rather than be denied for no-longer-needing-approval.
+      createToolGrantStore(env.config.toolGrantsFile()).grant("linear__create_issue");
+      const respondedParts = (paused?.parts as ToolPart[]).map((part) =>
+        part.state === "approval-requested"
+          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
+          : part,
+      );
+
+      const secondSettled = waitForSettled("s1");
+      await (await postRaw(app, "s1", { role: "assistant", parts: respondedParts })).text();
+      await secondSettled;
+
+      expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-available");
+    });
+
     it("runs a granted tool straight through without pausing", async () => {
       createToolGrantStore(env.config.toolGrantsFile()).grant("linear__create_issue");
       const { bus, waitForSettled } = createSessionWaiter();

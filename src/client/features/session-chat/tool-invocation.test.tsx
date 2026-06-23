@@ -1,13 +1,16 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ToolUIPart } from "ai";
-import { ToolInvocation } from "./tool-invocation.tsx";
+import { type ToolDecisionHandler, ToolInvocation } from "./tool-invocation.tsx";
 
 // Build a tool part in a given state; tests cast freely since the part is opaque
 // data the component reads, not something it constructs.
 const part = (overrides: Record<string, unknown>): ToolUIPart =>
   ({ type: "tool-create_issue", toolCallId: "c1", ...overrides }) as unknown as ToolUIPart;
+
+const pendingApproval = (): ToolUIPart =>
+  part({ state: "approval-requested", input: { title: "Bug" }, approval: { id: "a1" } });
 
 describe("<ToolInvocation>", () => {
   it("shows the humanised name and a string query, with JSON output once expanded", async () => {
@@ -72,5 +75,51 @@ describe("<ToolInvocation>", () => {
     expect(container.querySelector('[data-status="working"]')).not.toBeNull();
     await user.click(screen.getByRole("button"));
     expect(screen.getByText("Running…")).toBeDefined();
+  });
+
+  it("offers Allow / Always allow / Deny with the input shown, when a call awaits approval", () => {
+    render(<ToolInvocation part={pendingApproval()} onDecision={() => {}} />);
+
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Always allow" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeDefined();
+    // The call's input is shown up front so the decision is informed.
+    expect(screen.getByText(/"title": "Bug"/)).toBeDefined();
+  });
+
+  it("reports the matching verdict for each approval action", async () => {
+    const user = userEvent.setup();
+    const onDecision = mock<ToolDecisionHandler>(() => {});
+    const approval = pendingApproval();
+    render(<ToolInvocation part={approval} onDecision={onDecision} />);
+
+    await user.click(screen.getByRole("button", { name: "Allow" }));
+    await user.click(screen.getByRole("button", { name: "Always allow" }));
+    await user.click(screen.getByRole("button", { name: "Deny" }));
+
+    expect(onDecision.mock.calls).toEqual([
+      [approval, "allow"],
+      [approval, "always"],
+      [approval, "deny"],
+    ]);
+  });
+
+  it("falls back to the collapsed block when no decision handler is wired", () => {
+    const { container } = render(<ToolInvocation part={pendingApproval()} />);
+
+    // No verdict to give — just the pending status, no Allow control.
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(container.querySelector('[data-status="pending"]')).not.toBeNull();
+  });
+
+  it("shows a denied call as cancelled, explaining it once expanded", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ToolInvocation part={part({ state: "output-denied", input: { title: "Bug" } })} />,
+    );
+
+    expect(container.querySelector('[data-status="cancelled"]')).not.toBeNull();
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("You denied this call.")).toBeDefined();
   });
 });
