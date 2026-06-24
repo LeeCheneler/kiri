@@ -141,7 +141,9 @@ export function ToolInvocation({
       <Disclosure
         summary={
           <span className="flex items-baseline gap-3 font-mono text-xs">
-            <span className="uppercase tracking-widest text-ink-muted">{humanizeName(name)}</span>
+            <span className="shrink-0 uppercase tracking-widest text-ink-muted">
+              {humanizeName(name)}
+            </span>
             {detail ? <span className="min-w-0 truncate text-ink">{detail}</span> : null}
             <span className="ml-auto shrink-0">
               <Status status={status} />
