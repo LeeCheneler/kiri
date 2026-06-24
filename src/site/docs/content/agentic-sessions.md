@@ -107,8 +107,13 @@ server is the standing decision to trust it; each individual tool call is then
 approved before it runs (see below).
 
 Each tool call shows inline in the transcript as a collapsed block you can
-expand; results are treated as **untrusted data**. Kiri ships no built-in tools
-of its own — for web search, for example, add an MCP server that provides it.
+expand; results are treated as **untrusted data** and are capped, so a tool that
+returns a huge payload — a directory listing over a large tree, say — can't
+overrun the model's context. A call that runs too long is given up on after a
+time limit and reported as an error the model can work around, and you can
+**Cancel** a call that's still running from its block in the transcript. Kiri
+ships no built-in tools of its own — for web search, for example, add an MCP
+server that provides it.
 
 ### Approving tool calls
 
