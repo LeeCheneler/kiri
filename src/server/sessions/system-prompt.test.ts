@@ -39,6 +39,33 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Today's date is 2026-06-17.");
   });
 
+  it("states a knowledge cutoff so the model flags answers it can't verify", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).toContain("knowledge cutoff");
+  });
+
+  it("carries response guidance: lead with the answer and calibrate length", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).toContain("How to respond:");
+    expect(prompt).toContain("Lead with the answer");
+    expect(prompt).toContain("Match length and shape");
+  });
+
+  it("sets an honesty bar against fabrication, including chart data", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).toContain("never fabricate");
+    // The fabrication guard explicitly reaches the numbers behind a chart.
+    expect(prompt).toContain("the data behind a chart");
+  });
+
+  it("marks the prompt and standing instructions authoritative over quoted text", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    // The untrusted-data line draws the boundary both ways: trusted instruction
+    // layers are authoritative, quoted external text is data.
+    expect(prompt).toContain("untrusted data");
+    expect(prompt).toContain("authoritative");
+  });
+
   it("documents KaTeX maths rendering and its maths-only boundary", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     // Maths renders via KaTeX, so the prompt must show how to invoke it
