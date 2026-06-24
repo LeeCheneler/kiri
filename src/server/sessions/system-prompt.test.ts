@@ -117,11 +117,31 @@ describe("buildSystemPrompt", () => {
 
   it("expands tool guidance with parallelism and truncation awareness", () => {
     const prompt = buildSystemPrompt({ config, tools: ["linear__create_issue"], now: FIXED_NOW });
-    expect(prompt).toContain("Call independent tools together");
+    expect(prompt).toContain("fire independent calls together");
     // kiri caps and times out tool results, so the model must not treat a
     // cut-off result as complete.
     expect(prompt).toContain("truncated");
     expect(prompt).toContain("incomplete");
+  });
+
+  it("presses for token-frugal, tightly scoped tool calls", () => {
+    const prompt = buildSystemPrompt({ config, tools: ["linear__create_issue"], now: FIXED_NOW });
+    // The guidance must motivate frugality — calls and their results spend a
+    // finite token budget — and name the load-bearing lever: default to the
+    // narrowest form of each call, with its parameters as the main cost control.
+    expect(prompt).toContain("token");
+    expect(prompt).toContain("narrowest form");
+    expect(prompt.toLowerCase()).toContain("parameters");
+  });
+
+  it("singles out raw/full-content options as the biggest token sink to keep off", () => {
+    const prompt = buildSystemPrompt({ config, tools: ["tavily__extract"], now: FIXED_NOW });
+    // The most common blow-up: requesting raw/full page content by default. The
+    // guidance must call it the largest sink and tell the model to keep it off
+    // until a cheaper result proves it's needed.
+    expect(prompt.toLowerCase()).toContain("full-content");
+    expect(prompt.toLowerCase()).toContain("raw");
+    expect(prompt).toContain("Keep them off");
   });
 
   it("appends kiri.md instructions after the core layer", () => {
