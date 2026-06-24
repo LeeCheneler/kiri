@@ -115,6 +115,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt.indexOf("You have tools available")).toBeLessThan(prompt.indexOf("```chart"));
   });
 
+  it("expands tool guidance with parallelism and truncation awareness", () => {
+    const prompt = buildSystemPrompt({ config, tools: ["linear__create_issue"], now: FIXED_NOW });
+    expect(prompt).toContain("Call independent tools together");
+    // kiri caps and times out tool results, so the model must not treat a
+    // cut-off result as complete.
+    expect(prompt).toContain("truncated");
+    expect(prompt).toContain("incomplete");
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });

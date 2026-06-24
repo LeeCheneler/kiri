@@ -56,11 +56,14 @@ function buildDiagramGuidance(): string {
 
 // Guidance on reaching for the session's active tools. The SDK sends each
 // tool's own definition (the *what* and, for MCP tools, the *when*); this adds
-// only the general nudge to use them. Returns null when no tools are active, so
-// the section never appears in a plain chat with no tools configured.
+// the cross-cutting strategy: prefer tools over guessing, parallelise
+// independent calls, and treat a capped or timed-out result as incomplete —
+// kiri caps each tool result and aborts a call past its time budget, so the
+// model must not trust a truncated result as the whole picture. Returns null
+// when no tools are active, so the section never appears in a plain chat.
 function buildToolGuidance(tools: string[]): string | null {
   if (tools.length === 0) return null;
-  return "You have tools available. Reach for them rather than guessing, and never claim to have used a tool you did not call.";
+  return "You have tools available. Reach for them rather than guessing, and never claim to have used a tool you did not call. Call independent tools together rather than one at a time, and don't call a tool for something you already reliably know. A tool result may be truncated (large outputs are capped) or time out — treat a cut-off or failed result as incomplete rather than the whole picture, and say so instead of presenting it as complete.";
 }
 
 // General response guidance the core layer carries for every session: how to
