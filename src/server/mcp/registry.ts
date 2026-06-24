@@ -1,5 +1,6 @@
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { ToolSet } from "ai";
+import { boundMcpTool } from "./bound-tool.ts";
 import type { McpClient } from "./connect.ts";
 import type { McpServer, McpServerType } from "./schema.ts";
 
@@ -105,7 +106,7 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
         nextClients.push(result.client);
         const names = Object.keys(result.tools);
         for (const name of names) {
-          nextTools[`${result.server.name}__${name}`] = result.tools[name];
+          nextTools[`${result.server.name}__${name}`] = boundMcpTool(result.tools[name]);
         }
         nextStatuses.push({
           name: result.server.name,
