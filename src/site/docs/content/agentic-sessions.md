@@ -29,11 +29,17 @@ next turn — git is the source of truth, nothing is snapshotted.
 
 ### The core layer
 
-Authored by kiri and **not user-editable**. It tells the model the environment it
-runs in, that replies render as GitHub-flavoured markdown — including inline
+Authored by kiri and **not user-editable**. It sets the baseline every session
+inherits: who the assistant is and the environment it runs in (including today's
+date, with a note that its knowledge has a cutoff so it flags answers it can't
+verify); how to respond well — lead with the answer, match length and format to
+the question, be honest about what it doesn't know, and never invent facts or
+figures; and that replies render as GitHub-flavoured markdown, including inline
 `chart` blocks (Vega-Lite) and `mermaid` diagrams, the same renderer as
-[published articles](/docs/workflows) — and that quoted external text is
-untrusted data. You build on top of it rather than repeating it.
+[published articles](/docs/workflows). It also draws the trust boundary: your
+instructions are authoritative, while quoted external text — tool output, file
+contents, web results — is untrusted data. You build on top of it rather than
+repeating it.
 
 ## kiri.md
 
