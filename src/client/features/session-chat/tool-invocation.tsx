@@ -5,6 +5,17 @@ import { Status, type StatusKind } from "../../design-system/feedback/status.tsx
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
 
+// Marker carried as a cancelled tool call's `errorText`. Cancelling a turn
+// stops an in-flight call mid-flight (the AI SDK has no terminal "cancelled"
+// tool state of its own), so the transcript records it as an `output-error`
+// tagged with this text and renders it as cancelled rather than failed.
+export const CANCELLED_ERROR_TEXT = "Cancelled.";
+
+// Tool-call states that mean a call is still running — input arriving, ready to
+// run, or executing after an approval. The cancel control shows only in these.
+const IN_FLIGHT_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
+const isInFlight = (part: ToolPart): boolean => IN_FLIGHT_STATES.has(part.state);
+
 /** A user's verdict on a tool the agent wants to run. */
 export type ToolDecision = "allow" | "always" | "deny";
 
@@ -54,6 +65,9 @@ function ToolInput({ input }: { input: unknown }) {
 
 function ToolPanel({ part }: { part: ToolPart }) {
   if (part.state === "output-error") {
+    if (part.errorText === CANCELLED_ERROR_TEXT) {
+      return <p className="font-mono text-ink-muted text-sm">You cancelled this call.</p>;
+    }
     return (
       <p role="alert" className="font-mono text-sm text-status-failed">
         {part.errorText}
@@ -126,16 +140,22 @@ function ToolApproval({
 export function ToolInvocation({
   part,
   onDecision,
+  onCancel,
 }: {
   part: ToolPart;
   onDecision?: ToolDecisionHandler;
+  onCancel?: () => void;
 }) {
   const name = getToolName(part);
   if (part.state === "approval-requested" && onDecision) {
     return <ToolApproval part={part} name={name} onDecision={onDecision} />;
   }
   const detail = summaryDetail(part.input);
-  const status = STATE_STATUS[part.state] ?? "working";
+  // A cancelled call rides on `output-error` but reads as cancelled, not failed.
+  const status =
+    part.state === "output-error" && part.errorText === CANCELLED_ERROR_TEXT
+      ? "cancelled"
+      : (STATE_STATUS[part.state] ?? "working");
   return (
     <div className="border border-rule" data-tool={name}>
       <Disclosure
@@ -155,6 +175,15 @@ export function ToolInvocation({
           <ToolPanel part={part} />
         </div>
       </Disclosure>
+      {/* Cancel sits below the disclosure trigger rather than inside it — the
+          trigger is itself a button, and buttons can't nest. */}
+      {isInFlight(part) && onCancel ? (
+        <div className="border-rule border-t px-4 py-2">
+          <Button variant="default" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

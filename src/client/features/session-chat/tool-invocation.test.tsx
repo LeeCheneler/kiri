@@ -2,7 +2,11 @@ import { describe, expect, it, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ToolUIPart } from "ai";
-import { type ToolDecisionHandler, ToolInvocation } from "./tool-invocation.tsx";
+import {
+  CANCELLED_ERROR_TEXT,
+  type ToolDecisionHandler,
+  ToolInvocation,
+} from "./tool-invocation.tsx";
 
 // Build a tool part in a given state; tests cast freely since the part is opaque
 // data the component reads, not something it constructs.
@@ -110,6 +114,31 @@ describe("<ToolInvocation>", () => {
     // No verdict to give — just the pending status, no Allow control.
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
     expect(container.querySelector('[data-status="pending"]')).not.toBeNull();
+  });
+
+  it("offers a Cancel control while a call is in flight and reports it", async () => {
+    const user = userEvent.setup();
+    const onCancel = mock(() => {});
+    render(
+      <ToolInvocation part={part({ state: "input-available", input: {} })} onCancel={onCancel} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a cancelled call as cancelled, not failed, explaining it once expanded", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ToolInvocation
+        part={part({ state: "output-error", input: {}, errorText: CANCELLED_ERROR_TEXT })}
+      />,
+    );
+
+    expect(container.querySelector('[data-status="cancelled"]')).not.toBeNull();
+    expect(container.querySelector('[data-status="failed"]')).toBeNull();
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("You cancelled this call.")).toBeDefined();
   });
 
   it("shows a denied call as cancelled, explaining it once expanded", async () => {

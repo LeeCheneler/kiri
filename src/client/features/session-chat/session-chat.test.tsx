@@ -112,6 +112,23 @@ const pausedToolTranscript = () => [
   },
 ];
 
+// A turn left running with a tool call in flight — the shape the transcript
+// seeds from when a session is busy executing a tool.
+const runningToolTranscript = () => [
+  message("m1", "user", "search the readme"),
+  {
+    ...message("m2", "assistant", ""),
+    parts: [
+      {
+        type: "tool-filesystem__search_files",
+        toolCallId: "c1",
+        state: "input-available",
+        input: { query: "readme" },
+      },
+    ],
+  },
+];
+
 // The tool part of a resume request's assistant message.
 const sentToolPart = (body: unknown) => {
   const parts = (body as { message: { parts: { type: string }[] } }).message.parts;
@@ -415,6 +432,29 @@ describe("<SessionChat>", () => {
     expect(screen.getByText(/escape to cancel/i)).toBeDefined();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(cancelled).toBe(true));
+  });
+
+  it("cancels an in-flight tool call, marking it cancelled in the transcript", async () => {
+    const user = userEvent.setup();
+    let cancelled = false;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/cancel", () => {
+        cancelled = true;
+        return HttpResponse.json({ error: "not in flight" }, { status: 409 });
+      }),
+    );
+    const { container } = renderChat();
+
+    // The running tool offers a Cancel control; clicking it stops the turn and
+    // flips the call to cancelled rather than leaving it on "working".
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(cancelled).toBe(true));
+    await waitFor(() =>
+      expect(container.querySelector('[data-status="cancelled"]')).not.toBeNull(),
+    );
   });
 
   it("reflects an in-flight turn on revisit", async () => {

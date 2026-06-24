@@ -29,7 +29,32 @@ import {
 } from "./context-usage.ts";
 import { MessageComposer } from "./message-composer.tsx";
 import { useSessionDraft } from "./session-draft.ts";
-import type { ToolDecisionHandler } from "./tool-invocation.tsx";
+import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
+
+// Tool-call states that mean a call is still running.
+const IN_FLIGHT_TOOL_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
+
+// Rewrite any still-running tool call to a terminal cancelled state. Cancelling
+// a turn stops a call mid-flight, which otherwise leaves its part on "working"
+// in the transcript; this marks it cancelled instead. Other parts pass through.
+function cancelInFlightTools(messages: UIMessage[]): UIMessage[] {
+  return messages.map((message) =>
+    message.role === "assistant"
+      ? {
+          ...message,
+          parts: message.parts.map((part) =>
+            isToolUIPart(part) && IN_FLIGHT_TOOL_STATES.has(part.state)
+              ? ({
+                  ...part,
+                  state: "output-error",
+                  errorText: CANCELLED_ERROR_TEXT,
+                } as UIMessage["parts"][number])
+              : part,
+          ),
+        }
+      : message,
+  );
+}
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
 // out so a turn that failed while this view was away still surfaces its error on
@@ -251,7 +276,10 @@ function Chat({ detail }: { detail: SessionDetail }) {
     void stop();
     // Best-effort: abort the server turn too. A 404/409 means it already settled.
     void cancelSession(session.id).catch(() => {});
-  }, [stop, session.id]);
+    // Stopping mid-call leaves the tool part on "working"; mark it cancelled so
+    // the transcript reflects the stop rather than spinning forever.
+    setMessages(cancelInFlightTools);
+  }, [stop, session.id, setMessages]);
 
   // Esc cancels an in-flight turn. The composer has no `onCancel` in this view,
   // so it leaves Escape alone; catch it on the window while a turn is busy.
@@ -287,6 +315,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
               busy={busy}
               onResubmit={handleResubmit}
               onToolDecision={handleToolDecision}
+              onCancel={busy ? cancel : undefined}
             />
           ))
         )}
