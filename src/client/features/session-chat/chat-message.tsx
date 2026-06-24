@@ -148,9 +148,11 @@ function UserMessage({
 function AssistantMessage({
   message,
   onToolDecision,
+  onCancel,
 }: {
   message: UIMessage;
   onToolDecision?: ToolDecisionHandler;
+  onCancel?: () => void;
 }) {
   return (
     <article>
@@ -162,7 +164,14 @@ function AssistantMessage({
             return <Markdown key={index} content={part.text} />;
           }
           if (isToolUIPart(part))
-            return <ToolInvocation key={part.toolCallId} part={part} onDecision={onToolDecision} />;
+            return (
+              <ToolInvocation
+                key={part.toolCallId}
+                part={part}
+                onDecision={onToolDecision}
+                onCancel={onCancel}
+              />
+            );
           return null;
         })}
       </div>
@@ -184,14 +193,16 @@ export function ChatMessage({
   busy,
   onResubmit,
   onToolDecision,
+  onCancel,
 }: {
   message: UIMessage;
   busy: boolean;
   onResubmit: ResubmitHandler;
   onToolDecision?: ToolDecisionHandler;
+  onCancel?: () => void;
 }) {
   if (message.role === "user")
     return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
   if (!hasAssistantContent(message)) return null;
-  return <AssistantMessage message={message} onToolDecision={onToolDecision} />;
+  return <AssistantMessage message={message} onToolDecision={onToolDecision} onCancel={onCancel} />;
 }
