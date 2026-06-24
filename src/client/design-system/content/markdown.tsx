@@ -14,6 +14,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { Code, CodeBlock } from "./code.tsx";
 import { InlineLink } from "./inline-link.tsx";
+import { normaliseLatexFallbacks } from "./latex-fallbacks.ts";
 import { List } from "./list.tsx";
 import { Prose } from "./prose.tsx";
 import { Quote } from "./quote.tsx";
@@ -285,7 +286,7 @@ export function Markdown({
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
       >
-        {content}
+        {normaliseLatexFallbacks(content)}
       </ReactMarkdown>
     </Prose>
   );

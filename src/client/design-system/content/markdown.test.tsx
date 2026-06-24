@@ -61,6 +61,40 @@ describe("<Markdown>", () => {
     expect(tex).toContain("\\frac{1}{2}");
   });
 
+  it("renders \\(…\\) and \\[…\\] LaTeX delimiters via KaTeX", () => {
+    const { container } = renderMd(
+      <Markdown content={"Inline \\(E=mc^2\\) and block \\[\\frac{1}{2}\\]"} />,
+    );
+    const tex = Array.from(container.querySelectorAll('annotation[encoding="application/x-tex"]'))
+      .map((node) => node.textContent)
+      .join("\n");
+    expect(tex).toContain("E=mc^2");
+    expect(tex).toContain("\\frac{1}{2}");
+  });
+
+  it("leaves \\(…\\) inside inline code as literal text, not maths", () => {
+    const { container } = renderMd(<Markdown content={"Use `\\(x\\)` literally"} />);
+    expect(container.querySelector("code")?.textContent).toBe("\\(x\\)");
+    expect(container.querySelector('annotation[encoding="application/x-tex"]')).toBeNull();
+  });
+
+  it("keeps KaTeX trust off so \\href inside \\(…\\) is not a live link", () => {
+    const { container } = renderMd(<Markdown content={"\\(\\href{https://evil.test}{click}\\)"} />);
+    expect(container.querySelector('a[href^="http"]')).toBeNull();
+  });
+
+  it("unwraps a bare \\boxed{…} to bold instead of leaking raw", () => {
+    const { container } = renderMd(
+      <Markdown
+        content={"\\boxed{Retrieval-Augmented Generation, Human Oversight, and Audit Frameworks}"}
+      />,
+    );
+    expect(container.querySelector("strong")?.textContent).toBe(
+      "Retrieval-Augmented Generation, Human Oversight, and Audit Frameworks",
+    );
+    expect(container.textContent).not.toContain("\\boxed");
+  });
+
   it("renders raw <script> tags from source as plain text, never as elements", () => {
     const { container } = renderMd(<Markdown content={"hello\n\n<script>alert(1)</script>\n"} />);
     expect(container.querySelector("script")).toBeNull();
