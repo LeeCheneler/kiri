@@ -124,6 +124,17 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("incomplete");
   });
 
+  it("tells the model some tool results arrive as TOON, only when tools are active", () => {
+    const withTools = buildSystemPrompt({
+      config,
+      tools: ["linear__create_issue"],
+      now: FIXED_NOW,
+    });
+    expect(withTools).toContain("TOON");
+    // A plain chat never sees a TOON-encoded result, so it isn't told about them.
+    expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain("TOON");
+  });
+
   it("presses for token-frugal, tightly scoped tool calls", () => {
     const prompt = buildSystemPrompt({ config, tools: ["linear__create_issue"], now: FIXED_NOW });
     // The guidance must motivate frugality — calls and their results spend a

@@ -75,6 +75,7 @@ function buildToolGuidance(tools: string[]): string | null {
     '- Full-content options — raw text, a whole fetched page, a deep extraction — are the largest single sink, often tens of thousands of tokens each. Keep them off until a cheaper result has fallen short and shown exactly what\'s missing, then take only the minimum that fills the gap. Never request them speculatively or "to be safe".',
     "- Prefer one well-aimed call to a scatter of broad ones: plan the data you need up front, and fire independent calls together rather than probing one at a time.",
     "Read results honestly: a truncated or timed-out result is incomplete — say so rather than treating it as the whole picture. A result far larger than the answer needs means the scope was too wide; tighten it next time. Once you can answer soundly, stop.",
+    "Some tool results arrive as TOON (Token-Oriented Object Notation) rather than JSON — a compact, indentation-based encoding used to save tokens. A tabular array is a header naming its length and fields (`rows[2]{id,name}:`) followed by one comma-separated line per record. Read it as the structured data it represents, exactly as you would the equivalent JSON.",
   ].join("\n");
 }
 

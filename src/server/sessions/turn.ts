@@ -20,6 +20,7 @@ import {
   setSessionStatus,
   updateMessage,
 } from "./store.ts";
+import { toonEncodeToolResults } from "./toon-tool-results.ts";
 
 export interface RunTurnDeps {
   db: KiriDb;
@@ -242,10 +243,14 @@ async function streamCore(
   // The untrimmed `history` still feeds persistence below, so nothing stored is
   // lost. The window is unknown for some providers (then this no-ops).
   const contextWindow = await llmClients.contextWindowFor(session.model);
-  const modelHistory = cullToolHistory(history, {
+  const culledHistory = cullToolHistory(history, {
     contextTokens: currentContextTokens(rows),
     contextWindow,
   });
+  // Re-encode surviving JSON tool results as TOON wherever that is smaller — a
+  // further send-time saving on top of culling, per result so it never enlarges
+  // one. Like culling, the untouched `history` still feeds persistence below.
+  const modelHistory = toonEncodeToolResults(culledHistory);
   const modelMessages = await convertToModelMessages(modelHistory);
 
   // Compose the turn's system prompt — the kiri core layer, the workspace's
