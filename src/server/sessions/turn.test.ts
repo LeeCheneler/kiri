@@ -191,7 +191,12 @@ describe("runTurn", () => {
     expect(textParts(rows[0]?.parts)[0]?.text).toBe("Hi there");
     const assistantText = textParts(rows[1]?.parts).find((p) => p.type === "text")?.text;
     expect(assistantText).toBe("Hello world");
-    expect(rows[1]?.usage).toEqual({ inputTokens: 7, outputTokens: 2, totalTokens: 9 });
+    expect(rows[1]?.usage).toEqual({
+      inputTokens: 7,
+      outputTokens: 2,
+      totalTokens: 9,
+      contextTokens: 9,
+    });
 
     const settled = getSession(db, "s1");
     expect(settled?.status).toBe("idle");
@@ -240,7 +245,7 @@ describe("runTurn", () => {
           toolResult("c5", "ECHO"),
           { type: "text", text: "done" },
         ],
-        usage: { inputTokens: 600, outputTokens: 0, totalTokens: 600 },
+        usage: { inputTokens: 600, outputTokens: 0, totalTokens: 600, contextTokens: 600 },
       },
       { id: "a2" },
     );
@@ -419,8 +424,14 @@ describe("runTurn", () => {
     expect(toolPart?.output).toEqual({ echoed: "hi" });
     expect(parts.find((p) => p.type === "text")?.text).toBe("Echoed: hi");
 
-    // Usage aggregates across both steps of the loop.
-    expect(rows[1]?.usage).toEqual({ inputTokens: 8, outputTokens: 5, totalTokens: 13 });
+    // Spend aggregates across both steps (8/5/13); the context footprint is the
+    // last step alone (3+4), not the summed total.
+    expect(rows[1]?.usage).toEqual({
+      inputTokens: 8,
+      outputTokens: 5,
+      totalTokens: 13,
+      contextTokens: 7,
+    });
     expect(getSession(db, "s1")?.status).toBe("idle");
     expect(getSession(db, "s1")?.totalTokens).toBe(13);
   });
@@ -482,8 +493,14 @@ describe("runTurn", () => {
     expect(toolPart.output).toEqual({ echoed: "hi" });
     expect(textParts(rows[1]?.parts).find((p) => p.type === "text")?.text).toBe("Echoed: hi");
     expect(getSession(db, "s1")?.status).toBe("idle");
-    // Usage accrues across the pause: step 1 (5/1) plus step 2 (3/4).
-    expect(rows[1]?.usage).toEqual({ inputTokens: 8, outputTokens: 5, totalTokens: 13 });
+    // Spend accrues across the pause: step 1 (5/1) plus step 2 (3/4). The context
+    // footprint is the resumed step's alone (3+4), replacing the paused step's.
+    expect(rows[1]?.usage).toEqual({
+      inputTokens: 8,
+      outputTokens: 5,
+      totalTokens: 13,
+      contextTokens: 7,
+    });
     expect(getSession(db, "s1")?.totalTokens).toBe(13);
   });
 

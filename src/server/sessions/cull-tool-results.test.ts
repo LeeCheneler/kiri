@@ -62,23 +62,19 @@ const OVER_BUDGET = { contextTokens: 600, contextWindow: 1000 };
 const UNDER_BUDGET = { contextTokens: 400, contextWindow: 1000 };
 
 describe("currentContextTokens", () => {
-  it("is undefined until a turn has settled with input usage", () => {
+  it("is undefined until a turn has settled with a recorded footprint", () => {
     expect(currentContextTokens([])).toBeUndefined();
-    // A row whose usage omits inputTokens can't anchor a fill figure.
-    expect(currentContextTokens([row(null), row({ outputTokens: 5 })])).toBeUndefined();
+    // A row with no usage, or usage carrying no footprint, can't anchor a figure.
+    expect(
+      currentContextTokens([row(null), row({ inputTokens: 300, outputTokens: 40 })]),
+    ).toBeUndefined();
   });
 
-  it("sums the most recent settled turn's input and output tokens", () => {
-    const rows = [
-      row({ inputTokens: 100, outputTokens: 20 }),
-      row({ inputTokens: 300, outputTokens: 40 }),
-    ];
-    // Reads the last usage-bearing row, not the first.
-    expect(currentContextTokens(rows)).toBe(340);
-  });
-
-  it("treats a missing outputTokens as zero", () => {
-    expect(currentContextTokens([row({ inputTokens: 100 })])).toBe(100);
+  it("reads the most recent usage-bearing row's context footprint", () => {
+    // Reads the last footprint, not the first.
+    expect(currentContextTokens([row({ contextTokens: 120 }), row({ contextTokens: 340 })])).toBe(
+      340,
+    );
   });
 });
 

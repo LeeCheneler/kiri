@@ -625,7 +625,12 @@ export interface SessionMessage {
   role: "user" | "assistant" | "system";
   parts: UIMessage["parts"];
   /** Per-turn token usage; null for user messages and when a provider reported none. */
-  usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null;
+  usage: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    contextTokens?: number;
+  } | null;
   createdAt: string;
 }
 

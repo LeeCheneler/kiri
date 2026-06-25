@@ -16,6 +16,7 @@ import {
   getSessionMessages,
   getSessionPreviews,
   setSessionStatus,
+  updateMessage,
   updateSessionPersona,
 } from "./store.ts";
 
@@ -75,6 +76,29 @@ describe("sessions store", () => {
     expect(rows[0]?.parts).toEqual([{ type: "text", text: "Hi" }]);
     expect(rows[0]?.usage).toBeNull();
     expect(rows[1]?.usage).toEqual({ inputTokens: 3, outputTokens: 5, totalTokens: 8 });
+  });
+
+  it("folds a continuation's usage: spend accrues, context footprint replaces", () => {
+    createSession(db, MODEL, { id: "s1" });
+    const msg = appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: "paused" }],
+      usage: { inputTokens: 3, outputTokens: 5, totalTokens: 8, contextTokens: 8 },
+    });
+
+    updateMessage(db, "s1", msg.id, {
+      parts: [{ type: "text", text: "resumed" }],
+      addUsage: { inputTokens: 7, outputTokens: 9, totalTokens: 16, contextTokens: 20 },
+    });
+
+    const row = getSessionMessages(db, "s1")[0];
+    expect(row?.parts).toEqual([{ type: "text", text: "resumed" }]);
+    expect(row?.usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 14,
+      totalTokens: 24,
+      contextTokens: 20,
+    });
   });
 
   it("previews each session's first user message, collapsed to one capped line", () => {

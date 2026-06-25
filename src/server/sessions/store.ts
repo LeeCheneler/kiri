@@ -169,6 +169,9 @@ export function updateMessage(
         inputTokens: (prior.inputTokens ?? 0) + (update.addUsage.inputTokens ?? 0),
         outputTokens: (prior.outputTokens ?? 0) + (update.addUsage.outputTokens ?? 0),
         totalTokens: (prior.totalTokens ?? 0) + (update.addUsage.totalTokens ?? 0),
+        // Spend accrues across the pause; the context footprint is a high-water
+        // mark, so take the resumed turn's rather than summing it.
+        contextTokens: update.addUsage.contextTokens,
       }
     : prior;
   db.update(messages)

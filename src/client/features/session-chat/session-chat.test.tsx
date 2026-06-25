@@ -36,10 +36,10 @@ const message = (id: string, role: "user" | "assistant", text: string) => ({
   createdAt: "2026-05-09T12:00:00.000Z",
 });
 
-// A settled assistant turn reporting `inputTokens`, so the context fill is known.
+// A settled assistant turn reporting a context footprint, so the fill is known.
 const assistantWithUsage = (inputTokens: number) => ({
   ...message("m1", "assistant", "answer"),
-  usage: { inputTokens, outputTokens: 0, totalTokens: inputTokens },
+  usage: { inputTokens, outputTokens: 0, totalTokens: inputTokens, contextTokens: inputTokens },
 });
 
 const modelsWithWindow = (contextWindow: number) =>

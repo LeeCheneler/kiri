@@ -28,8 +28,11 @@ export interface BoundToolOptions {
 }
 
 // Whether a value is an MCP `CallToolResult` — the `{ content: [...] }` shape
-// the AI SDK's MCP tools resolve to.
-function isContentResult(value: unknown): value is { content: unknown[] } {
+// the AI SDK's MCP tools resolve to, optionally carrying a parsed
+// `structuredContent` alongside the textual `content`.
+function isContentResult(
+  value: unknown,
+): value is { content: unknown[]; structuredContent?: unknown } {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -61,13 +64,34 @@ function capResult(output: unknown, maxBytes: number): unknown {
   return { ...output, content: [{ type: "text", text: head + TRUNCATION_MARKER }] };
 }
 
+// Reduce an MCP result to a single bounded representation for the model. A result
+// that carries `structuredContent` holds the payload twice — as JSON text in
+// `content` and as that parsed object — and the model only ever needs one copy,
+// yet kiri persists the whole result and replays it to the model on every later
+// turn, re-paying the duplicate each time. Forward the structured object when it
+// fits the budget: it's the leaner, unescaped form and renders cleanly in the
+// transcript. Over budget it can't be truncated without corrupting it, so drop
+// the structured copy and fall back to the capped `content` text. A result with
+// no `structuredContent` is just capped, unchanged.
+function shapeResult(output: unknown, maxBytes: number): unknown {
+  if (!isContentResult(output) || output.structuredContent == null) {
+    return capResult(output, maxBytes);
+  }
+  const json = JSON.stringify(output.structuredContent);
+  if (encoder.encode(json).length <= maxBytes) return output.structuredContent;
+  const { structuredContent: _dropped, ...rest } = output;
+  return capResult(rest, maxBytes);
+}
+
 /**
- * Wrap an MCP tool so its execution is bounded: the result is capped at
- * `maxBytes` (truncated with a marker past it), and the call is given a
- * `timeoutMs` budget. A call that exceeds the budget is aborted and rejects with
- * a tool error the model can recover from; the caller's own cancellation passes
- * through unchanged. A tool with no `execute` (never run by the model) is
- * returned as-is.
+ * Wrap an MCP tool so its execution is bounded and de-duplicated: when the result
+ * carries a `structuredContent` object it is forwarded in place of the duplicate
+ * `content` text (the model needs only one copy), and the result is capped at
+ * `maxBytes` — the structured object when it fits, otherwise the `content` text
+ * truncated with a marker. The call is given a `timeoutMs` budget; a call that
+ * exceeds it is aborted and rejects with a tool error the model can recover from,
+ * while the caller's own cancellation passes through unchanged. A tool with no
+ * `execute` (never run by the model) is returned as-is.
  */
 export function boundMcpTool(toolDef: RegistryTool, options: BoundToolOptions = {}): RegistryTool {
   const original = toolDef.execute;
@@ -82,7 +106,7 @@ export function boundMcpTool(toolDef: RegistryTool, options: BoundToolOptions = 
     const abortSignal = opts.abortSignal ? AbortSignal.any([opts.abortSignal, timeout]) : timeout;
     try {
       const output = await original(input, { ...opts, abortSignal });
-      return capResult(output, maxBytes);
+      return shapeResult(output, maxBytes);
     } catch (cause) {
       // The budget fired and the caller didn't cancel: report it as a tool error
       // so the model can continue. A real cancellation rethrows untouched.

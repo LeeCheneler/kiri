@@ -52,6 +52,37 @@ describe("boundMcpTool", () => {
     expect(output).toEqual(result);
   });
 
+  it("forwards structuredContent in place of the duplicate content text", async () => {
+    const data = { results: [{ id: 1, name: "a" }], count: 1 };
+    const result = {
+      content: [{ type: "text", text: JSON.stringify(data) }],
+      structuredContent: data,
+      isError: false,
+    };
+    const output = await run(
+      boundMcpTool(
+        makeTool(async () => result),
+        { maxBytes: 1024 },
+      ),
+    );
+    expect(output).toEqual(data);
+  });
+
+  it("drops structuredContent and caps the text when the structured payload is too large", async () => {
+    const result = {
+      content: [{ type: "text", text: "z".repeat(1000) }],
+      structuredContent: { blob: "y".repeat(1000) },
+    };
+    const output = (await run(
+      boundMcpTool(
+        makeTool(async () => result),
+        { maxBytes: 16 },
+      ),
+    )) as Record<string, unknown> & { content: { type: string; text: string }[] };
+    expect(output.content[0].text).toBe(`${"z".repeat(16)}\n[truncated — result too large]`);
+    expect(output).not.toHaveProperty("structuredContent");
+  });
+
   it("leaves a result with no content array untouched", async () => {
     const output = await run(boundMcpTool(makeTool(async () => "plain string")));
     expect(output).toBe("plain string");
