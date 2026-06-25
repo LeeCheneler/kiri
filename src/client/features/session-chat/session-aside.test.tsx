@@ -143,14 +143,19 @@ describe("<SessionAside>", () => {
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(
           sessionDetail({}, [
-            assistantMessage({ inputTokens: 1200, outputTokens: 345, totalTokens: 1545 }),
+            assistantMessage({
+              inputTokens: 1200,
+              outputTokens: 345,
+              totalTokens: 1545,
+              contextTokens: 1545,
+            }),
           ]),
         ),
       ),
     );
     renderAside(<SessionAside id="s1" />);
 
-    // input + output of the last turn, formatted.
+    // The last turn's context footprint, formatted.
     expect(await screen.findByText("1,545 tokens")).toBeDefined();
   });
 
@@ -159,7 +164,12 @@ describe("<SessionAside>", () => {
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(
           sessionDetail({}, [
-            assistantMessage({ inputTokens: 1200, outputTokens: 345, totalTokens: 1545 }),
+            assistantMessage({
+              inputTokens: 1200,
+              outputTokens: 345,
+              totalTokens: 1545,
+              contextTokens: 1545,
+            }),
           ]),
         ),
       ),

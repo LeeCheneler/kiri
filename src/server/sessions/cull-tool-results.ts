@@ -21,16 +21,15 @@ export const CULLED_RESULT_NOTICE =
   "[Earlier tool result removed from history to conserve context — re-run the tool if you need this output again.]";
 
 /**
- * The live context fill, approximated by the most recent settled turn's
- * footprint: the input tokens it sent (all prior history) plus the reply it
- * produced. Mirrors the client's `currentContextTokens`. Returns undefined until
- * a turn has settled with reported usage — there's nothing to measure before
- * then, so the first turn of a session never culls.
+ * The live context fill: the most recent settled turn's recorded context
+ * footprint — its last model call's total tokens. Mirrors the client's
+ * `currentContextTokens`. Undefined until a turn has settled with a footprint
+ * (a brief gap a fresh turn fills), so the first turn of a session never culls.
+ * Not back-filled from summed input+output, which over-states a multi-step tool
+ * turn.
  */
 export function currentContextTokens(rows: Message[]): number | undefined {
-  const usage = rows.findLast((row) => row.usage)?.usage as LlmUsage | undefined;
-  if (!usage || usage.inputTokens === undefined) return undefined;
-  return usage.inputTokens + (usage.outputTokens ?? 0);
+  return (rows.findLast((row) => row.usage)?.usage as LlmUsage | undefined)?.contextTokens;
 }
 
 /**

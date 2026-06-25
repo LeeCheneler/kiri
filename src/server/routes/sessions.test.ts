@@ -446,7 +446,12 @@ describe("sessions routes", () => {
       expect(streamed.length).toBeGreaterThan(0);
       const rows = getSessionMessages(env.db, "s1");
       expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
-      expect(rows[1]?.usage).toEqual({ inputTokens: 7, outputTokens: 2, totalTokens: 9 });
+      expect(rows[1]?.usage).toEqual({
+        inputTokens: 7,
+        outputTokens: 2,
+        totalTokens: 9,
+        contextTokens: 9,
+      });
       const settledSession = getSession(env.db, "s1");
       expect(settledSession?.status).toBe("idle");
       expect(settledSession?.totalTokens).toBe(9);

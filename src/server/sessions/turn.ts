@@ -298,10 +298,15 @@ async function streamCore(
           return;
         }
         const usage = await result.totalUsage;
+        // The context gauge needs the last model call's total (its footprint),
+        // not the per-step sum in `totalUsage`, which over-counts a multi-step
+        // tool turn.
+        const lastStep = await result.usage;
         const turnUsage = {
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           totalTokens: usage.totalTokens,
+          contextTokens: lastStep.totalTokens,
         };
         // A continuation extends the assistant message that paused for approval;
         // update it in place and accrue this step's usage. Otherwise it's a new

@@ -13,26 +13,19 @@ const message = (usage: SessionMessage["usage"]): SessionMessage => ({
 });
 
 describe("currentContextTokens", () => {
-  it("is undefined when no turn has settled with usage", () => {
+  it("is undefined until a turn has settled with a recorded footprint", () => {
     expect(currentContextTokens([])).toBeUndefined();
     expect(currentContextTokens([message(null)])).toBeUndefined();
+    // Usage without a footprint (e.g. an older message) shows nothing.
+    expect(currentContextTokens([message({ inputTokens: 100, outputTokens: 50 })])).toBeUndefined();
   });
 
-  it("is undefined when the last usage reports no input tokens", () => {
-    expect(currentContextTokens([message({ outputTokens: 5 })])).toBeUndefined();
-  });
-
-  it("sums the last settled turn's input and output tokens", () => {
-    expect(currentContextTokens([message({ inputTokens: 100, outputTokens: 50 })])).toBe(150);
-    expect(currentContextTokens([message({ inputTokens: 100 })])).toBe(100);
-  });
-
-  it("reads the most recent message carrying usage", () => {
+  it("reads the most recent message's context footprint", () => {
     expect(
       currentContextTokens([
-        message({ inputTokens: 10, outputTokens: 1 }),
+        message({ contextTokens: 11 }),
         message(null),
-        message({ inputTokens: 200, outputTokens: 40 }),
+        message({ contextTokens: 240 }),
       ]),
     ).toBe(240);
   });
