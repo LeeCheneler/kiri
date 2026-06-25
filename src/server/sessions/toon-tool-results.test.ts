@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { decode } from "@toon-format/toon";
+import { decode, encode } from "@toon-format/toon";
 import { type UIMessage, isToolUIPart } from "ai";
 import { toonEncodeIfSmaller, toonEncodeToolResults } from "./toon-tool-results.ts";
 
@@ -55,6 +55,20 @@ describe("toonEncodeIfSmaller", () => {
     expect(toon.length).toBeLessThan(JSON.stringify(records).length);
     // Lossless: decoding the emitted TOON reproduces the original JSON.
     expect(decode(toon)).toEqual(records);
+  });
+
+  it("round-trips a mixed structure of nested objects, arrays, and scalars", () => {
+    // Losslessness is the library's guarantee — the size gate is irrelevant
+    // here, so encode/decode directly. Pins it for the value shapes a real tool
+    // result carries: nesting, nulls, numbers, and awkward strings.
+    const value = {
+      meta: { count: 2, ok: true, note: null },
+      items: [
+        { id: 1, tags: ["a", "b"], label: 'has "quotes", commas\nand newlines' },
+        { id: 2, tags: [], label: "" },
+      ],
+    };
+    expect(decode(encode(value))).toEqual(value);
   });
 
   it("leaves output as JSON when TOON would not be smaller", () => {
