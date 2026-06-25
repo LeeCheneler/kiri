@@ -10,6 +10,7 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
+import { cullToolHistory, currentContextTokens } from "./cull-tool-results.ts";
 import {
   type Message,
   type Session,
@@ -226,7 +227,7 @@ async function streamCore(
   session: Session,
   model: ReturnType<LlmClients["resolveModel"]>,
 ): Promise<StartedTurn> {
-  const { db, bus, cancelRegistry, buildSystemPrompt, tools } = deps;
+  const { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools } = deps;
 
   // A cancel aborts the controller; the registry treats it like any child
   // process, so a cancel that arrives before the stream starts still fires.
@@ -234,8 +235,18 @@ async function streamCore(
   cancelRegistry?.register(session.id);
   cancelRegistry?.setChild(session.id, { kill: () => controller.abort() });
 
-  const history = getSessionMessages(db, session.id).map(toUiMessage);
-  const modelMessages = await convertToModelMessages(history);
+  const rows = getSessionMessages(db, session.id);
+  const history = rows.map(toUiMessage);
+  // Past 50% of the model's context window, send the model a trimmed history —
+  // older tool results replaced by a short notice — to claw back token budget.
+  // The untrimmed `history` still feeds persistence below, so nothing stored is
+  // lost. The window is unknown for some providers (then this no-ops).
+  const contextWindow = await llmClients.contextWindowFor(session.model);
+  const modelHistory = cullToolHistory(history, {
+    contextTokens: currentContextTokens(rows),
+    contextWindow,
+  });
+  const modelMessages = await convertToModelMessages(modelHistory);
 
   // Compose the turn's system prompt — the kiri core layer, the workspace's
   // `kiri.md`, and any persona attached to the session — read fresh from disk

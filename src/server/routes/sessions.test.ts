@@ -103,6 +103,7 @@ const fakeClients = (
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: opts.models ?? [], failures: [] }),
+  contextWindowFor: async () => undefined,
 });
 
 // Bus paired with a `waitForSettled(id)` that resolves when a session returns

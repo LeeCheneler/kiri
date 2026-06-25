@@ -92,6 +92,13 @@ those models show the current figure alone. As a conversation nears the window, 
 warning appears above the message box: a cue to start a fresh session before a
 turn fails.
 
+To stretch a session further, once context passes the halfway mark kiri trims the
+history it sends the model on each turn: it keeps the three most recent tool
+results in full and replaces older ones with a short placeholder — the call that
+produced each is still shown, just not its (often large) result. This only
+changes what's sent on a turn, never the transcript you see, and only kicks in
+when kiri knows the window.
+
 ## Tools — MCP servers
 
 Sessions can call **tools** — capabilities the model invokes mid-turn, not

@@ -108,6 +108,46 @@ describe("llm clients", () => {
     expect(result.failures).toEqual([]);
   });
 
+  it("returns a model's context window via contextWindowFor", async () => {
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "claude-haiku-4-5", max_input_tokens: 200000 }] }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBe(200000);
+  });
+
+  it("reports an unknown window as undefined from contextWindowFor", async () => {
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "claude-haiku-4-5" }] }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    // Listed but the provider reports no window, and a model that isn't listed
+    // at all — both read as "unknown" rather than throwing.
+    expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBeUndefined();
+    expect(await clients.contextWindowFor("anthropic:ghost")).toBeUndefined();
+  });
+
+  it("caches the listing so repeated contextWindowFor lookups don't refetch", async () => {
+    let calls = 0;
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () => {
+        calls += 1;
+        return HttpResponse.json({ data: [{ id: "claude-haiku-4-5", max_input_tokens: 100 }] });
+      }),
+    );
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBe(100);
+    expect(await clients.contextWindowFor("anthropic:claude-haiku-4-5")).toBe(100);
+    expect(calls).toBe(1);
+  });
+
   it("resolves and completes in one call via the generateText method", async () => {
     server.use(anthropicMessages("hi from claude"));
     const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });

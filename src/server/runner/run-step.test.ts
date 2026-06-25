@@ -241,6 +241,7 @@ describe("runStep", () => {
           },
           generateText: async ({ prompt }) => ({ text: `completed: ${prompt}`, usage: {} }),
           listModels: async () => ({ models: [], failures: [] }),
+          contextWindowFor: async () => undefined,
         },
       });
 
