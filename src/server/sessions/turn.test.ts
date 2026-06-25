@@ -283,6 +283,62 @@ describe("runTurn", () => {
     expect(stored).not.toContain(CULLED_RESULT_NOTICE);
   });
 
+  it("re-encodes a JSON tool result as TOON for the model, leaving storage as JSON", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    // A uniform record array — TOON's sweet spot, so the compact form wins.
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "search" }] },
+      { id: "u0" },
+    );
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-search",
+            toolCallId: "c1",
+            state: "output-available",
+            input: { query: "q" },
+            output: {
+              rows: [
+                { id: 1, tag: "ZULU" },
+                { id: 2, tag: "YANKEE" },
+                { id: 3, tag: "XRAY" },
+              ],
+            },
+          },
+        ] as UIMessage["parts"],
+      },
+      { id: "a1" },
+    );
+
+    const capture: { prompt?: unknown } = {};
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)) },
+      {
+        session,
+        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
+      },
+    );
+    await response.text();
+    await done;
+
+    // The model receives the TOON form — a tabular header naming the fields,
+    // which the JSON encoding (quoted keys per row) never produces.
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("rows[3]{id,tag}");
+    expect(sent).not.toContain('"tag":"ZULU"');
+
+    // Storage is untouched: the stored result keeps its JSON, not the TOON.
+    const stored = JSON.stringify(getSessionMessages(db, "s1").find((r) => r.id === "a1")?.parts);
+    expect(stored).toContain('"tag":"ZULU"');
+    expect(stored).not.toContain("rows[3]{id,tag}");
+  });
+
   it("rejects before persisting anything when the model cannot be resolved", async () => {
     const llmClients: LlmClients = {
       resolveModel: () => {

@@ -32,6 +32,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tanstack/react-query": "^5.100.14",
     "@tavily/core": "^0.7.6",
+    "@toon-format/toon": "^2.3.0",
     "ai": "^6.0.203",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.0",
