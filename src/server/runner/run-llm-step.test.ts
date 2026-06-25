@@ -40,6 +40,7 @@ describe("runLlmStep", () => {
         return result;
       },
       listModels: async () => ({ models: [], failures: [] }),
+      contextWindowFor: async () => undefined,
     };
   };
 
@@ -134,6 +135,7 @@ describe("runLlmStep", () => {
         throw new Error("401 invalid x-api-key");
       },
       listModels: async () => ({ models: [], failures: [] }),
+      contextWindowFor: async () => undefined,
     };
 
     const envelope = await runLlmStep({
@@ -157,6 +159,7 @@ describe("runLlmStep", () => {
       },
       generateText: () => Promise.reject("socket hang up"),
       listModels: async () => ({ models: [], failures: [] }),
+      contextWindowFor: async () => undefined,
     };
 
     const envelope = await runLlmStep({
@@ -182,6 +185,7 @@ describe("runLlmStep", () => {
           abortSignal?.addEventListener("abort", () => reject(new Error("call aborted")));
         }),
       listModels: async () => ({ models: [], failures: [] }),
+      contextWindowFor: async () => undefined,
     };
 
     let handle: ChildHandle | undefined;

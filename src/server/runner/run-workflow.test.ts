@@ -56,6 +56,7 @@ describe("runWorkflow", () => {
     },
     generateText,
     listModels: async () => ({ models: [], failures: [] }),
+    contextWindowFor: async () => undefined,
   });
 
   it("persists a single use: step run + envelope and reports ok", async () => {

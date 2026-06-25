@@ -13,6 +13,12 @@ import type { LlmProvider } from "./schema.ts";
  */
 export type LlmModel = LanguageModel;
 
+// How long a fetched model listing is reused for context-window lookups. A
+// model's window is effectively constant, so a few minutes' cache spares a
+// per-turn caller (the history cull check) from refetching every provider's
+// listing on each turn, while staying short enough to pick up provider changes.
+const MODEL_LISTING_TTL_MS = 5 * 60_000;
+
 /** Token counts from a completed generation; a field is undefined when the provider omits it. */
 export interface LlmUsage {
   inputTokens?: number;
@@ -53,6 +59,15 @@ export interface LlmClients {
    * without touching the registry or AI SDK directly.
    */
   listModels(): Promise<LlmModelsResult>;
+  /**
+   * The context window (max input tokens) for a `provider:model` id, or
+   * undefined when the model isn't listed or its provider doesn't report one.
+   * Reads the same provider listings as `listModels`, cached briefly so a
+   * per-turn caller doesn't refetch every provider each turn. A provider whose
+   * listing fails simply contributes no models, so its windows read as unknown
+   * rather than failing the lookup.
+   */
+  contextWindowFor(id: string): Promise<number | undefined>;
 }
 
 /**
@@ -64,6 +79,16 @@ export function createLlmClients(
   registry: LlmProviderRegistry,
   env: Record<string, string | undefined>,
 ): LlmClients {
+  // Cache the listing for context-window lookups only; `listModels` stays
+  // uncached so the model picker always reflects the configured providers.
+  let listingCache: { at: number; promise: Promise<LlmModelsResult> } | undefined;
+  const cachedListing = (): Promise<LlmModelsResult> => {
+    if (listingCache === undefined || Date.now() - listingCache.at >= MODEL_LISTING_TTL_MS) {
+      listingCache = { at: Date.now(), promise: listLlmModels(registry, env) };
+    }
+    return listingCache.promise;
+  };
+
   const clients: LlmClients = {
     // `async` so a synchronous resolveModel throw (bad id, unknown
     // provider) reaches callers as a rejection, the same channel as a
@@ -77,6 +102,10 @@ export function createLlmClients(
     },
     listModels() {
       return listLlmModels(registry, env);
+    },
+    async contextWindowFor(id) {
+      const { models } = await cachedListing();
+      return models.find((model) => model.id === id)?.contextWindow;
     },
     resolveModel(id) {
       const separator = id.indexOf(":");

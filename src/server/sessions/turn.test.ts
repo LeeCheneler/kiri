@@ -35,6 +35,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   resolveModel: () => model,
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
+  contextWindowFor: async () => undefined,
 });
 
 // Capturing event bus: records every published event, never delivers.
@@ -192,6 +193,7 @@ describe("runTurn", () => {
       },
       generateText: async () => ({ text: "", usage: {} }),
       listModels: async () => ({ models: [], failures: [] }),
+      contextWindowFor: async () => undefined,
     };
     const session = createSession(db, MODEL, { id: "s1" });
 
