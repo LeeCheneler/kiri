@@ -11,6 +11,7 @@ import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
+import { CULLED_RESULT_NOTICE } from "./cull-tool-results.ts";
 import {
   type Message,
   appendMessage,
@@ -59,6 +60,23 @@ const finishReason = (unified: "stop" | "error" | "tool-calls") => ({ unified, r
 const streamingModel = (chunks: LanguageModelV3StreamPart[]): LlmModel =>
   new MockLanguageModelV3({
     doStream: async () => ({ stream: convertArrayToReadableStream(chunks) }),
+  }) as unknown as LlmModel;
+
+// A model that records the prompt (the converted history) it was handed, then
+// answers with a short reply — so a test can assert on exactly what reached it.
+const capturingModel = (capture: { prompt?: unknown }): LlmModel =>
+  new MockLanguageModelV3({
+    doStream: async (options) => {
+      capture.prompt = options.prompt;
+      return {
+        stream: convertArrayToReadableStream([
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "ok" },
+          { type: "text-end", id: "t1" },
+          { type: "finish", finishReason: finishReason("stop"), usage: usage(2, 1) },
+        ]),
+      };
+    },
   }) as unknown as LlmModel;
 
 // A model whose stream emits a little then stays open: only an abort ends it,
@@ -184,6 +202,80 @@ describe("runTurn", () => {
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
     expect(events.filter((e) => e.type === "session.message.added")).toHaveLength(2);
+  });
+
+  it("culls older tool results from what the model sees over half a full context, leaving storage intact", async () => {
+    const toolResult = (id: string, marker: string): UIMessage["parts"][number] =>
+      ({
+        type: "tool-search",
+        toolCallId: id,
+        state: "output-available",
+        input: { query: id },
+        output: { marker },
+      }) as UIMessage["parts"][number];
+
+    const session = createSession(db, MODEL, { id: "s1" });
+    // Five tool results across two prior assistant turns; the latest turn's usage
+    // puts the session over half of the 1000-token window the model reports.
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "search" }] },
+      { id: "u0" },
+    );
+    appendMessage(
+      db,
+      "s1",
+      { role: "assistant", parts: [toolResult("c1", "ALPHA"), toolResult("c2", "BRAVO")] },
+      { id: "a1" },
+    );
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          toolResult("c3", "CHARLIE"),
+          toolResult("c4", "DELTA"),
+          toolResult("c5", "ECHO"),
+          { type: "text", text: "done" },
+        ],
+        usage: { inputTokens: 600, outputTokens: 0, totalTokens: 600 },
+      },
+      { id: "a2" },
+    );
+
+    const capture: { prompt?: unknown } = {};
+    const llmClients: LlmClients = {
+      ...clientsFor(capturingModel(capture)),
+      contextWindowFor: async () => 1000,
+    };
+
+    const { response, done } = await runTurn(
+      { db, llmClients },
+      {
+        session,
+        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
+      },
+    );
+    await response.text();
+    await done;
+
+    // The two oldest results reach the model as the notice; the three most recent
+    // arrive in full.
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain(CULLED_RESULT_NOTICE);
+    expect(sent).not.toContain("ALPHA");
+    expect(sent).not.toContain("BRAVO");
+    expect(sent).toContain("CHARLIE");
+    expect(sent).toContain("DELTA");
+    expect(sent).toContain("ECHO");
+
+    // Storage is untouched: the culled results keep their real output on disk.
+    const stored = JSON.stringify(getSessionMessages(db, "s1").find((r) => r.id === "a1")?.parts);
+    expect(stored).toContain("ALPHA");
+    expect(stored).toContain("BRAVO");
+    expect(stored).not.toContain(CULLED_RESULT_NOTICE);
   });
 
   it("rejects before persisting anything when the model cannot be resolved", async () => {
