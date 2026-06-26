@@ -86,15 +86,13 @@ describe("session turn streaming", () => {
     const messages = getSessionMessages(db, session.id);
     expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(assistantText(messages[1].parts)).toBe("You said: Hi there");
-    // Per-message usage is recorded on the assistant turn.
-    expect(messages[1].usage).toMatchObject({ inputTokens: 12, outputTokens: 8, totalTokens: 20 });
+    // The context footprint is recorded on the assistant turn — non-zero only
+    // because the openai-compatible client opts into `include_usage`.
+    expect(messages[1].contextTokens).toBe(20);
 
     const after = getSession(db, session.id);
     expect(after?.status).toBe("idle");
     expect(after?.finishedAt).toBeNull();
-    // Running totals are denormalised onto the session row from the streamed
-    // `include_usage` chunk — the whole point of the openai-compatible wiring.
-    expect(after).toMatchObject({ inputTokens: 12, outputTokens: 8, totalTokens: 20 });
   });
 
   it("composes the layered system prompt — core, kiri.md, persona — and sends it to the model", async () => {
@@ -126,7 +124,7 @@ describe("session turn streaming", () => {
     expect(getSession(db, session.id)?.status).toBe("idle");
   });
 
-  it("accumulates running token totals across turns", async () => {
+  it("records each turn's context footprint across a multi-turn session", async () => {
     const session = createSession(db, "fake:echo");
 
     await (await runTurn({ db, llmClients }, { session, userMessage: userMessage("one") })).done;
@@ -135,9 +133,11 @@ describe("session turn streaming", () => {
     await (await runTurn({ db, llmClients }, { session: mid, userMessage: userMessage("two") }))
       .done;
 
-    const after = getSession(db, session.id);
-    expect(after).toMatchObject({ inputTokens: 24, outputTokens: 16, totalTokens: 40 });
-    expect(getSessionMessages(db, session.id)).toHaveLength(4);
+    const messages = getSessionMessages(db, session.id);
+    expect(messages).toHaveLength(4);
+    // Each assistant turn records its own footprint; the latest is what the gauge reads.
+    expect(messages[1]?.contextTokens).toBe(20);
+    expect(messages[3]?.contextTokens).toBe(20);
   });
 
   it("records a turn that the provider errors as failed, with the message and no assistant reply", async () => {

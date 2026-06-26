@@ -14,7 +14,6 @@ import { cullToolHistory, currentContextTokens } from "./cull-tool-results.ts";
 import {
   type Message,
   type Session,
-  addTurnUsage,
   appendMessage,
   getSessionMessages,
   setSessionStatus,
@@ -302,34 +301,27 @@ async function streamCore(
           bus?.publish({ type: "session.finished", id: session.id, status });
           return;
         }
-        const usage = await result.totalUsage;
-        // The context gauge needs the last model call's total (its footprint),
-        // not the per-step sum in `totalUsage`, which over-counts a multi-step
-        // tool turn.
+        // The context fill the gauge reads is the last model call's total
+        // tokens — not the per-step sum, which over-counts a multi-step tool
+        // turn (each step re-sends the history).
         const lastStep = await result.usage;
-        const turnUsage = {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          totalTokens: usage.totalTokens,
-          contextTokens: lastStep.totalTokens,
-        };
+        const contextTokens = lastStep.totalTokens;
         // A continuation extends the assistant message that paused for approval;
-        // update it in place and accrue this step's usage. Otherwise it's a new
+        // update it in place with this turn's footprint. Otherwise it's a new
         // assistant message, persisted under the id the stream assigned it.
         if (isContinuation) {
           updateMessage(db, session.id, responseMessage.id, {
             parts: responseMessage.parts,
-            addUsage: turnUsage,
+            contextTokens,
           });
         } else {
           appendMessage(
             db,
             session.id,
-            { role: "assistant", parts: responseMessage.parts, usage: turnUsage },
+            { role: "assistant", parts: responseMessage.parts, contextTokens },
             { id: responseMessage.id },
           );
         }
-        addTurnUsage(db, session.id, turnUsage);
         setSessionStatus(db, session.id, "idle");
         bus?.publish({ type: "session.message.added", sessionId: session.id });
         bus?.publish({ type: "session.updated", id: session.id, status: "idle" });

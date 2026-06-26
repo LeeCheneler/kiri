@@ -21,13 +21,13 @@ const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknow
   messages,
 });
 
-const assistantMessage = (usage: unknown) => ({
+const assistantMessage = (contextTokens: number | null) => ({
   id: "m1",
   sessionId: "s1",
   index: 1,
   role: "assistant",
   parts: [{ type: "text", text: "hi" }],
-  usage,
+  contextTokens,
   createdAt: "2026-05-09T12:00:00.000Z",
 });
 
@@ -134,16 +134,7 @@ describe("<SessionAside>", () => {
   it("shows the current context size from the last settled turn", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(
-          sessionDetail({}, [
-            assistantMessage({
-              inputTokens: 1200,
-              outputTokens: 345,
-              totalTokens: 1545,
-              contextTokens: 1545,
-            }),
-          ]),
-        ),
+        HttpResponse.json(sessionDetail({}, [assistantMessage(1545)])),
       ),
     );
     renderAside(<SessionAside id="s1" />);
@@ -155,16 +146,7 @@ describe("<SessionAside>", () => {
   it("shows context as current / limit when the model's window is known", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(
-          sessionDetail({}, [
-            assistantMessage({
-              inputTokens: 1200,
-              outputTokens: 345,
-              totalTokens: 1545,
-              contextTokens: 1545,
-            }),
-          ]),
-        ),
+        HttpResponse.json(sessionDetail({}, [assistantMessage(1545)])),
       ),
       http.get("*/api/models", () =>
         HttpResponse.json({

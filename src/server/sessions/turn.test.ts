@@ -168,7 +168,7 @@ describe("runTurn", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("persists the user and assistant messages, usage, and totals on a completed turn", async () => {
+  it("persists the user and assistant messages and the context footprint on a completed turn", async () => {
     const model = streamingModel([
       { type: "text-start", id: "t1" },
       { type: "text-delta", id: "t1", delta: "Hello" },
@@ -191,18 +191,10 @@ describe("runTurn", () => {
     expect(textParts(rows[0]?.parts)[0]?.text).toBe("Hi there");
     const assistantText = textParts(rows[1]?.parts).find((p) => p.type === "text")?.text;
     expect(assistantText).toBe("Hello world");
-    expect(rows[1]?.usage).toEqual({
-      inputTokens: 7,
-      outputTokens: 2,
-      totalTokens: 9,
-      contextTokens: 9,
-    });
+    expect(rows[1]?.contextTokens).toBe(9);
 
     const settled = getSession(db, "s1");
     expect(settled?.status).toBe("idle");
-    expect(settled?.inputTokens).toBe(7);
-    expect(settled?.outputTokens).toBe(2);
-    expect(settled?.totalTokens).toBe(9);
 
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
@@ -245,7 +237,7 @@ describe("runTurn", () => {
           toolResult("c5", "ECHO"),
           { type: "text", text: "done" },
         ],
-        usage: { inputTokens: 600, outputTokens: 0, totalTokens: 600, contextTokens: 600 },
+        contextTokens: 600,
       },
       { id: "a2" },
     );
@@ -480,16 +472,9 @@ describe("runTurn", () => {
     expect(toolPart?.output).toEqual({ echoed: "hi" });
     expect(parts.find((p) => p.type === "text")?.text).toBe("Echoed: hi");
 
-    // Spend aggregates across both steps (8/5/13); the context footprint is the
-    // last step alone (3+4), not the summed total.
-    expect(rows[1]?.usage).toEqual({
-      inputTokens: 8,
-      outputTokens: 5,
-      totalTokens: 13,
-      contextTokens: 7,
-    });
+    // The context footprint is the last step alone (3+4), not the summed total.
+    expect(rows[1]?.contextTokens).toBe(7);
     expect(getSession(db, "s1")?.status).toBe("idle");
-    expect(getSession(db, "s1")?.totalTokens).toBe(13);
   });
 
   it("pauses for tool approval instead of running the tool, settling idle", async () => {
@@ -549,15 +534,9 @@ describe("runTurn", () => {
     expect(toolPart.output).toEqual({ echoed: "hi" });
     expect(textParts(rows[1]?.parts).find((p) => p.type === "text")?.text).toBe("Echoed: hi");
     expect(getSession(db, "s1")?.status).toBe("idle");
-    // Spend accrues across the pause: step 1 (5/1) plus step 2 (3/4). The context
-    // footprint is the resumed step's alone (3+4), replacing the paused step's.
-    expect(rows[1]?.usage).toEqual({
-      inputTokens: 8,
-      outputTokens: 5,
-      totalTokens: 13,
-      contextTokens: 7,
-    });
-    expect(getSession(db, "s1")?.totalTokens).toBe(13);
+    // The context footprint is the resumed step's alone (3+4), replacing the
+    // paused step's.
+    expect(rows[1]?.contextTokens).toBe(7);
   });
 
   it("refuses the tool and lets the model continue when resumed with a denial", async () => {

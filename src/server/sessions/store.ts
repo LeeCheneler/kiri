@@ -1,9 +1,8 @@
 import type { UIMessage } from "ai";
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { messages, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
-import type { LlmUsage } from "../llm/index.ts";
 
 /** A persisted session row. */
 export type Session = typeof sessions.$inferSelect;
@@ -14,13 +13,13 @@ export type Message = typeof messages.$inferSelect;
 export interface NewMessage {
   role: "user" | "assistant" | "system";
   parts: UIMessage["parts"];
-  /** Token usage for the turn that produced this message; omitted for user messages. */
-  usage?: LlmUsage;
+  /** Context footprint for the turn that produced this message; omitted for user messages. */
+  contextTokens?: number;
 }
 
 /**
  * Insert a new session against `model` (a `provider:model` id), starting it
- * `idle` with zero token totals and no persona. A persona is attached later via
+ * `idle` with no persona. A persona is attached later via
  * `updateSessionPersona`, not at creation. Returns the persisted row.
  */
 export function createSession(
@@ -137,7 +136,7 @@ export function appendMessage(
       index,
       role: message.role,
       parts: message.parts,
-      usage: message.usage ?? null,
+      contextTokens: message.contextTokens ?? null,
       createdAt: opts.createdAt ?? new Date(),
     })
     .run();
@@ -145,49 +144,34 @@ export function appendMessage(
 }
 
 /**
- * Replace a message's `parts`, optionally folding token usage into its running
- * total. Drives the two writes of a tool-approval resume: first the pending
- * assistant message is patched with the user's verdicts (parts only, usage
- * untouched), then the streamed continuation extends it in place with the
- * resumed step's usage added on — so the row ends up reflecting the whole turn,
- * usage accrued before the pause kept rather than overwritten.
+ * Replace a message's `parts`, optionally recording its context footprint.
+ * Drives the two writes of a tool-approval resume: first the pending assistant
+ * message is patched with the user's verdicts (parts only, footprint left as
+ * is), then the streamed continuation extends it in place and records the
+ * resumed turn's footprint — a high-water mark, so the latest value stands.
  */
 export function updateMessage(
   db: KiriDb,
   sessionId: string,
   messageId: string,
-  update: { parts: UIMessage["parts"]; addUsage?: LlmUsage },
+  update: { parts: UIMessage["parts"]; contextTokens?: number },
 ): void {
-  const prior =
-    (db
-      .select({ usage: messages.usage })
-      .from(messages)
-      .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
-      .get()?.usage as LlmUsage | null) ?? {};
-  const usage = update.addUsage
-    ? {
-        inputTokens: (prior.inputTokens ?? 0) + (update.addUsage.inputTokens ?? 0),
-        outputTokens: (prior.outputTokens ?? 0) + (update.addUsage.outputTokens ?? 0),
-        totalTokens: (prior.totalTokens ?? 0) + (update.addUsage.totalTokens ?? 0),
-        // Spend accrues across the pause; the context footprint is a high-water
-        // mark, so take the resumed turn's rather than summing it.
-        contextTokens: update.addUsage.contextTokens,
-      }
-    : prior;
   db.update(messages)
-    .set({ parts: update.parts, usage })
+    .set({
+      parts: update.parts,
+      ...("contextTokens" in update ? { contextTokens: update.contextTokens ?? null } : {}),
+    })
     .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
     .run();
 }
 
 /**
- * Delete the message `messageId` and every message after it in the session,
- * then rebuild the session's running token totals from the survivors. Rolls a
- * transcript back to an earlier point — e.g. editing and resending a user
- * message, which discards that message and the turns that followed. Trailing
- * rows are removed wholesale rather than gapped, so the append-at-count
- * invariant in `appendMessage` still holds. Returns whether the message
- * existed; truncating from an absent message changes nothing.
+ * Delete the message `messageId` and every message after it in the session.
+ * Rolls a transcript back to an earlier point — e.g. editing and resending a
+ * user message, which discards that message and the turns that followed.
+ * Trailing rows are removed wholesale rather than gapped, so the append-at-count
+ * invariant in `appendMessage` still holds. Returns whether the message existed;
+ * truncating from an absent message changes nothing.
  */
 export function deleteMessagesFrom(db: KiriDb, sessionId: string, messageId: string): boolean {
   const target = db
@@ -196,44 +180,10 @@ export function deleteMessagesFrom(db: KiriDb, sessionId: string, messageId: str
     .where(and(eq(messages.sessionId, sessionId), eq(messages.id, messageId)))
     .get();
   if (!target) return false;
-  db.transaction((tx) => {
-    tx.delete(messages)
-      .where(and(eq(messages.sessionId, sessionId), gte(messages.index, target.index)))
-      .run();
-    const survivors = tx
-      .select({ usage: messages.usage })
-      .from(messages)
-      .where(eq(messages.sessionId, sessionId))
-      .all();
-    const totals = survivors.reduce(
-      (acc, { usage }) => {
-        const turn = (usage as LlmUsage | null) ?? {};
-        acc.inputTokens += turn.inputTokens ?? 0;
-        acc.outputTokens += turn.outputTokens ?? 0;
-        acc.totalTokens += turn.totalTokens ?? 0;
-        return acc;
-      },
-      { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-    );
-    tx.update(sessions).set(totals).where(eq(sessions.id, sessionId)).run();
-  });
-  return true;
-}
-
-/**
- * Add a completed turn's token usage to a session's running totals. A count
- * the provider omitted contributes nothing to its column. Increments in SQL so
- * the read-modify-write is atomic.
- */
-export function addTurnUsage(db: KiriDb, sessionId: string, usage: LlmUsage): void {
-  db.update(sessions)
-    .set({
-      inputTokens: sql`${sessions.inputTokens} + ${usage.inputTokens ?? 0}`,
-      outputTokens: sql`${sessions.outputTokens} + ${usage.outputTokens ?? 0}`,
-      totalTokens: sql`${sessions.totalTokens} + ${usage.totalTokens ?? 0}`,
-    })
-    .where(eq(sessions.id, sessionId))
+  db.delete(messages)
+    .where(and(eq(messages.sessionId, sessionId), gte(messages.index, target.index)))
     .run();
+  return true;
 }
 
 /**

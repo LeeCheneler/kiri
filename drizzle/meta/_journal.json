@@ -120,6 +120,13 @@
       "when": 1781729571332,
       "tag": "0016_add_session_persona",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1782511878811,
+      "tag": "0017_drop_session_token_totals",
+      "breakpoints": true
     }
   ]
 }
