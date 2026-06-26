@@ -1,11 +1,10 @@
 import { humaniseSlug } from "../../../shared/humanise-slug.ts";
-import { patchSessionModel, patchSessionPersona } from "../../api.ts";
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Stat, StatList } from "../../design-system/content/stat.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
-import { useModels, usePersonas, useSession } from "../../state/sessions.ts";
+import { useModels, usePersonas, useSession, useUpdateSession } from "../../state/sessions.ts";
 import { contextWindowForModel, currentContextTokens } from "./context-usage.ts";
 
 // Each rail section carries its own vertical rhythm; the divide-y draws the
@@ -25,6 +24,7 @@ const PERSONA_NONE = "None";
  */
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
+  const { setModel, setPersona } = useUpdateSession(id);
   const modelsData = useModels().data;
   const models = modelsData?.models ?? [];
   const modelFailures = modelsData?.failures ?? [];
@@ -67,7 +67,7 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           options={modelOptions}
           value={session.model}
           disabled={turnInFlight}
-          onChange={(model) => void patchSessionModel(id, model)}
+          onChange={(model) => void setModel(model)}
         />
         {/* A provider whose listing failed leaves a gap in the picker; name it
             and why, so a missing model reads as a config issue, not an absence. */}
@@ -93,9 +93,7 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
             options={personaOptions}
             value={session.persona ?? PERSONA_NONE}
             disabled={turnInFlight}
-            onChange={(value) =>
-              void patchSessionPersona(id, value === PERSONA_NONE ? null : value)
-            }
+            onChange={(value) => void setPersona(value === PERSONA_NONE ? null : value)}
           />
         </section>
       ) : null}

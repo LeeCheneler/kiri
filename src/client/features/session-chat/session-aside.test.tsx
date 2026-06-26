@@ -73,11 +73,14 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const combobox = await screen.findByRole("combobox", { name: /model/i });
+    const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
     await userEvent.click(combobox);
     await userEvent.click(screen.getByRole("option", { name: "openai:gpt" }));
 
     await waitFor(() => expect(patched.model).toBe("openai:gpt"));
+    // The picker reflects the choice from the PATCH response, without a refetch —
+    // the mocked GET still returns the old model, so a stale combobox would fail here.
+    await waitFor(() => expect(combobox.value).toBe("openai:gpt"));
   });
 
   it("lists the models alphabetically", async () => {
@@ -220,11 +223,14 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    await userEvent.click(await screen.findByRole("combobox", { name: /persona/i }));
+    const persona = (await screen.findByRole("combobox", { name: /persona/i })) as HTMLInputElement;
+    await userEvent.click(persona);
     // The option shows the humanised label; the patch sends the underlying id.
     await userEvent.click(screen.getByRole("option", { name: "Pirate" }));
 
     await waitFor(() => expect(patched.persona).toBe("pirate"));
+    // The picker reflects the attached persona from the PATCH response at once.
+    await waitFor(() => expect(persona.value).toBe("Pirate"));
   });
 
   it("pins an attached persona absent from the workspace, with a humanised label", async () => {

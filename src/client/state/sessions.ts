@@ -8,12 +8,15 @@ import {
 import {
   type ModelsResult,
   type Persona,
+  type Session,
   type SessionDetail,
   type SessionListEntry,
   fetchModels,
   fetchPersonas,
   fetchSession,
   fetchSessionsPage,
+  patchSessionModel,
+  patchSessionPersona,
 } from "../api.ts";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 
@@ -51,6 +54,29 @@ export function usePersonas(): UseQueryResult<Persona[]> {
  */
 export function useSession(id: string): UseQueryResult<SessionDetail> {
   return useQuery({ queryKey: sessionKey(id), queryFn: () => fetchSession(id) });
+}
+
+/**
+ * Change a session's model or persona and write the server's updated row
+ * straight into the cached detail, so the picker reflects the choice at once.
+ * A user-initiated change shouldn't wait on the `session.updated` echo to land
+ * before showing — the PATCH already returns the authoritative session; we keep
+ * the loaded messages and swap it in.
+ */
+export function useUpdateSession(id: string): {
+  setModel: (model: string) => Promise<void>;
+  setPersona: (persona: string | null) => Promise<void>;
+} {
+  const queryClient = useQueryClient();
+  const apply = (session: Session) => {
+    queryClient.setQueryData<SessionDetail>(sessionKey(id), (prev) =>
+      prev ? { ...prev, session } : prev,
+    );
+  };
+  return {
+    setModel: async (model) => apply((await patchSessionModel(id, model)).session),
+    setPersona: async (persona) => apply((await patchSessionPersona(id, persona)).session),
+  };
 }
 
 /**
