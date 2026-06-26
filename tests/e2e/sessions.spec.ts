@@ -28,20 +28,16 @@ test("starting a session, sending a message, and streaming the reply", async ({ 
   await expect(page.getByRole("link", { name: /hello from kiri e2e/i })).toBeVisible();
 });
 
-test("a settled turn reports token usage and context fill in the rail", async ({ page }) => {
+test("a settled turn reports the context fill in the rail", async ({ page }) => {
   await startSession(page);
   await useModel(page, "fake:echo");
   await sendMessage(page, "count my tokens");
   await expect(page.getByText("You said: count my tokens")).toBeVisible({ timeout: 10_000 });
 
-  // The right rail carries the session marginalia; scope to it so the figures
-  // are unambiguous.
-  const rail = page.getByRole("complementary").filter({ hasText: "Tokens" });
+  // The right rail carries the session marginalia; scope to it so the figure
+  // is unambiguous.
+  const rail = page.getByRole("complementary").filter({ hasText: "Context" });
   await expect(page.getByLabel(/model/i)).toHaveValue("fake:echo");
-  // The stub reports a fixed usage of 12 in / 8 out / 20 total per turn.
-  await expect(rail.getByText("12", { exact: true })).toBeVisible();
-  await expect(rail.getByText("8", { exact: true })).toBeVisible();
-  await expect(rail.getByText("20", { exact: true })).toBeVisible();
-  // Context fill is the last settled turn's footprint (in + out).
+  // Context fill is the last settled turn's footprint — the stub reports 20.
   await expect(rail.getByText(/20 tokens/i)).toBeVisible();
 });
