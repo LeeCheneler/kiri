@@ -15,9 +15,6 @@ const base: SessionListEntry = {
   startedAt: "2026-05-09T12:00:00.000Z",
   finishedAt: null,
   error: null,
-  inputTokens: 0,
-  outputTokens: 0,
-  totalTokens: 0,
   preview: "Summarise the readme",
 };
 
@@ -47,15 +44,5 @@ describe("<SessionRow>", () => {
     renderRow();
     expect(screen.getByText("gemma-4-26b-a4b-qat")).toBeDefined();
     expect(screen.queryByText(/local:google/)).toBeNull();
-  });
-
-  it("shows a compact token total once a turn has run", () => {
-    renderRow({ totalTokens: 12345 });
-    expect(screen.getByText(/12k tok/)).toBeDefined();
-  });
-
-  it("omits the token total before any tokens are used", () => {
-    renderRow({ totalTokens: 0 });
-    expect(screen.queryByText(/tok/)).toBeNull();
   });
 });

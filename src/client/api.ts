@@ -611,10 +611,6 @@ export interface Session {
   /** Set once the session reaches a terminal `failed`/`cancelled`; null while usable. */
   finishedAt: string | null;
   error: unknown;
-  /** Running token totals summed across completed turns. */
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
 }
 
 /** A persisted message on a session. `parts` is an AI SDK `UIMessage` parts array. */

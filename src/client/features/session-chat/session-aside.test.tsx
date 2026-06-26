@@ -16,9 +16,6 @@ const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknow
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
     ...overrides,
   },
   messages,
@@ -38,19 +35,12 @@ const renderAside = (ui: ReactNode) =>
   render(<QueryClientProvider client={createQueryClient()}>{ui}</QueryClientProvider>);
 
 describe("<SessionAside>", () => {
-  it("renders the model, token totals, and start time", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail({ inputTokens: 7, outputTokens: 2, totalTokens: 9 })),
-      ),
-    );
+  it("renders the session's model", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
     renderAside(<SessionAside id="s1" now={new Date("2026-05-09T12:00:30.000Z")} />);
 
     const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
     expect(combobox.value).toBe("anthropic:claude");
-    expect(screen.getByText("7")).toBeDefined();
-    expect(screen.getByText("2")).toBeDefined();
-    expect(screen.getByText("9")).toBeDefined();
   });
 
   it("changes the session's model when another is picked", async () => {
