@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
+import migration0017 from "../../../drizzle/0017_drop_session_token_totals.sql" with {
+  type: "text",
+};
 import { type KiriDb, openDatabase } from "./index.ts";
 import { migrate } from "./migrate.ts";
 import { articles, messages, recommendations, runSteps, runs, sessions } from "./schema.ts";
@@ -702,7 +705,7 @@ describe("db", () => {
     expect(indexes).toEqual(["recommendations_actioned_run_id_idx", "recommendations_run_id_idx"]);
   });
 
-  it("round-trips a session + message with parts and usage", () => {
+  it("round-trips a session + message with parts and a context footprint", () => {
     migrate(db);
 
     const startedAt = new Date(1_700_000_000_000);
@@ -712,9 +715,6 @@ describe("db", () => {
         status: "idle",
         model: "lmstudio:gemma-4-26b-a4b-qat",
         startedAt,
-        inputTokens: 12,
-        outputTokens: 34,
-        totalTokens: 46,
       })
       .run();
 
@@ -726,7 +726,7 @@ describe("db", () => {
         index: 0,
         role: "assistant",
         parts: [{ type: "text", text: "Hello there." }],
-        usage: { inputTokens: 12, outputTokens: 34, totalTokens: 46 },
+        contextTokens: 46,
         createdAt,
       })
       .run();
@@ -735,17 +735,16 @@ describe("db", () => {
     expect(session?.status).toBe("idle");
     expect(session?.model).toBe("lmstudio:gemma-4-26b-a4b-qat");
     expect(session?.startedAt).toEqual(startedAt);
-    expect(session?.totalTokens).toBe(46);
 
     const message = db.select().from(messages).where(eq(messages.id, "msg-1")).get();
     expect(message?.sessionId).toBe("sess-1");
     expect(message?.role).toBe("assistant");
     expect(message?.parts).toEqual([{ type: "text", text: "Hello there." }]);
-    expect(message?.usage).toEqual({ inputTokens: 12, outputTokens: 34, totalTokens: 46 });
+    expect(message?.contextTokens).toBe(46);
     expect(message?.createdAt).toEqual(createdAt);
   });
 
-  it("defaults session token totals to 0 and nullable fields to null", () => {
+  it("defaults a session's nullable fields to null", () => {
     migrate(db);
 
     db.insert(sessions)
@@ -769,14 +768,43 @@ describe("db", () => {
       .run();
 
     const session = db.select().from(sessions).where(eq(sessions.id, "sess-min")).get();
-    expect(session?.inputTokens).toBe(0);
-    expect(session?.outputTokens).toBe(0);
-    expect(session?.totalTokens).toBe(0);
     expect(session?.finishedAt).toBeNull();
     expect(session?.error).toBeNull();
 
     const message = db.select().from(messages).where(eq(messages.id, "msg-user")).get();
-    expect(message?.usage).toBeNull();
+    expect(message?.contextTokens).toBeNull();
+  });
+
+  it("0017 backfills context_tokens from the legacy usage column, then drops it", () => {
+    // Stand up the pre-0017 messages shape and run the migration's messages
+    // statements: each turn's recorded footprint must carry forward, the rest of
+    // the usage JSON is dropped, and rows without a footprint settle to null.
+    const sqlite = db.$client;
+    sqlite.run("CREATE TABLE `messages` (`id` text, `usage` text)");
+    sqlite.run(
+      `INSERT INTO messages VALUES
+         ('with-footprint', '{"totalTokens":46,"contextTokens":46}'),
+         ('no-footprint', '{"totalTokens":5}'),
+         ('user-turn', NULL)`,
+    );
+
+    for (const statement of migration0017
+      .split("--> statement-breakpoint")
+      .map((s) => s.trim())
+      .filter((s) => s.includes("`messages`"))) {
+      sqlite.run(statement);
+    }
+
+    const rows = sqlite
+      .query<{ id: string; context_tokens: number | null }, []>(
+        "SELECT id, context_tokens FROM messages ORDER BY id",
+      )
+      .all();
+    expect(rows).toEqual([
+      { id: "no-footprint", context_tokens: null },
+      { id: "user-turn", context_tokens: null },
+      { id: "with-footprint", context_tokens: 46 },
+    ]);
   });
 
   it("declares messages.session_id → sessions.id foreign key", () => {
@@ -800,8 +828,8 @@ describe("db", () => {
     );
     // Seed the migration ledger through 0013 so the session migrations
     // (0014 creating the tables, 0015 dropping the agent columns, 0016 adding
-    // the persona column) are the ones outstanding; the run-side tables they
-    // don't touch are irrelevant.
+    // the persona column, 0017 dropping the running-token columns) are the ones
+    // outstanding; the run-side tables they don't touch are irrelevant.
     const priorMigrations = [
       "0000_initial",
       "0001_index_run_nodes_run_id",
@@ -840,18 +868,7 @@ describe("db", () => {
       .map((r) => r.name)
       .sort();
     expect(sessionCols).toEqual(
-      [
-        "error",
-        "finished_at",
-        "id",
-        "input_tokens",
-        "model",
-        "output_tokens",
-        "persona",
-        "started_at",
-        "status",
-        "total_tokens",
-      ].sort(),
+      ["error", "finished_at", "id", "model", "persona", "started_at", "status"].sort(),
     );
 
     const indexes = sqlite

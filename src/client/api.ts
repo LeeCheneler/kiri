@@ -611,10 +611,6 @@ export interface Session {
   /** Set once the session reaches a terminal `failed`/`cancelled`; null while usable. */
   finishedAt: string | null;
   error: unknown;
-  /** Running token totals summed across completed turns. */
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
 }
 
 /** A persisted message on a session. `parts` is an AI SDK `UIMessage` parts array. */
@@ -624,13 +620,8 @@ export interface SessionMessage {
   index: number;
   role: "user" | "assistant" | "system";
   parts: UIMessage["parts"];
-  /** Per-turn token usage; null for user messages and when a provider reported none. */
-  usage: {
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-    contextTokens?: number;
-  } | null;
+  /** The context footprint after this message's turn; null for user messages and when a provider reported none. */
+  contextTokens: number | null;
   createdAt: string;
 }
 

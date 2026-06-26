@@ -7,14 +7,14 @@ import {
 } from "./cull-tool-results.ts";
 import type { Message } from "./store.ts";
 
-// A persisted row carrying only what currentContextTokens reads — its usage.
-const row = (usage: Message["usage"]): Message => ({
+// A persisted row carrying only what currentContextTokens reads — its footprint.
+const row = (contextTokens: number | null): Message => ({
   id: "m",
   sessionId: "s",
   index: 0,
   role: "assistant",
   parts: [],
-  usage,
+  contextTokens,
   createdAt: new Date(),
 });
 
@@ -64,17 +64,13 @@ const UNDER_BUDGET = { contextTokens: 400, contextWindow: 1000 };
 describe("currentContextTokens", () => {
   it("is undefined until a turn has settled with a recorded footprint", () => {
     expect(currentContextTokens([])).toBeUndefined();
-    // A row with no usage, or usage carrying no footprint, can't anchor a figure.
-    expect(
-      currentContextTokens([row(null), row({ inputTokens: 300, outputTokens: 40 })]),
-    ).toBeUndefined();
+    // Rows with no recorded footprint can't anchor a figure.
+    expect(currentContextTokens([row(null), row(null)])).toBeUndefined();
   });
 
-  it("reads the most recent usage-bearing row's context footprint", () => {
+  it("reads the most recent footprint-bearing row's context footprint", () => {
     // Reads the last footprint, not the first.
-    expect(currentContextTokens([row({ contextTokens: 120 }), row({ contextTokens: 340 })])).toBe(
-      340,
-    );
+    expect(currentContextTokens([row(120), row(340)])).toBe(340);
   });
 });
 

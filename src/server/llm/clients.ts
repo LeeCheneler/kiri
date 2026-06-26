@@ -24,13 +24,6 @@ export interface LlmUsage {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
-  /**
-   * The turn's context footprint — its last model call's total tokens. The
-   * summed `inputTokens`/`outputTokens` over-count a multi-step tool turn (each
-   * step re-sends the history), so this single-call high-water mark is what
-   * gauges how full the context window is.
-   */
-  contextTokens?: number;
 }
 
 /** The text and token usage from a single non-streaming completion. */

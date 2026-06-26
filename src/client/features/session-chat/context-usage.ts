@@ -9,11 +9,10 @@ export const CONTEXT_WARNING_RATIO = 0.9;
 /**
  * The live context fill: the most recent settled turn's recorded context
  * footprint — its last model call's total tokens. `undefined` until a turn has
- * settled with a footprint (a brief gap a fresh turn fills); not back-filled
- * from summed input+output, which over-states a multi-step tool turn.
+ * settled with a footprint (a brief gap a fresh turn fills).
  */
 export function currentContextTokens(messages: SessionMessage[]): number | undefined {
-  return messages.findLast((message) => message.usage)?.usage?.contextTokens;
+  return messages.findLast((message) => message.contextTokens != null)?.contextTokens ?? undefined;
 }
 
 /** The context window of `modelId` from the listed models, or undefined when uncatalogued. */

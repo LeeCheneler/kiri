@@ -16,21 +16,18 @@ const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknow
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
     ...overrides,
   },
   messages,
 });
 
-const assistantMessage = (usage: unknown) => ({
+const assistantMessage = (contextTokens: number | null) => ({
   id: "m1",
   sessionId: "s1",
   index: 1,
   role: "assistant",
   parts: [{ type: "text", text: "hi" }],
-  usage,
+  contextTokens,
   createdAt: "2026-05-09T12:00:00.000Z",
 });
 
@@ -38,19 +35,12 @@ const renderAside = (ui: ReactNode) =>
   render(<QueryClientProvider client={createQueryClient()}>{ui}</QueryClientProvider>);
 
 describe("<SessionAside>", () => {
-  it("renders the model, token totals, and start time", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail({ inputTokens: 7, outputTokens: 2, totalTokens: 9 })),
-      ),
-    );
+  it("renders the session's model", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
     renderAside(<SessionAside id="s1" now={new Date("2026-05-09T12:00:30.000Z")} />);
 
     const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
     expect(combobox.value).toBe("anthropic:claude");
-    expect(screen.getByText("7")).toBeDefined();
-    expect(screen.getByText("2")).toBeDefined();
-    expect(screen.getByText("9")).toBeDefined();
   });
 
   it("changes the session's model when another is picked", async () => {
@@ -144,16 +134,7 @@ describe("<SessionAside>", () => {
   it("shows the current context size from the last settled turn", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(
-          sessionDetail({}, [
-            assistantMessage({
-              inputTokens: 1200,
-              outputTokens: 345,
-              totalTokens: 1545,
-              contextTokens: 1545,
-            }),
-          ]),
-        ),
+        HttpResponse.json(sessionDetail({}, [assistantMessage(1545)])),
       ),
     );
     renderAside(<SessionAside id="s1" />);
@@ -165,16 +146,7 @@ describe("<SessionAside>", () => {
   it("shows context as current / limit when the model's window is known", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(
-          sessionDetail({}, [
-            assistantMessage({
-              inputTokens: 1200,
-              outputTokens: 345,
-              totalTokens: 1545,
-              contextTokens: 1545,
-            }),
-          ]),
-        ),
+        HttpResponse.json(sessionDetail({}, [assistantMessage(1545)])),
       ),
       http.get("*/api/models", () =>
         HttpResponse.json({

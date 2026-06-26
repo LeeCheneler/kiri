@@ -18,9 +18,6 @@ const sessionDetail = (messages: unknown[] = [], overrides: Record<string, unkno
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
     ...overrides,
   },
   messages,
@@ -32,14 +29,14 @@ const message = (id: string, role: "user" | "assistant", text: string) => ({
   index: 0,
   role,
   parts: [{ type: "text", text }],
-  usage: null,
+  contextTokens: null,
   createdAt: "2026-05-09T12:00:00.000Z",
 });
 
 // A settled assistant turn reporting a context footprint, so the fill is known.
-const assistantWithUsage = (inputTokens: number) => ({
+const assistantWithContext = (contextTokens: number) => ({
   ...message("m1", "assistant", "answer"),
-  usage: { inputTokens, outputTokens: 0, totalTokens: inputTokens, contextTokens: inputTokens },
+  contextTokens,
 });
 
 const modelsWithWindow = (contextWindow: number) =>
@@ -196,7 +193,7 @@ describe("<SessionChat>", () => {
   it("warns when the conversation nears the model's context window", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail([assistantWithUsage(190000)])),
+        HttpResponse.json(sessionDetail([assistantWithContext(190000)])),
       ),
       modelsWithWindow(200000),
     );
@@ -208,7 +205,7 @@ describe("<SessionChat>", () => {
   it("does not warn when the context fill is well within the window", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail([assistantWithUsage(1000)])),
+        HttpResponse.json(sessionDetail([assistantWithContext(1000)])),
       ),
       modelsWithWindow(200000),
     );

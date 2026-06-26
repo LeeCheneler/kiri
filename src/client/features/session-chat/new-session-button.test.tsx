@@ -21,9 +21,6 @@ const session = (id: string, model: string) => ({
   startedAt: "2026-05-09T12:00:00.000Z",
   finishedAt: null,
   error: null,
-  inputTokens: 0,
-  outputTokens: 0,
-  totalTokens: 0,
 });
 
 const sessionsPage = (...entries: ReturnType<typeof session>[]) => ({

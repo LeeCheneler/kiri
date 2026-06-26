@@ -1,5 +1,4 @@
 import { type UIMessage, isToolUIPart } from "ai";
-import type { LlmUsage } from "../llm/index.ts";
 import type { Message } from "./store.ts";
 
 /**
@@ -25,11 +24,9 @@ export const CULLED_RESULT_NOTICE =
  * footprint — its last model call's total tokens. Mirrors the client's
  * `currentContextTokens`. Undefined until a turn has settled with a footprint
  * (a brief gap a fresh turn fills), so the first turn of a session never culls.
- * Not back-filled from summed input+output, which over-states a multi-step tool
- * turn.
  */
 export function currentContextTokens(rows: Message[]): number | undefined {
-  return (rows.findLast((row) => row.usage)?.usage as LlmUsage | undefined)?.contextTokens;
+  return rows.findLast((row) => row.contextTokens != null)?.contextTokens ?? undefined;
 }
 
 /**

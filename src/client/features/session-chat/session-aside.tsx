@@ -1,7 +1,6 @@
 import { humaniseSlug } from "../../../shared/humanise-slug.ts";
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
-import { Stat, StatList } from "../../design-system/content/stat.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useModels, usePersonas, useSession, useUpdateSession } from "../../state/sessions.ts";
@@ -16,8 +15,8 @@ const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
 const PERSONA_NONE = "None";
 
 /**
- * The session chat right rail: the session's model, running token totals, the
- * current context fill, and when it started. Reads the same shared session
+ * The session chat right rail: the session's model, the current context fill,
+ * and when it started. Reads the same shared session
  * query the chat body uses (no second fetch) and renders nothing until it
  * resolves. `now` is injectable so tests render a deterministic relative
  * timestamp.
@@ -97,22 +96,6 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           />
         </section>
       ) : null}
-      <section className={SECTION_CLASS}>
-        <Eyebrow tone="muted">Tokens</Eyebrow>
-        <div className="mt-3">
-          <StatList>
-            <Stat label="in" size="sm">
-              {session.inputTokens}
-            </Stat>
-            <Stat label="out" size="sm">
-              {session.outputTokens}
-            </Stat>
-            <Stat label="total" size="sm">
-              {session.totalTokens}
-            </Stat>
-          </StatList>
-        </div>
-      </section>
       {contextTokens !== undefined ? (
         <section className={SECTION_CLASS}>
           <Eyebrow tone="muted">Context</Eyebrow>

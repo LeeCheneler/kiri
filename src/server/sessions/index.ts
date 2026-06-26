@@ -2,7 +2,6 @@ export {
   type Message,
   type NewMessage,
   type Session,
-  addTurnUsage,
   appendMessage,
   createSession,
   deleteMessagesFrom,

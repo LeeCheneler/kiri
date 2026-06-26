@@ -161,10 +161,7 @@ export const recommendations = sqliteTable(
  * One row per agentic conversation — the session pillar's instance, mirroring
  * `runs`. A session runs against a chosen `model` and optionally an attached
  * `persona`; the rest of the agent layer (allowed tools, generation params)
- * is not modelled here yet. The running token columns are a deliberate
- * denormalisation over per-message `usage` (see `messages.usage`): an agent
- * loop needs live budget/context visibility, so each turn's usage is summed
- * onto the row rather than recomputed by scanning every message.
+ * is not modelled here yet.
  */
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
@@ -190,15 +187,6 @@ export const sessions = sqliteTable("sessions", {
   /** Stamped when the session reaches a terminal `failed`/`cancelled` state; null while it remains usable. */
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   error: text("error", { mode: "json" }),
-  /**
-   * Running token totals across every completed turn, summed from each
-   * turn's `messages.usage` on completion. Default 0; a provider that omits
-   * a count contributes nothing to its column. Powers the session's live
-   * budget readout without re-aggregating the message rows.
-   */
-  inputTokens: integer("input_tokens").notNull().default(0),
-  outputTokens: integer("output_tokens").notNull().default(0),
-  totalTokens: integer("total_tokens").notNull().default(0),
 });
 
 /**
@@ -207,8 +195,9 @@ export const sessions = sqliteTable("sessions", {
  * file/image, reasoning — the canonical, provider-agnostic representation
  * the client renders and `convertToModelMessages` round-trips to the model.
  * Storing parts is what makes later tools and image uploads storage no-ops:
- * they are simply additional part types this column already holds. Per-message
- * `usage` rides the row as JSON, mirroring `traces.usage` on a run step.
+ * they are simply additional part types this column already holds. Each
+ * assistant message records the context footprint it settled at in
+ * `context_tokens`.
  */
 export const messages = sqliteTable(
   "messages",
@@ -223,11 +212,12 @@ export const messages = sqliteTable(
     role: text("role").notNull(),
     parts: text("parts", { mode: "json" }).notNull(),
     /**
-     * Token usage for the turn that produced this message, null for user
-     * messages and for assistant messages a provider returned no counts for.
-     * Same shape as `traces.usage`: `{ inputTokens?, outputTokens?, totalTokens? }`.
+     * The context footprint once the turn that produced this message settled —
+     * its last model call's total tokens. Null for user messages and for
+     * assistant messages a provider returned no counts for. The session's live
+     * context fill reads the most recent message that carries one.
      */
-    usage: text("usage", { mode: "json" }),
+    contextTokens: integer("context_tokens"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("messages_session_id_idx").on(t.sessionId)],
