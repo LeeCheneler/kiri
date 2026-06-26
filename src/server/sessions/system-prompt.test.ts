@@ -44,6 +44,24 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("knowledge cutoff");
   });
 
+  it("tells the model an unfamiliar reference is likely newer than its training, not a user mistake", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    // The cutoff guidance must defuse the "I don't know it, so it doesn't
+    // exist" failure: treat the unrecognised thing as real and newer, and
+    // never assert nonexistence from memory alone.
+    expect(prompt).toContain("newer than your training");
+    expect(prompt).toContain("not as a mistake on their part");
+    expect(prompt).toContain("not evidence it doesn't exist");
+  });
+
+  it("requires verifying a factual point before correcting the user", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    // The push-back bullet must gate correction on verification rather than
+    // contradicting from stale memory.
+    expect(prompt).toContain("verify before you correct");
+    expect(prompt).toContain("contradicting from memory");
+  });
+
   it("carries response guidance: lead with the answer and calibrate length", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(prompt).toContain("How to respond:");
