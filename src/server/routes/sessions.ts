@@ -11,7 +11,10 @@ import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  INVESTIGATE_TOOL_NAME,
+  type Session,
   type ToolApprovalDecision,
+  type ToolOutput,
   createSession,
   createSystemPromptBuilder,
   createToolGrantStore,
@@ -20,8 +23,10 @@ import {
   getSession,
   getSessionMessages,
   getSessionPreviews,
+  investigateTool,
   listPersonas,
   resumeTurn,
+  resumeTurnWithToolOutput,
   runTurn,
   updateSessionModel,
   updateSessionPersona,
@@ -108,6 +113,13 @@ const toolGrantBodySchema = z.object({ tool: z.string().min(1) }).strict();
 const hasPendingApproval = (parts: UIMessage["parts"]): boolean =>
   parts.some((part) => isToolUIPart(part) && part.state === "approval-requested");
 
+// Whether a message awaits a client-completed tool's result — its last assistant
+// turn called a tool with no server `execute` (e.g. `investigate`) that hasn't
+// been given an output yet. Such a call rests in `input-available`; only a
+// client tool persists there, since server-run tools settle output-available.
+const hasPendingToolOutput = (parts: UIMessage["parts"]): boolean =>
+  parts.some((part) => isToolUIPart(part) && part.state === "input-available");
+
 // Whether `toolCallId` already raised an approval request earlier in this
 // conversation. Distinguishes revalidating a call the user has already answered
 // (the AI SDK re-checks `needsApproval` on resume) from gating a fresh one.
@@ -138,6 +150,19 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
   return decisions;
 };
 
+// Pull the client-supplied tool outputs out of a resumed assistant message — the
+// results the client computed for a paused client-completed call (e.g. the
+// investigation report) and now sends back to continue the turn.
+const extractToolOutputs = (parts: UIMessage["parts"]): ToolOutput[] => {
+  const outputs: ToolOutput[] = [];
+  for (const part of parts) {
+    if (isToolUIPart(part) && part.state === "output-available") {
+      outputs.push({ toolCallId: part.toolCallId, output: part.output });
+    }
+  }
+  return outputs;
+};
+
 /**
  * Build the Hono sub-app for the agentic session surface: model listing,
  * session create/list/get, the streaming turn endpoint, and an optional
@@ -152,10 +177,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const toolGrants = createToolGrantStore(config.toolGrantsFile());
 
   // The tools offered to a turn — the live MCP server tools, each gated behind
-  // the user's approval unless it carries an "Always Allow" grant. Read per turn
-  // (not once) so a config reload that adds or drops MCP servers, and a grant
-  // made since the last turn, are both reflected on the next turn.
-  const activeTools = (): ToolSet => {
+  // the user's approval unless it carries an "Always Allow" grant, plus the
+  // first-party `investigate` tool. Read per turn (not once) so a config reload
+  // that adds or drops MCP servers, and a grant made since the last turn, are
+  // both reflected on the next turn. An investigation sub-session is never
+  // offered `investigate` itself, so an investigation can't spawn another.
+  const activeTools = (session: Session): ToolSet => {
     const tools = mcpRegistry?.tools() ?? {};
     const gated: ToolSet = {};
     for (const [name, tool] of Object.entries(tools)) {
@@ -174,6 +201,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         ) => !toolGrants.isGranted(name) || hasPriorApprovalRequest(messages, toolCallId),
       };
     }
+    if (session.kind !== "investigation") gated[INVESTIGATE_TOOL_NAME] = investigateTool;
     return gated;
   };
 
@@ -347,13 +375,18 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
       const parts = message.parts as UIMessage["parts"];
       const last = getSessionMessages(db, id).at(-1);
-      const pending =
-        last?.role === "assistant" && hasPendingApproval(last.parts as UIMessage["parts"]);
+      const lastParts = last?.role === "assistant" ? (last.parts as UIMessage["parts"]) : undefined;
+      // Two ways a turn can be paused awaiting the client: a tool call gated for
+      // approval, or a client-completed call (e.g. `investigate`) awaiting its
+      // output. Either blocks a fresh message until it's resolved.
+      const pendingApproval = lastParts !== undefined && hasPendingApproval(lastParts);
+      const pendingOutput = lastParts !== undefined && hasPendingToolOutput(lastParts);
 
-      // Resolve the live, approval-gated tools for this turn and compose the
-      // system prompt from their names so the core layer's tool guidance matches
-      // what the model is actually offered.
-      const tools = activeTools();
+      // Resolve the live tools for this turn — the approval-gated MCP tools plus
+      // (for a non-investigation session) `investigate` — and compose the system
+      // prompt from their names so the core layer's tool guidance matches what
+      // the model is actually offered.
+      const tools = activeTools(session);
       const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(tools));
       const turnDeps = { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools };
 
@@ -362,24 +395,31 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // server-side, so a client that disconnects doesn't cancel it; only an
       // explicit cancel through `POST /api/sessions/:id/cancel` does.
 
-      // An assistant message carries the user's verdicts on a paused turn's tool
-      // calls: resume it rather than starting a new turn.
+      // An assistant message resumes a paused turn: it carries either the user's
+      // approval verdicts or a client-completed tool's output.
       if (message.role === "assistant") {
-        if (!pending) {
-          return c.json({ error: `session "${id}" has no pending tool approval to resolve` }, 409);
+        if (pendingApproval) {
+          const { response } = await resumeTurn(turnDeps, {
+            session,
+            approvals: extractApprovals(parts),
+          });
+          return response;
         }
-        const { response } = await resumeTurn(turnDeps, {
-          session,
-          approvals: extractApprovals(parts),
-        });
-        return response;
+        if (pendingOutput) {
+          const { response } = await resumeTurnWithToolOutput(turnDeps, {
+            session,
+            outputs: extractToolOutputs(parts),
+          });
+          return response;
+        }
+        return c.json({ error: `session "${id}" has no pending tool call to resolve` }, 409);
       }
 
-      // A new user message can't start while a tool approval is still pending —
-      // the model can't continue past an unanswered tool call.
-      if (pending) {
+      // A new user message can't start while a tool call is still pending — the
+      // model can't continue past an unanswered call.
+      if (pendingApproval || pendingOutput) {
         return c.json(
-          { error: `session "${id}" has a pending tool approval; respond to it first` },
+          { error: `session "${id}" has a pending tool call; respond to it first` },
           409,
         );
       }
