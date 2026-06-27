@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { humaniseSlug } from "../../shared/humanise-slug.ts";
+import { INVESTIGATE_TOOL_NAME } from "../../shared/investigate.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { Session } from "./store.ts";
 
@@ -67,16 +68,27 @@ function buildDiagramGuidance(): string {
 // are active, so the section never appears in a plain chat.
 function buildToolGuidance(tools: string[]): string | null {
   if (tools.length === 0) return null;
-  return [
+  const lines = [
     "You have tools available. The bar is a correct, complete answer, and a tool is often the surest way there — so reach for one rather than guessing whenever a call would actually settle the question. Frugality serves that bar, it doesn't compete with it: every result is spent from a finite budget and stays in the conversation to be re-paid on each later turn, so a needless or bloated call costs you repeatedly and crowds out room to reason — yet a call you skip, or scope so thin it yields a wrong answer, costs far more than its tokens ever could.",
     "Within that, spend deliberately:",
+  ];
+  // When the investigate tool is offered, steer multi-step research to it rather
+  // than the raw search/fetch tools — that is the whole point of the tool, and a
+  // model left to choose will otherwise default to calling search itself.
+  if (tools.includes(INVESTIGATE_TOOL_NAME)) {
+    lines.push(
+      "- For research — anything you'd answer by searching the web or fetching and cross-checking pages — strongly prefer the `investigate` tool over running those searches or fetches yourself. Hand it the whole question in one call; it does the digging in a separate context and returns just the findings, so this conversation never fills with the intermediate results. Search or fetch directly only for a single quick lookup you can act on at once — for anything broader, delegate.",
+    );
+  }
+  lines.push(
     "- Call a tool when it beats what you reliably know — to act on the world, or to fetch something specific you can't otherwise verify — not to confirm the obvious or re-fetch what the conversation already holds. Never claim a result you didn't get.",
     "- Default to the narrowest form of every call, widening only on shown need. The parameters are your main control over cost: tighten the query instead of pulling broad and sifting, and set any limit, count, depth, or field choice to the least that *fully* answers — never the equivalent of an unbounded `SELECT *` over a wide table.",
     '- Full-content options — raw text, a whole fetched page, a deep extraction — are the largest single sink, often tens of thousands of tokens each. Keep them off until a cheaper result has fallen short and shown exactly what\'s missing, then take only the minimum that fills the gap. Never request them speculatively or "to be safe".',
     "- Prefer one well-aimed call to a scatter of broad ones: plan the data you need up front, and fire independent calls together rather than probing one at a time.",
     "Read results honestly: a truncated or timed-out result is incomplete — say so rather than treating it as the whole picture. A result far larger than the answer needs means the scope was too wide; tighten it next time. Once you can answer soundly, stop.",
     "Some tool results arrive as TOON (Token-Oriented Object Notation) rather than JSON — a compact, indentation-based encoding used to save tokens. A tabular array is a header naming its length and fields (`rows[2]{id,name}:`) followed by one comma-separated line per record. Read it as the structured data it represents, exactly as you would the equivalent JSON.",
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 // General response guidance the core layer carries for every session: how to

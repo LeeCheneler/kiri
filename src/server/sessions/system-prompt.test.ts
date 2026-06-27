@@ -166,6 +166,23 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("parameters");
   });
 
+  it("steers research to the investigate tool only when it is offered", () => {
+    const withInvestigate = buildSystemPrompt({
+      config,
+      tools: ["investigate", "tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withInvestigate).toContain("prefer the `investigate` tool");
+    // A session without investigate gets no delegation steer — direct search is
+    // the only research path it has.
+    const withoutInvestigate = buildSystemPrompt({
+      config,
+      tools: ["tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withoutInvestigate).not.toContain("prefer the `investigate` tool");
+  });
+
   it("singles out raw/full-content options as the biggest token sink to keep off", () => {
     const prompt = buildSystemPrompt({ config, tools: ["tavily__extract"], now: FIXED_NOW });
     // The most common blow-up: requesting raw/full page content by default. The
