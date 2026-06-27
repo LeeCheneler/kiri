@@ -6,6 +6,7 @@ import {
   getToolName,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithApprovalResponses,
+  lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
 import { useCallback, useEffect, useMemo } from "react";
 import {
@@ -18,6 +19,22 @@ import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocatio
 
 // Tool-call states that mean a call is still running.
 const IN_FLIGHT_TOOL_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
+
+// Whether the turn ends on a just-resolved tool result the model hasn't answered
+// yet — the last part is a tool in a terminal output state. A client-completed
+// call (e.g. `investigate`) rests here once its output is supplied, awaiting
+// resubmission; once the model replies, text follows and this is false. Guards
+// the auto-resubmit so it fires once rather than looping on the settled turn.
+const endsWithToolResult = (messages: UIMessage[]): boolean => {
+  const last = messages.at(-1);
+  if (last?.role !== "assistant") return false;
+  const tail = last.parts.at(-1);
+  return (
+    tail !== undefined &&
+    isToolUIPart(tail) &&
+    (tail.state === "output-available" || tail.state === "output-error")
+  );
+};
 
 // Rewrite any still-running tool call to a terminal cancelled state. Cancelling
 // a turn stops a call mid-flight, which otherwise leaves its part on "working"
@@ -63,6 +80,12 @@ export interface SessionConversation {
   cancel: () => void;
   /** Resolve a pending tool approval (Allow / Always allow / Deny). */
   onToolDecision: ToolDecisionHandler;
+  /**
+   * Supply the result of a client-completed tool call (one with no server
+   * `execute`, e.g. `investigate`). The output lands on the pending call and the
+   * turn resumes automatically so the model reads it and continues.
+   */
+  addToolOutput: ReturnType<typeof useChat<UIMessage>>["addToolOutput"];
 }
 
 /**
@@ -89,15 +112,29 @@ export function useSessionConversation(opts: {
     });
   }, [session.id]);
 
-  const { messages, sendMessage, status, stop, error, setMessages, addToolApprovalResponse } =
-    useChat({
-      id: session.id,
-      messages: initialMessages,
-      transport,
-      // Once every pending tool approval on the latest turn has a verdict, send
-      // it straight back so the turn resumes without another user action.
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    });
+  const {
+    messages,
+    sendMessage,
+    status,
+    stop,
+    error,
+    setMessages,
+    addToolApprovalResponse,
+    addToolOutput,
+  } = useChat({
+    id: session.id,
+    messages: initialMessages,
+    transport,
+    // Resume the turn without another user action once the latest turn is
+    // complete: every pending approval answered, or a client-completed tool call
+    // (e.g. `investigate`) given its output and still awaiting the model's reply.
+    // The `endsWithToolResult` guard is load-bearing: without it the tool-calls
+    // check stays true after the model answers (the resolved call is still in the
+    // last step), re-submitting in an endless loop.
+    sendAutomaticallyWhen: (opts) =>
+      lastAssistantMessageIsCompleteWithApprovalResponses(opts) ||
+      (lastAssistantMessageIsCompleteWithToolCalls(opts) && endsWithToolResult(opts.messages)),
+  });
 
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
   // — including one started elsewhere, or left running when we navigated away:
@@ -177,5 +214,6 @@ export function useSessionConversation(opts: {
     resubmit,
     cancel,
     onToolDecision,
+    addToolOutput,
   };
 }

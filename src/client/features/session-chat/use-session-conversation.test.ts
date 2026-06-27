@@ -54,6 +54,24 @@ const runningToolTranscript = (): UIMessage[] => [
   },
 ];
 
+// A paused assistant turn: a client-completed tool call (no execute) awaiting its
+// output, the shape the transcript seeds from while an investigation runs.
+const pausedInvestigateTranscript = (): UIMessage[] => [
+  userMessage("compare X and Y"),
+  {
+    id: "m2",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-investigate",
+        toolCallId: "c1",
+        state: "input-available",
+        input: { task: "compare X and Y" },
+      },
+    ] as UIMessage["parts"],
+  },
+];
+
 // A correctly-framed assistant UI-message stream, built with the SDK's own
 // helpers so the wire format matches what the real turn endpoint emits.
 const assistantReply = (text: string) =>
@@ -202,6 +220,35 @@ describe("useSessionConversation", () => {
 
     await waitFor(() => expect(sentApproved).toBe(false));
     expect(granted).toBe(false);
+  });
+
+  it("supplies a client-completed tool output and auto-resumes the turn", async () => {
+    let sentOutput: unknown;
+    server.use(
+      http.post("*/api/sessions/:id/messages", async ({ request }) => {
+        const body = (await request.json()) as {
+          message: { parts: { type: string; output?: unknown }[] };
+        };
+        sentOutput = body.message.parts.find((p) => p.type.startsWith("tool-"))?.output;
+        return resumeReply({ output: "X beats Y" }, "Per the report, X wins.");
+      }),
+    );
+    const { result } = renderHook(() =>
+      useSessionConversation({
+        session: sessionRow("sc12"),
+        initialMessages: pausedInvestigateTranscript(),
+      }),
+    );
+
+    await act(async () => {
+      result.current.addToolOutput({ tool: "investigate", toolCallId: "c1", output: "X beats Y" });
+    });
+
+    // The output was posted back and the model's continuation streamed in.
+    await waitFor(() =>
+      expect(assistantText(result.current.messages)).toBe("Per the report, X wins."),
+    );
+    expect(sentOutput).toBe("X beats Y");
   });
 
   it("cancel marks a running tool call cancelled and aborts the server turn", async () => {
