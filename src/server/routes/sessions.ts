@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { type ModelMessage, type ToolSet, type UIMessage, isToolUIPart } from "ai";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { ConfigStore } from "../config/store.ts";
@@ -59,7 +59,20 @@ const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
-const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
+// A top-level session supplies `model` and is a `chat`. A child sub-session
+// supplies `parent` (with the spawning `toolCallId`) and its `kind` instead,
+// inheriting the parent's model — so `model` is optional and only required when
+// there's no parent. `kind` is the child's declared kind; investigation is the
+// only one today, but children won't all be investigations, so it is never
+// assumed.
+const createSessionBodySchema = z
+  .object({
+    model: z.string().min(1).optional(),
+    parent: z.string().min(1).optional(),
+    toolCallId: z.string().min(1).optional(),
+    kind: z.enum(["chat", "investigation"]).optional(),
+  })
+  .strict();
 
 // Either field may be set independently: the aside swaps the model and the
 // persona through this one endpoint. `persona: null` detaches; omitting a field
@@ -175,7 +188,31 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "/sessions",
     zValidator("json", createSessionBodySchema, onZodFail("invalid session")),
     (c) => {
-      const { model } = c.req.valid("json");
+      const { model, parent, toolCallId, kind } = c.req.valid("json");
+
+      // A child sub-session inherits its parent's model and is hidden from the
+      // feed/lists — reachable inline in its parent's transcript and at its own
+      // URL. The spawning `toolCallId` lets the parent re-attach it after reload.
+      // The caller states the child's `kind` (investigation today, other kinds
+      // later); it is never assumed from the parent link.
+      if (parent !== undefined) {
+        if (kind === undefined) {
+          return c.json({ error: "kind is required for a child session" }, 400);
+        }
+        const parentSession = getSession(db, parent);
+        if (!parentSession) return c.json({ error: `parent session "${parent}" not found` }, 404);
+        const child = createSession(db, parentSession.model, {
+          parentSessionId: parent,
+          parentToolCallId: toolCallId,
+          kind,
+        });
+        bus?.publish({ type: "session.started", id: child.id });
+        return c.json({ session: child }, 201);
+      }
+
+      if (model === undefined) {
+        return c.json({ error: "model is required" }, 400);
+      }
       // Validate the model resolves now, at create time, so a bad id fails the
       // create with the resolver's own message rather than a later turn.
       try {
@@ -210,16 +247,25 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         anchor = found;
       }
 
+      // Only top-level sessions are listed; child investigations are reachable
+      // inline in their parent and at their own URL, never in the feed.
+      const topLevel = isNull(sessionsTable.parentSessionId);
       const rows = db
         .select()
         .from(sessionsTable)
         .where(
           anchor
-            ? or(
-                lt(sessionsTable.startedAt, anchor.startedAt),
-                and(eq(sessionsTable.startedAt, anchor.startedAt), lt(sessionsTable.id, anchor.id)),
+            ? and(
+                topLevel,
+                or(
+                  lt(sessionsTable.startedAt, anchor.startedAt),
+                  and(
+                    eq(sessionsTable.startedAt, anchor.startedAt),
+                    lt(sessionsTable.id, anchor.id),
+                  ),
+                ),
               )
-            : undefined,
+            : topLevel,
         )
         .orderBy(desc(sessionsTable.startedAt), desc(sessionsTable.id))
         .limit(limit)

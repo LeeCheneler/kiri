@@ -1,4 +1,11 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  type AnySQLiteColumn,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * One row per workflow invocation. `definition_snapshot` captures the
@@ -162,32 +169,60 @@ export const recommendations = sqliteTable(
  * `runs`. A session runs against a chosen `model` and optionally an attached
  * `persona`; the rest of the agent layer (allowed tools, generation params)
  * is not modelled here yet.
+ *
+ * A session is either top-level (`parentSessionId` null) or a child spawned by a
+ * parent's tool call (an investigation). Children are hidden from the feed and
+ * lists — reachable inline in their parent and at their own URL — and run under
+ * a system prompt chosen by `kind`.
  */
-export const sessions = sqliteTable("sessions", {
-  id: text("id").primaryKey(),
-  /**
-   * Session lifecycle: `"idle"` at create and between turns, `"running"`
-   * while a turn streams, and terminal `"failed"` / `"cancelled"` when a
-   * turn errors or is cancelled. Unlike a run, a session is long-lived —
-   * it returns to `"idle"` after each successful turn rather than reaching
-   * a single terminal state.
-   */
-  status: text("status").notNull(),
-  /** `provider:model` id the session's turns run against, resolved through the same registry `llm:` steps use. */
-  model: text("model").notNull(),
-  /**
-   * Name of the persona (`personas/<name>.md`) attached when the session was
-   * created, or null for none. A selection reference like `model` — not a
-   * snapshot of the persona's text, which is read fresh from disk each turn so
-   * git stays the source of truth. A persona renamed or removed after the fact
-   * degrades to no overlay on the next turn.
-   */
-  persona: text("persona"),
-  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
-  /** Stamped when the session reaches a terminal `failed`/`cancelled` state; null while it remains usable. */
-  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
-  error: text("error", { mode: "json" }),
-});
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    /**
+     * Session lifecycle: `"idle"` at create and between turns, `"running"`
+     * while a turn streams, and terminal `"failed"` / `"cancelled"` when a
+     * turn errors or is cancelled. Unlike a run, a session is long-lived —
+     * it returns to `"idle"` after each successful turn rather than reaching
+     * a single terminal state.
+     */
+    status: text("status").notNull(),
+    /** `provider:model` id the session's turns run against, resolved through the same registry `llm:` steps use. */
+    model: text("model").notNull(),
+    /**
+     * Name of the persona (`personas/<name>.md`) attached when the session was
+     * created, or null for none. A selection reference like `model` — not a
+     * snapshot of the persona's text, which is read fresh from disk each turn so
+     * git stays the source of truth. A persona renamed or removed after the fact
+     * degrades to no overlay on the next turn.
+     */
+    persona: text("persona"),
+    /**
+     * The parent session this one was spawned from, or null for a top-level
+     * session. Set on a child (an investigation the parent's `investigate` tool
+     * call spawned); children are filtered out of the feed and session lists.
+     */
+    parentSessionId: text("parent_session_id").references((): AnySQLiteColumn => sessions.id),
+    /**
+     * The id of the parent's tool call that spawned this child, or null for a
+     * top-level session. Lets the parent transcript re-attach a running child to
+     * the exact tool-call block it belongs to after a reload.
+     */
+    parentToolCallId: text("parent_tool_call_id"),
+    /**
+     * What the session is for: `"chat"` for an ordinary conversation, or
+     * `"investigation"` for a child spawned to research a delegated task — which
+     * runs under a different system prompt and is never offered the `investigate`
+     * tool itself. Drives per-turn system-prompt selection.
+     */
+    kind: text("kind").notNull().default("chat"),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    /** Stamped when the session reaches a terminal `failed`/`cancelled` state; null while it remains usable. */
+    finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+    error: text("error", { mode: "json" }),
+  },
+  (t) => [index("sessions_parent_session_id_idx").on(t.parentSessionId)],
+);
 
 /**
  * One row per message in a session, ordered by `index`. `parts` holds the

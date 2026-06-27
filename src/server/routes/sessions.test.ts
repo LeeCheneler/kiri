@@ -229,6 +229,74 @@ describe("sessions routes", () => {
         error: 'unknown llm provider "ghost"',
       });
     });
+
+    it("creates a child investigation inheriting the parent's model", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      createSession(env.db, MODEL, { id: "parent" });
+      const app = makeApp(fakeClients(), { bus });
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ parent: "parent", toolCallId: "call_1", kind: "investigation" }),
+      });
+
+      expect(res.status).toBe(201);
+      const { session } = (await res.json()) as { session: { id: string; model: string } };
+      // No model in the body — it must have been inherited from the parent.
+      expect(session.model).toBe(MODEL);
+      const stored = getSession(env.db, session.id);
+      expect(stored?.parentSessionId).toBe("parent");
+      expect(stored?.parentToolCallId).toBe("call_1");
+      expect(stored?.kind).toBe("investigation");
+      expect(events).toContainEqual({ type: "session.started", id: session.id });
+    });
+
+    it("requires a kind for a child session", async () => {
+      createSession(env.db, MODEL, { id: "parent" });
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ parent: "parent" }),
+      });
+
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: "kind is required for a child session",
+      });
+    });
+
+    it("404s an unknown parent session", async () => {
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ parent: "ghost", kind: "investigation" }),
+      });
+
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'parent session "ghost" not found',
+      });
+    });
+
+    it("requires a model when no parent is given", async () => {
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toEqual({ error: "model is required" });
+    });
   });
 
   describe("GET /api/personas", () => {
@@ -298,6 +366,22 @@ describe("sessions routes", () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions?cursor=nope");
       expect(res.status).toBe(400);
+    });
+
+    it("excludes child investigations from the list", async () => {
+      createSession(env.db, MODEL, { id: "top", startedAt: new Date(1000) });
+      createSession(env.db, MODEL, {
+        id: "child",
+        startedAt: new Date(2000),
+        parentSessionId: "top",
+        kind: "investigation",
+      });
+      const app = makeApp(fakeClients());
+
+      const page = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string }[];
+      };
+      expect(page.sessions.map((s) => s.id)).toEqual(["top"]);
     });
   });
 

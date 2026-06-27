@@ -26,6 +26,7 @@ import migration0016 from "../../../drizzle/0016_add_session_persona.sql" with {
 import migration0017 from "../../../drizzle/0017_drop_session_token_totals.sql" with {
   type: "text",
 };
+import migration0018 from "../../../drizzle/0018_add_session_lineage.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -66,6 +67,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0015_drop_session_agent_columns", sql: migration0015 },
   { name: "0016_add_session_persona", sql: migration0016 },
   { name: "0017_drop_session_token_totals", sql: migration0017 },
+  { name: "0018_add_session_lineage", sql: migration0018 },
 ];
 
 /**

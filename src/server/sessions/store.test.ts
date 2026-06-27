@@ -36,7 +36,7 @@ describe("sessions store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("creates an idle session against the model with no persona by default", () => {
+  it("creates an idle top-level chat session against the model by default", () => {
     const session = createSession(db, MODEL, { id: "s1" });
 
     expect(session.id).toBe("s1");
@@ -44,7 +44,25 @@ describe("sessions store", () => {
     expect(session.model).toBe(MODEL);
     expect(session.persona).toBeNull();
     expect(session.finishedAt).toBeNull();
+    expect(session.parentSessionId).toBeNull();
+    expect(session.parentToolCallId).toBeNull();
+    expect(session.kind).toBe("chat");
     expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("creates a child investigation carrying its parent and spawning tool call", () => {
+    createSession(db, MODEL, { id: "parent" });
+    const child = createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call_1",
+      kind: "investigation",
+    });
+
+    expect(child.parentSessionId).toBe("parent");
+    expect(child.parentToolCallId).toBe("call_1");
+    expect(child.kind).toBe("investigation");
+    expect(getSession(db, "child")?.parentSessionId).toBe("parent");
   });
 
   it("attaches and detaches a persona", () => {

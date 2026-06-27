@@ -821,6 +821,20 @@ describe("db", () => {
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
+  it("declares sessions.parent_session_id → sessions.id self foreign key", () => {
+    const fks = getTableConfig(sessions).foreignKeys;
+    expect(fks).toHaveLength(1);
+    const fk = fks[0] as unknown as {
+      reference: () => {
+        columns: { name: string }[];
+        foreignColumns: { name: string }[];
+      };
+    };
+    const ref = fk.reference();
+    expect(ref.columns.map((c) => c.name)).toEqual(["parent_session_id"]);
+    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+  });
+
   it("adds the sessions + messages tables when migrating a pre-sessions DB", () => {
     const sqlite = db.$client;
     sqlite.run(
@@ -828,8 +842,9 @@ describe("db", () => {
     );
     // Seed the migration ledger through 0013 so the session migrations
     // (0014 creating the tables, 0015 dropping the agent columns, 0016 adding
-    // the persona column, 0017 dropping the running-token columns) are the ones
-    // outstanding; the run-side tables they don't touch are irrelevant.
+    // the persona column, 0017 dropping the running-token columns, 0018 adding
+    // the parent/kind lineage columns) are the ones outstanding; the run-side
+    // tables they don't touch are irrelevant.
     const priorMigrations = [
       "0000_initial",
       "0001_index_run_nodes_run_id",
@@ -868,7 +883,18 @@ describe("db", () => {
       .map((r) => r.name)
       .sort();
     expect(sessionCols).toEqual(
-      ["error", "finished_at", "id", "model", "persona", "started_at", "status"].sort(),
+      [
+        "error",
+        "finished_at",
+        "id",
+        "kind",
+        "model",
+        "parent_session_id",
+        "parent_tool_call_id",
+        "persona",
+        "started_at",
+        "status",
+      ].sort(),
     );
 
     const indexes = sqlite
@@ -878,5 +904,13 @@ describe("db", () => {
       .all()
       .map((r) => r.name);
     expect(indexes).toEqual(["messages_session_id_idx"]);
+
+    const sessionIndexes = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='sessions' AND name NOT LIKE 'sqlite_%'",
+      )
+      .all()
+      .map((r) => r.name);
+    expect(sessionIndexes).toEqual(["sessions_parent_session_id_idx"]);
   });
 });
