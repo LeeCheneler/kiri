@@ -15,6 +15,7 @@ import {
   fetchPersonas,
   fetchSession,
   fetchSessionsPage,
+  getOrCreateInvestigation,
   patchSessionModel,
   patchSessionPersona,
 } from "../api.ts";
@@ -54,6 +55,24 @@ export function usePersonas(): UseQueryResult<Persona[]> {
  */
 export function useSession(id: string): UseQueryResult<SessionDetail> {
   return useQuery({ queryKey: sessionKey(id), queryFn: () => fetchSession(id) });
+}
+
+/**
+ * Resolve the investigation child session a parent's investigate tool call
+ * spawned, creating it on first use (idempotent server-side) and caching it so a
+ * re-render or reload re-attaches the same child rather than starting another.
+ * The child id is stable, so this never refetches; the child's live transcript is
+ * read through `useSession` and driven by `useSessionConversation`.
+ */
+export function useInvestigation(
+  parentSessionId: string,
+  toolCallId: string,
+): UseQueryResult<Session> {
+  return useQuery({
+    queryKey: ["investigation", parentSessionId, toolCallId] as const,
+    queryFn: () => getOrCreateInvestigation(parentSessionId, toolCallId).then((r) => r.session),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
 }
 
 /**

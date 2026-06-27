@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
+import { INVESTIGATE_TOOL_NAME } from "../../../shared/investigate.ts";
 import { ApiError, type SessionDetail } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
@@ -92,10 +93,31 @@ function Chat({ detail }: { detail: SessionDetail }) {
   // composer, context warning, scroll) around it. `busy` covers a turn in flight
   // here or elsewhere; `awaitingApproval` blocks a new message until a paused
   // tool call is resolved.
-  const { messages, error, busy, awaitingApproval, sendMessage, resubmit, cancel, onToolDecision } =
-    useSessionConversation({ session, initialMessages });
+  const {
+    messages,
+    error,
+    busy,
+    awaitingApproval,
+    sendMessage,
+    resubmit,
+    cancel,
+    onToolDecision,
+    addToolOutput,
+  } = useSessionConversation({ session, initialMessages });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
   const inputId = useId();
+
+  // Wiring for any investigate tool call in the transcript: the box runs the
+  // child against this session and reports back here, supplying the call's output
+  // so the paused turn resumes.
+  const investigation = useMemo(
+    () => ({
+      parentSessionId: session.id,
+      onReport: (toolCallId: string, report: string) =>
+        addToolOutput({ tool: INVESTIGATE_TOOL_NAME, toolCallId, output: report }),
+    }),
+    [session.id, addToolOutput],
+  );
   // A failure to surface at the transcript foot: this view's own turn errored,
   // or — on revisit — the row records a turn that failed while we were away.
   const failed = !busy && (error != null || session.status === "failed");
@@ -204,6 +226,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
               onResubmit={handleResubmit}
               onToolDecision={onToolDecision}
               onCancel={busy ? cancel : undefined}
+              investigation={investigation}
             />
           ))
         )}

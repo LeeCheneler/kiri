@@ -741,4 +741,50 @@ describe("<SessionChat>", () => {
       }
     }
   });
+
+  it("runs an investigate tool call inline and resumes the parent with its report", async () => {
+    const parentMessages = [
+      message("u1", "user", "compare X and Y"),
+      {
+        ...message("m2", "assistant", ""),
+        parts: [
+          {
+            type: "tool-investigate",
+            toolCallId: "inv1",
+            state: "input-available",
+            input: { task: "compare X and Y" },
+          },
+        ],
+      },
+    ];
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json({ models: [], failures: [] })),
+      // The parent loads its transcript; the child (spawned by the box) loads its own.
+      http.get("*/api/sessions/:id", ({ params }) =>
+        HttpResponse.json(
+          params.id === "child"
+            ? sessionDetail([], { id: "child" })
+            : sessionDetail(parentMessages, { id: "parent" }),
+        ),
+      ),
+      // get-or-create the investigation child.
+      http.post("*/api/sessions", () =>
+        HttpResponse.json({ session: sessionDetail([], { id: "child" }).session }),
+      ),
+      // The child runs the task; the parent resumes once its report lands.
+      http.post("*/api/sessions/:id/messages", ({ params }) =>
+        params.id === "child"
+          ? assistantReply("X wins on price.")
+          : assistantReply("Based on the report, X wins."),
+      ),
+    );
+
+    renderChat("parent");
+
+    // The box runs the child and its report resumes the parent turn — whose
+    // answer follows, proving the report was stitched back in.
+    await screen.findByText("Based on the report, X wins.", undefined, { timeout: 5000 });
+    // The investigate call rendered as its box rather than a plain tool result.
+    expect(screen.getByText("Investigation")).toBeDefined();
+  });
 });

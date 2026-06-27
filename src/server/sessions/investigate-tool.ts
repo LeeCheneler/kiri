@@ -1,8 +1,7 @@
 import { type Tool, tool } from "ai";
 import { z } from "zod";
 
-/** Namespaced name the investigate tool is offered to the model under. */
-export const INVESTIGATE_TOOL_NAME = "investigate";
+export { INVESTIGATE_TOOL_NAME } from "../../shared/investigate.ts";
 
 /**
  * The first-party `investigate` tool: a client-completed tool with no server
@@ -13,9 +12,9 @@ export const INVESTIGATE_TOOL_NAME = "investigate";
  */
 export const investigateTool: Tool = tool({
   description: [
-    "Delegate a self-contained research task to a separate investigator assistant that runs its own tool calls (such as web search) and reports back only a concise, sourced summary.",
-    "Reach for this to keep noisy, multi-step research — many searches, page fetches, or comparisons — out of this conversation: only the investigator's final findings return here, not every intermediate result.",
-    "The investigator cannot see this conversation, so the task you pass is its entire brief: state what to find out and include any context it needs. It returns a written report you can then use in your answer.",
+    "Delegate a research task to a separate investigator assistant and get back a concise, sourced summary.",
+    "Prefer this over running web search or page-fetch tools yourself: whenever answering needs looking things up — a web search, gathering and comparing sources, checking something current or unfamiliar — hand the whole task to the investigator in one call rather than searching here. It runs the searches and fetches in its own context and returns only the findings, so this conversation stays free of the intermediate results. Use direct search/fetch tools only for a single quick lookup you can act on at once.",
+    "The investigator cannot see this conversation, so the task you pass is its entire brief: state what to find out and include any context it needs. It returns a written report you then use in your answer.",
   ].join(" "),
   inputSchema: z.object({
     task: z

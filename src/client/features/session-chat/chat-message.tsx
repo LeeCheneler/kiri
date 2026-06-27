@@ -1,11 +1,13 @@
-import { type FileUIPart, type UIMessage, isToolUIPart } from "ai";
+import { type FileUIPart, type UIMessage, getToolName, isToolUIPart } from "ai";
 import { useEffect, useId, useState } from "react";
+import { INVESTIGATE_TOOL_NAME } from "../../../shared/investigate.ts";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
 import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
+import { Investigation, type InvestigationProps } from "./investigation.tsx";
 import { MessageComposer } from "./message-composer.tsx";
 import { type ToolDecisionHandler, ToolInvocation } from "./tool-invocation.tsx";
 
@@ -149,10 +151,12 @@ function AssistantMessage({
   message,
   onToolDecision,
   onCancel,
+  investigation,
 }: {
   message: UIMessage;
   onToolDecision?: ToolDecisionHandler;
   onCancel?: () => void;
+  investigation?: InvestigationProps;
 }) {
   return (
     <article>
@@ -163,7 +167,18 @@ function AssistantMessage({
             // biome-ignore lint/suspicious/noArrayIndexKey: assistant parts are append-only within a turn and never reorder, so the index is a stable key.
             return <Markdown key={index} content={part.text} />;
           }
-          if (isToolUIPart(part))
+          if (isToolUIPart(part)) {
+            // The investigate tool renders as its own box — an embedded child
+            // session — rather than a plain tool-result block.
+            if (getToolName(part) === INVESTIGATE_TOOL_NAME && investigation)
+              return (
+                <Investigation
+                  key={part.toolCallId}
+                  part={part}
+                  parentSessionId={investigation.parentSessionId}
+                  onReport={investigation.onReport}
+                />
+              );
             return (
               <ToolInvocation
                 key={part.toolCallId}
@@ -172,6 +187,7 @@ function AssistantMessage({
                 onCancel={onCancel}
               />
             );
+          }
           return null;
         })}
       </div>
@@ -194,15 +210,24 @@ export function ChatMessage({
   onResubmit,
   onToolDecision,
   onCancel,
+  investigation,
 }: {
   message: UIMessage;
   busy: boolean;
   onResubmit: ResubmitHandler;
   onToolDecision?: ToolDecisionHandler;
   onCancel?: () => void;
+  investigation?: InvestigationProps;
 }) {
   if (message.role === "user")
     return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
   if (!hasAssistantContent(message)) return null;
-  return <AssistantMessage message={message} onToolDecision={onToolDecision} onCancel={onCancel} />;
+  return (
+    <AssistantMessage
+      message={message}
+      onToolDecision={onToolDecision}
+      onCancel={onCancel}
+      investigation={investigation}
+    />
+  );
 }
