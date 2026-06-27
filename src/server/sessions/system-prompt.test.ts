@@ -3,10 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
+import type { Session } from "./store.ts";
 import {
   INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
+  buildInvestigatorPrompt,
   buildSystemPrompt,
+  createSystemPromptBuilder,
   listPersonas,
   loadPersona,
 } from "./system-prompt.ts";
@@ -298,5 +301,56 @@ describe("loadPersona", () => {
     writeFileSync(join(dir, "secret.md"), "should never be read");
     // `../secret` would resolve outside personas/ — the guard returns null.
     expect(loadPersona(config, "../secret")).toBeNull();
+  });
+});
+
+describe("buildInvestigatorPrompt", () => {
+  it("frames the worker as a delegated researcher that reports back", () => {
+    const prompt = buildInvestigatorPrompt({ now: FIXED_NOW });
+    expect(prompt).toContain("focused research assistant");
+    expect(prompt).toContain("cannot see the parent conversation");
+    expect(prompt).toContain("Report back:");
+    expect(prompt).toContain("Synthesise, don't dump");
+    expect(prompt).toContain("2026-06-17");
+  });
+
+  it("includes tool-use guidance only when tools are active", () => {
+    const withTools = buildInvestigatorPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
+    expect(withTools).toContain("You have tools available");
+    expect(buildInvestigatorPrompt({ now: FIXED_NOW })).not.toContain("You have tools available");
+  });
+});
+
+describe("createSystemPromptBuilder", () => {
+  let dir: string;
+  let config: ConfigStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-sysprompt-builder-"));
+    config = createConfigStore(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // A minimal session stand-in: the builder reads only `kind` and `persona`.
+  const sessionWith = (kind: string): Session => ({ kind, persona: null }) as unknown as Session;
+
+  it("composes the layered chat prompt for a chat session", () => {
+    writeFileSync(config.instructionsFile(), "Be terse.");
+    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith("chat"));
+    expect(prompt).toContain("interactive chat session");
+    expect(prompt).toContain("Be terse.");
+  });
+
+  it("uses the investigator prompt for an investigation session, ignoring kiri.md", () => {
+    writeFileSync(config.instructionsFile(), "Be terse.");
+    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(
+      sessionWith("investigation"),
+    );
+    expect(prompt).toContain("focused research assistant");
+    expect(prompt).toContain("You have tools available");
+    expect(prompt).not.toContain("Be terse.");
   });
 });
