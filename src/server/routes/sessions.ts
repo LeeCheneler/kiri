@@ -20,6 +20,7 @@ import {
   createToolGrantStore,
   deleteMessagesFrom,
   deleteSession,
+  findChildByToolCall,
   getSession,
   getSessionMessages,
   getSessionPreviews,
@@ -229,6 +230,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         }
         const parentSession = getSession(db, parent);
         if (!parentSession) return c.json({ error: `parent session "${parent}" not found` }, 404);
+        // Idempotent for a given tool call: re-attaching the same investigation
+        // (after a reload) returns the existing child rather than spawning a
+        // duplicate. Keyed on the spawning `toolCallId`, so it only applies when
+        // one is supplied.
+        if (toolCallId !== undefined) {
+          const existing = findChildByToolCall(db, parent, toolCallId);
+          if (existing) return c.json({ session: existing }, 200);
+        }
         const child = createSession(db, parentSession.model, {
           parentSessionId: parent,
           parentToolCallId: toolCallId,

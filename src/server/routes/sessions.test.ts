@@ -255,6 +255,32 @@ describe("sessions routes", () => {
       expect(events).toContainEqual({ type: "session.started", id: session.id });
     });
 
+    it("returns the existing child for a repeated investigation tool call", async () => {
+      createSession(env.db, MODEL, { id: "parent" });
+      const app = makeApp(fakeClients());
+      const body = JSON.stringify({
+        parent: "parent",
+        toolCallId: "call_1",
+        kind: "investigation",
+      });
+      const post = () =>
+        app.request("/api/sessions", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body,
+        });
+
+      const first = await post();
+      expect(first.status).toBe(201);
+      const firstId = ((await first.json()) as { session: { id: string } }).session.id;
+
+      // The same tool call re-attaches the same child rather than spawning another.
+      const second = await post();
+      expect(second.status).toBe(200);
+      const secondId = ((await second.json()) as { session: { id: string } }).session.id;
+      expect(secondId).toBe(firstId);
+    });
+
     it("requires a kind for a child session", async () => {
       createSession(env.db, MODEL, { id: "parent" });
       const app = makeApp(fakeClients());

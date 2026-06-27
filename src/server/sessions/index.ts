@@ -6,6 +6,7 @@ export {
   createSession,
   deleteMessagesFrom,
   deleteSession,
+  findChildByToolCall,
   getSession,
   getSessionMessages,
   getSessionPreviews,

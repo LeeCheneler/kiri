@@ -56,6 +56,28 @@ export function getSession(db: KiriDb, id: string): Session | undefined {
 }
 
 /**
+ * Find the child session spawned from a parent's specific tool call, or
+ * `undefined` if none exists yet. Lets a parent's tool-call block re-attach its
+ * running child after a reload, and makes child creation idempotent for one call.
+ */
+export function findChildByToolCall(
+  db: KiriDb,
+  parentSessionId: string,
+  parentToolCallId: string,
+): Session | undefined {
+  return db
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.parentSessionId, parentSessionId),
+        eq(sessions.parentToolCallId, parentToolCallId),
+      ),
+    )
+    .get();
+}
+
+/**
  * Set the `provider:model` id a session's turns run against. The turn endpoint
  * resolves the model per turn, so the change takes effect from the next turn.
  * Returns the updated row.

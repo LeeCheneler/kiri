@@ -11,6 +11,7 @@ import {
   createSession,
   deleteMessagesFrom,
   deleteSession,
+  findChildByToolCall,
   getSession,
   getSessionMessages,
   getSessionPreviews,
@@ -63,6 +64,21 @@ describe("sessions store", () => {
     expect(child.parentToolCallId).toBe("call_1");
     expect(child.kind).toBe("investigation");
     expect(getSession(db, "child")?.parentSessionId).toBe("parent");
+  });
+
+  it("finds a child by its parent and spawning tool call", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call_1",
+      kind: "investigation",
+    });
+
+    expect(findChildByToolCall(db, "parent", "call_1")?.id).toBe("child");
+    // A different tool call, or a different parent, has no child.
+    expect(findChildByToolCall(db, "parent", "call_2")).toBeUndefined();
+    expect(findChildByToolCall(db, "other", "call_1")).toBeUndefined();
   });
 
   it("attaches and detaches a persona", () => {
