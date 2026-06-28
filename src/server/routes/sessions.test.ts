@@ -11,6 +11,7 @@ import type { LlmClients, LlmModel } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  INVESTIGATE_TOOL_NAME,
   appendMessage,
   createSession,
   createToolGrantStore,
@@ -229,6 +230,82 @@ describe("sessions routes", () => {
         error: 'unknown llm provider "ghost"',
       });
     });
+
+    it("creates a child session inheriting the parent's model", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      createSession(env.db, MODEL, { id: "parent" });
+      const app = makeApp(fakeClients(), { bus });
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ parent: "parent", toolCallId: "call_1" }),
+      });
+
+      expect(res.status).toBe(201);
+      const { session } = (await res.json()) as { session: { id: string; model: string } };
+      // No model in the body — it must have been inherited from the parent.
+      expect(session.model).toBe(MODEL);
+      const stored = getSession(env.db, session.id);
+      expect(stored?.parentSessionId).toBe("parent");
+      expect(stored?.parentToolCallId).toBe("call_1");
+      expect(events).toContainEqual({ type: "session.started", id: session.id });
+    });
+
+    it("returns the existing child for a repeated investigation tool call", async () => {
+      createSession(env.db, MODEL, { id: "parent" });
+      const app = makeApp(fakeClients());
+      const body = JSON.stringify({
+        parent: "parent",
+        toolCallId: "call_1",
+      });
+      const post = () =>
+        app.request("/api/sessions", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body,
+        });
+
+      const first = await post();
+      expect(first.status).toBe(201);
+      const firstId = ((await first.json()) as { session: { id: string } }).session.id;
+
+      // The same tool call re-attaches the same child rather than spawning another.
+      const second = await post();
+      expect(second.status).toBe(200);
+      const secondId = ((await second.json()) as { session: { id: string } }).session.id;
+      expect(secondId).toBe(firstId);
+    });
+
+    it("404s an unknown parent session", async () => {
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ parent: "ghost" }),
+      });
+
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'parent session "ghost" not found',
+      });
+    });
+
+    it("requires a model when no parent is given", async () => {
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toEqual({ error: "model is required" });
+    });
   });
 
   describe("GET /api/personas", () => {
@@ -298,6 +375,21 @@ describe("sessions routes", () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions?cursor=nope");
       expect(res.status).toBe(400);
+    });
+
+    it("excludes child sessions from the list", async () => {
+      createSession(env.db, MODEL, { id: "top", startedAt: new Date(1000) });
+      createSession(env.db, MODEL, {
+        id: "child",
+        startedAt: new Date(2000),
+        parentSessionId: "top",
+      });
+      const app = makeApp(fakeClients());
+
+      const page = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string }[];
+      };
+      expect(page.sessions.map((s) => s.id)).toEqual(["top"]);
     });
   });
 
@@ -896,6 +988,130 @@ describe("sessions routes", () => {
       });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("first-party investigate tool", () => {
+    const postRaw = (app: ReturnType<typeof createApp>, id: string, message: unknown) =>
+      app.request(`/api/sessions/${id}/messages`, {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+
+    // Captures the tool names offered to the model on a turn, then answers.
+    const toolNameCapturingModel = (sink: { names: string[] }): LlmModel =>
+      new MockLanguageModelV3({
+        doStream: async (options) => {
+          sink.names = (options.tools ?? []).map((t) => t.name);
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "ok" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+    it("offers investigate to a chat session", async () => {
+      const sink = { names: [] as string[] };
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolNameCapturingModel(sink) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "hello")).text();
+      await settled;
+
+      expect(sink.names).toContain(INVESTIGATE_TOOL_NAME);
+    });
+
+    it("withholds investigate from a child sub-session, keeping MCP tools", async () => {
+      const sink = { names: [] as string[] };
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolNameCapturingModel(sink) }), {
+        bus,
+        mcpRegistry: fakeMcp({ tavily__search: mcpTool() }),
+      });
+      createSession(env.db, MODEL, { id: "parent" });
+      createSession(env.db, MODEL, {
+        id: "child",
+        parentSessionId: "parent",
+      });
+
+      const settled = waitForSettled("child");
+      await (await postMessage(app, "child", "compare X and Y")).text();
+      await settled;
+
+      expect(sink.names).toContain("tavily__search");
+      expect(sink.names).not.toContain(INVESTIGATE_TOOL_NAME);
+    });
+
+    it("pauses on an investigate call, then continues when the client supplies the report", async () => {
+      let step = 0;
+      const model = new MockLanguageModelV3({
+        doStream: async () => {
+          step += 1;
+          if (step === 1) {
+            return {
+              stream: convertArrayToReadableStream([
+                {
+                  type: "tool-call",
+                  toolCallId: "inv1",
+                  toolName: INVESTIGATE_TOOL_NAME,
+                  input: '{"task":"compare X and Y"}',
+                },
+                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+              ]),
+            };
+          }
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "Per the report, X wins." },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 4) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      // Turn 1: the model calls investigate, so the turn pauses awaiting the report.
+      const firstSettled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "compare X and Y")).text();
+      await firstSettled;
+
+      const paused = getSessionMessages(env.db, "s1");
+      const pendingTool = toolPartOf(paused[1]);
+      expect(pendingTool.state).toBe("input-available");
+      expect(pendingTool.output).toBeUndefined();
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
+
+      // The client computed the report and re-sends the assistant message with
+      // the tool output filled in, resuming the turn.
+      const resolvedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
+        part.state === "input-available"
+          ? { ...part, state: "output-available", output: "X beats Y on price." }
+          : part,
+      );
+      const secondSettled = waitForSettled("s1");
+      const res = await postRaw(app, "s1", { role: "assistant", parts: resolvedParts });
+      expect(res.status).toBe(200);
+      await res.text();
+      await secondSettled;
+
+      const resumed = getSessionMessages(env.db, "s1");
+      // The continuation extended the same assistant message; no extra row.
+      expect(resumed.map((r) => r.role)).toEqual(["user", "assistant"]);
+      const part = toolPartOf(resumed[1]);
+      expect(part.state).toBe("output-available");
+      expect(part.output).toBe("X beats Y on price.");
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
     });
   });
 });

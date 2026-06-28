@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { type ModelMessage, type ToolSet, type UIMessage, isToolUIPart } from "ai";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { ConfigStore } from "../config/store.ts";
@@ -11,17 +11,23 @@ import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  type Session,
   type ToolApprovalDecision,
+  type ToolOutput,
+  childSessionGuidance,
+  childSessionTools,
   createSession,
   createSystemPromptBuilder,
   createToolGrantStore,
   deleteMessagesFrom,
   deleteSession,
+  findChildByToolCall,
   getSession,
   getSessionMessages,
   getSessionPreviews,
   listPersonas,
   resumeTurn,
+  resumeTurnWithToolOutput,
   runTurn,
   updateSessionModel,
   updateSessionPersona,
@@ -59,7 +65,17 @@ const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
-const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
+// A top-level session supplies `model`. A child sub-session supplies `parent`
+// (with the spawning `toolCallId`) instead, inheriting the parent's model — so
+// `model` is optional and only required when there's no parent. A child is
+// marked solely by its parent link; there is no separate kind.
+const createSessionBodySchema = z
+  .object({
+    model: z.string().min(1).optional(),
+    parent: z.string().min(1).optional(),
+    toolCallId: z.string().min(1).optional(),
+  })
+  .strict();
 
 // Either field may be set independently: the aside swaps the model and the
 // persona through this one endpoint. `persona: null` detaches; omitting a field
@@ -95,6 +111,13 @@ const toolGrantBodySchema = z.object({ tool: z.string().min(1) }).strict();
 const hasPendingApproval = (parts: UIMessage["parts"]): boolean =>
   parts.some((part) => isToolUIPart(part) && part.state === "approval-requested");
 
+// Whether a message awaits a client-completed tool's result — its last assistant
+// turn called a tool with no server `execute` (e.g. `investigate`) that hasn't
+// been given an output yet. Such a call rests in `input-available`; only a
+// client tool persists there, since server-run tools settle output-available.
+const hasPendingToolOutput = (parts: UIMessage["parts"]): boolean =>
+  parts.some((part) => isToolUIPart(part) && part.state === "input-available");
+
 // Whether `toolCallId` already raised an approval request earlier in this
 // conversation. Distinguishes revalidating a call the user has already answered
 // (the AI SDK re-checks `needsApproval` on resume) from gating a fresh one.
@@ -125,6 +148,19 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
   return decisions;
 };
 
+// Pull the client-supplied tool outputs out of a resumed assistant message — the
+// results the client computed for a paused client-completed call (e.g. the
+// investigation report) and now sends back to continue the turn.
+const extractToolOutputs = (parts: UIMessage["parts"]): ToolOutput[] => {
+  const outputs: ToolOutput[] = [];
+  for (const part of parts) {
+    if (isToolUIPart(part) && part.state === "output-available") {
+      outputs.push({ toolCallId: part.toolCallId, output: part.output });
+    }
+  }
+  return outputs;
+};
+
 /**
  * Build the Hono sub-app for the agentic session surface: model listing,
  * session create/list/get, the streaming turn endpoint, and an optional
@@ -139,10 +175,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const toolGrants = createToolGrantStore(config.toolGrantsFile());
 
   // The tools offered to a turn — the live MCP server tools, each gated behind
-  // the user's approval unless it carries an "Always Allow" grant. Read per turn
-  // (not once) so a config reload that adds or drops MCP servers, and a grant
-  // made since the last turn, are both reflected on the next turn.
-  const activeTools = (): ToolSet => {
+  // the user's approval unless it carries an "Always Allow" grant, plus the
+  // first-party child-session tools (`investigate`). Read per turn (not once) so
+  // a config reload that adds or drops MCP servers, and a grant made since the
+  // last turn, are both reflected on the next turn. Only a top-level session is
+  // offered the child-session tools; a child sub-session isn't, so a worker can't
+  // spawn another.
+  const activeTools = (session: Session): ToolSet => {
     const tools = mcpRegistry?.tools() ?? {};
     const gated: ToolSet = {};
     for (const [name, tool] of Object.entries(tools)) {
@@ -161,6 +200,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         ) => !toolGrants.isGranted(name) || hasPriorApprovalRequest(messages, toolCallId),
       };
     }
+    if (session.parentSessionId === null)
+      for (const [name, entry] of childSessionTools) gated[name] = entry.tool;
     return gated;
   };
 
@@ -175,7 +216,34 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "/sessions",
     zValidator("json", createSessionBodySchema, onZodFail("invalid session")),
     (c) => {
-      const { model } = c.req.valid("json");
+      const { model, parent, toolCallId } = c.req.valid("json");
+
+      // A child sub-session inherits its parent's model and is hidden from the
+      // feed/lists — reachable inline in its parent's transcript and at its own
+      // URL. The spawning `toolCallId` lets the parent re-attach it after reload.
+      // A child is marked solely by its parent link — no separate kind flag.
+      if (parent !== undefined) {
+        const parentSession = getSession(db, parent);
+        if (!parentSession) return c.json({ error: `parent session "${parent}" not found` }, 404);
+        // Idempotent for a given tool call: re-attaching the same investigation
+        // (after a reload) returns the existing child rather than spawning a
+        // duplicate. Keyed on the spawning `toolCallId`, so it only applies when
+        // one is supplied.
+        if (toolCallId !== undefined) {
+          const existing = findChildByToolCall(db, parent, toolCallId);
+          if (existing) return c.json({ session: existing }, 200);
+        }
+        const child = createSession(db, parentSession.model, {
+          parentSessionId: parent,
+          parentToolCallId: toolCallId,
+        });
+        bus?.publish({ type: "session.started", id: child.id });
+        return c.json({ session: child }, 201);
+      }
+
+      if (model === undefined) {
+        return c.json({ error: "model is required" }, 400);
+      }
       // Validate the model resolves now, at create time, so a bad id fails the
       // create with the resolver's own message rather than a later turn.
       try {
@@ -210,16 +278,25 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         anchor = found;
       }
 
+      // Only top-level sessions are listed; child investigations are reachable
+      // inline in their parent and at their own URL, never in the feed.
+      const topLevel = isNull(sessionsTable.parentSessionId);
       const rows = db
         .select()
         .from(sessionsTable)
         .where(
           anchor
-            ? or(
-                lt(sessionsTable.startedAt, anchor.startedAt),
-                and(eq(sessionsTable.startedAt, anchor.startedAt), lt(sessionsTable.id, anchor.id)),
+            ? and(
+                topLevel,
+                or(
+                  lt(sessionsTable.startedAt, anchor.startedAt),
+                  and(
+                    eq(sessionsTable.startedAt, anchor.startedAt),
+                    lt(sessionsTable.id, anchor.id),
+                  ),
+                ),
               )
-            : undefined,
+            : topLevel,
         )
         .orderBy(desc(sessionsTable.startedAt), desc(sessionsTable.id))
         .limit(limit)
@@ -301,14 +378,25 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
       const parts = message.parts as UIMessage["parts"];
       const last = getSessionMessages(db, id).at(-1);
-      const pending =
-        last?.role === "assistant" && hasPendingApproval(last.parts as UIMessage["parts"]);
+      const lastParts = last?.role === "assistant" ? (last.parts as UIMessage["parts"]) : undefined;
+      // Two ways a turn can be paused awaiting the client: a tool call gated for
+      // approval, or a client-completed call (e.g. `investigate`) awaiting its
+      // output. Either blocks a fresh message until it's resolved.
+      const pendingApproval = lastParts !== undefined && hasPendingApproval(lastParts);
+      const pendingOutput = lastParts !== undefined && hasPendingToolOutput(lastParts);
 
-      // Resolve the live, approval-gated tools for this turn and compose the
+      // Resolve the live tools for this turn — the approval-gated MCP tools plus
+      // (for a top-level session) the child-session tools — and compose the
       // system prompt from their names so the core layer's tool guidance matches
-      // what the model is actually offered.
-      const tools = activeTools();
-      const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(tools));
+      // what the model is actually offered. A child session also picks up the
+      // prompt overlay of the tool that spawned it.
+      const tools = activeTools(session);
+      const childGuidance = childSessionGuidance(db, session);
+      const buildSystemPrompt = createSystemPromptBuilder(
+        config,
+        Object.keys(tools),
+        childGuidance,
+      );
       const turnDeps = { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools };
 
       // Persistence rides the stream's completion (the turn's `onFinish`), so the
@@ -316,24 +404,31 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // server-side, so a client that disconnects doesn't cancel it; only an
       // explicit cancel through `POST /api/sessions/:id/cancel` does.
 
-      // An assistant message carries the user's verdicts on a paused turn's tool
-      // calls: resume it rather than starting a new turn.
+      // An assistant message resumes a paused turn: it carries either the user's
+      // approval verdicts or a client-completed tool's output.
       if (message.role === "assistant") {
-        if (!pending) {
-          return c.json({ error: `session "${id}" has no pending tool approval to resolve` }, 409);
+        if (pendingApproval) {
+          const { response } = await resumeTurn(turnDeps, {
+            session,
+            approvals: extractApprovals(parts),
+          });
+          return response;
         }
-        const { response } = await resumeTurn(turnDeps, {
-          session,
-          approvals: extractApprovals(parts),
-        });
-        return response;
+        if (pendingOutput) {
+          const { response } = await resumeTurnWithToolOutput(turnDeps, {
+            session,
+            outputs: extractToolOutputs(parts),
+          });
+          return response;
+        }
+        return c.json({ error: `session "${id}" has no pending tool call to resolve` }, 409);
       }
 
-      // A new user message can't start while a tool approval is still pending —
-      // the model can't continue past an unanswered tool call.
-      if (pending) {
+      // A new user message can't start while a tool call is still pending — the
+      // model can't continue past an unanswered call.
+      if (pendingApproval || pendingOutput) {
         return c.json(
-          { error: `session "${id}" has a pending tool approval; respond to it first` },
+          { error: `session "${id}" has a pending tool call; respond to it first` },
           409,
         );
       }

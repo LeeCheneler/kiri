@@ -3,10 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
+import type { Session } from "./store.ts";
 import {
   INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
+  buildChildSessionPrompt,
   buildSystemPrompt,
+  createSystemPromptBuilder,
   listPersonas,
   loadPersona,
 } from "./system-prompt.ts";
@@ -163,6 +166,26 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("parameters");
   });
 
+  it("steers research to the investigate tool only when it is offered", () => {
+    const withInvestigate = buildSystemPrompt({
+      config,
+      tools: ["investigate", "tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withInvestigate).toContain("prefer the `investigate` tool");
+    // It must also steer against re-running the delegated work — the leak the
+    // tool exists to prevent.
+    expect(withInvestigate).toContain("do not re-run the searches it already made");
+    // A session without investigate gets no delegation steer — direct search is
+    // the only research path it has.
+    const withoutInvestigate = buildSystemPrompt({
+      config,
+      tools: ["tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withoutInvestigate).not.toContain("prefer the `investigate` tool");
+  });
+
   it("singles out raw/full-content options as the biggest token sink to keep off", () => {
     const prompt = buildSystemPrompt({ config, tools: ["tavily__extract"], now: FIXED_NOW });
     // The most common blow-up: requesting raw/full page content by default. The
@@ -298,5 +321,70 @@ describe("loadPersona", () => {
     writeFileSync(join(dir, "secret.md"), "should never be read");
     // `../secret` would resolve outside personas/ — the guard returns null.
     expect(loadPersona(config, "../secret")).toBeNull();
+  });
+});
+
+describe("buildChildSessionPrompt", () => {
+  it("frames the worker as a delegated sub-agent that reports back", () => {
+    const prompt = buildChildSessionPrompt({ now: FIXED_NOW });
+    expect(prompt).toContain("focused assistant");
+    expect(prompt).toContain("cannot see the parent conversation");
+    expect(prompt).toContain("Report back:");
+    expect(prompt).toContain("Synthesise, don't dump");
+    expect(prompt).toContain("2026-06-17");
+  });
+
+  it("appends the spawning tool's guidance overlay only when supplied", () => {
+    const withGuidance = buildChildSessionPrompt({
+      guidance: "Cite your sources.",
+      now: FIXED_NOW,
+    });
+    expect(withGuidance).toContain("Cite your sources.");
+    expect(buildChildSessionPrompt({ now: FIXED_NOW })).not.toContain("Cite your sources.");
+  });
+
+  it("includes tool-use guidance only when tools are active", () => {
+    const withTools = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
+    expect(withTools).toContain("You have tools available");
+    expect(buildChildSessionPrompt({ now: FIXED_NOW })).not.toContain("You have tools available");
+  });
+});
+
+describe("createSystemPromptBuilder", () => {
+  let dir: string;
+  let config: ConfigStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-sysprompt-builder-"));
+    config = createConfigStore(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // A minimal session stand-in: the builder reads only `parentSessionId` and
+  // `persona` — a non-null parent marks a child sub-session.
+  const sessionWith = (parentSessionId: string | null): Session =>
+    ({ parentSessionId, persona: null }) as unknown as Session;
+
+  it("composes the layered chat prompt for a top-level session", () => {
+    writeFileSync(config.instructionsFile(), "Be terse.");
+    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith(null));
+    expect(prompt).toContain("interactive chat session");
+    expect(prompt).toContain("Be terse.");
+  });
+
+  it("uses the worker prompt with the resolved overlay for a child sub-session, ignoring kiri.md", () => {
+    writeFileSync(config.instructionsFile(), "Be terse.");
+    const prompt = createSystemPromptBuilder(
+      config,
+      ["tavily__search"],
+      "Cite your sources.",
+    )(sessionWith("parent"));
+    expect(prompt).toContain("focused assistant");
+    expect(prompt).toContain("Cite your sources.");
+    expect(prompt).toContain("You have tools available");
+    expect(prompt).not.toContain("Be terse.");
   });
 });

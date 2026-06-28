@@ -1,20 +1,6 @@
-import { useChat } from "@ai-sdk/react";
-import {
-  DefaultChatTransport,
-  type UIMessage,
-  getToolName,
-  isToolUIPart,
-  lastAssistantMessageIsCompleteWithApprovalResponses,
-} from "ai";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
-import {
-  ApiError,
-  type SessionDetail,
-  cancelSession,
-  recordToolGrant,
-  sessionTurnEndpoint,
-  truncateSessionMessages,
-} from "../../api.ts";
+import type { UIMessage } from "ai";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
+import { ApiError, type SessionDetail } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
@@ -29,32 +15,7 @@ import {
 } from "./context-usage.ts";
 import { MessageComposer } from "./message-composer.tsx";
 import { useSessionDraft } from "./session-draft.ts";
-import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
-
-// Tool-call states that mean a call is still running.
-const IN_FLIGHT_TOOL_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
-
-// Rewrite any still-running tool call to a terminal cancelled state. Cancelling
-// a turn stops a call mid-flight, which otherwise leaves its part on "working"
-// in the transcript; this marks it cancelled instead. Other parts pass through.
-function cancelInFlightTools(messages: UIMessage[]): UIMessage[] {
-  return messages.map((message) =>
-    message.role === "assistant"
-      ? {
-          ...message,
-          parts: message.parts.map((part) =>
-            isToolUIPart(part) && IN_FLIGHT_TOOL_STATES.has(part.state)
-              ? ({
-                  ...part,
-                  state: "output-error",
-                  errorText: CANCELLED_ERROR_TEXT,
-                } as UIMessage["parts"][number])
-              : part,
-          ),
-        }
-      : message,
-  );
-}
+import { useSessionConversation } from "./use-session-conversation.ts";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
 // out so a turn that failed while this view was away still surfaces its error on
@@ -127,44 +88,39 @@ function Chat({ detail }: { detail: SessionDetail }) {
     () => detail.messages.map((m) => ({ id: m.id, role: m.role, parts: m.parts })),
     [detail.messages],
   );
-  const transport = useMemo(() => {
-    const { url, headers } = sessionTurnEndpoint(session.id);
-    return new DefaultChatTransport<UIMessage>({
-      api: url,
-      headers,
-      // Send only the new message; the server loads the prior turns.
-      prepareSendMessagesRequest: ({ messages }) => ({
-        body: { message: messages.at(-1) },
-      }),
-    });
-  }, [session.id]);
-
-  const { messages, sendMessage, status, stop, error, setMessages, addToolApprovalResponse } =
-    useChat({
-      id: session.id,
-      messages: initialMessages,
-      transport,
-      // Once every pending tool approval on the latest turn has a verdict, send
-      // it straight back so the turn resumes without another user action.
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    });
+  // The live conversation engine: the page renders its own chrome (header,
+  // composer, context warning, scroll) around it. `busy` covers a turn in flight
+  // here or elsewhere; `awaitingApproval` blocks a new message until a paused
+  // tool call is resolved.
+  const {
+    messages,
+    error,
+    busy,
+    awaitingApproval,
+    sendMessage,
+    resubmit,
+    cancel,
+    onToolDecision,
+    addToolOutput,
+  } = useSessionConversation({ session, initialMessages });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
   const inputId = useId();
-  // `streaming` is this view driving the turn. `busy` is a turn in flight at all
-  // — including one started elsewhere, or left running when we navigated away:
-  // the session row reports `running` while `useChat` sits idle here.
-  const streaming = status === "submitted" || status === "streaming";
-  const busy = streaming || session.status === "running";
-  // A tool call on the latest turn is waiting on the user's Allow / Deny verdict.
-  // The turn is idle (not `busy`) meanwhile, but a new message can't be sent
-  // until it's resolved — the model can't continue past an unanswered call.
-  const awaitingApproval = useMemo(() => {
-    const last = messages.at(-1);
-    return (
-      last?.role === "assistant" &&
-      last.parts.some((part) => isToolUIPart(part) && part.state === "approval-requested")
-    );
-  }, [messages]);
+
+  // Wiring for the client-completed tools that render as embedded child sessions
+  // in this view — investigate today. A matching call runs its child against this
+  // session and reports back here, supplying the call's output so the paused turn
+  // resumes.
+  const childSession = useMemo(
+    () => ({
+      // "investigate" — the first-party tool whose calls render as an embedded
+      // child session (its name lives with the tool, server-side).
+      toolNames: ["investigate"],
+      parentSessionId: session.id,
+      onReport: (toolName: string, toolCallId: string, report: string) =>
+        addToolOutput({ tool: toolName, toolCallId, output: report }),
+    }),
+    [session.id, addToolOutput],
+  );
   // A failure to surface at the transcript foot: this view's own turn errored,
   // or — on revisit — the row records a turn that failed while we were away.
   const failed = !busy && (error != null || session.status === "failed");
@@ -222,16 +178,6 @@ function Chat({ detail }: { detail: SessionDetail }) {
     document.getElementById(inputId)?.focus();
   }, [inputId]);
 
-  // A turn can finish while this view is unmounted (we navigated away) or be
-  // driven from elsewhere: it persists without `useChat` — which ignores
-  // re-seeds after mount — ever seeing it. When we're not the one streaming and
-  // the stored transcript has pulled ahead, fold it in so the finished turn
-  // shows up here.
-  useEffect(() => {
-    if (streaming) return;
-    if (initialMessages.length > messages.length) setMessages(initialMessages);
-  }, [streaming, initialMessages, messages.length, setMessages]);
-
   // Send a composed turn. The composer assembles the parts (text + any staged
   // images); a new turn pulls the transcript back to the foot, even if the user
   // had scrolled up to read the previous reply.
@@ -241,45 +187,12 @@ function Chat({ detail }: { detail: SessionDetail }) {
     clearDraft();
   };
 
-  // Resend an edited user message, re-running the conversation from it. Truncate
-  // the stored transcript back to the message first (so the turn's server-side
-  // append lands at the right index), then drop the local messages from that
-  // point and send the edited turn in the same tick — `sendMessage` flips
-  // `streaming` before the fold-in effect could re-expand them from a now-stale
-  // refetch. A failed truncate aborts the resend, leaving the transcript intact.
-  const handleResubmit = async (messageId: string, parts: UIMessage["parts"]) => {
-    if (busy) return;
-    const index = messages.findIndex((message) => message.id === messageId);
-    if (index === -1) return;
-    await truncateSessionMessages(session.id, messageId);
+  // Resend an edited user message: re-pin to the foot, then let the conversation
+  // engine truncate the transcript back to it and re-run from there.
+  const handleResubmit = (messageId: string, parts: UIMessage["parts"]) => {
     pinnedToBottom.current = true;
-    setMessages(messages.slice(0, index));
-    void sendMessage({ parts });
+    return resubmit(messageId, parts);
   };
-
-  // Resolve a pending tool approval. Allow runs it once; Always allow also
-  // records a grant so the tool stops prompting; Deny refuses it. Responding
-  // makes `useChat` send the turn back to resume (via `sendAutomaticallyWhen`).
-  const handleToolDecision = useCallback<ToolDecisionHandler>(
-    (part, decision) => {
-      if (part.state !== "approval-requested") return;
-      // Persist the grant before approving; fire-and-forget, since a failed write
-      // just means we ask again next time — the safe default — and must not block
-      // allowing the call now.
-      if (decision === "always") void recordToolGrant(getToolName(part)).catch(() => {});
-      void addToolApprovalResponse({ id: part.approval.id, approved: decision !== "deny" });
-    },
-    [addToolApprovalResponse],
-  );
-
-  const cancel = useCallback(() => {
-    void stop();
-    // Best-effort: abort the server turn too. A 404/409 means it already settled.
-    void cancelSession(session.id).catch(() => {});
-    // Stopping mid-call leaves the tool part on "working"; mark it cancelled so
-    // the transcript reflects the stop rather than spinning forever.
-    setMessages(cancelInFlightTools);
-  }, [stop, session.id, setMessages]);
 
   // Esc cancels an in-flight turn. The composer has no `onCancel` in this view,
   // so it leaves Escape alone; catch it on the window while a turn is busy.
@@ -314,8 +227,9 @@ function Chat({ detail }: { detail: SessionDetail }) {
               message={message}
               busy={busy}
               onResubmit={handleResubmit}
-              onToolDecision={handleToolDecision}
+              onToolDecision={onToolDecision}
               onCancel={busy ? cancel : undefined}
+              childSession={childSession}
             />
           ))
         )}

@@ -11,6 +11,7 @@ import {
   createSession,
   deleteMessagesFrom,
   deleteSession,
+  findChildByToolCall,
   getSession,
   getSessionMessages,
   getSessionPreviews,
@@ -36,7 +37,7 @@ describe("sessions store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("creates an idle session against the model with no persona by default", () => {
+  it("creates an idle top-level session against the model by default", () => {
     const session = createSession(db, MODEL, { id: "s1" });
 
     expect(session.id).toBe("s1");
@@ -44,7 +45,36 @@ describe("sessions store", () => {
     expect(session.model).toBe(MODEL);
     expect(session.persona).toBeNull();
     expect(session.finishedAt).toBeNull();
+    expect(session.parentSessionId).toBeNull();
+    expect(session.parentToolCallId).toBeNull();
     expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("creates a child session carrying its parent and spawning tool call", () => {
+    createSession(db, MODEL, { id: "parent" });
+    const child = createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call_1",
+    });
+
+    expect(child.parentSessionId).toBe("parent");
+    expect(child.parentToolCallId).toBe("call_1");
+    expect(getSession(db, "child")?.parentSessionId).toBe("parent");
+  });
+
+  it("finds a child by its parent and spawning tool call", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call_1",
+    });
+
+    expect(findChildByToolCall(db, "parent", "call_1")?.id).toBe("child");
+    // A different tool call, or a different parent, has no child.
+    expect(findChildByToolCall(db, "parent", "call_2")).toBeUndefined();
+    expect(findChildByToolCall(db, "other", "call_1")).toBeUndefined();
   });
 
   it("attaches and detaches a persona", () => {

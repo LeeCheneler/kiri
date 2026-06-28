@@ -6,6 +6,7 @@ export {
   createSession,
   deleteMessagesFrom,
   deleteSession,
+  findChildByToolCall,
   getSession,
   getSessionMessages,
   getSessionPreviews,
@@ -24,12 +25,21 @@ export {
   loadPersona,
 } from "./system-prompt.ts";
 export { type ToolGrantStore, createToolGrantStore } from "./tool-grants.ts";
+export { INVESTIGATE_TOOL_NAME, investigateTool } from "./investigate-tool.ts";
 export {
+  type ChildSessionTool,
+  childSessionGuidance,
+  childSessionTools,
+} from "./child-session-tools.ts";
+export {
+  type ResumeToolOutputArgs,
   type ResumeTurnArgs,
   type RunTurnArgs,
   type RunTurnDeps,
   type StartedTurn,
   type ToolApprovalDecision,
+  type ToolOutput,
   resumeTurn,
+  resumeTurnWithToolOutput,
   runTurn,
 } from "./turn.ts";

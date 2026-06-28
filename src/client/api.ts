@@ -717,6 +717,24 @@ export const createSession = async (model: string): Promise<{ session: Session }
   );
 
 /**
+ * Get or create the child session a parent's client-completed tool call spawned,
+ * returning the child row to embed and drive. Idempotent for the call, so a
+ * re-render or reload re-attaches the same child rather than starting another.
+ * Throws `ApiError` on non-2xx (404 for an unknown parent).
+ */
+export const getOrCreateChildSession = async (
+  parentSessionId: string,
+  toolCallId: string,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parent: parentSessionId, toolCallId }),
+    }),
+  );
+
+/**
  * Change a session's model (a `provider:model` id), returning the updated row.
  * The model resolves at the start of each turn, so the change takes effect from
  * the next turn. Throws `ApiError` on non-2xx — 404 for an unknown session, 400

@@ -75,6 +75,21 @@ export interface ResumeTurnArgs {
   approvals: ToolApprovalDecision[];
 }
 
+/** A client-supplied output for one of a turn's pending client-completed tool calls. */
+export interface ToolOutput {
+  /** The id of the tool call the output is for. */
+  toolCallId: string;
+  /** The result to feed back to the model as the tool's output. */
+  output: unknown;
+}
+
+export interface ResumeToolOutputArgs {
+  /** The session paused awaiting a client-completed tool result; its last message is the assistant turn to resume. */
+  session: Session;
+  /** Outputs for the pending client-completed tool calls on that assistant message. */
+  outputs: ToolOutput[];
+}
+
 export interface StartedTurn {
   /** The streamed assistant response, ready to return from the turn endpoint. */
   response: Response;
@@ -186,6 +201,40 @@ export async function resumeTurn(deps: RunTurnDeps, args: ResumeTurnArgs): Promi
   return streamCore(deps, session, model);
 }
 
+/**
+ * Resume a turn paused on a client-completed tool call (one with no server
+ * `execute`, e.g. `investigate`). The client computed the call's output and sends
+ * it back; this applies that output to the pending call on the session's last
+ * assistant message and streams the continuation, which extends that same
+ * message in place. The model reads the tool result and carries on.
+ *
+ * Throws (before any write) if the session isn't awaiting a tool result, or if no
+ * output matches a pending call — the route maps either to a 4xx.
+ */
+export async function resumeTurnWithToolOutput(
+  deps: RunTurnDeps,
+  args: ResumeToolOutputArgs,
+): Promise<StartedTurn> {
+  const { db, llmClients, bus } = deps;
+  const { session, outputs } = args;
+
+  const model = llmClients.resolveModel(session.model);
+
+  const last = getSessionMessages(db, session.id).at(-1);
+  if (!last || last.role !== "assistant") {
+    throw new Error(`session "${session.id}" has no turn awaiting a tool result`);
+  }
+  const { parts, applied } = applyToolOutputs(last.parts as UIMessage["parts"], outputs);
+  if (applied === 0) {
+    throw new Error(`session "${session.id}" has no pending tool call matching the result`);
+  }
+  updateMessage(db, session.id, last.id, { parts });
+  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
+  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
+
+  return streamCore(deps, session, model);
+}
+
 // Reason handed to the model when a tool call is denied, so it understands the
 // refusal and moves on rather than re-requesting the same call in a loop.
 const DENIAL_REASON =
@@ -214,6 +263,27 @@ function applyApprovals(
       state: "approval-responded" as const,
       approval: { ...part.approval, approved: decision.approved, reason },
     };
+  });
+  return { parts: next, applied };
+}
+
+// Flip each pending `input-available` tool part (a client-completed call awaiting
+// its result) to `output-available`, carrying the matching client-supplied
+// output. Parts with no matching output (and non-tool parts) pass through
+// untouched. Returns the rewritten parts and how many outputs landed, so the
+// caller can reject a resume that matched nothing.
+function applyToolOutputs(
+  parts: UIMessage["parts"],
+  outputs: ToolOutput[],
+): { parts: UIMessage["parts"]; applied: number } {
+  const byToolCallId = new Map(outputs.map((o) => [o.toolCallId, o]));
+  let applied = 0;
+  const next = parts.map((part) => {
+    if (!isToolUIPart(part) || part.state !== "input-available") return part;
+    const result = byToolCallId.get(part.toolCallId);
+    if (!result) return part;
+    applied += 1;
+    return { ...part, state: "output-available" as const, output: result.output };
   });
   return { parts: next, applied };
 }

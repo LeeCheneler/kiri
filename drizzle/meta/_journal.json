@@ -127,6 +127,13 @@
       "when": 1782511878811,
       "tag": "0017_drop_session_token_totals",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1782595072783,
+      "tag": "0018_add_session_lineage",
+      "breakpoints": true
     }
   ]
 }
