@@ -1,7 +1,9 @@
 import { describe, expect, it, mock } from "bun:test";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
+import { createQueryClient } from "../../state/query-client.ts";
 import { wrapAttachedFile } from "./attachments.ts";
 import { ChatMessage, type ResubmitHandler } from "./chat-message.tsx";
 
@@ -84,6 +86,38 @@ describe("<ChatMessage>", () => {
   it("renders nothing for an assistant turn with no content yet", () => {
     const { container } = renderMessage(message("assistant", []));
     expect(container.innerHTML).toBe("");
+  });
+
+  it("renders a still-streaming child-session call as a plain tool block, not the box", () => {
+    // The box get-or-creates the child and drives it with the call's `task`.
+    // Mounting it before the input has finished streaming would capture a partial
+    // task, so a streaming call must render as an ordinary tool block until the
+    // input settles. (Wrapped in a query client so the box, if wrongly mounted,
+    // renders rather than throwing — making the regression a clean assertion.)
+    const { container } = render(
+      <QueryClientProvider client={createQueryClient()}>
+        <ChatMessage
+          message={message("assistant", [
+            {
+              type: "tool-investigate",
+              toolCallId: "inv1",
+              state: "input-streaming",
+              input: { task: "best lo" },
+            },
+          ])}
+          busy={false}
+          onResubmit={() => {}}
+          childSession={{
+            toolNames: ["investigate"],
+            parentSessionId: "parent",
+            onReport: () => {},
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(container.querySelector('[data-tool="child-session"]')).toBeNull();
+    expect(container.querySelector('[data-tool="investigate"]')).not.toBeNull();
   });
 
   it("edits a user message and resends the new text", async () => {

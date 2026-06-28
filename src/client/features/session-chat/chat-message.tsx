@@ -168,8 +168,14 @@ function AssistantMessage({
           }
           if (isToolUIPart(part)) {
             // A client-completed tool that runs as a child session renders as its
-            // own embedded-transcript box rather than a plain tool-result block.
-            if (childSession?.toolNames.includes(getToolName(part)))
+            // own embedded-transcript box rather than a plain tool-result block —
+            // but only once its input has finished streaming, so the child is
+            // get-or-created and driven with the complete task, never a partial
+            // one captured mid-stream.
+            if (
+              part.state !== "input-streaming" &&
+              childSession?.toolNames.includes(getToolName(part))
+            )
               return (
                 <ChildSession
                   key={part.toolCallId}
