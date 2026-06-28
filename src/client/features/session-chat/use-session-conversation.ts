@@ -36,6 +36,13 @@ const endsWithToolResult = (messages: UIMessage[]): boolean => {
   );
 };
 
+// Total parts across a transcript. A turn that finished elsewhere can grow an
+// existing message in place rather than add a new one — an investigation is a
+// single assistant message that gains a part per inner tool call — so the
+// fold-in below compares parts, not just the message count.
+const totalParts = (messages: UIMessage[]): number =>
+  messages.reduce((sum, message) => sum + message.parts.length, 0);
+
 // Rewrite any still-running tool call to a terminal cancelled state. Cancelling
 // a turn stops a call mid-flight, which otherwise leaves its part on "working"
 // in the transcript; this marks it cancelled instead. Other parts pass through.
@@ -154,11 +161,17 @@ export function useSessionConversation(opts: {
   // driven from elsewhere: it persists without `useChat` — which ignores
   // re-seeds after mount — ever seeing it. When we're not the one streaming and
   // the stored transcript has pulled ahead, fold it in so the finished turn
-  // shows up here.
+  // shows up here. "Pulled ahead" is more messages or more parts: an
+  // investigation finishing after a reload grows its single assistant message a
+  // part at a time, so a message-count check alone would never re-sync it.
   useEffect(() => {
     if (streaming) return;
-    if (initialMessages.length > messages.length) setMessages(initialMessages);
-  }, [streaming, initialMessages, messages.length, setMessages]);
+    if (
+      initialMessages.length > messages.length ||
+      totalParts(initialMessages) > totalParts(messages)
+    )
+      setMessages(initialMessages);
+  }, [streaming, initialMessages, messages, setMessages]);
 
   // Resend an edited user message, re-running the conversation from it. Truncate
   // the stored transcript back to the message first (so the turn's server-side

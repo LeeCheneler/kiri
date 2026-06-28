@@ -126,6 +126,48 @@ describe("useSessionConversation", () => {
     expect(result.current.messages.map((m) => m.role)).toEqual(["user"]);
   });
 
+  it("folds in a finished turn that grew an existing message's parts, not just the count", () => {
+    // A single assistant message gains parts in place — the shape of an
+    // investigation finishing after a reload: the same message picks up each
+    // inner tool call. A message-count check alone would miss this.
+    const toolPart = (toolCallId: string) => ({
+      type: "tool-tavily__search",
+      toolCallId,
+      state: "output-available",
+      input: { query: "x" },
+      output: { hits: 1 },
+    });
+    const seeded: UIMessage[] = [
+      userMessage("compare"),
+      { id: "m2", role: "assistant", parts: [toolPart("c1")] as UIMessage["parts"] },
+    ];
+    const grown: UIMessage[] = [
+      userMessage("compare"),
+      {
+        id: "m2",
+        role: "assistant",
+        parts: [
+          toolPart("c1"),
+          toolPart("c2"),
+          { type: "text", text: "X wins." },
+        ] as UIMessage["parts"],
+      },
+    ];
+
+    const { result, rerender } = renderHook(
+      ({ initialMessages }: { initialMessages: UIMessage[] }) =>
+        useSessionConversation({ session: sessionRow("sc-fold"), initialMessages }),
+      { initialProps: { initialMessages: seeded } },
+    );
+    // Seeded with the partial transcript — one tool call on the message.
+    expect(result.current.messages.at(-1)?.parts).toHaveLength(1);
+
+    act(() => rerender({ initialMessages: grown }));
+
+    // The grown history is folded in even though the message count is unchanged.
+    expect(result.current.messages.at(-1)?.parts).toHaveLength(3);
+  });
+
   it("reports busy when a turn is running elsewhere, even though this view is idle", () => {
     const running = renderHook(() =>
       useSessionConversation({ session: sessionRow("sc2", "running"), initialMessages: [] }),
