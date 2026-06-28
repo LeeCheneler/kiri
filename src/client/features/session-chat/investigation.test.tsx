@@ -34,7 +34,6 @@ const childSession = (overrides: Record<string, unknown> = {}) => ({
   persona: null,
   parentSessionId: "parent",
   parentToolCallId: "inv1",
-  kind: "investigation",
   ...overrides,
 });
 

@@ -65,18 +65,15 @@ const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
-// A top-level session supplies `model` and is a `chat`. A child sub-session
-// supplies `parent` (with the spawning `toolCallId`) and its `kind` instead,
-// inheriting the parent's model — so `model` is optional and only required when
-// there's no parent. `kind` is the child's declared kind; investigation is the
-// only one today, but children won't all be investigations, so it is never
-// assumed.
+// A top-level session supplies `model`. A child sub-session supplies `parent`
+// (with the spawning `toolCallId`) instead, inheriting the parent's model — so
+// `model` is optional and only required when there's no parent. A child is
+// marked solely by its parent link; there is no separate kind.
 const createSessionBodySchema = z
   .object({
     model: z.string().min(1).optional(),
     parent: z.string().min(1).optional(),
     toolCallId: z.string().min(1).optional(),
-    kind: z.enum(["chat", "investigation"]).optional(),
   })
   .strict();
 
@@ -181,8 +178,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // the user's approval unless it carries an "Always Allow" grant, plus the
   // first-party `investigate` tool. Read per turn (not once) so a config reload
   // that adds or drops MCP servers, and a grant made since the last turn, are
-  // both reflected on the next turn. An investigation sub-session is never
-  // offered `investigate` itself, so an investigation can't spawn another.
+  // both reflected on the next turn. Only a top-level session is offered
+  // `investigate`; a child sub-session isn't, so a worker can't spawn another.
   const activeTools = (session: Session): ToolSet => {
     const tools = mcpRegistry?.tools() ?? {};
     const gated: ToolSet = {};
@@ -202,7 +199,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         ) => !toolGrants.isGranted(name) || hasPriorApprovalRequest(messages, toolCallId),
       };
     }
-    if (session.kind !== "investigation") gated[INVESTIGATE_TOOL_NAME] = investigateTool;
+    if (session.parentSessionId === null) gated[INVESTIGATE_TOOL_NAME] = investigateTool;
     return gated;
   };
 
@@ -217,17 +214,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "/sessions",
     zValidator("json", createSessionBodySchema, onZodFail("invalid session")),
     (c) => {
-      const { model, parent, toolCallId, kind } = c.req.valid("json");
+      const { model, parent, toolCallId } = c.req.valid("json");
 
       // A child sub-session inherits its parent's model and is hidden from the
       // feed/lists — reachable inline in its parent's transcript and at its own
       // URL. The spawning `toolCallId` lets the parent re-attach it after reload.
-      // The caller states the child's `kind` (investigation today, other kinds
-      // later); it is never assumed from the parent link.
+      // A child is marked solely by its parent link — no separate kind flag.
       if (parent !== undefined) {
-        if (kind === undefined) {
-          return c.json({ error: "kind is required for a child session" }, 400);
-        }
         const parentSession = getSession(db, parent);
         if (!parentSession) return c.json({ error: `parent session "${parent}" not found` }, 404);
         // Idempotent for a given tool call: re-attaching the same investigation
@@ -241,7 +234,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         const child = createSession(db, parentSession.model, {
           parentSessionId: parent,
           parentToolCallId: toolCallId,
-          kind,
         });
         bus?.publish({ type: "session.started", id: child.id });
         return c.json({ session: child }, 201);

@@ -77,10 +77,10 @@ describe("activity routes", () => {
       expect(body.nextCursor).toBeNull();
     });
 
-    it("excludes child investigations from the feed", async () => {
+    it("excludes child sessions from the feed", async () => {
       insertRun("r1", 100);
       insertSession("s1", 200);
-      // A child investigation, newest of all — it must still be filtered out.
+      // A child session, newest of all — it must still be filtered out.
       env.db
         .insert(sessions)
         .values({
@@ -89,7 +89,6 @@ describe("activity routes", () => {
           model: "anthropic:claude",
           startedAt: new Date(300),
           parentSessionId: "s1",
-          kind: "investigation",
         })
         .run();
 

@@ -231,7 +231,7 @@ describe("sessions routes", () => {
       });
     });
 
-    it("creates a child investigation inheriting the parent's model", async () => {
+    it("creates a child session inheriting the parent's model", async () => {
       const events: KiriEvent[] = [];
       const bus = createEventBus();
       bus.subscribe((e) => events.push(e));
@@ -241,7 +241,7 @@ describe("sessions routes", () => {
       const res = await app.request("/api/sessions", {
         method: "POST",
         headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ parent: "parent", toolCallId: "call_1", kind: "investigation" }),
+        body: JSON.stringify({ parent: "parent", toolCallId: "call_1" }),
       });
 
       expect(res.status).toBe(201);
@@ -251,7 +251,6 @@ describe("sessions routes", () => {
       const stored = getSession(env.db, session.id);
       expect(stored?.parentSessionId).toBe("parent");
       expect(stored?.parentToolCallId).toBe("call_1");
-      expect(stored?.kind).toBe("investigation");
       expect(events).toContainEqual({ type: "session.started", id: session.id });
     });
 
@@ -261,7 +260,6 @@ describe("sessions routes", () => {
       const body = JSON.stringify({
         parent: "parent",
         toolCallId: "call_1",
-        kind: "investigation",
       });
       const post = () =>
         app.request("/api/sessions", {
@@ -281,29 +279,13 @@ describe("sessions routes", () => {
       expect(secondId).toBe(firstId);
     });
 
-    it("requires a kind for a child session", async () => {
-      createSession(env.db, MODEL, { id: "parent" });
-      const app = makeApp(fakeClients());
-
-      const res = await app.request("/api/sessions", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ parent: "parent" }),
-      });
-
-      expect(res.status).toBe(400);
-      expect((await res.json()) as { error: string }).toEqual({
-        error: "kind is required for a child session",
-      });
-    });
-
     it("404s an unknown parent session", async () => {
       const app = makeApp(fakeClients());
 
       const res = await app.request("/api/sessions", {
         method: "POST",
         headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ parent: "ghost", kind: "investigation" }),
+        body: JSON.stringify({ parent: "ghost" }),
       });
 
       expect(res.status).toBe(404);
@@ -395,13 +377,12 @@ describe("sessions routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("excludes child investigations from the list", async () => {
+    it("excludes child sessions from the list", async () => {
       createSession(env.db, MODEL, { id: "top", startedAt: new Date(1000) });
       createSession(env.db, MODEL, {
         id: "child",
         startedAt: new Date(2000),
         parentSessionId: "top",
-        kind: "investigation",
       });
       const app = makeApp(fakeClients());
 
@@ -1047,7 +1028,7 @@ describe("sessions routes", () => {
       expect(sink.names).toContain(INVESTIGATE_TOOL_NAME);
     });
 
-    it("withholds investigate from an investigation sub-session, keeping MCP tools", async () => {
+    it("withholds investigate from a child sub-session, keeping MCP tools", async () => {
       const sink = { names: [] as string[] };
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: toolNameCapturingModel(sink) }), {
@@ -1058,7 +1039,6 @@ describe("sessions routes", () => {
       createSession(env.db, MODEL, {
         id: "child",
         parentSessionId: "parent",
-        kind: "investigation",
       });
 
       const settled = waitForSettled("child");

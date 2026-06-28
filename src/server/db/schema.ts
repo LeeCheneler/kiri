@@ -173,7 +173,8 @@ export const recommendations = sqliteTable(
  * A session is either top-level (`parentSessionId` null) or a child spawned by a
  * parent's tool call (an investigation). Children are hidden from the feed and
  * lists — reachable inline in their parent and at their own URL — and run under
- * a system prompt chosen by `kind`.
+ * a focused worker system prompt rather than the layered chat prompt. The
+ * presence of a parent is the whole distinction: there is no separate kind flag.
  */
 export const sessions = sqliteTable(
   "sessions",
@@ -200,7 +201,10 @@ export const sessions = sqliteTable(
     /**
      * The parent session this one was spawned from, or null for a top-level
      * session. Set on a child (an investigation the parent's `investigate` tool
-     * call spawned); children are filtered out of the feed and session lists.
+     * call spawned). A non-null parent is the marker that this session is a
+     * delegated worker: it runs the focused worker system prompt and is never
+     * offered session-spawning tools. Children are filtered out of the feed and
+     * session lists.
      */
     parentSessionId: text("parent_session_id").references((): AnySQLiteColumn => sessions.id),
     /**
@@ -209,13 +213,6 @@ export const sessions = sqliteTable(
      * the exact tool-call block it belongs to after a reload.
      */
     parentToolCallId: text("parent_tool_call_id"),
-    /**
-     * What the session is for: `"chat"` for an ordinary conversation, or
-     * `"investigation"` for a child spawned to research a delegated task — which
-     * runs under a different system prompt and is never offered the `investigate`
-     * tool itself. Drives per-turn system-prompt selection.
-     */
-    kind: text("kind").notNull().default("chat"),
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     /** Stamped when the session reaches a terminal `failed`/`cancelled` state; null while it remains usable. */
     finishedAt: integer("finished_at", { mode: "timestamp_ms" }),

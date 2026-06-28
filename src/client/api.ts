@@ -730,7 +730,7 @@ export const getOrCreateInvestigation = async (
     await apiFetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parent: parentSessionId, toolCallId, kind: "investigation" }),
+      body: JSON.stringify({ parent: parentSessionId, toolCallId }),
     }),
   );
 

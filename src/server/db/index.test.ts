@@ -843,7 +843,7 @@ describe("db", () => {
     // Seed the migration ledger through 0013 so the session migrations
     // (0014 creating the tables, 0015 dropping the agent columns, 0016 adding
     // the persona column, 0017 dropping the running-token columns, 0018 adding
-    // the parent/kind lineage columns) are the ones outstanding; the run-side
+    // the parent lineage columns) are the ones outstanding; the run-side
     // tables they don't touch are irrelevant.
     const priorMigrations = [
       "0000_initial",
@@ -887,7 +887,6 @@ describe("db", () => {
         "error",
         "finished_at",
         "id",
-        "kind",
         "model",
         "parent_session_id",
         "parent_tool_call_id",

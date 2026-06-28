@@ -351,21 +351,21 @@ describe("createSystemPromptBuilder", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // A minimal session stand-in: the builder reads only `kind` and `persona`.
-  const sessionWith = (kind: string): Session => ({ kind, persona: null }) as unknown as Session;
+  // A minimal session stand-in: the builder reads only `parentSessionId` and
+  // `persona` — a non-null parent marks a child sub-session.
+  const sessionWith = (parentSessionId: string | null): Session =>
+    ({ parentSessionId, persona: null }) as unknown as Session;
 
-  it("composes the layered chat prompt for a chat session", () => {
+  it("composes the layered chat prompt for a top-level session", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
-    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith("chat"));
+    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith(null));
     expect(prompt).toContain("interactive chat session");
     expect(prompt).toContain("Be terse.");
   });
 
-  it("uses the investigator prompt for an investigation session, ignoring kiri.md", () => {
+  it("uses the investigator prompt for a child sub-session, ignoring kiri.md", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
-    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(
-      sessionWith("investigation"),
-    );
+    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith("parent"));
     expect(prompt).toContain("focused research assistant");
     expect(prompt).toContain("You have tools available");
     expect(prompt).not.toContain("Be terse.");

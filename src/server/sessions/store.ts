@@ -21,8 +21,8 @@ export interface NewMessage {
  * Insert a new session against `model` (a `provider:model` id), starting it
  * `idle` with no persona. A persona is attached later via
  * `updateSessionPersona`, not at creation. Pass `parentSessionId` (with the
- * spawning `parentToolCallId`) and `kind: "investigation"` to create a child
- * session; omit them for a top-level `chat`. Returns the persisted row.
+ * spawning `parentToolCallId`) to create a child session; omit them for a
+ * top-level one. Returns the persisted row.
  */
 export function createSession(
   db: KiriDb,
@@ -32,7 +32,6 @@ export function createSession(
     startedAt?: Date;
     parentSessionId?: string;
     parentToolCallId?: string;
-    kind?: "chat" | "investigation";
   } = {},
 ): Session {
   const id = opts.id ?? crypto.randomUUID();
@@ -44,7 +43,6 @@ export function createSession(
       startedAt: opts.startedAt ?? new Date(),
       parentSessionId: opts.parentSessionId ?? null,
       parentToolCallId: opts.parentToolCallId ?? null,
-      kind: opts.kind ?? "chat",
     })
     .run();
   return getSession(db, id) as Session;

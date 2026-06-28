@@ -249,18 +249,18 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
 
 /**
  * Build the per-turn system-prompt resolver for a workspace. The returned
- * function composes the prompt for a session, choosing by its `kind`: a normal
- * `chat` gets the layered prompt — core (with tool-use guidance for the active
- * `tools`), `kiri.md`, then the attached persona — while an `investigation`
- * sub-session gets the focused investigator prompt instead. Handed to `runTurn`,
- * so a turn streams with the right system prompt in place.
+ * function composes the prompt for a session, choosing by its lineage: a
+ * top-level session gets the layered prompt — core (with tool-use guidance for
+ * the active `tools`), `kiri.md`, then the attached persona — while a child
+ * sub-session (one with a parent) gets the focused investigator prompt instead.
+ * Handed to `runTurn`, so a turn streams with the right system prompt in place.
  */
 export function createSystemPromptBuilder(
   config: ConfigStore,
   tools: string[] = [],
 ): (session: Session) => string {
   return (session: Session) =>
-    session.kind === "investigation"
+    session.parentSessionId !== null
       ? buildInvestigatorPrompt({ tools })
       : buildSystemPrompt({ config, persona: session.persona, tools });
 }
