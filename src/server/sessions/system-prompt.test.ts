@@ -7,7 +7,7 @@ import type { Session } from "./store.ts";
 import {
   INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
-  buildInvestigatorPrompt,
+  buildChildSessionPrompt,
   buildSystemPrompt,
   createSystemPromptBuilder,
   listPersonas,
@@ -321,20 +321,29 @@ describe("loadPersona", () => {
   });
 });
 
-describe("buildInvestigatorPrompt", () => {
-  it("frames the worker as a delegated researcher that reports back", () => {
-    const prompt = buildInvestigatorPrompt({ now: FIXED_NOW });
-    expect(prompt).toContain("focused research assistant");
+describe("buildChildSessionPrompt", () => {
+  it("frames the worker as a delegated sub-agent that reports back", () => {
+    const prompt = buildChildSessionPrompt({ now: FIXED_NOW });
+    expect(prompt).toContain("focused assistant");
     expect(prompt).toContain("cannot see the parent conversation");
     expect(prompt).toContain("Report back:");
     expect(prompt).toContain("Synthesise, don't dump");
     expect(prompt).toContain("2026-06-17");
   });
 
+  it("appends the spawning tool's guidance overlay only when supplied", () => {
+    const withGuidance = buildChildSessionPrompt({
+      guidance: "Cite your sources.",
+      now: FIXED_NOW,
+    });
+    expect(withGuidance).toContain("Cite your sources.");
+    expect(buildChildSessionPrompt({ now: FIXED_NOW })).not.toContain("Cite your sources.");
+  });
+
   it("includes tool-use guidance only when tools are active", () => {
-    const withTools = buildInvestigatorPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
+    const withTools = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
     expect(withTools).toContain("You have tools available");
-    expect(buildInvestigatorPrompt({ now: FIXED_NOW })).not.toContain("You have tools available");
+    expect(buildChildSessionPrompt({ now: FIXED_NOW })).not.toContain("You have tools available");
   });
 });
 
@@ -363,10 +372,11 @@ describe("createSystemPromptBuilder", () => {
     expect(prompt).toContain("Be terse.");
   });
 
-  it("uses the investigator prompt for a child sub-session, ignoring kiri.md", () => {
+  it("uses the worker prompt with the investigator overlay for a child sub-session, ignoring kiri.md", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
     const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith("parent"));
-    expect(prompt).toContain("focused research assistant");
+    expect(prompt).toContain("focused assistant");
+    expect(prompt).toContain("Cite sources inline as URLs");
     expect(prompt).toContain("You have tools available");
     expect(prompt).not.toContain("Be terse.");
   });

@@ -30,3 +30,14 @@ export const investigateTool: Tool = tool({
   }),
   // No execute: completed by the client (see module doc), not the server.
 });
+
+/**
+ * The prompt overlay for an investigation child session — the research and
+ * sourcing flavour layered onto the generic child-session worker prompt. Lives
+ * with the tool so its model-facing description and its worker's guidance stay
+ * together; resolved for a child by the tool that spawned it.
+ */
+export const INVESTIGATE_CHILD_GUIDANCE = [
+  "This is a research task: gather and cross-check what you need across sources to answer it, then report only the findings.",
+  "Cite sources inline as URLs so the parent can attribute and follow up. Favour the facts and figures that settle the question over breadth, and never paste whole fetched pages or long quotes.",
+].join("\n");
