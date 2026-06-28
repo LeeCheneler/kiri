@@ -785,6 +785,6 @@ describe("<SessionChat>", () => {
     // answer follows, proving the report was stitched back in.
     await screen.findByText("Based on the report, X wins.", undefined, { timeout: 5000 });
     // The investigate call rendered as its box rather than a plain tool result.
-    expect(screen.getByText("Investigation")).toBeDefined();
+    expect(screen.getByText("Investigate")).toBeDefined();
   });
 });

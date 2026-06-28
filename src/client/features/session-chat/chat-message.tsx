@@ -1,13 +1,12 @@
 import { type FileUIPart, type UIMessage, getToolName, isToolUIPart } from "ai";
 import { useEffect, useId, useState } from "react";
-import { INVESTIGATE_TOOL_NAME } from "../../../shared/investigate.ts";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
+import { ChildSession, type ChildSessionWiring } from "./child-session.tsx";
 import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
-import { Investigation, type InvestigationProps } from "./investigation.tsx";
 import { MessageComposer } from "./message-composer.tsx";
 import { type ToolDecisionHandler, ToolInvocation } from "./tool-invocation.tsx";
 
@@ -151,12 +150,12 @@ function AssistantMessage({
   message,
   onToolDecision,
   onCancel,
-  investigation,
+  childSession,
 }: {
   message: UIMessage;
   onToolDecision?: ToolDecisionHandler;
   onCancel?: () => void;
-  investigation?: InvestigationProps;
+  childSession?: ChildSessionWiring;
 }) {
   return (
     <article>
@@ -168,15 +167,15 @@ function AssistantMessage({
             return <Markdown key={index} content={part.text} />;
           }
           if (isToolUIPart(part)) {
-            // The investigate tool renders as its own box — an embedded child
-            // session — rather than a plain tool-result block.
-            if (getToolName(part) === INVESTIGATE_TOOL_NAME && investigation)
+            // A client-completed tool that runs as a child session renders as its
+            // own embedded-transcript box rather than a plain tool-result block.
+            if (childSession?.toolNames.includes(getToolName(part)))
               return (
-                <Investigation
+                <ChildSession
                   key={part.toolCallId}
                   part={part}
-                  parentSessionId={investigation.parentSessionId}
-                  onReport={investigation.onReport}
+                  parentSessionId={childSession.parentSessionId}
+                  onReport={childSession.onReport}
                 />
               );
             return (
@@ -210,14 +209,14 @@ export function ChatMessage({
   onResubmit,
   onToolDecision,
   onCancel,
-  investigation,
+  childSession,
 }: {
   message: UIMessage;
   busy: boolean;
   onResubmit: ResubmitHandler;
   onToolDecision?: ToolDecisionHandler;
   onCancel?: () => void;
-  investigation?: InvestigationProps;
+  childSession?: ChildSessionWiring;
 }) {
   if (message.role === "user")
     return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
@@ -227,7 +226,7 @@ export function ChatMessage({
       message={message}
       onToolDecision={onToolDecision}
       onCancel={onCancel}
-      investigation={investigation}
+      childSession={childSession}
     />
   );
 }

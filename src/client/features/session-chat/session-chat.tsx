@@ -107,14 +107,16 @@ function Chat({ detail }: { detail: SessionDetail }) {
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
   const inputId = useId();
 
-  // Wiring for any investigate tool call in the transcript: the box runs the
-  // child against this session and reports back here, supplying the call's output
-  // so the paused turn resumes.
-  const investigation = useMemo(
+  // Wiring for the client-completed tools that render as embedded child sessions
+  // in this view — investigate today. A matching call runs its child against this
+  // session and reports back here, supplying the call's output so the paused turn
+  // resumes.
+  const childSession = useMemo(
     () => ({
+      toolNames: [INVESTIGATE_TOOL_NAME],
       parentSessionId: session.id,
-      onReport: (toolCallId: string, report: string) =>
-        addToolOutput({ tool: INVESTIGATE_TOOL_NAME, toolCallId, output: report }),
+      onReport: (toolName: string, toolCallId: string, report: string) =>
+        addToolOutput({ tool: toolName, toolCallId, output: report }),
     }),
     [session.id, addToolOutput],
   );
@@ -226,7 +228,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
               onResubmit={handleResubmit}
               onToolDecision={onToolDecision}
               onCancel={busy ? cancel : undefined}
-              investigation={investigation}
+              childSession={childSession}
             />
           ))
         )}

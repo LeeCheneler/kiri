@@ -8,7 +8,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
-import { Investigation } from "./investigation.tsx";
+import { ChildSession } from "./child-session.tsx";
 
 const investigatePart = (
   toolCallId: string,
@@ -74,13 +74,17 @@ const renderBox = (part: ToolUIPart, onReport: (toolCallId: string, report: stri
   return render(
     <QueryClientProvider client={queryClient}>
       <Router hook={hook}>
-        <Investigation part={part} parentSessionId="parent" onReport={onReport} />
+        <ChildSession
+          part={part}
+          parentSessionId="parent"
+          onReport={(_toolName, toolCallId, report) => onReport(toolCallId, report)}
+        />
       </Router>
     </QueryClientProvider>,
   );
 };
 
-describe("<Investigation>", () => {
+describe("<ChildSession>", () => {
   it("creates the child, runs the task, and reports the result back", async () => {
     server.use(
       getOrCreate(),
@@ -96,7 +100,7 @@ describe("<Investigation>", () => {
     await waitFor(() => expect(reports).toEqual([["inv1", "X wins on price."]]));
     // Collapsed by default — expanding reveals the worker's report inline.
     expect(screen.queryByText("X wins on price.")).toBeNull();
-    await userEvent.setup().click(screen.getByRole("button", { name: /investigation/i }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /investigate/i }));
     expect(screen.getByText("X wins on price.")).toBeDefined();
   });
 
@@ -162,7 +166,9 @@ describe("<Investigation>", () => {
 
     renderBox(investigatePart("inv1", "compare"), (id, report) => reports.push([id, report]));
 
-    await waitFor(() => expect(reports).toEqual([["inv1", "The investigation did not complete."]]));
+    await waitFor(() =>
+      expect(reports).toEqual([["inv1", "The investigate call did not complete."]]),
+    );
   });
 
   it("surfaces an inner tool's approval prompt and holds, without reporting", async () => {
