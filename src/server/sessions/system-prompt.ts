@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { humaniseSlug } from "../../shared/humanise-slug.ts";
-import { INVESTIGATE_TOOL_NAME } from "../../shared/investigate.ts";
 import type { ConfigStore } from "../config/store.ts";
+import { INVESTIGATE_TOOL_NAME } from "./investigate-tool.ts";
 import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */

@@ -1,7 +1,11 @@
 import { type Tool, tool } from "ai";
 import { z } from "zod";
 
-export { INVESTIGATE_TOOL_NAME } from "../../shared/investigate.ts";
+/**
+ * The name the investigate tool is registered under and offered to the model —
+ * co-located with the tool so its definition and its name live together.
+ */
+export const INVESTIGATE_TOOL_NAME = "investigate";
 
 /**
  * The first-party `investigate` tool: a client-completed tool with no server

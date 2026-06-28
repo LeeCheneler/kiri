@@ -1,6 +1,5 @@
 import type { UIMessage } from "ai";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
-import { INVESTIGATE_TOOL_NAME } from "../../../shared/investigate.ts";
 import { ApiError, type SessionDetail } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
@@ -113,7 +112,9 @@ function Chat({ detail }: { detail: SessionDetail }) {
   // resumes.
   const childSession = useMemo(
     () => ({
-      toolNames: [INVESTIGATE_TOOL_NAME],
+      // "investigate" — the first-party tool whose calls render as an embedded
+      // child session (its name lives with the tool, server-side).
+      toolNames: ["investigate"],
       parentSessionId: session.id,
       onReport: (toolName: string, toolCallId: string, report: string) =>
         addToolOutput({ tool: toolName, toolCallId, output: report }),
