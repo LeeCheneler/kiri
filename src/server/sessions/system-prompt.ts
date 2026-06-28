@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { humaniseSlug } from "../../shared/humanise-slug.ts";
 import type { ConfigStore } from "../config/store.ts";
-import { INVESTIGATE_CHILD_GUIDANCE, INVESTIGATE_TOOL_NAME } from "./investigate-tool.ts";
+import { INVESTIGATE_TOOL_NAME } from "./investigate-tool.ts";
 import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
@@ -255,17 +255,17 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
  * function composes the prompt for a session, choosing by its lineage: a
  * top-level session gets the layered prompt — core (with tool-use guidance for
  * the active `tools`), `kiri.md`, then the attached persona — while a child
- * sub-session (one with a parent) gets the generic worker prompt, here overlaid
- * with the investigator guidance (investigate is the only tool that spawns a
- * child today). Handed to `runTurn`, so a turn streams with the right system
- * prompt in place.
+ * sub-session (one with a parent) gets the generic worker prompt, overlaid with
+ * `childGuidance` when the caller resolved one for the tool that spawned it.
+ * Handed to `runTurn`, so a turn streams with the right system prompt in place.
  */
 export function createSystemPromptBuilder(
   config: ConfigStore,
   tools: string[] = [],
+  childGuidance?: string,
 ): (session: Session) => string {
   return (session: Session) =>
     session.parentSessionId !== null
-      ? buildChildSessionPrompt({ tools, guidance: INVESTIGATE_CHILD_GUIDANCE })
+      ? buildChildSessionPrompt({ tools, guidance: childGuidance })
       : buildSystemPrompt({ config, persona: session.persona, tools });
 }

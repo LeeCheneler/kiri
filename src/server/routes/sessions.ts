@@ -11,10 +11,11 @@ import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
-  INVESTIGATE_TOOL_NAME,
   type Session,
   type ToolApprovalDecision,
   type ToolOutput,
+  childSessionGuidance,
+  childSessionTools,
   createSession,
   createSystemPromptBuilder,
   createToolGrantStore,
@@ -24,7 +25,6 @@ import {
   getSession,
   getSessionMessages,
   getSessionPreviews,
-  investigateTool,
   listPersonas,
   resumeTurn,
   resumeTurnWithToolOutput,
@@ -176,10 +176,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   // The tools offered to a turn — the live MCP server tools, each gated behind
   // the user's approval unless it carries an "Always Allow" grant, plus the
-  // first-party `investigate` tool. Read per turn (not once) so a config reload
-  // that adds or drops MCP servers, and a grant made since the last turn, are
-  // both reflected on the next turn. Only a top-level session is offered
-  // `investigate`; a child sub-session isn't, so a worker can't spawn another.
+  // first-party child-session tools (`investigate`). Read per turn (not once) so
+  // a config reload that adds or drops MCP servers, and a grant made since the
+  // last turn, are both reflected on the next turn. Only a top-level session is
+  // offered the child-session tools; a child sub-session isn't, so a worker can't
+  // spawn another.
   const activeTools = (session: Session): ToolSet => {
     const tools = mcpRegistry?.tools() ?? {};
     const gated: ToolSet = {};
@@ -199,7 +200,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         ) => !toolGrants.isGranted(name) || hasPriorApprovalRequest(messages, toolCallId),
       };
     }
-    if (session.parentSessionId === null) gated[INVESTIGATE_TOOL_NAME] = investigateTool;
+    if (session.parentSessionId === null)
+      for (const [name, entry] of childSessionTools) gated[name] = entry.tool;
     return gated;
   };
 
@@ -384,11 +386,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const pendingOutput = lastParts !== undefined && hasPendingToolOutput(lastParts);
 
       // Resolve the live tools for this turn — the approval-gated MCP tools plus
-      // (for a non-investigation session) `investigate` — and compose the system
-      // prompt from their names so the core layer's tool guidance matches what
-      // the model is actually offered.
+      // (for a top-level session) the child-session tools — and compose the
+      // system prompt from their names so the core layer's tool guidance matches
+      // what the model is actually offered. A child session also picks up the
+      // prompt overlay of the tool that spawned it.
       const tools = activeTools(session);
-      const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(tools));
+      const childGuidance = childSessionGuidance(db, session);
+      const buildSystemPrompt = createSystemPromptBuilder(
+        config,
+        Object.keys(tools),
+        childGuidance,
+      );
       const turnDeps = { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools };
 
       // Persistence rides the stream's completion (the turn's `onFinish`), so the

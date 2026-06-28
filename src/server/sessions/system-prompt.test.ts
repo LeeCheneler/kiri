@@ -372,11 +372,15 @@ describe("createSystemPromptBuilder", () => {
     expect(prompt).toContain("Be terse.");
   });
 
-  it("uses the worker prompt with the investigator overlay for a child sub-session, ignoring kiri.md", () => {
+  it("uses the worker prompt with the resolved overlay for a child sub-session, ignoring kiri.md", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
-    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith("parent"));
+    const prompt = createSystemPromptBuilder(
+      config,
+      ["tavily__search"],
+      "Cite your sources.",
+    )(sessionWith("parent"));
     expect(prompt).toContain("focused assistant");
-    expect(prompt).toContain("Cite sources inline as URLs");
+    expect(prompt).toContain("Cite your sources.");
     expect(prompt).toContain("You have tools available");
     expect(prompt).not.toContain("Be terse.");
   });
