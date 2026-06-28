@@ -173,6 +173,9 @@ describe("buildSystemPrompt", () => {
       now: FIXED_NOW,
     });
     expect(withInvestigate).toContain("prefer the `investigate` tool");
+    // It must also steer against re-running the delegated work — the leak the
+    // tool exists to prevent.
+    expect(withInvestigate).toContain("do not re-run the searches it already made");
     // A session without investigate gets no delegation steer — direct search is
     // the only research path it has.
     const withoutInvestigate = buildSystemPrompt({

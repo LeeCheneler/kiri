@@ -77,7 +77,7 @@ function buildToolGuidance(tools: string[]): string | null {
   // model left to choose will otherwise default to calling search itself.
   if (tools.includes(INVESTIGATE_TOOL_NAME)) {
     lines.push(
-      "- For research — anything you'd answer by searching the web or fetching and cross-checking pages — strongly prefer the `investigate` tool over running those searches or fetches yourself. Hand it the whole question in one call; it does the digging in a separate context and returns just the findings, so this conversation never fills with the intermediate results. Search or fetch directly only for a single quick lookup you can act on at once — for anything broader, delegate.",
+      "- For research — anything you'd answer by searching the web or fetching and cross-checking pages — strongly prefer the `investigate` tool over running those searches or fetches yourself. Hand it the whole question in one call; it digs in a separate context and returns just the findings, so this conversation never fills with the intermediate results. Then lean on what comes back: its report is the research, done — answer from it, and do not re-run the searches it already made or re-verify its findings here. Repeating work you delegated re-pays the cost you just avoided and dumps the raw results back into this context, the very thing the tool prevents. Search or fetch directly only for a single quick lookup you're not delegating.",
     );
   }
   lines.push(
@@ -157,7 +157,7 @@ export function buildChildSessionPrompt(
   ].join("\n");
   const reporting = [
     "Report back:",
-    "- Your reply is the entire result the parent receives. It is not shown to a person and renders as plain data, so write a tight synthesis, not a play-by-play of what you did. Lead with the answer.",
+    "- Your reply is the entire result the parent receives, and it relies on it completely rather than redoing your work — so make it complete and self-contained. It is not shown to a person and renders as plain data: write a tight synthesis, not a play-by-play of what you did, and lead with the answer.",
     "- Synthesise, don't dump: distil the facts and figures that actually answer the task. Never paste raw results or long quotes.",
     "- Be honest about gaps: if you couldn't confirm something, or a result was truncated or thin, say so plainly rather than presenting a guess as settled, and never fabricate facts, figures, quotes, or URLs.",
   ].join("\n");

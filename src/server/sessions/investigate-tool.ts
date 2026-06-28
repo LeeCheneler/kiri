@@ -16,9 +16,10 @@ export const INVESTIGATE_TOOL_NAME = "investigate";
  */
 export const investigateTool: Tool = tool({
   description: [
-    "Delegate a research task to a separate investigator assistant and get back a concise, sourced summary.",
-    "Prefer this over running web search or page-fetch tools yourself: whenever answering needs looking things up — a web search, gathering and comparing sources, checking something current or unfamiliar — hand the whole task to the investigator in one call rather than searching here. It runs the searches and fetches in its own context and returns only the findings, so this conversation stays free of the intermediate results. Use direct search/fetch tools only for a single quick lookup you can act on at once.",
-    "The investigator cannot see this conversation, so the task you pass is its entire brief: state what to find out and include any context it needs. It returns a written report you then use in your answer.",
+    "Delegate a research task to a separate investigator assistant and get back a written, sourced report — without the searching it does ever entering this conversation.",
+    "Reach for it whenever answering needs looking things up: a web search, gathering and comparing sources, checking something current or unfamiliar, or any multi-step digging. The investigator runs every search and fetch in its own separate context and hands back only the findings, so this conversation never fills with raw results — keeping them out is the entire point of the tool.",
+    "Brief it fully in one call. It cannot see this conversation, so the task is its whole brief: state everything you need answered, every specific and constraint, and the form of answer you want, so one investigation settles the question.",
+    "What comes back is your research, done. Answer from the report directly — do not then run web-search or page-fetch tools yourself, and do not re-verify what it already established. Repeating its work re-pays the exact token cost you delegated to avoid and floods this context with the raw results the tool exists to keep out. If the report genuinely left a gap, send a follow-up investigation rather than searching here.",
   ].join(" "),
   inputSchema: z.object({
     task: z
@@ -38,6 +39,6 @@ export const investigateTool: Tool = tool({
  * together; resolved for a child by the tool that spawned it.
  */
 export const INVESTIGATE_CHILD_GUIDANCE = [
-  "This is a research task: gather and cross-check what you need across sources to answer it, then report only the findings.",
-  "Cite sources inline as URLs so the parent can attribute and follow up. Favour the facts and figures that settle the question over breadth, and never paste whole fetched pages or long quotes.",
+  "This is a research task: search, fetch, and cross-check across sources until you can answer the whole brief with confidence — don't stop at the first hit or hand back a partial picture.",
+  "Give the parent the concrete specifics it needs to act without looking anything up itself — names, figures, models, prices, dates, and the caveats that matter — each with its source cited inline as a URL. Distil to what answers the task; never paste whole fetched pages or long quotes.",
 ].join("\n");
