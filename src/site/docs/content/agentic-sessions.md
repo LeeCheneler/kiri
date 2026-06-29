@@ -141,7 +141,10 @@ input, and three choices:
   without it.
 
 You can't send a new message while a call is waiting on your decision, and the
-prompt survives a reload, so a paused session picks back up where it left off.
+prompt survives a reload, so a paused session picks back up where it left off. A
+turn that's still streaming survives a reload too: it keeps running on the server,
+and reopening the session — or a second tab — rejoins it live and carries it to
+completion.
 
 Each tool has a standing permission — **Always allow**, **Ask** (the default), or
 **Off**, which withholds the tool from the model entirely so it's never offered.
