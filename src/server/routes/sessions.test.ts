@@ -906,32 +906,5 @@ describe("sessions routes", () => {
       // The tool was never offered, so its executor never ran.
       expect(ran).toBe(false);
     });
-
-    it("persists an Always Allow decision via POST /api/tool-grants", async () => {
-      const app = makeApp(fakeClients());
-
-      const res = await app.request("/api/tool-grants", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: "linear__create_issue" }),
-      });
-
-      expect(res.status).toBe(204);
-      expect(
-        createToolPermissionStore(env.config.toolPermissionsFile()).get("linear__create_issue"),
-      ).toBe("allow");
-    });
-
-    it("rejects a grant with no tool name", async () => {
-      const app = makeApp(fakeClients());
-
-      const res = await app.request("/api/tool-grants", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: "" }),
-      });
-
-      expect(res.status).toBe(400);
-    });
   });
 });

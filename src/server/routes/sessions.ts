@@ -89,9 +89,6 @@ const turnBodySchema = z.object({
   }),
 });
 
-// Granting an "Always Allow" decision: a single namespaced `<server>__<tool>` name.
-const toolGrantBodySchema = z.object({ tool: z.string().min(1) }).strict();
-
 // Whether a message awaits the user's verdict — its last assistant turn called a
 // tool that hasn't been allowed or denied yet.
 const hasPendingApproval = (parts: UIMessage["parts"]): boolean =>
@@ -379,20 +376,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (!deleteMessagesFrom(db, id, messageId)) {
         return c.json({ error: `message "${messageId}" not found in session "${id}"` }, 404);
       }
-      return c.body(null, 204);
-    },
-  );
-
-  // Record an "Always Allow" decision for a tool, so it stops prompting.
-  // Workspace-scoped, not per-session: it persists across every session and
-  // restart. The dedicated MCP surface sets the full allow/ask/off tri-state;
-  // this endpoint is the inline approval prompt's "Always allow" shortcut.
-  app.post(
-    "/tool-grants",
-    zValidator("json", toolGrantBodySchema, onZodFail("invalid grant")),
-    (c) => {
-      const { tool } = c.req.valid("json");
-      toolPermissions.set(tool, "allow");
       return c.body(null, 204);
     },
   );

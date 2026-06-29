@@ -270,7 +270,7 @@ describe("<SessionChat>", () => {
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(sessionDetail(pausedToolTranscript())),
       ),
-      http.post("*/api/tool-grants", async ({ request }) => {
+      http.post("*/api/mcp/tool-permissions", async ({ request }) => {
         grantBody = await request.json();
         return new HttpResponse(null, { status: 204 });
       }),
@@ -283,7 +283,7 @@ describe("<SessionChat>", () => {
     await user.click(await screen.findByRole("button", { name: "Always allow" }));
 
     expect(await screen.findByText("Created the issue.")).toBeDefined();
-    expect(grantBody).toEqual({ tool: "linear__create_issue" });
+    expect(grantBody).toEqual({ tool: "linear__create_issue", permission: "allow" });
   });
 
   it("allows the call even if recording the always-allow grant fails", async () => {
@@ -292,7 +292,9 @@ describe("<SessionChat>", () => {
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(sessionDetail(pausedToolTranscript())),
       ),
-      http.post("*/api/tool-grants", () => HttpResponse.json({ error: "boom" }, { status: 500 })),
+      http.post("*/api/mcp/tool-permissions", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
       http.post("*/api/sessions/:id/messages", () =>
         resumeReply({ output: { id: 7 } }, "Created the issue."),
       ),
@@ -313,7 +315,7 @@ describe("<SessionChat>", () => {
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(sessionDetail(pausedToolTranscript())),
       ),
-      http.post("*/api/tool-grants", () => {
+      http.post("*/api/mcp/tool-permissions", () => {
         grantCalled = true;
         return new HttpResponse(null, { status: 204 });
       }),
