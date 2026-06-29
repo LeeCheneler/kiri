@@ -11,11 +11,6 @@ type ToolPart = ToolUIPart | DynamicToolUIPart;
 // tagged with this text and renders it as cancelled rather than failed.
 export const CANCELLED_ERROR_TEXT = "Cancelled.";
 
-// Tool-call states that mean a call is still running — input arriving, ready to
-// run, or executing after an approval. The cancel control shows only in these.
-const IN_FLIGHT_STATES = new Set(["input-streaming", "input-available", "approval-responded"]);
-const isInFlight = (part: ToolPart): boolean => IN_FLIGHT_STATES.has(part.state);
-
 /** A user's verdict on a tool the agent wants to run. */
 export type ToolDecision = "allow" | "always" | "deny";
 
@@ -140,11 +135,9 @@ function ToolApproval({
 export function ToolInvocation({
   part,
   onDecision,
-  onCancel,
 }: {
   part: ToolPart;
   onDecision?: ToolDecisionHandler;
-  onCancel?: () => void;
 }) {
   const name = getToolName(part);
   if (part.state === "approval-requested" && onDecision) {
@@ -177,15 +170,6 @@ export function ToolInvocation({
           <ToolPanel part={part} />
         </div>
       </Disclosure>
-      {/* Cancel sits below the disclosure trigger rather than inside it — the
-          trigger is itself a button, and buttons can't nest. */}
-      {isInFlight(part) && onCancel ? (
-        <div className="border-rule border-t px-4 py-2">
-          <Button variant="default" onClick={onCancel}>
-            Cancel
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 }

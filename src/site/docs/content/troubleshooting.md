@@ -59,8 +59,8 @@ Tool calls are bounded so neither can wedge a turn. A call that runs too long is
 abandoned after a time limit and reported back to the model as an error it can
 work around, and a result that's too large is capped (truncated with a marker)
 so it can't overrun the model's context or the provider's request-size limit. If
-a call is still running and you don't want to wait, hit **Cancel** on its block
-in the transcript — the turn stops and the call shows as cancelled. A tool that's
+a call is still running and you don't want to wait, press **Escape** to stop the
+turn — any call in flight shows as cancelled. A tool that's
 routinely slow or returns far too much usually wants a narrower input (search a
 specific subfolder rather than a huge tree, say).
 
