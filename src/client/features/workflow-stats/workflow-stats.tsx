@@ -2,6 +2,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import type { RunListEntry } from "../../api.ts";
 import { Sparkline, type SparklineBar } from "../../design-system/charts/sparkline.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
+import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Stat, StatList } from "../../design-system/content/stat.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { formatDurationMs } from "../../formatters/format-time.ts";
@@ -48,7 +49,7 @@ export function WorkflowStats({ workflowName }: { workflowName: string }) {
 
 function StatsBody({ window }: { window: UseQueryResult<RunListEntry[]> }) {
   if (window.isPending) {
-    return <p className="font-mono text-sm text-ink-muted">Loading run stats…</p>;
+    return <LoadingState>Loading run stats…</LoadingState>;
   }
   if (window.isError) {
     return (

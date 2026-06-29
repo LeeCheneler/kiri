@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import type { ActivityEntry } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
+import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Rule } from "../../design-system/content/rule.tsx";
 import { formatDayMarker } from "../../formatters/format-time.ts";
 import { SessionRow } from "../session-chat/session-row.tsx";
@@ -86,7 +87,7 @@ export function Feed({
   }, []);
 
   if (state.isPending) {
-    return <p className="font-mono text-sm text-ink-muted">Loading {noun}…</p>;
+    return <LoadingState>Loading {noun}…</LoadingState>;
   }
   if (state.isError) {
     return (

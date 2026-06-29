@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
+import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { useWorkflowRunFeed } from "../../state/runs.ts";
 import { RunRow } from "./run-row.tsx";
 
@@ -38,7 +39,7 @@ export function Runs({ workflowName }: { workflowName: string }) {
   }, []);
 
   if (feed.isPending) {
-    return <p className="font-mono text-sm text-ink-muted">Loading runs…</p>;
+    return <LoadingState>Loading runs…</LoadingState>;
   }
   if (feed.isError) {
     return (
