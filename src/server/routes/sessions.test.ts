@@ -13,7 +13,7 @@ import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-regi
 import {
   appendMessage,
   createSession,
-  createToolGrantStore,
+  createToolPermissionStore,
   getSession,
   getSessionMessages,
   setSessionStatus,
@@ -787,10 +787,13 @@ describe("sessions routes", () => {
       await firstSettled;
       const paused = getSessionMessages(env.db, "s1")[1];
 
-      // "Always allow" records the grant before the resume lands. The AI SDK
-      // re-checks approval on resume, so the now-granted call must still run
+      // "Always allow" records the permission before the resume lands. The AI SDK
+      // re-checks approval on resume, so the now-allowed call must still run
       // rather than be denied for no-longer-needing-approval.
-      createToolGrantStore(env.config.toolGrantsFile()).grant("linear__create_issue");
+      createToolPermissionStore(env.config.toolPermissionsFile()).set(
+        "linear__create_issue",
+        "allow",
+      );
       const respondedParts = (paused?.parts as ToolPart[]).map((part) =>
         part.state === "approval-requested"
           ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
@@ -804,8 +807,11 @@ describe("sessions routes", () => {
       expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-available");
     });
 
-    it("runs a granted tool straight through without pausing", async () => {
-      createToolGrantStore(env.config.toolGrantsFile()).grant("linear__create_issue");
+    it("runs an allowed tool straight through without pausing", async () => {
+      createToolPermissionStore(env.config.toolPermissionsFile()).set(
+        "linear__create_issue",
+        "allow",
+      );
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: toolCallModel("linear__create_issue") }), {
         bus,
@@ -871,7 +877,36 @@ describe("sessions routes", () => {
       expect(res.status).toBe(409);
     });
 
-    it("persists an Always Allow grant via POST /api/tool-grants", async () => {
+    it("withholds an off tool from the model so it never runs", async () => {
+      let ran = false;
+      const offTool = tool({
+        description: "create an issue",
+        inputSchema: z.object({ title: z.string() }),
+        execute: async () => {
+          ran = true;
+          return "created";
+        },
+      });
+      createToolPermissionStore(env.config.toolPermissionsFile()).set(
+        "linear__create_issue",
+        "off",
+      );
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolCallModel("linear__create_issue") }), {
+        bus,
+        mcpRegistry: fakeMcp({ linear__create_issue: offTool }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "open an issue")).text();
+      await settled;
+
+      // The tool was never offered, so its executor never ran.
+      expect(ran).toBe(false);
+    });
+
+    it("persists an Always Allow decision via POST /api/tool-grants", async () => {
       const app = makeApp(fakeClients());
 
       const res = await app.request("/api/tool-grants", {
@@ -882,8 +917,8 @@ describe("sessions routes", () => {
 
       expect(res.status).toBe(204);
       expect(
-        createToolGrantStore(env.config.toolGrantsFile()).isGranted("linear__create_issue"),
-      ).toBe(true);
+        createToolPermissionStore(env.config.toolPermissionsFile()).get("linear__create_issue"),
+      ).toBe("allow");
     });
 
     it("rejects a grant with no tool name", async () => {

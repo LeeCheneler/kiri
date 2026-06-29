@@ -14,7 +14,7 @@ import {
   type ToolApprovalDecision,
   createSession,
   createSystemPromptBuilder,
-  createToolGrantStore,
+  createToolPermissionStore,
   deleteMessagesFrom,
   deleteSession,
   getSession,
@@ -134,31 +134,34 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const { db, config, llmClients, bus, cancelRegistry, mcpRegistry } = deps;
   const app = new Hono();
 
-  // Persisted "Always Allow" tool grants, read on every tool request so a grant
-  // (or a hand-edit revoking one) takes effect on the next turn.
-  const toolGrants = createToolGrantStore(config.toolGrantsFile());
+  // Persisted standing tool permissions, read on every tool request so a change
+  // (or a hand-edit) takes effect on the next turn.
+  const toolPermissions = createToolPermissionStore(config.toolPermissionsFile());
 
-  // The tools offered to a turn — the live MCP server tools, each gated behind
-  // the user's approval unless it carries an "Always Allow" grant. Read per turn
-  // (not once) so a config reload that adds or drops MCP servers, and a grant
-  // made since the last turn, are both reflected on the next turn.
+  // The tools offered to a turn — the live MCP server tools, each filtered and
+  // gated by its standing permission. Read per turn (not once) so a config reload
+  // that adds or drops MCP servers, and a permission change since the last turn,
+  // are both reflected on the next turn.
   const activeTools = (): ToolSet => {
     const tools = mcpRegistry?.tools() ?? {};
     const gated: ToolSet = {};
     for (const [name, tool] of Object.entries(tools)) {
+      const permission = toolPermissions.get(name);
+      // An "off" tool is withheld from the model entirely, so it's never offered.
+      if (permission === "off") continue;
       gated[name] = {
         ...tool,
-        // An ungranted tool always pauses for an Allow / Always allow / Deny
-        // decision. A granted tool runs straight away — except a call the user
+        // An "ask" tool always pauses for an Allow / Always allow / Deny
+        // decision. An "allow" tool runs straight away — except a call the user
         // has already answered this turn, which must still report as needing
         // approval so the SDK honours that answer on resume. (The SDK re-checks
         // `needsApproval` when resuming and denies a call that no longer needs
-        // it — so a fresh Always-allow grant would otherwise cancel the very
-        // call the user just allowed.)
+        // it — so a fresh "allow" would otherwise cancel the very call the user
+        // just allowed.)
         needsApproval: (
           _input: unknown,
           { toolCallId, messages }: { toolCallId: string; messages: ModelMessage[] },
-        ) => !toolGrants.isGranted(name) || hasPriorApprovalRequest(messages, toolCallId),
+        ) => permission !== "allow" || hasPriorApprovalRequest(messages, toolCallId),
       };
     }
     return gated;
@@ -382,14 +385,16 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     },
   );
 
-  // Record an "Always Allow" grant for a tool, so it stops prompting. Workspace-
-  // scoped, not per-session: a grant persists across every session and restart.
+  // Record an "Always Allow" decision for a tool, so it stops prompting.
+  // Workspace-scoped, not per-session: it persists across every session and
+  // restart. The dedicated MCP surface sets the full allow/ask/off tri-state;
+  // this endpoint is the inline approval prompt's "Always allow" shortcut.
   app.post(
     "/tool-grants",
     zValidator("json", toolGrantBodySchema, onZodFail("invalid grant")),
     (c) => {
       const { tool } = c.req.valid("json");
-      toolGrants.grant(tool);
+      toolPermissions.set(tool, "allow");
       return c.body(null, 204);
     },
   );

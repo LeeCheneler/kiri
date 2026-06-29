@@ -23,7 +23,11 @@ export {
   listPersonas,
   loadPersona,
 } from "./system-prompt.ts";
-export { type ToolGrantStore, createToolGrantStore } from "./tool-grants.ts";
+export {
+  type ToolPermission,
+  type ToolPermissionStore,
+  createToolPermissionStore,
+} from "./tool-permissions.ts";
 export {
   type ResumeTurnArgs,
   type RunTurnArgs,
