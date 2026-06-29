@@ -5,6 +5,7 @@ import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
 import { DesignSystemPage } from "./routes/design-system-page.tsx";
 import { HomePage } from "./routes/home-page.tsx";
+import { McpPage } from "./routes/mcp-page.tsx";
 import { NotFoundPage } from "./routes/not-found-page.tsx";
 import { RunPage } from "./routes/run-page.tsx";
 import { SessionPage } from "./routes/session-page.tsx";
@@ -34,6 +35,7 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
           <Route path="/" component={HomePage} />
           <Route path="/workflows" component={WorkflowsPage} />
           <Route path="/workflows/:name" component={WorkflowPage} />
+          <Route path="/mcp" component={McpPage} />
           <Route path="/sessions/:id" component={SessionPage} />
           <Route path="/runs/:id/published/:slug" component={ArticlePage} />
           <Route path="/runs/:id" component={RunPage} />

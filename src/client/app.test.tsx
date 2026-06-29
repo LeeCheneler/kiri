@@ -68,6 +68,15 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /mcp to the MCP page", async () => {
+    // Stall the tools fetch so the page holds its loading state for the assertion.
+    server.use(http.get("*/api/mcp/tools", () => new Promise<Response>(() => {})));
+    renderAt("/mcp");
+    expect(screen.getByText(/loading mcp servers/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
   it("routes /sessions/:id to the session chat page", async () => {
     server.use(http.get("*/api/sessions/:id", () => new Promise<Response>(() => {})));
     renderAt("/sessions/abc");

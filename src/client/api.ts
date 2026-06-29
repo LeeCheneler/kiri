@@ -580,6 +580,55 @@ export const fetchMcpServers = async (): Promise<McpServersResult> =>
 export const mcpAuthStartUrl = (server: string): string =>
   apiUrl(`/api/mcp/${encodeURIComponent(server)}/auth/start`);
 
+/** A tool's standing permission: run without prompting, prompt every call, or withhold it. */
+export type McpToolPermission = "allow" | "ask" | "off";
+
+/** One tool a connected MCP server exposes, with its standing permission. */
+export interface McpTool {
+  name: string;
+  /** The namespaced `<server>__<tool>` name — the key for setting its permission. */
+  namespacedName: string;
+  description?: string;
+  permission: McpToolPermission;
+}
+
+/** A configured MCP server with its connection state and, when connected, its tools. */
+export interface McpServerTools {
+  name: string;
+  type: "stdio" | "http";
+  state: McpServerState;
+  error?: string;
+  tools: McpTool[];
+}
+
+/** Per-server tools and permissions for the MCP management page. */
+export interface McpToolsResult {
+  servers: McpServerTools[];
+}
+
+/** Fetch every configured MCP server with its tools and their standing permissions. Throws on non-2xx. */
+export const fetchMcpTools = async (): Promise<McpToolsResult> =>
+  json<McpToolsResult>(await apiFetch("/api/mcp/tools"));
+
+/**
+ * Set a tool's standing permission by its namespaced `<server>__<tool>` name —
+ * `"allow"` runs it without prompting, `"off"` withholds it from the model,
+ * `"ask"` clears any recorded decision. Resolves on 204; throws `ApiError` on
+ * non-2xx.
+ */
+export const setToolPermission = async (
+  tool: string,
+  permission: McpToolPermission,
+): Promise<void> => {
+  await assertOk(
+    await apiFetch("/api/mcp/tool-permissions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool, permission }),
+    }),
+  );
+};
+
 /** A persona available to attach to a session. */
 export interface Persona {
   /** The `personas/<id>.md` filename stem — what's stored on the session and sent to attach it. */
