@@ -14,6 +14,11 @@ export {
   updateSessionPersona,
 } from "./store.ts";
 export {
+  type StreamRegistry,
+  type StreamSink,
+  createStreamRegistry,
+} from "./stream-registry.ts";
+export {
   INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
   type BuildSystemPromptOptions,
