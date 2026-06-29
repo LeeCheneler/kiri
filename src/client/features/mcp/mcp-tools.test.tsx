@@ -58,8 +58,12 @@ describe("<McpTools>", () => {
     server.use(http.get("*/api/mcp/tools", () => HttpResponse.json(toolsPayload)));
     renderTools();
 
+    // Connected servers start collapsed — expand them to reach their contents.
+    await userEvent.click(await screen.findByRole("button", { name: /linear/i }));
+    await userEvent.click(screen.getByRole("button", { name: /files/i }));
+
     // A connected server's tools each carry a permission control reflecting state.
-    const createGroup = await screen.findByRole("radiogroup", {
+    const createGroup = screen.getByRole("radiogroup", {
       name: "Permission for create_issue",
     });
     expect(
@@ -118,7 +122,9 @@ describe("<McpTools>", () => {
     );
     renderTools();
 
-    const group = await screen.findByRole("radiogroup", { name: "Permission for search" });
+    // The server starts collapsed — expand it to reach the tool's control.
+    await userEvent.click(await screen.findByRole("button", { name: /linear/i }));
+    const group = screen.getByRole("radiogroup", { name: "Permission for search" });
     expect((within(group).getByRole("radio", { name: "Ask" }) as HTMLInputElement).checked).toBe(
       true,
     );

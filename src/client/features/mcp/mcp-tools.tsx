@@ -9,10 +9,10 @@ import {
   SegmentedControl,
   type SegmentedOption,
 } from "../../design-system/actions/segmented-control.tsx";
+import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
-import { Card } from "../../design-system/surfaces/card.tsx";
 import { useMcpTools, useSetToolPermission } from "../../state/mcp.ts";
 
 const PERMISSION_OPTIONS: SegmentedOption<McpToolPermission>[] = [
@@ -49,8 +49,10 @@ function ToolRow({
   );
 }
 
-// One server: its name and connection state, then either its tools (each with a
-// permission control), a sign-in / failure notice, or an empty note.
+// One server: a collapsible card whose summary is its name and connection type,
+// revealing either its tools (each with a permission control), a sign-in /
+// failure notice, or an empty note. Servers that need attention (a pending
+// sign-in or a connection failure) start expanded so the call-to-action shows.
 function ServerCard({
   server,
   onSetPermission,
@@ -59,14 +61,18 @@ function ServerCard({
   onSetPermission: (tool: string, permission: McpToolPermission) => void;
 }) {
   return (
-    <Card>
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="font-mono text-ink text-sm">{server.name}</h3>
-        <span className="font-mono text-ink-muted text-xs uppercase tracking-widest">
-          {server.type}
-        </span>
-      </div>
-      <div className="mt-4">
+    <div className="overflow-hidden rounded-sm border border-rule bg-canvas-2">
+      <Disclosure
+        defaultOpen={server.state !== "connected"}
+        summary={
+          <span className="flex items-baseline gap-3">
+            <span className="font-mono text-ink text-sm">{server.name}</span>
+            <span className="ml-auto font-mono text-ink-muted text-xs uppercase tracking-widest">
+              {server.type}
+            </span>
+          </span>
+        }
+      >
         {server.state === "needs-sign-in" ? (
           <Notice tone="warning" title="Needs sign-in">
             Authorize kiri to use this server.{" "}
@@ -96,15 +102,16 @@ function ServerCard({
             ))}
           </ul>
         )}
-      </div>
-    </Card>
+      </Disclosure>
+    </div>
   );
 }
 
 /**
- * The MCP management surface: every configured server with its connection state,
- * and under each connected one its tools, each carrying an Always allow / Ask /
- * Off control. Setting a permission persists it and is enforced from the next
+ * The MCP management surface: every configured server as a collapsible card
+ * showing its connection state, revealing under each connected one its tools,
+ * each carrying an Always allow / Ask / Off control. Setting a permission
+ * persists it and is enforced from the next
  * turn — an "Off" tool is never offered to the model. Live-refreshes via
  * `useMcpToolsLive`, so a completed sign-in fills a server's tools in.
  */
