@@ -16,6 +16,7 @@ import { Code, CodeBlock } from "./code.tsx";
 import { InlineLink } from "./inline-link.tsx";
 import { normaliseLatexFallbacks } from "./latex-fallbacks.ts";
 import { List } from "./list.tsx";
+import { LoadingState } from "./loading-state.tsx";
 import { Prose } from "./prose.tsx";
 import { Quote } from "./quote.tsx";
 import { Rule } from "./rule.tsx";
@@ -162,7 +163,7 @@ function Pre({ node: _node, children }: HTMLAttributes<HTMLPreElement> & ExtraPr
     if (languages.includes("language-chart")) {
       return (
         <div className="mt-4">
-          <Suspense fallback={<p className="font-mono text-sm text-ink-muted">Loading chart…</p>}>
+          <Suspense fallback={<LoadingState>Loading chart…</LoadingState>}>
             <Chart source={source} />
           </Suspense>
         </div>
@@ -171,7 +172,7 @@ function Pre({ node: _node, children }: HTMLAttributes<HTMLPreElement> & ExtraPr
     if (languages.includes("language-mermaid")) {
       return (
         <div className="mt-4">
-          <Suspense fallback={<p className="font-mono text-sm text-ink-muted">Loading diagram…</p>}>
+          <Suspense fallback={<LoadingState>Loading diagram…</LoadingState>}>
             <Mermaid source={source} />
           </Suspense>
         </div>
