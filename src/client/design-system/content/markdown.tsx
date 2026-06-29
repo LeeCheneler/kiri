@@ -7,7 +7,6 @@ import {
   createElement,
   isValidElement,
   lazy,
-  memo,
 } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import rehypeKatex from "rehype-katex";
@@ -263,12 +262,8 @@ const baseComponents: Components = {
  * attach to — `1` (authored `#`) by default. A surface that pulls the body's
  * `# headline` out into its own page title sets this to `2` so the article's
  * `##` headings become the sectioned, table-of-contents-bearing level.
- *
- * Memoised on its props (all primitives): parsing markdown through remark/KaTeX
- * is expensive, and transcripts re-render on every streamed token and live
- * event, so unchanged content must not re-parse each time.
  */
-export const Markdown = memo(function Markdown({
+export function Markdown({
   content,
   withSectionOrdinals = false,
   downgradeHeaderLevels = 0,
@@ -295,7 +290,7 @@ export const Markdown = memo(function Markdown({
       </ReactMarkdown>
     </Prose>
   );
-});
+}
 
 const buildMarkdownComponents = ({
   downgrade,

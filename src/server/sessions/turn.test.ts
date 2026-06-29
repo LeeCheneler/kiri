@@ -12,7 +12,6 @@ import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
 import { CULLED_RESULT_NOTICE } from "./cull-tool-results.ts";
-import { INVESTIGATE_TOOL_NAME, investigateTool } from "./investigate-tool.ts";
 import {
   type Message,
   appendMessage,
@@ -21,7 +20,7 @@ import {
   getSessionMessages,
   setSessionStatus,
 } from "./store.ts";
-import { resumeTurn, resumeTurnWithToolOutput, runTurn } from "./turn.ts";
+import { resumeTurn, runTurn } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -478,35 +477,6 @@ describe("runTurn", () => {
     expect(getSession(db, "s1")?.status).toBe("idle");
   });
 
-  it("pauses on a client-completed tool call (no execute), settling idle", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    const investigateModel = streamingModel([
-      {
-        type: "tool-call",
-        toolCallId: "inv1",
-        toolName: INVESTIGATE_TOOL_NAME,
-        input: '{"task":"compare X and Y"}',
-      },
-      { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
-    ]);
-
-    const { response, done } = await runTurn(
-      { db, llmClients: clientsFor(investigateModel), tools: { investigate: investigateTool } },
-      { session, userMessage: USER_MESSAGE },
-    );
-    await response.text();
-    await done;
-
-    const rows = getSessionMessages(db, "s1");
-    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
-    const part = (rows[1]?.parts as ToolPart[]).find((p) => p.type === "tool-investigate");
-    // The call is recorded awaiting its output — not executed — and the session
-    // settles idle, ready for the client to supply the report.
-    expect(part?.state).toBe("input-available");
-    expect(part?.output).toBeUndefined();
-    expect(getSession(db, "s1")?.status).toBe("idle");
-  });
-
   it("pauses for tool approval instead of running the tool, settling idle", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
     const events: KiriEvent[] = [];
@@ -643,105 +613,6 @@ describe("runTurn", () => {
 
     // The continuation prompt carries the denial reason back to the model.
     expect(JSON.stringify(resumedPrompt)).toContain("denied permission to run this tool");
-  });
-
-  it("continues a client-completed tool call when the client supplies its output", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    let step = 0;
-    const model = new MockLanguageModelV3({
-      doStream: async () => {
-        step += 1;
-        if (step === 1) {
-          return {
-            stream: convertArrayToReadableStream([
-              {
-                type: "tool-call",
-                toolCallId: "inv1",
-                toolName: INVESTIGATE_TOOL_NAME,
-                input: '{"task":"compare X and Y"}',
-              },
-              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
-            ]),
-          };
-        }
-        return {
-          stream: convertArrayToReadableStream([
-            { type: "text-start", id: "t1" },
-            { type: "text-delta", id: "t1", delta: "Per the report, X wins." },
-            { type: "text-end", id: "t1" },
-            { type: "finish", finishReason: finishReason("stop"), usage: usage(8, 5) },
-          ]),
-        };
-      },
-    }) as unknown as LlmModel;
-    const clients = clientsFor(model);
-    const tools = { investigate: investigateTool };
-
-    const first = await runTurn(
-      { db, llmClients: clients, tools },
-      { session, userMessage: USER_MESSAGE },
-    );
-    await first.response.text();
-    await first.done;
-    const paused = (getSessionMessages(db, "s1")[1]?.parts as ToolPart[]).find(
-      (p) => p.type === "tool-investigate",
-    );
-    expect(paused?.state).toBe("input-available");
-
-    const second = await resumeTurnWithToolOutput(
-      { db, llmClients: clients, tools },
-      {
-        session,
-        outputs: [{ toolCallId: paused?.toolCallId as string, output: "X beats Y on price." }],
-      },
-    );
-    await second.response.text();
-    await second.done;
-
-    const rows = getSessionMessages(db, "s1");
-    // The continuation extended the same two rows — no extra assistant message.
-    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
-    const part = (rows[1]?.parts as ToolPart[]).find((p) => p.type === "tool-investigate");
-    expect(part?.state).toBe("output-available");
-    expect(part?.output).toBe("X beats Y on price.");
-    expect(textParts(rows[1]?.parts).find((p) => p.type === "text")?.text).toBe(
-      "Per the report, X wins.",
-    );
-    expect(getSession(db, "s1")?.status).toBe("idle");
-  });
-
-  it("rejects a tool-output resume when no turn awaits a result", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "hi" }] });
-
-    await expect(
-      resumeTurnWithToolOutput(
-        { db, llmClients: clientsFor(streamingModel([])) },
-        { session, outputs: [{ toolCallId: "inv1", output: "x" }] },
-      ),
-    ).rejects.toThrow(/awaiting a tool result/);
-  });
-
-  it("rejects a tool-output resume whose output matches no pending call", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    appendMessage(db, "s1", {
-      role: "assistant",
-      parts: [
-        {
-          type: "tool-investigate",
-          toolCallId: "inv1",
-          state: "input-available",
-          input: { task: "compare X and Y" },
-        },
-      ] as UIMessage["parts"],
-    });
-
-    await expect(
-      resumeTurnWithToolOutput(
-        { db, llmClients: clientsFor(streamingModel([])) },
-        { session, outputs: [{ toolCallId: "does-not-exist", output: "x" }] },
-      ),
-    ).rejects.toThrow(/no pending tool call matching/);
   });
 
   it("rejects a resume when the session has no turn awaiting approval", async () => {

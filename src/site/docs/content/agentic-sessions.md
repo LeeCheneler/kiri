@@ -124,9 +124,9 @@ expand; results are treated as **untrusted data** and are capped, so a tool that
 returns a huge payload — a directory listing over a large tree, say — can't
 overrun the model's context. A call that runs too long is given up on after a
 time limit and reported as an error the model can work around, and you can
-**Cancel** a call that's still running from its block in the transcript. Beyond
-the MCP servers you configure, kiri ships one built-in tool — **investigate**
-(below); for web search and the like, add an MCP server that provides it.
+**Cancel** a call that's still running from its block in the transcript. Kiri
+ships no built-in tools of its own — for web search, for example, add an MCP
+server that provides it.
 
 ### Approving tool calls
 
@@ -169,27 +169,6 @@ tools appear in sessions namespaced `tavily__<tool>`. A server that uses a stati
 token instead takes `headers: { Authorization: { env: <NAME> } }`, and a local
 server uses `type: stdio` with a `command`. Any MCP server is configured the same
 way.
-
-## Investigations — research without the clutter
-
-Kiri includes one built-in tool, **investigate**, offered to every session. When
-a question needs real research — several web searches, fetching and comparing
-pages — the model can hand the whole task to `investigate` rather than running
-those searches in your conversation. It spins up a separate **investigation** that
-does the digging on its own, using the same search and fetch MCP tools you've
-configured, and reports back just the findings — so your chat stays on the answer
-instead of filling with intermediate results.
-
-An investigation shows inline as its own block: collapsed to its task by default,
-expand it to watch the work and read the report. It opens on its own if one of its
-tool calls needs your approval — those are approved exactly like any other tool
-call. The investigation is a real session with its own page, though it's kept out
-of the activity feed since it belongs to the turn that started it.
-
-There's nothing to configure — `investigate` is always available. It only has
-something to delegate to once a session has search or fetch tools, so add an MCP
-server like Tavily (above) and the model will reach for it when a task calls for
-deeper digging.
 
 ## Attachments
 

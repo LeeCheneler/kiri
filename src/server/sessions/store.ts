@@ -20,19 +20,12 @@ export interface NewMessage {
 /**
  * Insert a new session against `model` (a `provider:model` id), starting it
  * `idle` with no persona. A persona is attached later via
- * `updateSessionPersona`, not at creation. Pass `parentSessionId` (with the
- * spawning `parentToolCallId`) to create a child session; omit them for a
- * top-level one. Returns the persisted row.
+ * `updateSessionPersona`, not at creation. Returns the persisted row.
  */
 export function createSession(
   db: KiriDb,
   model: string,
-  opts: {
-    id?: string;
-    startedAt?: Date;
-    parentSessionId?: string;
-    parentToolCallId?: string;
-  } = {},
+  opts: { id?: string; startedAt?: Date } = {},
 ): Session {
   const id = opts.id ?? crypto.randomUUID();
   db.insert(sessions)
@@ -41,8 +34,6 @@ export function createSession(
       status: "idle",
       model,
       startedAt: opts.startedAt ?? new Date(),
-      parentSessionId: opts.parentSessionId ?? null,
-      parentToolCallId: opts.parentToolCallId ?? null,
     })
     .run();
   return getSession(db, id) as Session;
@@ -51,28 +42,6 @@ export function createSession(
 /** Read a session by id, or `undefined` if none exists. */
 export function getSession(db: KiriDb, id: string): Session | undefined {
   return db.select().from(sessions).where(eq(sessions.id, id)).get();
-}
-
-/**
- * Find the child session spawned from a parent's specific tool call, or
- * `undefined` if none exists yet. Lets a parent's tool-call block re-attach its
- * running child after a reload, and makes child creation idempotent for one call.
- */
-export function findChildByToolCall(
-  db: KiriDb,
-  parentSessionId: string,
-  parentToolCallId: string,
-): Session | undefined {
-  return db
-    .select()
-    .from(sessions)
-    .where(
-      and(
-        eq(sessions.parentSessionId, parentSessionId),
-        eq(sessions.parentToolCallId, parentToolCallId),
-      ),
-    )
-    .get();
 }
 
 /**

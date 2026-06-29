@@ -1,10 +1,9 @@
-import { type FileUIPart, type UIMessage, getToolName, isToolUIPart } from "ai";
+import { type FileUIPart, type UIMessage, isToolUIPart } from "ai";
 import { useEffect, useId, useState } from "react";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
-import { ChildSession, type ChildSessionWiring } from "./child-session.tsx";
 import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import { MessageComposer } from "./message-composer.tsx";
@@ -150,12 +149,10 @@ function AssistantMessage({
   message,
   onToolDecision,
   onCancel,
-  childSession,
 }: {
   message: UIMessage;
   onToolDecision?: ToolDecisionHandler;
   onCancel?: () => void;
-  childSession?: ChildSessionWiring;
 }) {
   return (
     <article>
@@ -166,24 +163,7 @@ function AssistantMessage({
             // biome-ignore lint/suspicious/noArrayIndexKey: assistant parts are append-only within a turn and never reorder, so the index is a stable key.
             return <Markdown key={index} content={part.text} />;
           }
-          if (isToolUIPart(part)) {
-            // A client-completed tool that runs as a child session renders as its
-            // own embedded-transcript box rather than a plain tool-result block —
-            // but only once its input has finished streaming, so the child is
-            // get-or-created and driven with the complete task, never a partial
-            // one captured mid-stream.
-            if (
-              part.state !== "input-streaming" &&
-              childSession?.toolNames.includes(getToolName(part))
-            )
-              return (
-                <ChildSession
-                  key={part.toolCallId}
-                  part={part}
-                  parentSessionId={childSession.parentSessionId}
-                  onReport={childSession.onReport}
-                />
-              );
+          if (isToolUIPart(part))
             return (
               <ToolInvocation
                 key={part.toolCallId}
@@ -192,7 +172,6 @@ function AssistantMessage({
                 onCancel={onCancel}
               />
             );
-          }
           return null;
         })}
       </div>
@@ -215,24 +194,15 @@ export function ChatMessage({
   onResubmit,
   onToolDecision,
   onCancel,
-  childSession,
 }: {
   message: UIMessage;
   busy: boolean;
   onResubmit: ResubmitHandler;
   onToolDecision?: ToolDecisionHandler;
   onCancel?: () => void;
-  childSession?: ChildSessionWiring;
 }) {
   if (message.role === "user")
     return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
   if (!hasAssistantContent(message)) return null;
-  return (
-    <AssistantMessage
-      message={message}
-      onToolDecision={onToolDecision}
-      onCancel={onCancel}
-      childSession={childSession}
-    />
-  );
+  return <AssistantMessage message={message} onToolDecision={onToolDecision} onCancel={onCancel} />;
 }

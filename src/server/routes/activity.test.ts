@@ -77,28 +77,6 @@ describe("activity routes", () => {
       expect(body.nextCursor).toBeNull();
     });
 
-    it("excludes child sessions from the feed", async () => {
-      insertRun("r1", 100);
-      insertSession("s1", 200);
-      // A child session, newest of all — it must still be filtered out.
-      env.db
-        .insert(sessions)
-        .values({
-          id: "child",
-          status: "idle",
-          model: "anthropic:claude",
-          startedAt: new Date(300),
-          parentSessionId: "s1",
-        })
-        .run();
-
-      const { body } = await getActivity();
-      expect(body.entries.map((e) => [e.kind, idOf(e)])).toEqual([
-        ["session", "s1"],
-        ["run", "r1"],
-      ]);
-    });
-
     it("carries run enrichment and the session preview on their entries", async () => {
       insertRun("r1", 100);
       env.db

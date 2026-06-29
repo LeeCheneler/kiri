@@ -30,7 +30,7 @@ publish:
 ## Two ways to work
 
 - **Workflows** — versioned YAML pipelines. Chain shell commands (`sh:`), reusable script bundles (`use:`, e.g. one that spawns an agentic CLI like Claude Code), and first-party model completions (`llm:`); pipe each step into the next; publish the run as a markdown article with inline charts and Mermaid diagrams. A run can even propose one-click follow-ups.
-- **Agentic sessions** — open-ended, streaming chat against your configured models, with your workspace context and tools from MCP servers you configure (e.g. web search via the Tavily MCP server), plus a built-in **investigate** tool that delegates research to a sub-session and reports back just the findings. Each tool call is approved before it runs (Allow / Always allow / Deny). A layered system prompt — a workspace `kiri.md` plus optional `personas/` — shapes every session.
+- **Agentic sessions** — open-ended, streaming chat against your configured models, with your workspace context and tools from MCP servers you configure (e.g. web search via the Tavily MCP server). Each tool call is approved before it runs (Allow / Always allow / Deny). A layered system prompt — a workspace `kiri.md` plus optional `personas/` — shapes every session.
 
 Both stream into a single activity feed.
 
