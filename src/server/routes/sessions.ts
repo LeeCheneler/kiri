@@ -1,5 +1,11 @@
 import { zValidator } from "@hono/zod-validator";
-import { type ModelMessage, type ToolSet, type UIMessage, isToolUIPart } from "ai";
+import {
+  type ModelMessage,
+  type ToolSet,
+  type UIMessage,
+  UI_MESSAGE_STREAM_HEADERS,
+  isToolUIPart,
+} from "ai";
 import { and, desc, eq, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -11,9 +17,11 @@ import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermissionStore,
   createSession,
+  createStreamRegistry,
   createSystemPromptBuilder,
   deleteMessagesFrom,
   deleteSession,
@@ -44,6 +52,12 @@ export interface SessionsRoutesDeps {
    * `POST /api/sessions/:id/cancel`. Omit to leave the cancel route unmounted.
    */
   cancelRegistry?: CancelRegistry;
+  /**
+   * Registry of in-flight turn streams a reconnecting client rejoins. Defaults
+   * to a fresh registry owned by this surface; injectable for tests and to share
+   * one registry across surfaces later.
+   */
+  streamRegistry?: StreamRegistry;
   /**
    * MCP server registry. Its discovered tools are offered to each turn's model,
    * read live so a config reload is reflected on the next turn. Omitted leaves
@@ -132,6 +146,11 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const { db, config, llmClients, bus, cancelRegistry, mcpRegistry, toolPermissions } = deps;
   const app = new Hono();
+
+  // One registry of in-flight turn streams for this surface: the turn endpoint
+  // fills it, the resume endpoint reads it, so a client that reconnects mid-turn
+  // rejoins the live response. A caller may inject one to share it.
+  const streamRegistry = deps.streamRegistry ?? createStreamRegistry();
 
   // The tools offered to a turn — the live MCP server tools, each filtered and
   // gated by its standing permission. Read per turn (not once) so a config reload
@@ -246,6 +265,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     },
   );
 
+  app.get(
+    "/sessions/:id/stream",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    (c) => {
+      // Resume an in-flight turn: replay what's buffered, then stream live. With
+      // no turn in flight there's nothing to rejoin — a 204 tells the client's
+      // resume to stand down and read the settled turn from storage instead.
+      const body = streamRegistry.subscribe(c.req.valid("param").id);
+      if (!body) return c.body(null, 204);
+      return new Response(body, { headers: UI_MESSAGE_STREAM_HEADERS });
+    },
+  );
+
   app.patch(
     "/sessions/:id",
     zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
@@ -307,7 +339,15 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // what the model is actually offered.
       const tools = activeTools();
       const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(tools));
-      const turnDeps = { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools };
+      const turnDeps = {
+        db,
+        llmClients,
+        bus,
+        cancelRegistry,
+        streamRegistry,
+        buildSystemPrompt,
+        tools,
+      };
 
       // Persistence rides the stream's completion (the turn's `onFinish`), so the
       // route just hands back the streamed response. The turn is drained

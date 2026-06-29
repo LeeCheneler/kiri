@@ -19,6 +19,7 @@ import {
   setSessionStatus,
   updateMessage,
 } from "./store.ts";
+import type { StreamRegistry, StreamSink } from "./stream-registry.ts";
 import { toonEncodeToolResults } from "./toon-tool-results.ts";
 
 export interface RunTurnDeps {
@@ -29,6 +30,12 @@ export interface RunTurnDeps {
   bus?: EventBus;
   /** When supplied, the turn is registered so it can be cancelled mid-stream. */
   cancelRegistry?: CancelRegistry;
+  /**
+   * When supplied, the turn's stream is captured here so a client that reconnects
+   * mid-turn (a reload, a second tab) can rejoin the live response. Omit for a
+   * turn with no resumable stream.
+   */
+  streamRegistry?: StreamRegistry;
   /**
    * Composes the turn's system prompt from the session (its attached persona)
    * and the workspace's instruction files. Omit for a plain chat with no system
@@ -98,18 +105,20 @@ const toUiMessage = (row: Message): UIMessage => ({
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-// Read a stream to completion, discarding its content. Draining the turn's SSE
-// stream server-side guarantees the turn reaches `onFinish` — and so persists
-// and settles — even when no client is reading the response (the user navigated
-// away, reloaded, or dropped the connection). A turn is only ever cancelled by
-// an explicit request through the `CancelRegistry`, never by a lost consumer.
-// Any failure is recorded via the stream's own error handling, so it's swallowed
-// here; the drain just has to not raise.
-async function drainStream(stream: ReadableStream<string>): Promise<void> {
+// Read a turn's SSE stream to completion, mirroring each frame into `sink` when
+// one is given. Draining server-side guarantees the turn reaches `onFinish` —
+// and so persists and settles — even when no client is reading the response (the
+// user navigated away, reloaded, or dropped the connection). A turn is only ever
+// cancelled by an explicit request through the `CancelRegistry`, never by a lost
+// consumer. The sink captures the frames for a client that reconnects mid-turn;
+// the turn's `onFinish` closes it — in step with persistence — not the stream's
+// end. Any failure is recorded via the stream's own error handling, so it's
+// swallowed here; the pump just has to not raise.
+async function pumpStream(stream: ReadableStream<string>, sink?: StreamSink): Promise<void> {
   const reader = stream.getReader();
   try {
-    while (!(await reader.read()).done) {
-      // discard
+    for (let next = await reader.read(); !next.done; next = await reader.read()) {
+      sink?.push(next.value);
     }
   } catch {
     // settled through the stream's error path
@@ -227,7 +236,7 @@ async function streamCore(
   session: Session,
   model: ReturnType<LlmClients["resolveModel"]>,
 ): Promise<StartedTurn> {
-  const { db, llmClients, bus, cancelRegistry, buildSystemPrompt, tools } = deps;
+  const { db, llmClients, bus, cancelRegistry, streamRegistry, buildSystemPrompt, tools } = deps;
 
   // A cancel aborts the controller; the registry treats it like any child
   // process, so a cancel that arrives before the stream starts still fires.
@@ -279,6 +288,12 @@ async function streamCore(
     settle = resolve;
   });
 
+  // Open the resumable-stream sink up front so a near-instant reconnect finds it.
+  // The turn captures into it as it drains, and `onFinish` closes it in step with
+  // persistence — so a client that loads the just-settled turn from storage gets a
+  // 204 on resume and never replays it into a duplicate.
+  const sink = streamRegistry?.open(session.id);
+
   const response = result.toUIMessageStreamResponse({
     // Passing the history puts the stream in persistence mode: the response
     // message reuses the last message's id when it continues an assistant turn
@@ -326,17 +341,21 @@ async function streamCore(
         bus?.publish({ type: "session.message.added", sessionId: session.id });
         bus?.publish({ type: "session.updated", id: session.id, status: "idle" });
       } finally {
+        // Close the resumable stream as the turn settles, in step with persisting
+        // the message above, so a client reconnecting now replays nothing.
+        sink?.close();
         cancelRegistry?.release(session.id);
         settle();
       }
     },
     // Drive the stream server-side so the turn always reaches `onFinish` —
-    // persisting and settling — even if the client never reads the response.
-    // A turn is cancelled only by an explicit request (the `CancelRegistry`),
-    // never by a dropped connection: navigating away, reloading, or losing the
-    // connection leaves it running to completion for the client to pick back up.
+    // persisting and settling — even if the client never reads the response — and
+    // mirror its frames into the stream registry so a client that reconnects
+    // mid-turn (a reload, a second tab) rejoins the live response. A turn is
+    // cancelled only by an explicit request (the `CancelRegistry`), never by a
+    // dropped connection.
     consumeSseStream: ({ stream }) => {
-      void drainStream(stream);
+      void pumpStream(stream, sink);
     },
   });
 

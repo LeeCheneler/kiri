@@ -20,6 +20,7 @@ import {
   getSessionMessages,
   setSessionStatus,
 } from "./store.ts";
+import { createStreamRegistry } from "./stream-registry.ts";
 import { resumeTurn, runTurn } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -393,6 +394,27 @@ describe("runTurn", () => {
     expect(settled?.finishedAt).toBeInstanceOf(Date);
     expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
     expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
+  });
+
+  it("holds the resumable stream while a turn is in flight and drops it when it settles", async () => {
+    const streamRegistry = createStreamRegistry();
+    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(pendingModel()), streamRegistry, cancelRegistry },
+      { session, userMessage: USER_MESSAGE },
+    );
+    // The turn parks; its stream is registered so a reconnecting client can rejoin.
+    expect(streamRegistry.has("s1")).toBe(true);
+
+    cancelRegistry.requestCancel("s1");
+    await response.text();
+    await done;
+
+    // Settling drops the entry in step with persistence, so a client that loads
+    // the now-settled turn from storage gets a 204 and can't replay a duplicate.
+    expect(streamRegistry.has("s1")).toBe(false);
   });
 
   it("completes and persists when the client never reads the response", async () => {
