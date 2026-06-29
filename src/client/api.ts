@@ -848,6 +848,14 @@ export const sessionTurnEndpoint = (
 });
 
 /**
+ * The resume endpoint for a session's `useChat` reconnect — the origin-aware URL
+ * the hook polls on mount when `resume` is set. A safe GET (no CSRF header), it
+ * returns the in-flight turn's event-stream to rejoin, or 204 when none is live.
+ */
+export const sessionStreamEndpoint = (id: string): string =>
+  apiUrl(`/api/sessions/${encodeURIComponent(id)}/stream`);
+
+/**
  * The version string this kiri process advertises. Injected at release-time
  * via `bun build --define KIRI_VERSION=…`; falls back to `"dev"` for local
  * `bun start` and tests.

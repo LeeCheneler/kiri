@@ -4,6 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { http, HttpResponse } from "msw";
+import { StrictMode } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../../tests/setup/msw.ts";
@@ -473,6 +474,100 @@ describe("<SessionChat>", () => {
     // it can still be cancelled from here.
     await screen.findByText(/working/i);
     expect(screen.getByText(/escape to cancel/i)).toBeDefined();
+  });
+
+  it("rejoins an in-flight turn's stream on load", async () => {
+    // The session is running with only the user message persisted; resume
+    // reconnects to the live stream and renders the assistant reply as it arrives.
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "Question")], { status: "running" }),
+        ),
+      ),
+      http.get("*/api/sessions/:id/stream", () => assistantReply("rejoined live")),
+    );
+    renderChat();
+
+    expect(await screen.findByText("rejoined live")).toBeDefined();
+  });
+
+  it("reconstructs a tool call's state when rejoining a turn", async () => {
+    // The rejoined stream carries the same frames the original turn emitted — the
+    // tool call and its result — so the tool block reconstructs, not just text.
+    const toolResume = () =>
+      createUIMessageStreamResponse({
+        stream: createUIMessageStream({
+          execute: ({ writer }) => {
+            writer.write({
+              type: "tool-input-available",
+              toolCallId: "c1",
+              toolName: "filesystem__search_files",
+              input: { query: "readme" },
+            });
+            writer.write({ type: "tool-output-available", toolCallId: "c1", output: { hits: 3 } });
+            writer.write({ type: "text-start", id: "t1" });
+            writer.write({ type: "text-delta", id: "t1", delta: "Found it." });
+            writer.write({ type: "text-end", id: "t1" });
+          },
+        }),
+      });
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "search the readme")], { status: "running" }),
+        ),
+      ),
+      http.get("*/api/sessions/:id/stream", () => toolResume()),
+    );
+    const { container } = renderChat();
+
+    expect(await screen.findByText("Found it.")).toBeDefined();
+    expect(container.querySelector('[data-status="ok"]')).not.toBeNull();
+  });
+
+  it("rejoins exactly once under StrictMode's double-invoked effects", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "Question")], { status: "running" }),
+        ),
+      ),
+      http.get("*/api/sessions/:id/stream", () => assistantReply("rejoined once")),
+    );
+    const queryClient = createQueryClient();
+    const { hook } = memoryLocation({ path: "/sessions/s1" });
+    render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <Router hook={hook}>
+            <SessionChat id="s1" />
+          </Router>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+
+    expect(await screen.findByText("rejoined once")).toBeDefined();
+    expect(screen.getAllByText("rejoined once")).toHaveLength(1);
+  });
+
+  it("does not re-render a settled turn when there is nothing to resume", async () => {
+    // History already holds the finished assistant turn; resume finds no live
+    // stream (the default 204), so the reply isn't duplicated onto the transcript.
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([
+            message("m1", "user", "First question"),
+            message("m2", "assistant", "An answer"),
+          ]),
+        ),
+      ),
+    );
+    renderChat();
+
+    await screen.findByText("An answer");
+    expect(screen.getAllByText("An answer")).toHaveLength(1);
   });
 
   it("folds in a turn that finished while away", async () => {
