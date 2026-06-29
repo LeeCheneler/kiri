@@ -12,9 +12,9 @@ import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   type ToolApprovalDecision,
+  type ToolPermissionStore,
   createSession,
   createSystemPromptBuilder,
-  createToolPermissionStore,
   deleteMessagesFrom,
   deleteSession,
   getSession,
@@ -50,6 +50,8 @@ export interface SessionsRoutesDeps {
    * sessions as a plain chat with no tools.
    */
   mcpRegistry?: McpRegistry;
+  /** Standing per-tool permissions: an "off" tool is withheld, an "ask" tool is gated, an "allow" tool runs straight through. */
+  toolPermissions: ToolPermissionStore;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -131,12 +133,8 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
  * cancel. Mounted under `/api` by `createApp`, alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, config, llmClients, bus, cancelRegistry, mcpRegistry } = deps;
+  const { db, config, llmClients, bus, cancelRegistry, mcpRegistry, toolPermissions } = deps;
   const app = new Hono();
-
-  // Persisted standing tool permissions, read on every tool request so a change
-  // (or a hand-edit) takes effect on the next turn.
-  const toolPermissions = createToolPermissionStore(config.toolPermissionsFile());
 
   // The tools offered to a turn — the live MCP server tools, each filtered and
   // gated by its standing permission. Read per turn (not once) so a config reload

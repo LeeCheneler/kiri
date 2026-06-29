@@ -153,6 +153,7 @@ describe("sessions routes", () => {
   const fakeMcp = (tools: ToolSet): McpRegistry => ({
     tools: () => tools,
     status: () => [],
+    catalog: () => [],
     replace: async () => {},
     close: async () => {},
   });

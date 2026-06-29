@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { type EventBus, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import { createMcpCredentialStore } from "../mcp/oauth-store.ts";
-import type { McpRegistry, McpServerStatus } from "../mcp/registry.ts";
+import type { McpRegistry, McpServerCatalog, McpServerStatus } from "../mcp/registry.ts";
+import { createToolPermissionStore } from "../sessions/index.ts";
 import type { McpAuth } from "./mcp.ts";
-import { type TestEnv, createTestEnv } from "./test-helpers.ts";
+import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 const REDIRECT_BASE = "http://127.0.0.1:4242";
 const SERVER_URL = "https://mcp.linear.app/mcp";
@@ -17,9 +18,14 @@ const writeOauthConfig = (cwd: string): void =>
     `mcp:\n  linear:\n    type: http\n    url: ${SERVER_URL}\n    auth: oauth\n`,
   );
 
-const fakeRegistry = (statuses: McpServerStatus[] = [], onReplace?: () => void): McpRegistry => ({
+const fakeRegistry = (
+  statuses: McpServerStatus[] = [],
+  onReplace?: () => void,
+  catalog: McpServerCatalog[] = [],
+): McpRegistry => ({
   tools: () => ({}),
   status: () => statuses,
+  catalog: () => catalog,
   replace: async () => onReplace?.(),
   close: async () => {},
 });
@@ -65,6 +71,90 @@ describe("mcp routes", () => {
       const res = await app.request("/api/mcp/servers");
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ servers: statuses });
+    });
+  });
+
+  describe("GET /api/mcp/tools", () => {
+    it("lists each server's tools with their standing permission", async () => {
+      const statuses: McpServerStatus[] = [
+        { name: "linear", type: "http", state: "connected", toolCount: 2 },
+        { name: "down", type: "stdio", state: "failed", error: "boom" },
+      ];
+      const catalog: McpServerCatalog[] = [
+        {
+          name: "linear",
+          tools: [
+            {
+              name: "create_issue",
+              namespacedName: "linear__create_issue",
+              description: "Create an issue",
+            },
+            { name: "search", namespacedName: "linear__search", description: "Search" },
+          ],
+        },
+      ];
+      // A recorded "off" decision must surface in the listing; the unset tool reads "ask".
+      createToolPermissionStore(env.config.toolPermissionsFile()).set("linear__search", "off");
+      const app = buildApp(async () => "REDIRECT", {
+        registry: fakeRegistry(statuses, undefined, catalog),
+      });
+
+      const res = await app.request("/api/mcp/tools");
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        servers: [
+          {
+            name: "linear",
+            type: "http",
+            state: "connected",
+            tools: [
+              {
+                name: "create_issue",
+                namespacedName: "linear__create_issue",
+                description: "Create an issue",
+                permission: "ask",
+              },
+              {
+                name: "search",
+                namespacedName: "linear__search",
+                description: "Search",
+                permission: "off",
+              },
+            ],
+          },
+          { name: "down", type: "stdio", state: "failed", error: "boom", tools: [] },
+        ],
+      });
+    });
+  });
+
+  describe("POST /api/mcp/tool-permissions", () => {
+    it("records a tool's standing permission", async () => {
+      const app = buildApp(async () => "REDIRECT");
+
+      const res = await app.request("/api/mcp/tool-permissions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "linear__search", permission: "off" }),
+      });
+
+      expect(res.status).toBe(204);
+      expect(
+        createToolPermissionStore(env.config.toolPermissionsFile()).get("linear__search"),
+      ).toBe("off");
+    });
+
+    it("rejects an unknown permission value", async () => {
+      const app = buildApp(async () => "REDIRECT");
+
+      const res = await app.request("/api/mcp/tool-permissions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "linear__search", permission: "maybe" }),
+      });
+
+      expect(res.status).toBe(400);
     });
   });
 
