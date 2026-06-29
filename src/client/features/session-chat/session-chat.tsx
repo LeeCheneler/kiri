@@ -11,6 +11,7 @@ import {
   ApiError,
   type SessionDetail,
   cancelSession,
+  sessionStreamEndpoint,
   sessionTurnEndpoint,
   setToolPermission,
   truncateSessionMessages,
@@ -136,20 +137,43 @@ function Chat({ detail }: { detail: SessionDetail }) {
       prepareSendMessagesRequest: ({ messages }) => ({
         body: { message: messages.at(-1) },
       }),
+      // Resume reconnects to the GET stream endpoint, not the POST turn `api`.
+      prepareReconnectToStreamRequest: () => ({ api: sessionStreamEndpoint(session.id) }),
     });
   }, [session.id]);
 
-  const { messages, sendMessage, status, stop, error, setMessages, addToolApprovalResponse } =
-    useChat({
-      id: session.id,
-      messages: initialMessages,
-      transport,
-      // Once every pending tool approval on the latest turn has a verdict, send
-      // it straight back so the turn resumes without another user action.
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    });
+  const {
+    messages,
+    sendMessage,
+    status,
+    stop,
+    error,
+    setMessages,
+    addToolApprovalResponse,
+    resumeStream,
+  } = useChat({
+    id: session.id,
+    messages: initialMessages,
+    transport,
+    // Once every pending tool approval on the latest turn has a verdict, send it
+    // straight back so the turn resumes without another user action.
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+  });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
   const inputId = useId();
+
+  // Reconnect to an in-flight turn's stream once per session, so a page refresh
+  // (or a second tab) rejoins the live response — tokens and tool-call state —
+  // and carries it to completion; a 204 when no turn is running makes it a no-op.
+  // Guarded by session id so it fires once per session even though StrictMode
+  // double-invokes effects in dev — two reconnects would replay the buffer twice
+  // and duplicate the turn — and so it re-fires when the session changes.
+  const resumedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (resumedFor.current === session.id) return;
+    resumedFor.current = session.id;
+    void resumeStream();
+  }, [session.id, resumeStream]);
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
   // — including one started elsewhere, or left running when we navigated away:
   // the session row reports `running` while `useChat` sits idle here.

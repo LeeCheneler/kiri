@@ -11,6 +11,8 @@ const defaultHandlers = [
   http.get("*/api/mcp/servers", () => HttpResponse.json({ servers: [] })),
   http.get("*/api/personas", () => HttpResponse.json({ personas: [] })),
   http.get("*/api/sessions", () => HttpResponse.json({ sessions: [], nextCursor: null })),
+  // `useChat`'s resume polls this on mount; default to "no live turn to rejoin".
+  http.get("*/api/sessions/:id/stream", () => new HttpResponse(null, { status: 204 })),
   http.get("*/api/version", () => HttpResponse.json({ version: "dev" })),
   http.post("*/api/workflows/:name/runs", ({ params }) =>
     HttpResponse.json({ runId: `run-${String(params.name)}`, status: "running" }, { status: 202 }),

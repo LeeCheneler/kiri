@@ -11,8 +11,10 @@ import type { LlmClients, LlmModel } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  type StreamRegistry,
   appendMessage,
   createSession,
+  createStreamRegistry,
   createToolPermissionStore,
   getSession,
   getSessionMessages,
@@ -139,7 +141,12 @@ describe("sessions routes", () => {
 
   const makeApp = (
     clients: LlmClients,
-    extra: { bus?: EventBus; cancelRegistry?: CancelRegistry; mcpRegistry?: McpRegistry } = {},
+    extra: {
+      bus?: EventBus;
+      cancelRegistry?: CancelRegistry;
+      mcpRegistry?: McpRegistry;
+      streamRegistry?: StreamRegistry;
+    } = {},
   ) =>
     createApp({
       db: env.db,
@@ -332,6 +339,58 @@ describe("sessions routes", () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions/ghost");
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("GET /api/sessions/:id/stream", () => {
+    it("serves the in-flight turn's buffered event-stream to a reconnecting client", async () => {
+      // Seed a registry as a live turn would, then inject it: a fresh client
+      // reconnecting gets a 200 event-stream replaying the frames so far. (Driving
+      // a real parked turn deadlocks here — happy-dom's Response can't serve two
+      // concurrent streaming bodies; live capture is covered by the stream-registry
+      // tests and the client resume tests.)
+      const streamRegistry = createStreamRegistry();
+      const sink = streamRegistry.open("s1");
+      sink.push('data: {"type":"text-delta","delta":"rejoined"}\n\n');
+      const app = makeApp(fakeClients(), { streamRegistry });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1/stream");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+      // Closing lets the reconnected stream reach EOF so its replay reads back.
+      sink.close();
+      expect(await res.text()).toContain("rejoined");
+    });
+
+    it("204s when no turn is in flight for the session", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1/stream");
+
+      expect(res.status).toBe(204);
+    });
+
+    it("204s once the turn has settled and its stream is gone", async () => {
+      const model = streamingModel([
+        { type: "text-start", id: "t1" },
+        { type: "text-delta", id: "t1", delta: "Hello" },
+        { type: "text-end", id: "t1" },
+        { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
+      ]);
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "Hi there")).text();
+      await settled;
+
+      const res = await app.request("/api/sessions/s1/stream");
+
+      expect(res.status).toBe(204);
     });
   });
 
