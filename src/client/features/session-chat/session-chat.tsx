@@ -11,8 +11,8 @@ import {
   ApiError,
   type SessionDetail,
   cancelSession,
-  recordToolGrant,
   sessionTurnEndpoint,
+  setToolPermission,
   truncateSessionMessages,
 } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
@@ -257,16 +257,17 @@ function Chat({ detail }: { detail: SessionDetail }) {
     void sendMessage({ parts });
   };
 
-  // Resolve a pending tool approval. Allow runs it once; Always allow also
-  // records a grant so the tool stops prompting; Deny refuses it. Responding
-  // makes `useChat` send the turn back to resume (via `sendAutomaticallyWhen`).
+  // Resolve a pending tool approval. Allow runs it once; Always allow also sets
+  // the tool's standing permission to "allow" so it stops prompting; Deny refuses
+  // it. Responding makes `useChat` send the turn back to resume (via
+  // `sendAutomaticallyWhen`).
   const handleToolDecision = useCallback<ToolDecisionHandler>(
     (part, decision) => {
       if (part.state !== "approval-requested") return;
-      // Persist the grant before approving; fire-and-forget, since a failed write
-      // just means we ask again next time — the safe default — and must not block
-      // allowing the call now.
-      if (decision === "always") void recordToolGrant(getToolName(part)).catch(() => {});
+      // Persist the permission before approving; fire-and-forget, since a failed
+      // write just means we ask again next time — the safe default — and must not
+      // block allowing the call now.
+      if (decision === "always") void setToolPermission(getToolName(part), "allow").catch(() => {});
       void addToolApprovalResponse({ id: part.approval.id, approved: decision !== "deny" });
     },
     [addToolApprovalResponse],

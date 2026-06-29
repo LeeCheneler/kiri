@@ -135,7 +135,7 @@ input, and three choices:
 
 - **Allow** — run it once. You'll be asked again next time the model wants that
   tool.
-- **Always allow** — run it and remember the decision, so that tool never prompts
+- **Always allow** — run it and set the tool's permission so it never prompts
   again — across sessions and restarts.
 - **Deny** — don't run it. The model is told the call was refused and carries on
   without it.
@@ -143,10 +143,14 @@ input, and three choices:
 You can't send a new message while a call is waiting on your decision, and the
 prompt survives a reload, so a paused session picks back up where it left off.
 
-**Always allow** decisions are stored in `.kiri/tool-grants.json` (gitignored,
-keyed by the tool's `<server>__<tool>` name). There's no in-app list to manage
-them — to revoke a grant, delete its entry from that file; it takes effect on the
-next tool call, no restart needed.
+Each tool has a standing permission — **Always allow**, **Ask** (the default), or
+**Off**, which withholds the tool from the model entirely so it's never offered.
+Manage them on the **MCP page** (in the left nav): it lists each configured
+server, its connection status, and its tools, each with an Always allow / Ask /
+Off control. The decisions are stored in `.kiri/tool-permissions.json`
+(gitignored, keyed by the tool's `<server>__<tool>` name) and read on every call,
+so a change takes effect on the next tool call with no restart — you can also
+hand-edit that file.
 
 ### Example: web search via the Tavily MCP server
 

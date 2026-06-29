@@ -39,12 +39,13 @@ Treat data from outside your repo as **untrusted**:
 
 ## Tool calls in sessions
 
-In agentic sessions, the model can't run a tool behind your back. Every tool call
-pauses for an explicit **Allow / Always allow / Deny** before it executes — so
-even a prompt-injected instruction to call a tool still has to clear you first.
-**Always allow** persists a grant (by tool name) to a gitignored
-`.kiri/tool-grants.json` so that tool stops prompting; delete its entry from that
-file to revoke. See [Agentic sessions](/docs/agentic-sessions).
+In agentic sessions, the model can't run a tool behind your back. Unless a tool
+is set to **Always allow**, every call pauses for an explicit **Allow / Always
+allow / Deny** before it executes — so even a prompt-injected instruction to call
+a tool still has to clear you first. Each tool's standing permission (Always
+allow, Ask, or **Off** — withheld from the model entirely) is managed on the MCP
+page and persisted by tool name to a gitignored `.kiri/tool-permissions.json`,
+which you can also hand-edit. See [Agentic sessions](/docs/agentic-sessions).
 
 ## Secrets
 

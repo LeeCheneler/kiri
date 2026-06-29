@@ -33,8 +33,8 @@ describe("createConfigStore", () => {
     expect(config.mcpCredentialsFile()).toBe(join(root, ".kiri", "mcp-credentials.json"));
   });
 
-  it("derives the tool grants file under the data dir", () => {
-    expect(config.toolGrantsFile()).toBe(join(root, ".kiri", "tool-grants.json"));
+  it("derives the tool permissions file under the data dir", () => {
+    expect(config.toolPermissionsFile()).toBe(join(root, ".kiri", "tool-permissions.json"));
   });
 
   it("derives the instructions and config files", () => {

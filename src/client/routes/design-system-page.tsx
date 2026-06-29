@@ -3,6 +3,7 @@ import { Button } from "../design-system/actions/button.tsx";
 import { Checkbox } from "../design-system/actions/checkbox.tsx";
 import { Combobox } from "../design-system/actions/combobox.tsx";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
+import { SegmentedControl } from "../design-system/actions/segmented-control.tsx";
 import { Select } from "../design-system/actions/select.tsx";
 import { TextInput } from "../design-system/actions/text-input.tsx";
 import { Textarea } from "../design-system/actions/textarea.tsx";
@@ -133,6 +134,25 @@ function SelectDemo() {
       <option value="weekly">weekly</option>
       <option value="monthly">monthly</option>
     </Select>
+  );
+}
+
+// Interactive specimen for the SegmentedControl — one value chosen from a short,
+// all-visible set, owning its controlled value.
+function SegmentedControlDemo() {
+  const [permission, setPermission] = useState<"allow" | "ask" | "off">("ask");
+  return (
+    <SegmentedControl
+      label="Tool permission"
+      description="How the assistant may use this tool."
+      value={permission}
+      onChange={setPermission}
+      options={[
+        { value: "allow", label: "Always allow" },
+        { value: "ask", label: "Ask" },
+        { value: "off", label: "Off" },
+      ]}
+    />
   );
 }
 
@@ -1215,6 +1235,32 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <ComboboxDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Segmented control</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">SegmentedControl</span> ·
+              design-system/actions/segmented-control.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A row of mutually-exclusive segments for choosing one value from a short, fixed set
+                when seeing every option at once matters — <Code>allow</Code> / <Code>ask</Code> /{" "}
+                <Code>off</Code>. Drive it with <Code>value</Code> / <Code>onChange</Code> and pass
+                the choices as <Code>options</Code>. Each segment wraps a visually-hidden native
+                radio in one group, so the role and arrow-key navigation come for free and the row
+                carries the <Code>radiogroup</Code> role. Pass a <Code>label</Code> for the field
+                lockup or <Code>aria-label</Code> for a bare control. Reach for <Code>Select</Code>{" "}
+                once the list is long enough that showing every option inline is unwieldy, or{" "}
+                <Code>ToggleChip</Code> for an on/off toggle.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <SegmentedControlDemo />
               </Card>
             </div>
           </article>

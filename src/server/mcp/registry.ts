@@ -19,6 +19,22 @@ export interface McpServerStatus {
   error?: string;
 }
 
+/** One tool a connected MCP server exposes. */
+export interface McpToolInfo {
+  /** The bare tool name as its server exposes it. */
+  name: string;
+  /** The namespaced `<server>__<tool>` name — the model-facing name and the permission key. */
+  namespacedName: string;
+  /** The tool's description, when it provides one. */
+  description?: string;
+}
+
+/** A connected MCP server and the tools it exposes. */
+export interface McpServerCatalog {
+  name: string;
+  tools: McpToolInfo[];
+}
+
 /** Connect to one resolved MCP server. Injected so the registry is testable without live servers. */
 export type ConnectMcpServer = (
   server: McpServer,
@@ -38,6 +54,8 @@ export interface McpRegistry {
   tools(): ToolSet;
   /** Per-server connection status. */
   status(): McpServerStatus[];
+  /** Per-server tool listing, for connected servers — the tools grouped under the server that exposes them. */
+  catalog(): McpServerCatalog[];
   /** Connect the given servers, replacing and closing any current connections. */
   replace(
     servers: ReadonlyMap<string, McpServer>,
@@ -55,6 +73,7 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
   let clients: McpClient[] = [];
   let toolSet: ToolSet = {};
   let statuses: McpServerStatus[] = [];
+  let catalogs: McpServerCatalog[] = [];
 
   const closeAll = (toClose: McpClient[]): Promise<unknown> =>
     Promise.allSettled(toClose.map((client) => client.close()));
@@ -62,6 +81,7 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
   return {
     tools: () => toolSet,
     status: () => statuses,
+    catalog: () => catalogs,
 
     replace: async (servers, env) => {
       const previous = clients;
@@ -88,6 +108,7 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
       const nextClients: McpClient[] = [];
       const nextTools: ToolSet = {};
       const nextStatuses: McpServerStatus[] = [];
+      const nextCatalogs: McpServerCatalog[] = [];
       for (const result of results) {
         if ("error" in result) {
           // An OAuth server with no valid tokens isn't a failure — it needs sign-in.
@@ -105,8 +126,11 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
         }
         nextClients.push(result.client);
         const names = Object.keys(result.tools);
+        const toolInfos: McpToolInfo[] = [];
         for (const name of names) {
-          nextTools[`${result.server.name}__${name}`] = boundMcpTool(result.tools[name]);
+          const namespacedName = `${result.server.name}__${name}`;
+          nextTools[namespacedName] = boundMcpTool(result.tools[name]);
+          toolInfos.push({ name, namespacedName, description: result.tools[name].description });
         }
         nextStatuses.push({
           name: result.server.name,
@@ -114,11 +138,13 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
           state: "connected",
           toolCount: names.length,
         });
+        nextCatalogs.push({ name: result.server.name, tools: toolInfos });
       }
 
       clients = nextClients;
       toolSet = nextTools;
       statuses = nextStatuses;
+      catalogs = nextCatalogs;
       await closeAll(previous);
     },
 
@@ -127,6 +153,7 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
       clients = [];
       toolSet = {};
       statuses = [];
+      catalogs = [];
       await closeAll(toClose);
     },
   };

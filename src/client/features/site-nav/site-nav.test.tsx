@@ -51,6 +51,13 @@ describe("<SiteNav>", () => {
     await flushAsync();
   });
 
+  it("highlights MCP across the mcp section", async () => {
+    renderNav("/mcp");
+    expect(screen.getByRole("link", { name: /^mcp$/i }).getAttribute("href")).toBe("/mcp");
+    expect(screen.getByRole("link", { name: /^mcp$/i }).getAttribute("aria-current")).toBe("page");
+    await flushAsync();
+  });
+
   it("opens the navigation drawer with the rail content when the menu button is clicked", async () => {
     const user = userEvent.setup();
     renderNav("/");

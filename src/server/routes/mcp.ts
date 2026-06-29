@@ -1,11 +1,15 @@
+import { zValidator } from "@hono/zod-validator";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Hono } from "hono";
+import { z } from "zod";
 import { loadKiriConfig } from "../config/loader.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { EventBus } from "../events/index.ts";
 import type { McpCredentialStore } from "../mcp/oauth-store.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { McpHttpServer } from "../mcp/schema.ts";
+import type { ToolPermissionStore } from "../sessions/index.ts";
+import { onZodFail } from "./shared.ts";
 
 /**
  * The subset of the official MCP SDK's `auth` this surface calls: kick off
@@ -24,14 +28,22 @@ export interface McpRoutesDeps {
   config: ConfigStore;
   /** Environment the config loader resolves `{ env: }` refs against. */
   env: Record<string, string | undefined>;
-  /** Live MCP registry — its per-server status is served, and it is reconnected after sign-in. */
+  /** Live MCP registry — its per-server status and tool catalog are served, and it is reconnected after sign-in. */
   registry: McpRegistry;
+  /** Standing per-tool permissions — read into the tool listing and set from it. */
+  permissions: ToolPermissionStore;
   /** Issues the file-backed OAuth provider for a server. */
   credentialStore: McpCredentialStore;
   /** @ai-sdk/mcp's `auth`, injected as a seam. */
   auth: McpAuth;
   bus?: EventBus;
 }
+
+// Setting a tool's standing permission: its namespaced `<server>__<tool>` name
+// and the verdict to record. `"ask"` clears any recorded decision.
+const toolPermissionBodySchema = z
+  .object({ tool: z.string().min(1), permission: z.enum(["allow", "ask", "off"]) })
+  .strict();
 
 const escapeHtml = (value: string): string =>
   value
@@ -66,7 +78,7 @@ const errorHtml = (name: string, message: string): string =>
  * `GET /:server/auth/callback` completes it and reconnects the server.
  */
 export function mcpRoutes(deps: McpRoutesDeps): Hono {
-  const { config, env, registry, credentialStore, auth, bus } = deps;
+  const { config, env, registry, permissions, credentialStore, auth, bus } = deps;
   const app = new Hono();
 
   /** Resolve `name` to its OAuth http server config, or undefined when it isn't one. */
@@ -82,6 +94,39 @@ export function mcpRoutes(deps: McpRoutesDeps): Hono {
   };
 
   app.get("/servers", (c) => c.json({ servers: registry.status() }));
+
+  // The per-server tool listing for the MCP management surface: every configured
+  // server with its connection state, and (when connected) its tools, each
+  // carrying the standing permission the user has set. Read live so a reconnect
+  // or a permission change is reflected on the next fetch.
+  app.get("/tools", (c) => {
+    const toolsByServer = new Map(registry.catalog().map((s) => [s.name, s.tools]));
+    const servers = registry.status().map((server) => ({
+      name: server.name,
+      type: server.type,
+      state: server.state,
+      error: server.error,
+      tools: (toolsByServer.get(server.name) ?? []).map((tool) => ({
+        name: tool.name,
+        namespacedName: tool.namespacedName,
+        description: tool.description,
+        permission: permissions.get(tool.namespacedName),
+      })),
+    }));
+    return c.json({ servers });
+  });
+
+  // Set a tool's standing permission (allow/ask/off), keyed by its namespaced
+  // name. Workspace-scoped, not per-session, and applied from the next turn.
+  app.post(
+    "/tool-permissions",
+    zValidator("json", toolPermissionBodySchema, onZodFail("invalid permission")),
+    (c) => {
+      const { tool, permission } = c.req.valid("json");
+      permissions.set(tool, permission);
+      return c.body(null, 204);
+    },
+  );
 
   app.get("/:server/auth/start", async (c) => {
     const name = c.req.param("server");

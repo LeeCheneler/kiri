@@ -113,6 +113,7 @@ describe("watchKiriConfig", () => {
     const fakeMcp: McpRegistry = {
       tools: () => ({}),
       status: () => [],
+      catalog: () => [],
       replace: async (servers) => {
         replaced.push([...servers.keys()]);
       },

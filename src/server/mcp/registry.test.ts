@@ -14,13 +14,37 @@ const serverMap = (...servers: McpServer[]): Map<string, McpServer> =>
   new Map(servers.map((s) => [s.name, s]));
 
 describe("createMcpRegistry", () => {
-  it("starts empty with no tools or status", () => {
+  it("starts empty with no tools, status, or catalog", () => {
     const registry = createMcpRegistry(async () => ({
       tools: async () => ({}),
       close: async () => {},
     }));
     expect(registry.tools()).toEqual({});
     expect(registry.status()).toEqual([]);
+    expect(registry.catalog()).toEqual([]);
+  });
+
+  it("catalogs each connected server's tools with namespaced names and descriptions", async () => {
+    const registry = createMcpRegistry(async (server) => ({
+      tools: async (): Promise<ToolSet> =>
+        server.name === "a" ? { search: aTool() } : { get: aTool() },
+      close: async () => {},
+    }));
+    await registry.replace(serverMap(stdio("a"), stdio("b")), {});
+    expect(registry.catalog()).toEqual([
+      { name: "a", tools: [{ name: "search", namespacedName: "a__search", description: "t" }] },
+      { name: "b", tools: [{ name: "get", namespacedName: "b__get", description: "t" }] },
+    ]);
+  });
+
+  it("omits failed and needs-sign-in servers from the catalog", async () => {
+    const registry = createMcpRegistry(async (server) => {
+      if (server.name === "bad") throw new Error("nope");
+      if (server.name === "oauth") throw new UnauthorizedError();
+      return { tools: async () => ({ search: aTool() }), close: async () => {} };
+    });
+    await registry.replace(serverMap(stdio("bad"), stdio("oauth"), stdio("good")), {});
+    expect(registry.catalog().map((s) => s.name)).toEqual(["good"]);
   });
 
   it("connects servers and namespaces their tools by server name", async () => {

@@ -18,6 +18,7 @@ import { mountStaticRoutes } from "./routes/static.ts";
 import { systemRoutes } from "./routes/system.ts";
 import { workflowsRoutes } from "./routes/workflows.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
+import { createToolPermissionStore } from "./sessions/index.ts";
 import type { Registry } from "./workflows/index.ts";
 
 /**
@@ -123,6 +124,11 @@ export function createApp(deps: AppDeps): Hono {
   const embeddedFiles = deps.embeddedFiles ?? EMBEDDED_FILES;
   const app = new Hono();
 
+  // One file-backed permission store shared by the session turn loop (which
+  // enforces it) and the MCP surface (which lists and sets it). Stateless over a
+  // config-derived path, so a single instance keeps both reading the same file.
+  const toolPermissions = createToolPermissionStore(config.toolPermissionsFile());
+
   // CORS allow-list for the hosted shell at https://local.kiri.build plus the
   // local-direct origins. Mounted before route handlers so OPTIONS preflight is
   // answered by the middleware rather than falling through. Disallowed origins
@@ -196,7 +202,10 @@ export function createApp(deps: AppDeps): Hono {
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
   if (llmClients) {
-    app.route("/api", sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, mcpRegistry }));
+    app.route(
+      "/api",
+      sessionsRoutes({ db, config, llmClients, bus, cancelRegistry, mcpRegistry, toolPermissions }),
+    );
   }
 
   // MCP OAuth surface: per-server status plus the browser sign-in start/callback.
@@ -209,6 +218,7 @@ export function createApp(deps: AppDeps): Hono {
         config,
         env,
         registry: mcpRegistry,
+        permissions: toolPermissions,
         credentialStore: deps.mcpCredentialStore,
         auth: deps.mcpAuth,
         bus,
