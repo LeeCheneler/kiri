@@ -116,17 +116,6 @@ describe("<ToolInvocation>", () => {
     expect(container.querySelector('[data-status="pending"]')).not.toBeNull();
   });
 
-  it("offers a Cancel control while a call is in flight and reports it", async () => {
-    const user = userEvent.setup();
-    const onCancel = mock(() => {});
-    render(
-      <ToolInvocation part={part({ state: "input-available", input: {} })} onCancel={onCancel} />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onCancel).toHaveBeenCalledTimes(1);
-  });
-
   it("shows a cancelled call as cancelled, not failed, explaining it once expanded", async () => {
     const user = userEvent.setup();
     const { container } = render(

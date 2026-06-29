@@ -340,7 +340,6 @@ function Chat({ detail }: { detail: SessionDetail }) {
               busy={busy}
               onResubmit={handleResubmit}
               onToolDecision={handleToolDecision}
-              onCancel={busy ? cancel : undefined}
             />
           ))
         )}

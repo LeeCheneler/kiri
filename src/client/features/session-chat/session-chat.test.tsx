@@ -448,9 +448,10 @@ describe("<SessionChat>", () => {
     );
     const { container } = renderChat();
 
-    // The running tool offers a Cancel control; clicking it stops the turn and
-    // flips the call to cancelled rather than leaving it on "working".
-    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    // Escape stops the in-flight turn and flips its running tool call to
+    // cancelled rather than leaving it on "working".
+    await screen.findByText(/escape to cancel/i);
+    await user.keyboard("{Escape}");
     await waitFor(() => expect(cancelled).toBe(true));
     await waitFor(() =>
       expect(container.querySelector('[data-status="cancelled"]')).not.toBeNull(),
