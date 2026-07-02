@@ -33,16 +33,42 @@ describe("<SessionRow>", () => {
     );
   });
 
-  it("falls back to the short id when no message has been sent", () => {
-    renderRow({ id: "abcdef0123", preview: null });
+  it("leads the byline with the session kind marker", () => {
+    renderRow();
+    expect(screen.getByText("session")).toBeDefined();
+  });
+
+  it("sets the first message as quoted speech", () => {
+    const { container } = renderRow();
+    // The quotation marks are decorative (aria-hidden) so the link's accessible
+    // name stays the message text alone; the message itself is italicised.
+    expect(screen.getByText("“").getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getByText("”").getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".italic")?.textContent).toBe("Summarise the readme");
+  });
+
+  it("falls back to the short id, unquoted, when no message has been sent", () => {
+    const { container } = renderRow({ id: "abcdef0123", preview: null });
     expect(screen.getByRole("link", { name: "abcdef01" }).getAttribute("href")).toBe(
       "/sessions/abcdef0123",
     );
+    expect(screen.queryByText("“")).toBeNull();
+    expect(container.querySelector(".italic")).toBeNull();
   });
 
   it("shows the model without its provider and org prefix", () => {
     renderRow();
     expect(screen.getByText("gemma-4-26b-a4b-qat")).toBeDefined();
     expect(screen.queryByText(/local:google/)).toBeNull();
+  });
+
+  it("shows the attached persona in the byline", () => {
+    renderRow({ persona: "red-team" });
+    expect(screen.getByText("red-team")).toBeDefined();
+  });
+
+  it("omits the persona entry when none is attached", () => {
+    renderRow();
+    expect(screen.queryByText("red-team")).toBeNull();
   });
 });

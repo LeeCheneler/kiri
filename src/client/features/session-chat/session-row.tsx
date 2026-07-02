@@ -23,30 +23,46 @@ const shortModel = (model: string): string => {
 };
 
 /**
- * One session in an activity feed. A gold ◆ flags it as a session at the left
- * edge, leading a status-led mono byline — status, model, and relative start —
- * whose order mirrors the run row. Below sits the session's first user message
- * in the display face (the "human voice" only sessions carry), linking through
- * to the chat; before a message is sent the short id stands in. `now` is
- * injectable so tests render deterministic relative times; production omits it.
+ * One session in an activity feed, differentiated from run rows as a
+ * conversation rather than an artifact record. An accent `session` kind marker
+ * leads the mono byline — kind, status, model, the attached persona when one
+ * is set, and relative start — so a session declares itself before the shared
+ * status vocabulary takes over. Below, the session's first user message is set
+ * as quoted speech: italic display face between accent quotation marks (the
+ * "human voice" only sessions carry — run rows' headlines stay upright), the
+ * whole line linking through to the chat. Before a message is sent the short
+ * id stands in, unquoted and upright — only actual speech gets quote marks.
+ * `now` is injectable so tests render deterministic relative times; production
+ * omits it.
  */
 export function SessionRow({ session, now }: { session: SessionListEntry; now?: Date }) {
   const status = SESSION_STATUS[session.status];
   return (
     <StatusBlock status={status}>
-      <div className="flex items-baseline gap-2">
-        <span aria-hidden="true" className="text-accent text-xs">
-          ◆
-        </span>
-        <Meta>
-          <Status status={status} />
-          <span>{shortModel(session.model)}</span>
-          <span>{formatRelativeTime(session.startedAt, now)}</span>
-        </Meta>
-      </div>
-      <div className="mt-1">
+      <Meta>
+        <span className="text-accent uppercase">session</span>
+        <Status status={status} />
+        <span>{shortModel(session.model)}</span>
+        {session.persona ? <span>{session.persona}</span> : null}
+        <span>{formatRelativeTime(session.startedAt, now)}</span>
+      </Meta>
+      {/* Same 16px scale as run rows' content so neither kind outweighs the
+          other in the blended feed; the quoted italic voice differentiates. */}
+      <div className="mt-1 text-base">
         <HeadlineLink href={`/sessions/${session.id}`}>
-          {session.preview ?? session.id.slice(0, 8)}
+          {session.preview ? (
+            <>
+              <span aria-hidden="true" className="text-accent">
+                “
+              </span>
+              <span className="italic">{session.preview}</span>
+              <span aria-hidden="true" className="text-accent">
+                ”
+              </span>
+            </>
+          ) : (
+            session.id.slice(0, 8)
+          )}
         </HeadlineLink>
       </div>
     </StatusBlock>
