@@ -64,13 +64,17 @@ export function RunRow({
       {run.summary ? (
         // Mute the whole summary so it reads as secondary to the articles
         // that lead the row; Markdown inherits the tint rather than pinning
-        // its own ink.
-        <div className="mt-2 text-sm text-ink-muted">
+        // its own ink. Markdown's paragraphs render at the 16px reading size —
+        // the scale the whole row's content shares.
+        <div className="mt-2 text-ink-muted">
           <Markdown content={run.summary} />
         </div>
       ) : null}
       {run.articles.length > 0 ? (
-        <ul className="mt-4 space-y-3 text-xl">
+        // Article links sit at the same 16px scale as the summary text — the
+        // feed is a scanning surface, so the entry's hierarchy comes from ink
+        // against the summary's muted tint (plus the eyebrow), not from size.
+        <ul className="mt-4 space-y-3 text-base">
           {run.articles.map((article) => (
             <li key={article.slug}>
               <Eyebrow tone="muted">{article.slug}</Eyebrow>
