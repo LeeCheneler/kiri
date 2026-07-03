@@ -1218,7 +1218,7 @@ describe("runWorkflow", () => {
       });
     });
 
-    it("continues iterating siblings after a failing publish but marks the run as failed", async () => {
+    it("halts remaining publishes after a failing publish and marks the run as failed", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("bad", "#!/bin/sh\necho oops >&2\nexit 9\n");
       writeBundle("good", "#!/bin/sh\necho after-bad\n");
@@ -1238,6 +1238,7 @@ describe("runWorkflow", () => {
       expect(run?.status).toBe("failed");
       expect(run?.error).not.toBeNull();
 
+      // Fail-fast: the sibling after the failed publish never runs.
       const publishRows = db
         .select()
         .from(runSteps)
@@ -1245,15 +1246,12 @@ describe("runWorkflow", () => {
         .orderBy(asc(runSteps.index))
         .all()
         .filter((s) => s.isPublish);
-      expect(publishRows).toHaveLength(2);
+      expect(publishRows).toHaveLength(1);
       expect(publishRows[0].status).toBe("failed");
       expect(publishRows[0].error).not.toBeNull();
-      expect(publishRows[1].status).toBe("ok");
 
-      // Only the successful sibling lands as an article row.
       const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
-      expect(articleRows).toHaveLength(1);
-      expect(articleRows[0].slug).toBe("good");
+      expect(articleRows).toHaveLength(0);
     });
 
     it("persists trimmed stdout to articles with the resolved name", async () => {

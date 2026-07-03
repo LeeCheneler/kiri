@@ -667,7 +667,7 @@ EOF
       for (const a of articleRows) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
-    it("exposes a failed publish row alongside the ok sibling's article", async () => {
+    it("exposes a failed publish row; the halted sibling never ships", async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
       writeBundle(env.cwd, "bad", "#!/bin/sh\nexit 2\n");
       writeBundle(env.cwd, "good", "#!/bin/sh\necho good-body\n");
@@ -696,14 +696,14 @@ EOF
         run: { articles: Array<{ slug: string }> };
         steps: Array<{ index: number; status: string; isPublish: boolean }>;
       };
-      // Pipeline step, failed publish, ok publish — all three rows ship.
+      // Pipeline step and the failed publish ship; the run is fail-fast,
+      // so the sibling after the failed publish has no row at all.
       expect(body.steps.map((s) => [s.index, s.status, s.isPublish])).toEqual([
         [0, "ok", false],
         [1, "failed", true],
-        [2, "ok", true],
       ]);
-      // The failed publish produced no article row; the ok sibling did.
-      expect(body.run.articles.map((a) => a.slug)).toEqual(["good"]);
+      // No publish succeeded, so no articles.
+      expect(body.run.articles.map((a) => a.slug)).toEqual([]);
     });
 
     it("surfaces a running publish row before its article has been written", async () => {
