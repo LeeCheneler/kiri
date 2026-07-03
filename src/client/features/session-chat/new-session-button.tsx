@@ -26,7 +26,10 @@ export function NewSessionButton() {
       const { session } = await createSession(defaultModel);
       navigate(`/sessions/${session.id}`);
     } catch {
-      // Re-enable so the user can retry; on success we navigate away.
+      // Swallow the error; the button re-enables below so the user can retry.
+    } finally {
+      // The button lives in the persistent left nav, so it survives the
+      // navigate — always clear the pending state.
       setStarting(false);
     }
   };
