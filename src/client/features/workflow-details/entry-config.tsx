@@ -37,10 +37,15 @@ export const stepTitle = (entry: LabelSource): string => {
 const hasEnv = (env: Record<string, EnvValue> | undefined): env is Record<string, EnvValue> =>
   env !== undefined && Object.keys(env).length > 0;
 
-// Literal strings pass through; structured `{ input: <name> }` refs render in
-// YAML-flavoured form so the reader sees the shape they wrote in the workflow.
-const renderEnvValue = (value: EnvValue): string =>
-  typeof value === "string" ? value : `{ input: ${value.input} }`;
+// Literal strings pass through; structured refs — `{ input: <name> }`,
+// `{ step: <id> }`, `{ article: <slug> }` — render in YAML-flavoured form so
+// the reader sees the shape they wrote in the workflow.
+const renderEnvValue = (value: EnvValue): string => {
+  if (typeof value === "string") return value;
+  if ("input" in value) return `{ input: ${value.input} }`;
+  if ("step" in value) return `{ step: ${value.step} }`;
+  return `{ article: ${value.article} }`;
+};
 
 function LabelledBlock({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -63,7 +68,8 @@ type EntryShape = { description?: string; env?: Record<string, EnvValue> } & (
  * source or `llm:` prompt (inline text or file path), and env map — each shown
  * only when populated. The whole entry already sits behind a disclosure, so the
  * source renders in full rather than collapsing again. Env keys sort
- * alphabetically and structured input references render as `{ input: <name> }`.
+ * alphabetically and structured references render in the YAML-flavoured form
+ * they were written in: `{ input: <name> }`, `{ step: <id> }`, `{ article: <slug> }`.
  */
 export function EntryConfig({ entry }: { entry: EntryShape }) {
   const showReference = "use" in entry;

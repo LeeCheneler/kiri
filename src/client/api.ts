@@ -3,10 +3,12 @@ import { z } from "zod";
 
 /**
  * One value in a step / publish / summariser `env:` map. Either a literal
- * string or a structured reference to a declared workflow input. The
- * runner resolves refs against the run's `inputs` snapshot at spawn time.
+ * string or a structured reference the runner resolves at spawn time: a
+ * declared workflow input (against the run's `inputs` snapshot), an earlier
+ * step's stdout (by that step's `id`), or a published article's markdown
+ * (by its `slug`).
  */
-export type EnvValue = string | { input: string };
+export type EnvValue = string | { input: string } | { step: string } | { article: string };
 
 /**
  * The `llm:` block of a first-party LLM step. `model` is a `provider:model`
@@ -20,15 +22,29 @@ export interface LlmConfigSummary {
 }
 
 /**
- * A single workflow step as seen by the client. `name` is an optional
- * short label used as the step's title in the Schema tab and run timeline;
- * absent steps fall back to the bundle reference, the script's first line,
- * or the llm model id.
+ * A single workflow step as seen by the client. `id` is the optional
+ * identifier later steps reference via `{ step: <id> }` env refs, shown
+ * beside the step's title when declared. `name` is an optional short label
+ * used as the step's title in the Schema tab and run timeline; absent steps
+ * fall back to the bundle reference, the script's first line, or the llm
+ * model id.
  */
 export type WorkflowStepSummary =
-  | { use: string; name?: string; description?: string; env?: Record<string, EnvValue> }
-  | { sh: string; name?: string; description?: string; env?: Record<string, EnvValue> }
-  | { llm: LlmConfigSummary; name?: string; description?: string; env?: Record<string, EnvValue> };
+  | {
+      use: string;
+      id?: string;
+      name?: string;
+      description?: string;
+      env?: Record<string, EnvValue>;
+    }
+  | { sh: string; id?: string; name?: string; description?: string; env?: Record<string, EnvValue> }
+  | {
+      llm: LlmConfigSummary;
+      id?: string;
+      name?: string;
+      description?: string;
+      env?: Record<string, EnvValue>;
+    };
 
 /**
  * One `publish:` entry on a workflow summary. `slug` is the URL/identifier;

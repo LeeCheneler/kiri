@@ -50,6 +50,19 @@ describe("<EntryConfig>", () => {
     expect(screen.getByText("kiri")).toBeDefined();
   });
 
+  it("renders step and article env refs in their YAML form", () => {
+    render(
+      <EntryConfig
+        entry={{
+          sh: "echo hi",
+          env: { EDITION: { step: "fetch" }, DIGEST: { article: "edition" } },
+        }}
+      />,
+    );
+    expect(screen.getByText("{ step: fetch }")).toBeDefined();
+    expect(screen.getByText("{ article: edition }")).toBeDefined();
+  });
+
   it("shows the bundle reference for a use entry", () => {
     render(<EntryConfig entry={{ use: "notify-bundle" }} />);
     expect(screen.getByText("notify-bundle")).toBeDefined();
