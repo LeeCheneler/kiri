@@ -152,10 +152,50 @@ steps:
       echo "hello, $name"
 ```
 
-`publish:` and `summarize:` steps receive **empty** stdin — they read the run
-through the run context instead (below). A non-zero exit on any `steps:` entry
-halts the pipeline; later steps are skipped, but `publish:` and `summarize:`
-still run.
+`publish:` and `summarize:` steps receive **empty** stdin — they take what
+they need through env refs (below). Runs are fail-fast: a non-zero exit on any
+`steps:` entry fails the run and skips everything after it, including
+`publish:` and `summarize:`; a failing publish likewise halts the rest.
+
+## Referencing step outputs
+
+Stdin only carries the *previous* step's stdout. To reach any earlier output —
+or to feed a `publish:`/`summarize:` step — give the producing step an `id:`
+and reference it from a consumer's `env:` with a structured ref:
+
+```yaml
+name: release-notes
+steps:
+  - sh: git log --oneline v1..HEAD
+    id: changes
+  - sh: echo "unrelated middle step"
+  - llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: |
+        Rewrite these commits as release notes.
+
+        {{CHANGES}}
+    env:
+      CHANGES:
+        step: changes        # ← the `changes` step's stdout, byte-for-byte
+publish:
+  - slug: notes
+    sh: 'printf "%s" "$CHANGES"'
+    env:
+      CHANGES:
+        step: changes
+```
+
+- `{ step: <id> }` resolves to that step's stdout exactly as written — never
+  trimmed or truncated. Valid on later `steps:`, `publish:`, and `summarize:`.
+- `{ article: <slug> }` resolves to a published article's markdown. Valid on
+  later `publish:` entries and `summarize:`.
+- Refs are validated when the workflow loads: unknown ids or slugs, duplicate
+  ids, and self/forward references are errors. Ids match `^[a-z][a-z0-9_-]*$`.
+- For an `llm:` step the resolved value is a prompt template var like any
+  other env entry; for `sh:`/`use:` steps it's an env var, so a very large
+  output can hit the OS exec size limit — the step fails with an error naming
+  the offending entry.
 
 ## Step environment
 
@@ -170,7 +210,7 @@ can't redirect `PATH` or shadow kiri's identity vars.
 | `KIRI_STEP_INDEX` | every step | Zero-based index of this step in the run. |
 | `KIRI_REPO_ROOT` | every step | Absolute path of the workspace. Steps run in a scratch dir — use this to reach repo files (`cd "$KIRI_REPO_ROOT"`). |
 | `KIRI_BUNDLE_DIR` | `use:` steps | Absolute path to the bundle's `bundles/<name>/` directory. |
-| `KIRI_RUN_CONTEXT_FILE` | `use:`/`sh:` `publish:` and `summarize:` | Path to a JSON file describing the run so far. An `llm:` step can't open files, so it gets the same envelope inlined as `{{KIRI_RUN_CONTEXT}}` instead. |
+| `KIRI_SUMMARY_CONTEXT` | `summarize:` only | A prompt-ready plain-text digest of the run — workflow name and duration, a section per step with its stdout, then published articles (each stream capped at 64 KB). An `llm:` summariser templates it as `{{KIRI_SUMMARY_CONTEXT}}`. |
 | `KIRI_RECOMMENDATIONS_FILE` | main `use:`/`sh:` steps | Path the step may write JSON Lines to — one proposed follow-up per line. Not set for `llm:` steps. |
 | `PATH`, `HOME`, `USER`, `LOGNAME` | every step | Passed through from the kiri process so tools that authenticate as you keep working. |
 
@@ -192,10 +232,12 @@ summarize:
   sh: echo "said hello to the world"
 ```
 
-A `summarize:` step reads the run via `KIRI_RUN_CONTEXT_FILE` (a bundle/`sh:`
-step) or the inlined `{{KIRI_RUN_CONTEXT}}` (an `llm:` step). For an AI-written
+Every `summarize:` step receives the run digest as `KIRI_SUMMARY_CONTEXT` —
+a bundle/`sh:` step reads the env var, an `llm:` step templates
+`{{KIRI_SUMMARY_CONTEXT}}` — and it can pull specific outputs at full fidelity
+with `{ step: <id> }` / `{ article: <slug> }` env refs. For an AI-written
 summary, a `summarize: { llm: { model } }` with no prompt is **zero-config** —
-kiri supplies a built-in summary prompt.
+kiri supplies a built-in summary prompt over the digest.
 
 ## Published articles
 
@@ -203,8 +245,10 @@ An optional array of long-form markdown articles produced by the run. Each entry
 has the same `{ use | sh | llm, env? }` shape, plus a `slug` (lowercase letters,
 digits, hyphens — unique within the workflow) and an optional display `name`.
 Publish steps run serially after `steps:` and before `summarize:`; each step's
-stdout is captured as the article body. They receive empty stdin — build the
-article from the run context.
+stdout is captured as the article body. They receive empty stdin and no
+auto-injected data — wire in exactly what the article needs with
+`{ step: <id> }` env refs (an earlier step's stdout, by that step's `id:`) or
+`{ article: <slug> }` refs (an earlier entry's article).
 
 ```yaml
 name: status
@@ -335,9 +379,11 @@ To fork an existing bundle: `cp -r bundles/claude-code bundles/my-bundle`.
 ## Execution semantics
 
 - Only **one run at a time** across all workflows (single global concurrency).
-- A failing step in `steps:` halts the pipeline and marks the run `failed`;
-  `publish:` and `summarize:` still run. A failing `publish:`/`summarize:`
-  doesn't change the run's status.
+- Runs are **fail-fast**: a failing step in `steps:` marks the run `failed`
+  and skips everything after it, including `publish:` and `summarize:`. A
+  failing publish halts remaining publishes and the summariser and fails the
+  run. Only a failing summariser is non-fatal — the run's work already
+  completed, so its status stands and the summary stays empty.
 - **Cancel** from the UI sends `SIGTERM` then `SIGKILL`; a run cancelled
   mid-`steps:` skips the rest, including publishes and the summariser.
 - There is no cron, file watch, or webhook. For polling shapes, write a workflow

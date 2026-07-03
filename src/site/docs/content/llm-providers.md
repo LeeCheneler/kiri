@@ -87,16 +87,17 @@ is a load-time error.
   land in the run timeline.
 - **No file channels.** A completion can't open files, so an `llm:` step gets no
   `KIRI_RECOMMENDATIONS_FILE` (use an `sh:` or bundle step to emit
-  recommendations) and no `KIRI_RUN_CONTEXT_FILE`. Instead, an `llm:`
-  `publish:` / `summarize:` step receives the run envelope **inlined** as
-  `{{KIRI_RUN_CONTEXT}}` (each `stdout`/`stderr` stream capped at 64 KB, marked
-  `[truncated]` past the cap). Reference `{{KIRI_RUN_CONTEXT}}` directly in the
-  prompt.
+  recommendations). An `llm:` `publish:` step takes its data through
+  `{ step: <id> }` / `{ article: <slug> }` env refs, rendered into the prompt
+  by name (`{{DRAFT}}`); an `llm:` `summarize:` step additionally receives the
+  run digest inlined as `{{KIRI_SUMMARY_CONTEXT}}` (each step's stdout capped
+  at 64 KB, marked `[truncated]` past the cap).
 
 ### Zero-config summariser
 
 A `summarize:` step can be just a model. With no `prompt` / `prompt_file`, kiri
-uses a baked-in summary prompt over the inlined `{{KIRI_RUN_CONTEXT}}`:
+uses a baked-in summary prompt over the injected `{{KIRI_SUMMARY_CONTEXT}}`
+digest:
 
 ```yaml
 summarize:

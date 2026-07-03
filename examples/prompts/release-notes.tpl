@@ -1,10 +1,8 @@
 You are writing the published release-notes article in markdown.
 
-The full run envelope is inlined below as JSON. Inside it, the last entry of
-`steps` holds the drafted notes in its `stdout` — that draft is your source
-material.
+The drafted notes are inlined below — they are your source material.
 
-{{KIRI_RUN_CONTEXT}}
+{{DRAFT}}
 
 Write the final article. Open with a single `#` headline naming the release,
 then the notes grouped under `## Features` and `## Fixes`, and close with a
