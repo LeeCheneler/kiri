@@ -8,6 +8,18 @@ const envValueSchema = z.union([
     .describe(
       "Reference to a workflow input by name. Resolved to the input's string value at spawn time.",
     ),
+  z
+    .object({ step: z.string().min(1) })
+    .strict()
+    .describe(
+      "Reference to an earlier step's stdout by that step's `id`. Resolved at spawn time to the step's stdout, byte-for-byte — never trimmed or truncated.",
+    ),
+  z
+    .object({ article: z.string().min(1) })
+    .strict()
+    .describe(
+      "Reference to a published article's markdown by its `slug`. Valid on publish entries (earlier entries only, by list order) and summarize.",
+    ),
 ]);
 
 const envSchema = z
@@ -23,9 +35,25 @@ const stepNameSchema = z
     "Short label for the step, shown as its title in the Schema tab and the run timeline. Defaults to the bundle reference (`use:`), the script's first line (`sh:`), or the model id (`llm:`).",
   );
 
+/**
+ * Pattern that constrains a step's `id` — the name later steps use to
+ * reference its stdout via `{ step: <id> }` env refs. Kept close to the
+ * input-name grammar; uniqueness and backward-only referencing are
+ * cross-validated in `workflowSchema.superRefine`.
+ */
+export const stepIdSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_-]*$/, {
+    message: "step id must match ^[a-z][a-z0-9_-]*$",
+  })
+  .describe(
+    "Identifier later steps use to reference this step's stdout via `{ step: <id> }`. Lowercase letters, digits, hyphens, and underscores; must start with a letter. Unique within the workflow.",
+  );
+
 const useStepSchema = z
   .object({
     use: z.string().min(1),
+    id: stepIdSchema.optional(),
     name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
@@ -35,6 +63,7 @@ const useStepSchema = z
 const shStepSchema = z
   .object({
     sh: z.string().min(1),
+    id: stepIdSchema.optional(),
     name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
@@ -79,6 +108,7 @@ const llmConfigSchema = z
 const llmStepSchema = z
   .object({
     llm: llmConfigSchema,
+    id: stepIdSchema.optional(),
     name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
@@ -240,8 +270,10 @@ const baseWorkflowSchema = z
 
 /**
  * Zod schema for a YAML workflow definition. Beyond the base shape,
- * cross-validates that every `{ input: <name> }` env reference points
- * at a declared input — unknown names fail at load time.
+ * cross-validates the reference graph at load time: every `{ input: <name> }`
+ * env ref points at a declared input, every `{ step: <id> }` ref points at a
+ * uniquely-declared earlier step, and every `{ article: <slug> }` ref points
+ * at an earlier publish entry — so run-time resolution is total.
  */
 export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
   wf.inputs?.forEach((input, i) => {
@@ -267,26 +299,116 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
     }
   });
 
+  // Step ids form the `{ step: <id> }` ref namespace: unique across the
+  // workflow, resolvable only backwards. Summarize is a step shape too but
+  // nothing runs after it, so an id there is unreferenceable — reject it
+  // rather than let it sit inert.
+  const stepIdIndex = new Map<string, number>();
+  wf.steps.forEach((step, i) => {
+    if (step.id === undefined) return;
+    if (stepIdIndex.has(step.id)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["steps", i, "id"],
+        message: `step id "${step.id}" is already declared on step ${stepIdIndex.get(step.id)}`,
+      });
+      return;
+    }
+    stepIdIndex.set(step.id, i);
+  });
+  if (wf.summarize?.id !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["summarize", "id"],
+      message: "summarize cannot declare an id — nothing runs after it to reference its output",
+    });
+  }
+
+  const publishSlugIndex = new Map<string, number>();
+  wf.publish?.forEach((entry, i) => {
+    if (!publishSlugIndex.has(entry.slug)) publishSlugIndex.set(entry.slug, i);
+  });
+
   const declared = new Set((wf.inputs ?? []).map((i) => i.name));
+  // `stepRefsBefore` / `articleRefsBefore` bound which targets an env may
+  // reference: a main step sees only earlier steps (self/forward refs are
+  // load errors); publish and summarize run after every step, so all step
+  // ids are in range, and a publish entry sees only earlier articles.
+  // `articleRefsBefore: undefined` means article refs are invalid there.
   const checkEnv = (
     env: Record<string, z.infer<typeof envValueSchema>> | undefined,
     path: Array<string | number>,
+    bounds: { stepRefsBefore: number; articleRefsBefore: number | undefined },
   ): void => {
     if (!env) return;
     for (const [key, value] of Object.entries(env)) {
       if (typeof value === "string") continue;
-      if (!declared.has(value.input)) {
+      if ("input" in value) {
+        if (!declared.has(value.input)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [...path, "env", key, "input"],
+            message: `env "${key}" references undeclared input "${value.input}"`,
+          });
+        }
+        continue;
+      }
+      if ("step" in value) {
+        const target = stepIdIndex.get(value.step);
+        if (target === undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: [...path, "env", key, "step"],
+            message: `env "${key}" references unknown step id "${value.step}"`,
+          });
+        } else if (target >= bounds.stepRefsBefore) {
+          ctx.addIssue({
+            code: "custom",
+            path: [...path, "env", key, "step"],
+            message: `env "${key}" references step "${value.step}", which does not run before this step — refs are backward-only`,
+          });
+        }
+        continue;
+      }
+      if (bounds.articleRefsBefore === undefined) {
         ctx.addIssue({
           code: "custom",
-          path: [...path, "env", key, "input"],
-          message: `env "${key}" references undeclared input "${value.input}"`,
+          path: [...path, "env", key, "article"],
+          message: `env "${key}" references article "${value.article}" — article refs are only valid on publish: and summarize:`,
+        });
+        continue;
+      }
+      const target = publishSlugIndex.get(value.article);
+      if (target === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: [...path, "env", key, "article"],
+          message: `env "${key}" references unknown article slug "${value.article}"`,
+        });
+      } else if (target >= bounds.articleRefsBefore) {
+        ctx.addIssue({
+          code: "custom",
+          path: [...path, "env", key, "article"],
+          message: `env "${key}" references article "${value.article}", which is not published before this entry — refs are backward-only`,
         });
       }
     }
   };
-  wf.steps.forEach((step, i) => checkEnv(step.env, ["steps", i]));
-  if (wf.summarize) checkEnv(wf.summarize.env, ["summarize"]);
-  wf.publish?.forEach((entry, i) => checkEnv(entry.env, ["publish", i]));
+  wf.steps.forEach((step, i) =>
+    checkEnv(step.env, ["steps", i], { stepRefsBefore: i, articleRefsBefore: undefined }),
+  );
+  wf.publish?.forEach((entry, i) =>
+    checkEnv(entry.env, ["publish", i], {
+      stepRefsBefore: wf.steps.length,
+      articleRefsBefore: i,
+    }),
+  );
+  if (wf.summarize) {
+    checkEnv(wf.summarize.env, ["summarize"], {
+      stepRefsBefore: wf.steps.length,
+      articleRefsBefore: wf.publish?.length ?? 0,
+    });
+  }
 
   // Prompt rules are positional: `steps:` and `publish:` require exactly one
   // of `prompt` / `prompt_file`; `summarize:` allows neither (it falls back

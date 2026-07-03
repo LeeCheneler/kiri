@@ -122,12 +122,25 @@ const stepIdentOf = (step: WorkflowStep): StepIdent => {
   return { kind: "sh", sh: step.sh };
 };
 
+/**
+ * Outputs and articles the run has produced so far, keyed for
+ * `{ step: <id> }` / `{ article: <slug> }` env-ref resolution. The schema
+ * guarantees refs are backward-only and the fail-fast lifecycle guarantees
+ * every ref target completed `ok` before its consumer spawns, so lookups
+ * here are total; a miss is an invariant violation, not a user error.
+ */
+interface RefContext {
+  stepOutputs: ReadonlyMap<string, string>;
+  articles: ReadonlyMap<string, string>;
+}
+
 const buildEnv = (
   step: WorkflowStep,
   runId: string,
   stepIndex: number,
   config: ConfigStore,
   inputs: Record<string, string> | null,
+  refs: RefContext,
 ): Record<string, string> => {
   // User env is applied first; kiri- and OS-controlled vars overwrite on
   // collision so a workflow can't redirect PATH or shadow KIRI_ identity.
@@ -137,18 +150,38 @@ const buildEnv = (
       env[key] = value;
       continue;
     }
-    // The schema guarantees every `{ input: <name> }` ref points at a
-    // declared input, and run-start snapshots every declared input that
-    // resolved to a value (arg-supplied or default). Reaching this branch
-    // means a declared input had neither a supplied value nor a default —
-    // an invocation-time invariant the invoke API is meant to enforce.
-    const resolved = inputs?.[value.input];
-    if (resolved === undefined) {
+    if ("input" in value) {
+      // The schema guarantees every `{ input: <name> }` ref points at a
+      // declared input, and run-start snapshots every declared input that
+      // resolved to a value (arg-supplied or default). Reaching this branch
+      // means a declared input had neither a supplied value nor a default —
+      // an invocation-time invariant the invoke API is meant to enforce.
+      const resolved = inputs?.[value.input];
+      if (resolved === undefined) {
+        throw new Error(
+          `env "${key}" references input "${value.input}", which is not present on the run snapshot`,
+        );
+      }
+      env[key] = resolved;
+      continue;
+    }
+    if ("step" in value) {
+      const output = refs.stepOutputs.get(value.step);
+      if (output === undefined) {
+        throw new Error(
+          `env "${key}" references step "${value.step}", which has no output on this run`,
+        );
+      }
+      env[key] = output;
+      continue;
+    }
+    const content = refs.articles.get(value.article);
+    if (content === undefined) {
       throw new Error(
-        `env "${key}" references input "${value.input}", which is not present on the run snapshot`,
+        `env "${key}" references article "${value.article}", which has not been published on this run`,
       );
     }
-    env[key] = resolved;
+    env[key] = content;
   }
   env.PATH = process.env.PATH ?? "";
   env.HOME = process.env.HOME ?? "";
@@ -245,6 +278,12 @@ export function runWorkflow(
   args.cancelRegistry?.register(runId);
   args.bus?.publish({ type: "run.started", id: runId });
 
+  // Populated as the run progresses: an ok step that declared an `id` lands
+  // its stdout here, and each stored article lands under its slug. Read by
+  // buildEnv when resolving `{ step: <id> }` / `{ article: <slug> }` refs.
+  const stepOutputsById = new Map<string, string>();
+  const articlesBySlug = new Map<string, string>();
+
   // Insert → publish "running" → spawn → translate envelope → update →
   // publish terminal. Every phase (steps, publish, summarise) reimplements
   // this same envelope; the helper captures it so each phase only expresses
@@ -277,7 +316,10 @@ export function runWorkflow(
 
     args.bus?.publish({ type: "run.step.updated", runId, step: opts.index, status: "running" });
 
-    const env = buildEnv(opts.step, runId, opts.index, args.config, resolvedInputs);
+    const env = buildEnv(opts.step, runId, opts.index, args.config, resolvedInputs, {
+      stepOutputs: stepOutputsById,
+      articles: articlesBySlug,
+    });
     if (opts.envExtras) Object.assign(env, opts.envExtras);
 
     const envelope = await runStep({
@@ -376,6 +418,7 @@ export function runWorkflow(
           break;
         }
         if (cancelled) break;
+        if (step.id !== undefined) stepOutputsById.set(step.id, envelope.output);
         input = envelope.output;
       }
 
@@ -447,6 +490,7 @@ export function runWorkflow(
             })
             .run();
           publishedArticles.push({ slug: entry.slug, name, content_md: contentMd });
+          articlesBySlug.set(entry.slug, contentMd);
         }
 
         if (cancelled && envelope.status === "failed") {

@@ -202,6 +202,22 @@ describe("runStep", () => {
       expect(envelope.output).toBe("piped");
     });
 
+    it("fails cleanly when the env exceeds the exec size limit, naming the largest entry", async () => {
+      const envelope = await runStep({
+        step: { sh: "echo never-runs" },
+        config,
+        scratchDir,
+        input: "",
+        env: { BIG: "x".repeat(950 * 1024), SMALL: "tiny" },
+      });
+
+      expect(envelope.status).toBe("failed");
+      expect(envelope.error?.message).toContain("exec limit");
+      expect(envelope.error?.message).toContain("BIG (950 KB)");
+      // The child was never spawned.
+      expect(envelope.traces.stdout).toBe("");
+    });
+
     it("uses scratchDir as cwd", async () => {
       const envelope = await runStep({
         step: { sh: "pwd" },
