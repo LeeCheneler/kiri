@@ -35,7 +35,7 @@ export interface RunContext {
   articles: RunContextArticle[];
 }
 
-function truncateStream(value: string): string {
+export function truncateStream(value: string): string {
   if (value.length <= STREAM_CAP) return value;
   let head = value.slice(0, STREAM_CAP);
   // slice() cuts at a UTF-16 code-unit index, so a character encoded as a

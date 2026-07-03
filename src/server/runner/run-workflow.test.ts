@@ -1126,9 +1126,10 @@ describe("runWorkflow", () => {
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.summary).toBe("default-prompt summary");
 
-      // The default prompt carries the feed instructions and the inlined envelope.
+      // The default prompt carries the feed instructions and the inlined
+      // plain-text digest (not the JSON envelope).
       expect(prompts[0]).toContain("activity feed");
-      expect(prompts[0]).toContain('"workflow": "zero-config-sum"');
+      expect(prompts[0]).toContain("Workflow: zero-config-sum");
       expect(prompts[0]).toContain("payload");
 
       // The snapshot keeps the authored definition, not the substituted prompt.
@@ -2334,6 +2335,53 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       );
       const run = db.select().from(runs).where(eq(runs.id, runId)).get();
       expect(run?.status).toBe("failed");
+    });
+  });
+
+  describe("summary context", () => {
+    it("injects the run digest into sh/use summarizers as $KIRI_SUMMARY_CONTEXT", async () => {
+      writeBundle("step", "#!/bin/sh\necho payload\n");
+      writeBundle("pub", "#!/bin/sh\necho article-body\n");
+      const wf: WorkflowDefinition = {
+        name: "digest-sum",
+        steps: [{ use: "step", id: "fetch", name: "Fetch data" }],
+        publish: [{ slug: "digest", use: "pub" }],
+        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
+      };
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      // The summariser echoed the digest back: header, labelled step
+      // section with its stdout, and the published article.
+      expect(run?.summary).toContain("Workflow: digest-sum");
+      expect(run?.summary).toContain("## Step 0 — Fetch data");
+      expect(run?.summary).toContain("payload");
+      expect(run?.summary).toContain("## Article: Digest (digest)");
+      expect(run?.summary).toContain("article-body");
+    });
+
+    it("does not offer KIRI_SUMMARY_CONTEXT to main steps or publishes", async () => {
+      writeBundle("step", '#!/bin/sh\nprintf "step=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
+      writeBundle("pub", '#!/bin/sh\nprintf "pub=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
+      const wf: WorkflowDefinition = {
+        name: "digest-scope",
+        steps: [{ use: "step" }],
+        publish: [{ slug: "probe", use: "pub" }],
+      };
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(rows[0].output).toBe("step=unset");
+      expect(rows[1].output).toBe("pub=unset");
     });
   });
 });

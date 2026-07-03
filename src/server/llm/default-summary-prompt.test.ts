@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { DEFAULT_SUMMARY_PROMPT } from "./default-summary-prompt.ts";
 
 describe("DEFAULT_SUMMARY_PROMPT", () => {
-  it("inlines the run-envelope placeholder", () => {
-    expect(DEFAULT_SUMMARY_PROMPT).toContain("{{KIRI_RUN_CONTEXT}}");
+  it("reads the run digest kiri injects into every summarize step", () => {
+    expect(DEFAULT_SUMMARY_PROMPT).toContain("{{KIRI_SUMMARY_CONTEXT}}");
   });
 
   it("treats the run envelope as untrusted data, not instructions", () => {

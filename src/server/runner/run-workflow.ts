@@ -13,6 +13,7 @@ import {
   type RunContextArticle,
   type RunContextStep,
   buildRunContext,
+  buildSummaryContext,
 } from "../llm/index.ts";
 import {
   type LlmConfig,
@@ -521,15 +522,34 @@ export function runWorkflow(
           steps: executed,
           articles: publishedArticles,
         });
+        // The gist plane: a prompt-ready plain-text digest of the run,
+        // injected the same way for every summarize shape — `sh:`/`use:`
+        // read $KIRI_SUMMARY_CONTEXT, `llm:` prompts template
+        // {{KIRI_SUMMARY_CONTEXT}}. Summarize runs only on fully-ok
+        // pipelines, so `executed` covers every authored step.
+        const summaryContext = buildSummaryContext({
+          workflow: definition.name,
+          durationMs: Date.now() - startedAt.getTime(),
+          steps: executed.map((executedStep) => ({
+            step: definition.steps[executedStep.index],
+            index: executedStep.index,
+            durationMs: executedStep.durationMs,
+            stdout: executedStep.stdout,
+          })),
+          articles: publishedArticles,
+        });
         let envExtras: Record<string, string>;
         if (isLlmStep(summarizeStep)) {
           // A completion can't read files; the envelope is inlined for the
           // prompt's {{KIRI_RUN_CONTEXT}} and no context file is written.
-          envExtras = { KIRI_RUN_CONTEXT: contextJson };
+          envExtras = { KIRI_RUN_CONTEXT: contextJson, KIRI_SUMMARY_CONTEXT: summaryContext };
         } else {
           const contextFile = join(scratchDir, "run-context.json");
           writeFileSync(contextFile, contextJson);
-          envExtras = { KIRI_RUN_CONTEXT_FILE: contextFile };
+          envExtras = {
+            KIRI_RUN_CONTEXT_FILE: contextFile,
+            KIRI_SUMMARY_CONTEXT: summaryContext,
+          };
         }
 
         const { envelope, cancelled } = await executePhase({
