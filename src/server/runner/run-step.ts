@@ -45,6 +45,23 @@ export interface RunStepArgs {
 }
 
 /**
+ * Ceiling for the combined byte size of a spawned step's env entries.
+ * macOS caps argv + envp handed to exec at ~1 MB (ARG_MAX); past that the
+ * spawn dies with an opaque E2BIG. A `{ step: <id> }` env ref carrying a
+ * huge upstream stdout is the realistic way to get there, so the limit
+ * sits under the OS cap with headroom for argv and the kiri overlay, and
+ * the error names the largest entries so it points back at the ref.
+ */
+const ENV_BYTE_LIMIT = 900 * 1024;
+
+const envByteSize = (env: Record<string, string>): number =>
+  Object.entries(env).reduce(
+    // Each envp entry is "KEY=value\0".
+    (total, [key, value]) => total + Buffer.byteLength(key) + Buffer.byteLength(value) + 2,
+    0,
+  );
+
+/**
  * Execute a workflow step and assemble the standard envelope.
  *
  * `use:` steps spawn the bundle's `run.sh` directly (`[runPath]`); `sh:`
@@ -53,7 +70,8 @@ export interface RunStepArgs {
  * (scratchDir) and the env scope. Spawn-time failure (missing script,
  * not executable) and a non-zero exit both yield `status: "failed"`
  * with the cause in `error`. `llm:` steps spawn nothing — they render
- * their prompt and run a completion instead (see `runLlmStep`).
+ * their prompt and run a completion instead (see `runLlmStep`), so the
+ * env size guard doesn't apply to them.
  */
 export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
   const { step, config, scratchDir, input, env, llmClients, onSpawn } = args;
@@ -62,6 +80,26 @@ export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
   }
   const cmd = isUseStep(step) ? [config.bundleRunPath(step.use)] : ["sh", "-c", step.sh];
   const startedAt = performance.now();
+
+  const envBytes = envByteSize(env);
+  if (envBytes > ENV_BYTE_LIMIT) {
+    const largest = Object.entries(env)
+      .map(([key, value]) => [key, Buffer.byteLength(value)] as const)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([key, bytes]) => `${key} (${Math.round(bytes / 1024)} KB)`)
+      .join(", ");
+    return {
+      status: "failed",
+      output: "",
+      error: {
+        message:
+          `step env is ${Math.round(envBytes / 1024)} KB, over the ${Math.round(ENV_BYTE_LIMIT / 1024)} KB exec limit — ` +
+          `largest entries: ${largest}. Trim the referenced output or move the data to a file.`,
+      },
+      traces: { stdout: "", stderr: "", durationMs: performance.now() - startedAt },
+    };
+  }
 
   let stdout: string;
   let stderr: string;

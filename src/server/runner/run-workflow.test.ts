@@ -2195,4 +2195,145 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       ]);
     });
   });
+
+  describe("step output refs", () => {
+    it("resolves { step: <id> } on a non-adjacent later step, stdout byte-for-byte", async () => {
+      writeBundle("producer", "#!/bin/sh\necho data-123\n");
+      writeBundle("consumer", '#!/bin/sh\nprintf "[%s]" "$UPSTREAM"\n');
+      const wf: WorkflowDefinition = {
+        name: "step-ref",
+        steps: [
+          { use: "producer", id: "fetch" },
+          { sh: "echo between" },
+          { use: "consumer", env: { UPSTREAM: { step: "fetch" } } },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      // Step 2's stdin carried step 1's output; the ref reaches past it to
+      // step 0's stdout, delivered exactly as written — echo's trailing
+      // newline included.
+      expect(rows[2].output).toBe("[data-123\n]");
+    });
+
+    it("resolves { step } refs on publish and { article } refs on summarize", async () => {
+      writeBundle("producer", "#!/bin/sh\necho material\n");
+      writeBundle("pub", '#!/bin/sh\nprintf "article from %s" "$DATA"\n');
+      writeBundle("summer", '#!/bin/sh\nprintf "summary of: %s" "$BODY"\n');
+      const wf: WorkflowDefinition = {
+        name: "phase-refs",
+        steps: [{ use: "producer", id: "fetch" }],
+        publish: [{ slug: "digest", use: "pub", env: { DATA: { step: "fetch" } } }],
+        summarize: { use: "summer", env: { BODY: { article: "digest" } } },
+      };
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
+      expect(articleRows).toHaveLength(1);
+      expect(articleRows[0].contentMd).toBe("article from material");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("summary of: article from material");
+    });
+
+    it("resolves a later publish's { article } ref to an earlier entry's article", async () => {
+      writeBundle("step", "#!/bin/sh\necho one\n");
+      writeBundle("first", "#!/bin/sh\nprintf 'first-body'\n");
+      writeBundle("second", '#!/bin/sh\nprintf "second saw: %s" "$FIRST"\n');
+      const wf: WorkflowDefinition = {
+        name: "article-chain",
+        steps: [{ use: "step" }],
+        publish: [
+          { slug: "first", use: "first" },
+          { slug: "second", use: "second", env: { FIRST: { article: "first" } } },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const articleRows = db
+        .select()
+        .from(articles)
+        .where(eq(articles.runId, result.runId))
+        .orderBy(asc(articles.slug))
+        .all();
+      expect(articleRows.map((a) => a.contentMd)).toEqual(["first-body", "second saw: first-body"]);
+    });
+
+    it("exposes a { step } ref to an llm step's prompt template", async () => {
+      writeBundle("producer", "#!/bin/sh\necho material\n");
+      const prompts: string[] = [];
+      const llmClients = fakeLlm(async ({ prompt }) => {
+        prompts.push(prompt);
+        return { text: "done", usage: {} };
+      });
+      const wf: WorkflowDefinition = {
+        name: "llm-step-ref",
+        steps: [
+          { use: "producer", id: "fetch" },
+          { sh: "echo between" },
+          {
+            llm: { model: "anthropic:m", prompt: "from={{UPSTREAM}}" },
+            env: { UPSTREAM: { step: "fetch" } },
+          },
+        ],
+      };
+
+      const result = await runWorkflow(db, wf, { config, llmClients }).done;
+
+      expect(result.status).toBe("ok");
+      // Byte-for-byte: the producer's trailing newline lands in the prompt.
+      expect(prompts[0]).toBe("from=material\n");
+    });
+
+    it("fails the run when a { step } ref misses the output map", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      // The schema rejects unknown ids at load; tests construct definitions
+      // directly, so this exercises the runner's invariant guard.
+      const wf: WorkflowDefinition = {
+        name: "ghost-step-ref",
+        steps: [{ use: "hello", env: { UP: { step: "ghost" } } }],
+      };
+
+      const { runId, done } = runWorkflow(db, wf, { config });
+      const thrown = await done.catch((e: unknown) => e);
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toMatch(
+        /env "UP" references step "ghost", which has no output on this run/,
+      );
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("failed");
+    });
+
+    it("fails the run when an { article } ref misses the article map", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      writeBundle("pub", "#!/bin/sh\necho body\n");
+      const wf: WorkflowDefinition = {
+        name: "ghost-article-ref",
+        steps: [{ use: "hello" }],
+        publish: [{ slug: "digest", use: "pub", env: { BODY: { article: "ghost" } } }],
+      };
+
+      const { runId, done } = runWorkflow(db, wf, { config });
+      const thrown = await done.catch((e: unknown) => e);
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toMatch(
+        /env "BODY" references article "ghost", which has not been published on this run/,
+      );
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("failed");
+    });
+  });
 });

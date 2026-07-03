@@ -907,6 +907,153 @@ describe("workflowSchema", () => {
   });
 });
 
+describe("step ids and output refs", () => {
+  it("parses a step id and a later step's { step } env ref", () => {
+    const result = workflowSchema.parse({
+      name: "step-refs",
+      steps: [
+        { sh: "echo one", id: "fetch" },
+        { use: "consumer", env: { UPSTREAM: { step: "fetch" } } },
+      ],
+    });
+    expect(result.steps[0].id).toBe("fetch");
+    expect(result.steps[1].env).toEqual({ UPSTREAM: { step: "fetch" } });
+  });
+
+  it("rejects a step id that fails the grammar", () => {
+    const result = workflowSchema.safeParse({
+      name: "bad-id",
+      steps: [{ sh: "echo one", id: "Fetch PRs" }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("step id must match");
+    }
+  });
+
+  it("rejects duplicate step ids", () => {
+    const result = workflowSchema.safeParse({
+      name: "dup-ids",
+      steps: [
+        { sh: "echo one", id: "fetch" },
+        { sh: "echo two", id: "fetch" },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("already declared on step 0");
+      expect(result.error.message).toContain("fetch");
+    }
+  });
+
+  it("rejects a { step } ref to an unknown id", () => {
+    const result = workflowSchema.safeParse({
+      name: "unknown-step-ref",
+      steps: [
+        { sh: "echo one", id: "fetch" },
+        { use: "consumer", env: { UPSTREAM: { step: "ghost" } } },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("unknown step id");
+      expect(result.error.message).toContain("ghost");
+    }
+  });
+
+  it("rejects a { step } ref to the step itself or a later step", () => {
+    const self = workflowSchema.safeParse({
+      name: "self-ref",
+      steps: [{ sh: "echo one", id: "me", env: { LOOP: { step: "me" } } }],
+    });
+    expect(self.success).toBe(false);
+    if (!self.success) {
+      expect(self.error.message).toContain("backward-only");
+    }
+
+    const forward = workflowSchema.safeParse({
+      name: "forward-ref",
+      steps: [
+        { sh: "echo one", env: { LATER: { step: "next" } } },
+        { sh: "echo two", id: "next" },
+      ],
+    });
+    expect(forward.success).toBe(false);
+    if (!forward.success) {
+      expect(forward.error.message).toContain("backward-only");
+    }
+  });
+
+  it("rejects an { article } ref on a main step", () => {
+    const result = workflowSchema.safeParse({
+      name: "article-on-step",
+      steps: [{ use: "consumer", env: { BODY: { article: "digest" } } }],
+      publish: [{ slug: "digest", sh: "echo body" }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("only valid on publish: and summarize:");
+    }
+  });
+
+  it("parses publish and summarize refs to steps and earlier articles", () => {
+    const result = workflowSchema.parse({
+      name: "publish-refs",
+      steps: [{ sh: "echo one", id: "fetch" }],
+      publish: [
+        { slug: "digest", use: "writer", env: { DATA: { step: "fetch" } } },
+        { slug: "recap", use: "writer", env: { DIGEST: { article: "digest" } } },
+      ],
+      summarize: {
+        use: "summer",
+        env: { DATA: { step: "fetch" }, RECAP: { article: "recap" } },
+      },
+    });
+    expect(result.publish?.[1].env).toEqual({ DIGEST: { article: "digest" } });
+  });
+
+  it("rejects a publish { article } ref to itself or a later entry", () => {
+    const result = workflowSchema.safeParse({
+      name: "forward-article-ref",
+      steps: [{ sh: "echo one" }],
+      publish: [
+        { slug: "first", use: "writer", env: { NEXT: { article: "second" } } },
+        { slug: "second", use: "writer" },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("not published before this entry");
+    }
+  });
+
+  it("rejects a summarize { article } ref to an unknown slug", () => {
+    const result = workflowSchema.safeParse({
+      name: "unknown-article-ref",
+      steps: [{ sh: "echo one" }],
+      publish: [{ slug: "digest", sh: "echo body" }],
+      summarize: { use: "summer", env: { BODY: { article: "ghost" } } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("unknown article slug");
+      expect(result.error.message).toContain("ghost");
+    }
+  });
+
+  it("rejects an id on summarize", () => {
+    const result = workflowSchema.safeParse({
+      name: "summarize-id",
+      steps: [{ sh: "echo one" }],
+      summarize: { sh: "echo summary", id: "summary" },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("summarize cannot declare an id");
+    }
+  });
+});
+
 describe("isUsePublish / isShPublish / isLlmPublish", () => {
   it("narrows a use: publish entry", () => {
     const entry = { slug: "digest", use: "writer" } as const;
