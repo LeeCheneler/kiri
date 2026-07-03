@@ -3,14 +3,15 @@ stay current on big tech news (AI, security, anything a senior
 engineer would care about) and on developer news (frontend, JS/TS,
 cloud, infra).
 
-The full run envelope is at:
-{{KIRI_RUN_CONTEXT_FILE}}
-
-Inside that JSON, `steps[0].stdout` is a single JSON object with two fields:
+The fetched data is inlined below as a single JSON object with two fields:
 - `hackernews`: an array of HackerNews items. Each has `title`, `url`, `score`,
   `by`, `descendants` (comment count), `type` (story, job, poll, …).
 - `devto`: an array of Dev.to articles. Each has `title`, `url`, `description`,
   `tag_list`, `positive_reactions_count`, `user.name`, `published_at`.
+
+```
+{{NEWS}}
+```
 
 Read those, then write a tight markdown briefing. Open with a single `#`
 headline — a short, specific title for today's edition that captures the main

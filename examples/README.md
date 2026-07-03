@@ -12,9 +12,7 @@ examples/
   kiri.yaml                   # structured config (providers for first-party llm: steps)
   bundles/
     claude-code/              # spawn the Claude Code CLI with a rendered prompt
-    claude-code-summarizer/   # summarise: step backed by Claude Code
     lm-studio/                # one-shot completion against an OpenAI-compatible local server
-    lm-studio-summarizer/     # summarise: step backed by LM Studio
   workflows/
     daily-briefing.yaml       # composes a sh: fetch, a publish: article, and a summary
     review-queue.yaml         # cross-repo PR triage; recommends one PR Review per matching PR
@@ -64,10 +62,11 @@ summariser (`summarize: { llm: { model } }`, which uses a built-in prompt):
   bundled `openai-compatible` entry) to run against LM Studio / Ollama
   with no key.
 - **Templating matches the bundles.** `{{KIRI_INPUT}}` carries the
-  previous step's stdout into an `llm:` step's prompt. Publish and
-  summarise steps receive the run envelope inlined as
-  `{{KIRI_RUN_CONTEXT}}` (each stream capped at 64 KB) rather than piped
-  stdin.
+  previous step's stdout into an `llm:` step's prompt. Publish steps get
+  no piped stdin — they take exactly the data they declare through
+  `{ step: <id> }` / `{ article: <slug> }` env refs, rendered by name
+  (`{{DRAFT}}`). Summarise steps additionally receive the whole-run
+  digest as `{{KIRI_SUMMARY_CONTEXT}}` (per-stream capped at 64 KB).
 
 Reach for a bundle (`claude-code`, `lm-studio`) when a step needs to *do*
 something — spawn a CLI, shell out, run an agent. Reach for `llm:` when it

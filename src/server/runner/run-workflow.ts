@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { resolvePublishName } from "../../shared/publish-name.ts";
@@ -10,9 +10,8 @@ import { resolveGitHead } from "../git/head.ts";
 import {
   DEFAULT_SUMMARY_PROMPT,
   type LlmClients,
-  type RunContextArticle,
-  type RunContextStep,
-  buildRunContext,
+  type SummaryContextArticle,
+  type SummaryContextStep,
   buildSummaryContext,
 } from "../llm/index.ts";
 import {
@@ -109,14 +108,14 @@ const publishAsStep = (entry: PublishEntry): WorkflowStep => {
 
 // The schema lets a summarize llm step omit both prompt fields so
 // `summarize: { llm: { model } }` works zero-config; the baked-in prompt
-// reads the inlined {{KIRI_RUN_CONTEXT}} envelope. The substitution stays
-// out of the definition snapshot — that records what was authored.
+// reads the injected {{KIRI_SUMMARY_CONTEXT}} digest. The substitution
+// stays out of the definition snapshot — that records what was authored.
 const withDefaultSummaryPrompt = (step: WorkflowStep): WorkflowStep =>
   isLlmStep(step) && step.llm.prompt === undefined && step.llm.prompt_file === undefined
     ? { ...step, llm: { ...step.llm, prompt: DEFAULT_SUMMARY_PROMPT } }
     : step;
 
-/** The step's kind tag plus identifying config, for `run_steps.kind` and the run-context file. */
+/** The step's kind tag plus identifying config, for `run_steps.kind`. */
 const stepIdentOf = (step: WorkflowStep): StepIdent => {
   if (isUseStep(step)) return { kind: "use", use: step.use };
   if (isLlmStep(step)) return { kind: "llm", llm: step.llm };
@@ -365,11 +364,10 @@ export function runWorkflow(
     let runError: { message: string; stack?: string } | undefined;
     let caughtThrow: unknown;
     let summaryText: string | null = null;
-    // Accumulated step outcomes and articles, serialised into the run
-    // context handed to publish/summarize phases so they have the full
-    // run picture without a DB round-trip.
-    const executed: RunContextStep[] = [];
-    const publishedArticles: RunContextArticle[] = [];
+    // Accumulated step outcomes and articles, rendered into the digest
+    // handed to the summarize phase without a DB round-trip.
+    const executed: SummaryContextStep[] = [];
+    const publishedArticles: SummaryContextArticle[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
@@ -383,7 +381,7 @@ export function runWorkflow(
 
         const step = definition.steps[i];
         const recommendationsFile = join(scratchDir, `recommendations-${i}.jsonl`);
-        const { envelope, cancelled, stepStatus, stepError } = await executePhase({
+        const { envelope, cancelled, stepStatus } = await executePhase({
           step,
           index: i,
           input,
@@ -404,13 +402,10 @@ export function runWorkflow(
         }
 
         executed.push({
-          ...stepIdentOf(step),
+          step,
           index: i,
-          status: stepStatus,
           durationMs: envelope.traces.durationMs,
           stdout: envelope.traces.stdout,
-          stderr: envelope.traces.stderr,
-          error: stepError,
         });
 
         if (envelope.status === "failed") {
@@ -450,31 +445,14 @@ export function runWorkflow(
         const publishStep = publishAsStep(entry);
         const publishIndex = definition.steps.length + pi;
 
-        const contextJson = buildRunContext({
-          workflow: definition.name,
-          status,
-          startedAt: startedAt.toISOString(),
-          durationMs: Date.now() - startedAt.getTime(),
-          steps: executed,
-          articles: publishedArticles,
-        });
-        let envExtras: Record<string, string>;
-        if (isLlmStep(publishStep)) {
-          // A completion can't read files; the envelope is inlined for the
-          // prompt's {{KIRI_RUN_CONTEXT}} and no context file is written.
-          envExtras = { KIRI_RUN_CONTEXT: contextJson };
-        } else {
-          const contextFile = join(scratchDir, `publish-context-${pi}.json`);
-          writeFileSync(contextFile, contextJson);
-          envExtras = { KIRI_RUN_CONTEXT_FILE: contextFile };
-        }
-
+        // Publishes get no auto-injected data: empty stdin, and whatever
+        // the entry declared through { step: <id> } / { article: <slug> }
+        // env refs. The retired run-context channel is not written.
         const { envelope, cancelled } = await executePhase({
           step: publishStep,
           index: publishIndex,
           flag: "publish",
           input: "",
-          envExtras,
         });
 
         if (envelope.status === "ok" && !cancelled) {
@@ -514,14 +492,6 @@ export function runWorkflow(
       if (definition.summarize && status === "ok") {
         const summarizeStep = withDefaultSummaryPrompt(definition.summarize);
         const summaryIndex = definition.steps.length + publishes.length;
-        const contextJson = buildRunContext({
-          workflow: definition.name,
-          status,
-          startedAt: startedAt.toISOString(),
-          durationMs: Date.now() - startedAt.getTime(),
-          steps: executed,
-          articles: publishedArticles,
-        });
         // The gist plane: a prompt-ready plain-text digest of the run,
         // injected the same way for every summarize shape — `sh:`/`use:`
         // read $KIRI_SUMMARY_CONTEXT, `llm:` prompts template
@@ -530,34 +500,16 @@ export function runWorkflow(
         const summaryContext = buildSummaryContext({
           workflow: definition.name,
           durationMs: Date.now() - startedAt.getTime(),
-          steps: executed.map((executedStep) => ({
-            step: definition.steps[executedStep.index],
-            index: executedStep.index,
-            durationMs: executedStep.durationMs,
-            stdout: executedStep.stdout,
-          })),
+          steps: executed,
           articles: publishedArticles,
         });
-        let envExtras: Record<string, string>;
-        if (isLlmStep(summarizeStep)) {
-          // A completion can't read files; the envelope is inlined for the
-          // prompt's {{KIRI_RUN_CONTEXT}} and no context file is written.
-          envExtras = { KIRI_RUN_CONTEXT: contextJson, KIRI_SUMMARY_CONTEXT: summaryContext };
-        } else {
-          const contextFile = join(scratchDir, "run-context.json");
-          writeFileSync(contextFile, contextJson);
-          envExtras = {
-            KIRI_RUN_CONTEXT_FILE: contextFile,
-            KIRI_SUMMARY_CONTEXT: summaryContext,
-          };
-        }
 
         const { envelope, cancelled } = await executePhase({
           step: summarizeStep,
           index: summaryIndex,
           flag: "summary",
           input: "",
-          envExtras,
+          envExtras: { KIRI_SUMMARY_CONTEXT: summaryContext },
         });
 
         if (envelope.status === "ok" && !cancelled) {

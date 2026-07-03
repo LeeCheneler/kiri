@@ -13,9 +13,7 @@ examples/
   kiri.yaml                   # providers for first-party llm: steps
   bundles/
     claude-code/              # spawn the Claude Code CLI with a rendered prompt
-    claude-code-summarizer/   # summarize: step backed by Claude Code
     lm-studio/                # one-shot completion against a local OpenAI-compatible server
-    lm-studio-summarizer/     # summarize: step backed by LM Studio
   workflows/
     daily-briefing.yaml       # sh: fetch → publish: article → summary
     review-queue.yaml         # cross-repo PR triage; recommends one PR Review per match
@@ -45,7 +43,8 @@ reference for authoring [your own bundles](/docs/workflows).
 
 The `release-notes` example shows the full `llm:` shape — providers in
 `kiri.yaml`, a pipeline completion reading `{{KIRI_INPUT}}`, an `llm:` publish
-reading the inlined `{{KIRI_RUN_CONTEXT}}`, and a zero-config summariser:
+fed the draft through a `{ step: <id> }` env ref, and a zero-config
+summariser:
 
 ```yaml
 # kiri.yaml (workspace root)
@@ -72,13 +71,17 @@ steps:
         Rewrite these changelog lines as friendly release notes.
 
         {{KIRI_INPUT}}
+    id: draft
     name: Draft the notes
 publish:
   - slug: release-notes
     name: Release Notes
     llm:
       model: anthropic:claude-haiku-4-5
-      prompt_file: prompts/release-notes.tpl   # reads {{KIRI_RUN_CONTEXT}}
+      prompt_file: prompts/release-notes.tpl   # reads {{DRAFT}}
+    env:
+      DRAFT:
+        step: draft
 summarize:
   llm:
     model: anthropic:claude-haiku-4-5          # zero-config — built-in prompt

@@ -22,6 +22,7 @@ steps:
       }
       gh pr view "$PR_NUMBER" --repo "$REPO" \
         --json number,title,body,additions,deletions,files,author,url
+    id: fetch
     name: Fetch the PR
     description: Fetch the PR JSON for the requested PR.
     env:
@@ -38,8 +39,13 @@ publish:
     env:
       PROMPT_FILE: prompts/pr-review.tpl
       MODEL: haiku
+      # The fetch step's stdout, resolved by kiri and rendered into the
+      # prompt template as {{PR}}.
+      PR:
+        step: fetch
 
+# Zero-config: kiri's built-in summary prompt over the injected
+# {{KIRI_SUMMARY_CONTEXT}} digest.
 summarize:
-  use: claude-code-summarizer
-  env:
-    MODEL: haiku
+  llm:
+    model: anthropic:claude-haiku-4-5

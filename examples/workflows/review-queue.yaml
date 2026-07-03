@@ -57,7 +57,8 @@ steps:
     name: Aggregate open PRs
     description: Aggregate open PRs awaiting your review across all repos.
 
+# Zero-config: kiri's built-in summary prompt over the injected
+# {{KIRI_SUMMARY_CONTEXT}} digest.
 summarize:
-  use: claude-code-summarizer
-  env:
-    MODEL: haiku
+  llm:
+    model: anthropic:claude-haiku-4-5

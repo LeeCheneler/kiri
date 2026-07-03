@@ -1,5 +1,24 @@
 import { type WorkflowStep, isLlmStep, isUseStep } from "../workflows/index.ts";
-import { type RunContextArticle, truncateStream } from "./build-run-context.ts";
+
+// Per-stream cap on a step's stdout / an article's markdown within the
+// digest. The digest travels as a single env entry and gets inlined into
+// prompts, so unbounded streams would blow the OS exec limit and model
+// context windows long before they trouble anything else.
+const STREAM_CAP = 64 * 1024;
+const TRUNCATION_MARKER = "\n[truncated]";
+
+export function truncateStream(value: string): string {
+  if (value.length <= STREAM_CAP) return value;
+  let head = value.slice(0, STREAM_CAP);
+  // slice() cuts at a UTF-16 code-unit index, so a character encoded as a
+  // surrogate pair (emoji etc.) can be split in half at the cap. A kept
+  // half ends with a high surrogate (0xd800–0xdbff); drop it so the
+  // output stays well-formed Unicode rather than carrying an orphan that
+  // strict consumers reject or mangle to U+FFFD.
+  const last = head.charCodeAt(head.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1);
+  return head + TRUNCATION_MARKER;
+}
 
 /**
  * One executed step as rendered into the summary digest. `step` is the
@@ -12,11 +31,18 @@ export interface SummaryContextStep {
   stdout: string;
 }
 
+/** A publish article already produced when the summariser starts. */
+export interface SummaryContextArticle {
+  slug: string;
+  name: string;
+  content_md: string;
+}
+
 export interface SummaryContextInput {
   workflow: string;
   durationMs: number;
   steps: SummaryContextStep[];
-  articles: RunContextArticle[];
+  articles: SummaryContextArticle[];
 }
 
 /**

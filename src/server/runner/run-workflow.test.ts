@@ -943,81 +943,60 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBeNull();
     });
 
-    it("exposes KIRI_RUN_CONTEXT_FILE pointing at the run envelope JSON", async () => {
+    it("does not inject the retired run-context channel into summarizers", async () => {
       writeBundle("step", "#!/bin/sh\necho hello\n");
-      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      writeBundle(
+        "probe",
+        '#!/bin/sh\nprintf "%s|%s" "${KIRI_RUN_CONTEXT_FILE:-unset}" "${KIRI_RUN_CONTEXT:-unset}"\n',
+      );
       const wf: WorkflowDefinition = {
         name: "ctx",
         steps: [{ use: "step" }],
-        summarize: { use: "context-dump" },
+        summarize: { use: "probe" },
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      const summary = run?.summary;
-      expect(summary).toBeDefined();
-      // Summariser stdout was a JSON blob piped through `cat`.
-      const parsed = JSON.parse(summary as string);
-      expect(parsed.workflow).toBe("ctx");
-      expect(parsed.status).toBe("ok");
-      expect(typeof parsed.startedAt).toBe("string");
-      expect(typeof parsed.durationMs).toBe("number");
-      expect(parsed.steps).toEqual([
-        expect.objectContaining({
-          index: 0,
-          kind: "use",
-          use: "step",
-          status: "ok",
-          stdout: "hello\n",
-          stderr: "",
-          error: null,
-        }),
-      ]);
-      // Stable shape: the field is always present, empty when no publishes ran.
-      expect(parsed.articles).toEqual([]);
+      expect(run?.summary).toBe("unset|unset");
     });
 
-    it("caps a step's stdout in the run-context envelope at 64 KB", async () => {
+    it("caps a chatty step's stdout in the summary digest at 64 KB", async () => {
       // Emit ~80 KB of stdout so the per-stream cap bites.
       writeBundle("firehose", "#!/bin/sh\nyes x | head -c 81920\n");
-      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
       const wf: WorkflowDefinition = {
         name: "ctx-cap",
         steps: [{ use: "firehose" }],
-        summarize: { use: "context-dump" },
+        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      const parsed = JSON.parse(run?.summary as string);
-      expect(parsed.steps[0].stdout.endsWith("\n[truncated]")).toBe(true);
-      expect(parsed.steps[0].stdout.length).toBeLessThan(81920);
+      expect(run?.summary).toContain("[truncated]");
+      // Header + capped body land well under the raw 80 KB.
+      expect((run?.summary as string).length).toBeLessThan(81920);
 
-      // The step row keeps the full stream — only the context envelope is capped.
+      // The step row keeps the full stream — only the digest is capped.
       const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
       const firehose = stepsRows.find((s) => s.index === 0);
       expect((firehose?.traces as { stdout: string }).stdout.length).toBe(81920);
     });
 
-    it("includes successful articles in the summariser run-context envelope", async () => {
+    it("includes published articles in the summary digest", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("art", "#!/bin/sh\necho article-body\n");
-      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
       const wf: WorkflowDefinition = {
         name: "summer-sees-art",
         steps: [{ use: "step" }],
         publish: [{ slug: "art", name: "Article", use: "art" }],
-        summarize: { use: "context-dump" },
+        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      const parsed = JSON.parse(run?.summary as string);
-      expect(parsed.articles).toEqual([
-        { slug: "art", name: "Article", content_md: "article-body" },
-      ]);
+      expect(run?.summary).toContain("## Article: Article (art)");
+      expect(run?.summary).toContain("article-body");
     });
 
     it("publishes summariser step events between run.step.updated and run.updated", async () => {
@@ -1075,7 +1054,7 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBeNull();
     });
 
-    it("stores an llm summariser's text and inlines the run context into its prompt", async () => {
+    it("stores an llm summariser's text and templates the digest into its prompt", async () => {
       writeBundle("step", "#!/bin/sh\necho hello\n");
       const prompts: string[] = [];
       const llmClients = fakeLlm(async ({ prompt }) => {
@@ -1088,7 +1067,7 @@ describe("runWorkflow", () => {
         summarize: {
           llm: {
             model: "anthropic:m",
-            prompt: "file={{KIRI_RUN_CONTEXT_FILE}}|{{KIRI_RUN_CONTEXT}}",
+            prompt: "digest={{KIRI_SUMMARY_CONTEXT}}",
           },
         },
       };
@@ -1099,12 +1078,8 @@ describe("runWorkflow", () => {
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.summary).toBe("a tidy summary");
 
-      // No context file is written for llm steps — the placeholder renders
-      // empty and the envelope itself is inlined instead.
-      expect(prompts[0]?.startsWith("file=|{")).toBe(true);
-      const context = JSON.parse(prompts[0]?.slice("file=|".length) as string);
-      expect(context.workflow).toBe("llm-sum");
-      expect(context.steps[0]).toMatchObject({ kind: "use", use: "step", stdout: "hello\n" });
+      expect(prompts[0]).toContain("digest=Workflow: llm-sum");
+      expect(prompts[0]).toContain("hello");
     });
 
     it("falls back to the baked-in summary prompt when an llm summariser declares none", async () => {
@@ -1324,33 +1299,29 @@ describe("runWorkflow", () => {
       expect(articleRows).toHaveLength(0);
     });
 
-    it("exposes earlier successful articles to later publishes via KIRI_RUN_CONTEXT_FILE", async () => {
+    it("gives publishes no auto-injected data — empty stdin, refs only", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
-      writeBundle("first-art", "#!/bin/sh\necho first-content\n");
-      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      writeBundle(
+        "probe",
+        '#!/bin/sh\nprintf "%s|%s|stdin=%s" "${KIRI_RUN_CONTEXT_FILE:-unset}" "${KIRI_RUN_CONTEXT:-unset}" "$(cat)"\n',
+      );
       const wf: WorkflowDefinition = {
-        name: "sibling-ctx",
+        name: "pub-no-injection",
         steps: [{ use: "step" }],
-        publish: [
-          { slug: "first", name: "First Article", use: "first-art" },
-          { slug: "second", use: "context-dump" },
-        ],
+        publish: [{ slug: "probe", use: "probe" }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
-      const secondRow = db
+      const publishRow = db
         .select()
         .from(runSteps)
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all()
-        .find((s) => s.isPublish && s.index === 2);
-      const parsed = JSON.parse(secondRow?.output as string);
-      expect(parsed.articles).toEqual([
-        { slug: "first", name: "First Article", content_md: "first-content" },
-      ]);
+        .find((s) => s.isPublish);
+      expect(publishRow?.output).toBe("unset|unset|stdin=");
     });
 
     it("skips publishes entirely when the steps: pipeline failed", async () => {
@@ -1403,31 +1374,20 @@ describe("runWorkflow", () => {
       expect(stepsRows.some((s) => s.isPublish)).toBe(false);
     });
 
-    it("exposes KIRI_RUN_CONTEXT_FILE to publishes with the steps envelope", async () => {
+    it("feeds a publish its declared step data through refs", async () => {
       writeBundle("step", "#!/bin/sh\necho hello\n");
-      writeBundle("context-dump", '#!/bin/sh\ncat "$KIRI_RUN_CONTEXT_FILE"\n');
+      writeBundle("pub", '#!/bin/sh\nprintf "got:%s" "$DATA"\n');
       const wf: WorkflowDefinition = {
         name: "pub-ctx",
-        steps: [{ use: "step" }],
-        publish: [{ slug: "ctx", use: "context-dump" }],
+        steps: [{ use: "step", id: "greet" }],
+        publish: [{ slug: "ctx", use: "pub", env: { DATA: { step: "greet" } } }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
-      const publishRow = db
-        .select()
-        .from(runSteps)
-        .where(eq(runSteps.runId, result.runId))
-        .orderBy(asc(runSteps.index))
-        .all()
-        .find((s) => s.isPublish);
-      const parsed = JSON.parse(publishRow?.output as string);
-      expect(parsed.workflow).toBe("pub-ctx");
-      expect(parsed.status).toBe("ok");
-      expect(parsed.steps).toEqual([
-        expect.objectContaining({ index: 0, kind: "use", use: "step", status: "ok" }),
-      ]);
+      const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
+      expect(articleRows[0].contentMd).toBe("got:hello");
     });
 
     it("inter-publish cancel halts before the next publish starts; earlier ok publish stays ok", async () => {
@@ -1556,7 +1516,7 @@ describe("runWorkflow", () => {
       ]);
     });
 
-    it("stores an llm publish's text as the article and inlines the run context", async () => {
+    it("stores an llm publish's text as the article, data taken through refs", async () => {
       writeBundle("step", "#!/bin/sh\necho material\n");
       const prompts: string[] = [];
       const llmClients = fakeLlm(async ({ prompt }) => {
@@ -1565,14 +1525,15 @@ describe("runWorkflow", () => {
       });
       const wf: WorkflowDefinition = {
         name: "llm-pub",
-        steps: [{ use: "step" }],
+        steps: [{ use: "step", id: "fetch" }],
         publish: [
           {
             slug: "digest",
             llm: {
               model: "anthropic:m",
-              prompt: "file={{KIRI_RUN_CONTEXT_FILE}}|{{KIRI_RUN_CONTEXT}}",
+              prompt: "Write a digest from: {{DATA}}",
             },
+            env: { DATA: { step: "fetch" } },
           },
         ],
       };
@@ -1584,13 +1545,7 @@ describe("runWorkflow", () => {
       expect(stored).toHaveLength(1);
       expect(stored[0].slug).toBe("digest");
       expect(stored[0].contentMd).toBe("# Weekly digest\n\nbody");
-
-      // No context file is written for llm publishes — the placeholder
-      // renders empty and the envelope itself is inlined instead.
-      expect(prompts[0]?.startsWith("file=|{")).toBe(true);
-      const context = JSON.parse(prompts[0]?.slice("file=|".length) as string);
-      expect(context.workflow).toBe("llm-pub");
-      expect(context.steps[0]).toMatchObject({ kind: "use", stdout: "material\n" });
+      expect(prompts[0]).toBe("Write a digest from: material\n");
     });
   });
 
