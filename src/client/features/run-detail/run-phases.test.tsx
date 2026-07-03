@@ -67,6 +67,25 @@ describe("<RunPhases>", () => {
     expect(screen.getByText("summariser")).toBeDefined();
   });
 
+  it("shows a step's declared id beside its title", () => {
+    const run = makeRun({ name: "wf", steps: [{ use: "fetch-pr", id: "fetch" }] });
+    render(<RunPhases run={run} steps={[makeStep({ index: 0 })]} now={NOW} />);
+    expect(screen.getByText("fetch-pr")).toBeDefined();
+    expect(screen.getByText("fetch")).toBeDefined();
+  });
+
+  it("shows a publish's slug beside its resolved name", () => {
+    const run = makeRun({
+      name: "wf",
+      steps: [{ use: "fetch-pr" }],
+      publish: [{ slug: "digest", name: "PR Digest", use: "writer" }],
+    });
+    const steps = [makeStep({ index: 0 }), makeStep({ index: 1, isPublish: true })];
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    expect(screen.getByText("PR Digest")).toBeDefined();
+    expect(screen.getByText("digest")).toBeDefined();
+  });
+
   it("labels a step by its name when one is declared", () => {
     const run = makeRun({
       name: "wf",

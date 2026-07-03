@@ -22,15 +22,29 @@ export interface LlmConfigSummary {
 }
 
 /**
- * A single workflow step as seen by the client. `name` is an optional
- * short label used as the step's title in the Schema tab and run timeline;
- * absent steps fall back to the bundle reference, the script's first line,
- * or the llm model id.
+ * A single workflow step as seen by the client. `id` is the optional
+ * identifier later steps reference via `{ step: <id> }` env refs, shown
+ * beside the step's title when declared. `name` is an optional short label
+ * used as the step's title in the Schema tab and run timeline; absent steps
+ * fall back to the bundle reference, the script's first line, or the llm
+ * model id.
  */
 export type WorkflowStepSummary =
-  | { use: string; name?: string; description?: string; env?: Record<string, EnvValue> }
-  | { sh: string; name?: string; description?: string; env?: Record<string, EnvValue> }
-  | { llm: LlmConfigSummary; name?: string; description?: string; env?: Record<string, EnvValue> };
+  | {
+      use: string;
+      id?: string;
+      name?: string;
+      description?: string;
+      env?: Record<string, EnvValue>;
+    }
+  | { sh: string; id?: string; name?: string; description?: string; env?: Record<string, EnvValue> }
+  | {
+      llm: LlmConfigSummary;
+      id?: string;
+      name?: string;
+      description?: string;
+      env?: Record<string, EnvValue>;
+    };
 
 /**
  * One `publish:` entry on a workflow summary. `slug` is the URL/identifier;

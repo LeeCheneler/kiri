@@ -6,13 +6,17 @@ import { EntryConfig, stepTitle } from "./entry-config.tsx";
 type SchemaItem = WorkflowStepSummary | WorkflowPublishSummary;
 
 /**
- * One schema entry: a disclosure whose summary pairs a phase marker, the entry's
- * kind, and its title; expanding reveals the entry's config.
+ * One schema entry: a disclosure whose summary pairs a phase marker, the
+ * entry's title, and its ref handle — a step's declared `id` or a publish's
+ * `slug` — when it has one; expanding reveals the entry's config.
  */
 function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
   // Publish summaries always carry a `slug`; steps never do, so it's the
   // reliable discriminant now that steps may also declare a `name`.
   const publish = "slug" in entry ? entry : undefined;
+  // The entry's ref handle: what `{ step: <id> }` / `{ article: <slug> }`
+  // env refs point at.
+  const handle = publish ? publish.slug : "id" in entry ? entry.id : undefined;
   return (
     <Disclosure
       summary={
@@ -20,21 +24,16 @@ function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
           <span className="w-24 shrink-0 font-mono text-xs tabular-nums text-ink-muted">
             {marker}
           </span>
-          <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink">
-            {publish ? publish.name : stepTitle(entry)}
+          <span className="flex min-w-0 flex-1 items-baseline gap-3">
+            <span className="truncate font-mono text-sm text-ink">
+              {publish ? publish.name : stepTitle(entry)}
+            </span>
+            {handle && <span className="shrink-0 font-mono text-xs text-ink-faint">{handle}</span>}
           </span>
         </div>
       }
     >
-      <div className="space-y-4">
-        {publish && (
-          <div className="flex flex-col gap-1">
-            <h4 className="font-display text-xl text-ink leading-tight">{publish.name}</h4>
-            <span className="font-mono text-xs text-ink-faint">{publish.slug}</span>
-          </div>
-        )}
-        <EntryConfig entry={entry} />
-      </div>
+      <EntryConfig entry={entry} />
     </Disclosure>
   );
 }

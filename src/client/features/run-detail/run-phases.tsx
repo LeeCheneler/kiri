@@ -25,6 +25,11 @@ interface PhaseItem {
   ordinal: number;
   title: string;
   status: StatusKind;
+  /**
+   * The entry's ref handle — a step's declared `id` or a publish's `slug`:
+   * what `{ step: <id> }` / `{ article: <slug> }` env refs point at.
+   */
+  handle?: string;
   /** The declared definition entry — carries the `llm:` config for an llm row. */
   entry: PhaseEntry;
   /** The persisted step row, once the runner has reached this entry. */
@@ -49,6 +54,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       ordinal: i + 1,
       title: stepTitle(step),
       status: row?.status ?? "pending",
+      handle: step.id,
       entry: step,
       row,
     };
@@ -62,6 +68,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       ordinal: pi + 1,
       title: resolvePublishName(entry.slug, entry.name),
       status: row?.status ?? "pending",
+      handle: entry.slug,
       entry,
       row,
     };
@@ -129,12 +136,17 @@ function PhaseRow({ item, now }: { item: PhaseItem; now?: Date }) {
       <span className="shrink-0 font-mono text-xs text-ink-faint tabular-nums">
         {String(item.ordinal).padStart(2, "0")}
       </span>
-      <span
-        className={`min-w-0 flex-1 truncate font-mono text-sm ${
-          item.status === "pending" ? "text-ink-muted" : "text-ink"
-        }`}
-      >
-        {item.title}
+      <span className="flex min-w-0 flex-1 items-baseline gap-3">
+        <span
+          className={`truncate font-mono text-sm ${
+            item.status === "pending" ? "text-ink-muted" : "text-ink"
+          }`}
+        >
+          {item.title}
+        </span>
+        {item.handle && (
+          <span className="shrink-0 font-mono text-xs text-ink-faint">{item.handle}</span>
+        )}
       </span>
       <span className="shrink-0 text-xs">
         <Status status={item.status} />

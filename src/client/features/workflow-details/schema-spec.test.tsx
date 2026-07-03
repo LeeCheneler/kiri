@@ -36,6 +36,16 @@ describe("<SchemaSpec>", () => {
     expect(screen.queryByText("echo one")).toBeNull();
   });
 
+  it("shows a step's declared id beside its title", () => {
+    render(
+      <SchemaSpec
+        steps={[{ use: "news-feeds", id: "feeds", name: "Fetch dev feeds" }, { sh: "echo" }]}
+      />,
+    );
+    expect(screen.getByText("Fetch dev feeds")).toBeDefined();
+    expect(screen.getByText("feeds")).toBeDefined();
+  });
+
   it("titles an unnamed llm step row by its model id", () => {
     render(
       <SchemaSpec
@@ -55,7 +65,7 @@ describe("<SchemaSpec>", () => {
     expect(screen.getByText("does a thing")).toBeDefined();
   });
 
-  it("shows a publish's resolved name and slug when expanded", async () => {
+  it("shows a publish's slug beside its resolved name in the row summary", async () => {
     const user = userEvent.setup();
     render(
       <SchemaSpec
@@ -63,8 +73,11 @@ describe("<SchemaSpec>", () => {
         publish={[{ slug: "digest", name: "Weekly Digest", use: "publish-bundle" }]}
       />,
     );
-    await user.click(screen.getByRole("button", { name: /publish 01/i }));
-    expect(screen.getByRole("heading", { name: "Weekly Digest" })).toBeDefined();
+    // The slug reads beside the name in the collapsed summary, like a step id…
+    expect(screen.getByText("Weekly Digest")).toBeDefined();
     expect(screen.getByText("digest")).toBeDefined();
+    // …and expanding no longer repeats the name as a heading.
+    await user.click(screen.getByRole("button", { name: /publish 01/i }));
+    expect(screen.queryByRole("heading", { name: "Weekly Digest" })).toBeNull();
   });
 });
