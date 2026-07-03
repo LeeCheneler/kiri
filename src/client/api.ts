@@ -3,10 +3,12 @@ import { z } from "zod";
 
 /**
  * One value in a step / publish / summariser `env:` map. Either a literal
- * string or a structured reference to a declared workflow input. The
- * runner resolves refs against the run's `inputs` snapshot at spawn time.
+ * string or a structured reference the runner resolves at spawn time: a
+ * declared workflow input (against the run's `inputs` snapshot), an earlier
+ * step's stdout (by that step's `id`), or a published article's markdown
+ * (by its `slug`).
  */
-export type EnvValue = string | { input: string };
+export type EnvValue = string | { input: string } | { step: string } | { article: string };
 
 /**
  * The `llm:` block of a first-party LLM step. `model` is a `provider:model`
