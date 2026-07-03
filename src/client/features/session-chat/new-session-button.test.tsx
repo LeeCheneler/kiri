@@ -62,10 +62,14 @@ describe("<NewSessionButton>", () => {
     const user = userEvent.setup();
     const { history } = renderButton();
 
-    await user.click(await enabledButton());
+    const button = await enabledButton();
+    await user.click(button);
 
     await waitFor(() => expect(history[history.length - 1]).toBe("/sessions/new-1"));
     expect(sentModel).toBe("anthropic:claude");
+    // The button lives in the persistent left nav, so it survives the
+    // navigation — it must not stay stuck on "Starting…".
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
   });
 
   it("falls back to the first available model when there are no sessions", async () => {
