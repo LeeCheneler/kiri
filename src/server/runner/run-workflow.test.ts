@@ -2295,5 +2295,45 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       // Byte-for-byte: the producer's trailing newline lands in the prompt.
       expect(prompts[0]).toBe("from=material\n");
     });
+
+    it("fails the run when a { step } ref misses the output map", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      // The schema rejects unknown ids at load; tests construct definitions
+      // directly, so this exercises the runner's invariant guard.
+      const wf: WorkflowDefinition = {
+        name: "ghost-step-ref",
+        steps: [{ use: "hello", env: { UP: { step: "ghost" } } }],
+      };
+
+      const { runId, done } = runWorkflow(db, wf, { config });
+      const thrown = await done.catch((e: unknown) => e);
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toMatch(
+        /env "UP" references step "ghost", which has no output on this run/,
+      );
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("failed");
+    });
+
+    it("fails the run when an { article } ref misses the article map", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      writeBundle("pub", "#!/bin/sh\necho body\n");
+      const wf: WorkflowDefinition = {
+        name: "ghost-article-ref",
+        steps: [{ use: "hello" }],
+        publish: [{ slug: "digest", use: "pub", env: { BODY: { article: "ghost" } } }],
+      };
+
+      const { runId, done } = runWorkflow(db, wf, { config });
+      const thrown = await done.catch((e: unknown) => e);
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toMatch(
+        /env "BODY" references article "ghost", which has not been published on this run/,
+      );
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("failed");
+    });
   });
 });
