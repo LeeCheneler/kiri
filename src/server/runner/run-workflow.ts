@@ -190,10 +190,13 @@ const buildEnv = (
  * and the scratch dir before invoking so the rerun doesn't accumulate
  * stale rows.
  *
- * Halt-on-failure: a failed step leaves later steps uncreated, and the
- * run is marked failed. `done` rejects if any non-envelope surface
- * (mkdir, drizzle) throws — the `runs` row is still finalised to
- * "failed" before the rejection.
+ * Halt-on-failure: the run is fail-fast end to end. A failed step leaves
+ * later steps uncreated and skips all publishes and the summariser; a
+ * failed publish halts remaining publishes and the summariser. Either
+ * marks the run failed. (A failed summariser is the one exception —
+ * best-effort, the run's work already completed.) `done` rejects if any
+ * non-envelope surface (mkdir, drizzle) throws — the `runs` row is still
+ * finalised to "failed" before the rejection.
  */
 export function runWorkflow(
   db: KiriDb,
@@ -384,18 +387,15 @@ export function runWorkflow(
         runError = { ...CANCELLED_ERROR };
       }
 
-      // Publishes only run when the steps pipeline is still `ok`. A failed
-      // or cancelled pipeline skips them: articles describe a successful
+      // Publishes only run while the run is still `ok`. A failed or
+      // cancelled pipeline skips them: articles describe a successful
       // run, and emitting them off the back of a broken pipeline produces
-      // misleading output. The `stepsOk` snapshot is captured before the
-      // loop so a failing publish flipping `status` to `failed` doesn't
-      // also block its siblings — publishes are independent targets, and
-      // a sibling failure shouldn't gate the next one. A failing publish
-      // still flips the run to `failed`; cancel mid-publish flips it to
-      // `cancelled` and halts further work.
+      // misleading output. The run is fail-fast throughout — a failing
+      // publish flips the run to `failed` and halts remaining publishes
+      // and the summariser, the same way a failing step halts the
+      // pipeline. Cancel mid-publish flips it to `cancelled` and halts.
       const publishes = definition.publish ?? [];
-      const stepsOk = status === "ok";
-      for (let pi = 0; stepsOk && pi < publishes.length && status !== "cancelled"; pi++) {
+      for (let pi = 0; pi < publishes.length && status === "ok"; pi++) {
         if (args.cancelRegistry?.isCancelled(runId)) {
           status = "cancelled";
           runError = { ...CANCELLED_ERROR };
@@ -449,9 +449,6 @@ export function runWorkflow(
           publishedArticles.push({ slug: entry.slug, name, content_md: contentMd });
         }
 
-        // Cancel mid-publish flips the run terminal status and halts.
-        // Ordinary failure flips the run to `failed` but lets siblings
-        // continue — independent targets shouldn't gate on each other.
         if (cancelled && envelope.status === "failed") {
           status = "cancelled";
           runError = { ...CANCELLED_ERROR };
@@ -459,7 +456,8 @@ export function runWorkflow(
         }
         if (envelope.status === "failed") {
           status = "failed";
-          if (!runError) runError = envelope.error;
+          runError = envelope.error;
+          break;
         }
       }
 
