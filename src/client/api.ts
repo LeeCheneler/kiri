@@ -737,10 +737,13 @@ export interface SessionMessage {
 /**
  * A session as it appears in the list: the row plus a `preview` label drawn
  * from its first user message (`null` until one has been sent), which the list
- * leads with as the session's identifier.
+ * leads with as the session's identifier, and the articles it has written —
+ * summary metadata only, ordered by creation, so the row can lead with them
+ * the way a run row does.
  */
 export interface SessionListEntry extends Session {
   preview: string | null;
+  articles: ArticleSummary[];
 }
 
 /**

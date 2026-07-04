@@ -180,10 +180,37 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
       registry,
       page.flatMap((e) => (e.kind === "run" ? [e.row] : [])),
     );
-    const previews = getSessionPreviews(
-      db,
-      page.flatMap((e) => (e.kind === "session" ? [e.row.id] : [])),
-    );
+    const sessionIds = page.flatMap((e) => (e.kind === "session" ? [e.row.id] : []));
+    const previews = getSessionPreviews(db, sessionIds);
+
+    // Session articles, batched across the page — the same projection a run
+    // entry carries, so both kinds of row lead with what they produced.
+    const articlesBySessionId = new Map<string | null, ArticleProjection[]>();
+    if (sessionIds.length > 0) {
+      const sessionArticles = db
+        .select({
+          sessionId: articles.sessionId,
+          slug: articles.slug,
+          name: articles.name,
+          contentMd: articles.contentMd,
+          createdAt: articles.createdAt,
+        })
+        .from(articles)
+        .where(inArray(articles.sessionId, sessionIds))
+        .orderBy(asc(articles.createdAt))
+        .all();
+      for (const { sessionId, slug, name, contentMd, createdAt } of sessionArticles) {
+        const entry: ArticleProjection = {
+          slug,
+          name,
+          heading: extractFirstHeading(contentMd),
+          createdAt,
+        };
+        const list = articlesBySessionId.get(sessionId);
+        if (list) list.push(entry);
+        else articlesBySessionId.set(sessionId, [entry]);
+      }
+    }
 
     const entries = page.map((e) => {
       if (e.kind === "run") {
@@ -193,7 +220,11 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
       }
       return {
         kind: "session" as const,
-        session: { ...e.row, preview: previews.get(e.row.id) ?? null },
+        session: {
+          ...e.row,
+          preview: previews.get(e.row.id) ?? null,
+          articles: articlesBySessionId.get(e.row.id) ?? [],
+        },
       };
     });
 

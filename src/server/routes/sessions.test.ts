@@ -304,6 +304,40 @@ describe("sessions routes", () => {
       expect(byId.get("s2")).toBeNull();
     });
 
+    it("carries each session's articles on its list row", async () => {
+      createSession(env.db, MODEL, { id: "s1", startedAt: new Date(1000) });
+      createSession(env.db, MODEL, { id: "s2", startedAt: new Date(2000) }); // no articles
+      env.db
+        .insert(articles)
+        .values({
+          id: "a1",
+          sessionId: "s1",
+          slug: "notes",
+          name: "Notes",
+          contentMd: "# Meeting notes\n\nbody",
+          createdAt: new Date(1500),
+        })
+        .run();
+      const app = makeApp(fakeClients());
+
+      const page = (await (await app.request("/api/sessions")).json()) as {
+        sessions: {
+          id: string;
+          articles: { slug: string; name: string; heading: string | null; createdAt: string }[];
+        }[];
+      };
+      const byId = new Map(page.sessions.map((s) => [s.id, s.articles]));
+      expect(byId.get("s1")).toEqual([
+        {
+          slug: "notes",
+          name: "Notes",
+          heading: "Meeting notes",
+          createdAt: new Date(1500).toISOString(),
+        },
+      ]);
+      expect(byId.get("s2")).toEqual([]);
+    });
+
     it("400s an unknown cursor", async () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions?cursor=nope");

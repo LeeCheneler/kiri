@@ -40,6 +40,7 @@ const baseSession: SessionListEntry = {
   finishedAt: null,
   error: null,
   preview: "Summarise the readme",
+  articles: [],
 };
 
 const runEntry = (over: Partial<RunListEntry> = {}): ActivityEntry => ({

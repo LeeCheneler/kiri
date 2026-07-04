@@ -6,7 +6,7 @@ import {
   UI_MESSAGE_STREAM_HEADERS,
   isToolUIPart,
 } from "ai";
-import { and, asc, desc, eq, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
@@ -255,7 +255,42 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         db,
         rows.map((row) => row.id),
       );
-      const sessions = rows.map((row) => ({ ...row, preview: previews.get(row.id) ?? null }));
+      // Each row's written articles, batched across the page — the projection
+      // mirrors the activity feed's session enrichment so both surfaces
+      // render the same rows.
+      const articlesBySessionId = new Map<
+        string | null,
+        { slug: string; name: string; heading: string | null; createdAt: Date }[]
+      >();
+      if (rows.length > 0) {
+        const articleRows = db
+          .select()
+          .from(articles)
+          .where(
+            inArray(
+              articles.sessionId,
+              rows.map((row) => row.id),
+            ),
+          )
+          .orderBy(asc(articles.createdAt))
+          .all();
+        for (const article of articleRows) {
+          const entry = {
+            slug: article.slug,
+            name: article.name,
+            heading: extractFirstHeading(article.contentMd),
+            createdAt: article.createdAt,
+          };
+          const list = articlesBySessionId.get(article.sessionId);
+          if (list) list.push(entry);
+          else articlesBySessionId.set(article.sessionId, [entry]);
+        }
+      }
+      const sessions = rows.map((row) => ({
+        ...row,
+        preview: previews.get(row.id) ?? null,
+        articles: articlesBySessionId.get(row.id) ?? [],
+      }));
       return c.json({ sessions, nextCursor });
     },
   );
