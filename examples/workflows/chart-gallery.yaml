@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../.kiri/workflow.schema.json
 
 name: Chart Gallery
-description: Publishes an article showing off every chart type kiri can render from inline Vega-Lite.
+description: Produces an article showing off every chart type kiri can render from inline Vega-Lite.
 
 steps:
   - sh: echo "Building the chart gallery."

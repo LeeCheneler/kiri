@@ -33,9 +33,9 @@ The canonical user URL is `https://local.kiri.build` (the Pages-hosted shell). F
 
 ## Dogfood
 
-`examples/` is a complete kiri workspace the project keeps as both a reference and a manual smoke test. It carries the four example bundles and one real workflow:
+`examples/` is a complete kiri workspace the project keeps as both a reference and a manual smoke test. It carries the two example bundles (`claude-code`, `lm-studio`) and five workflows; the dogfood smoke test is:
 
-- **Daily Briefing** — `sh:` (curl + jq against the HackerNews and Dev.to APIs) → `claude-code` publish (formats a markdown briefing article) → summariser. Exercises the `claude-code` bundle, the publish path, and the summariser end to end.
+- **Daily Briefing** — `sh:` (curl + jq against the HackerNews and Dev.to APIs) → a `claude-code` articles entry (formats a markdown briefing article, fed the fetch step's output through a `{ step: }` env ref) → a zero-config `llm:` summariser. Exercises the `claude-code` bundle, the articles path, and the summariser end to end.
 
 To smoke-test it, run the orchestrator with `examples/` as its workspace while Vite serves the UI:
 
@@ -43,7 +43,7 @@ To smoke-test it, run the orchestrator with `examples/` as its workspace while V
 2. `cd examples && bun --watch ../bin/kiri.ts` — the orchestrator, workspace `examples/`, API on :4242 (Vite proxies to it).
 3. Open http://localhost:5173 and click **Run** on Daily Briefing. Refresh the feed, then click the new entry to open the run detail page — the header pins the data-repo git sha (with a dirty marker if the working tree had uncommitted changes), and each step shows its captured output and envelope traces. To reproduce a past run faithfully, `git checkout <sha>` in the data repo.
 
-The `claude-code` bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, runs that use it are marked failed and the underlying error is visible in the expanded entry. Daily Briefing also requires `curl` and `jq`.
+The `claude-code` bundle defers tool permissions to your `~/.claude/settings.json`. If `claude` isn't on your `PATH` or you're not signed in, runs that use it are marked failed and the underlying error is visible in the expanded entry. Daily Briefing also requires `curl`, `jq`, and `ANTHROPIC_API_KEY` in the environment (its summariser is a first-party `llm:` step).
 
 ## Tests
 
@@ -80,6 +80,7 @@ To evolve the schema:
 bin/kiri.ts            entry point — boots Hono
 src/server/            Hono app + tests
 src/client/            Vite + React SPA (kebab-case filenames)
+src/site/              marketing + docs site deployed to https://kiri.build
 shell/                 static shell deployed to https://local.kiri.build
 docs/                  design notes & milestones — read these before substantive work
 examples/              reference kiri workspace — example bundles + the dogfood workflow
@@ -87,6 +88,10 @@ examples/              reference kiri workspace — example bundles + the dogfoo
 ```
 
 See `docs/design-notes.md` for architecture and the phased build sequence.
+
+## The site at `https://kiri.build`
+
+The marketing and docs site lives in `src/site/` (docs pages as markdown under `src/site/docs/content/`). `bun dev:site` serves it locally with HMR; `bun run build:site` builds it into `dist/site`. Deploys are automatic: `.github/workflows/cd.yml` builds and ships it to the `kiri-build` Cloudflare Pages project on every push to `main`.
 
 ## Deploying the shell at `https://local.kiri.build`
 
@@ -100,7 +105,7 @@ To preview a shell change locally before merging, `bunx wrangler pages deploy --
 
 ### One-time setup
 
-**Bootstrap the Pages project (CLI).** Cloudflare doesn't auto-create Pages projects on deploy, and creating one via the dashboard requires uploading an initial article. Easiest path is to bootstrap from your machine — this creates the project on first run, ships the initial deploy, and CI takes over for subsequent deploys.
+**Bootstrap the Pages project (CLI).** Cloudflare doesn't auto-create Pages projects on deploy, and creating one via the dashboard requires uploading an initial asset. Easiest path is to bootstrap from your machine — this creates the project on first run, ships the initial deploy, and CI takes over for subsequent deploys.
 
 ```sh
 bunx wrangler login                                       # once per machine

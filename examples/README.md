@@ -62,7 +62,7 @@ summariser (`summarize: { llm: { model } }`, which uses a built-in prompt):
   bundled `openai-compatible` entry) to run against LM Studio / Ollama
   with no key.
 - **Templating matches the bundles.** `{{KIRI_INPUT}}` carries the
-  previous step's stdout into an `llm:` step's prompt. Publish steps get
+  previous step's stdout into an `llm:` step's prompt. Articles entries get
   no piped stdin — they take exactly the data they declare through
   `{ step: <id> }` / `{ article: <slug> }` env refs, rendered by name
   (`{{DRAFT}}`). Summarise steps additionally receive the whole-run
