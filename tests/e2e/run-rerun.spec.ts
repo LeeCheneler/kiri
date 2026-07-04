@@ -94,7 +94,7 @@ test("re-running a workflow with inputs opens a pre-filled modal and forwards tw
   await expect(dialog.getByLabel(/branch/i)).toHaveValue("release");
   // Warning text matches the bare path's confirm copy.
   await expect(dialog.getByRole("note")).toContainText(
-    "The previous attempt's steps and traces will be cleared.",
+    "The previous attempt's steps, articles, and summary will be cleared.",
   );
 
   // Tweak just the pr_number and submit.
