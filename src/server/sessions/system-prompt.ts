@@ -12,7 +12,7 @@ export const PERSONAS_DIRNAME = "personas";
 
 // How kiri's markdown renderer turns a fenced `chart` block into a chart. The
 // chat transcript renders assistant replies through the same renderer the
-// published articles use, so this capability is real in a session. Lead with
+// articles use, so this capability is real in a session. Lead with
 // *when* to chart — the model otherwise reaches for one indiscriminately — then
 // describe the mechanics accurately (inline data, automatic theming, graceful
 // failure) with one worked example so it emits a spec that renders.
@@ -33,7 +33,7 @@ function buildChartGuidance(): string {
 }
 
 // How kiri's markdown renderer turns a fenced `mermaid` block into a diagram —
-// the same renderer the charts and published articles use, so it's real in a
+// the same renderer the charts and articles use, so it's real in a
 // session. Mirrors the chart guidance: lead with *when* (structure rather than
 // quantities, and how it differs from a chart), then the mechanics (automatic
 // theming, graceful failure) with one worked example.

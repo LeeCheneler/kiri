@@ -7,16 +7,16 @@ type SchemaItem = WorkflowStepSummary | WorkflowArticleSummary;
 
 /**
  * One schema entry: a disclosure whose summary pairs a phase marker, the
- * entry's title, and its ref handle — a step's declared `id` or a publish's
+ * entry's title, and its ref handle — a step's declared `id` or an article's
  * `slug` — when it has one; expanding reveals the entry's config.
  */
 function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
-  // Publish summaries always carry a `slug`; steps never do, so it's the
+  // Article summaries always carry a `slug`; steps never do, so it's the
   // reliable discriminant now that steps may also declare a `name`.
-  const publish = "slug" in entry ? entry : undefined;
+  const article = "slug" in entry ? entry : undefined;
   // The entry's ref handle: what `{ step: <id> }` / `{ article: <slug> }`
   // env refs point at.
-  const handle = publish ? publish.slug : "id" in entry ? entry.id : undefined;
+  const handle = article ? article.slug : "id" in entry ? entry.id : undefined;
   return (
     <Disclosure
       summary={
@@ -26,7 +26,7 @@ function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
           </span>
           <span className="flex min-w-0 flex-1 items-baseline gap-3">
             <span className="truncate font-mono text-sm text-ink">
-              {publish ? publish.name : stepTitle(entry)}
+              {article ? article.name : stepTitle(entry)}
             </span>
             {handle && <span className="shrink-0 font-mono text-xs text-ink-faint">{handle}</span>}
           </span>
@@ -40,21 +40,21 @@ function SchemaRow({ marker, entry }: { marker: string; entry: SchemaItem }) {
 
 /**
  * The Schema tab: the workflow's pipeline as an ordered list of disclosures —
- * the steps in declared order, then the publishes, then the summariser. Each row
+ * the steps in declared order, then the articles, then the summariser. Each row
  * collapses to its kind and title; expand it to read that entry's description,
- * inline source, and env. Workflows with no steps, publishes, or summariser show
+ * inline source, and env. Workflows with no steps, articles, or summariser show
  * an empty state.
  */
 export function SchemaSpec({
   steps,
-  publish,
+  articles,
   summarize,
 }: {
   steps: WorkflowStepSummary[];
-  publish?: WorkflowArticleSummary[];
+  articles?: WorkflowArticleSummary[];
   summarize?: WorkflowStepSummary;
 }) {
-  const hasSchema = steps.length > 0 || (publish?.length ?? 0) > 0 || summarize !== undefined;
+  const hasSchema = steps.length > 0 || (articles?.length ?? 0) > 0 || summarize !== undefined;
   if (!hasSchema) {
     return <EmptyState>this workflow declares no schema.</EmptyState>;
   }
@@ -67,9 +67,9 @@ export function SchemaSpec({
           entry={step}
         />
       ))}
-      {publish?.map((entry, index) => (
+      {articles?.map((entry, index) => (
         <SchemaRow
-          key={`publish-${entry.slug}`}
+          key={`article-${entry.slug}`}
           marker={`Publish ${String(index + 1).padStart(2, "0")}`}
           entry={entry}
         />

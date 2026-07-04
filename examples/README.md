@@ -14,11 +14,11 @@ examples/
     claude-code/              # spawn the Claude Code CLI with a rendered prompt
     lm-studio/                # one-shot completion against an OpenAI-compatible local server
   workflows/
-    daily-briefing.yaml       # composes a sh: fetch, a publish: article, and a summary
+    daily-briefing.yaml       # composes a sh: fetch, an articles: article, and a summary
     review-queue.yaml         # cross-repo PR triage; recommends one PR Review per matching PR
-    pr-review.yaml            # takes repo + pr_number inputs, fetches the PR, publishes a review
-    chart-gallery.yaml        # publishes an article showcasing every embeddable chart type
-    release-notes.yaml        # first-party llm: steps — completion, publish, and summary, no bundle
+    pr-review.yaml            # takes repo + pr_number inputs, fetches the PR, writes a review article
+    chart-gallery.yaml        # an article showcasing every embeddable chart type
+    release-notes.yaml        # first-party llm: steps — completion, article, and summary, no bundle
   prompts/
     daily-briefing.tpl        # prompt template for the briefing
     pr-review.tpl             # prompt template for the PR review
@@ -52,7 +52,7 @@ bundle at all. An `llm:` step calls a model provider directly:
 ```
 
 `release-notes.yaml` shows the full shape — an `llm:` step in the pipeline,
-an `llm:` publish that writes the article, and a zero-config `llm:`
+an `llm:` articles entry that writes the article, and a zero-config `llm:`
 summariser (`summarize: { llm: { model } }`, which uses a built-in prompt):
 
 - **Providers live in `kiri.yaml`** (under `providers:`)**.** Each `model:` is a
@@ -106,7 +106,7 @@ The pair is composed deliberately:
   record per PR.
 - `pr-review` is the target — declares required `repo` and
   `pr_number` inputs, fetches the PR via `gh pr view --repo`, and
-  publishes a markdown review via `claude-code`.
+  writes a markdown review article via `claude-code`.
 
 Together they show the common shape: an aggregator workflow that
 *enumerates* things, turning each into a one-click follow-up launch.

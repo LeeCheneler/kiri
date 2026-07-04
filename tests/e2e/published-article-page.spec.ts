@@ -12,7 +12,7 @@ test("clicking a published article navigates to a page rendering its markdown bo
   page,
   request,
 }) => {
-  const { runId } = await triggerRun(request, "publishing");
+  const { runId } = await triggerRun(request, "articles");
 
   // Wait for the run to land in its terminal state on the detail page so
   // the Published section is populated by the time we look for the link.

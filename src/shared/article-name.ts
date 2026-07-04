@@ -1,7 +1,7 @@
 import { humaniseSlug } from "./humanise-slug.ts";
 
 /**
- * Resolve a publish entry's display name. Returns the explicit `name` when set;
+ * Resolve a article entry's display name. Returns the explicit `name` when set;
  * otherwise humanises the hyphen-separated `slug` (`pr-digest` → `PR Digest`)
  * via {@link humaniseSlug}. Callers that need a resolved name (DB write, UI
  * fallback) go through here.

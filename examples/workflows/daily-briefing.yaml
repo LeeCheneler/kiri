@@ -29,7 +29,7 @@ steps:
     name: Fetch news sources
     description: Fetch HackerNews best stories and Dev.to top articles
 
-publish:
+articles:
   - slug: briefing
     name: Daily Briefing
     description: Today's most important tech news, with a roundup and a thought to chew on.

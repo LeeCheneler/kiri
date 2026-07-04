@@ -872,7 +872,7 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBeNull();
     });
 
-    it("skips the summariser when a publish failed", async () => {
+    it("skips the summariser when an article entry failed", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("bad-pub", "#!/bin/sh\nexit 2\n");
       writeBundle(
@@ -882,7 +882,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-fail-skips-summer",
         steps: [{ use: "step" }],
-        publish: [{ slug: "bad", use: "bad-pub" }],
+        articles: [{ slug: "bad", use: "bad-pub" }],
         summarize: { use: "summer-marker" },
       };
 
@@ -981,13 +981,13 @@ describe("runWorkflow", () => {
       expect((firehose?.traces as { stdout: string }).stdout.length).toBe(81920);
     });
 
-    it("includes published articles in the summary digest", async () => {
+    it("includes produced articles in the summary digest", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("art", "#!/bin/sh\necho article-body\n");
       const wf: WorkflowDefinition = {
         name: "summer-sees-art",
         steps: [{ use: "step" }],
-        publish: [{ slug: "art", name: "Article", use: "art" }],
+        articles: [{ slug: "art", name: "Article", use: "art" }],
         summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
       };
 
@@ -1114,15 +1114,15 @@ describe("runWorkflow", () => {
     });
   });
 
-  describe("publish", () => {
-    it("records each publish entry as a run_steps row with isArticle=true", async () => {
+  describe("articles", () => {
+    it("records each article entry as a run_steps row with isArticle=true", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("digest", "#!/bin/sh\necho digest-body\n");
       writeBundle("notes", "#!/bin/sh\necho notes-body\n");
       const wf: WorkflowDefinition = {
-        name: "with-publish",
+        name: "with-articles",
         steps: [{ use: "step" }],
-        publish: [
+        articles: [
           { slug: "digest", use: "digest" },
           { slug: "notes", sh: 'echo "from-sh"' },
         ],
@@ -1149,14 +1149,14 @@ describe("runWorkflow", () => {
       expect(stepsRows[2].kind).toBe("sh");
     });
 
-    it("places publish rows between steps and summarise in the index sequence", async () => {
+    it("places article rows between steps and summarise in the index sequence", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("art", "#!/bin/sh\necho article\n");
       writeBundle("summer", "#!/bin/sh\necho summary\n");
       const wf: WorkflowDefinition = {
         name: "full",
         steps: [{ use: "step" }],
-        publish: [{ slug: "art", use: "art" }],
+        articles: [{ slug: "art", use: "art" }],
         summarize: { use: "summer" },
       };
 
@@ -1176,13 +1176,13 @@ describe("runWorkflow", () => {
       ]);
     });
 
-    it("snapshots publish onto definitionSnapshot", async () => {
+    it("snapshots articles onto definitionSnapshot", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("art", "#!/bin/sh\necho article\n");
       const wf: WorkflowDefinition = {
         name: "snap-pub",
         steps: [{ use: "step" }],
-        publish: [{ slug: "art", name: "Custom Title", use: "art", env: { KEEP: "yes" } }],
+        articles: [{ slug: "art", name: "Custom Title", use: "art", env: { KEEP: "yes" } }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
@@ -1190,18 +1190,18 @@ describe("runWorkflow", () => {
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.definitionSnapshot).toMatchObject({
         name: "snap-pub",
-        publish: [{ slug: "art", name: "Custom Title", use: "art", env: { KEEP: "yes" } }],
+        articles: [{ slug: "art", name: "Custom Title", use: "art", env: { KEEP: "yes" } }],
       });
     });
 
-    it("halts remaining publishes after a failing publish and marks the run as failed", async () => {
+    it("halts remaining articles after a failing article entry and marks the run as failed", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("bad", "#!/bin/sh\necho oops >&2\nexit 9\n");
       writeBundle("good", "#!/bin/sh\necho after-bad\n");
       const wf: WorkflowDefinition = {
         name: "pub-failure",
         steps: [{ use: "step" }],
-        publish: [
+        articles: [
           { slug: "bad", use: "bad" },
           { slug: "good", use: "good" },
         ],
@@ -1214,20 +1214,24 @@ describe("runWorkflow", () => {
       expect(run?.status).toBe("failed");
       expect(run?.error).not.toBeNull();
 
-      // Fail-fast: the sibling after the failed publish never runs.
-      const publishRows = db
+      // Fail-fast: the sibling after the failed article entry never runs.
+      const articleStepRows = db
         .select()
         .from(runSteps)
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all()
         .filter((s) => s.isArticle);
-      expect(publishRows).toHaveLength(1);
-      expect(publishRows[0].status).toBe("failed");
-      expect(publishRows[0].error).not.toBeNull();
+      expect(articleStepRows).toHaveLength(1);
+      expect(articleStepRows[0].status).toBe("failed");
+      expect(articleStepRows[0].error).not.toBeNull();
 
-      const articleRows = db.select().from(articles).where(eq(articles.runId, result.runId)).all();
-      expect(articleRows).toHaveLength(0);
+      const storedArticles = db
+        .select()
+        .from(articles)
+        .where(eq(articles.runId, result.runId))
+        .all();
+      expect(storedArticles).toHaveLength(0);
     });
 
     it("persists trimmed stdout to articles with the resolved name", async () => {
@@ -1237,7 +1241,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-rows",
         steps: [{ use: "step" }],
-        publish: [
+        articles: [
           { slug: "digest", name: "PR Review Digest", use: "digest" },
           { slug: "release-notes", use: "notes" },
         ],
@@ -1266,12 +1270,12 @@ describe("runWorkflow", () => {
       expect(notes?.contentMd).toBe("notes-body");
     });
 
-    it("inserts an article row even when the publish writes nothing", async () => {
+    it("inserts an article row even when the article entry writes nothing", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       const wf: WorkflowDefinition = {
         name: "empty-pub",
         steps: [{ use: "step" }],
-        publish: [{ slug: "empty", sh: "true" }],
+        articles: [{ slug: "empty", sh: "true" }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
@@ -1283,13 +1287,13 @@ describe("runWorkflow", () => {
       expect(articleRows[0].name).toBe("Empty");
     });
 
-    it("does not insert an article row for a publish that fails", async () => {
+    it("does not insert an article row for an article entry that fails", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("bad", "#!/bin/sh\nexit 2\n");
       const wf: WorkflowDefinition = {
         name: "no-art-on-fail",
         steps: [{ use: "step" }],
-        publish: [{ slug: "bad", use: "bad" }],
+        articles: [{ slug: "bad", use: "bad" }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
@@ -1299,7 +1303,7 @@ describe("runWorkflow", () => {
       expect(articleRows).toHaveLength(0);
     });
 
-    it("gives publishes no auto-injected data — empty stdin, refs only", async () => {
+    it("gives articles no auto-injected data — empty stdin, refs only", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle(
         "probe",
@@ -1308,23 +1312,23 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-no-injection",
         steps: [{ use: "step" }],
-        publish: [{ slug: "probe", use: "probe" }],
+        articles: [{ slug: "probe", use: "probe" }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("ok");
 
-      const publishRow = db
+      const articleRow = db
         .select()
         .from(runSteps)
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all()
         .find((s) => s.isArticle);
-      expect(publishRow?.output).toBe("unset|unset|stdin=");
+      expect(articleRow?.output).toBe("unset|unset|stdin=");
     });
 
-    it("skips publishes entirely when the steps: pipeline failed", async () => {
+    it("skips articles entirely when the steps: pipeline failed", async () => {
       writeBundle("boom", "#!/bin/sh\nexit 4\n");
       writeBundle(
         "pub-marker",
@@ -1333,19 +1337,19 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "pub-after-fail",
         steps: [{ use: "boom" }],
-        publish: [{ slug: "art", use: "pub-marker" }],
+        articles: [{ slug: "art", use: "pub-marker" }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
       expect(result.status).toBe("failed");
 
-      // No publish row inserted; the marker file was never created.
+      // No article row inserted; the marker file was never created.
       expect(existsSync(join(cwd, "pub-marker"))).toBe(false);
       const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
       expect(stepsRows.some((s) => s.isArticle)).toBe(false);
     });
 
-    it("skips publishes entirely when the run is cancelled", async () => {
+    it("skips articles entirely when the run is cancelled", async () => {
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
       writeBundle(
         "pub-marker",
@@ -1354,7 +1358,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "cancel-skip-pub",
         steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }],
-        publish: [{ slug: "art", use: "pub-marker" }],
+        articles: [{ slug: "art", use: "pub-marker" }],
       };
 
       const { runId, done } = runWorkflow(db, wf, {
@@ -1368,19 +1372,19 @@ describe("runWorkflow", () => {
       const result = await done;
       expect(result.status).toBe("cancelled");
 
-      // No publish row inserted; the marker file was never created.
+      // No article row inserted; the marker file was never created.
       expect(existsSync(join(cwd, "pub-marker"))).toBe(false);
       const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, runId)).all();
       expect(stepsRows.some((s) => s.isArticle)).toBe(false);
     });
 
-    it("feeds a publish its declared step data through refs", async () => {
+    it("feeds an article entry its declared step data through refs", async () => {
       writeBundle("step", "#!/bin/sh\necho hello\n");
       writeBundle("pub", '#!/bin/sh\nprintf "got:%s" "$DATA"\n');
       const wf: WorkflowDefinition = {
         name: "pub-ctx",
         steps: [{ use: "step", id: "greet" }],
-        publish: [{ slug: "ctx", use: "pub", env: { DATA: { step: "greet" } } }],
+        articles: [{ slug: "ctx", use: "pub", env: { DATA: { step: "greet" } } }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
@@ -1390,14 +1394,14 @@ describe("runWorkflow", () => {
       expect(articleRows[0].contentMd).toBe("got:hello");
     });
 
-    it("inter-publish cancel halts before the next publish starts; earlier ok publish stays ok", async () => {
+    it("inter-article cancel halts before the next article starts; earlier ok article stays ok", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
-      writeBundle("first-pub", "#!/bin/sh\necho first-publish\n");
+      writeBundle("first-pub", "#!/bin/sh\necho first-article\n");
       writeBundle("second-pub", "#!/bin/sh\necho should-not-run\n");
       const wf: WorkflowDefinition = {
         name: "two-pub",
         steps: [{ use: "step" }],
-        publish: [
+        articles: [
           { slug: "first", use: "first-pub" },
           { slug: "second", use: "second-pub" },
         ],
@@ -1405,8 +1409,8 @@ describe("runWorkflow", () => {
       const cancelRegistry = createCancelRegistry();
       const bus = createEventBus();
 
-      // Cancel synchronously when the first publish's `ok` event lands.
-      // The publish loop's `isCancelled` check at iteration 2 picks it up.
+      // Cancel synchronously when the first article's `ok` event lands.
+      // The article loop's `isCancelled` check at iteration 2 picks it up.
       let target = "";
       bus.subscribe((e) => {
         if (
@@ -1429,27 +1433,27 @@ describe("runWorkflow", () => {
       const result = await done;
       expect(result.status).toBe("cancelled");
 
-      const publishRows = db
+      const articleRows = db
         .select()
         .from(runSteps)
         .where(eq(runSteps.runId, runId))
         .orderBy(asc(runSteps.index))
         .all()
         .filter((s) => s.isArticle);
-      expect(publishRows).toHaveLength(1);
-      expect(publishRows[0].status).toBe("ok");
+      expect(articleRows).toHaveLength(1);
+      expect(articleRows[0].status).toBe("ok");
 
       const run = db.select().from(runs).where(eq(runs.id, runId)).get();
       expect(run?.error).toEqual({ message: "run cancelled" });
     });
 
-    it("propagates cancel arriving during a publish step to the run status", async () => {
+    it("propagates cancel arriving during a article step to the run status", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("slow-pub", "#!/bin/sh\nexec 1>&- 2>&-; sleep 5\n");
       const wf: WorkflowDefinition = {
         name: "pub-cancel",
         steps: [{ use: "step" }],
-        publish: [{ slug: "art", use: "slow-pub" }],
+        articles: [{ slug: "art", use: "slow-pub" }],
       };
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
       const bus = createEventBus();
@@ -1480,24 +1484,24 @@ describe("runWorkflow", () => {
       expect(run?.status).toBe("cancelled");
       expect(run?.error).toEqual({ message: "run cancelled" });
 
-      const publishRow = db
+      const articleRow = db
         .select()
         .from(runSteps)
         .where(eq(runSteps.runId, runId))
         .orderBy(asc(runSteps.index))
         .all()
         .find((s) => s.isArticle);
-      expect(publishRow?.status).toBe("cancelled");
-      expect(publishRow?.error).toEqual({ message: "run cancelled" });
+      expect(articleRow?.status).toBe("cancelled");
+      expect(articleRow?.error).toEqual({ message: "run cancelled" });
     });
 
-    it("publishes run.step.updated events for each publish step", async () => {
+    it("publishes run.step.updated events for each article step", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("art", "#!/bin/sh\necho article\n");
       const wf: WorkflowDefinition = {
         name: "pub-events",
         steps: [{ use: "step" }],
-        publish: [{ slug: "art", use: "art" }],
+        articles: [{ slug: "art", use: "art" }],
       };
       const bus = createEventBus();
       const seen: KiriEvent[] = [];
@@ -1516,7 +1520,7 @@ describe("runWorkflow", () => {
       ]);
     });
 
-    it("stores an llm publish's text as the article, data taken through refs", async () => {
+    it("stores an llm article entry's text as the article, data taken through refs", async () => {
       writeBundle("step", "#!/bin/sh\necho material\n");
       const prompts: string[] = [];
       const llmClients = fakeLlm(async ({ prompt }) => {
@@ -1526,7 +1530,7 @@ describe("runWorkflow", () => {
       const wf: WorkflowDefinition = {
         name: "llm-pub",
         steps: [{ use: "step", id: "fetch" }],
-        publish: [
+        articles: [
           {
             slug: "digest",
             llm: {
@@ -1800,14 +1804,14 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBe("SUMMARY-BRANCH=release");
     });
 
-    it("resolves env refs on a publish: entry", async () => {
+    it("resolves env refs on a articles: entry", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("digest", '#!/bin/sh\necho "DIGEST-PR=$PR"\n');
       const wf: WorkflowDefinition = {
         name: "pub-ref",
         inputs: [{ name: "pr_number" }],
         steps: [{ use: "step" }],
-        publish: [{ slug: "digest", use: "digest", env: { PR: { input: "pr_number" } } }],
+        articles: [{ slug: "digest", use: "digest", env: { PR: { input: "pr_number" } } }],
       };
 
       const result = await runWorkflow(db, wf, {
@@ -2063,13 +2067,13 @@ EOF
       ]);
     });
 
-    it("does not inject KIRI_RECOMMENDATIONS_FILE on publish steps", async () => {
+    it("does not inject KIRI_RECOMMENDATIONS_FILE on article steps", async () => {
       writeBundle("source", "#!/bin/sh\necho hi\n");
       writeBundle("pub-echo-env", '#!/bin/sh\necho "REC=$KIRI_RECOMMENDATIONS_FILE"\n');
       const wf: WorkflowDefinition = {
         name: "pub-no-rec",
         steps: useSteps("source"),
-        publish: [{ slug: "article", use: "pub-echo-env" }],
+        articles: [{ slug: "article", use: "pub-echo-env" }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
@@ -2180,14 +2184,14 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       expect(rows[2].output).toBe("[data-123\n]");
     });
 
-    it("resolves { step } refs on publish and { article } refs on summarize", async () => {
+    it("resolves { step } refs on articles and { article } refs on summarize", async () => {
       writeBundle("producer", "#!/bin/sh\necho material\n");
       writeBundle("pub", '#!/bin/sh\nprintf "article from %s" "$DATA"\n');
       writeBundle("summer", '#!/bin/sh\nprintf "summary of: %s" "$BODY"\n');
       const wf: WorkflowDefinition = {
         name: "phase-refs",
         steps: [{ use: "producer", id: "fetch" }],
-        publish: [{ slug: "digest", use: "pub", env: { DATA: { step: "fetch" } } }],
+        articles: [{ slug: "digest", use: "pub", env: { DATA: { step: "fetch" } } }],
         summarize: { use: "summer", env: { BODY: { article: "digest" } } },
       };
 
@@ -2201,14 +2205,14 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       expect(run?.summary).toBe("summary of: article from material");
     });
 
-    it("resolves a later publish's { article } ref to an earlier entry's article", async () => {
+    it("resolves a later article's { article } ref to an earlier entry's article", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("first", "#!/bin/sh\nprintf 'first-body'\n");
       writeBundle("second", '#!/bin/sh\nprintf "second saw: %s" "$FIRST"\n');
       const wf: WorkflowDefinition = {
         name: "article-chain",
         steps: [{ use: "step" }],
-        publish: [
+        articles: [
           { slug: "first", use: "first" },
           { slug: "second", use: "second", env: { FIRST: { article: "first" } } },
         ],
@@ -2278,7 +2282,7 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       const wf: WorkflowDefinition = {
         name: "ghost-article-ref",
         steps: [{ use: "hello" }],
-        publish: [{ slug: "digest", use: "pub", env: { BODY: { article: "ghost" } } }],
+        articles: [{ slug: "digest", use: "pub", env: { BODY: { article: "ghost" } } }],
       };
 
       const { runId, done } = runWorkflow(db, wf, { config });
@@ -2286,7 +2290,7 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
 
       expect(thrown).toBeInstanceOf(Error);
       expect((thrown as Error).message).toMatch(
-        /env "BODY" references article "ghost", which has not been published on this run/,
+        /env "BODY" references article "ghost", which has not been produced on this run/,
       );
       const run = db.select().from(runs).where(eq(runs.id, runId)).get();
       expect(run?.status).toBe("failed");
@@ -2300,7 +2304,7 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       const wf: WorkflowDefinition = {
         name: "digest-sum",
         steps: [{ use: "step", id: "fetch", name: "Fetch data" }],
-        publish: [{ slug: "digest", use: "pub" }],
+        articles: [{ slug: "digest", use: "pub" }],
         summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
       };
 
@@ -2309,7 +2313,7 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       expect(result.status).toBe("ok");
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       // The summariser echoed the digest back: header, labelled step
-      // section with its stdout, and the published article.
+      // section with its stdout, and the produced article.
       expect(run?.summary).toContain("Workflow: digest-sum");
       expect(run?.summary).toContain("## Step 0 — Fetch data");
       expect(run?.summary).toContain("payload");
@@ -2317,13 +2321,13 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       expect(run?.summary).toContain("article-body");
     });
 
-    it("does not offer KIRI_SUMMARY_CONTEXT to main steps or publishes", async () => {
+    it("does not offer KIRI_SUMMARY_CONTEXT to main steps or articles", async () => {
       writeBundle("step", '#!/bin/sh\nprintf "step=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
       writeBundle("pub", '#!/bin/sh\nprintf "pub=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
       const wf: WorkflowDefinition = {
         name: "digest-scope",
         steps: [{ use: "step" }],
-        publish: [{ slug: "probe", use: "pub" }],
+        articles: [{ slug: "probe", use: "pub" }],
       };
 
       const result = await runWorkflow(db, wf, { config }).done;

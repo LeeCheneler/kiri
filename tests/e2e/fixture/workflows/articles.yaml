@@ -1,7 +1,7 @@
-name: publishing
+name: articles
 steps:
   - sh: echo "pipeline step"
-publish:
+articles:
   - slug: digest
     name: Published Digest
     sh: |

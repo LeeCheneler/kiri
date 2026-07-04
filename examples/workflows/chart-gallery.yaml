@@ -8,10 +8,10 @@ steps:
     name: Build the gallery
     description: No data to fetch — every chart below ships its own inline values.
 
-publish:
+articles:
   - slug: charts
     name: Chart Gallery
-    description: A worked tour of the chart types a published article can embed.
+    description: A worked tour of the chart types an article can embed.
     sh: |
       cat <<'EOF'
       # Chart gallery

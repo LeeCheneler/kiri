@@ -66,7 +66,7 @@ interface DefinitionSnapshot {
   name: string;
   steps: WorkflowStep[];
   summarize?: WorkflowStep;
-  publish?: ArticleEntry[];
+  articles?: ArticleEntry[];
 }
 
 /** A step's kind tag plus the config that identifies it, mirroring the step variants. */
@@ -79,7 +79,7 @@ const snapshotDefinition = (def: WorkflowDefinition): DefinitionSnapshot => ({
   name: def.name,
   steps: def.steps.map((s) => ({ ...s })),
   summarize: def.summarize ? { ...def.summarize } : undefined,
-  publish: def.publish ? def.publish.map((p) => ({ ...p })) : undefined,
+  articles: def.articles ? def.articles.map((p) => ({ ...p })) : undefined,
 });
 
 // Workflows without an `inputs:` block snapshot null — they have nothing
@@ -178,7 +178,7 @@ const buildEnv = (
     const content = refs.articles.get(value.article);
     if (content === undefined) {
       throw new Error(
-        `env "${key}" references article "${value.article}", which has not been published on this run`,
+        `env "${key}" references article "${value.article}", which has not been produced on this run`,
       );
     }
     env[key] = content;
@@ -224,8 +224,8 @@ const buildEnv = (
  * stale rows.
  *
  * Halt-on-failure: the run is fail-fast end to end. A failed step leaves
- * later steps uncreated and skips all publishes and the summariser; a
- * failed publish halts remaining publishes and the summariser. Either
+ * later steps uncreated and skips all articles and the summariser; a
+ * failed article entry halts remaining articles and the summariser. Either
  * marks the run failed. (A failed summariser is the one exception —
  * best-effort, the run's work already completed.) `done` rejects if any
  * non-envelope surface (mkdir, drizzle) throws — the `runs` row is still
@@ -285,13 +285,13 @@ export function runWorkflow(
   const articlesBySlug = new Map<string, string>();
 
   // Insert → publish "running" → spawn → translate envelope → update →
-  // publish terminal. Every phase (steps, publish, summarise) reimplements
+  // publish terminal. Every phase (steps, articles, summarise) reimplements
   // this same envelope; the helper captures it so each phase only expresses
   // its own pre/post policy.
   const executePhase = async (opts: {
     step: WorkflowStep;
     index: number;
-    flag?: "publish" | "summary";
+    flag?: "article" | "summary";
     input: string;
     envExtras?: Record<string, string>;
   }): Promise<{
@@ -309,7 +309,7 @@ export function runWorkflow(
         kind: stepIdentOf(opts.step).kind,
         status: "running",
         startedAt: new Date(),
-        isArticle: opts.flag === "publish" ? true : undefined,
+        isArticle: opts.flag === "article" ? true : undefined,
         isSummary: opts.flag === "summary" ? true : undefined,
       })
       .run();
@@ -367,7 +367,7 @@ export function runWorkflow(
     // Accumulated step outcomes and articles, rendered into the digest
     // handed to the summarize phase without a DB round-trip.
     const executed: SummaryContextStep[] = [];
-    const publishedArticles: SummaryContextArticle[] = [];
+    const producedArticles: SummaryContextArticle[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
@@ -426,32 +426,32 @@ export function runWorkflow(
         runError = { ...CANCELLED_ERROR };
       }
 
-      // Publishes only run while the run is still `ok`. A failed or
+      // Articles only run while the run is still `ok`. A failed or
       // cancelled pipeline skips them: articles describe a successful
       // run, and emitting them off the back of a broken pipeline produces
       // misleading output. The run is fail-fast throughout — a failing
-      // publish flips the run to `failed` and halts remaining publishes
-      // and the summariser, the same way a failing step halts the
-      // pipeline. Cancel mid-publish flips it to `cancelled` and halts.
-      const publishes = definition.publish ?? [];
-      for (let pi = 0; pi < publishes.length && status === "ok"; pi++) {
+      // article entry flips the run to `failed` and halts remaining
+      // articles and the summariser, the same way a failing step halts
+      // the pipeline. Cancel mid-article flips it to `cancelled` and halts.
+      const articleEntries = definition.articles ?? [];
+      for (let pi = 0; pi < articleEntries.length && status === "ok"; pi++) {
         if (args.cancelRegistry?.isCancelled(runId)) {
           status = "cancelled";
           runError = { ...CANCELLED_ERROR };
           break;
         }
 
-        const entry = publishes[pi];
-        const publishStep = articleAsStep(entry);
-        const publishIndex = definition.steps.length + pi;
+        const entry = articleEntries[pi];
+        const articleStep = articleAsStep(entry);
+        const articleIndex = definition.steps.length + pi;
 
-        // Publishes get no auto-injected data: empty stdin, and whatever
+        // Articles get no auto-injected data: empty stdin, and whatever
         // the entry declared through { step: <id> } / { article: <slug> }
         // env refs. The retired run-context channel is not written.
         const { envelope, cancelled } = await executePhase({
-          step: publishStep,
-          index: publishIndex,
-          flag: "publish",
+          step: articleStep,
+          index: articleIndex,
+          flag: "article",
           input: "",
         });
 
@@ -468,7 +468,7 @@ export function runWorkflow(
               createdAt: new Date(),
             })
             .run();
-          publishedArticles.push({ slug: entry.slug, name, content_md: contentMd });
+          producedArticles.push({ slug: entry.slug, name, content_md: contentMd });
           articlesBySlug.set(entry.slug, contentMd);
         }
 
@@ -485,13 +485,13 @@ export function runWorkflow(
       }
 
       // Summariser only runs when the run is still `ok`. A failed steps
-      // pipeline or a failed publish skips it: there's nothing to celebrate
+      // pipeline or a failed article entry skips it: there's nothing to celebrate
       // and running haiku to describe a broken run wastes a model call.
       // Failure here doesn't change the run's terminal status; the
       // summariser is best-effort.
       if (definition.summarize && status === "ok") {
         const summarizeStep = withDefaultSummaryPrompt(definition.summarize);
-        const summaryIndex = definition.steps.length + publishes.length;
+        const summaryIndex = definition.steps.length + articleEntries.length;
         // The gist plane: a prompt-ready plain-text digest of the run,
         // injected the same way for every summarize shape — `sh:`/`use:`
         // read $KIRI_SUMMARY_CONTEXT, `llm:` prompts template
@@ -501,7 +501,7 @@ export function runWorkflow(
           workflow: definition.name,
           durationMs: Date.now() - startedAt.getTime(),
           steps: executed,
-          articles: publishedArticles,
+          articles: producedArticles,
         });
 
         const { envelope, cancelled } = await executePhase({

@@ -91,8 +91,8 @@ export const runSteps = sqliteTable(
      */
     isSummary: integer("is_summary", { mode: "boolean" }).notNull().default(false),
     /**
-     * Marks the row as one of the workflow's `publish:` executions rather
-     * than a member of the `steps:` pipeline. Set on each publish row a
+     * Marks the row as one of the workflow's `articles:` executions rather
+     * than a member of the `steps:` pipeline. Set on each article row a
      * run produces; the UI hides these from the main step list and
      * surfaces them via the article view.
      */
@@ -102,8 +102,8 @@ export const runSteps = sqliteTable(
 );
 
 /**
- * One row per published article a run produced. Populated after `steps:`
- * complete (when the workflow defines `publish:`) and read back to render
+ * One row per article a run produced. Populated after `steps:`
+ * complete (when the workflow defines `articles:`) and read back to render
  * article chips on the feed and the dedicated article page. `slug` is the
  * URL/identifier; `name` is the resolved display label — never null — so
  * write-time titlecasing doesn't leak into read paths.

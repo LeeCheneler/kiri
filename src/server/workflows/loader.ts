@@ -43,7 +43,7 @@ const validateBundles = (def: WorkflowDefinition, config: ConfigStore): string[]
     if (!isUseStep(step)) continue;
     if (!existsSync(config.bundleRunPath(step.use))) missing.push(step.use);
   }
-  for (const entry of def.publish ?? []) {
+  for (const entry of def.articles ?? []) {
     if (!isUseArticle(entry)) continue;
     if (!existsSync(config.bundleRunPath(entry.use))) missing.push(entry.use);
   }
@@ -59,7 +59,7 @@ const validateLlmSteps = (
 ): { unknownProviders: string[]; missingPromptFiles: string[] } => {
   const unknownProviders: string[] = [];
   const missingPromptFiles: string[] = [];
-  const entries: (WorkflowStep | ArticleEntry)[] = [...def.steps, ...(def.publish ?? [])];
+  const entries: (WorkflowStep | ArticleEntry)[] = [...def.steps, ...(def.articles ?? [])];
   if (def.summarize) entries.push(def.summarize);
   for (const entry of entries) {
     if (!("llm" in entry)) continue;

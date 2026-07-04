@@ -2,10 +2,10 @@ import type { UIMessage } from "ai";
 import { z } from "zod";
 
 /**
- * One value in a step / publish / summariser `env:` map. Either a literal
+ * One value in a step / article / summariser `env:` map. Either a literal
  * string or a structured reference the runner resolves at spawn time: a
  * declared workflow input (against the run's `inputs` snapshot), an earlier
- * step's stdout (by that step's `id`), or a published article's markdown
+ * step's stdout (by that step's `id`), or an article's markdown
  * (by its `slug`).
  */
 export type EnvValue = string | { input: string } | { step: string } | { article: string };
@@ -47,7 +47,7 @@ export type WorkflowStepSummary =
     };
 
 /**
- * One `publish:` entry on a workflow summary. `slug` is the URL/identifier;
+ * One `articles:` entry on a workflow summary. `slug` is the URL/identifier;
  * `name` (the display label) is always present — the server applies the
  * schema's titlecase fallback so the client doesn't re-implement it.
  */
@@ -101,8 +101,8 @@ export interface WorkflowSummary {
   /** Defined when the workflow declares an `inputs:` block; absent otherwise. */
   inputs?: WorkflowInputSummary[];
   steps: WorkflowStepSummary[];
-  /** Defined when the workflow has at least one `publish:` entry. */
-  publish?: WorkflowArticleSummary[];
+  /** Defined when the workflow has at least one `articles:` entry. */
+  articles?: WorkflowArticleSummary[];
   /** Defined when the workflow has a `summarize:` step. */
   summarize?: WorkflowStepSummary;
 }
@@ -118,7 +118,7 @@ export interface RunStartResult {
 }
 
 /**
- * Snapshotted publish entry on a run row. Carries the *raw* `name` label (or
+ * Snapshotted article entry on a run row. Carries the *raw* `name` label (or
  * `undefined`) as it appeared in the workflow definition at run-start —
  * callers that need a display string resolve via `resolveArticleName`.
  */
@@ -155,13 +155,13 @@ export type RunArticleSnapshot =
  * summarise step, on cancelled runs (the summariser is skipped), and
  * on runs whose summariser failed.
  *
- * `definitionSnapshot.publish` is present when the workflow defined a
- * `publish:` array at run-start; absent otherwise. The run detail page
- * uses it to resolve each publish step row's display title by index.
+ * `definitionSnapshot.articles` is present when the workflow defined a
+ * `articles:` array at run-start; absent otherwise. The run detail page
+ * uses it to resolve each article step row's display title by index.
  *
- * `articles` lists the run's published articles ordered by creation
+ * `articles` lists the run's articles ordered by creation
  * time, populated by the server in a single aggregation across the
- * page. Empty for runs that didn't publish anything. The same field
+ * page. Empty for runs that produced no articles. The same field
  * powers both feed-row chips and the run detail's Published section
  * so consumers read from one place.
  *
@@ -184,7 +184,7 @@ export interface RunListEntry {
     name: string;
     steps: WorkflowStepSummary[];
     summarize?: WorkflowStepSummary;
-    publish?: RunArticleSnapshot[];
+    articles?: RunArticleSnapshot[];
   };
   /**
    * HEAD sha of the data repo at run-start, with a dirty flag for
@@ -210,7 +210,7 @@ export interface RunListEntry {
  * `status`, `output`, `error`, `traces`. Reproducibility of the bytes
  * that produced the step lives on the parent run's `gitSha`.
  *
- * `isSummary` and `isArticle` distinguish summariser and publish rows
+ * `isSummary` and `isArticle` distinguish summariser and article rows
  * from regular pipeline steps. The UI hides both from the main step
  * list and surfaces them in dedicated sections — the Summariser
  * execution disclosure and the Publishing / Published sections
@@ -251,7 +251,7 @@ export interface RunStepRow {
 }
 
 /**
- * A run's published article as seen by the run-detail consumer. The
+ * A run's article as seen by the run-detail consumer. The
  * markdown body lives on the dedicated article route — only metadata
  * needed to render the "Published" section row travels with the run.
  *
@@ -390,7 +390,7 @@ export const fetchRun = async (id: string): Promise<RunDetail> =>
   json<RunDetail>(await apiFetch(`/api/runs/${id}`));
 
 /**
- * One run's published article, fetched by `(runId, name)`. Carries the
+ * One run's article, fetched by `(runId, name)`. Carries the
  * full markdown body for the dedicated article page; the run detail
  * payload only carries summary metadata so its size stays bounded.
  *
@@ -416,7 +416,7 @@ export interface ArticleDetail {
 }
 
 /**
- * Fetch a single published article by run id and slug. Throws on
+ * Fetch a single article by run id and slug. Throws on
  * non-2xx — 400 for a malformed slug, 404 when either the run or the
  * named article is missing.
  */

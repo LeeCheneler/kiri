@@ -84,7 +84,7 @@ the previous step's output.
       {{KIRI_INPUT}}
 \`\`\`
 
-\`publish:\` and \`summarize:\` accept \`llm:\` too; \`summarize: { llm: { model } }\`
+\`articles:\` and \`summarize:\` accept \`llm:\` too; \`summarize: { llm: { model } }\`
 with no prompt uses a built-in summary prompt.
 
 #### Optional \`name\` and \`description\`
@@ -195,7 +195,7 @@ To emit recommendations, write JSON Lines to the path in
   optional. \`inputs\` is a flat \`{ string: string }\` map keyed by the
   target workflow's declared input names.
 - \`KIRI_RECOMMENDATIONS_FILE\` is set on main \`steps:\` only — not on
-  \`publish:\` or \`summarize:\`.
+  \`articles:\` or \`summarize:\`.
 - Only \`ok\` steps' files are ingested; failed and cancelled steps'
   files are discarded entirely.
 - Malformed JSON or schema-failing lines are logged and skipped without

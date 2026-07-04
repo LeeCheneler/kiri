@@ -52,7 +52,7 @@ const recommendationActionParamSchema = z.object({
 
 /**
  * Build the Hono sub-app for `/api/runs/*`: paginated list, detail
- * fetch, delete, rerun, optional cancel, and the per-run published-article
+ * fetch, delete, rerun, optional cancel, and the per-run article
  * fetch. Mounted at `/api/runs` by `createApp`.
  */
 export function runsRoutes(deps: RunsRoutesDeps): Hono {
@@ -195,9 +195,9 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     const { id } = c.req.valid("param");
     const run = db.select().from(runs).where(eq(runs.id, id)).get();
     if (!run) return c.json({ error: `run "${id}" not found` }, 404);
-    // Publish and summary rows ship alongside pipeline steps; clients
+    // Article and summary rows ship alongside pipeline steps; clients
     // separate them by the `isArticle` / `isSummary` flags. This is what
-    // lets the run detail page render in-flight publish indicators while
+    // lets the run detail page render in-flight article indicators while
     // an article row hasn't yet been written.
     const steps = db
       .select()
@@ -208,7 +208,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     // `content_md` is deliberately omitted — the article body is fetched
     // by the dedicated article page so the run-detail payload stays small.
     // Lives on `run.articles` so every RunListEntry — list or detail —
-    // shares the same shape; chip rendering and the published-section row
+    // shares the same shape; chip rendering and the articles-section row
     // both read from one place.
     const articleRows = db
       .select({

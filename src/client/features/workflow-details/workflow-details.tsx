@@ -14,14 +14,14 @@ export function WorkflowDetails({ workflow }: { workflow: WorkflowSummary }) {
   const tabs: TabDef[] = [
     { id: "runs", label: "Runs", content: <Runs workflowName={workflow.name} /> },
     { id: "inputs", label: "Inputs", content: <InputsSpec inputs={workflow.inputs} /> },
-    { id: "publishes", label: "Publishes", content: <ArticlesSpec entries={workflow.publish} /> },
+    { id: "publishes", label: "Publishes", content: <ArticlesSpec entries={workflow.articles} /> },
     {
       id: "schema",
       label: "Schema",
       content: (
         <SchemaSpec
           steps={workflow.steps}
-          publish={workflow.publish}
+          articles={workflow.articles}
           summarize={workflow.summarize}
         />
       ),

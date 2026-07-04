@@ -32,11 +32,11 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
   // Absent when the workflow declares no `inputs:` block.
   inputs: def.inputs,
   steps: def.steps,
-  // Absence (no `publish:` / `summarize:` field, or `publish: []`) collapses
+  // Absence (no `articles:` / `summarize:` field, or `articles: []`) collapses
   // to `undefined` so the client has a single "section not present" signal.
-  publish:
-    def.publish && def.publish.length > 0
-      ? def.publish.map((entry) => ({
+  articles:
+    def.articles && def.articles.length > 0
+      ? def.articles.map((entry) => ({
           ...entry,
           name: resolveArticleName(entry.slug, entry.name),
         }))

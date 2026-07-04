@@ -52,9 +52,9 @@ describe("<WorkflowDetails>", () => {
     expect(screen.getByText("pr_number")).toBeDefined();
   });
 
-  it("shows publish entries when the publishes tab is selected", async () => {
+  it("shows article entries when the articles tab is selected", async () => {
     const user = userEvent.setup();
-    renderDetails(wf({ publish: [{ slug: "digest", name: "Digest", use: "writer" }] }));
+    renderDetails(wf({ articles: [{ slug: "digest", name: "Digest", use: "writer" }] }));
     await awaitRunsSettled();
     await user.click(screen.getByRole("tab", { name: "Publishes" }));
     expect(screen.getByText("Digest")).toBeDefined();

@@ -374,7 +374,7 @@ describe("db", () => {
     expect(regularRow?.isArticle).toBe(false);
   });
 
-  it("adds the article step flag + articles table when migrating a pre-publish DB", () => {
+  it("adds the article step flag + articles table when migrating a pre-articles DB", () => {
     const sqlite = db.$client;
     sqlite.run(
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",

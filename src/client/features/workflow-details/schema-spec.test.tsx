@@ -13,7 +13,7 @@ describe("<SchemaSpec>", () => {
     render(
       <SchemaSpec
         steps={[{ sh: "echo one" }, { use: "claude-code" }]}
-        publish={[{ slug: "digest", name: "Digest", use: "publish-bundle" }]}
+        articles={[{ slug: "digest", name: "Digest", use: "publish-bundle" }]}
         summarize={{ use: "summary-bundle" }}
       />,
     );
@@ -23,7 +23,7 @@ describe("<SchemaSpec>", () => {
     expect(screen.getByText("Publish 01")).toBeDefined();
     expect(screen.getByText("Summariser")).toBeDefined();
     // Entry labels surface in the collapsed summaries: steps fall back to their
-    // reference, while a publish row shows its resolved name (not the bundle).
+    // reference, while a article row shows its resolved name (not the bundle).
     expect(screen.getByText("claude-code")).toBeDefined();
     expect(screen.getByText("Digest")).toBeDefined();
     expect(screen.getByText("summary-bundle")).toBeDefined();
@@ -70,7 +70,7 @@ describe("<SchemaSpec>", () => {
     render(
       <SchemaSpec
         steps={[{ sh: "echo" }]}
-        publish={[{ slug: "digest", name: "Weekly Digest", use: "publish-bundle" }]}
+        articles={[{ slug: "digest", name: "Weekly Digest", use: "publish-bundle" }]}
       />,
     );
     // The slug reads beside the name in the collapsed summary, like a step id…

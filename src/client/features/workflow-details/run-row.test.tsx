@@ -124,7 +124,7 @@ describe("<RunRow>", () => {
     expect(screen.getByRole("link", { name: "PR Review Digest" })).toBeDefined();
   });
 
-  it("renders no article list when the run published nothing", () => {
+  it("renders no article list when the run produced nothing", () => {
     renderRow(run({ articles: [] }));
     expect(screen.queryByText("digest")).toBeNull();
   });

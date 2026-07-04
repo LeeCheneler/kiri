@@ -1651,7 +1651,7 @@ export function DesignSystemContent() {
                     </p>
                   </StatusBlock>
                   <StatusBlock status="ok">
-                    <p className="font-mono text-sm text-ink">publish: weekly digest</p>
+                    <p className="font-mono text-sm text-ink">articles: weekly digest</p>
                     <p className="mt-1 font-mono text-xs text-ink-muted">published in 0.8s</p>
                   </StatusBlock>
                   <StatusBlock status="running">

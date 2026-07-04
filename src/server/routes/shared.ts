@@ -14,7 +14,7 @@ export const invokeBodySchema = z
 
 // Path-param schemas, shared across routes so the accepted shape for a
 // run id or workflow name is declared once. `z.string().min(1)` matches
-// the existing published-article validator — every legit id/name passes,
+// the existing article-slug validator — every legit id/name passes,
 // and unknown values continue to 404 from their respective lookups.
 export const runIdParamSchema = z.object({ id: z.string().min(1) });
 export const workflowNameParamSchema = z.object({ name: z.string().min(1) });

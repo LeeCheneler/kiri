@@ -45,7 +45,7 @@ describe("<RunPhases>", () => {
     const run = makeRun({
       name: "wf",
       steps: [{ use: "fetch-pr" }, { sh: longSh }],
-      publish: [{ slug: "digest", name: "PR Digest", use: "writer" }],
+      articles: [{ slug: "digest", name: "PR Digest", use: "writer" }],
       summarize: { use: "summariser" },
     });
     const steps = [
@@ -78,7 +78,7 @@ describe("<RunPhases>", () => {
     const run = makeRun({
       name: "wf",
       steps: [{ use: "fetch-pr" }],
-      publish: [{ slug: "digest", name: "PR Digest", use: "writer" }],
+      articles: [{ slug: "digest", name: "PR Digest", use: "writer" }],
     });
     const steps = [makeStep({ index: 0 }), makeStep({ index: 1, isArticle: true })];
     render(<RunPhases run={run} steps={steps} now={NOW} />);

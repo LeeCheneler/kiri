@@ -31,7 +31,7 @@ export interface SummaryContextStep {
   stdout: string;
 }
 
-/** A publish article already produced when the summariser starts. */
+/** An article already produced when the summariser starts. */
 export interface SummaryContextArticle {
   slug: string;
   name: string;

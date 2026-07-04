@@ -3,7 +3,7 @@ import { EmptyState } from "../../design-system/content/empty-state.tsx";
 
 /**
  * The Publishes tab: a reader-facing list of what the workflow publishes — each
- * `publish:` entry's resolved editorial name, description, and its kebab slug
+ * `articles:` entry's resolved editorial name, description, and its kebab slug
  * (the article's stable id). How each is produced — kind, source, env — lives in
  * the Schema tab; this is the at-a-glance view. Workflows that publish nothing
  * show an empty state.
