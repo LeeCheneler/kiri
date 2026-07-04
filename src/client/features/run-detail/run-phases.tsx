@@ -91,11 +91,11 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
 };
 
 /**
- * The run's execution as up-to-three labelled groups — Steps, Publishes, and
+ * The run's execution as up-to-three labelled groups — Steps, Articles, and
  * Summarise — mirroring the order the runner walks them. Each group lists its
  * entries with status and duration (a live timer while running, the final span
  * once finished); rows that have executed expand to reveal their captured
- * stdout, stderr, and any error. Empty groups (no publishes, no summariser) are
+ * stdout, stderr, and any error. Empty groups (no articles, no summariser) are
  * omitted. `now` is injectable so tests pin the live timer; production omits it.
  */
 export function RunPhases({
@@ -108,7 +108,7 @@ export function RunPhases({
     <div className="mt-10 space-y-10">
       <PhaseGroup label="Steps" items={stepItems} now={now} />
       {articleItems.length > 0 ? (
-        <PhaseGroup label="Publishes" items={articleItems} now={now} />
+        <PhaseGroup label="Articles" items={articleItems} now={now} />
       ) : null}
       {summarizeItem ? <PhaseGroup label="Summarise" items={[summarizeItem]} now={now} /> : null}
     </div>

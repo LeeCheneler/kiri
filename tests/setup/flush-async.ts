@@ -3,7 +3,7 @@ import { act } from "@testing-library/react";
 /**
  * Flush pending on-mount fetches — and the React state updates they
  * trigger — inside `act()`. Several page-shell surfaces (workflows nav,
- * version footer, recently-published rail) and route views fetch
+ * version footer, latest-articles rail) and route views fetch
  * independently on mount; a test that renders them but asserts
  * synchronously must await this so those resolutions don't land as
  * act-unwrapped state updates after the test body has finished.

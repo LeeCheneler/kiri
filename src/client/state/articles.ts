@@ -4,7 +4,7 @@ import { type ArticleDetail, fetchArticle } from "../api.ts";
 const articleKey = (runId: string, slug: string) => ["article", runId, slug] as const;
 
 /**
- * Read a single published article by run id and slug, fetching on first use
+ * Read a single article by run id and slug, fetching on first use
  * and serving the cache thereafter. Articles are immutable once written, so
  * there is no live-sync hook — the cache never goes stale, and back/forward
  * navigation repaints without a refetch. The cache is keyed by the pair, so

@@ -1003,8 +1003,8 @@ EOF
     });
   });
 
-  describe("GET /api/runs/:id/published/:slug", () => {
-    const setupPublishingRun = async () => {
+  describe("GET /api/runs/:id/articles/:slug", () => {
+    const setupArticlesRun = async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
       writeBundle(env.cwd, "digest", "#!/bin/sh\nprintf '# Heading\\n\\nBody paragraph.\\n'\n");
       const wf: WorkflowDefinition = {
@@ -1026,9 +1026,9 @@ EOF
     };
 
     it("returns the article body and metadata on the happy path", async () => {
-      const { app, runId } = await setupPublishingRun();
+      const { app, runId } = await setupArticlesRun();
 
-      const res = await app.request(`/api/runs/${runId}/published/digest`);
+      const res = await app.request(`/api/runs/${runId}/articles/digest`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         id: string;
@@ -1064,14 +1064,14 @@ EOF
 
     it("returns 404 when the run id is unknown", async () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config });
-      const res = await app.request("/api/runs/missing-run/published/digest");
+      const res = await app.request("/api/runs/missing-run/articles/digest");
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'run "missing-run" not found' });
     });
 
     it("returns 404 when the article slug is unknown on an existing run", async () => {
-      const { app, runId } = await setupPublishingRun();
-      const res = await app.request(`/api/runs/${runId}/published/nope`);
+      const { app, runId } = await setupArticlesRun();
+      const res = await app.request(`/api/runs/${runId}/articles/nope`);
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({
         error: `article "nope" not found on run "${runId}"`,
@@ -1080,7 +1080,7 @@ EOF
 
     it("returns 400 when the article slug fails the schema regex", async () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config });
-      const res = await app.request("/api/runs/any-id/published/Bad_Name");
+      const res = await app.request("/api/runs/any-id/articles/Bad_Name");
       expect(res.status).toBe(400);
       const body = (await res.json()) as {
         error: string;

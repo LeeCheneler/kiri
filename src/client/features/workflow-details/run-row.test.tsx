@@ -101,7 +101,7 @@ describe("<RunRow>", () => {
     expect(screen.queryByText(/deployed/i)).toBeNull();
   });
 
-  it("lists published articles with the slug as eyebrow and the first heading as the link", () => {
+  it("lists the articles with the slug as eyebrow and the first heading as the link", () => {
     renderRow(
       run({
         id: "r2",
@@ -112,7 +112,7 @@ describe("<RunRow>", () => {
     );
     expect(screen.getByText("digest")).toBeDefined();
     const link = screen.getByRole("link", { name: "Findings" });
-    expect(link.getAttribute("href")).toBe("/runs/r2/published/digest");
+    expect(link.getAttribute("href")).toBe("/runs/r2/articles/digest");
   });
 
   it("falls back to the article name when it has no extracted heading", () => {

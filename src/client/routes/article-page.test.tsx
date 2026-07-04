@@ -13,7 +13,7 @@ import { ArticleContent } from "./article-page.tsx";
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 
 const renderArticle = (id: string, slug: string) => {
-  const { hook } = memoryLocation({ path: `/runs/${id}/published/${slug}` });
+  const { hook } = memoryLocation({ path: `/runs/${id}/articles/${slug}` });
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <Router hook={hook}>
@@ -27,7 +27,7 @@ describe("<ArticlePage>", () => {
   it("shows a loading message while the article is being fetched", async () => {
     // A never-resolving handler keeps the page in the loading state while
     // we make the synchronous assertion.
-    server.use(http.get("*/api/runs/:id/published/:slug", () => new Promise(() => {})));
+    server.use(http.get("*/api/runs/:id/articles/:slug", () => new Promise(() => {})));
     renderArticle("abc", "digest");
     expect(screen.getByText(/loading article/i)).toBeDefined();
     await flushAsync();
@@ -35,7 +35,7 @@ describe("<ArticlePage>", () => {
 
   it("renders the title, breadcrumb trail, byline, and markdown body on the happy path", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
+      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
@@ -55,7 +55,7 @@ describe("<ArticlePage>", () => {
 
     renderArticle("abc12345-0000-0000-0000-000000000000", "digest");
 
-    // The body's `# Hello` becomes the page title (an h1); the publish title
+    // The body's `# Hello` becomes the page title (an h1); the article name
     // rides in the eyebrow as the series label.
     expect(await screen.findByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
     expect(screen.getByText("pr-review · PR Review Digest")).toBeDefined();
@@ -65,7 +65,7 @@ describe("<ArticlePage>", () => {
     expect(workflowLink.getAttribute("href")).toBe("/workflows/pr-review");
     const runLink = screen.getByRole("link", { name: "abc12345" });
     expect(runLink.getAttribute("href")).toBe("/runs/abc12345-0000-0000-0000-000000000000");
-    // The byline is article-centric: when it was published, plus the body's
+    // The byline is article-centric: when it was created, plus the body's
     // word count and reading-time estimate. No run-execution facts. The word
     // count is of the body, with the headline lifted out.
     expect(screen.getByText(/30 seconds ago/i)).toBeDefined();
@@ -86,7 +86,7 @@ describe("<ArticlePage>", () => {
 
   it("copies the cleaned article — headline plus preamble-stripped body — on click", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
+      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
@@ -123,7 +123,7 @@ describe("<ArticlePage>", () => {
 
   it("renders the byline reading stats for a heading-less body", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
+      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
@@ -143,7 +143,7 @@ describe("<ArticlePage>", () => {
 
     renderArticle("abc", "sparse");
 
-    // With no body headline, the publish title supplies the page title and the
+    // With no body headline, the article name supplies the page title and the
     // eyebrow keeps the generic "Article" label.
     expect(await screen.findByRole("heading", { level: 1, name: "Sparse" })).toBeDefined();
     expect(screen.getByText("wf · Article")).toBeDefined();
@@ -153,9 +153,9 @@ describe("<ArticlePage>", () => {
     expect(screen.getByText("1 min read")).toBeDefined();
   });
 
-  it("drops the eyebrow series label when the publish title restates the workflow name", async () => {
+  it("drops the eyebrow series label when the article name restates the workflow name", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
+      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
@@ -175,7 +175,7 @@ describe("<ArticlePage>", () => {
 
     renderArticle("abc", "briefing");
 
-    // The publish title equals the workflow name, so it adds nothing — the
+    // The article name equals the workflow name, so it adds nothing — the
     // eyebrow keeps the generic "Article" label rather than echoing it.
     expect(
       await screen.findByRole("heading", { level: 1, name: "Wednesday's briefing" }),
@@ -185,7 +185,7 @@ describe("<ArticlePage>", () => {
 
   it("renders body `## section` markdown as h2 with section-NN ids and § NN eyebrows", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
+      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
@@ -216,7 +216,7 @@ describe("<ArticlePage>", () => {
 
   it("renders the not-found view with a run breadcrumb when the API returns 404", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:slug", () =>
+      http.get("*/api/runs/:id/articles/:slug", () =>
         HttpResponse.json({ error: "article not found" }, { status: 404 }),
       ),
     );
@@ -235,7 +235,7 @@ describe("<ArticlePage>", () => {
 
   it("renders a generic error view on non-404 failures", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:slug", () => new HttpResponse("boom", { status: 500 })),
+      http.get("*/api/runs/:id/articles/:slug", () => new HttpResponse("boom", { status: 500 })),
     );
 
     renderArticle("abc", "digest");

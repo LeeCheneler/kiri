@@ -9,18 +9,18 @@ describe("<SchemaSpec>", () => {
     expect(screen.getByText(/no schema/i)).toBeDefined();
   });
 
-  it("lists steps, publishes, and the summariser in order", () => {
+  it("lists steps, articles, and the summariser in order", () => {
     render(
       <SchemaSpec
         steps={[{ sh: "echo one" }, { use: "claude-code" }]}
-        articles={[{ slug: "digest", name: "Digest", use: "publish-bundle" }]}
+        articles={[{ slug: "digest", name: "Digest", use: "article-bundle" }]}
         summarize={{ use: "summary-bundle" }}
       />,
     );
-    // Phase markers name each disclosure: Step NN, Publish NN, and the summariser.
+    // Phase markers name each disclosure: Step NN, Article NN, and the summariser.
     expect(screen.getByText("Step 01")).toBeDefined();
     expect(screen.getByText("Step 02")).toBeDefined();
-    expect(screen.getByText("Publish 01")).toBeDefined();
+    expect(screen.getByText("Article 01")).toBeDefined();
     expect(screen.getByText("Summariser")).toBeDefined();
     // Entry labels surface in the collapsed summaries: steps fall back to their
     // reference, while a article row shows its resolved name (not the bundle).
@@ -65,19 +65,19 @@ describe("<SchemaSpec>", () => {
     expect(screen.getByText("does a thing")).toBeDefined();
   });
 
-  it("shows a publish's slug beside its resolved name in the row summary", async () => {
+  it("shows an article's slug beside its resolved name in the row summary", async () => {
     const user = userEvent.setup();
     render(
       <SchemaSpec
         steps={[{ sh: "echo" }]}
-        articles={[{ slug: "digest", name: "Weekly Digest", use: "publish-bundle" }]}
+        articles={[{ slug: "digest", name: "Weekly Digest", use: "article-bundle" }]}
       />,
     );
     // The slug reads beside the name in the collapsed summary, like a step id…
     expect(screen.getByText("Weekly Digest")).toBeDefined();
     expect(screen.getByText("digest")).toBeDefined();
     // …and expanding no longer repeats the name as a heading.
-    await user.click(screen.getByRole("button", { name: /publish 01/i }));
+    await user.click(screen.getByRole("button", { name: /article 01/i }));
     expect(screen.queryByRole("heading", { name: "Weekly Digest" })).toBeNull();
   });
 });

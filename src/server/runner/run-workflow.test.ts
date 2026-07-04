@@ -2085,9 +2085,9 @@ EOF
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all();
-      const publishStep = stepRows.find((s) => s.isArticle);
+      const articleStep = stepRows.find((s) => s.isArticle);
       // Empty expansion of the missing var produces a bare "REC=" line.
-      expect(publishStep?.output).toBe("REC=\n");
+      expect(articleStep?.output).toBe("REC=\n");
 
       const rows = db
         .select()

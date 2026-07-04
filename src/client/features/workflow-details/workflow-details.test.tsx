@@ -33,7 +33,7 @@ const awaitRunsSettled = () => screen.findByText(/no runs yet/i);
 describe("<WorkflowDetails>", () => {
   it("shows the four detail tabs", async () => {
     renderDetails();
-    for (const name of ["Runs", "Inputs", "Publishes", "Schema"]) {
+    for (const name of ["Runs", "Inputs", "Articles", "Schema"]) {
       expect(screen.getByRole("tab", { name })).toBeDefined();
     }
     await awaitRunsSettled();
@@ -56,7 +56,7 @@ describe("<WorkflowDetails>", () => {
     const user = userEvent.setup();
     renderDetails(wf({ articles: [{ slug: "digest", name: "Digest", use: "writer" }] }));
     await awaitRunsSettled();
-    await user.click(screen.getByRole("tab", { name: "Publishes" }));
+    await user.click(screen.getByRole("tab", { name: "Articles" }));
     expect(screen.getByText("Digest")).toBeDefined();
   });
 

@@ -3,6 +3,6 @@ steps:
   - sh: echo "pipeline step"
 articles:
   - slug: digest
-    name: Published Digest
+    name: Daily Digest
     sh: |
       printf '# This week in review\n\n## First section\n\nFirst body paragraph.\n\n## Second section\n\nSecond paragraph.\n'

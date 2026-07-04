@@ -162,7 +162,7 @@ export type RunArticleSnapshot =
  * `articles` lists the run's articles ordered by creation
  * time, populated by the server in a single aggregation across the
  * page. Empty for runs that produced no articles. The same field
- * powers both feed-row chips and the run detail's Published section
+ * powers both feed-row chips and the run detail's Articles section
  * so consumers read from one place.
  *
  * `recommendationsCount` is the run's emitted-recommendation total,
@@ -213,7 +213,7 @@ export interface RunListEntry {
  * `isSummary` and `isArticle` distinguish summariser and article rows
  * from regular pipeline steps. The UI hides both from the main step
  * list and surfaces them in dedicated sections — the Summariser
- * execution disclosure and the Publishing / Published sections
+ * execution disclosure and the article sections
  * respectively.
  */
 export interface RunStepRow {
@@ -253,7 +253,7 @@ export interface RunStepRow {
 /**
  * A run's article as seen by the run-detail consumer. The
  * markdown body lives on the dedicated article route — only metadata
- * needed to render the "Published" section row travels with the run.
+ * needed to render the "Articles" section row travels with the run.
  *
  * `heading` is the article body's first markdown `# heading`, derived
  * server-side, or null when the body has no top-level heading. Surfaces
@@ -422,7 +422,7 @@ export interface ArticleDetail {
  */
 export const fetchArticle = async (runId: string, slug: string): Promise<ArticleDetail> =>
   json<ArticleDetail>(
-    await apiFetch(`/api/runs/${encodeURIComponent(runId)}/published/${encodeURIComponent(slug)}`),
+    await apiFetch(`/api/runs/${encodeURIComponent(runId)}/articles/${encodeURIComponent(slug)}`),
   );
 
 /**

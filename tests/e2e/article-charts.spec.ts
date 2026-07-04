@@ -8,21 +8,18 @@ const triggerRun = async (request: APIRequestContext, name: string) => {
   return (await res.json()) as { runId: string };
 };
 
-test("a chart code block renders a real chart in a published article", async ({
-  page,
-  request,
-}) => {
+test("a chart code block renders a real chart in an article", async ({ page, request }) => {
   const { runId } = await triggerRun(request, "charts");
 
-  // Wait for the run to reach its terminal state so the Published
+  // Wait for the run to reach its terminal state so the Articles
   // section is populated before we follow the article link.
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
-  // Published articles render in the run's right rail; follow the chart report.
+  // Articles render in the run's right rail; follow the chart report.
   const articleLink = page.getByRole("link", { name: /chart report/i });
   await articleLink.click();
-  await expect(page).toHaveURL(`/runs/${runId}/published/chart-report`);
+  await expect(page).toHaveURL(`/runs/${runId}/articles/chart-report`);
 
   // The valid spec compiles and renders a real Vega SVG inside the
   // chart figure.

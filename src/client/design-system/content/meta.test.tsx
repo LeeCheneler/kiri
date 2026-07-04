@@ -8,11 +8,11 @@ describe("<Meta>", () => {
       <Meta>
         <span>3 steps</span>
         <span>2 inputs</span>
-        <span>1 publish</span>
+        <span>1 article</span>
       </Meta>,
     );
     expect(screen.getByText("3 steps")).toBeDefined();
     expect(screen.getByText("2 inputs")).toBeDefined();
-    expect(screen.getByText("1 publish")).toBeDefined();
+    expect(screen.getByText("1 article")).toBeDefined();
   });
 });

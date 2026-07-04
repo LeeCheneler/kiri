@@ -347,7 +347,7 @@ describe("db", () => {
 
     db.insert(runSteps)
       .values({
-        id: "pub-step-1",
+        id: "article-step-1",
         runId: "run-pub",
         index: 0,
         kind: "use",
@@ -366,9 +366,9 @@ describe("db", () => {
       })
       .run();
 
-    const publishRow = db.select().from(runSteps).where(eq(runSteps.id, "pub-step-1")).get();
-    expect(publishRow?.isArticle).toBe(true);
-    expect(publishRow?.isSummary).toBe(false);
+    const articleRow = db.select().from(runSteps).where(eq(runSteps.id, "article-step-1")).get();
+    expect(articleRow?.isArticle).toBe(true);
+    expect(articleRow?.isSummary).toBe(false);
 
     const regularRow = db.select().from(runSteps).where(eq(runSteps.id, "regular-step-1")).get();
     expect(regularRow?.isArticle).toBe(false);

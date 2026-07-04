@@ -160,7 +160,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
   });
 
   app.get(
-    "/:id/published/:slug",
+    "/:id/articles/:slug",
     zValidator("param", articleParamSchema, onZodFail("invalid article slug")),
     (c) => {
       const { id, slug } = c.req.valid("param");

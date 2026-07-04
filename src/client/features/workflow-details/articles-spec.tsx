@@ -2,15 +2,15 @@ import type { WorkflowArticleSummary } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 
 /**
- * The Publishes tab: a reader-facing list of what the workflow publishes — each
+ * The Articles tab: a reader-facing list of the articles the workflow produces — each
  * `articles:` entry's resolved editorial name, description, and its kebab slug
  * (the article's stable id). How each is produced — kind, source, env — lives in
- * the Schema tab; this is the at-a-glance view. Workflows that publish nothing
+ * the Schema tab; this is the at-a-glance view. Workflows that produce nothing
  * show an empty state.
  */
 export function ArticlesSpec({ entries }: { entries?: WorkflowArticleSummary[] }) {
   if (!entries || entries.length === 0) {
-    return <EmptyState>this workflow publishes no articles.</EmptyState>;
+    return <EmptyState>this workflow produces no articles.</EmptyState>;
   }
   return (
     <ul className="divide-y divide-rule">

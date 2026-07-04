@@ -14,7 +14,7 @@ import { readingStats } from "../formatters/reading-stats.ts";
 import { useArticle } from "../state/articles.ts";
 
 /**
- * Published-article route. Composes the article content into the page shell,
+ * Article route. Composes the article content into the page shell,
  * with the in-article table of contents as right-rail marginalia.
  *
  * `now` is injectable so component tests render deterministic relative
@@ -43,7 +43,7 @@ export function ArticlePage({
 }
 
 /**
- * Published-article content. Reads a single article by `(runId, slug)` from
+ * Article content. Reads a single article by `(runId, slug)` from
  * the shared query cache and renders its markdown body through the sandboxed
  * design-system `Markdown`. Articles are immutable once written, so the cache
  * never goes stale — there is no live sync.
@@ -89,10 +89,10 @@ export function ArticleContent({
   const data = article.data;
   // The body's own `# headline` is the article's title; drop it and any
   // assistant preamble before it from the rendered body, and fall back to the
-  // publish name when the body carries no headline of its own.
+  // article name when the body carries no headline of its own.
   const { heading, body } = splitLeadingHeading(data.contentMd);
   const displayTitle = heading ?? data.name;
-  // The publish name earns its spot in the eyebrow only when it adds context:
+  // The article name earns its spot in the eyebrow only when it adds context:
   // not when the body already supplies the page title, and not when it merely
   // restates the workflow name or the headline. Otherwise fall back to the
   // generic label.
@@ -123,7 +123,7 @@ export function ArticleContent({
 
       <header className="mt-6">
         {/* The eyebrow situates the article under its workflow, suffixed with
-            the publish name as the series label when it adds context (see
+            the article name as the series label when it adds context (see
             seriesLabel). */}
         <Eyebrow>
           {data.workflowName} · {seriesLabel}

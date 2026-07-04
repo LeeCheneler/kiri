@@ -7,14 +7,14 @@ import { SchemaSpec } from "./schema-spec.tsx";
 
 /**
  * The workflow detail tab strip: the workflow's runs, its declared inputs,
- * what it publishes, and its pipeline schema. Built on the design-system
+ * the articles it produces, and its pipeline schema. Built on the design-system
  * `Tabs`, so the active tab deep-links to the URL.
  */
 export function WorkflowDetails({ workflow }: { workflow: WorkflowSummary }) {
   const tabs: TabDef[] = [
     { id: "runs", label: "Runs", content: <Runs workflowName={workflow.name} /> },
     { id: "inputs", label: "Inputs", content: <InputsSpec inputs={workflow.inputs} /> },
-    { id: "publishes", label: "Publishes", content: <ArticlesSpec entries={workflow.articles} /> },
+    { id: "articles", label: "Articles", content: <ArticlesSpec entries={workflow.articles} /> },
     {
       id: "schema",
       label: "Schema",

@@ -70,7 +70,7 @@ export function SchemaSpec({
       {articles?.map((entry, index) => (
         <SchemaRow
           key={`article-${entry.slug}`}
-          marker={`Publish ${String(index + 1).padStart(2, "0")}`}
+          marker={`Article ${String(index + 1).padStart(2, "0")}`}
           entry={entry}
         />
       ))}
