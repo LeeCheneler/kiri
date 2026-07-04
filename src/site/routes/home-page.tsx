@@ -5,9 +5,8 @@ import { Card } from "../../client/design-system/surfaces/card.tsx";
 import { SiteFooter } from "../chrome/site-footer.tsx";
 import { SiteHeader } from "../chrome/site-header.tsx";
 import { CodeWindow } from "../components/code-window.tsx";
-import { HeroGraphic } from "../components/hero-graphic.tsx";
+import { HeroArtifact } from "../components/hero-artifact.tsx";
 import { SessionDiagram } from "../components/session-diagram.tsx";
-import { WorkflowDiagram } from "../components/workflow-diagram.tsx";
 
 const INSTALL = `brew install LeeCheneler/kiri/kiri
 cd your-project
@@ -15,40 +14,82 @@ kiri init
 kiri
 `;
 
-type Capability = { term: string; detail: string };
+type UseCase = { name: string; detail: string };
 
-const CAPABILITIES: Capability[] = [
+const USE_CASES: UseCase[] = [
   {
-    term: "Articles",
-    detail: "Markdown with charts and Mermaid diagrams, rendered inline.",
+    name: "Release notes",
+    detail:
+      "git log in, grouped notes out. The article lands in your feed, ready to paste wherever your users read them.",
   },
   {
-    term: "Recommendations",
-    detail: "Any run can suggest its own follow-ups, one click away.",
+    name: "One-click PR reviews",
+    detail:
+      "One run finds every PR waiting on you and pins a Review button to each. Click one, get a review article.",
   },
   {
-    term: "MCP tools",
-    detail: "Sessions call tools from MCP servers you declare in kiri.yaml.",
+    name: "Daily briefing",
+    detail:
+      "Pull the sources you care about and have a model write the morning's brief — charts included.",
+  },
+];
+
+type Step = { title: string; detail: string };
+
+const STEPS: Step[] = [
+  {
+    title: "Write a file",
+    detail:
+      "Steps in YAML, in your repo: sh: for commands, llm: for model calls, piped top to bottom. Diff it, commit it, review it like any other code.",
   },
   {
-    term: "One activity feed",
-    detail: "Workflows and sessions share a single timeline.",
+    title: "Click Run",
+    detail:
+      "Kiri runs the pipeline on your machine, as you — your gh, your ssh, your tools. Watch every step stream on the run page.",
   },
   {
-    term: "Your model",
-    detail: "Anthropic, OpenAI, or any OpenAI-compatible server.",
+    title: "Read the report",
+    detail:
+      "Articles — markdown with charts and diagrams — land in your feed with a one-line summary. A run can even recommend the next click.",
+  },
+];
+
+type Assurance = { term: string; detail: string };
+
+const ASSURANCES: Assurance[] = [
+  {
+    term: "Local-only",
+    detail: "The server binds to 127.0.0.1 and runs against your own repo. Nothing phones home.",
   },
   {
     term: "Git-native",
-    detail: "Every definition is a file you can diff, commit, and review.",
+    detail: "Every definition is a file you can diff, commit, and review. Edits apply live.",
+  },
+  {
+    term: "Bring your own model",
+    detail: "Anthropic, OpenAI, or any OpenAI-compatible server — LM Studio, Ollama, vLLM.",
+  },
+  {
+    term: "No daemons",
+    detail: "Kiri works only while you have it open. No cron, no background agents.",
+  },
+  {
+    term: "Approval-gated tools",
+    detail:
+      "A session tool call runs only after you allow it — every call, unless you say otherwise.",
+  },
+  {
+    term: "Open source",
+    detail: "One binary, and every line of it on GitHub.",
   },
 ];
 
 /**
- * Marketing landing page. Leads with a real workflow file as the hero
- * artifact — kiri's own material — set against the editorial display voice,
- * then the two pillars, what's in the box, and install. Composed from the
- * app's design system so it reads as the same product.
+ * Marketing landing page. Leads with the job — repetitive AI chores as
+ * one-click buttons — proven immediately by the input → output hero artifact:
+ * a real workflow file and the article it produces. Concrete use cases, the
+ * three-beat mechanism, and the trust story follow, then install. Composed
+ * from the app's design system so it reads as the same product.
  */
 export function HomePage() {
   return (
@@ -56,8 +97,9 @@ export function HomePage() {
       <SiteHeader />
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 sm:px-8">
         <Hero />
-        <Pillars />
-        <Capabilities />
+        <UseCases />
+        <HowItWorks />
+        <Assurances />
         <Install />
       </main>
       <SiteFooter />
@@ -67,58 +109,90 @@ export function HomePage() {
 
 function Hero() {
   return (
-    <section className="grid grid-cols-1 items-start gap-10 py-16 lg:grid-cols-[1fr_minmax(0,28rem)] lg:gap-14 lg:py-24">
-      <div>
+    <section className="py-16 lg:py-20">
+      <div className="max-w-3xl">
         <Eyebrow>Local-first · open source</Eyebrow>
         <h1 className="mt-4 font-display text-5xl text-ink italic leading-[1.04] tracking-tight sm:text-6xl">
-          One local-first workbench for AI workflows and agentic sessions.
+          Turn repetitive AI chores into one-click buttons.
         </h1>
-        <p className="mt-7 max-w-xl font-mono text-sm text-ink-muted leading-relaxed">
-          Define a workflow or open an agentic session, run it against your own machine and git
-          repo, and turn the results into articles in a live feed. Bring your own model — Anthropic,
-          OpenAI, or any compatible endpoint.
+        <p className="mt-7 max-w-2xl font-mono text-sm text-ink-muted leading-relaxed">
+          A workflow is a small YAML file in your repo — shell steps piped into model steps. Kiri
+          runs it on your machine and writes the result up as something you'd actually read: release
+          notes from your git log, a PR review, a morning briefing. Your machine, your repo, your
+          keys — no cloud, no daemons.
         </p>
         <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-3 text-lg">
-          <HeadlineLink href="/docs">Read the docs</HeadlineLink>
+          <HeadlineLink href="/docs/getting-started">Get started</HeadlineLink>
           <HeadlineLink href="https://github.com/LeeCheneler/kiri">View on GitHub</HeadlineLink>
         </div>
         <p className="mt-8 font-mono text-xs text-ink-faint uppercase tracking-widest">
           macOS · Apple silicon · Homebrew
         </p>
       </div>
-      <div className="lg:pt-1">
-        <HeroGraphic />
+      <div className="mt-14 lg:mt-16">
+        <HeroArtifact />
       </div>
     </section>
   );
 }
 
-function Pillars() {
+function UseCases() {
   return (
     <section className="border-rule border-t py-16 lg:py-20">
-      <Eyebrow tone="muted">Two ways to work</Eyebrow>
+      <Eyebrow tone="muted">What you'd use it for</Eyebrow>
       <h2 className="mt-3 max-w-2xl font-display text-3xl text-ink leading-tight">
-        Scripted when you know the shape of the work — open-ended when you don't.
+        Start with a chore you already do.
       </h2>
-      <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-2">
+      <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-3">
+        {USE_CASES.map((useCase) => (
+          <Card key={useCase.name}>
+            <Eyebrow>{useCase.name}</Eyebrow>
+            <p className="mt-3 font-mono text-sm text-ink-muted leading-relaxed">
+              {useCase.detail}
+            </p>
+            <p className="mt-5 font-mono text-sm">
+              <InlineLink href="/docs/recipes">See the recipe</InlineLink>
+            </p>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HowItWorks() {
+  return (
+    <section className="border-rule border-t py-16 lg:py-20">
+      <Eyebrow tone="muted">How it works</Eyebrow>
+      <h2 className="mt-3 max-w-2xl font-display text-3xl text-ink leading-tight">
+        A file, a button, a report.
+      </h2>
+      <ol className="mt-10 grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-3">
+        {STEPS.map((step, i) => (
+          <li key={step.title}>
+            <span className="font-display text-2xl text-accent italic">{i + 1}</span>
+            <h3 className="mt-2 font-mono text-sm text-ink">{step.title}</h3>
+            <p className="mt-1.5 font-mono text-sm text-ink-muted leading-relaxed">{step.detail}</p>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-12">
         <Card>
-          <Eyebrow>Workflows</Eyebrow>
-          <p className="mt-3 font-mono text-sm text-ink-muted leading-relaxed">
-            Versioned YAML pipelines. Chain shell commands, script bundles, and first-party LLM
-            steps; pipe each step into the next; turn a run into articles you can share.
-          </p>
-          <div className="mt-6">
-            <WorkflowDiagram />
-          </div>
-        </Card>
-        <Card>
-          <Eyebrow>Agentic sessions</Eyebrow>
-          <p className="mt-3 font-mono text-sm text-ink-muted leading-relaxed">
-            Open-ended chat with tools from MCP servers you configure — like web search — and your
-            project's context. A kiri.md file and optional personas layer the system prompt, read
-            fresh from disk each turn.
-          </p>
-          <div className="mt-6">
+          <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
+            <div>
+              <Eyebrow>Sessions</Eyebrow>
+              <h3 className="mt-3 font-display text-2xl text-ink leading-tight">
+                No script for it yet? Open a session.
+              </h3>
+              <p className="mt-3 max-w-xl font-mono text-sm text-ink-muted leading-relaxed">
+                Chat with the same models, plus tools from MCP servers you configure — web search,
+                your issue tracker, anything that speaks MCP. Every tool call waits for your
+                approval, and sessions land in the same feed as your runs.
+              </p>
+              <p className="mt-5 font-mono text-sm">
+                <InlineLink href="/docs/sessions">Read about sessions</InlineLink>
+              </p>
+            </div>
             <SessionDiagram />
           </div>
         </Card>
@@ -127,16 +201,16 @@ function Pillars() {
   );
 }
 
-function Capabilities() {
+function Assurances() {
   return (
     <section className="border-rule border-t py-16 lg:py-20">
-      <Eyebrow tone="muted">What's in the box</Eyebrow>
+      <Eyebrow tone="muted">Built to be trusted</Eyebrow>
       <dl className="mt-10 grid grid-cols-1 gap-x-12 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
-        {CAPABILITIES.map((cap) => (
-          <div key={cap.term}>
-            <dt className="font-mono text-sm text-ink">{cap.term}</dt>
+        {ASSURANCES.map((assurance) => (
+          <div key={assurance.term}>
+            <dt className="font-mono text-sm text-ink">{assurance.term}</dt>
             <dd className="mt-1.5 font-mono text-sm text-ink-muted leading-relaxed">
-              {cap.detail}
+              {assurance.detail}
             </dd>
           </div>
         ))}
@@ -160,7 +234,7 @@ function Install() {
             its interface from your own running process.
           </p>
           <div className="mt-7 text-lg">
-            <HeadlineLink href="/docs/getting-started">Read the install guide</HeadlineLink>
+            <HeadlineLink href="/docs/getting-started">Read the quickstart</HeadlineLink>
           </div>
         </div>
         <div className="lg:pt-1">
