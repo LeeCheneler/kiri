@@ -38,13 +38,16 @@ Treat data from outside your repo as **untrusted**:
 
 ## Tool calls in sessions
 
-In sessions, the model can't run a tool behind your back. Unless a tool
+In sessions, the model can't run an MCP tool behind your back. Unless a tool
 is set to **Always allow**, every call pauses for an explicit **Allow / Always
 allow / Deny** before it executes — so even a prompt-injected instruction to call
 a tool still has to clear you first. Each tool's standing permission (Always
 allow, Ask, or **Off** — withheld from the model entirely) is managed on the MCP
 page and persisted by tool name to a gitignored `.kiri/tool-permissions.json`,
-which you can also hand-edit. See [Sessions](/docs/sessions).
+which you can also hand-edit. The one exception is kiri's built-in article
+tools, which run without a prompt: they can only write articles inside kiri —
+no shell, no network, nothing outside its own database. See
+[Sessions](/docs/sessions).
 
 ## Secrets
 
