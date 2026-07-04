@@ -7,7 +7,7 @@ import {
   fetchSessionArticle,
   fetchSessionArticles,
 } from "../api.ts";
-import { useLiveSync } from "../events/live.tsx";
+import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 
 const articleKey = (runId: string, slug: string) => ["article", runId, slug] as const;
 
@@ -30,22 +30,13 @@ export function useArticle(runId: string, slug: string): UseQueryResult<ArticleD
 /**
  * Read a single session-produced article, fetching on first use and serving
  * the cache thereafter. Unlike a run's, a session's article is editable — the
- * session can rewrite it in a later turn — so the query refetches whenever
- * the server announces `article.written` for this session and slug, and on
- * event-stream reconnect. Must render inside `<LiveEventsProvider>`.
+ * session can rewrite it in a later turn — so the cache is kept current by
+ * `useSessionArticlesLive`, mounted once near the root via `<LiveSync>`.
  */
 export function useSessionArticle(
   sessionId: string,
   slug: string,
 ): UseQueryResult<SessionArticleDetail> {
-  const queryClient = useQueryClient();
-  useLiveSync({
-    on: ["article.written"],
-    filter: (event) => event.sessionId === sessionId && event.slug === slug,
-    refetch: () => {
-      void queryClient.invalidateQueries({ queryKey: sessionArticleKey(sessionId, slug) });
-    },
-  });
   return useQuery({
     queryKey: sessionArticleKey(sessionId, slug),
     queryFn: () => fetchSessionArticle(sessionId, slug),
@@ -53,22 +44,38 @@ export function useSessionArticle(
 }
 
 /**
- * Read the list of articles a session has written, oldest first. Refetches
- * whenever the server announces `article.written` for this session — a
- * mid-turn create pops into the list without a navigation — and on
- * event-stream reconnect. Must render inside `<LiveEventsProvider>`.
+ * Read the list of articles a session has written, oldest first. Kept current
+ * by `useSessionArticlesLive`, so an article the model writes mid-turn pops
+ * into a mounted list without a navigation.
  */
 export function useSessionArticles(sessionId: string): UseQueryResult<ArticleSummary[]> {
-  const queryClient = useQueryClient();
-  useLiveSync({
-    on: ["article.written"],
-    filter: (event) => event.sessionId === sessionId,
-    refetch: () => {
-      void queryClient.invalidateQueries({ queryKey: sessionArticlesKey(sessionId) });
-    },
-  });
   return useQuery({
     queryKey: sessionArticlesKey(sessionId),
     queryFn: async () => (await fetchSessionArticles(sessionId)).articles,
+  });
+}
+
+/**
+ * Bridges `article.written` events to the session article caches: the
+ * announced article's detail and its session's list are invalidated whether
+ * or not a consumer is currently mounted — an unmounted page's cache goes
+ * stale too, so navigating back refetches instead of serving the old body.
+ * Reconnect re-syncs every session article query. Mount once near the root
+ * via `<LiveSync>`.
+ */
+export function useSessionArticlesLive(): void {
+  const queryClient = useQueryClient();
+  useLiveEvent({
+    on: ["article.written"],
+    handler: (event) => {
+      void queryClient.invalidateQueries({
+        queryKey: sessionArticleKey(event.sessionId, event.slug),
+      });
+      void queryClient.invalidateQueries({ queryKey: sessionArticlesKey(event.sessionId) });
+    },
+  });
+  useLiveReconnect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["session-article"] });
+    void queryClient.invalidateQueries({ queryKey: ["session-articles"] });
   });
 }

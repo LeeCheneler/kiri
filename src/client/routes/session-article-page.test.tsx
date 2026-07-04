@@ -8,6 +8,7 @@ import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { useSessionArticlesLive } from "../state/articles.ts";
 import { createQueryClient } from "../state/query-client.ts";
 import { SessionArticleContent } from "./session-article-page.tsx";
 
@@ -15,12 +16,19 @@ const NOW = new Date("2026-05-09T12:00:00.000Z");
 
 const SESSION_ID = "abc12345-0000-0000-0000-000000000000";
 
+// The root-level article live bridge, as `<LiveSync>` mounts it in the app.
+const Live = () => {
+  useSessionArticlesLive();
+  return null;
+};
+
 const renderArticle = (id: string, slug: string) => {
   const { factory, sources } = captureEventSources();
   const { hook } = memoryLocation({ path: `/sessions/${id}/articles/${slug}` });
   const view = render(
     <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
+        <Live />
         <Router hook={hook}>
           <SessionArticleContent params={{ id, slug }} now={NOW} />
         </Router>

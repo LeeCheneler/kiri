@@ -8,10 +8,17 @@ import { captureEventSources } from "../../../../tests/setup/fake-event-source.t
 import { flushAsync } from "../../../../tests/setup/flush-async.ts";
 import { server } from "../../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../../events/live.tsx";
+import { useSessionArticlesLive } from "../../state/articles.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionArticles } from "./session-articles.tsx";
 
 const SESSION_ID = "abc12345-0000-0000-0000-000000000000";
+
+// The root-level article live bridge, as `<LiveSync>` mounts it in the app.
+const Live = () => {
+  useSessionArticlesLive();
+  return null;
+};
 
 const summary = (slug: string, heading: string | null) => ({
   slug,
@@ -26,6 +33,7 @@ const renderPanel = (id: string) => {
   const view = render(
     <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
+        <Live />
         <Router hook={hook}>
           <SessionArticles id={id} />
         </Router>
