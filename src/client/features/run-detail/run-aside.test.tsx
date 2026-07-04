@@ -45,13 +45,12 @@ const renderAside = () => {
 };
 
 describe("<RunAside>", () => {
-  it("renders nothing once a run with no inputs and no articles loads", async () => {
+  it("renders nothing once a run with no inputs loads", async () => {
     server.use(http.get("*/api/runs/:id", () => HttpResponse.json(detail())));
     renderAside();
     await flushAsync();
 
     expect(screen.queryByText("Inputs")).toBeNull();
-    expect(screen.queryByText("Articles")).toBeNull();
   });
 
   it("lists the inputs the run was invoked with", async () => {
@@ -67,38 +66,5 @@ describe("<RunAside>", () => {
     expect(screen.getByText("42")).toBeDefined();
     expect(screen.getByText("branch")).toBeDefined();
     expect(screen.getByText("main")).toBeDefined();
-  });
-
-  it("links the run's articles by their first heading, then name", async () => {
-    server.use(
-      http.get("*/api/runs/:id", () =>
-        HttpResponse.json(
-          detail({
-            articles: [
-              {
-                slug: "digest",
-                name: "PR Digest",
-                heading: "Summary",
-                createdAt: "2026-05-09T12:00:40.000Z",
-              },
-              {
-                slug: "notes",
-                name: "Release Notes",
-                heading: null,
-                createdAt: "2026-05-09T12:00:41.000Z",
-              },
-            ],
-          }),
-        ),
-      ),
-    );
-    renderAside();
-
-    expect(await screen.findByText("Articles")).toBeDefined();
-    // heading present → link reads the heading; absent → falls back to the name.
-    const byHeading = screen.getByRole("link", { name: /summary/i });
-    expect(byHeading.getAttribute("href")).toBe("/runs/run-1/articles/digest");
-    const byName = screen.getByRole("link", { name: /release notes/i });
-    expect(byName.getAttribute("href")).toBe("/runs/run-1/articles/notes");
   });
 });

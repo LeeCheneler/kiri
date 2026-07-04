@@ -4,6 +4,7 @@ import { Markdown } from "../design-system/content/markdown.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { RunActions } from "../features/run-detail/run-actions.tsx";
+import { RunArticles } from "../features/run-detail/run-articles.tsx";
 import { RunAside } from "../features/run-detail/run-aside.tsx";
 import { RunFailure } from "../features/run-detail/run-failure.tsx";
 import { RunHeader } from "../features/run-detail/run-header.tsx";
@@ -27,8 +28,8 @@ export function RunPage({ params }: { params: { id: string } }) {
 /**
  * Run detail content. Reads the run from the shared query — kept current by
  * the app's run live-sync — and renders one of: loading, not-found (404),
- * generic error, or the run detail (header, then the workflow's summary once
- * it has produced one).
+ * generic error, or the run detail (header, then the workflow's summary and
+ * the links to its published articles once it has produced them).
  *
  * `now` is injectable so tests render deterministic times and the header's
  * live timer doesn't tick; production omits it.
@@ -87,6 +88,7 @@ export function RunContent({ params, now }: { params: { id: string }; now?: Date
         </div>
       ) : null}
       {detail.error ? <RunFailure error={detail.error} /> : null}
+      <RunArticles runId={detail.id} articles={detail.articles} />
       <RunPhases run={detail} steps={steps} now={now} />
       <RunRecommendations
         runId={detail.id}

@@ -6,7 +6,10 @@ import { RunPhases } from "./run-phases.tsx";
 
 const NOW = new Date("2026-05-09T12:00:30.000Z");
 
-const makeRun = (snapshot: RunDetailRun["definitionSnapshot"]): RunDetailRun => ({
+const makeRun = (
+  snapshot: RunDetailRun["definitionSnapshot"],
+  over: Partial<RunDetailRun> = {},
+): RunDetailRun => ({
   id: "run-1",
   workflowName: "wf",
   status: "ok",
@@ -22,6 +25,7 @@ const makeRun = (snapshot: RunDetailRun["definitionSnapshot"]): RunDetailRun => 
   articles: [],
   recommendationsCount: 0,
   recommendations: [],
+  ...over,
 });
 
 const makeStep = (overrides: Partial<RunStepRow> & { index: number }): RunStepRow => ({
@@ -84,6 +88,39 @@ describe("<RunPhases>", () => {
     render(<RunPhases run={run} steps={steps} now={NOW} />);
     expect(screen.getByText("PR Digest")).toBeDefined();
     expect(screen.getByText("digest")).toBeDefined();
+  });
+
+  it("reveals a published article's link when its row is expanded", async () => {
+    const user = userEvent.setup();
+    const run = makeRun(
+      {
+        name: "wf",
+        steps: [{ use: "fetch-pr" }],
+        articles: [{ slug: "digest", name: "PR Digest", use: "writer" }],
+      },
+      {
+        articles: [{ slug: "digest", name: "PR Digest", heading: "Findings", createdAt: "" }],
+      },
+    );
+    const steps = [makeStep({ index: 0 }), makeStep({ index: 1, isArticle: true })];
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+
+    // The link lives in the expanded trace, not the collapsed row.
+    expect(screen.queryByRole("link", { name: /read the article/i })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /pr digest/i }));
+
+    const link = screen.getByRole("link", { name: /read the article/i });
+    expect(link.getAttribute("href")).toBe("/runs/run-1/articles/digest");
+  });
+
+  it("shows no article link before the entry has published", () => {
+    const run = makeRun({
+      name: "wf",
+      steps: [{ use: "fetch-pr" }],
+      articles: [{ slug: "digest", name: "PR Digest", use: "writer" }],
+    });
+    render(<RunPhases run={run} steps={[makeStep({ index: 0 })]} now={NOW} />);
+    expect(screen.queryByRole("link", { name: /read the article/i })).toBeNull();
   });
 
   it("labels a step by its name when one is declared", () => {
