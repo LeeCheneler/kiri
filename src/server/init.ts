@@ -9,7 +9,7 @@ export const KIRI_README = `# Kiri
 
 This is a kiri workflow repo. Kiri is a local-first, git-based workflow
 orchestrator — run \`kiri\` in this directory to start it and visit the local
-URL it prints.
+URL it prints. Full documentation lives at https://kiri.build/docs.
 
 ## Workflow definitions
 
@@ -99,9 +99,13 @@ expanded.
 ### Environment variables
 
 \`env:\` is an optional flat map passed to the step. Each value is either
-a literal string or a structured \`{ input: <name> }\` reference to a
-declared workflow input. Each bundle defines its own contract for the
-keys it expects; kiri doesn't validate values.
+a literal string or a structured reference: \`{ input: <name> }\` to a
+declared workflow input, \`{ step: <id> }\` to an earlier step's stdout
+(give that step an \`id:\`), or \`{ article: <slug> }\` to an
+already-produced article — valid on \`articles:\` entries and
+\`summarize:\` only. References are validated at load time and resolved
+at spawn. Each bundle defines its own contract for the keys it
+expects; kiri doesn't validate values.
 
 Kiri injects its own scoped vars on every step — \`KIRI_RUN_ID\`,
 \`KIRI_STEP_INDEX\`, \`KIRI_REPO_ROOT\` — plus OS
@@ -114,6 +118,10 @@ at load time.
 bundle's source directory. Steps run with their cwd set to a per-run
 scratch dir, so bundles must read sidecar files via this env var
 (\`cat "$KIRI_BUNDLE_DIR/prompt.tpl"\`) rather than relative paths.
+
+\`summarize:\` steps additionally get \`KIRI_SUMMARY_CONTEXT\` — a
+plain-text digest of the run (each step's output and each article,
+capped per stream) ready to drop into a prompt.
 
 ## LLM providers
 

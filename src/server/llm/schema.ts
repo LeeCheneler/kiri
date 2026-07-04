@@ -42,7 +42,7 @@ const providerEntrySchema = z.discriminatedUnion("type", [
 /** Schema for the `providers:` map in `kiri.yaml`, keyed by provider name. */
 export const providersSchema = z
   .record(z.string().min(1), providerEntrySchema)
-  .describe("LLM endpoints `llm:` steps can reference, keyed by name.");
+  .describe("LLM endpoints `llm:` steps and agentic sessions reference, keyed by name.");
 
 /** A single validated provider entry. */
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
