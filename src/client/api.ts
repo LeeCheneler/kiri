@@ -458,6 +458,18 @@ export const fetchSessionArticle = async (
   );
 
 /**
+ * Fetch the articles a session has written — summary metadata only, oldest
+ * first; bodies live on the article detail route. Throws on non-2xx (404
+ * when the session doesn't exist).
+ */
+export const fetchSessionArticles = async (
+  sessionId: string,
+): Promise<{ articles: ArticleSummary[] }> =>
+  json<{ articles: ArticleSummary[] }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/articles`),
+  );
+
+/**
  * Trigger a manual run for the named workflow. Resolves the moment the run
  * row is inserted server-side — the returned `status` is `"running"`, and
  * terminal transitions arrive on the SSE event stream. Pass `inputs` to

@@ -1,9 +1,11 @@
 import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type ArticleDetail,
+  type ArticleSummary,
   type SessionArticleDetail,
   fetchArticle,
   fetchSessionArticle,
+  fetchSessionArticles,
 } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
 
@@ -11,6 +13,8 @@ const articleKey = (runId: string, slug: string) => ["article", runId, slug] as 
 
 const sessionArticleKey = (sessionId: string, slug: string) =>
   ["session-article", sessionId, slug] as const;
+
+const sessionArticlesKey = (sessionId: string) => ["session-articles", sessionId] as const;
 
 /**
  * Read a single article by run id and slug, fetching on first use
@@ -45,5 +49,26 @@ export function useSessionArticle(
   return useQuery({
     queryKey: sessionArticleKey(sessionId, slug),
     queryFn: () => fetchSessionArticle(sessionId, slug),
+  });
+}
+
+/**
+ * Read the list of articles a session has written, oldest first. Refetches
+ * whenever the server announces `article.written` for this session — a
+ * mid-turn create pops into the list without a navigation — and on
+ * event-stream reconnect. Must render inside `<LiveEventsProvider>`.
+ */
+export function useSessionArticles(sessionId: string): UseQueryResult<ArticleSummary[]> {
+  const queryClient = useQueryClient();
+  useLiveSync({
+    on: ["article.written"],
+    filter: (event) => event.sessionId === sessionId,
+    refetch: () => {
+      void queryClient.invalidateQueries({ queryKey: sessionArticlesKey(sessionId) });
+    },
+  });
+  return useQuery({
+    queryKey: sessionArticlesKey(sessionId),
+    queryFn: async () => (await fetchSessionArticles(sessionId)).articles,
   });
 }
