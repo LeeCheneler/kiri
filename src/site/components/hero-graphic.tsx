@@ -3,14 +3,14 @@ import { useInView } from "./use-in-view.ts";
 
 const PHASE_MS = 3600;
 
-// Phase 0 — a workflow built from step cards: three steps, publish, summary.
-// Tones reuse the app's vocabulary (shell/llm steps green, publish/summary
-// gold); `lines` varies the card height for visual rhythm.
+// Phase 0 — a workflow built from step cards: three steps, an article, a
+// summary. Tones reuse the app's vocabulary (shell/llm steps green,
+// article/summary gold); `lines` varies the card height for visual rhythm.
 const WORKFLOW = [
   { key: "step-1", tone: "ok", lines: 2 },
   { key: "step-2", tone: "ok", lines: 1 },
   { key: "step-3", tone: "ok", lines: 2 },
-  { key: "publish", tone: "accent", lines: 1 },
+  { key: "article", tone: "accent", lines: 1 },
   { key: "summary", tone: "accent", lines: 2 },
 ] as const;
 
