@@ -6,12 +6,13 @@ import {
   UI_MESSAGE_STREAM_HEADERS,
   isToolUIPart,
 } from "ai";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
-import { sessions as sessionsTable } from "../db/schema.ts";
+import { articles, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
@@ -35,7 +36,7 @@ import {
   updateSessionModel,
   updateSessionPersona,
 } from "../sessions/index.ts";
-import { onZodFail } from "./shared.ts";
+import { articleParamSchema, onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
@@ -141,8 +142,9 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
 
 /**
  * Build the Hono sub-app for the agentic session surface: model listing,
- * session create/list/get, the streaming turn endpoint, and an optional
- * cancel. Mounted under `/api` by `createApp`, alongside the system routes.
+ * session create/list/get, the streaming turn endpoint, the session article
+ * reads, and an optional cancel. Mounted under `/api` by `createApp`,
+ * alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const { db, config, llmClients, bus, cancelRegistry, mcpRegistry, toolPermissions } = deps;
@@ -255,6 +257,57 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       );
       const sessions = rows.map((row) => ({ ...row, preview: previews.get(row.id) ?? null }));
       return c.json({ sessions, nextCursor });
+    },
+  );
+
+  app.get(
+    "/sessions/:id/articles",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      // The same projection as a run's article list: the body is fetched only
+      // to derive the heading, never echoed — the detail route serves it.
+      const rows = db
+        .select()
+        .from(articles)
+        .where(eq(articles.sessionId, id))
+        .orderBy(asc(articles.createdAt))
+        .all();
+      return c.json({
+        articles: rows.map((article) => ({
+          slug: article.slug,
+          name: article.name,
+          heading: extractFirstHeading(article.contentMd),
+          createdAt: article.createdAt,
+        })),
+      });
+    },
+  );
+
+  app.get(
+    "/sessions/:id/articles/:slug",
+    zValidator("param", articleParamSchema, onZodFail("invalid article slug")),
+    (c) => {
+      const { id, slug } = c.req.valid("param");
+      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      const article = db
+        .select()
+        .from(articles)
+        .where(and(eq(articles.sessionId, id), eq(articles.slug, slug)))
+        .get();
+      if (!article) {
+        return c.json({ error: `article "${slug}" not found on session "${id}"` }, 404);
+      }
+      return c.json({
+        id: article.id,
+        sessionId: article.sessionId,
+        slug: article.slug,
+        name: article.name,
+        contentMd: article.contentMd,
+        createdAt: article.createdAt,
+        heading: extractFirstHeading(article.contentMd),
+      });
     },
   );
 

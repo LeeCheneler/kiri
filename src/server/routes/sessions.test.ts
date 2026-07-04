@@ -344,6 +344,103 @@ describe("sessions routes", () => {
     });
   });
 
+  describe("session article reads", () => {
+    const insertArticle = (sessionId: string, slug: string, contentMd: string, createdAt: Date) =>
+      env.db
+        .insert(articles)
+        .values({
+          id: crypto.randomUUID(),
+          sessionId,
+          slug,
+          name: "Notes",
+          contentMd,
+          createdAt,
+        })
+        .run();
+
+    it("lists a session's articles oldest-first with headings, without bodies", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, { id: "s2" });
+      insertArticle("s1", "second", "No leading heading here.", new Date(2000));
+      insertArticle("s1", "first", "# First Article\n\nBody.", new Date(1000));
+      insertArticle("s2", "elsewhere", "# Other", new Date(500));
+
+      const res = await app.request("/api/sessions/s1/articles", { headers: CLIENT_HEADERS });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { articles: Record<string, unknown>[] };
+      expect(body.articles).toEqual([
+        {
+          slug: "first",
+          name: "Notes",
+          heading: "First Article",
+          createdAt: new Date(1000).toISOString(),
+        },
+        { slug: "second", name: "Notes", heading: null, createdAt: new Date(2000).toISOString() },
+      ]);
+    });
+
+    it("returns an empty list for a session with no articles", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1/articles", { headers: CLIENT_HEADERS });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ articles: [] });
+    });
+
+    it("404s listing articles for an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost/articles", { headers: CLIENT_HEADERS });
+      expect(res.status).toBe(404);
+    });
+
+    it("serves one article with its full body and heading", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      insertArticle("s1", "notes", "# Meeting Notes\n\nBody.", new Date(1000));
+
+      const res = await app.request("/api/sessions/s1/articles/notes", { headers: CLIENT_HEADERS });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        sessionId: "s1",
+        slug: "notes",
+        name: "Notes",
+        contentMd: "# Meeting Notes\n\nBody.",
+        heading: "Meeting Notes",
+        createdAt: new Date(1000).toISOString(),
+      });
+    });
+
+    it("404s an article absent from the session", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/articles/ghost", { headers: CLIENT_HEADERS });
+      expect(res.status).toBe(404);
+    });
+
+    it("404s fetching an article on an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost/articles/notes", {
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("400s a malformed article slug", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/articles/Bad_Slug", {
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe("GET /api/sessions/:id/stream", () => {
     it("serves the in-flight turn's buffered event-stream to a reconnecting client", async () => {
       // Seed a registry as a live turn would, then inject it: a fresh client
