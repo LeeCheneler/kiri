@@ -3,10 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UIMessage } from "ai";
+import { eq } from "drizzle-orm";
 import { bootstrap } from "../../src/server/bootstrap.ts";
 import { loadKiriConfig } from "../../src/server/config/loader.ts";
 import { createConfigStore } from "../../src/server/config/store.ts";
 import type { KiriDb } from "../../src/server/db/index.ts";
+import { articles } from "../../src/server/db/schema.ts";
 import {
   type LlmClients,
   createLlmClients,
@@ -14,6 +16,7 @@ import {
 } from "../../src/server/llm/index.ts";
 import { createCancelRegistry } from "../../src/server/runner/cancel-registry.ts";
 import {
+  articleTools,
   createSession,
   createSystemPromptBuilder,
   getSession,
@@ -93,6 +96,34 @@ describe("session turn streaming", () => {
     const after = getSession(db, session.id);
     expect(after?.status).toBe("idle");
     expect(after?.finishedAt).toBeNull();
+  });
+
+  it("drives a real tool loop over the wire: the model's call runs an article tool and the turn settles", async () => {
+    const session = createSession(db, "fake:tool");
+    const tools = articleTools(db, session.id, () => {});
+
+    // The stub's `tool` model streams back exactly the call the message
+    // directs, so this exercises the full loop: streamed tool-call chunks →
+    // AI SDK parse/validate → the real create_article execute → result fed
+    // back → the follow-up completion.
+    const { done } = await runTurn(
+      { db, llmClients, tools },
+      {
+        session,
+        userMessage: userMessage(
+          `call:create_article ${JSON.stringify({ slug: "notes", content_md: "# Notes\n\nBody." })}`,
+        ),
+      },
+    );
+    await done;
+
+    const row = db.select().from(articles).where(eq(articles.sessionId, session.id)).get();
+    expect(row?.slug).toBe("notes");
+    expect(row?.contentMd).toBe("# Notes\n\nBody.");
+
+    const messages = getSessionMessages(db, session.id);
+    expect(assistantText(messages[1].parts)).toBe("All done.");
+    expect(getSession(db, session.id)?.status).toBe("idle");
   });
 
   it("composes the layered system prompt — core, kiri.md, persona — and sends it to the model", async () => {

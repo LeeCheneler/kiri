@@ -14,13 +14,18 @@
  *   cancel, and resume states are observable. Finishes on its own if not aborted.
  * - `boom` — responds with an error so provider/API error paths can be
  *   exercised, both for a streamed turn and a non-streaming step.
+ * - `tool` — a scriptable tool caller: a user message of the form
+ *   `call:<name> {<json args>}` makes it stream that tool call verbatim, and
+ *   once the loop feeds the result back it settles with "All done." — so a
+ *   test drives any offered tool with any input, deterministically. Any other
+ *   message echoes like `echo`.
  *
  * The same `fakeOpenAiFetch` handler backs both the in-process server the
  * integration tests spin up and the standalone process Playwright boots for e2e.
  */
 
 /** Model ids the stub serves; each selects a behaviour. */
-export const FAKE_MODELS = ["echo", "slow", "boom"] as const;
+export const FAKE_MODELS = ["echo", "slow", "boom", "tool"] as const;
 export type FakeModel = (typeof FAKE_MODELS)[number];
 
 /** Fixed token usage every successful completion reports. */
@@ -51,6 +56,17 @@ const textOf = (content: ChatMessage["content"]): string => {
 const lastUserText = (messages: ChatMessage[]): string => {
   const last = [...messages].reverse().find((m) => m.role === "user");
   return last ? textOf(last.content) : "";
+};
+
+/** The reply the `tool` model settles with once a tool result has come back. */
+export const TOOL_DONE_REPLY = "All done.";
+
+// A `call:<name> {<json>}` directive in the user message, or null when the
+// message isn't one. The args ride as the raw JSON string — the consumer (the
+// AI SDK) parses them against the tool's schema, not the stub.
+const parseToolDirective = (text: string): { name: string; args: string } | null => {
+  const match = /^call:(\S+)\s+(\{.*\})\s*$/s.exec(text);
+  return match ? { name: match[1] as string, args: match[2] as string } : null;
 };
 
 // A timed wait that resolves early — without throwing — if the request aborts,
@@ -123,6 +139,52 @@ const chatCompletionStream = (opts: StreamOpts): ReadableStream<Uint8Array> => {
   });
 };
 
+// Build an OpenAI-style streamed tool call: a role chunk, one delta carrying
+// the whole call (id, name, and arguments in a single chunk), a
+// `finish_reason: "tool_calls"` chunk, then usage and `[DONE]`. The id varies
+// with history length so the two calls of a multi-turn test never collide.
+const toolCallStream = (
+  model: string,
+  call: { name: string; args: string },
+  callId: string,
+): ReadableStream<Uint8Array> => {
+  const encoder = new TextEncoder();
+  const base = { id: "chatcmpl-stub", object: "chat.completion.chunk", created: 0, model };
+  return new ReadableStream({
+    start(controller) {
+      const send = (payload: unknown) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      send({
+        ...base,
+        choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
+      });
+      send({
+        ...base,
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: callId,
+                  type: "function",
+                  function: { name: call.name, arguments: call.args },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      });
+      send({ ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
+      send({ ...base, choices: [], usage: FAKE_USAGE });
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+};
+
 const chatCompletionJson = (model: string, reply: string): Response =>
   Response.json({
     id: "chatcmpl-stub",
@@ -164,9 +226,21 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
       stream?: boolean;
     };
     const model = body.model ?? "echo";
-    const reply = fakeReply(lastUserText(body.messages ?? []));
+    const messages = body.messages ?? [];
+    let reply = fakeReply(lastUserText(messages));
 
     if (model === "boom") return errorResponse();
+
+    if (model === "tool") {
+      const directive = parseToolDirective(lastUserText(messages));
+      const toolRanAlready = messages.at(-1)?.role === "tool";
+      if (directive && !toolRanAlready && body.stream) {
+        return new Response(toolCallStream(model, directive, `call-stub-${messages.length}`), {
+          headers: SSE_HEADERS,
+        });
+      }
+      if (toolRanAlready) reply = TOOL_DONE_REPLY;
+    }
 
     if (body.stream) {
       const timing =
