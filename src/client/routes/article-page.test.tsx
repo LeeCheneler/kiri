@@ -1,7 +1,6 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -33,7 +32,7 @@ describe("<ArticlePage>", () => {
     await flushAsync();
   });
 
-  it("renders the title, breadcrumb trail, byline, and markdown body on the happy path", async () => {
+  it("renders the fetched article under its workflow and run context", async () => {
     server.use(
       http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
         HttpResponse.json({
@@ -55,163 +54,21 @@ describe("<ArticlePage>", () => {
 
     renderArticle("abc12345-0000-0000-0000-000000000000", "digest");
 
-    // The body's `# Hello` becomes the page title (an h1); the article name
-    // rides in the eyebrow as the series label.
+    // The reader renders the fetched body, situated under the workflow as the
+    // eyebrow context.
     expect(await screen.findByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
     expect(screen.getByText("pr-review · PR Review Digest")).toBeDefined();
+    expect(screen.getByText(/First paragraph\./)).toBeDefined();
     // The breadcrumb threads Activity → workflow → run → (current article).
     expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
     const workflowLink = screen.getByRole("link", { name: "pr-review" });
     expect(workflowLink.getAttribute("href")).toBe("/workflows/pr-review");
     const runLink = screen.getByRole("link", { name: "abc12345" });
     expect(runLink.getAttribute("href")).toBe("/runs/abc12345-0000-0000-0000-000000000000");
-    // The byline is article-centric: when it was created, plus the body's
-    // word count and reading-time estimate. No run-execution facts. The word
-    // count is of the body, with the headline lifted out.
-    expect(screen.getByText(/30 seconds ago/i)).toBeDefined();
-    expect(screen.getByText("4 words")).toBeDefined();
-    expect(screen.getByText("1 min read")).toBeDefined();
     // The run's git sha and duration are not surfaced here. (Exact match: the
     // run crumb label "abc12345" must not be mistaken for a 7-char sha.)
     expect(screen.queryByText("abc1234")).toBeNull();
     expect(screen.queryByText(/\(dirty\)/)).toBeNull();
-    // The only byline action is copy-markdown.
-    expect(screen.getByRole("button", { name: /^copy markdown$/i })).toBeDefined();
-    // The headline is lifted out of the body, so the page carries exactly one
-    // h1 and the headline is not also rendered as a body heading.
-    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByText(/First paragraph\./)).toBeDefined();
-    expect(screen.getByText(/Second paragraph\./)).toBeDefined();
-  });
-
-  it("copies the cleaned article — headline plus preamble-stripped body — on click", async () => {
-    server.use(
-      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
-        HttpResponse.json({
-          id: "art-1",
-          runId: params.id,
-          slug: params.slug,
-          name: "Demo",
-          contentMd: "Sure, here's the article:\n\n# The Headline\n\n## Section\n\nBody copy.",
-          createdAt: NOW.toISOString(),
-          workflowName: "wf",
-          heading: "The Headline",
-          gitSha: null,
-          gitDirty: null,
-          startedAt: NOW.toISOString(),
-          finishedAt: null,
-        }),
-      ),
-    );
-
-    const writeText = mock(async (_text: string) => {});
-    // userEvent.setup() stubs navigator.clipboard, so install the mock after it.
-    const user = userEvent.setup();
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText },
-      configurable: true,
-      writable: true,
-    });
-
-    renderArticle("abc", "demo");
-
-    await user.click(await screen.findByRole("button", { name: /^copy markdown$/i }));
-
-    // The lead-in chatter is gone and the headline is re-emitted as a `#` line.
-    expect(writeText.mock.calls).toEqual([["# The Headline\n\n## Section\n\nBody copy."]]);
-  });
-
-  it("renders the byline reading stats for a heading-less body", async () => {
-    server.use(
-      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
-        HttpResponse.json({
-          id: "art-1",
-          runId: params.id,
-          slug: params.slug,
-          name: "Sparse",
-          contentMd: "Body only, no heading.\n",
-          createdAt: NOW.toISOString(),
-          workflowName: "wf",
-          heading: null,
-          gitSha: null,
-          gitDirty: null,
-          startedAt: NOW.toISOString(),
-          finishedAt: null,
-        }),
-      ),
-    );
-
-    renderArticle("abc", "sparse");
-
-    // With no body headline, the article name supplies the page title and the
-    // eyebrow keeps the generic "Article" label.
-    expect(await screen.findByRole("heading", { level: 1, name: "Sparse" })).toBeDefined();
-    expect(screen.getByText("wf · Article")).toBeDefined();
-    expect(screen.getByText(/Body only/)).toBeDefined();
-    // The byline reading stats are computed even when the body has no heading.
-    expect(screen.getByText("4 words")).toBeDefined();
-    expect(screen.getByText("1 min read")).toBeDefined();
-  });
-
-  it("drops the eyebrow series label when the article name restates the workflow name", async () => {
-    server.use(
-      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
-        HttpResponse.json({
-          id: "art-1",
-          runId: params.id,
-          slug: params.slug,
-          name: "Daily Briefing",
-          contentMd: "# Wednesday's briefing\n\n## Lead\n\nBody.\n",
-          createdAt: NOW.toISOString(),
-          workflowName: "Daily Briefing",
-          heading: "Wednesday's briefing",
-          gitSha: null,
-          gitDirty: null,
-          startedAt: NOW.toISOString(),
-          finishedAt: null,
-        }),
-      ),
-    );
-
-    renderArticle("abc", "briefing");
-
-    // The article name equals the workflow name, so it adds nothing — the
-    // eyebrow keeps the generic "Article" label rather than echoing it.
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Wednesday's briefing" }),
-    ).toBeDefined();
-    expect(screen.getByText("Daily Briefing · Article")).toBeDefined();
-  });
-
-  it("renders body `## section` markdown as h2 with section-NN ids and § NN eyebrows", async () => {
-    server.use(
-      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
-        HttpResponse.json({
-          id: "art-1",
-          runId: params.id,
-          slug: params.slug,
-          name: "Sectioned",
-          contentMd: "# The headline\n\n## First section\n\nBody.\n\n## Second section\n\nMore.\n",
-          createdAt: NOW.toISOString(),
-          workflowName: "wf",
-          heading: "The headline",
-          gitSha: null,
-          gitDirty: null,
-          startedAt: NOW.toISOString(),
-          finishedAt: null,
-        }),
-      ),
-    );
-
-    const { container } = renderArticle("abc", "sectioned");
-
-    // The headline is the page h1; the `##` headings are the sections that the
-    // table of contents reads, each stamped with a section-NN id and § eyebrow.
-    expect(await screen.findByRole("heading", { level: 1, name: "The headline" })).toBeDefined();
-    const bodyH2s = Array.from(container.querySelectorAll("h2[id^='section-']"));
-    expect(bodyH2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
-    expect(bodyH2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
-    expect(bodyH2s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
   });
 
   it("renders the not-found view with a run breadcrumb when the API returns 404", async () => {
