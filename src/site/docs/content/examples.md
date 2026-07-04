@@ -10,16 +10,16 @@ at it and run.
 
 ```
 examples/
-  kiri.yaml                   # providers for first-party llm: steps
+  kiri.yaml                   # LLM providers + MCP servers
   bundles/
     claude-code/              # spawn the Claude Code CLI with a rendered prompt
     lm-studio/                # one-shot completion against a local OpenAI-compatible server
   workflows/
-    daily-briefing.yaml       # sh: fetch → publish: article → summary
+    daily-briefing.yaml       # sh: fetch → articles: article → summary
     review-queue.yaml         # cross-repo PR triage; recommends one PR Review per match
-    pr-review.yaml            # repo + pr_number inputs; fetches the PR and publishes a review
+    pr-review.yaml            # repo + pr_number inputs; fetches the PR, writes a review article
     chart-gallery.yaml        # an article showcasing every embeddable chart type
-    release-notes.yaml        # first-party llm: steps — completion, publish, summary
+    release-notes.yaml        # first-party llm: steps — completion, article, summary
   prompts/                    # prompt templates for the above
 ```
 
@@ -28,22 +28,23 @@ reference for authoring [your own bundles](/docs/workflows).
 
 ## Bundled workflows
 
-- **daily-briefing** — composes a `sh:` fetch, a `publish:` article, and a
+- **daily-briefing** — composes a `sh:` fetch, an `articles:` article, and a
   summary. A good template for "fetch something, write it up."
 - **review-queue** — aggregates open PRs across repos and emits one
   [recommendation](/docs/workflows) per match, each a one-click PR Review.
 - **pr-review** — takes `owner` and `pr_number` [inputs](/docs/workflows),
-  fetches the PR, and publishes a review.
-- **chart-gallery** — publishes an article exercising every embeddable
+  fetches the PR, and writes a review article.
+- **chart-gallery** — produces an article exercising every embeddable
   [chart type](/docs/workflows).
 - **release-notes** — first-party `llm:` steps end to end: a completion in the
-  pipeline, an `llm:` publish, and a zero-config `llm:` summariser — no bundle.
+  pipeline, an `llm:` articles entry, and a zero-config `llm:` summariser — no
+  bundle.
 
 ## A first-party llm: pipeline
 
 The `release-notes` example shows the full `llm:` shape — providers in
-`kiri.yaml`, a pipeline completion reading `{{KIRI_INPUT}}`, an `llm:` publish
-fed the draft through a `{ step: <id> }` env ref, and a zero-config
+`kiri.yaml`, a pipeline completion reading `{{KIRI_INPUT}}`, an `llm:` articles
+entry fed the draft through a `{ step: <id> }` env ref, and a zero-config
 summariser:
 
 ```yaml
@@ -73,7 +74,7 @@ steps:
         {{KIRI_INPUT}}
     id: draft
     name: Draft the notes
-publish:
+articles:
   - slug: release-notes
     name: Release Notes
     llm:

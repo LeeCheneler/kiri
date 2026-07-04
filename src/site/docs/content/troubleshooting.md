@@ -85,8 +85,8 @@ landing:
 | `env: { KIRI_MODE: "x" }` | Don't prefix `env:` keys with `KIRI_`. Reserved. |
 | Relative path read from inside a step | Resolve against `$KIRI_REPO_ROOT` — the step's cwd is the scratch dir, not the repo root. |
 | Reading the parent shell's `MY_TOKEN` | Won't work. Set it under the step's `env:`, or read a mode-600 file in the script. |
-| Two `publish:` entries with the same `slug` | Slugs must be unique within a workflow. |
-| `publish:`/`summarize:` reading the previous step via stdin | They get empty stdin. Wire data in with `{ step: <id> }` / `{ article: <slug> }` env refs; `summarize:` also gets the `KIRI_SUMMARY_CONTEXT` digest. |
+| Two `articles:` entries with the same `slug` | Slugs must be unique within a workflow. |
+| `articles:`/`summarize:` reading the previous step via stdin | They get empty stdin. Wire data in with `{ step: <id> }` / `{ article: <slug> }` env refs; `summarize:` also gets the `KIRI_SUMMARY_CONTEXT` digest. |
 | `llm: { model: claude-haiku }` (no prefix) | Use `provider:model`, e.g. `anthropic:claude-haiku-4-5`. The prefix names a `kiri.yaml` entry. |
 | `api_key: sk-...` literal in `kiri.yaml` | Use `api_key: { env: ANTHROPIC_API_KEY }`. Literal keys are rejected. |
 | `llm:` step writing to `$KIRI_RECOMMENDATIONS_FILE` | Not set for `llm:` steps. Use an `sh:` or bundle step. |

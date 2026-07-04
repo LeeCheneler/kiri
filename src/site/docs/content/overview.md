@@ -12,11 +12,11 @@ Kiri has two pillars that share one activity feed.
 
 - **Workflows** — versioned YAML pipelines. Chain shell commands, reusable
   script bundles, and first-party model completions; pipe each step's output
-  into the next; publish the result as a long-form article. Reach for a
+  into the next; turn the results into long-form articles. Reach for a
   workflow when you know the shape of the work.
 - **Agentic sessions** — open-ended, multi-turn chat with a model, your
-  workspace context, and first-party tools. Reach for a session when you don't
-  yet know the shape of the work.
+  workspace context, and tools from MCP servers you configure. Reach for a
+  session when you don't yet know the shape of the work.
 
 Both surface in a single timeline, so a session and a scheduled-by-hand workflow
 run sit side by side.
@@ -25,13 +25,14 @@ run sit side by side.
 
 A workflow is a list of steps. Each step's standard output is piped to the next
 step's standard input; the first step gets empty input. After the steps, a run
-can **publish** articles and **summarise** itself:
+can produce **articles** — fed the outputs they name through env refs, not
+stdin — and **summarise** itself from a digest of the whole run:
 
 ```mermaid
 flowchart LR
   A[sh: gather data] -->|stdout| B[llm: draft]
-  B -->|stdout| C[publish: article]
-  C --> D[summarize]
+  B -->|step ref| C[articles: write-up]
+  C -->|run digest| D[summarize]
 ```
 
 The article and summary land on the run's page and in the activity feed. See
@@ -39,7 +40,7 @@ The article and summary land on the run's page and in the activity feed. See
 
 ## What you get
 
-- **Published articles** — markdown with inline charts (Vega-Lite) and Mermaid
+- **Articles** — markdown with inline charts (Vega-Lite) and Mermaid
   diagrams, rendered through a sandboxed parser.
 - **Recommendations** — a run can propose its own follow-ups, each a one-click
   trigger that pre-fills a workflow's inputs.

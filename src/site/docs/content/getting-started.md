@@ -70,7 +70,7 @@ steps:
 
 Edits are picked up live — no restart needed. Runs surface in the activity feed
 on [local.kiri.build](https://local.kiri.build). From here, read
-[Workflows](/docs/workflows) for step types, inputs, piping, published articles,
+[Workflows](/docs/workflows) for step types, inputs, piping, articles,
 and recommendations.
 
 ## Configuration
@@ -78,10 +78,12 @@ and recommendations.
 Kiri keeps configuration as **convention-based files in your repo**, not one
 monolithic settings file.
 
-- **`kiri.yaml`** (workspace root, kept in git) is kiri's structured config. Today
-  it holds your LLM providers under `providers:`. It's optional — a workspace
-  with only `sh:`/`use:` steps needs none. `kiri init` writes a commented
-  skeleton you can fill in. Full detail in [LLM providers](/docs/llm-providers).
+- **`kiri.yaml`** (workspace root, kept in git) is kiri's structured config. It
+  holds your LLM providers under `providers:` and MCP servers for sessions
+  under `mcp:`. Both are optional — a workspace with only `sh:`/`use:` steps
+  needs neither. `kiri init` writes a commented skeleton you can fill in. Full
+  detail in [LLM providers](/docs/llm-providers) and
+  [Agentic sessions](/docs/agentic-sessions).
 - **`.env`** (workspace root, **git-ignored**) holds secrets. Kiri auto-loads it
   from the workspace directory at boot, so a workspace pinned with
   `KIRI_CONFIG_DIR` reads the right `.env` even when you launch from elsewhere.
