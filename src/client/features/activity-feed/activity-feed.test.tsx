@@ -42,6 +42,7 @@ const sessionRow = (over: Record<string, unknown> = {}) => ({
   finishedAt: null,
   error: null,
   preview: "all-session",
+  articles: [],
   ...over,
 });
 

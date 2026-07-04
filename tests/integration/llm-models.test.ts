@@ -35,7 +35,12 @@ describe("llm model listing", () => {
     const result = await clients.listModels();
 
     expect(result.failures).toEqual([]);
-    expect(result.models.map((m) => m.id).sort()).toEqual(["fake:boom", "fake:echo", "fake:slow"]);
+    expect(result.models.map((m) => m.id).sort()).toEqual([
+      "fake:boom",
+      "fake:echo",
+      "fake:slow",
+      "fake:tool",
+    ]);
     expect(result.models.every((m) => m.provider === "fake")).toBe(true);
   });
 
@@ -48,7 +53,7 @@ describe("llm model listing", () => {
 
     const result = await clients.listModels();
 
-    expect(result.models.map((m) => m.provider)).toEqual(["fake", "fake", "fake"]);
+    expect(result.models.map((m) => m.provider)).toEqual(["fake", "fake", "fake", "fake"]);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0].provider).toBe("dead");
     expect(result.failures[0].reason).toBeTruthy();

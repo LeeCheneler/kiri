@@ -1,9 +1,9 @@
 # The e2e fixture points its single provider at the OpenAI-compatible stub
 # Playwright boots alongside kiri (see playwright.config.ts and
-# tests/support/fake-openai.ts). The stub serves `echo`, `slow`, and `boom`
-# models — deterministic completions, a holds-the-line stream, and an error —
-# so the session surface and `llm:` steps can be driven end to end without a
-# real provider or network.
+# tests/support/fake-openai.ts). The stub serves `echo`, `slow`, `boom`, and
+# `tool` models — deterministic completions, a holds-the-line stream, an
+# error, and a scriptable tool caller — so the session surface and `llm:`
+# steps can be driven end to end without a real provider or network.
 providers:
   fake:
     type: openai-compatible

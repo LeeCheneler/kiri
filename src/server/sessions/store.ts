@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 import { and, asc, eq, gte, inArray } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
-import { messages, sessions } from "../db/schema.ts";
+import { articles, messages, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
 
 /** A persisted session row. */
@@ -208,13 +208,14 @@ export function setSessionStatus(
 }
 
 /**
- * Permanently delete a session and its messages in one transaction. Messages
- * hold an FK to the session, so they go first — an in-code cascade matching the
- * rest of the codebase rather than a schema-level ON DELETE. Deleting an absent
- * session removes nothing.
+ * Permanently delete a session with its messages and articles in one
+ * transaction. Both hold an FK to the session, so they go first — an in-code
+ * cascade matching the rest of the codebase rather than a schema-level
+ * ON DELETE. Deleting an absent session removes nothing.
  */
 export function deleteSession(db: KiriDb, id: string): void {
   db.transaction((tx) => {
+    tx.delete(articles).where(eq(articles.sessionId, id)).run();
     tx.delete(messages).where(eq(messages.sessionId, id)).run();
     tx.delete(sessions).where(eq(sessions.id, id)).run();
   });

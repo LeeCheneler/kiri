@@ -426,6 +426,50 @@ export const fetchArticle = async (runId: string, slug: string): Promise<Article
   );
 
 /**
+ * A session-produced article as seen by its article page. Leaner than a
+ * run's `ArticleDetail`: a session has no workflow, git state, or run
+ * lifecycle to situate the article under — the producing session's id and
+ * the article's own timestamp carry the context. `heading` is the body's
+ * first markdown `# heading`, derived server-side, or null.
+ */
+export interface SessionArticleDetail {
+  id: string;
+  sessionId: string;
+  slug: string;
+  name: string;
+  contentMd: string;
+  createdAt: string;
+  heading: string | null;
+}
+
+/**
+ * Fetch a single session-produced article by session id and slug. Throws on
+ * non-2xx — 400 for a malformed slug, 404 when either the session or the
+ * named article is missing.
+ */
+export const fetchSessionArticle = async (
+  sessionId: string,
+  slug: string,
+): Promise<SessionArticleDetail> =>
+  json<SessionArticleDetail>(
+    await apiFetch(
+      `/api/sessions/${encodeURIComponent(sessionId)}/articles/${encodeURIComponent(slug)}`,
+    ),
+  );
+
+/**
+ * Fetch the articles a session has written — summary metadata only, oldest
+ * first; bodies live on the article detail route. Throws on non-2xx (404
+ * when the session doesn't exist).
+ */
+export const fetchSessionArticles = async (
+  sessionId: string,
+): Promise<{ articles: ArticleSummary[] }> =>
+  json<{ articles: ArticleSummary[] }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/articles`),
+  );
+
+/**
  * Trigger a manual run for the named workflow. Resolves the moment the run
  * row is inserted server-side — the returned `status` is `"running"`, and
  * terminal transitions arrive on the SSE event stream. Pass `inputs` to
@@ -693,10 +737,13 @@ export interface SessionMessage {
 /**
  * A session as it appears in the list: the row plus a `preview` label drawn
  * from its first user message (`null` until one has been sent), which the list
- * leads with as the session's identifier.
+ * leads with as the session's identifier, and the articles it has written —
+ * summary metadata only, ordered by creation, so the row can lead with them
+ * the way a run row does.
  */
 export interface SessionListEntry extends Session {
   preview: string | null;
+  articles: ArticleSummary[];
 }
 
 /**

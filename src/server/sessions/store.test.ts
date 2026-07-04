@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { sessions } from "../db/schema.ts";
+import { articles, sessions } from "../db/schema.ts";
 import {
   appendMessage,
   createSession,
@@ -161,19 +161,35 @@ describe("sessions store", () => {
     expect(session?.finishedAt).toBeNull();
   });
 
-  it("deletes a session with its messages, leaving other sessions intact", () => {
+  it("deletes a session with its messages and articles, leaving other sessions intact", () => {
+    const insertArticle = (sessionId: string, slug: string) =>
+      db
+        .insert(articles)
+        .values({
+          id: crypto.randomUUID(),
+          sessionId,
+          slug,
+          name: "Notes",
+          contentMd: "# Notes",
+          createdAt: new Date(),
+        })
+        .run();
     createSession(db, MODEL, { id: "s1" });
     appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Hi" }] });
     appendMessage(db, "s1", { role: "assistant", parts: [{ type: "text", text: "Hello" }] });
+    insertArticle("s1", "notes");
     createSession(db, MODEL, { id: "s2" });
     appendMessage(db, "s2", { role: "user", parts: [{ type: "text", text: "Keep me" }] });
+    insertArticle("s2", "notes");
 
     deleteSession(db, "s1");
 
     expect(getSession(db, "s1")).toBeUndefined();
     expect(getSessionMessages(db, "s1")).toHaveLength(0);
+    expect(db.select().from(articles).where(eq(articles.sessionId, "s1")).all()).toHaveLength(0);
     expect(getSession(db, "s2")?.id).toBe("s2");
     expect(getSessionMessages(db, "s2")).toHaveLength(1);
+    expect(db.select().from(articles).where(eq(articles.sessionId, "s2")).all()).toHaveLength(1);
   });
 
   it("is a no-op deleting a session that does not exist", () => {

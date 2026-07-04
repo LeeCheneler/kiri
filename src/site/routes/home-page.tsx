@@ -75,8 +75,7 @@ const ASSURANCES: Assurance[] = [
   },
   {
     term: "Approval-gated tools",
-    detail:
-      "A session tool call runs only after you allow it — every call, unless you say otherwise.",
+    detail: "An MCP tool call runs only after you allow it — every call, unless you say otherwise.",
   },
   {
     term: "Open source",
@@ -186,8 +185,9 @@ function HowItWorks() {
               </h3>
               <p className="mt-3 max-w-xl font-mono text-sm text-ink-muted leading-relaxed">
                 Chat with the same models, plus tools from MCP servers you configure — web search,
-                your issue tracker, anything that speaks MCP. Every tool call waits for your
-                approval, and sessions land in the same feed as your runs.
+                your issue tracker, anything that speaks MCP. Every MCP call waits for your
+                approval, sessions write up their findings as articles, and it all lands in the same
+                feed as your runs.
               </p>
               <p className="mt-5 font-mono text-sm">
                 <InlineLink href="/docs/sessions">Read about sessions</InlineLink>

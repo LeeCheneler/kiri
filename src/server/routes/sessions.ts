@@ -6,12 +6,13 @@ import {
   UI_MESSAGE_STREAM_HEADERS,
   isToolUIPart,
 } from "ai";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
-import { sessions as sessionsTable } from "../db/schema.ts";
+import { articles, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
@@ -20,6 +21,7 @@ import {
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermissionStore,
+  articleTools,
   createSession,
   createStreamRegistry,
   createSystemPromptBuilder,
@@ -34,7 +36,7 @@ import {
   updateSessionModel,
   updateSessionPersona,
 } from "../sessions/index.ts";
-import { onZodFail } from "./shared.ts";
+import { articleParamSchema, onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
@@ -140,8 +142,9 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
 
 /**
  * Build the Hono sub-app for the agentic session surface: model listing,
- * session create/list/get, the streaming turn endpoint, and an optional
- * cancel. Mounted under `/api` by `createApp`, alongside the system routes.
+ * session create/list/get, the streaming turn endpoint, the session article
+ * reads, and an optional cancel. Mounted under `/api` by `createApp`,
+ * alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const { db, config, llmClients, bus, cancelRegistry, mcpRegistry, toolPermissions } = deps;
@@ -152,11 +155,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // rejoins the live response. A caller may inject one to share it.
   const streamRegistry = deps.streamRegistry ?? createStreamRegistry();
 
-  // The tools offered to a turn — the live MCP server tools, each filtered and
-  // gated by its standing permission. Read per turn (not once) so a config reload
-  // that adds or drops MCP servers, and a permission change since the last turn,
-  // are both reflected on the next turn.
-  const activeTools = (): ToolSet => {
+  // The tools offered to a turn: the live MCP server tools, each filtered and
+  // gated by its standing permission, plus the first-party article tools. Read
+  // per turn (not once) so a config reload that adds or drops MCP servers, and
+  // a permission change since the last turn, are both reflected on the next
+  // turn. The article tools are not permission-gated — they only write to
+  // kiri's own database and the user's request in chat is the authorisation —
+  // and, merged last, they take the name on a collision with an MCP tool.
+  const activeTools = (sessionId: string): ToolSet => {
     const tools = mcpRegistry?.tools() ?? {};
     const gated: ToolSet = {};
     for (const [name, tool] of Object.entries(tools)) {
@@ -178,7 +184,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         ) => permission !== "allow" || hasPriorApprovalRequest(messages, toolCallId),
       };
     }
-    return gated;
+    return { ...gated, ...articleTools(db, sessionId, (event) => bus?.publish(event)) };
   };
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
@@ -249,8 +255,94 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         db,
         rows.map((row) => row.id),
       );
-      const sessions = rows.map((row) => ({ ...row, preview: previews.get(row.id) ?? null }));
+      // Each row's written articles, batched across the page — the projection
+      // mirrors the activity feed's session enrichment so both surfaces
+      // render the same rows.
+      const articlesBySessionId = new Map<
+        string | null,
+        { slug: string; name: string; heading: string | null; createdAt: Date }[]
+      >();
+      if (rows.length > 0) {
+        const articleRows = db
+          .select()
+          .from(articles)
+          .where(
+            inArray(
+              articles.sessionId,
+              rows.map((row) => row.id),
+            ),
+          )
+          .orderBy(asc(articles.createdAt))
+          .all();
+        for (const article of articleRows) {
+          const entry = {
+            slug: article.slug,
+            name: article.name,
+            heading: extractFirstHeading(article.contentMd),
+            createdAt: article.createdAt,
+          };
+          const list = articlesBySessionId.get(article.sessionId);
+          if (list) list.push(entry);
+          else articlesBySessionId.set(article.sessionId, [entry]);
+        }
+      }
+      const sessions = rows.map((row) => ({
+        ...row,
+        preview: previews.get(row.id) ?? null,
+        articles: articlesBySessionId.get(row.id) ?? [],
+      }));
       return c.json({ sessions, nextCursor });
+    },
+  );
+
+  app.get(
+    "/sessions/:id/articles",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      // The same projection as a run's article list: the body is fetched only
+      // to derive the heading, never echoed — the detail route serves it.
+      const rows = db
+        .select()
+        .from(articles)
+        .where(eq(articles.sessionId, id))
+        .orderBy(asc(articles.createdAt))
+        .all();
+      return c.json({
+        articles: rows.map((article) => ({
+          slug: article.slug,
+          name: article.name,
+          heading: extractFirstHeading(article.contentMd),
+          createdAt: article.createdAt,
+        })),
+      });
+    },
+  );
+
+  app.get(
+    "/sessions/:id/articles/:slug",
+    zValidator("param", articleParamSchema, onZodFail("invalid article slug")),
+    (c) => {
+      const { id, slug } = c.req.valid("param");
+      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      const article = db
+        .select()
+        .from(articles)
+        .where(and(eq(articles.sessionId, id), eq(articles.slug, slug)))
+        .get();
+      if (!article) {
+        return c.json({ error: `article "${slug}" not found on session "${id}"` }, 404);
+      }
+      return c.json({
+        id: article.id,
+        sessionId: article.sessionId,
+        slug: article.slug,
+        name: article.name,
+        contentMd: article.contentMd,
+        createdAt: article.createdAt,
+        heading: extractFirstHeading(article.contentMd),
+      });
     },
   );
 
@@ -337,7 +429,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // Resolve the live, approval-gated tools for this turn and compose the
       // system prompt from their names so the core layer's tool guidance matches
       // what the model is actually offered.
-      const tools = activeTools();
+      const tools = activeTools(id);
       const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(tools));
       const turnDeps = {
         db,

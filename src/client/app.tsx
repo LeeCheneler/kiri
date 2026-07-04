@@ -2,12 +2,14 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { Route, Switch } from "wouter";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
+import { ScrollReset } from "./features/page-shell/scroll-reset.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
 import { DesignSystemPage } from "./routes/design-system-page.tsx";
 import { HomePage } from "./routes/home-page.tsx";
 import { McpPage } from "./routes/mcp-page.tsx";
 import { NotFoundPage } from "./routes/not-found-page.tsx";
 import { RunPage } from "./routes/run-page.tsx";
+import { SessionArticlePage } from "./routes/session-article-page.tsx";
 import { SessionPage } from "./routes/session-page.tsx";
 import { WorkflowPage } from "./routes/workflow-page.tsx";
 import { WorkflowsPage } from "./routes/workflows-page.tsx";
@@ -31,11 +33,13 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
     <QueryClientProvider client={queryClient}>
       <LiveEventsProvider factory={liveEventsFactory}>
         <LiveSync />
+        <ScrollReset />
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/workflows" component={WorkflowsPage} />
           <Route path="/workflows/:name" component={WorkflowPage} />
           <Route path="/mcp" component={McpPage} />
+          <Route path="/sessions/:id/articles/:slug" component={SessionArticlePage} />
           <Route path="/sessions/:id" component={SessionPage} />
           <Route path="/runs/:id/articles/:slug" component={ArticlePage} />
           <Route path="/runs/:id" component={RunPage} />

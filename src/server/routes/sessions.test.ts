@@ -4,7 +4,9 @@ import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type Tool, type ToolSet, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { articles } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
@@ -39,7 +41,7 @@ const streamingModel = (chunks: LanguageModelV3StreamPart[]): LlmModel =>
 
 // Calls `toolName` on its first step, then answers once the result is fed back —
 // the multi-step loop a tool-enabled turn drives.
-const toolCallModel = (toolName: string): LlmModel => {
+const toolCallModel = (toolName: string, input = '{"title":"Bug"}'): LlmModel => {
   let step = 0;
   return new MockLanguageModelV3({
     doStream: async () => {
@@ -47,7 +49,7 @@ const toolCallModel = (toolName: string): LlmModel => {
       if (step === 1) {
         return {
           stream: convertArrayToReadableStream([
-            { type: "tool-call", toolCallId: "c1", toolName, input: '{"title":"Bug"}' },
+            { type: "tool-call", toolCallId: "c1", toolName, input },
             { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
           ]),
         };
@@ -302,6 +304,40 @@ describe("sessions routes", () => {
       expect(byId.get("s2")).toBeNull();
     });
 
+    it("carries each session's articles on its list row", async () => {
+      createSession(env.db, MODEL, { id: "s1", startedAt: new Date(1000) });
+      createSession(env.db, MODEL, { id: "s2", startedAt: new Date(2000) }); // no articles
+      env.db
+        .insert(articles)
+        .values({
+          id: "a1",
+          sessionId: "s1",
+          slug: "notes",
+          name: "Notes",
+          contentMd: "# Meeting notes\n\nbody",
+          createdAt: new Date(1500),
+        })
+        .run();
+      const app = makeApp(fakeClients());
+
+      const page = (await (await app.request("/api/sessions")).json()) as {
+        sessions: {
+          id: string;
+          articles: { slug: string; name: string; heading: string | null; createdAt: string }[];
+        }[];
+      };
+      const byId = new Map(page.sessions.map((s) => [s.id, s.articles]));
+      expect(byId.get("s1")).toEqual([
+        {
+          slug: "notes",
+          name: "Notes",
+          heading: "Meeting notes",
+          createdAt: new Date(1500).toISOString(),
+        },
+      ]);
+      expect(byId.get("s2")).toEqual([]);
+    });
+
     it("400s an unknown cursor", async () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions?cursor=nope");
@@ -339,6 +375,103 @@ describe("sessions routes", () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions/ghost");
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("session article reads", () => {
+    const insertArticle = (sessionId: string, slug: string, contentMd: string, createdAt: Date) =>
+      env.db
+        .insert(articles)
+        .values({
+          id: crypto.randomUUID(),
+          sessionId,
+          slug,
+          name: "Notes",
+          contentMd,
+          createdAt,
+        })
+        .run();
+
+    it("lists a session's articles oldest-first with headings, without bodies", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, { id: "s2" });
+      insertArticle("s1", "second", "No leading heading here.", new Date(2000));
+      insertArticle("s1", "first", "# First Article\n\nBody.", new Date(1000));
+      insertArticle("s2", "elsewhere", "# Other", new Date(500));
+
+      const res = await app.request("/api/sessions/s1/articles", { headers: CLIENT_HEADERS });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { articles: Record<string, unknown>[] };
+      expect(body.articles).toEqual([
+        {
+          slug: "first",
+          name: "Notes",
+          heading: "First Article",
+          createdAt: new Date(1000).toISOString(),
+        },
+        { slug: "second", name: "Notes", heading: null, createdAt: new Date(2000).toISOString() },
+      ]);
+    });
+
+    it("returns an empty list for a session with no articles", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1/articles", { headers: CLIENT_HEADERS });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ articles: [] });
+    });
+
+    it("404s listing articles for an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost/articles", { headers: CLIENT_HEADERS });
+      expect(res.status).toBe(404);
+    });
+
+    it("serves one article with its full body and heading", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      insertArticle("s1", "notes", "# Meeting Notes\n\nBody.", new Date(1000));
+
+      const res = await app.request("/api/sessions/s1/articles/notes", { headers: CLIENT_HEADERS });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        sessionId: "s1",
+        slug: "notes",
+        name: "Notes",
+        contentMd: "# Meeting Notes\n\nBody.",
+        heading: "Meeting Notes",
+        createdAt: new Date(1000).toISOString(),
+      });
+    });
+
+    it("404s an article absent from the session", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/articles/ghost", { headers: CLIENT_HEADERS });
+      expect(res.status).toBe(404);
+    });
+
+    it("404s fetching an article on an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost/articles/notes", {
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("400s a malformed article slug", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/articles/Bad_Slug", {
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(400);
     });
   });
 
@@ -546,6 +679,70 @@ describe("sessions routes", () => {
       // tool guidance turned on because the active tool set is non-empty.
       expect(toolNames).toContain("linear__create_issue");
       expect(systemText).toContain("You have tools available.");
+    });
+
+    it("offers the first-party article tools on every turn, without an MCP registry", async () => {
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "write me a digest")).text();
+      await settled;
+
+      expect(toolNames).toEqual(
+        expect.arrayContaining([
+          "create_article",
+          "replace_article",
+          "edit_article",
+          "list_articles",
+          "read_article",
+        ]),
+      );
+      // The core prompt's article guidance turned on with the tools.
+      expect(systemText).toContain("You can save articles");
+    });
+
+    it("runs an article tool straight through un-gated and persists the article", async () => {
+      const input = JSON.stringify({ slug: "pr-digest", content_md: "# PR Digest\n\nBody." });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
+      const app = makeApp(fakeClients({ model: toolCallModel("create_article", input) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "write me a digest")).text();
+      await settled;
+
+      // No approval pause despite no standing permission: the tool ran and the
+      // model answered in the same turn.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      expect(toolPartOf(rows[1]).output).toEqual({ slug: "pr-digest", name: "PR Digest" });
+
+      const row = env.db.select().from(articles).where(eq(articles.sessionId, "s1")).get();
+      expect(row?.slug).toBe("pr-digest");
+      expect(row?.contentMd).toBe("# PR Digest\n\nBody.");
+      expect(seen).toContainEqual({ type: "article.written", sessionId: "s1", slug: "pr-digest" });
     });
 
     it("persists the user message under the id the client sent", async () => {

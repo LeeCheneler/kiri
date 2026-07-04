@@ -45,7 +45,14 @@ describe("activity routes", () => {
             recommendationsCount: number;
           };
         }
-      | { kind: "session"; session: { id: string; preview: string | null } }
+      | {
+          kind: "session";
+          session: {
+            id: string;
+            preview: string | null;
+            articles: Array<{ name: string; heading: string | null }>;
+          };
+        }
     >;
     nextCursor: string | null;
   };
@@ -107,6 +114,17 @@ describe("activity routes", () => {
           createdAt: new Date(210),
         })
         .run();
+      env.db
+        .insert(articles)
+        .values({
+          id: "a2",
+          sessionId: "s1",
+          slug: "notes",
+          name: "Notes",
+          contentMd: "# Meeting notes\n\nbody",
+          createdAt: new Date(250),
+        })
+        .run();
 
       const { body } = await getActivity();
       const [sessionEntry, runEntry] = body.entries;
@@ -117,6 +135,12 @@ describe("activity routes", () => {
       expect(runEntry.run.articles[0]).toMatchObject({ name: "Weekly", heading: "Weekly digest" });
       expect(runEntry.run.recommendationsCount).toBe(1);
       expect(sessionEntry.session.preview).toBe("Summarise the readme");
+      // Session entries carry the same article projection run entries do.
+      expect(sessionEntry.session.articles).toHaveLength(1);
+      expect(sessionEntry.session.articles[0]).toMatchObject({
+        name: "Notes",
+        heading: "Meeting notes",
+      });
     });
 
     it("pages across the run/session boundary via the cursor", async () => {

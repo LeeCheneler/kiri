@@ -55,8 +55,9 @@ export interface RunTurnDeps {
 // Upper bound on model⇄tool round-trips in a single turn. With tools, a turn
 // loops — call a tool, feed the result back, maybe call again — and this cap
 // stops a misbehaving model from looping without end. Generous enough for
-// several search-and-reason cycles.
-const MAX_TURN_STEPS = 8;
+// extended tool work: many search-and-reason cycles, or a long series of
+// document edits, in one turn.
+const MAX_TURN_STEPS = 32;
 
 export interface RunTurnArgs {
   /** The target session; must not have a turn in flight (the caller rejects a concurrent turn). */

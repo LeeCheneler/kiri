@@ -16,6 +16,7 @@ const base: SessionListEntry = {
   finishedAt: null,
   error: null,
   preview: "Summarise the readme",
+  articles: [],
 };
 
 const renderRow = (over: Partial<SessionListEntry> = {}) =>
@@ -70,5 +71,22 @@ describe("<SessionRow>", () => {
   it("omits the persona entry when none is attached", () => {
     renderRow();
     expect(screen.queryByText("red-team")).toBeNull();
+  });
+
+  it("lists the session's articles as links, read by heading with name fallback", () => {
+    renderRow({
+      articles: [
+        { slug: "digest", name: "Notes", heading: "Morning Digest", createdAt: NOW.toISOString() },
+        { slug: "scratch", name: "Scratch", heading: null, createdAt: NOW.toISOString() },
+      ],
+    });
+
+    expect(screen.getByRole("link", { name: "Morning Digest" }).getAttribute("href")).toBe(
+      "/sessions/abc1234567/articles/digest",
+    );
+    // A heading-less article falls back to its name.
+    expect(screen.getByRole("link", { name: "Scratch" }).getAttribute("href")).toBe(
+      "/sessions/abc1234567/articles/scratch",
+    );
   });
 });

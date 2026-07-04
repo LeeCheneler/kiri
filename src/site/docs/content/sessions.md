@@ -43,9 +43,9 @@ correctness bugs first, then design and clarity. Cite file:line. Be direct.
 
 ## Tools from MCP servers
 
-Kiri ships no built-in tools — a session's tools come from **MCP servers**
-you declare under `mcp:` in `kiri.yaml`. Web search, for example, via Tavily's
-remote server:
+Beyond the built-in article tools (below), a session's tools come from **MCP
+servers** you declare under `mcp:` in `kiri.yaml`. Web search, for example,
+via Tavily's remote server:
 
 ```yaml
 mcp:
@@ -84,6 +84,23 @@ or **Off**, which withholds the tool from the model entirely. Manage them on
 the **MCP page** in the left nav; decisions persist to a gitignored
 `.kiri/tool-permissions.json` and apply on the next call, no restart. A pending
 approval survives a reload — the session picks up where it paused.
+
+The built-in article tools are the exception: they run without a prompt. They
+can only write articles inside kiri — asking for one in chat is the
+authorisation.
+
+## Articles
+
+Ask for a write-up — a report, a digest, a guide — and the session saves it as
+an **article** rather than scrolling it into the chat: the same readable pages
+workflows produce, charts and diagrams included. The chat reply stays a short
+pointer; the piece itself lives on its own page.
+
+- Articles the session has written are listed in the right-hand aside and on
+  the session's feed row; click through to the full reading view.
+- Ask for changes and the session edits the article in place — an open article
+  page updates live as the edit lands.
+- Articles belong to their session: deleting the session deletes them.
 
 ## Context and cost
 

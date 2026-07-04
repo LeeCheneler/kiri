@@ -65,6 +65,19 @@ export function SessionRow({ session, now }: { session: SessionListEntry; now?: 
           )}
         </HeadlineLink>
       </div>
+      {session.articles.length > 0 ? (
+        // Article links at the same 16px scale as the quoted preview,
+        // mirroring how a run row leads with what it produced.
+        <ul className="mt-4 space-y-3 text-base">
+          {session.articles.map((article) => (
+            <li key={article.slug}>
+              <HeadlineLink href={`/sessions/${session.id}/articles/${article.slug}`}>
+                {article.heading ?? article.name}
+              </HeadlineLink>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </StatusBlock>
   );
 }

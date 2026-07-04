@@ -33,7 +33,8 @@ calls alike — then renders the output as an article in your feed.
 - **Workflows** — scripted chores like the one above. Reach for a workflow when
   you know the shape of the work.
 - **Sessions** — chat with the same models, plus tools from MCP servers you
-  configure. Reach for a session when you don't.
+  configure. Sessions write articles too, on request. Reach for a session when
+  you don't.
 
 Both land in the same activity feed.
 
@@ -56,4 +57,4 @@ Both land in the same activity feed.
 - [Recipes](/docs/recipes) — release notes, one-click PR reviews, a daily
   briefing.
 - [Writing workflows](/docs/workflows) — the golden path, step by step.
-- [Sessions](/docs/sessions) — chat, personas, and MCP tools.
+- [Sessions](/docs/sessions) — chat, personas, MCP tools, and articles.
