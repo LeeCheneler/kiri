@@ -11,7 +11,7 @@ type ToolPart = ToolUIPart | DynamicToolUIPart;
 // tagged with this text and renders it as cancelled rather than failed.
 export const CANCELLED_ERROR_TEXT = "Cancelled.";
 
-/** A user's verdict on a tool the agent wants to run. */
+/** A user's verdict on a tool the assistant wants to run. */
 export type ToolDecision = "allow" | "always" | "deny";
 
 /** Resolve a pending tool-approval request with the user's verdict. */
@@ -84,7 +84,7 @@ function ToolPanel({ part }: { part: ToolPart }) {
 /**
  * A tool call awaiting the user's go-ahead: the call and its input shown in full
  * so the decision is informed, with Allow (run once), Always allow (run and stop
- * prompting for this tool), and Deny (refuse and let the agent continue). Shown
+ * prompting for this tool), and Deny (refuse and let the assistant continue). Shown
  * expanded rather than collapsed — it needs a response before the turn resumes.
  */
 function ToolApproval({

@@ -29,7 +29,7 @@ What sets kiri apart from Windmill, Kestra, n8n, Inngest et al. is the **feed-fi
 Constraints, not work items — they hold across the whole system:
 
 - Standard step envelope (`status`, `output`, `error`, `traces`), never deferred per step.
-- Workflow YAML validated against a Zod schema; the top-level shape is fixed (`steps`, `inputs`, `summarize`, `publish`, `description`, `group`) but step `env:` contents are bundle-defined and not validated by kiri.
+- Workflow YAML validated against a Zod schema; the top-level shape is fixed (`steps`, `inputs`, `summarize`, `articles`, `description`, `group`) but step `env:` contents are bundle-defined and not validated by kiri.
 - No shell interpolation of inputs anywhere — argv arrays and env vars only.
 - Kiri is a CLI launched per-workspace; workflow definitions live in `<workspace>/workflows/`. No global cross-repo store.
 - Repo-scoped runtime state lives in `<workspace>/.kiri/` (gitignored).
@@ -37,7 +37,7 @@ Constraints, not work items — they hold across the whole system:
 - Every run snapshots the resolved workflow definition and the data-repo git ref (HEAD + dirty flag) at start; feed entries reflect the workflow shape that ran, and the sha pins the working tree for reproduction.
 - Per-run scratch directory; steps never run with cwd of repo or home.
 - Per-step env scope; user `env:` applied first, kiri- and OS-controlled vars overwrite on collision; `KIRI_` prefix reserved.
-- Step output renders as plain text in the UI; markdown rendering is reserved for `publish:` articles and `summarize:` summaries, routed through the same sandboxed renderer.
+- Step output renders as plain text in the UI; markdown rendering is reserved for `articles:` articles and `summarize:` summaries, routed through the same sandboxed renderer.
 
 ## Architecture
 
@@ -69,7 +69,7 @@ steps:
   - sh: |                   # inline shell — sugar for trivial steps
       echo "review complete"
       date
-publish:                   # optional: long-form markdown articles
+articles:                  # optional: long-form markdown articles
   - slug: digest
     name: "PR Review Digest"
     use: claude-code
@@ -84,20 +84,20 @@ A step is exactly one of three shapes:
 
 - `{ use: <name>, name?, description?, env?: { ... } }` — references a **script bundle** at `bundles/<name>/run.sh`. The bundle is a folder containing at minimum `run.sh` plus any sidecar files it needs (prompt files, generated settings, README documenting the bundle's env-var contract).
 - `{ sh: <string>, name?, description?, env?: { ... } }` — inline shell script, run via `sh -c`. Sugar for one-shots that don't deserve their own bundle. Multi-line via YAML's `|` block scalar.
-- `{ llm: { model, prompt? | prompt_file? }, name?, description?, env?: { ... } }` — **first-party LLM completion** against a model declared in `kiri.yaml` (see *AI integration → LLM providers*). `model` is a `provider:model` id; the prefix must name a registered provider or the workflow fails to load. The prompt is inline (`prompt`) or a workspace-root-relative file (`prompt_file`) — declaring both is a schema error, and a declared `prompt_file` must exist on disk at load. `steps:` and `publish:` require one of the two; `summarize:` may omit both, falling back to a baked-in summary prompt.
+- `{ llm: { model, prompt? | prompt_file? }, name?, description?, env?: { ... } }` — **first-party LLM completion** against a model declared in `kiri.yaml` (see *AI integration → LLM providers*). `model` is a `provider:model` id; the prefix must name a registered provider or the workflow fails to load. The prompt is inline (`prompt`) or a workspace-root-relative file (`prompt_file`) — declaring both is a schema error, and a declared `prompt_file` must exist on disk at load. `steps:` and `articles:` require one of the two; `summarize:` may omit both, falling back to a baked-in summary prompt.
 
 The optional `name` is a short label rendered as the step's title in the Schema tab and the run timeline; it falls back to the bundle reference, the llm model id, or the script's first non-empty line. `description` is longer detail shown when a step's row is expanded. The optional `id` (`^[a-z][a-z0-9_-]*$`, unique within the workflow) names the step so later steps can reference its stdout via `{ step: <id> }` env refs; `summarize:` cannot declare one — nothing runs after it to reference its output.
 
-`env:` is a flat string-to-string map, passed verbatim to the bundle (or inline shell). Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
+`env:` is a flat map — each value a literal string or a structured reference (see *Invocation & inputs*) — passed to the bundle (or inline shell) as plain env vars. Each bundle defines its own contract for what keys it expects; kiri doesn't validate config contents. Kiri's own scoped vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`) are applied **after** user env at spawn time, so a workflow can't override them. The `KIRI_` prefix is reserved — workflow `env:` keys starting with `KIRI_` are rejected at load time.
 
 Two workflow-level sibling fields run alongside `steps:`:
 
-- **`summarize:`** — a single `{ use | sh | llm, env? }` entry executed after `steps:` and `publish:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. Every summarize step — and only summarize — is auto-injected `KIRI_SUMMARY_CONTEXT`, a prompt-ready plain-text digest of the run (workflow name and duration, a section per step with its label and stdout, then published articles); each step's stdout and each article's markdown is independently capped at 64 KB with a `[truncated]` marker so the env entry stays under the OS exec limit. `sh:`/`use:` summarizers read `$KIRI_SUMMARY_CONTEXT`, `llm:` prompts template `{{KIRI_SUMMARY_CONTEXT}}` — one channel, no file variant. This is the gist plane; a summarizer needing full fidelity takes a `{ step: <id> }` / `{ article: <slug> }` ref instead. The zero-config `summarize: { llm: { model } }` built-in prompt is simply a prompt over the same digest.
-- **`publish:`** — an array of named long-form markdown articles. Each entry has the shape `{ slug, name?, use | sh | llm, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so articles reach the summariser (via the `KIRI_SUMMARY_CONTEXT` digest or `{ article: <slug> }` refs). Publishes only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. The run is fail-fast end to end: a failing publish flips the run to `failed` and halts remaining publishes and the summariser, the same way a failing step halts the pipeline. Articles are stored as rows in `articles`, surfaced as a stacked list on each activity-feed row, on the run detail page as a stacked list beneath the run's summary and as the "Articles" phase group (a published entry's expanded row links through to its article), and rendered on dedicated `/runs/:id/published/:slug` pages via a sandboxed markdown parser. The article page lifts the body's first markdown `# heading` out as the page title — dropping any preamble before it — shows the publish name as the eyebrow series label (suppressed when it just restates the workflow name), and treats the body's `##` headings as the sections that fill the page's table of contents; a body with no `# heading` falls back to the publish name for its page title. Each surface that lists articles shows the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Article markdown may embed fenced `chart` blocks — Vega-Lite JSON specs rendered inline as SVG charts through that same parser, with the charting library code-split so it loads only for articles that use one — and fenced `mermaid` blocks, rendered as diagrams (with a tab to read the source and an enlarge-to-modal action) through mermaid in its `strict`, DOMPurify-sanitising mode, likewise code-split so the diagram library loads only for articles that use one.
+- **`summarize:`** — a single `{ use | sh | llm, env? }` entry executed after `steps:` and `articles:` complete, only when the run is still `ok`. Its stdout becomes the run's one-or-two-sentence summary, rendered on the activity feed row and at the top of the run detail page. Every summarize step — and only summarize — is auto-injected `KIRI_SUMMARY_CONTEXT`, a prompt-ready plain-text digest of the run (workflow name and duration, a section per step with its label and stdout, then each article the run produced); each step's stdout and each article's markdown is independently capped at 64 KB with a `[truncated]` marker so the env entry stays under the OS exec limit. `sh:`/`use:` summarizers read `$KIRI_SUMMARY_CONTEXT`, `llm:` prompts template `{{KIRI_SUMMARY_CONTEXT}}` — one channel, no file variant. This is the gist plane; a summarizer needing full fidelity takes a `{ step: <id> }` / `{ article: <slug> }` ref instead. The zero-config `summarize: { llm: { model } }` built-in prompt is simply a prompt over the same digest.
+- **`articles:`** — an array of named long-form markdown articles. Each entry has the shape `{ slug, name?, use | sh | llm, env? }`. Each runs in declared order, serially, via the same `runStep` path as a regular step, after `steps:` and before `summarize:` so articles reach the summariser (via the `KIRI_SUMMARY_CONTEXT` digest or `{ article: <slug> }` refs). Articles only run when the steps pipeline is `ok` — a failed or cancelled pipeline skips them. The run is fail-fast end to end: a failing article entry flips the run to `failed` and halts the remaining entries and the summariser, the same way a failing step halts the pipeline. Articles are stored as rows in `articles` (linked to their producing run via a nullable `runId` — the schema also carries a `sessionId` producer column, XOR-checked, as groundwork for session-produced articles), surfaced as a stacked list on each activity-feed row, on the run detail page as a stacked list beneath the run's summary and as the "Articles" phase group (an article entry's expanded row links through to its article), and rendered on dedicated `/runs/:id/articles/:slug` pages via a sandboxed markdown parser. The article page lifts the body's first markdown `# heading` out as the page title — dropping any preamble before it — shows the article name as the eyebrow series label (suppressed when it just restates the workflow name), and treats the body's `##` headings as the sections that fill the page's table of contents; a body with no `# heading` falls back to the article name for its page title. Each surface that lists articles shows the article body's first markdown `# heading` as a sub-byline (when present) so identically-titled articles from the same workflow are distinguishable. Article markdown may embed fenced `chart` blocks — Vega-Lite JSON specs rendered inline as SVG charts through that same parser, with the charting library code-split so it loads only for articles that use one — and fenced `mermaid` blocks, rendered as diagrams (with a tab to read the source and an enlarge-to-modal action) through mermaid in its `strict`, DOMPurify-sanitising mode, likewise code-split so the diagram library loads only for articles that use one.
 
-Both fields share the same load-time validation as `steps:` (a step is exactly one of `use:` / `sh:` / `llm:`, `KIRI_` prefix banned on `env:` keys; a missing `use:` bundle, an unknown llm provider prefix, or a missing `prompt_file` is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing publish flips `runs.status` to `failed` and halts everything after it.
+Both fields share the same load-time validation as `steps:` (a step is exactly one of `use:` / `sh:` / `llm:`, `KIRI_` prefix banned on `env:` keys; a missing `use:` bundle, an unknown llm provider prefix, or a missing `prompt_file` is a workflow load failure). A failing summariser is non-fatal — its error stays on the step row but the run terminal status is unaffected. A failing article entry flips `runs.status` to `failed` and halts everything after it.
 
-The script bundle is the primitive for everything kiri reaches by spawning a process; first-party `llm:` steps cover the plain-completion case without forcing a bundle. The repo's `examples/` carries `claude-code` and `lm-studio` starter bundles; LM Studio support is `cp -r examples/bundles/claude-code bundles/lm-studio` and editing the script. For a **script step** kiri stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way. An `llm:` step is the deliberate exception — kiri makes the completion call in-process against the configured provider — but its result maps onto the same envelope, so everything downstream (traces, `publish:`, `summarize:`) is identical to a script step's.
+The script bundle is the primitive for everything kiri reaches by spawning a process; first-party `llm:` steps cover the plain-completion case without forcing a bundle. The repo's `examples/` carries `claude-code` and `lm-studio` starter bundles; forking one for a new runtime is `cp -r` and editing the script. For a **script step** kiri stays runtime-blind: it spawns `run.sh`, captures the envelope, and stays out of the way. An `llm:` step is the deliberate exception — kiri makes the completion call in-process against the configured provider — but its result maps onto the same envelope, so everything downstream (traces, `articles:`, `summarize:`) is identical to a script step's.
 
 Rationale for YAML over TS: workflow files live in arbitrary user repos, but kiri ships as a single Bun-compiled binary. Resolving a TS `import { defineWorkflow } from "kiri"` from those repos would require both a Bun plugin baked into the binary to intercept the import *and* generated `.d.ts` files dropped into each repo for IDE support — both maintenance costs that compound forever. YAML is pure data, validated at load time, and a JSON schema can be published alongside the binary for editor LSP integration with no per-repo footprint.
 
@@ -108,9 +108,9 @@ Every step returns the same shape. Designed in early — painful to retrofit.
 ```ts
 {
   status: "ok" | "failed",
-  output: unknown,         // becomes the next step's input
+  output: string,          // captured stdout — becomes the next step's input
   error?: { message, stack? },
-  traces: { stdout, stderr, durations, usage?, ... },
+  traces: { stdout, stderr, durationMs, usage? },
 }
 ```
 
@@ -118,8 +118,8 @@ Full I/O captured at every step. Linked from the corresponding feed entry for de
 
 ### Execution semantics
 
-- **Concurrency:** global default of 1 in-flight workflow run. Per-workflow override added later only if needed.
-- **Errors:** step fails → workflow halts → run marked failed → feed entry shows error → manual re-run from the feed entry.
+- **Concurrency:** runs are independent — invoking several workflows (or the same one twice) runs them concurrently. There is no global cap or queue.
+- **Errors:** the run is fail-fast — a failed step halts the pipeline, skips `articles:` and `summarize:`, and marks the run failed; a failed article entry does the same for what remains. The feed entry shows the error; re-run manually from the run page.
 - **No auto-retry, no DLQ, no fan-out** in v1.
 
 ### Invocation & inputs
@@ -131,7 +131,7 @@ A workflow optionally declares `inputs:` — named parameters collected at invoc
 - `inputs:` is an array of `{ name, description?, required?, default?, options? }`. Values are strings.
 - A workflow with no `inputs:` runs immediately on invoke. One with `inputs:` collects values via a form before the run starts — `required` inputs must be filled, `default` pre-fills the field.
 - An input can declare a fixed list of allowed strings via `options:`. The invoke modal then renders a picker constrained to those values instead of a text field, the declared `default` (if any) must be one of the entries — enforced at load time — and any value supplied at invoke must also be one of them.
-- Step `env:` values are a literal string or a structured reference: `{ input: <name> }` to a declared input, `{ step: <id> }` to an earlier step's stdout (byte-for-byte — never trimmed or truncated), or `{ article: <slug> }` to an already-published article's markdown (publish entries may only reference earlier siblings; summarize may reference any; main steps may not use article refs). The reference graph is validated at load time — unknown ids/slugs and self/forward references fail the workflow — and the fail-fast lifecycle guarantees every ref target completed `ok` before its consumer spawns, so run-time resolution is total. A ref-resolved value that pushes a spawned step's env past the OS exec size limit (~1 MB ARG_MAX) fails the step with an error naming the largest entries instead of an opaque E2BIG; `llm:` steps resolve refs in-process and are exempt. At run-start the runner resolves each declared input to a final value (supplied at invoke, otherwise the input's `default`) and snapshots the resolved `Record<string, string>` onto `runs.inputs`. At spawn the runner walks each step's, summarise's, and publish's `env:`, replacing every `{ input: <name> }` entry with the snapshotted value; kiri-scoped vars and OS essentials overlay afterwards, so user env never wins on collision.
+- Step `env:` values are a literal string or a structured reference: `{ input: <name> }` to a declared input, `{ step: <id> }` to an earlier step's stdout (byte-for-byte — never trimmed or truncated), or `{ article: <slug> }` to an already-produced article's markdown (articles entries may only reference earlier siblings; summarize may reference any; main steps may not use article refs). The reference graph is validated at load time — unknown ids/slugs and self/forward references fail the workflow — and the fail-fast lifecycle guarantees every ref target completed `ok` before its consumer spawns, so run-time resolution is total. A ref-resolved value that pushes a spawned step's env past the OS exec size limit (~1 MB ARG_MAX) fails the step with an error naming the largest entries instead of an opaque E2BIG; `llm:` steps resolve refs in-process and are exempt. At run-start the runner resolves each declared input to a final value (supplied at invoke, otherwise the input's `default`) and snapshots the resolved `Record<string, string>` onto `runs.inputs`. At spawn the runner walks each step's, article entry's, and summarise's `env:`, replacing every `{ input: <name> }` entry with the snapshotted value; kiri-scoped vars and OS essentials overlay afterwards, so user env never wins on collision.
 - Input values are snapshotted onto the `runs` row, so the feed shows what a run was invoked with and a re-run can pre-fill the form.
 
 ### State storage
@@ -139,19 +139,19 @@ A workflow optionally declares `inputs:` — named parameters collected at invoc
 State lives in three tiers, by what kind of state it is:
 
 - **In git** — workflow definitions (`.yaml` files), script bundles (`bundles/<name>/`), prompt files, sandbox profiles. Everything that benefits from review and version history.
-- **In SQLite** — runtime state: runs, todos, app state (paused/running, in-flight counter), run metadata + envelopes. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
+- **In SQLite** — runtime state: runs and their steps (metadata + envelopes), articles, recommendations, sessions and their messages. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations.
 - **On disk (data dir)** — large blob payloads referenced by path from SQLite rows: full CC transcripts, big stdout dumps, anything that'd bloat the DB. Same pattern CI systems use to keep the DB lean.
 
 Pragmatic v1 simplification: skip the disk-blob split initially. Put traces straight into SQLite TEXT columns. Move to disk-backed blobs only when a "last 50 runs" feed query starts dragging on trace payloads — probably won't for months.
 
 ### Workflow registry & run snapshots
 
-Workflow definitions are YAML files in `workflows/` — the single source of truth, with no SQL representation. There is **no `workflows` table**. On startup (and on file change in dev) the loader scans the directory, parses each file, validates it against the workflow Zod schema, and hydrates an in-memory registry; runs reference workflows by name only.
+Workflow definitions are YAML files in `workflows/` — the single source of truth, with no SQL representation. There is **no `workflows` table**. On startup — and on file change, the watcher is always on — the loader scans the directory top-level, parses each file, validates it against the workflow Zod schema, and hydrates an in-memory registry; runs reference workflows by name only.
 
 When a run starts, the executor captures three things to pin the run's context:
 
-- The resolved workflow definition (name, steps, env, summarize, publish) onto the `runs` row as `definitionSnapshot`. Feed entries always show the workflow shape that ran, even if the YAML file is later edited or deleted (UI shows a "(deleted)" badge when the registry no longer has the name).
-- The resolved input values onto `runs.inputs`. Null when the workflow declared no `inputs:` block; otherwise a `Record<string, string>` with one entry per declared input that resolved to a value (supplied at invoke or via the input's `default`). The same snapshot is consulted when resolving `{ input: <name> }` env references at every step's, summarise's, and publish's spawn.
+- The resolved workflow definition (name, steps, summarize, articles) onto the `runs` row as `definitionSnapshot`. Feed entries always show the workflow shape that ran, even if the YAML file is later edited or deleted (UI shows a "(deleted)" badge when the registry no longer has the name).
+- The resolved input values onto `runs.inputs`. Null when the workflow declared no `inputs:` block; otherwise a `Record<string, string>` with one entry per declared input that resolved to a value (supplied at invoke or via the input's `default`). The same snapshot is consulted when resolving `{ input: <name> }` env references at every step's, article entry's, and summarise's spawn.
 - The data repo's git ref at run-start: the HEAD commit (`runs.gitSha`) plus a `runs.gitDirty` flag for uncommitted changes. The data dir is already a git repo by convention, so a single SHA pins every file the run could possibly have read — bundle scripts, prompts, anything `run.sh` resolves at runtime. The sha and dirty flag are captured for reproduction (`git checkout <sha>`); they are not surfaced in the run detail UI.
 
 Kiri does not snapshot individual bundle files or prompts into the database. Reproducing what ran means `git checkout <sha>` in the data repo. Both `gitSha` and `gitDirty` are nullable so a non-git data dir is a first-class state, not an error — the run loses the reproducibility affordance but everything else works.
@@ -162,7 +162,7 @@ Re-running an old run uses the *current* definition and *current* working tree, 
 
 Workflows can surface proposed follow-up workflow invocations alongside the run that produced them. A run that aggregates open PRs, for example, can emit one recommendation per PR pointing at a `pr-review` workflow with `pr_number` pre-filled — turning the aggregator's output into a launch pad for one-click follow-ups.
 
-Recommendations are not a global queue. There is no inbox, no right-rail list, no lifecycle state machine. Each recommendation belongs to its producing run, surfaces on that run's detail page, and is acted on or ignored in place. The shape mirrors `publish:` articles: emit-time output, persisted as rows linked to the run.
+Recommendations are not a global queue. There is no inbox, no right-rail list, no lifecycle state machine. Each recommendation belongs to its producing run, surfaces on that run's detail page, and is acted on or ignored in place. The shape mirrors `articles:`: emit-time output, persisted as rows linked to the run.
 
 ### Emission
 
@@ -173,7 +173,7 @@ A step writes JSON Lines to a file path provided in `KIRI_RECOMMENDATIONS_FILE` 
 {"title":"Review PR #124","description":"+12/-3, fix typo","workflow":"pr-review","inputs":{"pr_number":"124"}}
 ```
 
-Per-line fields: `title` (required), `workflow` (required — name of the workflow to invoke), `description` (optional — displayed under the title), `inputs` (optional `Record<string, string>` pre-filled into the invoke modal). Only the main `steps:` get the env var — `publish:` and `summarize:` do not emit recommendations. A failed step's file is discarded; only `ok` steps contribute rows. Malformed lines are logged and skipped without failing the step retrospectively.
+Per-line fields: `title` (required), `workflow` (required — name of the workflow to invoke), `description` (optional — displayed under the title), `inputs` (optional `Record<string, string>` pre-filled into the invoke modal). Only the main `steps:` get the env var — `articles:` and `summarize:` do not emit recommendations. A failed step's file is discarded; only `ok` steps contribute rows. Malformed lines are logged and skipped without failing the step retrospectively.
 
 ### Storage
 
@@ -238,8 +238,8 @@ Bundle layout (`examples/bundles/claude-code/`):
 
 ```
 claude-code/
-  run.sh         # spawns `claude` CLI with the resolved prompt + allowlist
-  README.md      # documents the env-var contract: PROMPT_FILE, MAX_TURNS, ALLOWED_TOOLS, MODEL
+  run.sh         # spawns `claude` CLI with the rendered prompt
+  README.md      # documents the env-var contract: PROMPT, PROMPT_FILE, MAX_TURNS, MODEL
 ```
 
 Workflow usage:
@@ -249,18 +249,17 @@ Workflow usage:
   env:
     PROMPT_FILE: prompts/pr-review.tpl
     MAX_TURNS: "50"
-    ALLOWED_TOOLS: "Read,Glob,Grep,Bash(gh pr view:*)"
     MODEL: opus              # optional
 ```
 
 What `run.sh` does at spawn time:
 
-- Reads its env-var contract (`PROMPT_FILE`, `MAX_TURNS`, `ALLOWED_TOOLS`, `MODEL`).
-- Synthesises a `.claude/settings.json` in per-run scratch from `ALLOWED_TOOLS`, sets `CLAUDE_CONFIG_DIR` to that dir.
-- Loads the prompt from `PROMPT_FILE` (resolved against `KIRI_REPO_ROOT`) and **prepends the allowlist as positive framing** ("You have access to: …. If you need anything else, end the session with a final message describing what you needed and why.") so the agent doesn't burn turns on denied tools.
-- Spawns `claude -p "$PROMPT" --max-turns "$MAX_TURNS"` and forwards its stdout/stderr to kiri's standard step envelope.
+- Reads its env-var contract (`PROMPT` or `PROMPT_FILE` — `PROMPT` wins when both are set — plus `MAX_TURNS`, `MODEL`).
+- Loads the prompt (`PROMPT_FILE` resolves against `KIRI_REPO_ROOT`) and renders `{{VAR}}` placeholders from the environment, with the previous step's stdout available as `{{KIRI_INPUT}}`.
+- Spawns `claude -p "$prompt" --max-turns "$MAX_TURNS"` (plus `--model` when set); its stdout/stderr land on kiri's standard step envelope.
+- **Tool permissions defer to the user's own `~/.claude/settings.json`** — the bundle deliberately synthesises no settings of its own, which keeps it out of claude's credential-resolution path so the normal login flow keeps working. Constrain a workflow through prompt wording and your global claude config.
 
-The bundle is plain bash — readable, modifiable, replaceable. Adding LM Studio support is `cp -r examples/bundles/claude-code bundles/lm-studio` and editing. The example lives in the repo; the user owns their copy from there.
+The bundle is plain bash — readable, modifiable, replaceable. The example lives in the repo; the user owns their copy from there.
 
 ### Output validation (for LLM steps producing structured output)
 
@@ -278,9 +277,9 @@ Bundle-spawned agents (e.g. `claude-code`) still have no usage capture. The earl
 
 ### Permissions philosophy
 
-Static policy per step via `ALLOWED_TOOLS` in the workflow's `env:`. The `claude-code` bundle's `run.sh` synthesises a `.claude/settings.json` at spawn time and points CC at it — so the workflow YAML is the load-bearing source of permission truth, no hand-edited settings files anywhere in the user's repo. **No runtime hooks for v1.** Hooks are reserved for if/when dynamic per-call policy is wanted (token budget caps, mid-session escalation, tool-granular propose-to-approve).
+For agent-spawning workflow steps (the `claude-code` bundle), tool permissions come from the user's own global claude config (`~/.claude/settings.json`) — the bundle synthesises no per-step policy, and constraining a workflow is done through prompt wording and that config. Kiri itself adds no permission layer to workflow steps: **no runtime hooks for v1** — hooks are reserved for if/when dynamic per-call policy is wanted (token budget caps, mid-session escalation, tool-granular propose-to-approve). Per-call gating exists in the other pillar: agentic sessions approve tools per invocation (see *Agentic sessions → Tool permissions*).
 
-For workflows using broad `Bash(*)` permissions, the load-bearing defence is the static `ALLOWED_TOOLS` allowlist on the step itself, plus the user's own claude config. Kiri does not wrap steps in a kernel sandbox: bundles are user-authored scripts in the user's own repo, with the same trust posture as any shell script they'd run themselves. If a bundle-install mechanism is ever added (a marketplace, `kiri install <bundle>`, etc.), revisit — the trust boundary changes at that point.
+Kiri does not wrap steps in a kernel sandbox: bundles are user-authored scripts in the user's own repo, with the same trust posture as any shell script they'd run themselves. If a bundle-install mechanism is ever added (a marketplace, `kiri install <bundle>`, etc.), revisit — the trust boundary changes at that point.
 
 ## Agentic sessions
 
@@ -292,7 +291,7 @@ The pillar holds the **app-active and single-user invariants** unchanged: a sess
 
 A session's behaviour is shaped by a layered system prompt, composed fresh on every turn from up to three layers:
 
-- **The kiri core layer** — immutable, authored by kiri itself. States the model's identity and the environment it runs in (a local-first, single-user tool; an interactive multi-turn chat; the current date, with a note that its training has a knowledge cutoff so it flags answers it can't verify). It carries the universal assistant baseline the core owns regardless of any `kiri.md` or persona — lead with the answer, calibrate length and format, an honesty bar against fabrication (including the data behind a chart), and willingness to disagree. It states that replies render as GitHub-flavoured markdown with inline Vega-Lite `chart` blocks and `mermaid` diagrams (the same renderer the published articles use) — a chart when the point is the numbers, a diagram when it's the structure, and neither for ordinary prose — and draws the trust boundary both ways: this prompt and the user's standing instructions are authoritative, while quoted file/web/tool/external text is untrusted data, not instructions. When the session has tools active it adds guidance to reach for them over guessing, parallelise independent calls, and treat a capped or timed-out result as incomplete — each tool carries its own name and description from its MCP server, so the core layer needn't enumerate them. Composed per turn rather than held as a constant because it states the live date and the active tool set.
+- **The kiri core layer** — immutable, authored by kiri itself. States the model's identity and the environment it runs in (a local-first, single-user tool; an interactive multi-turn chat; the current date, with a note that its training has a knowledge cutoff so it flags answers it can't verify). It carries the universal assistant baseline the core owns regardless of any `kiri.md` or persona — lead with the answer, calibrate length and format, an honesty bar against fabrication (including the data behind a chart), and willingness to disagree. It states that replies render as GitHub-flavoured markdown with inline Vega-Lite `chart` blocks and `mermaid` diagrams (the same renderer workflow articles use) — a chart when the point is the numbers, a diagram when it's the structure, and neither for ordinary prose — and draws the trust boundary both ways: this prompt and the user's standing instructions are authoritative, while quoted file/web/tool/external text is untrusted data, not instructions. When the session has tools active it adds guidance to reach for them over guessing, parallelise independent calls, and treat a capped or timed-out result as incomplete — each tool carries its own name and description from its MCP server, so the core layer needn't enumerate them. Composed per turn rather than held as a constant because it states the live date and the active tool set.
 - **`kiri.md`** — an optional workspace-root markdown file of standing instructions, applied to every session when present: the user's always-on "how I want sessions to behave."
 - **A persona** — an optional `personas/<name>.md` overlay, attached per session and injected after `kiri.md`, for putting a session into a specific role. Not applied by default.
 
@@ -347,7 +346,7 @@ Sessions are activity and belong in the feed. The home feed is a polymorphic uni
 ## UI
 
 - **Left rail: navigation.** `Activity` (the home feed), `Workflows` (the catalog), a one-click **+ New session** action, then the documentation links and version footer. Below the `lg` breakpoint the rail collapses to a top bar (wordmark + menu button) that opens the same nav in a left drawer.
-- **Center: blended activity feed.** A reverse-chronological log of both workflow runs and agentic sessions, interleaved newest-first and day-grouped, behind an `All · Workflows · Sessions` tab strip (deep-linked via `?view=`). A run row shows workflow name, status, duration, and (when present) the run's one-or-two-sentence summary plus a stacked list of published articles — one row per article, each carrying the publish-entry name and (when present) the article body's first markdown `# heading` as a sub-byline so identically-titled articles from the same workflow are distinguishable — and a small count when it carries recommendations. A session row is differentiated as a conversation, not an artifact record: an accent `session` kind marker leads its byline (status, model, the attached persona when one is set, relative start), and its first message renders as quoted speech — italic display face between accent quotation marks — where run headlines stay upright; before a message is sent the short id stands in, unquoted. (Turn counts and token totals stay on the session page; the list API doesn't carry them.) Clicking a run row opens the run detail page (`/runs/:id`) with full traces, the run's recommendations, and its published articles; a session row opens its chat (`/sessions/:id`); an article entry opens its dedicated page (`/runs/:id/published/:slug`).
+- **Center: blended activity feed.** A reverse-chronological log of both workflow runs and agentic sessions, interleaved newest-first and day-grouped, behind an `All · Workflows · Sessions` tab strip (deep-linked via `?view=`). A run row shows workflow name, status, duration, and (when present) the run's one-or-two-sentence summary plus a stacked list of the run's articles — one row per article, each carrying the article name and (when present) the article body's first markdown `# heading` as a sub-byline so identically-titled articles from the same workflow are distinguishable — and a small count when it carries recommendations. A session row is differentiated as a conversation, not an artifact record: an accent `session` kind marker leads its byline (status, model, the attached persona when one is set, relative start), and its first message renders as quoted speech — italic display face between accent quotation marks — where run headlines stay upright; before a message is sent the short id stands in, unquoted. (Turn counts and token totals stay on the session page; the list API doesn't carry them.) Clicking a run row opens the run detail page (`/runs/:id`) with full traces, the run's recommendations, and its articles; a session row opens its chat (`/sessions/:id`); an article entry opens its dedicated page (`/runs/:id/articles/:slug`).
 - **Workflow catalog (`/workflows`).** A searchable grid of every registered workflow, grouped by `group:`, each a launchable card showing its description and last-run status — the home for starting a workflow.
 - **Session chat (`/sessions/:id`).** The conversation transcript with a composer, and a right rail carrying the session's model — swappable mid-conversation, applying from the next turn — its running token totals, and current context fill.
 
@@ -360,7 +359,7 @@ The orchestrator is a single Node process serving both the engine and the UI. Th
 ### Stack
 
 - **Bun** — runtime. TypeScript runs natively (no separate compile step), `bun:sqlite` is statically linked (no native-module headache), and `bun build --compile` produces a single-file macOS binary — the release artifact for distribution. One toolchain for install, test, run, and build.
-- **Hono** — HTTP server, SSE streams. Runtime-agnostic by design but pairs cleanly with Bun via `Bun.serve`. The Hono process *is* the orchestrator daemon: runs the cron tick loop, executes workflows, serves the UI bundle. One process, clear ownership.
+- **Hono** — HTTP server, SSE streams. Runtime-agnostic by design but pairs cleanly with Bun via `Bun.serve`. The Hono process *is* the orchestrator: executes workflow runs and session turns, serves the UI bundle. One process, clear ownership.
 - **Vite + React** — UI bundle, served by Hono. No SSR, no framework magic — just a SPA window into the daemon. `wouter` for routing — tiny and hook-based.
 - **SSE** for live feed updates. One-way (server → client), browsers handle reconnection natively, Hono has `streamSSE` built in. WebSockets reserved for if/when bidirectional streaming is actually needed.
 - **TanStack Query** for client state. The SSE bus carries thin events (a type plus ids); the client treats them as cache-invalidation signals — an event invalidates the affected query and React Query refetches — rather than hand-rolling per-surface refetch wiring. Shared data hooks live in `client/state/`; UI features under `client/features/` compose the design-system primitives, and each route renders its own page shell (left nav · main · right marginalia) rather than an app-level wrapper.
@@ -387,6 +386,8 @@ Repo-scoped runtime state lives in `.kiri/` at the repo root, gitignored:
   .kiri/                      # gitignored — repo-scoped runtime state
     state.db                  # SQLite
     runs/<id>/                # per-run scratch dirs
+    workflow.schema.json      # JSON Schema for workflows/*.yaml, rewritten every launch
+    kiri.schema.json          # JSON Schema for kiri.yaml, rewritten every launch
     mcp-credentials.json      # OAuth tokens for MCP servers (mode 0600; separate from state.db)
     tool-permissions.json     # standing per-tool permissions (allow/off) for sessions (plain JSON; tool names aren't secrets)
 ```
@@ -431,13 +432,13 @@ Script execution is the central capability of this system, which means security 
 - **Per-step env scope.** Steps only see env vars from the step's `env:` block plus a small kiri-controlled set (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`) and the OS essentials (`PATH`, `HOME`, `USER`, `LOGNAME`). No other parent-process env leaks through.
 - **Env precedence at spawn.** User-declared `env:` is applied first; kiri- and OS-controlled vars overwrite on key collision. A workflow can't redirect `PATH` to inject a malicious binary or shadow `KIRI_RUN_ID` to confuse run identity.
 - **Reserved namespace.** `env:` keys starting with `KIRI_` are rejected at workflow load time as a schema error. Typos and accidental collisions surface as load failures, not silent overwrites at spawn.
-- **Resource limits.** ulimits on CPU time, memory, file descriptors, and disk writes. A runaway script halts cleanly rather than degrading the system.
-- **No kernel sandbox.** Bundles run with the user's permissions. The trust posture is "scripts you authored or pasted into your own repo, same as any shell script you'd run yourself" — sandbox-wrapping every step is cost without protection in that model. The defence here is `ALLOWED_TOOLS` on the step plus reading the bundle before you use it.
+- **No resource limits.** ulimit/rlimit caps on step execution are deliberately not built (see *Out of scope*) — a runaway script is the user's own script on their own machine.
+- **No kernel sandbox.** Bundles run with the user's permissions. The trust posture is "scripts you authored or pasted into your own repo, same as any shell script you'd run yourself" — sandbox-wrapping every step is cost without protection in that model. The defence here is reading the bundle before you use it, plus your own claude config for agent-spawning bundles.
 
 ### AI integration
 
-- **Assume prompt injection.** PR bodies, issue text, file contents reaching an agent's prompt may attempt to redirect its behaviour. The permission allowlist is the load-bearing defence — even a fully compromised agent can only do what the step's `ALLOWED_TOOLS` declares. Prompt-level mitigations (system prompt framing) help but aren't relied on as primary defence.
-- **Conservative allowlists.** Adding `Bash(*)` to any step's allowlist requires a deliberate decision, never a quick fix to "make it work."
+- **Assume prompt injection.** PR bodies, issue text, file contents reaching an agent's prompt may attempt to redirect its behaviour. For a `claude-code` workflow step the load-bearing defence is the tool permissions in the user's own `~/.claude/settings.json` — even a fully compromised agent can only do what that config allows. Prompt-level mitigations (system prompt framing) help but aren't relied on as primary defence.
+- **Conservative permissions.** Keep the global claude config an agent-spawning step runs under deliberate — broad `Bash(*)`-style allowances are a decision, never a quick fix to "make it work."
 - **Session tools approved per call.** In agentic sessions, a tool injected via prompt-injection still can't run silently: unless its standing permission is `allow`, each call pauses for an explicit Allow / Always allow / Deny before it executes, and an `off` tool is never offered at all (see *Agentic sessions → Tool permissions*). Standing permissions live in a gitignored `.kiri/tool-permissions.json` — plain JSON, not a secret store — keyed by tool name and re-read on every call, managed from the MCP page or by editing the file.
 
 ### Secrets
@@ -445,7 +446,7 @@ Script execution is the central capability of this system, which means security 
 - **No secrets in workflow definitions.** Definitions are git-tracked. Secrets stay outside the repo, mode 600, referenced by name from the workflow.
 - **No secrets in LLM provider config.** `kiri.yaml` is git-tracked, so an `api_key` is an `{ env: <NAME> }` reference only — a literal key is a schema error. Resolved values are never persisted, snapshotted, or echoed in errors (see *AI integration → LLM providers*).
 - **MCP OAuth tokens are the one persisted-secret exception.** An `auth: oauth` MCP server's tokens are written to `.kiri/mcp-credentials.json` — gitignored, mode 0600, and a *separate* file from the state DB so secrets never land in queryable feed data. The trusted-local-machine threat model justifies on-disk tokens; the store sits behind a small interface so an OS keychain is a later swap. The OAuth callback (a top-level provider redirect, so a GET that can't carry the `X-Kiri-Client` header) is the one state-changing endpoint exempt from that CSRF gate — defended instead by the OAuth `state` parameter, which kiri validates against the value it persisted at sign-in start.
-- **No secrets in feed entries or traces.** Output rendering scrubs known secret patterns (tokens, AWS keys, etc.) before display and persistence.
+- **Don't print secrets to stdout.** Traces persist step output verbatim — there is no secret-pattern scrubbing. A step that echoes a token puts it in the feed DB.
 
 ### UI
 
@@ -468,11 +469,11 @@ Non-goals to resist scope creep:
 - Webhooks, inbox polling
 - Multi-user, auth, sharing
 - Global todo / inbox surface for cross-workflow proposed actions (recommendations attach to the producing run only)
-- Dynamic per-call permission policy for **workflow steps** (static `ALLOWED_TOOLS` per step only — agentic sessions are the separate pillar that *does* gate tools per call, see *Agentic sessions → Tool permissions*)
+- Dynamic per-call permission policy for **workflow steps** (an agent-spawning step runs under the user's global claude config — agentic sessions are the separate pillar that *does* gate tools per call, see *Agentic sessions → Tool permissions*)
 - Persistent execution across app restarts (graceful halt on close, manual re-run on reopen)
 - Custom DSL for workflows
 - Agent-driven *workflow* control — workflows stay deterministic linear pipelines; no agent decides which step runs next. (Agentic behaviour is a separate pillar, see *Agentic sessions* — it does not reach into the workflow engine.)
-- Publishing to external destinations (gist, git commit, webhook POST); `publish:` is in-app only for v1
+- Pushing articles to external destinations (gist, git commit, webhook POST); `articles:` is in-app only for v1
 
 Deliberately not built (single-user ephemeral local tool): audit logs, on-host HTTPS/TLS (the `https://local.kiri.build` shell is hosted, not on-host), `ulimit`/resource caps and kernel sandboxing of step execution, and a general secret store (secrets are env-var `{ env: }` refs). The one exception is MCP OAuth tokens, which *are* persisted — in a mode-0600 `.kiri/mcp-credentials.json` — because a browser sign-in has nowhere else to put them; a broader keychain-backed store stays out of scope until it's needed.
 
@@ -505,6 +506,10 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 21. **OAuth-authenticated MCP servers.** An `http` MCP server can set `auth: oauth` to authenticate by a browser OAuth sign-in instead of a static header. Kiri runs the flow — dynamic client registration, PKCE, refresh — through the official `@modelcontextprotocol/sdk`'s Streamable-HTTP transport (robust against real servers' discovery quirks where `@ai-sdk/mcp`'s OAuth is not), fed into `@ai-sdk/mcp`'s client so tools still arrive as an AI-SDK ToolSet. Tokens persist in a mode-0600 `.kiri/mcp-credentials.json`; a server awaiting sign-in surfaces as a one-click **Connect** prompt in the activity view and reconnects live on completion.
 22. **Tool permissions.** Each tool in an agentic session carries a standing permission — `allow`, `ask` (default), or `off` — keyed by `<server>__<tool>` and persisted in a gitignored `.kiri/tool-permissions.json`. An `ask` tool gates per invocation: the turn pauses and the transcript shows an **Allow / Always allow / Deny** prompt before it runs (Allow once, Deny refuses and tells the model so, Always allow flips it to `allow`); an `allow` tool runs without prompting; an `off` tool is withheld from the model entirely. Managed from the **MCP page**, which lists each server and its tools with an Always allow / Ask / Off control, or by editing the file. Built on the AI SDK's native tool-approval flow — the request rides the existing turn stream and a verdict resubmits to resume — with permissions read on every call so a change takes effect next turn.
 23. **Bounded, cancellable tool calls.** Every MCP tool call is wrapped so its result is capped at 128 KB (truncated with a marker past it) — a large payload can't overrun the model's context or the provider's request-size limit — and given a 180-second budget that rides the model's own cancel signal, after which the call is aborted and reported as a tool error the model can work around. A still-running turn can be cancelled by pressing Escape, which marks any call in flight cancelled rather than leaving it sitting on "working".
+24. **Session context efficiency.** Send-time transforms over a turn's outbound history (stored messages untouched): tool-result culling past half the known context window, lossless TOON re-encoding of JSON results where smaller, `structuredContent` dedup so a result isn't paid for twice, and the context-footprint fill gauge in the session aside.
+25. **Data-flow rework.** Named step `id`s with `{ step: <id> }` / `{ article: <slug> }` env refs — backward-only, load-validated, never truncated; runs made fail-fast end to end (a failed step skips articles and the summariser; a failed article entry fails the run and halts the rest); the `KIRI_SUMMARY_CONTEXT` digest injected into `summarize:`; the `KIRI_RUN_CONTEXT` file/inline channel retired.
+26. **`articles:` rename.** The `publish:` workflow block renamed to `articles:` across schema, runner, UI, and docs — the block declares what a run produces, not where it goes.
+27. **Articles decoupled from runs.** `articles` rows link to their producer via nullable `runId`/`sessionId` (XOR-checked) rather than a required run id, article links render in the run body, and the article page route moved to `/runs/:id/articles/:slug` — groundwork for session-produced articles.
 
 ## Open questions
 
@@ -519,4 +524,3 @@ Sequenced for fastest path to dogfooding, then layering capability outward. Each
 - **Rivet** — visual AI flows in Electron
 - **Inngest / Trigger.dev** — event-driven dev primitives, cloud-oriented
 - **Huginn** — old Ruby agents project that originated the "feed of events" model
--

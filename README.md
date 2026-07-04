@@ -2,7 +2,7 @@
 
 > A local-first AI workbench for workflows and agentic sessions — on your own machine, against your own git repo.
 
-Define a workflow or open an agentic session, run it against your machine and repo, and publish the result. Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. Kiri runs only while the app is open: no daemons, no scheduler, no cloud.
+Define a workflow or open an agentic session, run it against your machine and repo, and turn the results into markdown articles in a live activity feed. Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. Kiri runs only while the app is open: no daemons, no scheduler, no cloud.
 
 ```yaml
 # workflows/release-notes.yaml
@@ -17,19 +17,23 @@ steps:
         grouped under Features and Fixes.
 
         {{KIRI_INPUT}}
+    id: draft
     name: Draft the notes
-publish:
+articles:
   - slug: release-notes
     llm:
       model: anthropic:claude-haiku-4-5
-      prompt_file: prompts/release-notes.tpl
+      prompt_file: prompts/release-notes.tpl   # reads {{DRAFT}}
+    env:
+      DRAFT:
+        step: draft
 ```
 
 **📖 Full documentation → [kiri.build/docs](https://kiri.build/docs)**
 
 ## Two ways to work
 
-- **Workflows** — versioned YAML pipelines. Chain shell commands (`sh:`), reusable script bundles (`use:`, e.g. one that spawns an agentic CLI like Claude Code), and first-party model completions (`llm:`); pipe each step into the next; publish the run as a markdown article with inline charts and Mermaid diagrams. A run can even propose one-click follow-ups.
+- **Workflows** — versioned YAML pipelines. Chain shell commands (`sh:`), reusable script bundles (`use:`, e.g. one that spawns an agentic CLI like Claude Code), and first-party model completions (`llm:`); pipe each step into the next, or reference any step's output by name; turn a run into markdown articles with inline charts and Mermaid diagrams. A run can even propose one-click follow-ups.
 - **Agentic sessions** — open-ended, streaming chat against your configured models, with your workspace context and tools from MCP servers you configure (e.g. web search via the Tavily MCP server). Each tool has an Always allow / Ask / Off permission set on the MCP page, with Ask tools prompting per call (Allow / Always allow / Deny). A layered system prompt — a workspace `kiri.md` plus optional `personas/` — shapes every session.
 
 Both stream into a single activity feed.

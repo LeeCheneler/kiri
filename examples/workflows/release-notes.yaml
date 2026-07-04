@@ -38,7 +38,7 @@ articles:
     description: The latest changes, written up for humans.
     llm:
       model: anthropic:claude-haiku-4-5
-      # Publish steps get no piped stdin — data arrives through env refs.
+      # Articles entries get no piped stdin — data arrives through env refs.
       # DRAFT resolves to the `draft` step's stdout, and the prompt file
       # reads it as {{DRAFT}}.
       prompt_file: prompts/release-notes.tpl

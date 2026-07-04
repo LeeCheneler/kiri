@@ -11,7 +11,7 @@ import {
 import { Button } from "../../design-system/actions/button.tsx";
 import { InvokeModal } from "../run-workflow/invoke-modal.tsx";
 
-const RERUN_NOTICE = "The previous attempt's steps and traces will be cleared.";
+const RERUN_NOTICE = "The previous attempt's steps, articles, and summary will be cleared.";
 
 /**
  * The run-level controls on the detail header. While the run is in flight the
