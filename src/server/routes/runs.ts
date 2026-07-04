@@ -108,7 +108,9 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       heading: string | null;
       createdAt: Date;
     };
-    const articlesByRunId = new Map<string, ArticleProjection[]>();
+    // Key widened to `string | null` to match `articles.runId`'s nullable
+    // type; the `inArray` filter below means only this page's run ids appear.
+    const articlesByRunId = new Map<string | null, ArticleProjection[]>();
     const recommendationCountByRunId = new Map<string, number>();
     if (rows.length > 0) {
       const runIds = rows.map((r) => r.id);

@@ -51,7 +51,9 @@ type ArticleProjection = {
 // id so each run can be slotted back into the merged activity order. Mirrors the
 // per-run-feed assembly in the runs route.
 function buildRunEntries(db: KiriDb, registry: Registry, rows: Array<typeof runs.$inferSelect>) {
-  const articlesByRunId = new Map<string, ArticleProjection[]>();
+  // Key widened to `string | null` to match `articles.runId`'s nullable
+  // type; the `inArray` filter below means only this page's run ids appear.
+  const articlesByRunId = new Map<string | null, ArticleProjection[]>();
   const recommendationCountByRunId = new Map<string, number>();
   if (rows.length > 0) {
     const runIds = rows.map((r) => r.id);

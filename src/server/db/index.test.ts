@@ -80,18 +80,24 @@ describe("db", () => {
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
-  it("declares articles.run_id → runs.id foreign key", () => {
+  it("declares articles.run_id and session_id foreign keys to their producers", () => {
     const fks = getTableConfig(articles).foreignKeys;
-    expect(fks).toHaveLength(1);
-    const fk = fks[0] as unknown as {
-      reference: () => {
-        columns: { name: string }[];
-        foreignColumns: { name: string }[];
-      };
-    };
-    const ref = fk.reference();
-    expect(ref.columns.map((c) => c.name)).toEqual(["run_id"]);
-    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+    expect(fks).toHaveLength(2);
+    const refs = fks.map((fk) =>
+      (
+        fk as unknown as {
+          reference: () => {
+            columns: { name: string }[];
+            foreignColumns: { name: string }[];
+          };
+        }
+      ).reference(),
+    );
+    const columnNames = refs.map((r) => r.columns.map((c) => c.name).join(",")).sort();
+    expect(columnNames).toEqual(["run_id", "session_id"]);
+    for (const ref of refs) {
+      expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+    }
   });
 
   it("re-running migrate is a no-op", () => {
@@ -332,6 +338,124 @@ describe("db", () => {
     expect(rows).toHaveLength(2);
   });
 
+  it("round-trips a session-linked article", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({
+        id: "sess-art",
+        status: "idle",
+        model: "lmstudio:gemma-4-26b-a4b-qat",
+        startedAt: new Date(),
+      })
+      .run();
+
+    db.insert(articles)
+      .values({
+        id: "art-sess",
+        sessionId: "sess-art",
+        slug: "digest",
+        name: "Digest",
+        contentMd: "# From a session",
+        createdAt: new Date(),
+      })
+      .run();
+
+    const row = db.select().from(articles).where(eq(articles.id, "art-sess")).get();
+    expect(row?.sessionId).toBe("sess-art");
+    expect(row?.runId).toBeNull();
+  });
+
+  it("enforces (session_id, slug) uniqueness but allows reuse across sessions", () => {
+    migrate(db);
+
+    for (const sessionId of ["sess-a", "sess-b"] as const) {
+      db.insert(sessions)
+        .values({
+          id: sessionId,
+          status: "idle",
+          model: "lmstudio:gemma-4-26b-a4b-qat",
+          startedAt: new Date(),
+        })
+        .run();
+      db.insert(articles)
+        .values({
+          id: `${sessionId}-digest`,
+          sessionId,
+          slug: "digest",
+          name: "Digest",
+          contentMd: "ok",
+          createdAt: new Date(),
+        })
+        .run();
+    }
+    expect(db.select().from(articles).all()).toHaveLength(2);
+
+    expect(() =>
+      db
+        .insert(articles)
+        .values({
+          id: "sess-a-digest-dupe",
+          sessionId: "sess-a",
+          slug: "digest",
+          name: "Other",
+          contentMd: "dupe",
+          createdAt: new Date(),
+        })
+        .run(),
+    ).toThrow();
+  });
+
+  it("rejects an article with no producer or both producers", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-both",
+        workflowName: "x",
+        status: "ok",
+        startedAt: new Date(),
+        definitionSnapshot: {},
+      })
+      .run();
+    db.insert(sessions)
+      .values({
+        id: "sess-both",
+        status: "idle",
+        model: "lmstudio:gemma-4-26b-a4b-qat",
+        startedAt: new Date(),
+      })
+      .run();
+
+    expect(() =>
+      db
+        .insert(articles)
+        .values({
+          id: "art-orphan",
+          slug: "digest",
+          name: "Digest",
+          contentMd: "no producer",
+          createdAt: new Date(),
+        })
+        .run(),
+    ).toThrow();
+
+    expect(() =>
+      db
+        .insert(articles)
+        .values({
+          id: "art-dual",
+          runId: "run-both",
+          sessionId: "sess-both",
+          slug: "digest",
+          name: "Digest",
+          contentMd: "two producers",
+          createdAt: new Date(),
+        })
+        .run(),
+    ).toThrow();
+  });
+
   it("round-trips run_steps.is_article", () => {
     migrate(db);
 
@@ -435,7 +559,12 @@ describe("db", () => {
       .all()
       .map((r) => r.name)
       .sort();
-    expect(indexes).toEqual(["articles_run_id_idx", "articles_run_id_slug_unique"]);
+    expect(indexes).toEqual([
+      "articles_run_id_idx",
+      "articles_run_id_slug_unique",
+      "articles_session_id_idx",
+      "articles_session_id_slug_unique",
+    ]);
   });
 
   it("renames run_nodes → run_steps on a pre-rename DB and preserves rows", () => {
@@ -842,11 +971,21 @@ describe("db", () => {
     // Seed the migration ledger through 0013 so the session migrations
     // (0014 creating the tables, 0015 dropping the agent columns, 0016 adding
     // the persona column, 0017 dropping the running-token columns) are the ones
-    // outstanding. 0018 renames run_steps.is_publish, so the fixture carries a
-    // minimal run_steps for it; the other run-side tables stay irrelevant.
+    // outstanding. 0018 renames run_steps.is_publish and 0019 rebuilds
+    // articles, so the fixture carries a minimal shape of each; the other
+    // run-side tables stay irrelevant.
     sqlite.run(`CREATE TABLE run_steps (
       id TEXT PRIMARY KEY NOT NULL,
       is_publish INTEGER DEFAULT 0 NOT NULL
+    )`);
+    sqlite.run("CREATE TABLE runs (id TEXT PRIMARY KEY NOT NULL)");
+    sqlite.run(`CREATE TABLE articles (
+      id TEXT PRIMARY KEY NOT NULL,
+      run_id TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      name TEXT NOT NULL,
+      content_md TEXT NOT NULL,
+      created_at INTEGER NOT NULL
     )`);
     const priorMigrations = [
       "0000_initial",
@@ -896,5 +1035,109 @@ describe("db", () => {
       .all()
       .map((r) => r.name);
     expect(indexes).toEqual(["messages_session_id_idx"]);
+  });
+
+  it("preserves article rows when migrating a pre-decoupling DB", () => {
+    const sqlite = db.$client;
+    sqlite.run(
+      "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
+    );
+    // Stand up the post-0018 shape 0019 rebuilds `articles` from: the old
+    // NOT NULL run_id column, plus the runs/sessions parents its foreign
+    // keys enforce during the copy.
+    sqlite.run(`CREATE TABLE runs (
+      id TEXT PRIMARY KEY NOT NULL,
+      workflow_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      error TEXT,
+      definition_snapshot TEXT NOT NULL,
+      summary TEXT,
+      git_sha TEXT,
+      git_dirty INTEGER,
+      inputs TEXT
+    )`);
+    sqlite.run(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY NOT NULL,
+      status TEXT NOT NULL,
+      model TEXT NOT NULL,
+      persona TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      error TEXT
+    )`);
+    sqlite.run(`CREATE TABLE articles (
+      id TEXT PRIMARY KEY NOT NULL,
+      run_id TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      name TEXT NOT NULL,
+      content_md TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES runs(id)
+    )`);
+    sqlite.run("CREATE UNIQUE INDEX articles_run_id_slug_unique ON articles (run_id, slug)");
+    sqlite.run("CREATE INDEX articles_run_id_idx ON articles (run_id)");
+    const priorMigrations = [
+      "0000_initial",
+      "0001_index_run_nodes_run_id",
+      "0002_rename_run_nodes_to_run_steps",
+      "0003_add_run_summary_columns",
+      "0004_add_publish_support",
+      "0005_add_run_git_columns",
+      "0006_drop_step_materials",
+      "0007_drop_step_usage",
+      "0008_rename_run_artefacts_to_articles",
+      "0009_add_run_inputs",
+      "0010_add_recommendations",
+      "0011_drop_run_trigger",
+      "0012_add_run_step_timing",
+      "0013_rename_article_columns",
+      "0014_add_sessions_and_messages",
+      "0015_drop_session_agent_columns",
+      "0016_add_session_persona",
+      "0017_drop_session_token_totals",
+      "0018_rename_is_publish_to_is_article",
+    ];
+    sqlite.run(
+      `INSERT INTO __kiri_migrations (name, applied_at) VALUES ${priorMigrations
+        .map((name) => `('${name}', 0)`)
+        .join(", ")}`,
+    );
+    sqlite.run(
+      "INSERT INTO runs (id, workflow_name, status, started_at, definition_snapshot) VALUES ('r1', 'wf', 'ok', 0, '{}')",
+    );
+    sqlite.run(
+      "INSERT INTO articles (id, run_id, slug, name, content_md, created_at) VALUES ('a1', 'r1', 'digest', 'Digest', '# Hi', 0)",
+    );
+
+    migrate(db);
+
+    const preserved = sqlite
+      .query<{ id: string; run_id: string; session_id: string | null }, []>(
+        "SELECT id, run_id, session_id FROM articles WHERE id = 'a1'",
+      )
+      .get();
+    expect(preserved).toEqual({ id: "a1", run_id: "r1", session_id: null });
+
+    const runIdCol = sqlite
+      .query<{ name: string; notnull: number }, []>("PRAGMA table_info(articles)")
+      .all()
+      .find((c) => c.name === "run_id");
+    expect(runIdCol?.notnull).toBe(0);
+
+    const indexes = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='articles' AND name NOT LIKE 'sqlite_%'",
+      )
+      .all()
+      .map((r) => r.name)
+      .sort();
+    expect(indexes).toEqual([
+      "articles_run_id_idx",
+      "articles_run_id_slug_unique",
+      "articles_session_id_idx",
+      "articles_session_id_slug_unique",
+    ]);
   });
 });
