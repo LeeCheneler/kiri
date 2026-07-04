@@ -31,9 +31,9 @@ test("scrolling the activity feed loads past the first page", async ({ page, req
   await seedRuns(request, SEED_COUNT);
 
   await page.goto("/");
-  // One run-detail link per row; exclude the per-run published-article links
+  // One run-detail link per row; exclude the per-run article links
   // under the same path prefix so the count is exactly the rows on screen.
-  const rows = page.getByRole("main").locator('a[href^="/runs/"]:not([href*="/published/"])');
+  const rows = page.getByRole("main").locator('a[href^="/runs/"]:not([href*="/articles/"])');
 
   // The feed caps the first page even though more runs exist in the DB.
   await expect(rows).toHaveCount(PAGE_SIZE);

@@ -1,22 +1,22 @@
 import { describe, expect, it } from "bun:test";
 import { render, screen } from "@testing-library/react";
-import { PublishesSpec } from "./publishes-spec.tsx";
+import { ArticlesSpec } from "./articles-spec.tsx";
 
-describe("<PublishesSpec>", () => {
-  it("shows an empty state when nothing is published", () => {
-    render(<PublishesSpec entries={[]} />);
-    expect(screen.getByText(/publishes no articles/i)).toBeDefined();
+describe("<ArticlesSpec>", () => {
+  it("shows an empty state when nothing is produced", () => {
+    render(<ArticlesSpec entries={[]} />);
+    expect(screen.getByText(/produces no articles/i)).toBeDefined();
   });
 
-  it("lists each publish with its name, description, and slug", () => {
+  it("lists each article with its name, description, and slug", () => {
     render(
-      <PublishesSpec
+      <ArticlesSpec
         entries={[
           {
             slug: "digest",
             name: "Weekly Digest",
             description: "A weekly roundup",
-            use: "publish-bundle",
+            use: "article-bundle",
           },
         ]}
       />,
@@ -25,6 +25,6 @@ describe("<PublishesSpec>", () => {
     expect(screen.getByText("A weekly roundup")).toBeDefined();
     expect(screen.getByText("digest")).toBeDefined();
     // Implementation detail (the bundle reference) stays in the Schema tab.
-    expect(screen.queryByText("publish-bundle")).toBeNull();
+    expect(screen.queryByText("article-bundle")).toBeNull();
   });
 });

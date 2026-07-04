@@ -46,7 +46,7 @@ type ArticleProjection = {
   createdAt: Date;
 };
 
-// Assemble the feed shape for a page of runs — the base row plus its published
+// Assemble the feed shape for a page of runs — the base row plus its produced
 // articles and a recommendation count, both batched across the page — keyed by
 // id so each run can be slotted back into the merged activity order. Mirrors the
 // per-run-feed assembly in the runs route.

@@ -35,30 +35,30 @@ const makeStep = (overrides: Partial<RunStepRow> & { index: number }): RunStepRo
   error: null,
   traces: { stdout: "", stderr: "", durationMs: 12000 },
   isSummary: false,
-  isPublish: false,
+  isArticle: false,
   ...overrides,
 });
 
 describe("<RunPhases>", () => {
-  it("renders declared phases as Steps, Publishes, and Summarise groups", () => {
+  it("renders declared phases as Steps, Articles, and Summarise groups", () => {
     const longSh = "echo this-is-a-long-inline-command-that-comfortably-exceeds-sixty-characters";
     const run = makeRun({
       name: "wf",
       steps: [{ use: "fetch-pr" }, { sh: longSh }],
-      publish: [{ slug: "digest", name: "PR Digest", use: "writer" }],
+      articles: [{ slug: "digest", name: "PR Digest", use: "writer" }],
       summarize: { use: "summariser" },
     });
     const steps = [
       makeStep({ index: 0 }),
       makeStep({ index: 1, kind: "sh" }),
-      makeStep({ index: 2, isPublish: true }),
+      makeStep({ index: 2, isArticle: true }),
       makeStep({ index: 3, isSummary: true }),
     ];
 
     render(<RunPhases run={run} steps={steps} now={NOW} />);
 
     expect(screen.getByText("Steps")).toBeDefined();
-    expect(screen.getByText("Publishes")).toBeDefined();
+    expect(screen.getByText("Articles")).toBeDefined();
     expect(screen.getByText("Summarise")).toBeDefined();
     expect(screen.getByText("fetch-pr")).toBeDefined();
     // A long inline shell is previewed and truncated with an ellipsis.
@@ -74,13 +74,13 @@ describe("<RunPhases>", () => {
     expect(screen.getByText("fetch")).toBeDefined();
   });
 
-  it("shows a publish's slug beside its resolved name", () => {
+  it("shows an article's slug beside its resolved name", () => {
     const run = makeRun({
       name: "wf",
       steps: [{ use: "fetch-pr" }],
-      publish: [{ slug: "digest", name: "PR Digest", use: "writer" }],
+      articles: [{ slug: "digest", name: "PR Digest", use: "writer" }],
     });
-    const steps = [makeStep({ index: 0 }), makeStep({ index: 1, isPublish: true })];
+    const steps = [makeStep({ index: 0 }), makeStep({ index: 1, isArticle: true })];
     render(<RunPhases run={run} steps={steps} now={NOW} />);
     expect(screen.getByText("PR Digest")).toBeDefined();
     expect(screen.getByText("digest")).toBeDefined();

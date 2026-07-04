@@ -84,7 +84,7 @@ the previous step's output.
       {{KIRI_INPUT}}
 \`\`\`
 
-\`publish:\` and \`summarize:\` accept \`llm:\` too; \`summarize: { llm: { model } }\`
+\`articles:\` and \`summarize:\` accept \`llm:\` too; \`summarize: { llm: { model } }\`
 with no prompt uses a built-in summary prompt.
 
 #### Optional \`name\` and \`description\`
@@ -171,7 +171,7 @@ steps:
   strings — the modal renders a picker, the declared \`default\` (if
   any) must be one of the entries, and values supplied at invoke must
   also be in the list.
-- Wire an input into a step / publish / summarise \`env:\` with
+- Wire an input into a step / articles / summarise \`env:\` with
   \`{ input: <name> }\` — refs to undeclared inputs fail at load time.
 - The resolved input map is snapshotted onto the run, so the feed shows
   what a run was invoked with.
@@ -195,7 +195,7 @@ To emit recommendations, write JSON Lines to the path in
   optional. \`inputs\` is a flat \`{ string: string }\` map keyed by the
   target workflow's declared input names.
 - \`KIRI_RECOMMENDATIONS_FILE\` is set on main \`steps:\` only — not on
-  \`publish:\` or \`summarize:\`.
+  \`articles:\` or \`summarize:\`.
 - Only \`ok\` steps' files are ingested; failed and cancelled steps'
   files are discarded entirely.
 - Malformed JSON or schema-failing lines are logged and skipped without
@@ -207,7 +207,7 @@ becomes a one-click launch.
 
 ## IDE / LSP integration
 
-Kiri publishes its JSON Schemas at \`.kiri/workflow.schema.json\` (for
+Kiri writes its JSON Schemas at \`.kiri/workflow.schema.json\` (for
 \`workflows/*.yaml\`) and \`.kiri/kiri.schema.json\` (for \`kiri.yaml\`),
 refreshing them on every startup, so editor validation and autocomplete
 stays in sync after you upgrade kiri.
@@ -346,7 +346,7 @@ export function writeSchemaFile(config: ConfigStore): string {
 
 /**
  * (Re)write `.kiri/kiri.schema.json` from the live Zod schema, so editor
- * validation of `kiri.yaml` stays in sync after a binary upgrade. Published on
+ * validation of `kiri.yaml` stays in sync after a binary upgrade. Written on
  * every startup alongside the workflow schema.
  */
 export function writeKiriConfigSchemaFile(config: ConfigStore): string {

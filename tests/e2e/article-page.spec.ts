@@ -8,26 +8,26 @@ const triggerRun = async (request: APIRequestContext, name: string) => {
   return (await res.json()) as { runId: string };
 };
 
-test("clicking a published article navigates to a page rendering its markdown body", async ({
+test("clicking an article navigates to a page rendering its markdown body", async ({
   page,
   request,
 }) => {
-  const { runId } = await triggerRun(request, "publishing");
+  const { runId } = await triggerRun(request, "articles");
 
   // Wait for the run to land in its terminal state on the detail page so
-  // the Published section is populated by the time we look for the link.
+  // the Articles section is populated by the time we look for the link.
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
-  // Published articles render in the run's right rail, labelled by the body's
-  // first heading (falling back to the publish name); follow the digest.
+  // Articles render in the run's right rail, labelled by the body's
+  // first heading (falling back to the article name); follow the digest.
   const articleLink = page.getByRole("link", { name: /this week in review/i });
-  await expect(articleLink).toHaveAttribute("href", `/runs/${runId}/published/digest`);
+  await expect(articleLink).toHaveAttribute("href", `/runs/${runId}/articles/digest`);
   await articleLink.click();
 
-  await expect(page).toHaveURL(`/runs/${runId}/published/digest`);
-  // The body's `# headline` is the level-1 page title; the publish name
-  // ("Published Digest") rides in the eyebrow as the series label.
+  await expect(page).toHaveURL(`/runs/${runId}/articles/digest`);
+  // The body's `# headline` is the level-1 page title; the article name
+  // ("Daily Digest") rides in the eyebrow as the series label.
   await expect(page.getByRole("heading", { level: 1, name: /this week in review/i })).toBeVisible();
   // The body's `##` headings are the article's sections, rendered as h2 with
   // the section-NN anchors the table of contents reads.

@@ -206,7 +206,7 @@ summarize:
     expect(result.failures[0].reason).toContain('"ghost-summer"');
   });
 
-  it("loads a workflow whose publish entry uses an existing bundle", async () => {
+  it("loads a workflow whose article entry uses an existing bundle", async () => {
     writeBundle(cwd, "step");
     writeBundle(cwd, "writer");
     writeFileSync(
@@ -214,7 +214,7 @@ summarize:
       `name: wf
 steps:
   - use: step
-publish:
+articles:
   - slug: digest
     use: writer
 `,
@@ -222,18 +222,18 @@ publish:
 
     const result = await loadWorkflows(config);
     expect(Array.from(result.workflows.keys())).toEqual(["wf"]);
-    expect(result.workflows.get("wf")?.publish).toEqual([{ slug: "digest", use: "writer" }]);
+    expect(result.workflows.get("wf")?.articles).toEqual([{ slug: "digest", use: "writer" }]);
     expect(result.failures).toEqual([]);
   });
 
-  it("loads a workflow with an inline sh: publish entry (no bundle needed)", async () => {
+  it("loads a workflow with an inline sh: article entry (no bundle needed)", async () => {
     writeBundle(cwd, "step");
     writeFileSync(
       join(dir, "wf.yaml"),
       `name: wf
 steps:
   - use: step
-publish:
+articles:
   - slug: digest
     sh: |
       cat README.md
@@ -245,14 +245,14 @@ publish:
     expect(result.failures).toEqual([]);
   });
 
-  it("records a failure when a publish use: entry references a missing bundle", async () => {
+  it("records a failure when an articles use: entry references a missing bundle", async () => {
     writeBundle(cwd, "step");
     writeFileSync(
       join(dir, "wf.yaml"),
       `name: wf
 steps:
   - use: step
-publish:
+articles:
   - slug: digest
     use: ghost-writer
 `,
@@ -475,7 +475,7 @@ steps:
     expect(result.failures[0].reason).toContain(cwd);
   });
 
-  it("validates llm models in summarize and publish positions", async () => {
+  it("validates llm models in summarize and articles positions", async () => {
     writeBundle(cwd, "step");
     writeFileSync(
       join(dir, "llm-sum.yaml"),
@@ -492,7 +492,7 @@ summarize:
       `name: llm-pub
 steps:
   - use: step
-publish:
+articles:
   - slug: digest
     llm:
       model: phantom:writer

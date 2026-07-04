@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { resolvePublishName } from "../../shared/publish-name.ts";
+import { resolveArticleName } from "../../shared/article-name.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
@@ -32,13 +32,13 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
   // Absent when the workflow declares no `inputs:` block.
   inputs: def.inputs,
   steps: def.steps,
-  // Absence (no `publish:` / `summarize:` field, or `publish: []`) collapses
+  // Absence (no `articles:` / `summarize:` field, or `articles: []`) collapses
   // to `undefined` so the client has a single "section not present" signal.
-  publish:
-    def.publish && def.publish.length > 0
-      ? def.publish.map((entry) => ({
+  articles:
+    def.articles && def.articles.length > 0
+      ? def.articles.map((entry) => ({
           ...entry,
-          name: resolvePublishName(entry.slug, entry.name),
+          name: resolveArticleName(entry.slug, entry.name),
         }))
       : undefined,
   summarize: def.summarize,

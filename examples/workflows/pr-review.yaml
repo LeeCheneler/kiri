@@ -31,7 +31,7 @@ steps:
       PR_NUMBER:
         input: pr_number
 
-publish:
+articles:
   - slug: review
     name: PR Review
     description: A short code review for the requested PR.

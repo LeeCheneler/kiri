@@ -228,12 +228,12 @@ describe("runs routes", () => {
       const onePub: WorkflowDefinition = {
         name: "one-pub",
         steps: [{ use: "step" }],
-        publish: [{ slug: "digest", name: "Digest Title", use: "digest" }],
+        articles: [{ slug: "digest", name: "Digest Title", use: "digest" }],
       };
       const twoPub: WorkflowDefinition = {
         name: "two-pub",
         steps: [{ use: "step" }],
-        publish: [
+        articles: [
           { slug: "digest", use: "digest" },
           { slug: "release-notes", use: "notes" },
         ],
@@ -283,7 +283,7 @@ describe("runs routes", () => {
         // digest bundle echoes "digest-body" — no markdown heading.
         heading: null,
       });
-      // Declared order matches created_at order (publishes run serially).
+      // Declared order matches created_at order (articles run serially).
       expect(byId.get(twoPubId)?.articles.map((a) => a.slug)).toEqual(["digest", "release-notes"]);
       // ISO timestamp round-trip via Date.toJSON.
       for (const r of body.runs) {
@@ -298,7 +298,7 @@ describe("runs routes", () => {
       const wf: WorkflowDefinition = {
         name: "headings",
         steps: [{ use: "step" }],
-        publish: [
+        articles: [
           { slug: "with-h1", use: "with-h1" },
           { slug: "no-h1", use: "no-h1" },
         ],
@@ -332,12 +332,12 @@ describe("runs routes", () => {
       const wfA: WorkflowDefinition = {
         name: "wf-a",
         steps: [{ use: "step" }],
-        publish: [{ slug: "digest-a", use: "digest" }],
+        articles: [{ slug: "digest-a", use: "digest" }],
       };
       const wfB: WorkflowDefinition = {
         name: "wf-b",
         steps: [{ use: "step" }],
-        publish: [{ slug: "digest-b", use: "digest" }],
+        articles: [{ slug: "digest-b", use: "digest" }],
       };
       env.registry.replace(
         new Map([
@@ -376,7 +376,7 @@ describe("runs routes", () => {
       expect(page2.runs[0]?.articles.map((a) => a.slug)).toEqual(["digest-a"]);
     });
 
-    it("returns each run with an empty articles array when none of the page's runs have published", async () => {
+    it("returns each run with an empty articles array when none of the page's runs produced articles", async () => {
       writeBundle(env.cwd, "step", "#!/bin/sh\necho s\n");
       const wf: WorkflowDefinition = { name: "plain", steps: [{ use: "step" }] };
       env.registry.replace(new Map([[wf.name, wf]]));
@@ -575,7 +575,7 @@ EOF
       expect(body.run.isInterrupted).toBe(true);
     });
 
-    it("returns an empty articles array and unchanged step list when the run has no publishes", async () => {
+    it("returns an empty articles array and unchanged step list when the run has no articles", async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
       const wf: WorkflowDefinition = { name: "plain", steps: [{ use: "one" }] };
       env.registry.replace(new Map([[wf.name, wf]]));
@@ -599,7 +599,7 @@ EOF
       expect(body.steps.map((s) => s.index)).toEqual([0]);
     });
 
-    it("returns articles ordered by created_at on run.articles and includes publish rows tagged isPublish in the step list", async () => {
+    it("returns articles ordered by created_at on run.articles and includes article rows tagged isArticle in the step list", async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
       writeBundle(
         env.cwd,
@@ -608,9 +608,9 @@ EOF
       );
       writeBundle(env.cwd, "notes", "#!/bin/sh\necho notes-body\n");
       const wf: WorkflowDefinition = {
-        name: "with-publish",
+        name: "with-articles",
         steps: [{ use: "one" }],
-        publish: [
+        articles: [
           { slug: "digest", name: "Digest Title", use: "digest" },
           { slug: "release-notes", use: "notes" },
         ],
@@ -619,7 +619,7 @@ EOF
 
       const { bus, waitForFinished } = createRunWaiter();
       const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
-      const trigger = await app.request("/api/workflows/with-publish/runs", {
+      const trigger = await app.request("/api/workflows/with-articles/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
@@ -637,16 +637,16 @@ EOF
             createdAt: string;
           }>;
         };
-        steps: Array<{ index: number; kind: string; isPublish: boolean; isSummary: boolean }>;
+        steps: Array<{ index: number; kind: string; isArticle: boolean; isSummary: boolean }>;
       };
-      // Pipeline step plus both publish rows in declared/index order; the
-      // client separates them by isPublish (same pattern as isSummary).
-      expect(body.steps.map((s) => [s.index, s.isPublish, s.isSummary])).toEqual([
+      // Pipeline step plus both article rows in declared/index order; the
+      // client separates them by isArticle (same pattern as isSummary).
+      expect(body.steps.map((s) => [s.index, s.isArticle, s.isSummary])).toEqual([
         [0, false, false],
         [1, true, false],
         [2, true, false],
       ]);
-      // Declared order matches created_at order (publishes run serially).
+      // Declared order matches created_at order (articles run serially).
       const articleRows = body.run.articles;
       expect(articleRows.map((a) => a.slug)).toEqual(["digest", "release-notes"]);
       // Resolved name travels with each row; defaulted via titlecase when omitted.
@@ -667,14 +667,14 @@ EOF
       for (const a of articleRows) expect(a.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
-    it("exposes a failed publish row; the halted sibling never ships", async () => {
+    it("exposes a failed article row; the halted sibling never ships", async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
       writeBundle(env.cwd, "bad", "#!/bin/sh\nexit 2\n");
       writeBundle(env.cwd, "good", "#!/bin/sh\necho good-body\n");
       const wf: WorkflowDefinition = {
         name: "pub-fail",
         steps: [{ use: "one" }],
-        publish: [
+        articles: [
           { slug: "bad", use: "bad" },
           { slug: "good", use: "good" },
         ],
@@ -694,35 +694,35 @@ EOF
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         run: { articles: Array<{ slug: string }> };
-        steps: Array<{ index: number; status: string; isPublish: boolean }>;
+        steps: Array<{ index: number; status: string; isArticle: boolean }>;
       };
-      // Pipeline step and the failed publish ship; the run is fail-fast,
-      // so the sibling after the failed publish has no row at all.
-      expect(body.steps.map((s) => [s.index, s.status, s.isPublish])).toEqual([
+      // Pipeline step and the failed article entry ship; the run is fail-fast,
+      // so the sibling after the failed article entry has no row at all.
+      expect(body.steps.map((s) => [s.index, s.status, s.isArticle])).toEqual([
         [0, "ok", false],
         [1, "failed", true],
       ]);
-      // No publish succeeded, so no articles.
+      // No article entry succeeded, so no articles.
       expect(body.run.articles.map((a) => a.slug)).toEqual([]);
     });
 
-    it("surfaces a running publish row before its article has been written", async () => {
+    it("surfaces a running article row before its article has been written", async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
-      // Long-running publish so we can observe the in-flight row mid-execution.
+      // Long-running article entry so we can observe the in-flight row mid-execution.
       // `exec 1>&- 2>&-` closes stdio before sleep is forked so cancel readers
       // unblock cleanly when the test tears down (same idiom used elsewhere).
       const wf: WorkflowDefinition = {
-        name: "slow-publish",
+        name: "slow-articles",
         steps: [{ use: "one" }],
-        publish: [{ slug: "slow", sh: "exec 1>&- 2>&-; sleep 5" }],
+        articles: [{ slug: "slow", sh: "exec 1>&- 2>&-; sleep 5" }],
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 100 });
       const bus = createEventBus();
-      // Resolve when the publish step's `run.step.updated` event with the
+      // Resolve when the article step's `run.step.updated` event with the
       // running status lands — guarantees the row exists and is in flight.
-      const publishRunning = new Promise<string>((resolve) => {
+      const articleRunning = new Promise<string>((resolve) => {
         bus.subscribe((e) => {
           if (e.type === "run.step.updated" && e.step === 1 && e.status === "running") {
             resolve(e.runId);
@@ -737,27 +737,27 @@ EOF
         cancelRegistry,
       });
 
-      const trigger = await app.request("/api/workflows/slow-publish/runs", {
+      const trigger = await app.request("/api/workflows/slow-articles/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
       const { runId } = (await trigger.json()) as { runId: string };
-      await publishRunning;
+      await articleRunning;
 
       const res = await app.request(`/api/runs/${runId}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         run: { articles: Array<{ name: string }> };
-        steps: Array<{ index: number; status: string; isPublish: boolean }>;
+        steps: Array<{ index: number; status: string; isArticle: boolean }>;
       };
-      // The publish row exists in `steps[]` tagged isPublish=true, status=running.
-      const publishRow = body.steps.find((s) => s.isPublish);
-      expect(publishRow).toMatchObject({ index: 1, status: "running", isPublish: true });
-      // Article row isn't written until the publish exits ok, so the array
-      // stays empty while the publish is in flight.
+      // The article row exists in `steps[]` tagged isArticle=true, status=running.
+      const articleRow = body.steps.find((s) => s.isArticle);
+      expect(articleRow).toMatchObject({ index: 1, status: "running", isArticle: true });
+      // Article row isn't written until the article entry exits ok, so the array
+      // stays empty while the article entry is in flight.
       expect(body.run.articles).toEqual([]);
 
-      // Tear down the in-flight publish so afterEach doesn't close the DB
+      // Tear down the in-flight article entry so afterEach doesn't close the DB
       // mid-write. Cancel and wait for the row to flip terminal.
       const finished = new Promise<void>((resolve) => {
         bus.subscribe((e) => {
@@ -1003,20 +1003,20 @@ EOF
     });
   });
 
-  describe("GET /api/runs/:id/published/:slug", () => {
-    const setupPublishingRun = async () => {
+  describe("GET /api/runs/:id/articles/:slug", () => {
+    const setupArticlesRun = async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
       writeBundle(env.cwd, "digest", "#!/bin/sh\nprintf '# Heading\\n\\nBody paragraph.\\n'\n");
       const wf: WorkflowDefinition = {
-        name: "with-publish",
+        name: "with-articles",
         steps: [{ use: "one" }],
-        publish: [{ slug: "digest", name: "Digest Title", use: "digest" }],
+        articles: [{ slug: "digest", name: "Digest Title", use: "digest" }],
       };
       env.registry.replace(new Map([[wf.name, wf]]));
 
       const { bus, waitForFinished } = createRunWaiter();
       const app = createApp({ db: env.db, registry: env.registry, config: env.config, bus });
-      const trigger = await app.request("/api/workflows/with-publish/runs", {
+      const trigger = await app.request("/api/workflows/with-articles/runs", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
@@ -1026,9 +1026,9 @@ EOF
     };
 
     it("returns the article body and metadata on the happy path", async () => {
-      const { app, runId } = await setupPublishingRun();
+      const { app, runId } = await setupArticlesRun();
 
-      const res = await app.request(`/api/runs/${runId}/published/digest`);
+      const res = await app.request(`/api/runs/${runId}/articles/digest`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         id: string;
@@ -1047,7 +1047,7 @@ EOF
       expect(body.runId).toBe(runId);
       expect(body.slug).toBe("digest");
       expect(body.name).toBe("Digest Title");
-      expect(body.workflowName).toBe("with-publish");
+      expect(body.workflowName).toBe("with-articles");
       expect(body.contentMd).toContain("# Heading");
       expect(body.contentMd).toContain("Body paragraph.");
       expect(body.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -1064,14 +1064,14 @@ EOF
 
     it("returns 404 when the run id is unknown", async () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config });
-      const res = await app.request("/api/runs/missing-run/published/digest");
+      const res = await app.request("/api/runs/missing-run/articles/digest");
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'run "missing-run" not found' });
     });
 
     it("returns 404 when the article slug is unknown on an existing run", async () => {
-      const { app, runId } = await setupPublishingRun();
-      const res = await app.request(`/api/runs/${runId}/published/nope`);
+      const { app, runId } = await setupArticlesRun();
+      const res = await app.request(`/api/runs/${runId}/articles/nope`);
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({
         error: `article "nope" not found on run "${runId}"`,
@@ -1080,13 +1080,13 @@ EOF
 
     it("returns 400 when the article slug fails the schema regex", async () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config });
-      const res = await app.request("/api/runs/any-id/published/Bad_Name");
+      const res = await app.request("/api/runs/any-id/articles/Bad_Name");
       expect(res.status).toBe(400);
       const body = (await res.json()) as {
         error: string;
         issues: { path: (string | number)[]; message: string }[];
       };
-      expect(body.error).toMatch(/publish slug must match/);
+      expect(body.error).toMatch(/article slug must match/);
       // Field path travels alongside the human-readable summary so
       // non-modal callers can pinpoint the offending path param.
       expect(body.issues).toHaveLength(1);

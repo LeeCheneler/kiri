@@ -37,7 +37,7 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
           <Route path="/workflows/:name" component={WorkflowPage} />
           <Route path="/mcp" component={McpPage} />
           <Route path="/sessions/:id" component={SessionPage} />
-          <Route path="/runs/:id/published/:slug" component={ArticlePage} />
+          <Route path="/runs/:id/articles/:slug" component={ArticlePage} />
           <Route path="/runs/:id" component={RunPage} />
           <Route path="/dev/design-system" component={DesignSystemPage} />
           <Route component={NotFoundPage} />

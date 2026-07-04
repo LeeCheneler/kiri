@@ -1,7 +1,7 @@
 name: charts
 steps:
   - sh: echo "chart pipeline step"
-publish:
+articles:
   - slug: chart-report
     name: Chart Report
     sh: |

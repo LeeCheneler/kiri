@@ -16,7 +16,7 @@ import { formatDuration, formatRelativeTime } from "../../formatters/format-time
  * the byline's lead link (to the workflow page);
  * it defaults off for the single-workflow feed, where the name would repeat on
  * every row, and is set for the cross-workflow home feed. An optional summary
- * renders below as prose, and the run's published articles follow as a stacked
+ * renders below as prose, and the run's articles follow as a stacked
  * list — each an eyebrow of the article's name above a link carrying its first
  * heading (falling back to its title). With no name heading, those articles are
  * the row's visual lead.
@@ -78,7 +78,7 @@ export function RunRow({
           {run.articles.map((article) => (
             <li key={article.slug}>
               <Eyebrow tone="muted">{article.slug}</Eyebrow>
-              <HeadlineLink href={`/runs/${run.id}/published/${article.slug}`}>
+              <HeadlineLink href={`/runs/${run.id}/articles/${article.slug}`}>
                 {article.heading ?? article.name}
               </HeadlineLink>
             </li>

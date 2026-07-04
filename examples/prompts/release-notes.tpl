@@ -1,4 +1,4 @@
-You are writing the published release-notes article in markdown.
+You are writing the release-notes article in markdown.
 
 The drafted notes are inlined below — they are your source material.
 

@@ -49,7 +49,7 @@ describe("buildSummaryContext", () => {
     );
   });
 
-  it("omits article sections when the run published nothing", () => {
+  it("omits article sections when the run produced nothing", () => {
     const digest = buildSummaryContext({
       workflow: "One Shot",
       durationMs: 100,

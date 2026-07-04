@@ -14,13 +14,13 @@ describe("<Table>", () => {
         </thead>
         <tbody>
           <tr>
-            <td>publish</td>
+            <td>render</td>
             <td>ok</td>
           </tr>
         </tbody>
       </Table>,
     );
     expect(screen.getByRole("table")).toBeDefined();
-    expect(screen.getByText("publish")).toBeDefined();
+    expect(screen.getByText("render")).toBeDefined();
   });
 });

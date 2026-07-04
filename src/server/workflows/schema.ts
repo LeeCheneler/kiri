@@ -18,7 +18,7 @@ const envValueSchema = z.union([
     .object({ article: z.string().min(1) })
     .strict()
     .describe(
-      "Reference to a published article's markdown by its `slug`. Valid on publish entries (earlier entries only, by list order) and summarize.",
+      "Reference to an article's markdown by its `slug`. Valid on articles entries (earlier siblings only, by list order) and summarize.",
     ),
 ]);
 
@@ -73,7 +73,7 @@ const shStepSchema = z
 /**
  * The `llm:` block of a first-party LLM step. Both prompt fields are
  * structurally optional because the rules are positional: `steps:` and
- * `publish:` require exactly one of `prompt` / `prompt_file`, while
+ * `articles:` require exactly one of `prompt` / `prompt_file`, while
  * `summarize:` allows neither (it falls back to a default summary prompt).
  * The cross-field checks live in `workflowSchema.superRefine`.
  */
@@ -118,57 +118,57 @@ const llmStepSchema = z
 const stepSchema = z.union([useStepSchema, shStepSchema, llmStepSchema]);
 
 /**
- * Pattern that constrains a published article's `slug`. Re-used by the
+ * Pattern that constrains an article's `slug`. Re-used by the
  * HTTP route that fetches articles by slug so the regex lives once and
  * the validation surface matches the schema exactly.
  */
-export const publishSlugSchema = z.string().regex(/^[a-z0-9-]+$/, {
-  message: "publish slug must match ^[a-z0-9-]+$",
+export const articleSlugSchema = z.string().regex(/^[a-z0-9-]+$/, {
+  message: "article slug must match ^[a-z0-9-]+$",
 });
 
-const publishNameSchema = z
+const articleNameSchema = z
   .string()
   .min(1)
   .describe(
     "Series label for the article — shown as a feed chip and the page eyebrow, and used as the page title when the body has no leading `# ` heading. Defaults to a humanised form of `slug`.",
   );
 
-const usePublishSchema = z
+const useArticleSchema = z
   .object({
-    slug: publishSlugSchema,
-    name: publishNameSchema.optional(),
+    slug: articleSlugSchema,
+    name: articleNameSchema.optional(),
     description: z.string().min(1).optional(),
     use: z.string().min(1),
     env: envSchema.optional(),
   })
   .strict();
 
-const shPublishSchema = z
+const shArticleSchema = z
   .object({
-    slug: publishSlugSchema,
-    name: publishNameSchema.optional(),
+    slug: articleSlugSchema,
+    name: articleNameSchema.optional(),
     description: z.string().min(1).optional(),
     sh: z.string().min(1),
     env: envSchema.optional(),
   })
   .strict();
 
-const llmPublishSchema = z
+const llmArticleSchema = z
   .object({
-    slug: publishSlugSchema,
-    name: publishNameSchema.optional(),
+    slug: articleSlugSchema,
+    name: articleNameSchema.optional(),
     description: z.string().min(1).optional(),
     llm: llmConfigSchema,
     env: envSchema.optional(),
   })
   .strict();
 
-const publishEntrySchema = z.union([usePublishSchema, shPublishSchema, llmPublishSchema]);
+const articleEntrySchema = z.union([useArticleSchema, shArticleSchema, llmArticleSchema]);
 
-const publishArraySchema = z
-  .array(publishEntrySchema)
+const articlesArraySchema = z
+  .array(articleEntrySchema)
   .refine((entries) => new Set(entries.map((e) => e.slug)).size === entries.length, {
-    message: "publish slugs must be unique within a workflow",
+    message: "article slugs must be unique within a workflow",
   });
 
 const inputSchema = z
@@ -259,12 +259,16 @@ const baseWorkflowSchema = z
      */
     summarize: stepSchema.optional(),
     /**
-     * Optional list of articles the workflow publishes after `steps:`
-     * terminates with `ok` or `failed`. Each entry runs through the same
+     * Optional list of articles the workflow produces after every entry
+     * in `steps:` completes `ok`. Each entry runs through the same
      * executor path as a step; its trimmed stdout is stored as a markdown
-     * article keyed by `name`. Names must be unique within a workflow.
+     * article keyed by `slug`. Slugs must be unique within a workflow.
      */
-    publish: publishArraySchema.optional(),
+    articles: articlesArraySchema
+      .optional()
+      .describe(
+        "Long-form markdown articles produced after all steps complete ok. Each entry's trimmed stdout is stored as an article keyed by its slug.",
+      ),
   })
   .strict();
 
@@ -273,7 +277,7 @@ const baseWorkflowSchema = z
  * cross-validates the reference graph at load time: every `{ input: <name> }`
  * env ref points at a declared input, every `{ step: <id> }` ref points at a
  * uniquely-declared earlier step, and every `{ article: <slug> }` ref points
- * at an earlier publish entry — so run-time resolution is total.
+ * at an earlier articles entry — so run-time resolution is total.
  */
 export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
   wf.inputs?.forEach((input, i) => {
@@ -324,16 +328,16 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
     });
   }
 
-  const publishSlugIndex = new Map<string, number>();
-  wf.publish?.forEach((entry, i) => {
-    if (!publishSlugIndex.has(entry.slug)) publishSlugIndex.set(entry.slug, i);
+  const articleSlugIndex = new Map<string, number>();
+  wf.articles?.forEach((entry, i) => {
+    if (!articleSlugIndex.has(entry.slug)) articleSlugIndex.set(entry.slug, i);
   });
 
   const declared = new Set((wf.inputs ?? []).map((i) => i.name));
   // `stepRefsBefore` / `articleRefsBefore` bound which targets an env may
   // reference: a main step sees only earlier steps (self/forward refs are
-  // load errors); publish and summarize run after every step, so all step
-  // ids are in range, and a publish entry sees only earlier articles.
+  // load errors); articles and summarize run after every step, so all step
+  // ids are in range, and an articles entry sees only earlier articles.
   // `articleRefsBefore: undefined` means article refs are invalid there.
   const checkEnv = (
     env: Record<string, z.infer<typeof envValueSchema>> | undefined,
@@ -374,11 +378,11 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
         ctx.addIssue({
           code: "custom",
           path: [...path, "env", key, "article"],
-          message: `env "${key}" references article "${value.article}" — article refs are only valid on publish: and summarize:`,
+          message: `env "${key}" references article "${value.article}" — article refs are only valid on articles: and summarize:`,
         });
         continue;
       }
-      const target = publishSlugIndex.get(value.article);
+      const target = articleSlugIndex.get(value.article);
       if (target === undefined) {
         ctx.addIssue({
           code: "custom",
@@ -389,7 +393,7 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
         ctx.addIssue({
           code: "custom",
           path: [...path, "env", key, "article"],
-          message: `env "${key}" references article "${value.article}", which is not published before this entry — refs are backward-only`,
+          message: `env "${key}" references article "${value.article}", which is not produced before this entry — refs are backward-only`,
         });
       }
     }
@@ -397,8 +401,8 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
   wf.steps.forEach((step, i) =>
     checkEnv(step.env, ["steps", i], { stepRefsBefore: i, articleRefsBefore: undefined }),
   );
-  wf.publish?.forEach((entry, i) =>
-    checkEnv(entry.env, ["publish", i], {
+  wf.articles?.forEach((entry, i) =>
+    checkEnv(entry.env, ["articles", i], {
       stepRefsBefore: wf.steps.length,
       articleRefsBefore: i,
     }),
@@ -406,15 +410,15 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
   if (wf.summarize) {
     checkEnv(wf.summarize.env, ["summarize"], {
       stepRefsBefore: wf.steps.length,
-      articleRefsBefore: wf.publish?.length ?? 0,
+      articleRefsBefore: wf.articles?.length ?? 0,
     });
   }
 
-  // Prompt rules are positional: `steps:` and `publish:` require exactly one
+  // Prompt rules are positional: `steps:` and `articles:` require exactly one
   // of `prompt` / `prompt_file`; `summarize:` allows neither (it falls back
   // to a default summary prompt). Declaring both is invalid everywhere.
   const checkLlmPrompt = (
-    entry: z.infer<typeof stepSchema> | z.infer<typeof publishEntrySchema>,
+    entry: z.infer<typeof stepSchema> | z.infer<typeof articleEntrySchema>,
     path: Array<string | number>,
     promptRequired: boolean,
   ): void => {
@@ -436,7 +440,7 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
   };
   wf.steps.forEach((step, i) => checkLlmPrompt(step, ["steps", i], true));
   if (wf.summarize) checkLlmPrompt(wf.summarize, ["summarize"], false);
-  wf.publish?.forEach((entry, i) => checkLlmPrompt(entry, ["publish", i], true));
+  wf.articles?.forEach((entry, i) => checkLlmPrompt(entry, ["articles", i], true));
 });
 
 export type WorkflowDefinition = z.infer<typeof workflowSchema>;
@@ -445,10 +449,10 @@ export type UseStep = z.infer<typeof useStepSchema>;
 export type ShStep = z.infer<typeof shStepSchema>;
 export type LlmStep = z.infer<typeof llmStepSchema>;
 export type LlmConfig = z.infer<typeof llmConfigSchema>;
-export type PublishEntry = z.infer<typeof publishEntrySchema>;
-export type UsePublish = z.infer<typeof usePublishSchema>;
-export type ShPublish = z.infer<typeof shPublishSchema>;
-export type LlmPublish = z.infer<typeof llmPublishSchema>;
+export type ArticleEntry = z.infer<typeof articleEntrySchema>;
+export type UseArticle = z.infer<typeof useArticleSchema>;
+export type ShArticle = z.infer<typeof shArticleSchema>;
+export type LlmArticle = z.infer<typeof llmArticleSchema>;
 export type WorkflowInput = z.infer<typeof inputSchema>;
 export type EnvValue = z.infer<typeof envValueSchema>;
 
@@ -461,11 +465,11 @@ export const isShStep = (step: WorkflowStep): step is ShStep => "sh" in step;
 /** Type guard: a step is a first-party `llm:` completion. */
 export const isLlmStep = (step: WorkflowStep): step is LlmStep => "llm" in step;
 
-/** Type guard: a publish entry is a `use:` bundle reference. */
-export const isUsePublish = (entry: PublishEntry): entry is UsePublish => "use" in entry;
+/** Type guard: an article entry is a `use:` bundle reference. */
+export const isUseArticle = (entry: ArticleEntry): entry is UseArticle => "use" in entry;
 
-/** Type guard: a publish entry is an inline `sh:` shell snippet. */
-export const isShPublish = (entry: PublishEntry): entry is ShPublish => "sh" in entry;
+/** Type guard: an article entry is an inline `sh:` shell snippet. */
+export const isShArticle = (entry: ArticleEntry): entry is ShArticle => "sh" in entry;
 
-/** Type guard: a publish entry is a first-party `llm:` completion. */
-export const isLlmPublish = (entry: PublishEntry): entry is LlmPublish => "llm" in entry;
+/** Type guard: an article entry is a first-party `llm:` completion. */
+export const isLlmArticle = (entry: ArticleEntry): entry is LlmArticle => "llm" in entry;

@@ -714,7 +714,7 @@ export function DesignSystemContent() {
                     <List ordered>
                       <li>Load the workflow definition.</li>
                       <li>Resolve inputs and run each step.</li>
-                      <li>Summarise and publish the result.</li>
+                      <li>Summarise and write up the result.</li>
                     </List>
                   </div>
                 </Prose>
@@ -781,7 +781,7 @@ export function DesignSystemContent() {
                       <td>ok</td>
                     </tr>
                     <tr>
-                      <td>publish</td>
+                      <td>article</td>
                       <td>0.2s</td>
                       <td>ok</td>
                     </tr>
@@ -984,7 +984,7 @@ export function DesignSystemContent() {
                     "  Poll[Poll source] --> Decide{New items?}",
                     "  Decide -- yes --> Run[Run workflow]",
                     "  Decide -- no --> Wait[Wait]",
-                    "  Run --> Publish[Publish article]",
+                    "  Run --> Article[Write article]",
                     "```",
                   ].join("\n")}
                 />
@@ -1025,7 +1025,7 @@ export function DesignSystemContent() {
                     defaultOpen
                     summary={<span className="font-mono text-sm text-ink">source</span>}
                   >
-                    <CodeBlock>{'echo "publishing $TITLE"\nkiri publish --draft'}</CodeBlock>
+                    <CodeBlock>{'echo "rendering $TITLE"\nkiri render --draft'}</CodeBlock>
                   </Disclosure>
                 </div>
               </Card>
@@ -1651,8 +1651,8 @@ export function DesignSystemContent() {
                     </p>
                   </StatusBlock>
                   <StatusBlock status="ok">
-                    <p className="font-mono text-sm text-ink">publish: weekly digest</p>
-                    <p className="mt-1 font-mono text-xs text-ink-muted">published in 0.8s</p>
+                    <p className="font-mono text-sm text-ink">articles: weekly digest</p>
+                    <p className="mt-1 font-mono text-xs text-ink-muted">rendered in 0.8s</p>
                   </StatusBlock>
                   <StatusBlock status="running">
                     <p className="font-mono text-sm text-ink">sh: gather sources</p>

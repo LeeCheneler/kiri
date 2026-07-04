@@ -94,7 +94,7 @@ describe("<App>", () => {
   it("shows the article TOC in the right rail on the article route", async () => {
     // Article body carries a `##` section so the TOC has an entry to show.
     server.use(
-      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
+      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,
@@ -112,7 +112,7 @@ describe("<App>", () => {
       ),
     );
 
-    renderAt("/runs/run-1/published/demo");
+    renderAt("/runs/run-1/articles/demo");
 
     // Wait for the markdown body's section heading to land first: the right-rail
     // TOC is derived from those section anchors once they're in the document, so

@@ -78,7 +78,7 @@ describe("workflows routes", () => {
       expect("group" in body[0]).toBe(false);
     });
 
-    it("omits publish and summarize when the workflow has neither", async () => {
+    it("omits articles and summarize when the workflow has neither", async () => {
       const wf: WorkflowDefinition = { name: "steps-only", steps: [{ sh: "echo hi" }] };
       env.registry.replace(new Map([[wf.name, wf]]));
 
@@ -88,7 +88,7 @@ describe("workflows routes", () => {
       // Absence is signalled by missing keys (JSON.stringify drops `undefined`),
       // never by `[]` or `null`. Callers branch on "field present" with no
       // empty-collection ambiguity.
-      expect("publish" in body[0]).toBe(false);
+      expect("articles" in body[0]).toBe(false);
       expect("summarize" in body[0]).toBe(false);
       expect("inputs" in body[0]).toBe(false);
     });
@@ -113,11 +113,11 @@ describe("workflows routes", () => {
       ]);
     });
 
-    it("projects publish entries with name resolved from the schema fallback", async () => {
+    it("projects article entries with name resolved from the schema fallback", async () => {
       const wf: WorkflowDefinition = {
-        name: "publishes",
+        name: "produces-articles",
         steps: [{ sh: "echo hi" }],
-        publish: [
+        articles: [
           { slug: "pr-digest", use: "claude-code", env: { MODEL: "sonnet" } },
           { slug: "report", name: "Weekly Report", sh: "echo report" },
         ],
@@ -127,7 +127,7 @@ describe("workflows routes", () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
-      expect(body[0].publish).toEqual([
+      expect(body[0].articles).toEqual([
         { slug: "pr-digest", name: "PR Digest", use: "claude-code", env: { MODEL: "sonnet" } },
         { slug: "report", name: "Weekly Report", sh: "echo report" },
       ]);
@@ -149,14 +149,14 @@ describe("workflows routes", () => {
         use: "claude-code-summarizer",
         env: { MODEL: "haiku" },
       });
-      expect("publish" in body[0]).toBe(false);
+      expect("articles" in body[0]).toBe(false);
     });
 
-    it("projects both publish and summarize when the workflow has both", async () => {
+    it("projects both articles and summarize when the workflow has both", async () => {
       const wf: WorkflowDefinition = {
         name: "full",
         steps: [{ sh: "echo hi" }],
-        publish: [{ slug: "digest", sh: "echo body" }],
+        articles: [{ slug: "digest", sh: "echo body" }],
         summarize: { sh: "echo one-liner" },
       };
       env.registry.replace(new Map([[wf.name, wf]]));
@@ -164,7 +164,7 @@ describe("workflows routes", () => {
       const app = createApp({ db: env.db, registry: env.registry, config: env.config });
       const res = await app.request("/api/workflows");
       const body = (await res.json()) as Array<Record<string, unknown>>;
-      expect(body[0].publish).toEqual([{ slug: "digest", name: "Digest", sh: "echo body" }]);
+      expect(body[0].articles).toEqual([{ slug: "digest", name: "Digest", sh: "echo body" }]);
       expect(body[0].summarize).toEqual({ sh: "echo one-liner" });
     });
   });

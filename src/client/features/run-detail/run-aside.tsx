@@ -5,7 +5,7 @@ import { useRun } from "../../state/runs.ts";
 
 /**
  * The run detail right rail: the run's invocation inputs and the articles it
- * published. Reads the same shared run query the page body uses (no second
+ * produced. Reads the same shared run query the page body uses (no second
  * fetch) and renders nothing until it resolves — and nothing at all for a run
  * with no inputs and no articles, so the rail stays empty rather than showing
  * bare headings.
@@ -22,7 +22,7 @@ export function RunAside({ id }: { id: string }) {
   return (
     <div className="divide-y divide-rule">
       {showInputs && inputs ? <InputsSection inputs={inputs} /> : null}
-      {showArticles ? <PublishedSection runId={detail.id} articles={detail.articles} /> : null}
+      {showArticles ? <ArticlesSection runId={detail.id} articles={detail.articles} /> : null}
     </div>
   );
 }
@@ -50,15 +50,15 @@ function InputsSection({ inputs }: { inputs: Record<string, string> }) {
   );
 }
 
-function PublishedSection({ runId, articles }: { runId: string; articles: ArticleSummary[] }) {
+function ArticlesSection({ runId, articles }: { runId: string; articles: ArticleSummary[] }) {
   return (
     <section className={SECTION_CLASS}>
-      <Eyebrow tone="muted">Published</Eyebrow>
+      <Eyebrow tone="muted">Articles</Eyebrow>
       <ul className="mt-3 space-y-4 text-base">
         {articles.map((article) => (
           <li key={article.slug}>
             <Eyebrow tone="muted">{article.slug}</Eyebrow>
-            <HeadlineLink href={`/runs/${runId}/published/${article.slug}`}>
+            <HeadlineLink href={`/runs/${runId}/articles/${article.slug}`}>
               {article.heading ?? article.name}
             </HeadlineLink>
           </li>

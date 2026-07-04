@@ -32,7 +32,7 @@ steps:
     name: Draft the notes
     description: A first-party completion — kiri calls the model directly, no bundle.
 
-publish:
+articles:
   - slug: release-notes
     name: Release Notes
     description: The latest changes, written up for humans.

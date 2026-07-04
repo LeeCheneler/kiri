@@ -1,7 +1,7 @@
 name: diagrams
 steps:
   - sh: echo "diagram pipeline step"
-publish:
+articles:
   - slug: diagram-report
     name: Diagram Report
     sh: |

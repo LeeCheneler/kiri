@@ -179,7 +179,7 @@ describe("workflowJsonSchema", () => {
     expect(refBranch?.additionalProperties).toBe(false);
   });
 
-  it("optionally permits a publish array of named use/sh/llm entries", () => {
+  it("optionally permits an articles array of named use/sh/llm entries", () => {
     type Variant = {
       properties: {
         slug?: { type: string; pattern?: string };
@@ -193,16 +193,16 @@ describe("workflowJsonSchema", () => {
     const schema = workflowJsonSchema() as {
       required: string[];
       properties: {
-        publish: {
+        articles: {
           type: string;
           items: Variant | { oneOf: Variant[] } | { anyOf: Variant[] };
         };
       };
     };
-    expect(schema.required).not.toContain("publish");
-    const publish = schema.properties.publish;
-    expect(publish.type).toBe("array");
-    const items = publish.items;
+    expect(schema.required).not.toContain("articles");
+    const articles = schema.properties.articles;
+    expect(articles.type).toBe("array");
+    const items = articles.items;
     const variants = "oneOf" in items ? items.oneOf : "anyOf" in items ? items.anyOf : [items];
     const useVariant = variants.find((v) => v.properties.use !== undefined);
     const shVariant = variants.find((v) => v.properties.sh !== undefined);

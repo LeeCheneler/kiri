@@ -21,7 +21,7 @@ const renderProbe = (runId: string, slug: string) =>
 describe("articles state", () => {
   it("fetches and exposes a single article by run id and slug", async () => {
     server.use(
-      http.get("*/api/runs/:id/published/:slug", ({ params }) =>
+      http.get("*/api/runs/:id/articles/:slug", ({ params }) =>
         HttpResponse.json({
           id: "art-1",
           runId: params.id,

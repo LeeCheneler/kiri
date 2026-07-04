@@ -69,7 +69,7 @@ export async function runLlmStep(args: RunLlmStepArgs): Promise<StepEnvelope> {
       });
     }
   } else {
-    // steps:/publish: schemas require a prompt source and the runner
+    // steps:/articles: schemas require a prompt source and the runner
     // substitutes the default summary prompt before a summarize step gets
     // here, so this is an invariant breach, not a user error.
     return fail({

@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { resolvePublishName } from "../../../shared/publish-name.ts";
+import { resolveArticleName } from "../../../shared/article-name.ts";
 import type {
   LlmConfigSummary,
+  RunArticleSnapshot,
   RunDetailRun,
-  RunPublishSnapshot,
   RunStepRow,
   WorkflowStepSummary,
 } from "../../api.ts";
@@ -16,7 +16,7 @@ import { stepTitle } from "../workflow-details/entry-config.tsx";
 import { LiveDuration } from "./live-duration.tsx";
 
 /** A declared pipeline entry from the run's definition snapshot. */
-type PhaseEntry = WorkflowStepSummary | RunPublishSnapshot;
+type PhaseEntry = WorkflowStepSummary | RunArticleSnapshot;
 
 type LlmUsageCounts = NonNullable<NonNullable<RunStepRow["traces"]>["usage"]>;
 
@@ -26,7 +26,7 @@ interface PhaseItem {
   title: string;
   status: StatusKind;
   /**
-   * The entry's ref handle — a step's declared `id` or a publish's `slug`:
+   * The entry's ref handle — a step's declared `id` or an article's `slug`:
    * what `{ step: <id> }` / `{ article: <slug> }` env refs point at.
    */
   handle?: string;
@@ -38,7 +38,7 @@ interface PhaseItem {
 
 /**
  * Project the run's declared phases (from its definition snapshot) onto the
- * persisted step rows, by execution index: steps first, then publishes, then
+ * persisted step rows, by execution index: steps first, then articles, then
  * the summariser. A declared entry the runner hasn't reached yet has no row
  * and shows as `pending`; once a row exists it carries the real status and
  * timing. Ordinals restart per group so each reads "01, 02, …".
@@ -60,13 +60,13 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
     };
   });
 
-  const publishes = snap.publish ?? [];
-  const publishItems: PhaseItem[] = publishes.map((entry, pi) => {
+  const articleEntries = snap.articles ?? [];
+  const articleItems: PhaseItem[] = articleEntries.map((entry, pi) => {
     const row = rowByIndex.get(snap.steps.length + pi);
     return {
-      key: row?.id ?? `publish-${pi}`,
+      key: row?.id ?? `article-${pi}`,
       ordinal: pi + 1,
-      title: resolvePublishName(entry.slug, entry.name),
+      title: resolveArticleName(entry.slug, entry.name),
       status: row?.status ?? "pending",
       handle: entry.slug,
       entry,
@@ -76,7 +76,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
 
   let summarizeItem: PhaseItem | null = null;
   if (snap.summarize) {
-    const row = rowByIndex.get(snap.steps.length + publishes.length);
+    const row = rowByIndex.get(snap.steps.length + articleEntries.length);
     summarizeItem = {
       key: row?.id ?? "summarise",
       ordinal: 1,
@@ -87,15 +87,15 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
     };
   }
 
-  return { stepItems, publishItems, summarizeItem };
+  return { stepItems, articleItems, summarizeItem };
 };
 
 /**
- * The run's execution as up-to-three labelled groups — Steps, Publishes, and
+ * The run's execution as up-to-three labelled groups — Steps, Articles, and
  * Summarise — mirroring the order the runner walks them. Each group lists its
  * entries with status and duration (a live timer while running, the final span
  * once finished); rows that have executed expand to reveal their captured
- * stdout, stderr, and any error. Empty groups (no publishes, no summariser) are
+ * stdout, stderr, and any error. Empty groups (no articles, no summariser) are
  * omitted. `now` is injectable so tests pin the live timer; production omits it.
  */
 export function RunPhases({
@@ -103,12 +103,12 @@ export function RunPhases({
   steps,
   now,
 }: { run: RunDetailRun; steps: RunStepRow[]; now?: Date }) {
-  const { stepItems, publishItems, summarizeItem } = buildPhases(run, steps);
+  const { stepItems, articleItems, summarizeItem } = buildPhases(run, steps);
   return (
     <div className="mt-10 space-y-10">
       <PhaseGroup label="Steps" items={stepItems} now={now} />
-      {publishItems.length > 0 ? (
-        <PhaseGroup label="Publishes" items={publishItems} now={now} />
+      {articleItems.length > 0 ? (
+        <PhaseGroup label="Articles" items={articleItems} now={now} />
       ) : null}
       {summarizeItem ? <PhaseGroup label="Summarise" items={[summarizeItem]} now={now} /> : null}
     </div>

@@ -73,7 +73,7 @@ describe("<RunPage>", () => {
               error: null,
               traces: { stdout: "ok\n", stderr: "", durationMs: 42000 },
               isSummary: false,
-              isPublish: false,
+              isArticle: false,
             },
           ],
         }),
