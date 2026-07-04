@@ -4,7 +4,9 @@ import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type Tool, type ToolSet, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { articles } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
@@ -39,7 +41,7 @@ const streamingModel = (chunks: LanguageModelV3StreamPart[]): LlmModel =>
 
 // Calls `toolName` on its first step, then answers once the result is fed back —
 // the multi-step loop a tool-enabled turn drives.
-const toolCallModel = (toolName: string): LlmModel => {
+const toolCallModel = (toolName: string, input = '{"title":"Bug"}'): LlmModel => {
   let step = 0;
   return new MockLanguageModelV3({
     doStream: async () => {
@@ -47,7 +49,7 @@ const toolCallModel = (toolName: string): LlmModel => {
       if (step === 1) {
         return {
           stream: convertArrayToReadableStream([
-            { type: "tool-call", toolCallId: "c1", toolName, input: '{"title":"Bug"}' },
+            { type: "tool-call", toolCallId: "c1", toolName, input },
             { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
           ]),
         };
@@ -546,6 +548,70 @@ describe("sessions routes", () => {
       // tool guidance turned on because the active tool set is non-empty.
       expect(toolNames).toContain("linear__create_issue");
       expect(systemText).toContain("You have tools available.");
+    });
+
+    it("offers the first-party article tools on every turn, without an MCP registry", async () => {
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "write me a digest")).text();
+      await settled;
+
+      expect(toolNames).toEqual(
+        expect.arrayContaining([
+          "create_article",
+          "replace_article",
+          "edit_article",
+          "list_articles",
+          "read_article",
+        ]),
+      );
+      // The core prompt's article guidance turned on with the tools.
+      expect(systemText).toContain("You can save articles");
+    });
+
+    it("runs an article tool straight through un-gated and persists the article", async () => {
+      const input = JSON.stringify({ slug: "pr-digest", content_md: "# PR Digest\n\nBody." });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
+      const app = makeApp(fakeClients({ model: toolCallModel("create_article", input) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "write me a digest")).text();
+      await settled;
+
+      // No approval pause despite no standing permission: the tool ran and the
+      // model answered in the same turn.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      expect(toolPartOf(rows[1]).output).toEqual({ slug: "pr-digest", name: "PR Digest" });
+
+      const row = env.db.select().from(articles).where(eq(articles.sessionId, "s1")).get();
+      expect(row?.slug).toBe("pr-digest");
+      expect(row?.contentMd).toBe("# PR Digest\n\nBody.");
+      expect(seen).toContainEqual({ type: "article.written", sessionId: "s1", slug: "pr-digest" });
     });
 
     it("persists the user message under the id the client sent", async () => {

@@ -54,6 +54,23 @@ function buildDiagramGuidance(): string {
   ].join("\n");
 }
 
+// Cross-cutting guidance for the first-party article tools — the workflow no
+// single tool description can carry: what an article is *for* (a deliverable
+// kept outside the chat), keeping the full piece out of the reply, and how to
+// choose between a targeted edit and a wholesale replace. Keyed off the create
+// tool's name, so it appears exactly when the article tools are offered and
+// never in a plain chat.
+function buildArticleGuidance(tools: string[]): string | null {
+  if (!tools.includes("create_article")) return null;
+  return [
+    "You can save articles: standalone markdown documents kept outside this conversation, listed alongside the session, and opened in kiri's reading view. An article is for a deliverable — a write-up, report, digest, guide, or reference the user will want after the chat scrolls on. When the user asks for one, put the full piece in the article and keep your reply to a sentence or two saying what you wrote; never paste the article's body back into the chat.",
+    "Working with articles:",
+    "- Open the body with a `# ` title heading. Charts (fenced `chart`) and diagrams (fenced `mermaid`) render inside articles exactly as they do in your replies.",
+    "- To change an article, prefer a targeted edit_article call — the exact current text as old_string, its replacement as new_string. Reach for replace_article only when most of the body is changing.",
+    "- You already know the content of an article you just wrote or edited — call read_article only when its content is no longer in the conversation.",
+  ].join("\n");
+}
+
 // Cross-cutting strategy for the session's active tools. The SDK sends each
 // tool's own definition (the *what*, and for MCP tools the *when*); this layer
 // adds what no single tool's schema can: spend the token budget deliberately.
@@ -119,6 +136,7 @@ function buildCorePrompt(now: Date, tools: string[]): string {
     buildToolGuidance(tools),
     buildChartGuidance(),
     buildDiagramGuidance(),
+    buildArticleGuidance(tools),
   ];
   return sections.filter((section): section is string => section !== null).join("\n\n");
 }

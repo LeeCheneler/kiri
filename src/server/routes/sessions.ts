@@ -20,6 +20,7 @@ import {
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermissionStore,
+  articleTools,
   createSession,
   createStreamRegistry,
   createSystemPromptBuilder,
@@ -152,11 +153,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // rejoins the live response. A caller may inject one to share it.
   const streamRegistry = deps.streamRegistry ?? createStreamRegistry();
 
-  // The tools offered to a turn — the live MCP server tools, each filtered and
-  // gated by its standing permission. Read per turn (not once) so a config reload
-  // that adds or drops MCP servers, and a permission change since the last turn,
-  // are both reflected on the next turn.
-  const activeTools = (): ToolSet => {
+  // The tools offered to a turn: the live MCP server tools, each filtered and
+  // gated by its standing permission, plus the first-party article tools. Read
+  // per turn (not once) so a config reload that adds or drops MCP servers, and
+  // a permission change since the last turn, are both reflected on the next
+  // turn. The article tools are not permission-gated — they only write to
+  // kiri's own database and the user's request in chat is the authorisation —
+  // and, merged last, they take the name on a collision with an MCP tool.
+  const activeTools = (sessionId: string): ToolSet => {
     const tools = mcpRegistry?.tools() ?? {};
     const gated: ToolSet = {};
     for (const [name, tool] of Object.entries(tools)) {
@@ -178,7 +182,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         ) => permission !== "allow" || hasPriorApprovalRequest(messages, toolCallId),
       };
     }
-    return gated;
+    return { ...gated, ...articleTools(db, sessionId, (event) => bus?.publish(event)) };
   };
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
@@ -337,7 +341,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // Resolve the live, approval-gated tools for this turn and compose the
       // system prompt from their names so the core layer's tool guidance matches
       // what the model is actually offered.
-      const tools = activeTools();
+      const tools = activeTools(id);
       const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(tools));
       const turnDeps = {
         db,

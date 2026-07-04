@@ -173,6 +173,30 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Keep them off");
   });
 
+  it("includes article guidance only when the article tools are active", () => {
+    const withArticles = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["create_article", "edit_article", "list_articles"],
+    });
+    expect(withArticles).toContain("You can save articles");
+    // The guidance references the fenced chart/mermaid blocks, so it reads
+    // after the sections that describe them.
+    expect(withArticles.indexOf("```mermaid")).toBeLessThan(
+      withArticles.indexOf("You can save articles"),
+    );
+
+    const mcpOnly = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["linear__create_issue"] });
+    expect(mcpOnly).not.toContain("You can save articles");
+    expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain("You can save articles");
+  });
+
+  it("steers article changes to a targeted edit over a wholesale replace", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["create_article"] });
+    expect(prompt).toContain("prefer a targeted edit_article call");
+    expect(prompt).toContain("replace_article only when most of the body is changing");
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
