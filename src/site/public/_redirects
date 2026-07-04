@@ -1,3 +1,8 @@
+# Renamed docs pages: permanent redirects so old links keep resolving.
+# Specific rules match before the SPA catch-all below.
+/docs/agentic-sessions    /docs/sessions    301
+/docs/examples            /docs/recipes     301
+
 # SPA fallback: serve the app shell for any route that isn't a built file,
 # so client-side routes (e.g. /docs) resolve on a direct visit. Static assets
 # are matched before this catch-all and served directly.
