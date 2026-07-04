@@ -2,6 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { Route, Switch } from "wouter";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
+import { ScrollReset } from "./features/page-shell/scroll-reset.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
 import { DesignSystemPage } from "./routes/design-system-page.tsx";
 import { HomePage } from "./routes/home-page.tsx";
@@ -32,6 +33,7 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
     <QueryClientProvider client={queryClient}>
       <LiveEventsProvider factory={liveEventsFactory}>
         <LiveSync />
+        <ScrollReset />
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/workflows" component={WorkflowsPage} />
