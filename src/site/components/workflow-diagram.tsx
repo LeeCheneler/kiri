@@ -1,16 +1,16 @@
 import type { CSSProperties } from "react";
 import { useInView } from "./use-in-view.ts";
 
-type Tone = "step" | "publish" | "feed";
+type Tone = "step" | "article" | "feed";
 type Node = { label: string; tag?: string; tone: Tone };
 
 // The shape of the hero workflow, told as a pipeline: shell + model steps
-// flow into a published article, a summary step, and finally the activity
-// feed. Mirrors what kiri actually does so the motion teaches the model.
+// flow into an article, a summary step, and finally the activity feed.
+// Mirrors what kiri actually does so the motion teaches the model.
 const NODES: Node[] = [
   { label: "Collect changes", tag: "sh", tone: "step" },
   { label: "Draft the notes", tag: "llm", tone: "step" },
-  { label: "Publish article", tag: "publish", tone: "publish" },
+  { label: "Write the article", tag: "articles", tone: "article" },
   { label: "Summarize the run", tag: "llm", tone: "step" },
   { label: "Into the feed", tone: "feed" },
 ];
@@ -44,7 +44,7 @@ export function WorkflowDiagram() {
         <span className="wf-feed-dot" />
         <div className="wf-feed-body">
           <span className="wf-feed-title">Release Notes</span>
-          <span className="wf-feed-meta">published · summarized</span>
+          <span className="wf-feed-meta">article · summarized</span>
         </div>
       </div>
     </div>

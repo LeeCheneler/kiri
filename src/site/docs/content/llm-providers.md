@@ -75,7 +75,7 @@ is a load-time error.
 
 ## The llm: step contract
 
-- **Exactly one of `prompt` / `prompt_file`** on a `steps:` / `publish:` entry.
+- **Exactly one of `prompt` / `prompt_file`** on a `steps:` / `articles:` entry.
   `prompt_file` resolves against the workspace root. A `summarize:` step may omit
   both for the built-in summary prompt.
 - **Templating** is the same `{{VAR}}` single-pass substitution the bundles use.
@@ -87,7 +87,7 @@ is a load-time error.
   land in the run timeline.
 - **No file channels.** A completion can't open files, so an `llm:` step gets no
   `KIRI_RECOMMENDATIONS_FILE` (use an `sh:` or bundle step to emit
-  recommendations). An `llm:` `publish:` step takes its data through
+  recommendations). An `llm:` `articles:` entry takes its data through
   `{ step: <id> }` / `{ article: <slug> }` env refs, rendered into the prompt
   by name (`{{DRAFT}}`); an `llm:` `summarize:` step additionally receives the
   run digest inlined as `{{KIRI_SUMMARY_CONTEXT}}` (each step's stdout capped

@@ -67,7 +67,7 @@
   box-shadow: 0 0 0 3px var(--color-canvas-2);
 }
 
-.wf-node[data-tone="publish"] .wf-dot,
+.wf-node[data-tone="article"] .wf-dot,
 .wf-node[data-tone="feed"] .wf-dot {
   background: var(--color-accent);
 }

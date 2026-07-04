@@ -19,7 +19,7 @@ type Capability = { term: string; detail: string };
 
 const CAPABILITIES: Capability[] = [
   {
-    term: "Published articles",
+    term: "Articles",
     detail: "Markdown with charts and Mermaid diagrams, rendered inline.",
   },
   {
@@ -75,8 +75,8 @@ function Hero() {
         </h1>
         <p className="mt-7 max-w-xl font-mono text-sm text-ink-muted leading-relaxed">
           Define a workflow or open an agentic session, run it against your own machine and git
-          repo, and publish the result. Bring your own model — Anthropic, OpenAI, or any compatible
-          endpoint.
+          repo, and turn the results into articles in a live feed. Bring your own model — Anthropic,
+          OpenAI, or any compatible endpoint.
         </p>
         <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-3 text-lg">
           <HeadlineLink href="/docs">Read the docs</HeadlineLink>
@@ -105,7 +105,7 @@ function Pillars() {
           <Eyebrow>Workflows</Eyebrow>
           <p className="mt-3 font-mono text-sm text-ink-muted leading-relaxed">
             Versioned YAML pipelines. Chain shell commands, script bundles, and first-party LLM
-            steps; pipe each step into the next; publish the run as an article you can share.
+            steps; pipe each step into the next; turn a run into articles you can share.
           </p>
           <div className="mt-6">
             <WorkflowDiagram />

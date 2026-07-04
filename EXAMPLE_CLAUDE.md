@@ -149,8 +149,7 @@ Mixing `use:`, `sh:`, and `llm:` on the same step is a schema error.
 ### `summarize:` rules
 
 - A single `use:`, `sh:`, or `llm:` step, run **last** — after `steps:` and `articles:` — and **only when the run is still `ok`**. A failed step or article entry skips it.
-- Every summarize step is injected **`KIRI_SUMMARY_CONTEXT`** — a prompt-ready plain-text digest of the run: the workflow's name and duration, a section per step (its label and stdout), then each article the run produced. Each step's stdout and each article's markdown is independently capped at 64 KB (marked `[truncated]`). A `sh:`/`use:` summariser reads `$KIRI_SUMMARY_CONTEXT`; an `llm:` prompt templates `{{KIRI_SUMMARY_CONTEXT}}`. One channel, no file variant.
-- The digest is the gist plane. A summariser that needs an output at **full fidelity** takes it through a `{ step: <id> }` / `{ article: <slug> }` env ref instead — refs are never truncated.
+- Every summarize step is injected **`KIRI_SUMMARY_CONTEXT`** — a prompt-ready plain-text digest of the run; see *The summary digest* below. A `sh:`/`use:` summariser reads `$KIRI_SUMMARY_CONTEXT`; an `llm:` prompt templates `{{KIRI_SUMMARY_CONTEXT}}`.
 - `summarize: { llm: { model } }` with no prompt is **zero-config** — kiri supplies a built-in summary prompt over the digest.
 - Its trimmed stdout becomes the run's `summary` (rendered on the activity feed row and at the top of the run detail page). Empty stdout leaves `summary` null.
 - Failure is **non-fatal** — the summariser is best-effort; the run's terminal status is unaffected. (Cancel mid-summarise still flips the run to `cancelled`.)
@@ -219,6 +218,34 @@ steps[2] stdin = steps[1] stdout  steps[2] stdout
 | `PATH`, `HOME`, `USER`, `LOGNAME` | Inherited from the kiri parent process. |
 
 Step working directory is the **per-run scratch dir** at `.kiri/runs/<run-id>/`, not the repo root. Use `KIRI_REPO_ROOT` to reach repo files.
+
+---
+
+## The summary digest (`KIRI_SUMMARY_CONTEXT`)
+
+Injected into every `summarize:` step — and only there. A prompt-ready plain-text digest of the run:
+
+```
+Workflow: Dev
+Duration: 41.2s
+
+## Step 0 — Fetch dev feeds (12.3s)
+
+[the step's stdout]
+
+## Step 1 — Pick the front page (8.9s)
+
+[…]
+
+## Article: Dev Edition (edition)
+
+[the article's markdown]
+```
+
+- Step labels fall back `name` → `id` → the bundle ref / model id / the script's first non-empty line. Empty stdout renders `(no output)`.
+- Each step's stdout and each article's markdown is independently capped at **64 KB** (marked `[truncated]`). The digest is the **gist plane** — deliberately lossy, sized to inline into a prompt. When a summariser needs an output at full fidelity, take it through a `{ step: <id> }` / `{ article: <slug> }` env ref instead: the **data plane** is never truncated.
+- One channel, both shapes: a bundle/`sh:` summariser reads `$KIRI_SUMMARY_CONTEXT`; an `llm:` summariser templates `{{KIRI_SUMMARY_CONTEXT}}`. There is no file variant.
+- Since summarize only runs on fully-`ok` runs, the digest carries no failure narration — a failed run's diagnostics live on the run detail page.
 
 ---
 
@@ -787,9 +814,35 @@ You are a meticulous senior code reviewer. Read diffs closely, flag correctness
 bugs first, then design and clarity. Cite file:line. Be direct; skip the praise.
 ```
 
-### Tools from MCP servers
+### Session tools — MCP servers (`mcp:` in `kiri.yaml`)
 
-A session's tools come from MCP servers declared under `mcp:` in `kiri.yaml` — a `stdio` server kiri spawns, or an `http` server it connects to (authenticating with header `{ env: }` refs or `auth: oauth`, where kiri runs the browser sign-in and stores tokens under `.kiri/`). Tools are offered to the model namespaced `<server>__<tool>`, and each carries a standing permission — Always allow / Ask (default) / Off — managed on the app's `/mcp` page; an `ask` tool prompts per call before it runs. A worked `mcp:` block lives in `examples/kiri.yaml`.
+Sessions get their tools from **MCP servers** declared under `mcp:` in `kiri.yaml`, keyed by name. This is a sessions-only concept — workflows never see MCP tools (a workflow step that needs a capability scripts it or uses a bundle).
+
+```yaml
+mcp:
+  tavily:                     # remote server, OAuth browser sign-in managed by kiri
+    type: http
+    url: https://mcp.tavily.com/mcp/
+    auth: oauth
+  github:                     # remote server, static header from an env ref
+    type: http
+    url: https://api.githubcopilot.com/mcp/
+    headers:
+      Authorization:
+        env: GITHUB_MCP_AUTH_HEADER
+  files:                      # local subprocess kiri spawns, spoken to over stdio
+    type: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+```
+
+- An entry is **`stdio`** (`command`, `args?`, `env?` — kiri spawns the subprocess) or **`http`** (`url`, `headers?`, `auth: oauth?` — Streamable HTTP). Header and env values are `{ env: <NAME> }` refs, never literals. `auth: oauth` has kiri run a browser sign-in and keep the tokens in `.kiri/mcp-credentials.json` (mode 0600).
+- Tools are offered to the model namespaced **`<server>__<tool>`**. Each carries a standing permission — `allow`, `ask` (the default), or `off` — persisted in `.kiri/tool-permissions.json` and managed from the **`/mcp` page**. An `ask` tool pauses the turn with an Allow / Always allow / Deny prompt before it runs; an `off` tool is never offered to the model.
+- A server whose env ref is unset, that fails to connect, or that awaits OAuth sign-in is simply absent from the session's toolset; the reason surfaces as a config-health check (an unsigned-in OAuth server shows a one-click **Connect** prompt).
+- Each tool call's result is capped (truncated past ~128 KB) and time-boxed, so a huge payload or hung server degrades to a tool error the model can recover from.
+- A `stdio` server is an arbitrary subprocess — treat configuring one with the same care as running any script.
+
+A worked `mcp:` block also lives in `examples/kiri.yaml`.
 
 ---
 
@@ -804,5 +857,7 @@ If kiri's repo is the workspace and behaviour is unclear, these are the source-o
 - **LLM step execution (prompt render, completion, usage):** `src/server/runner/run-llm-step.ts`
 - **Summary digest (`KIRI_SUMMARY_CONTEXT` shape and caps):** `src/server/llm/build-summary-context.ts`
 - **LLM providers (schema, loader, provider clients):** `src/server/llm/`
+- **`kiri.yaml` config (providers + MCP; schema, loader, health):** `src/server/config/`
+- **MCP servers (connect, tool namespacing, OAuth):** `src/server/mcp/`
 - **Session system prompt (core layer, `kiri.md`, personas):** `src/server/sessions/system-prompt.ts`
 - **Architecture & roadmap:** `docs/design-notes.md`
