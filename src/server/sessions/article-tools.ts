@@ -1,0 +1,187 @@
+import { type ToolSet, tool } from "ai";
+import { and, asc, eq } from "drizzle-orm";
+import { z } from "zod";
+import { resolveArticleName } from "../../shared/article-name.ts";
+import type { KiriDb } from "../db/index.ts";
+import { articles } from "../db/schema.ts";
+import type { KiriEvent } from "../events/index.ts";
+import { articleSlugSchema } from "../workflows/schema.ts";
+
+type Article = typeof articles.$inferSelect;
+
+/**
+ * First-party tools that let a session write and manage its own articles —
+ * standalone documents saved outside the transcript and read back through the
+ * articles UI. Scoped to `sessionId`: the tools see and touch only articles
+ * that session produced. Every write publishes `article.written` so open views
+ * can refresh. Expected failures (unknown slug, duplicate slug, ambiguous
+ * edit) throw with a message naming the tool call that recovers from them —
+ * the SDK surfaces it to the model as a tool error and the turn continues.
+ */
+export function articleTools(
+  db: KiriDb,
+  sessionId: string,
+  publish: (event: KiriEvent) => void,
+): ToolSet {
+  const bySlug = (slug: string): Article | undefined =>
+    db
+      .select()
+      .from(articles)
+      .where(and(eq(articles.sessionId, sessionId), eq(articles.slug, slug)))
+      .get();
+
+  const requireArticle = (slug: string): Article => {
+    const row = bySlug(slug);
+    if (!row) {
+      throw new Error(
+        `No article with slug "${slug}" in this session — call list_articles to see what exists.`,
+      );
+    }
+    return row;
+  };
+
+  const written = (slug: string): void => publish({ type: "article.written", sessionId, slug });
+
+  return {
+    create_article: tool({
+      description:
+        "Create an article: a standalone written deliverable saved outside this conversation, shown in the app for the user to read and keep. Use it when the user asks for a write-up, report, digest, guide, or any document meant to outlive the chat — put the full piece in the article and keep the chat reply to a short pointer.",
+      inputSchema: z.object({
+        slug: articleSlugSchema.describe(
+          'URL-safe identifier: lowercase letters, digits, and hyphens (e.g. "pr-digest"). Unique within this session.',
+        ),
+        name: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Display label shown alongside the article. Defaults to a humanised form of the slug ("pr-digest" → "PR Digest").',
+          ),
+        content_md: z
+          .string()
+          .min(1)
+          .describe("Full article body in markdown, opening with a `# ` title heading."),
+      }),
+      execute: async ({ slug, name, content_md }) => {
+        if (bySlug(slug)) {
+          throw new Error(
+            `An article with slug "${slug}" already exists in this session — use edit_article for a targeted change or replace_article to rewrite it.`,
+          );
+        }
+        const resolved = resolveArticleName(slug, name);
+        db.insert(articles)
+          .values({
+            id: crypto.randomUUID(),
+            sessionId,
+            slug,
+            name: resolved,
+            contentMd: content_md.trimEnd(),
+            createdAt: new Date(),
+          })
+          .run();
+        written(slug);
+        return { slug, name: resolved };
+      },
+    }),
+
+    replace_article: tool({
+      description:
+        "Replace the entire body of one of this session's articles, and optionally its display name. Reach for this for wholesale rewrites; for a targeted change to existing text, prefer edit_article.",
+      inputSchema: z.object({
+        slug: articleSlugSchema.describe("Slug of the article to replace."),
+        name: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("New display label. Leave unset to keep the current one."),
+        content_md: z
+          .string()
+          .min(1)
+          .describe(
+            "The complete new article body in markdown — it replaces the current body in full.",
+          ),
+      }),
+      execute: async ({ slug, name, content_md }) => {
+        const row = requireArticle(slug);
+        const resolved = name ?? row.name;
+        db.update(articles)
+          .set({ contentMd: content_md.trimEnd(), name: resolved })
+          .where(eq(articles.id, row.id))
+          .run();
+        written(slug);
+        return { slug, name: resolved };
+      },
+    }),
+
+    edit_article: tool({
+      description:
+        "Make a targeted edit to one of this session's articles by replacing an exact string in its body. old_string must match the current text exactly — including whitespace — and appear exactly once unless replace_all is set. For a wholesale rewrite use replace_article instead.",
+      inputSchema: z.object({
+        slug: articleSlugSchema.describe("Slug of the article to edit."),
+        old_string: z
+          .string()
+          .min(1)
+          .describe("Exact text currently in the article body to replace."),
+        new_string: z.string().describe("Replacement text. May be empty to delete old_string."),
+        replace_all: z
+          .boolean()
+          .optional()
+          .describe(
+            "Replace every occurrence of old_string instead of requiring it to be unique. Defaults to false.",
+          ),
+      }),
+      execute: async ({ slug, old_string, new_string, replace_all }) => {
+        if (old_string === new_string) {
+          throw new Error("old_string and new_string are identical — nothing to change.");
+        }
+        const row = requireArticle(slug);
+        const count = row.contentMd.split(old_string).length - 1;
+        if (count === 0) {
+          throw new Error(
+            `old_string was not found in article "${slug}" — call read_article and retry with the exact current text.`,
+          );
+        }
+        if (count > 1 && replace_all !== true) {
+          throw new Error(
+            `old_string appears ${count} times in article "${slug}" — include more surrounding context to pin down one occurrence, or set replace_all to change every one.`,
+          );
+        }
+        db.update(articles)
+          .set({ contentMd: row.contentMd.replaceAll(old_string, new_string) })
+          .where(eq(articles.id, row.id))
+          .run();
+        written(slug);
+        return { slug, replacements: count };
+      },
+    }),
+
+    list_articles: tool({
+      description:
+        "List the articles this session has written so far — slug, display name, and creation time. Articles produced by workflow runs are not included.",
+      inputSchema: z.object({}),
+      execute: async () =>
+        db
+          .select({ slug: articles.slug, name: articles.name, createdAt: articles.createdAt })
+          .from(articles)
+          .where(eq(articles.sessionId, sessionId))
+          .orderBy(asc(articles.createdAt))
+          .all()
+          .map((row) => ({
+            slug: row.slug,
+            name: row.name,
+            created_at: row.createdAt.toISOString(),
+          })),
+    }),
+
+    read_article: tool({
+      description: "Read the full markdown body of one of this session's articles.",
+      inputSchema: z.object({
+        slug: articleSlugSchema.describe("Slug of the article to read."),
+      }),
+      execute: async ({ slug }) => {
+        const row = requireArticle(slug);
+        return { slug, name: row.name, content_md: row.contentMd };
+      },
+    }),
+  };
+}
