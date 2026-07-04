@@ -1,7 +1,7 @@
 import type { WorkflowSummary } from "../../api.ts";
 import { type TabDef, Tabs } from "../../design-system/navigation/tabs.tsx";
+import { ArticlesSpec } from "./articles-spec.tsx";
 import { InputsSpec } from "./inputs-spec.tsx";
-import { PublishesSpec } from "./publishes-spec.tsx";
 import { Runs } from "./runs.tsx";
 import { SchemaSpec } from "./schema-spec.tsx";
 
@@ -14,7 +14,7 @@ export function WorkflowDetails({ workflow }: { workflow: WorkflowSummary }) {
   const tabs: TabDef[] = [
     { id: "runs", label: "Runs", content: <Runs workflowName={workflow.name} /> },
     { id: "inputs", label: "Inputs", content: <InputsSpec inputs={workflow.inputs} /> },
-    { id: "publishes", label: "Publishes", content: <PublishesSpec entries={workflow.publish} /> },
+    { id: "publishes", label: "Publishes", content: <ArticlesSpec entries={workflow.publish} /> },
     {
       id: "schema",
       label: "Schema",

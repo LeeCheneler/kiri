@@ -3,7 +3,7 @@
  * of two or fewer characters (`pr` → `PR`), capitalise the first letter of
  * longer ones, and join with spaces (`financial-advisor` → `Financial Advisor`).
  * The single titlecasing site for slug-derived display names — both
- * `resolvePublishName` and persona listing route through here. Pure and
+ * `resolveArticleName` and persona listing route through here. Pure and
  * dependency-free so the server and the client can both import it.
  */
 export const humaniseSlug = (slug: string): string =>

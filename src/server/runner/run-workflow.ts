@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { resolvePublishName } from "../../shared/publish-name.ts";
+import { resolveArticleName } from "../../shared/article-name.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, runSteps, runs } from "../db/schema.ts";
@@ -15,13 +15,13 @@ import {
   buildSummaryContext,
 } from "../llm/index.ts";
 import {
+  type ArticleEntry,
   type LlmConfig,
-  type PublishEntry,
   type WorkflowDefinition,
   type WorkflowStep,
-  isLlmPublish,
+  isLlmArticle,
   isLlmStep,
-  isUsePublish,
+  isUseArticle,
   isUseStep,
 } from "../workflows/index.ts";
 import type { CancelRegistry } from "./cancel-registry.ts";
@@ -66,7 +66,7 @@ interface DefinitionSnapshot {
   name: string;
   steps: WorkflowStep[];
   summarize?: WorkflowStep;
-  publish?: PublishEntry[];
+  publish?: ArticleEntry[];
 }
 
 /** A step's kind tag plus the config that identifies it, mirroring the step variants. */
@@ -100,9 +100,9 @@ const resolveInputs = (
   return resolved;
 };
 
-const publishAsStep = (entry: PublishEntry): WorkflowStep => {
-  if (isUsePublish(entry)) return { use: entry.use, env: entry.env };
-  if (isLlmPublish(entry)) return { llm: entry.llm, env: entry.env };
+const articleAsStep = (entry: ArticleEntry): WorkflowStep => {
+  if (isUseArticle(entry)) return { use: entry.use, env: entry.env };
+  if (isLlmArticle(entry)) return { llm: entry.llm, env: entry.env };
   return { sh: entry.sh, env: entry.env };
 };
 
@@ -442,7 +442,7 @@ export function runWorkflow(
         }
 
         const entry = publishes[pi];
-        const publishStep = publishAsStep(entry);
+        const publishStep = articleAsStep(entry);
         const publishIndex = definition.steps.length + pi;
 
         // Publishes get no auto-injected data: empty stdin, and whatever
@@ -456,7 +456,7 @@ export function runWorkflow(
         });
 
         if (envelope.status === "ok" && !cancelled) {
-          const name = resolvePublishName(entry.slug, entry.name);
+          const name = resolveArticleName(entry.slug, entry.name);
           const contentMd = envelope.output.trimEnd();
           db.insert(articles)
             .values({

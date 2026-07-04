@@ -1,16 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { render, screen } from "@testing-library/react";
-import { PublishesSpec } from "./publishes-spec.tsx";
+import { ArticlesSpec } from "./articles-spec.tsx";
 
-describe("<PublishesSpec>", () => {
+describe("<ArticlesSpec>", () => {
   it("shows an empty state when nothing is published", () => {
-    render(<PublishesSpec entries={[]} />);
+    render(<ArticlesSpec entries={[]} />);
     expect(screen.getByText(/publishes no articles/i)).toBeDefined();
   });
 
   it("lists each publish with its name, description, and slug", () => {
     render(
-      <PublishesSpec
+      <ArticlesSpec
         entries={[
           {
             slug: "digest",

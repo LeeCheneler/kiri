@@ -1261,7 +1261,7 @@ describe("runWorkflow", () => {
       expect(digest?.createdAt).toBeInstanceOf(Date);
 
       const notes = articleRows.find((a) => a.slug === "release-notes");
-      // Name defaults via resolvePublishName when omitted.
+      // Name defaults via resolveArticleName when omitted.
       expect(notes?.name).toBe("Release Notes");
       expect(notes?.contentMd).toBe("notes-body");
     });

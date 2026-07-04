@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
-  isLlmPublish,
+  isLlmArticle,
   isLlmStep,
-  isShPublish,
+  isShArticle,
   isShStep,
-  isUsePublish,
+  isUseArticle,
   isUseStep,
   workflowSchema,
 } from "./schema.ts";
@@ -261,7 +261,7 @@ describe("workflowSchema", () => {
     });
     expect(result.publish).toEqual([{ slug: "digest", use: "writer" }]);
     const [entry] = result.publish ?? [];
-    expect(isUsePublish(entry)).toBe(true);
+    expect(isUseArticle(entry)).toBe(true);
   });
 
   it("parses a workflow with an inline sh: publish entry", () => {
@@ -272,7 +272,7 @@ describe("workflowSchema", () => {
     });
     expect(result.publish).toEqual([{ slug: "digest", sh: "cat" }]);
     const [entry] = result.publish ?? [];
-    expect(isShPublish(entry)).toBe(true);
+    expect(isShArticle(entry)).toBe(true);
   });
 
   it("parses a publish entry with explicit name and env", () => {
@@ -446,7 +446,7 @@ describe("workflowSchema", () => {
       ],
     });
     const [entry] = result.publish ?? [];
-    expect(isLlmPublish(entry)).toBe(true);
+    expect(isLlmArticle(entry)).toBe(true);
   });
 
   it("parses an llm summarize step with a prompt", () => {
@@ -1054,26 +1054,26 @@ describe("step ids and output refs", () => {
   });
 });
 
-describe("isUsePublish / isShPublish / isLlmPublish", () => {
+describe("isUseArticle / isShArticle / isLlmArticle", () => {
   it("narrows a use: publish entry", () => {
     const entry = { slug: "digest", use: "writer" } as const;
-    expect(isUsePublish(entry)).toBe(true);
-    expect(isShPublish(entry)).toBe(false);
-    expect(isLlmPublish(entry)).toBe(false);
+    expect(isUseArticle(entry)).toBe(true);
+    expect(isShArticle(entry)).toBe(false);
+    expect(isLlmArticle(entry)).toBe(false);
   });
 
   it("narrows an sh: publish entry", () => {
     const entry = { slug: "digest", sh: "cat" } as const;
-    expect(isShPublish(entry)).toBe(true);
-    expect(isUsePublish(entry)).toBe(false);
-    expect(isLlmPublish(entry)).toBe(false);
+    expect(isShArticle(entry)).toBe(true);
+    expect(isUseArticle(entry)).toBe(false);
+    expect(isLlmArticle(entry)).toBe(false);
   });
 
   it("narrows an llm: publish entry", () => {
     const entry = { slug: "digest", llm: { model: "a:b", prompt: "p" } } as const;
-    expect(isLlmPublish(entry)).toBe(true);
-    expect(isUsePublish(entry)).toBe(false);
-    expect(isShPublish(entry)).toBe(false);
+    expect(isLlmArticle(entry)).toBe(true);
+    expect(isUseArticle(entry)).toBe(false);
+    expect(isShArticle(entry)).toBe(false);
   });
 });
 

@@ -122,51 +122,51 @@ const stepSchema = z.union([useStepSchema, shStepSchema, llmStepSchema]);
  * HTTP route that fetches articles by slug so the regex lives once and
  * the validation surface matches the schema exactly.
  */
-export const publishSlugSchema = z.string().regex(/^[a-z0-9-]+$/, {
+export const articleSlugSchema = z.string().regex(/^[a-z0-9-]+$/, {
   message: "publish slug must match ^[a-z0-9-]+$",
 });
 
-const publishNameSchema = z
+const articleNameSchema = z
   .string()
   .min(1)
   .describe(
     "Series label for the article — shown as a feed chip and the page eyebrow, and used as the page title when the body has no leading `# ` heading. Defaults to a humanised form of `slug`.",
   );
 
-const usePublishSchema = z
+const useArticleSchema = z
   .object({
-    slug: publishSlugSchema,
-    name: publishNameSchema.optional(),
+    slug: articleSlugSchema,
+    name: articleNameSchema.optional(),
     description: z.string().min(1).optional(),
     use: z.string().min(1),
     env: envSchema.optional(),
   })
   .strict();
 
-const shPublishSchema = z
+const shArticleSchema = z
   .object({
-    slug: publishSlugSchema,
-    name: publishNameSchema.optional(),
+    slug: articleSlugSchema,
+    name: articleNameSchema.optional(),
     description: z.string().min(1).optional(),
     sh: z.string().min(1),
     env: envSchema.optional(),
   })
   .strict();
 
-const llmPublishSchema = z
+const llmArticleSchema = z
   .object({
-    slug: publishSlugSchema,
-    name: publishNameSchema.optional(),
+    slug: articleSlugSchema,
+    name: articleNameSchema.optional(),
     description: z.string().min(1).optional(),
     llm: llmConfigSchema,
     env: envSchema.optional(),
   })
   .strict();
 
-const publishEntrySchema = z.union([usePublishSchema, shPublishSchema, llmPublishSchema]);
+const articleEntrySchema = z.union([useArticleSchema, shArticleSchema, llmArticleSchema]);
 
-const publishArraySchema = z
-  .array(publishEntrySchema)
+const articlesArraySchema = z
+  .array(articleEntrySchema)
   .refine((entries) => new Set(entries.map((e) => e.slug)).size === entries.length, {
     message: "publish slugs must be unique within a workflow",
   });
@@ -264,7 +264,7 @@ const baseWorkflowSchema = z
      * executor path as a step; its trimmed stdout is stored as a markdown
      * article keyed by `name`. Names must be unique within a workflow.
      */
-    publish: publishArraySchema.optional(),
+    publish: articlesArraySchema.optional(),
   })
   .strict();
 
@@ -324,9 +324,9 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
     });
   }
 
-  const publishSlugIndex = new Map<string, number>();
+  const articleSlugIndex = new Map<string, number>();
   wf.publish?.forEach((entry, i) => {
-    if (!publishSlugIndex.has(entry.slug)) publishSlugIndex.set(entry.slug, i);
+    if (!articleSlugIndex.has(entry.slug)) articleSlugIndex.set(entry.slug, i);
   });
 
   const declared = new Set((wf.inputs ?? []).map((i) => i.name));
@@ -378,7 +378,7 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
         });
         continue;
       }
-      const target = publishSlugIndex.get(value.article);
+      const target = articleSlugIndex.get(value.article);
       if (target === undefined) {
         ctx.addIssue({
           code: "custom",
@@ -414,7 +414,7 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
   // of `prompt` / `prompt_file`; `summarize:` allows neither (it falls back
   // to a default summary prompt). Declaring both is invalid everywhere.
   const checkLlmPrompt = (
-    entry: z.infer<typeof stepSchema> | z.infer<typeof publishEntrySchema>,
+    entry: z.infer<typeof stepSchema> | z.infer<typeof articleEntrySchema>,
     path: Array<string | number>,
     promptRequired: boolean,
   ): void => {
@@ -445,10 +445,10 @@ export type UseStep = z.infer<typeof useStepSchema>;
 export type ShStep = z.infer<typeof shStepSchema>;
 export type LlmStep = z.infer<typeof llmStepSchema>;
 export type LlmConfig = z.infer<typeof llmConfigSchema>;
-export type PublishEntry = z.infer<typeof publishEntrySchema>;
-export type UsePublish = z.infer<typeof usePublishSchema>;
-export type ShPublish = z.infer<typeof shPublishSchema>;
-export type LlmPublish = z.infer<typeof llmPublishSchema>;
+export type ArticleEntry = z.infer<typeof articleEntrySchema>;
+export type UseArticle = z.infer<typeof useArticleSchema>;
+export type ShArticle = z.infer<typeof shArticleSchema>;
+export type LlmArticle = z.infer<typeof llmArticleSchema>;
 export type WorkflowInput = z.infer<typeof inputSchema>;
 export type EnvValue = z.infer<typeof envValueSchema>;
 
@@ -462,10 +462,10 @@ export const isShStep = (step: WorkflowStep): step is ShStep => "sh" in step;
 export const isLlmStep = (step: WorkflowStep): step is LlmStep => "llm" in step;
 
 /** Type guard: a publish entry is a `use:` bundle reference. */
-export const isUsePublish = (entry: PublishEntry): entry is UsePublish => "use" in entry;
+export const isUseArticle = (entry: ArticleEntry): entry is UseArticle => "use" in entry;
 
 /** Type guard: a publish entry is an inline `sh:` shell snippet. */
-export const isShPublish = (entry: PublishEntry): entry is ShPublish => "sh" in entry;
+export const isShArticle = (entry: ArticleEntry): entry is ShArticle => "sh" in entry;
 
 /** Type guard: a publish entry is a first-party `llm:` completion. */
-export const isLlmPublish = (entry: PublishEntry): entry is LlmPublish => "llm" in entry;
+export const isLlmArticle = (entry: ArticleEntry): entry is LlmArticle => "llm" in entry;

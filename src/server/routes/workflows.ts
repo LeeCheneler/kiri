@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { resolvePublishName } from "../../shared/publish-name.ts";
+import { resolveArticleName } from "../../shared/article-name.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
@@ -38,7 +38,7 @@ const summarizeWorkflow = (def: WorkflowDefinition) => ({
     def.publish && def.publish.length > 0
       ? def.publish.map((entry) => ({
           ...entry,
-          name: resolvePublishName(entry.slug, entry.name),
+          name: resolveArticleName(entry.slug, entry.name),
         }))
       : undefined,
   summarize: def.summarize,

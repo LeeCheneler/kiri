@@ -1,4 +1,4 @@
-import type { WorkflowPublishSummary } from "../../api.ts";
+import type { WorkflowArticleSummary } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 
 /**
@@ -8,7 +8,7 @@ import { EmptyState } from "../../design-system/content/empty-state.tsx";
  * the Schema tab; this is the at-a-glance view. Workflows that publish nothing
  * show an empty state.
  */
-export function PublishesSpec({ entries }: { entries?: WorkflowPublishSummary[] }) {
+export function ArticlesSpec({ entries }: { entries?: WorkflowArticleSummary[] }) {
   if (!entries || entries.length === 0) {
     return <EmptyState>this workflow publishes no articles.</EmptyState>;
   }

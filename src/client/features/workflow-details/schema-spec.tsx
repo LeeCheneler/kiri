@@ -1,9 +1,9 @@
-import type { WorkflowPublishSummary, WorkflowStepSummary } from "../../api.ts";
+import type { WorkflowArticleSummary, WorkflowStepSummary } from "../../api.ts";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { EntryConfig, stepTitle } from "./entry-config.tsx";
 
-type SchemaItem = WorkflowStepSummary | WorkflowPublishSummary;
+type SchemaItem = WorkflowStepSummary | WorkflowArticleSummary;
 
 /**
  * One schema entry: a disclosure whose summary pairs a phase marker, the
@@ -51,7 +51,7 @@ export function SchemaSpec({
   summarize,
 }: {
   steps: WorkflowStepSummary[];
-  publish?: WorkflowPublishSummary[];
+  publish?: WorkflowArticleSummary[];
   summarize?: WorkflowStepSummary;
 }) {
   const hasSchema = steps.length > 0 || (publish?.length ?? 0) > 0 || summarize !== undefined;

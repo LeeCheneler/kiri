@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
-import { publishSlugSchema } from "../workflows/schema.ts";
+import { articleSlugSchema } from "../workflows/schema.ts";
 
 // Shape of the invoke endpoint's optional JSON body. Values must be strings —
 // inputs flow into env vars verbatim, and env vars are strings. The
@@ -18,9 +18,9 @@ export const invokeBodySchema = z
 // and unknown values continue to 404 from their respective lookups.
 export const runIdParamSchema = z.object({ id: z.string().min(1) });
 export const workflowNameParamSchema = z.object({ name: z.string().min(1) });
-export const publishedArticleParamSchema = z.object({
+export const articleParamSchema = z.object({
   id: z.string().min(1),
-  slug: publishSlugSchema,
+  slug: articleSlugSchema,
 });
 
 // Structural shape shared by `z.ZodError` (used by `safeParse`) and

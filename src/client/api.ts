@@ -51,7 +51,7 @@ export type WorkflowStepSummary =
  * `name` (the display label) is always present — the server applies the
  * schema's titlecase fallback so the client doesn't re-implement it.
  */
-export type WorkflowPublishSummary =
+export type WorkflowArticleSummary =
   | {
       slug: string;
       name: string;
@@ -102,7 +102,7 @@ export interface WorkflowSummary {
   inputs?: WorkflowInputSummary[];
   steps: WorkflowStepSummary[];
   /** Defined when the workflow has at least one `publish:` entry. */
-  publish?: WorkflowPublishSummary[];
+  publish?: WorkflowArticleSummary[];
   /** Defined when the workflow has a `summarize:` step. */
   summarize?: WorkflowStepSummary;
 }
@@ -120,9 +120,9 @@ export interface RunStartResult {
 /**
  * Snapshotted publish entry on a run row. Carries the *raw* `name` label (or
  * `undefined`) as it appeared in the workflow definition at run-start —
- * callers that need a display string resolve via `resolvePublishName`.
+ * callers that need a display string resolve via `resolveArticleName`.
  */
-export type RunPublishSnapshot =
+export type RunArticleSnapshot =
   | {
       slug: string;
       name?: string;
@@ -184,7 +184,7 @@ export interface RunListEntry {
     name: string;
     steps: WorkflowStepSummary[];
     summarize?: WorkflowStepSummary;
-    publish?: RunPublishSnapshot[];
+    publish?: RunArticleSnapshot[];
   };
   /**
    * HEAD sha of the data repo at run-start, with a dirty flag for

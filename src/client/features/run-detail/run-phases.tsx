@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { resolvePublishName } from "../../../shared/publish-name.ts";
+import { resolveArticleName } from "../../../shared/article-name.ts";
 import type {
   LlmConfigSummary,
+  RunArticleSnapshot,
   RunDetailRun,
-  RunPublishSnapshot,
   RunStepRow,
   WorkflowStepSummary,
 } from "../../api.ts";
@@ -16,7 +16,7 @@ import { stepTitle } from "../workflow-details/entry-config.tsx";
 import { LiveDuration } from "./live-duration.tsx";
 
 /** A declared pipeline entry from the run's definition snapshot. */
-type PhaseEntry = WorkflowStepSummary | RunPublishSnapshot;
+type PhaseEntry = WorkflowStepSummary | RunArticleSnapshot;
 
 type LlmUsageCounts = NonNullable<NonNullable<RunStepRow["traces"]>["usage"]>;
 
@@ -66,7 +66,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
     return {
       key: row?.id ?? `publish-${pi}`,
       ordinal: pi + 1,
-      title: resolvePublishName(entry.slug, entry.name),
+      title: resolveArticleName(entry.slug, entry.name),
       status: row?.status ?? "pending",
       handle: entry.slug,
       entry,

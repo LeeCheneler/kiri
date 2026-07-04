@@ -14,9 +14,9 @@ import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow } from "../runner/index.ts";
 import { type Registry, buildInputSchema } from "../workflows/index.ts";
 import {
+  articleParamSchema,
   onZodFail,
   optionalInvokeBody,
-  publishedArticleParamSchema,
   runIdParamSchema,
   zodErrorBody,
 } from "./shared.ts";
@@ -161,7 +161,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
 
   app.get(
     "/:id/published/:slug",
-    zValidator("param", publishedArticleParamSchema, onZodFail("invalid article slug")),
+    zValidator("param", articleParamSchema, onZodFail("invalid article slug")),
     (c) => {
       const { id, slug } = c.req.valid("param");
       const run = db.select().from(runs).where(eq(runs.id, id)).get();

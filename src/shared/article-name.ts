@@ -9,7 +9,7 @@ import { humaniseSlug } from "./humanise-slug.ts";
  * Pure and dependency-free so both the server (schema, runner, API projection)
  * and the client (run detail rendering) can import it.
  */
-export const resolvePublishName = (slug: string, name?: string): string => {
+export const resolveArticleName = (slug: string, name?: string): string => {
   if (name !== undefined && name.length > 0) return name;
   return humaniseSlug(slug);
 };
