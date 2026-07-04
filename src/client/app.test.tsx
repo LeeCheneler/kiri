@@ -125,6 +125,35 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /sessions/:id/articles/:slug to the session article page with its TOC", async () => {
+    // Article body carries a `##` section so the TOC has an entry to show.
+    server.use(
+      http.get("*/api/sessions/:id/articles/:slug", ({ params }) =>
+        HttpResponse.json({
+          id: "art-1",
+          sessionId: params.id,
+          slug: params.slug,
+          name: "Demo",
+          contentMd: "# Headline\n\n## A section\n\nbody\n",
+          createdAt: new Date().toISOString(),
+          heading: "Headline",
+        }),
+      ),
+    );
+
+    renderAt("/sessions/session-1/articles/demo");
+
+    // Wait for the markdown body's section heading to land first: the right-rail
+    // TOC is derived from those section anchors once they're in the document, so
+    // asserting it before the body has rendered races that collection (flaky on a
+    // slower CI runner). Both lookups get a wide window for a cold render.
+    await screen.findByRole("heading", { level: 2, name: /a section/i }, { timeout: 5000 });
+    expect(
+      await screen.findByRole("heading", { name: /in this article/i }, { timeout: 5000 }),
+    ).toBeDefined();
+    await flushAsync();
+  });
+
   it("shows the design-system TOC in the right rail on the design-system route", async () => {
     renderAt("/dev/design-system");
     expect(
