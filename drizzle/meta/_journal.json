@@ -134,6 +134,13 @@
       "when": 1783123573534,
       "tag": "0018_rename_is_publish_to_is_article",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1783155679664,
+      "tag": "0019_decouple_articles_from_runs",
+      "breakpoints": true
     }
   ]
 }

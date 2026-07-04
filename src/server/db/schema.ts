@@ -1,4 +1,5 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * One row per workflow invocation. `definition_snapshot` captures the
@@ -102,27 +103,34 @@ export const runSteps = sqliteTable(
 );
 
 /**
- * One row per article a run produced. Populated after `steps:`
- * complete (when the workflow defines `articles:`) and read back to render
- * article chips on the feed and the dedicated article page. `slug` is the
- * URL/identifier; `name` is the resolved display label — never null — so
- * write-time titlecasing doesn't leak into read paths.
+ * One row per article, linked to exactly one producer: the workflow run or
+ * the agentic session that wrote it (`runId` XOR `sessionId`, enforced by a
+ * check constraint). Run articles are populated after `steps:` complete
+ * (when the workflow defines `articles:`) and read back to render article
+ * chips on the feed and the dedicated article page. `slug` is the
+ * URL/identifier, unique within its producer; `name` is the resolved
+ * display label — never null — so write-time titlecasing doesn't leak into
+ * read paths.
  */
 export const articles = sqliteTable(
   "articles",
   {
     id: text("id").primaryKey(),
-    runId: text("run_id")
-      .notNull()
-      .references(() => runs.id),
+    runId: text("run_id").references(() => runs.id),
+    sessionId: text("session_id").references(() => sessions.id),
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     contentMd: text("content_md").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [
-    uniqueIndex("articles_run_id_slug_unique").on(t.runId, t.slug),
+    uniqueIndex("articles_run_id_slug_unique").on(t.runId, t.slug).where(sql`"run_id" is not null`),
+    uniqueIndex("articles_session_id_slug_unique")
+      .on(t.sessionId, t.slug)
+      .where(sql`"session_id" is not null`),
     index("articles_run_id_idx").on(t.runId),
+    index("articles_session_id_idx").on(t.sessionId),
+    check("articles_producer_check", sql`("run_id" is not null) <> ("session_id" is not null)`),
   ],
 );
 
