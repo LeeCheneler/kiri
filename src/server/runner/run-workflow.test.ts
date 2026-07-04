@@ -1115,7 +1115,7 @@ describe("runWorkflow", () => {
   });
 
   describe("publish", () => {
-    it("records each publish entry as a run_steps row with isPublish=true", async () => {
+    it("records each publish entry as a run_steps row with isArticle=true", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("digest", "#!/bin/sh\necho digest-body\n");
       writeBundle("notes", "#!/bin/sh\necho notes-body\n");
@@ -1138,14 +1138,14 @@ describe("runWorkflow", () => {
         .orderBy(asc(runSteps.index))
         .all();
       expect(stepsRows).toHaveLength(3);
-      expect(stepsRows[0].isPublish).toBe(false);
+      expect(stepsRows[0].isArticle).toBe(false);
       expect(stepsRows[0].isSummary).toBe(false);
       expect(stepsRows[1].index).toBe(1);
-      expect(stepsRows[1].isPublish).toBe(true);
+      expect(stepsRows[1].isArticle).toBe(true);
       expect(stepsRows[1].isSummary).toBe(false);
       expect(stepsRows[1].kind).toBe("use");
       expect(stepsRows[2].index).toBe(2);
-      expect(stepsRows[2].isPublish).toBe(true);
+      expect(stepsRows[2].isArticle).toBe(true);
       expect(stepsRows[2].kind).toBe("sh");
     });
 
@@ -1169,7 +1169,7 @@ describe("runWorkflow", () => {
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all();
-      expect(stepsRows.map((s) => [s.index, s.isPublish, s.isSummary])).toEqual([
+      expect(stepsRows.map((s) => [s.index, s.isArticle, s.isSummary])).toEqual([
         [0, false, false],
         [1, true, false],
         [2, false, true],
@@ -1221,7 +1221,7 @@ describe("runWorkflow", () => {
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all()
-        .filter((s) => s.isPublish);
+        .filter((s) => s.isArticle);
       expect(publishRows).toHaveLength(1);
       expect(publishRows[0].status).toBe("failed");
       expect(publishRows[0].error).not.toBeNull();
@@ -1320,7 +1320,7 @@ describe("runWorkflow", () => {
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all()
-        .find((s) => s.isPublish);
+        .find((s) => s.isArticle);
       expect(publishRow?.output).toBe("unset|unset|stdin=");
     });
 
@@ -1342,7 +1342,7 @@ describe("runWorkflow", () => {
       // No publish row inserted; the marker file was never created.
       expect(existsSync(join(cwd, "pub-marker"))).toBe(false);
       const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
-      expect(stepsRows.some((s) => s.isPublish)).toBe(false);
+      expect(stepsRows.some((s) => s.isArticle)).toBe(false);
     });
 
     it("skips publishes entirely when the run is cancelled", async () => {
@@ -1371,7 +1371,7 @@ describe("runWorkflow", () => {
       // No publish row inserted; the marker file was never created.
       expect(existsSync(join(cwd, "pub-marker"))).toBe(false);
       const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, runId)).all();
-      expect(stepsRows.some((s) => s.isPublish)).toBe(false);
+      expect(stepsRows.some((s) => s.isArticle)).toBe(false);
     });
 
     it("feeds a publish its declared step data through refs", async () => {
@@ -1435,7 +1435,7 @@ describe("runWorkflow", () => {
         .where(eq(runSteps.runId, runId))
         .orderBy(asc(runSteps.index))
         .all()
-        .filter((s) => s.isPublish);
+        .filter((s) => s.isArticle);
       expect(publishRows).toHaveLength(1);
       expect(publishRows[0].status).toBe("ok");
 
@@ -1486,7 +1486,7 @@ describe("runWorkflow", () => {
         .where(eq(runSteps.runId, runId))
         .orderBy(asc(runSteps.index))
         .all()
-        .find((s) => s.isPublish);
+        .find((s) => s.isArticle);
       expect(publishRow?.status).toBe("cancelled");
       expect(publishRow?.error).toEqual({ message: "run cancelled" });
     });
@@ -2081,7 +2081,7 @@ EOF
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all();
-      const publishStep = stepRows.find((s) => s.isPublish);
+      const publishStep = stepRows.find((s) => s.isArticle);
       // Empty expansion of the missing var produces a bare "REC=" line.
       expect(publishStep?.output).toBe("REC=\n");
 

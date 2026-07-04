@@ -309,7 +309,7 @@ export function runWorkflow(
         kind: stepIdentOf(opts.step).kind,
         status: "running",
         startedAt: new Date(),
-        isPublish: opts.flag === "publish" ? true : undefined,
+        isArticle: opts.flag === "publish" ? true : undefined,
         isSummary: opts.flag === "summary" ? true : undefined,
       })
       .run();

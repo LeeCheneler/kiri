@@ -35,7 +35,7 @@ const makeStep = (overrides: Partial<RunStepRow> & { index: number }): RunStepRo
   error: null,
   traces: { stdout: "", stderr: "", durationMs: 12000 },
   isSummary: false,
-  isPublish: false,
+  isArticle: false,
   ...overrides,
 });
 
@@ -51,7 +51,7 @@ describe("<RunPhases>", () => {
     const steps = [
       makeStep({ index: 0 }),
       makeStep({ index: 1, kind: "sh" }),
-      makeStep({ index: 2, isPublish: true }),
+      makeStep({ index: 2, isArticle: true }),
       makeStep({ index: 3, isSummary: true }),
     ];
 
@@ -80,7 +80,7 @@ describe("<RunPhases>", () => {
       steps: [{ use: "fetch-pr" }],
       publish: [{ slug: "digest", name: "PR Digest", use: "writer" }],
     });
-    const steps = [makeStep({ index: 0 }), makeStep({ index: 1, isPublish: true })];
+    const steps = [makeStep({ index: 0 }), makeStep({ index: 1, isArticle: true })];
     render(<RunPhases run={run} steps={steps} now={NOW} />);
     expect(screen.getByText("PR Digest")).toBeDefined();
     expect(screen.getByText("digest")).toBeDefined();

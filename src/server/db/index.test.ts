@@ -332,7 +332,7 @@ describe("db", () => {
     expect(rows).toHaveLength(2);
   });
 
-  it("round-trips run_steps.is_publish", () => {
+  it("round-trips run_steps.is_article", () => {
     migrate(db);
 
     db.insert(runs)
@@ -352,7 +352,7 @@ describe("db", () => {
         index: 0,
         kind: "use",
         status: "ok",
-        isPublish: true,
+        isArticle: true,
       })
       .run();
 
@@ -367,14 +367,14 @@ describe("db", () => {
       .run();
 
     const publishRow = db.select().from(runSteps).where(eq(runSteps.id, "pub-step-1")).get();
-    expect(publishRow?.isPublish).toBe(true);
+    expect(publishRow?.isArticle).toBe(true);
     expect(publishRow?.isSummary).toBe(false);
 
     const regularRow = db.select().from(runSteps).where(eq(runSteps.id, "regular-step-1")).get();
-    expect(regularRow?.isPublish).toBe(false);
+    expect(regularRow?.isArticle).toBe(false);
   });
 
-  it("adds is_publish + articles when migrating a pre-publish DB", () => {
+  it("adds the article step flag + articles table when migrating a pre-publish DB", () => {
     const sqlite = db.$client;
     sqlite.run(
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
@@ -418,7 +418,7 @@ describe("db", () => {
       .query<{ name: string }, []>("PRAGMA table_info(run_steps)")
       .all()
       .map((r) => r.name);
-    expect(stepCols).toContain("is_publish");
+    expect(stepCols).toContain("is_article");
 
     const tables = sqlite
       .query<{ name: string }, []>(
@@ -665,8 +665,21 @@ describe("db", () => {
         ('0008_rename_run_artefacts_to_articles', 0),
         ('0009_add_run_inputs', 0)`,
     );
+    // A step flagged with the pre-0018 is_publish column — the rename
+    // migration must carry the value into is_article.
+    sqlite.run(
+      "INSERT INTO runs (id, workflow_name, status, trigger, started_at, definition_snapshot) VALUES ('r1', 'wf', 'ok', 'manual', 0, '{}')",
+    );
+    sqlite.run(
+      `INSERT INTO run_steps (id, run_id, "index", kind, status, is_summary, is_publish) VALUES ('s1', 'r1', 0, 'use', 'ok', 0, 1)`,
+    );
 
     migrate(db);
+
+    const flag = sqlite
+      .query<{ is_article: number }, []>("SELECT is_article FROM run_steps WHERE id = 's1'")
+      .get();
+    expect(flag?.is_article).toBe(1);
 
     const tables = sqlite
       .query<{ name: string }, []>(
@@ -829,7 +842,12 @@ describe("db", () => {
     // Seed the migration ledger through 0013 so the session migrations
     // (0014 creating the tables, 0015 dropping the agent columns, 0016 adding
     // the persona column, 0017 dropping the running-token columns) are the ones
-    // outstanding; the run-side tables they don't touch are irrelevant.
+    // outstanding. 0018 renames run_steps.is_publish, so the fixture carries a
+    // minimal run_steps for it; the other run-side tables stay irrelevant.
+    sqlite.run(`CREATE TABLE run_steps (
+      id TEXT PRIMARY KEY NOT NULL,
+      is_publish INTEGER DEFAULT 0 NOT NULL
+    )`);
     const priorMigrations = [
       "0000_initial",
       "0001_index_run_nodes_run_id",

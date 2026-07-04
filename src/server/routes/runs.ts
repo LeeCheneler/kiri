@@ -196,7 +196,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
     const run = db.select().from(runs).where(eq(runs.id, id)).get();
     if (!run) return c.json({ error: `run "${id}" not found` }, 404);
     // Publish and summary rows ship alongside pipeline steps; clients
-    // separate them by the `isPublish` / `isSummary` flags. This is what
+    // separate them by the `isArticle` / `isSummary` flags. This is what
     // lets the run detail page render in-flight publish indicators while
     // an article row hasn't yet been written.
     const steps = db

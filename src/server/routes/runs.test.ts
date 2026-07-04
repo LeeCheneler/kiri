@@ -599,7 +599,7 @@ EOF
       expect(body.steps.map((s) => s.index)).toEqual([0]);
     });
 
-    it("returns articles ordered by created_at on run.articles and includes publish rows tagged isPublish in the step list", async () => {
+    it("returns articles ordered by created_at on run.articles and includes publish rows tagged isArticle in the step list", async () => {
       writeBundle(env.cwd, "one", "#!/bin/sh\necho one\n");
       writeBundle(
         env.cwd,
@@ -637,11 +637,11 @@ EOF
             createdAt: string;
           }>;
         };
-        steps: Array<{ index: number; kind: string; isPublish: boolean; isSummary: boolean }>;
+        steps: Array<{ index: number; kind: string; isArticle: boolean; isSummary: boolean }>;
       };
       // Pipeline step plus both publish rows in declared/index order; the
-      // client separates them by isPublish (same pattern as isSummary).
-      expect(body.steps.map((s) => [s.index, s.isPublish, s.isSummary])).toEqual([
+      // client separates them by isArticle (same pattern as isSummary).
+      expect(body.steps.map((s) => [s.index, s.isArticle, s.isSummary])).toEqual([
         [0, false, false],
         [1, true, false],
         [2, true, false],
@@ -694,11 +694,11 @@ EOF
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         run: { articles: Array<{ slug: string }> };
-        steps: Array<{ index: number; status: string; isPublish: boolean }>;
+        steps: Array<{ index: number; status: string; isArticle: boolean }>;
       };
       // Pipeline step and the failed publish ship; the run is fail-fast,
       // so the sibling after the failed publish has no row at all.
-      expect(body.steps.map((s) => [s.index, s.status, s.isPublish])).toEqual([
+      expect(body.steps.map((s) => [s.index, s.status, s.isArticle])).toEqual([
         [0, "ok", false],
         [1, "failed", true],
       ]);
@@ -748,11 +748,11 @@ EOF
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         run: { articles: Array<{ name: string }> };
-        steps: Array<{ index: number; status: string; isPublish: boolean }>;
+        steps: Array<{ index: number; status: string; isArticle: boolean }>;
       };
-      // The publish row exists in `steps[]` tagged isPublish=true, status=running.
-      const publishRow = body.steps.find((s) => s.isPublish);
-      expect(publishRow).toMatchObject({ index: 1, status: "running", isPublish: true });
+      // The publish row exists in `steps[]` tagged isArticle=true, status=running.
+      const publishRow = body.steps.find((s) => s.isArticle);
+      expect(publishRow).toMatchObject({ index: 1, status: "running", isArticle: true });
       // Article row isn't written until the publish exits ok, so the array
       // stays empty while the publish is in flight.
       expect(body.run.articles).toEqual([]);

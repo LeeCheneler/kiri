@@ -96,7 +96,7 @@ export const runSteps = sqliteTable(
      * run produces; the UI hides these from the main step list and
      * surfaces them via the article view.
      */
-    isPublish: integer("is_publish", { mode: "boolean" }).notNull().default(false),
+    isArticle: integer("is_article", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [index("run_steps_run_id_idx").on(t.runId)],
 );

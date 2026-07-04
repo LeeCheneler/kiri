@@ -1,0 +1,1 @@
+ALTER TABLE `run_steps` RENAME COLUMN `is_publish` TO `is_article`;

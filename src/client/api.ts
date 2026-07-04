@@ -210,7 +210,7 @@ export interface RunListEntry {
  * `status`, `output`, `error`, `traces`. Reproducibility of the bytes
  * that produced the step lives on the parent run's `gitSha`.
  *
- * `isSummary` and `isPublish` distinguish summariser and publish rows
+ * `isSummary` and `isArticle` distinguish summariser and publish rows
  * from regular pipeline steps. The UI hides both from the main step
  * list and surfaces them in dedicated sections — the Summariser
  * execution disclosure and the Publishing / Published sections
@@ -247,7 +247,7 @@ export interface RunStepRow {
     usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   } | null;
   isSummary: boolean;
-  isPublish: boolean;
+  isArticle: boolean;
 }
 
 /**
