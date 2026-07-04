@@ -1,8 +1,8 @@
 # Kiri
 
-> A local-first AI workbench for workflows and agentic sessions — on your own machine, against your own git repo.
+> Turn repetitive AI chores into one-click buttons — on your own machine, against your own git repo.
 
-Define a workflow or open an agentic session, run it against your machine and repo, and turn the results into markdown articles in a live activity feed. Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. Kiri runs only while the app is open: no daemons, no scheduler, no cloud.
+Describe a chore — release notes from your git log, a PR review, a morning briefing — as a small YAML file in your repo. Kiri runs it on your machine, shell steps piped into model steps, and writes the result up as an **article**: a readable page in a live feed, not scrollback in a terminal. Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. No cloud, no daemons: kiri runs only while the app is open.
 
 ```yaml
 # workflows/release-notes.yaml
@@ -33,10 +33,10 @@ articles:
 
 ## Two ways to work
 
-- **Workflows** — versioned YAML pipelines. Chain shell commands (`sh:`), reusable script bundles (`use:`, e.g. one that spawns an agentic CLI like Claude Code), and first-party model completions (`llm:`); pipe each step into the next, or reference any step's output by name; turn a run into markdown articles with inline charts and Mermaid diagrams. A run can even propose one-click follow-ups.
-- **Agentic sessions** — open-ended, streaming chat against your configured models, with your workspace context and tools from MCP servers you configure (e.g. web search via the Tavily MCP server). Each tool has an Always allow / Ask / Off permission set on the MCP page, with Ask tools prompting per call (Allow / Always allow / Deny). A layered system prompt — a workspace `kiri.md` plus optional `personas/` — shapes every session.
+- **Workflows** — scripted chores like the one above. Chain shell commands, reusable script bundles (e.g. one that spawns Claude Code), and first-party model completions. Runs produce articles — markdown with inline charts and diagrams — and can recommend one-click follow-ups. Reach for a workflow when you know the shape of the work.
+- **Sessions** — open-ended, streaming chat with the same models, plus tools from MCP servers you configure (web search, your issue tracker, anything MCP speaks). Every tool call is approval-gated, and a workspace `kiri.md` plus optional personas shape the system prompt. Reach for a session when you don't yet know the shape of the work.
 
-Both stream into a single activity feed.
+Both land in a single activity feed.
 
 ## Install
 
@@ -77,7 +77,7 @@ Then open **[local.kiri.build](https://local.kiri.build)** — the hosted shell 
 
 > **Safari / Brave:** both block HTTP-localhost requests from an HTTPS page, so use **http://localhost:4242** directly there. Chrome and Firefox work either way.
 
-From here, the [getting-started guide](https://kiri.build/docs/getting-started) covers configuration, model providers, and your first real workflow.
+From here, the [quickstart](https://kiri.build/docs/getting-started) takes you from install to your first model-written article in about five minutes, and the [recipes](https://kiri.build/docs/recipes) are complete workflows to copy.
 
 ## Trust model
 
@@ -85,7 +85,7 @@ Kiri runs `sh:` steps and `bundles/<name>/run.sh` with **your user's permissions
 
 ## Learn more
 
-- **[kiri.build/docs](https://kiri.build/docs)** — full documentation: workflows, providers, sessions, the CLI, and examples.
+- **[kiri.build/docs](https://kiri.build/docs)** — full documentation: workflows, recipes, sessions, providers, the CLI.
 - [`examples/`](./examples/) — a complete, runnable example workspace.
 - [`docs/design-notes.md`](./docs/design-notes.md) — architecture and design invariants.
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — repo setup and dev workflow.
