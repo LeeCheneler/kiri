@@ -101,7 +101,7 @@ describe("<RunRow>", () => {
     expect(screen.queryByText(/deployed/i)).toBeNull();
   });
 
-  it("lists the articles with the slug as eyebrow and the first heading as the link", () => {
+  it("lists the articles as links carrying the first heading, without the slug", () => {
     renderRow(
       run({
         id: "r2",
@@ -110,9 +110,10 @@ describe("<RunRow>", () => {
         ],
       }),
     );
-    expect(screen.getByText("digest")).toBeDefined();
     const link = screen.getByRole("link", { name: "Findings" });
     expect(link.getAttribute("href")).toBe("/runs/r2/articles/digest");
+    // The slug is plumbing, not a label — the title link stands alone.
+    expect(screen.queryByText("digest")).toBeNull();
   });
 
   it("falls back to the article name when it has no extracted heading", () => {

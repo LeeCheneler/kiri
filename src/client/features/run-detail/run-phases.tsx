@@ -10,6 +10,7 @@ import type {
 import { Code, CodeBlock } from "../../design-system/content/code.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
+import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { formatDuration } from "../../formatters/format-time.ts";
 import { stepTitle } from "../workflow-details/entry-config.tsx";
@@ -30,6 +31,8 @@ interface PhaseItem {
    * what `{ step: <id> }` / `{ article: <slug> }` env refs point at.
    */
   handle?: string;
+  /** Link through to the entry's published article, once one exists. */
+  href?: string;
   /** The declared definition entry — carries the `llm:` config for an llm row. */
   entry: PhaseEntry;
   /** The persisted step row, once the runner has reached this entry. */
@@ -60,6 +63,9 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
     };
   });
 
+  // An article row only exists in `run.articles` once its entry published, so
+  // presence there is what turns the phase row into a link through to the page.
+  const publishedSlugs = new Set(run.articles.map((article) => article.slug));
   const articleEntries = snap.articles ?? [];
   const articleItems: PhaseItem[] = articleEntries.map((entry, pi) => {
     const row = rowByIndex.get(snap.steps.length + pi);
@@ -69,6 +75,7 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       title: resolveArticleName(entry.slug, entry.name),
       status: row?.status ?? "pending",
       handle: entry.slug,
+      href: publishedSlugs.has(entry.slug) ? `/runs/${run.id}/articles/${entry.slug}` : undefined,
       entry,
       row,
     };
@@ -95,8 +102,10 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
  * Summarise — mirroring the order the runner walks them. Each group lists its
  * entries with status and duration (a live timer while running, the final span
  * once finished); rows that have executed expand to reveal their captured
- * stdout, stderr, and any error. Empty groups (no articles, no summariser) are
- * omitted. `now` is injectable so tests pin the live timer; production omits it.
+ * stdout, stderr, and any error. A published article's expanded row leads with
+ * a link through to its article page. Empty groups (no articles, no
+ * summariser) are omitted. `now` is injectable so tests pin the live timer;
+ * production omits it.
  */
 export function RunPhases({
   run,
@@ -163,7 +172,7 @@ function PhaseRow({ item, now }: { item: PhaseItem; now?: Date }) {
   }
   return (
     <Disclosure summary={summary}>
-      <StepTrace row={item.row} entry={item.entry} />
+      <StepTrace row={item.row} entry={item.entry} href={item.href} />
     </Disclosure>
   );
 }
@@ -174,11 +183,19 @@ function StepDuration({ row, now }: { row: RunStepRow | undefined; now?: Date })
   return <>{formatDuration(row.startedAt, row.finishedAt)}</>;
 }
 
-function StepTrace({ row, entry }: { row: RunStepRow; entry: PhaseEntry }) {
+function StepTrace({ row, entry, href }: { row: RunStepRow; entry: PhaseEntry; href?: string }) {
   const llm = "llm" in entry ? entry.llm : undefined;
   const usage = row.traces?.usage;
   return (
     <div className="space-y-4">
+      {href ? (
+        <div>
+          <Eyebrow tone="muted">article</Eyebrow>
+          <p className="mt-1.5 font-mono text-sm">
+            <InlineLink href={href}>read the article →</InlineLink>
+          </p>
+        </div>
+      ) : null}
       {llm ? <LlmDetail llm={llm} /> : null}
       <TracePart label="stdout" body={row.traces?.stdout ?? ""} />
       <TracePart label="stderr" body={row.traces?.stderr ?? ""} />

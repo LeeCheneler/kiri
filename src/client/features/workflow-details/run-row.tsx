@@ -1,5 +1,4 @@
 import type { RunListEntry } from "../../api.ts";
-import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
 import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
@@ -16,10 +15,9 @@ import { formatDuration, formatRelativeTime } from "../../formatters/format-time
  * the byline's lead link (to the workflow page);
  * it defaults off for the single-workflow feed, where the name would repeat on
  * every row, and is set for the cross-workflow home feed. An optional summary
- * renders below as prose, and the run's articles follow as a stacked
- * list — each an eyebrow of the article's name above a link carrying its first
- * heading (falling back to its title). With no name heading, those articles are
- * the row's visual lead.
+ * renders below as prose, and the run's articles follow as a stacked list of
+ * links, each carrying the article's first heading (falling back to its name).
+ * With no summary, those articles are the row's visual lead.
  *
  * Runs still in flight have no `finishedAt`, so the duration is omitted — the
  * `running` status word already signals the live state. `now` is injectable so
@@ -73,11 +71,10 @@ export function RunRow({
       {run.articles.length > 0 ? (
         // Article links sit at the same 16px scale as the summary text — the
         // feed is a scanning surface, so the entry's hierarchy comes from ink
-        // against the summary's muted tint (plus the eyebrow), not from size.
+        // against the summary's muted tint, not from size.
         <ul className="mt-4 space-y-3 text-base">
           {run.articles.map((article) => (
             <li key={article.slug}>
-              <Eyebrow tone="muted">{article.slug}</Eyebrow>
               <HeadlineLink href={`/runs/${run.id}/articles/${article.slug}`}>
                 {article.heading ?? article.name}
               </HeadlineLink>
