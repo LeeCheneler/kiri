@@ -263,6 +263,15 @@ articles:
       echo "All systems reporting healthy."
 ```
 
+**Structure the body as a document.** Open with a single `# Headline` — the
+article page lifts it out as the page title and drops anything before it, so
+don't emit preamble like "Here's the article" ahead of it. The `##` headings
+beneath become the page's table of contents. The entry's `name` is the
+recurring **series label**, shown as the feed chip and the page eyebrow; it
+becomes the page title only when the body has no `# Headline`. Let the body's
+headline name this edition, and let `name` name the series (e.g.
+`Daily Briefing`).
+
 Articles surface as chips on the activity feed row, as links in the run's body,
 and under an **Articles** phase on the run page. Each opens a dedicated page
 that renders the markdown through a sandboxed parser — no raw-HTML

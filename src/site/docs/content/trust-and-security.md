@@ -34,8 +34,7 @@ Treat data from outside your repo as **untrusted**:
   another external string. Treat it the same way.
 - **Rendered articles and tool results** — markdown renders through a sandboxed
   parser with no raw-HTML pass-through, and quoted external text reaching a
-  session is flagged to the model as untrusted data. Don't reintroduce
-  `dangerouslySetInnerHTML` in any custom UI that renders article content.
+  session is flagged to the model as untrusted data.
 
 ## Tool calls in sessions
 

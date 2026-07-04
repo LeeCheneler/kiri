@@ -44,7 +44,8 @@ kiri         # boot on :4242
 ```
 
 Then open [local.kiri.build](https://local.kiri.build) (or
-`http://localhost:4242`) and click **Run** on the starter workflow.
+`http://localhost:4242`) and click **Run** on the starter workflow — it
+declares one input, so a small form opens first asking who to greet.
 
 To pin a fixed workspace regardless of where you launch from, set
 `KIRI_CONFIG_DIR` (a leading `~` is expanded). It applies to both `kiri init` and
