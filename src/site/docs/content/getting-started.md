@@ -1,115 +1,122 @@
-# Getting started
+# Quickstart
 
-Install kiri, scaffold a workspace, and run your first workflow.
+Install kiri, run a workflow, and read the article it writes — about five
+minutes, and no API key until the last step.
 
 ## Install
 
-Kiri ships for **macOS on Apple silicon (ARM64)**. The fastest path is Homebrew,
-which auto-taps [LeeCheneler/homebrew-kiri](https://github.com/LeeCheneler/homebrew-kiri)
-on first install:
+Kiri ships for **macOS on Apple silicon**, via Homebrew:
 
 ```sh
 brew install LeeCheneler/kiri/kiri
-kiri --version
 ```
 
-To upgrade later: `brew upgrade kiri`.
+Upgrade later with `brew upgrade kiri`. Without Homebrew: download the binary
+from the [latest release](https://github.com/LeeCheneler/kiri/releases/latest),
+`chmod +x` it, clear quarantine with `xattr -d com.apple.quarantine`, and put
+it on your `$PATH`. Want another platform?
+[Open an issue](https://github.com/LeeCheneler/kiri/issues).
 
-### Without Homebrew
+## Boot a workspace
 
-Download the macOS ARM64 binary from the
-[latest release](https://github.com/LeeCheneler/kiri/releases/latest), make it
-executable, clear the macOS quarantine flag, and put it on your `$PATH`:
-
-```sh
-chmod +x ~/Downloads/kiri
-xattr -d com.apple.quarantine ~/Downloads/kiri
-sudo mv ~/Downloads/kiri /usr/local/bin/kiri
-kiri --version
-```
-
-Want another platform? [Open an issue](https://github.com/LeeCheneler/kiri/issues).
-Building from source is covered in
-[CONTRIBUTING.md](https://github.com/LeeCheneler/kiri/blob/main/CONTRIBUTING.md).
-
-## Quick start
-
-Kiri runs **per directory** — each working directory is its own workspace.
-Scaffold a starter workflow and launch:
+Kiri runs per directory — each working directory is its own workspace:
 
 ```sh
-cd ~/projects/some-workspace
+cd ~/projects/some-repo
 kiri init    # scaffold a starter workflow and config
-kiri         # boot on :4242
+kiri         # serve on :4242
 ```
 
-Then open [local.kiri.build](https://local.kiri.build) (or
-`http://localhost:4242`) and click **Run** on the starter workflow — it
-declares one input, so a small form opens first asking who to greet.
+Open [local.kiri.build](https://local.kiri.build) — or
+`http://localhost:4242` in Safari and Brave, which block HTTPS→localhost —
+and click **Run** on the starter workflow to see a run land in the feed.
 
-To pin a fixed workspace regardless of where you launch from, set
-`KIRI_CONFIG_DIR` (a leading `~` is expanded). It applies to both `kiri init` and
-the server:
+## Write a report
 
-```sh
-KIRI_CONFIG_DIR=~/projects/some-workspace kiri
-```
-
-`kiri init` never overwrites existing files; it only creates what's missing, and
-it always refreshes the editor JSON Schemas. See the
-[CLI reference](/docs/cli-reference) for everything it scaffolds.
-
-## Your first workflow
-
-Workflows live in `workflows/*.yaml`. Each has a name and one or more steps:
+Now something worth reading. Drop this in `workflows/standup.yaml` — edits are
+picked up live, no restart:
 
 ```yaml
-name: hello
+name: Standup
 steps:
-  - sh: echo "hello world"
+  - sh: |
+      set -eu
+      cd "$KIRI_REPO_ROOT"
+      git log --since="7 days ago" --format='- %s (%an)'
+    id: commits
+    name: Collect the week's commits
+articles:
+  - slug: standup
+    name: Standup Notes
+    sh: |
+      echo "# This week in $(basename "$KIRI_REPO_ROOT")"
+      echo
+      printf '%s\n' "$COMMITS"
+    env:
+      COMMITS: { step: commits }
 ```
 
-Edits are picked up live — no restart needed. Runs surface in the activity feed
-on [local.kiri.build](https://local.kiri.build). From here, read
-[Workflows](/docs/workflows) for step types, inputs, piping, articles,
-and recommendations.
+Run it. The run page streams each step, and the article — a rendered markdown
+page — lands in your feed. That's the whole loop: **steps produce data,
+articles write it up.**
 
-## Configuration
+## Add a model
 
-Kiri keeps configuration as **convention-based files in your repo**, not one
-monolithic settings file.
+The write-ups get good when a model does the writing. Declare a provider in
+`kiri.yaml` (workspace root, kept in git — `kiri init` scaffolds a commented
+skeleton):
 
-- **`kiri.yaml`** (workspace root, kept in git) is kiri's structured config. It
-  holds your LLM providers under `providers:` and MCP servers for sessions
-  under `mcp:`. Both are optional — a workspace with only `sh:`/`use:` steps
-  needs neither. `kiri init` writes a commented skeleton you can fill in. Full
-  detail in [LLM providers](/docs/llm-providers) and
-  [Agentic sessions](/docs/agentic-sessions).
-- **`.env`** (workspace root, **git-ignored**) holds secrets. Kiri auto-loads it
-  from the workspace directory at boot, so a workspace pinned with
-  `KIRI_CONFIG_DIR` reads the right `.env` even when you launch from elsewhere.
-  Ambient environment variables win over `.env` on a name clash.
-- **`kiri.md`** and **`personas/`** shape agentic sessions — see
-  [Agentic sessions](/docs/agentic-sessions).
+```yaml
+providers:
+  anthropic:
+    type: anthropic
+    api_key:
+      env: ANTHROPIC_API_KEY
+```
 
-### Configuration health
+Put the key in a git-ignored `.env` next to it — kiri auto-loads it at boot:
 
-Kiri **reports** configuration problems rather than blocking on them. It prints a
-health report at startup and shows the same checks in-app as a banner on the
-activity page. What counts as a problem is contextual:
+```sh
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
-- A workspace with no providers is fine (**degraded**, not an error) until an
-  `llm:` step needs one.
-- A declared provider whose API-key env var is unset, or an unparseable
-  `kiri.yaml`, is flagged as an **error**.
-- A declared MCP server whose `{ env: }` var is unset is flagged as an
-  **error**, naming the server.
+Then let a model write the article instead:
 
-Edits to `kiri.yaml` update the in-app banner live. If something isn't working,
-[Troubleshooting](/docs/troubleshooting) starts here.
+```yaml
+articles:
+  - slug: standup
+    name: Standup Notes
+    llm:
+      model: anthropic:claude-haiku-4-5
+      prompt: |
+        Write these commits up as crisp standup notes,
+        grouped by theme. Open with a # headline.
 
-## Next steps
+        {{COMMITS}}
+    env:
+      COMMITS: { step: commits }
+```
 
-- [Workflows](/docs/workflows) — the full pipeline anatomy.
-- [LLM providers](/docs/llm-providers) — wire up Anthropic, OpenAI, or a local server.
-- [Examples](/docs/examples) — a complete, runnable workspace to copy from.
+Run it again — same data, but now the article reads like a colleague wrote it.
+
+## Where kiri keeps things
+
+- **`kiri.yaml`** — structured config: model providers, MCP servers. Committed.
+- **`.env`** — secrets, auto-loaded at boot. Git-ignored.
+- **`kiri.md`** and **`personas/`** — system-prompt layers for
+  [sessions](/docs/sessions).
+- **`.kiri/`** — editor schemas and run scratch space. Git-ignored by `kiri init`.
+
+Configuration problems never block boot — kiri prints a health report at
+startup and shows the same checks as a banner in the app. To pin a workspace
+regardless of where you launch from, set `KIRI_CONFIG_DIR` (a leading `~` is
+expanded).
+
+## Next
+
+- [Writing workflows](/docs/workflows) — pipe steps, take inputs, recommend
+  follow-ups.
+- [Recipes](/docs/recipes) — release notes, one-click PR reviews, a daily
+  briefing.
+- [Models & providers](/docs/llm-providers) — OpenAI, local models, and the
+  provider registry.

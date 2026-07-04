@@ -1,0 +1,104 @@
+# Sessions
+
+A session is an open-ended chat with your configured models, your workspace's
+context, and tools from MCP servers you choose. Workflows are for chores
+you've scripted; sessions are for the work you haven't. Both land in the same
+activity feed.
+
+Start one with **+ New session** in the side nav. Sessions use the same
+`kiri.yaml` provider registry as `llm:` steps; swap the model any time from
+the right-hand aside — it applies from the next turn. A streaming turn
+survives a reload: it keeps running on the server, and reopening the session
+rejoins it live.
+
+## Shaping behaviour
+
+Kiri composes each turn's system prompt from three layers, in order:
+
+```
+core (kiri)  →  kiri.md  →  persona
+```
+
+Every layer is read fresh from disk each turn, so an edit applies on the next
+turn — git stays the source of truth.
+
+- **Core** — kiri's baseline, not user-editable: who the assistant is, how to
+  respond well, that replies render as markdown (including `chart` and
+  `mermaid` blocks), and the trust boundary — your instructions are
+  authoritative, quoted external text is untrusted data.
+- **`kiri.md`** — a plain markdown file at the workspace root, applied to
+  every session: your standing "how I want you to behave." It's read only by
+  kiri sessions — separate from any `CLAUDE.md`/`AGENTS.md` you keep for
+  coding agents.
+- **Personas** — optional role overlays, one file per persona under
+  `personas/<name>.md`, attached per session from the aside and injected
+  after `kiri.md`. The picker humanises filenames —
+  `personas/code-reviewer.md` lists as *Code Reviewer* — and you can swap or
+  detach mid-conversation.
+
+```
+You are a meticulous senior code reviewer. Read diffs closely, flag
+correctness bugs first, then design and clarity. Cite file:line. Be direct.
+```
+
+## Tools from MCP servers
+
+Kiri ships no built-in tools — a session's tools come from **MCP servers**
+you declare under `mcp:` in `kiri.yaml`. Web search, for example, via Tavily's
+remote server:
+
+```yaml
+mcp:
+  tavily:
+    type: http
+    url: https://mcp.tavily.com/mcp/
+    auth: oauth
+```
+
+- A server is either local (`type: stdio` with a `command` — kiri runs it as a
+  subprocess) or remote (`type: http`, Streamable HTTP).
+- An `http` server authenticates with `auth: oauth` — a browser sign-in kiri
+  runs on demand (a **Connect** button on the activity page) and whose tokens
+  it stores and refreshes in a mode-0600 file under `.kiri/`, never in git —
+  or with a static header: `headers: { Authorization: { env: <NAME> } }`,
+  always an env reference, never a literal.
+- Kiri connects on boot and on every `kiri.yaml` edit, discovers each server's
+  tools, and namespaces them `<server>__<tool>`. A server that can't connect
+  is simply absent, the reason shown on the activity page.
+- Tool calls show inline in the transcript as expandable blocks. Results are
+  untrusted data and are capped in size; a call that runs too long is reported
+  back to the model as an error. Press **Escape** to stop a running turn.
+
+## Approving tool calls
+
+Configuring a server is the standing decision to trust it; each call still
+clears you first. Before a tool runs, the session pauses and shows the call
+and its input:
+
+- **Allow** — run it once; ask again next time.
+- **Always allow** — run it and never ask again for this tool.
+- **Deny** — don't run it; the model is told and carries on.
+
+Each tool also has a standing permission — **Always allow**, **Ask** (default),
+or **Off**, which withholds the tool from the model entirely. Manage them on
+the **MCP page** in the left nav; decisions persist to a gitignored
+`.kiri/tool-permissions.json` and apply on the next call, no restart. A pending
+approval survives a reload — the session picks up where it paused.
+
+## Context and cost
+
+The right-hand aside tracks spend as you go: running input/output **tokens**,
+and **context** as `current / limit` when the provider reports the model's
+window (Anthropic, OpenRouter, vLLM, and LM Studio do; OpenAI doesn't). As a
+conversation nears the window a warning appears above the composer.
+
+To stretch a session, once context passes halfway kiri trims what it sends
+each turn: the three most recent tool results ride in full, older ones are
+replaced with a short placeholder. The transcript you see never changes.
+
+## Attachments
+
+Attach files with **add file** in the composer, or paste an image straight in.
+Text files (markdown, source, JSON, CSV) are sent inline so the model reads
+the whole file; images ride alongside. Attachments are treated as untrusted
+data and capped to fit the context window. Click a sent tile to preview it.

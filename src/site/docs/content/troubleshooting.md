@@ -38,7 +38,7 @@ directory, not the one you launched from.
 
 A workspace with no `providers:` in `kiri.yaml` is **degraded**, not broken —
 fine until an `llm:` step runs. Add a provider (see
-[LLM providers](/docs/llm-providers)) when you need one. Workflows with only
+[Models & providers](/docs/llm-providers)) when you need one. Workflows with only
 `sh:`/`use:` steps need none.
 
 ## A session tool isn't available

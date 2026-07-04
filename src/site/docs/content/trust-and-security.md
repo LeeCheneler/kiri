@@ -38,13 +38,13 @@ Treat data from outside your repo as **untrusted**:
 
 ## Tool calls in sessions
 
-In agentic sessions, the model can't run a tool behind your back. Unless a tool
+In sessions, the model can't run a tool behind your back. Unless a tool
 is set to **Always allow**, every call pauses for an explicit **Allow / Always
 allow / Deny** before it executes — so even a prompt-injected instruction to call
 a tool still has to clear you first. Each tool's standing permission (Always
 allow, Ask, or **Off** — withheld from the model entirely) is managed on the MCP
 page and persisted by tool name to a gitignored `.kiri/tool-permissions.json`,
-which you can also hand-edit. See [Agentic sessions](/docs/agentic-sessions).
+which you can also hand-edit. See [Sessions](/docs/sessions).
 
 ## Secrets
 
@@ -54,7 +54,7 @@ git**:
 - **API keys** referenced by `kiri.yaml` are always `{ env: <NAME> }` refs to
   environment variables — a literal key is rejected. Put the value in your
   git-ignored workspace `.env` (kiri auto-loads it) or your environment. See
-  [LLM providers](/docs/llm-providers).
+  [Models & providers](/docs/llm-providers).
 - **Other secrets** a step needs (a webhook URL, a token) should come from the
   environment or a mode-600 file you read inside the step — never hard-coded in
   the workflow YAML.

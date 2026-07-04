@@ -1,17 +1,22 @@
-import agenticSessions from "./content/agentic-sessions.md?raw";
 import cliReference from "./content/cli-reference.md?raw";
-import examples from "./content/examples.md?raw";
 import gettingStarted from "./content/getting-started.md?raw";
 import llmProviders from "./content/llm-providers.md?raw";
 import overview from "./content/overview.md?raw";
+import recipes from "./content/recipes.md?raw";
+import sessions from "./content/sessions.md?raw";
 import troubleshooting from "./content/troubleshooting.md?raw";
 import trustAndSecurity from "./content/trust-and-security.md?raw";
+import workflowReference from "./content/workflow-reference.md?raw";
 import workflows from "./content/workflows.md?raw";
 
-/** A single documentation page: its url slug, nav label, and markdown body. */
+/** The left-rail section a documentation page is grouped under. */
+export type DocsSection = "Start" | "Guides" | "Reference";
+
+/** A single documentation page: its url slug, nav label, section, and markdown body. */
 export type DocsPage = {
   slug: string;
   title: string;
+  section: DocsSection;
   content: string;
 };
 
@@ -20,20 +25,36 @@ export const DOCS_INDEX_SLUG = "overview";
 
 /**
  * The documentation table of contents, in reading order. The single source of
- * truth for the docs routes, the left-rail navigation, and the prerender list.
- * The first entry is the landing page served at `/docs`; the rest live at
- * `/docs/<slug>`.
+ * truth for the docs routes and the left-rail navigation, where consecutive
+ * pages sharing a `section` render as one titled group. The first entry is the
+ * landing page served at `/docs`; the rest live at `/docs/<slug>`.
  */
 export const DOCS_PAGES: DocsPage[] = [
-  { slug: "overview", title: "Overview", content: overview },
-  { slug: "getting-started", title: "Getting started", content: gettingStarted },
-  { slug: "workflows", title: "Workflows", content: workflows },
-  { slug: "llm-providers", title: "LLM providers", content: llmProviders },
-  { slug: "agentic-sessions", title: "Agentic sessions", content: agenticSessions },
-  { slug: "cli-reference", title: "CLI reference", content: cliReference },
-  { slug: "examples", title: "Examples", content: examples },
-  { slug: "trust-and-security", title: "Trust & security", content: trustAndSecurity },
-  { slug: "troubleshooting", title: "Troubleshooting", content: troubleshooting },
+  { slug: "overview", title: "What is kiri?", section: "Start", content: overview },
+  { slug: "getting-started", title: "Quickstart", section: "Start", content: gettingStarted },
+  { slug: "workflows", title: "Writing workflows", section: "Guides", content: workflows },
+  { slug: "recipes", title: "Recipes", section: "Guides", content: recipes },
+  { slug: "sessions", title: "Sessions", section: "Guides", content: sessions },
+  { slug: "llm-providers", title: "Models & providers", section: "Guides", content: llmProviders },
+  {
+    slug: "workflow-reference",
+    title: "Workflow reference",
+    section: "Reference",
+    content: workflowReference,
+  },
+  { slug: "cli-reference", title: "CLI", section: "Reference", content: cliReference },
+  {
+    slug: "trust-and-security",
+    title: "Trust & security",
+    section: "Reference",
+    content: trustAndSecurity,
+  },
+  {
+    slug: "troubleshooting",
+    title: "Troubleshooting",
+    section: "Reference",
+    content: troubleshooting,
+  },
 ];
 
 /** The url path for a docs page: `/docs` for the landing page, `/docs/<slug>` otherwise. */

@@ -29,7 +29,9 @@ export function SiteFooter() {
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <div>
           <span className="font-display text-xl text-ink italic leading-none">kiri</span>
-          <span className="ml-3 font-mono text-xs text-ink-faint">A local-first AI workbench.</span>
+          <span className="ml-3 font-mono text-xs text-ink-faint">
+            Repetitive AI chores, one click, on your machine.
+          </span>
         </div>
         <nav className="flex items-center gap-6">
           <FooterLink href="/docs">Docs</FooterLink>
