@@ -213,6 +213,7 @@ export function createApp(deps: AppDeps): Hono {
       sessionsRoutes({
         db,
         config,
+        registry,
         llmClients,
         bus,
         cancelRegistry,
