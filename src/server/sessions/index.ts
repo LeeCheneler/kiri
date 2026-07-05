@@ -44,3 +44,8 @@ export {
   resumeTurn,
   runTurn,
 } from "./turn.ts";
+export {
+  GATED_BUILTIN_TOOLS,
+  type WorkflowToolsDeps,
+  workflowTools,
+} from "./workflow-tools.ts";

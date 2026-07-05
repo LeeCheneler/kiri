@@ -1,6 +1,6 @@
 import {
+  type McpBuiltinTool,
   type McpServerTools,
-  type McpTool,
   type McpToolPermission,
   mcpAuthStartUrl,
 } from "../../api.ts";
@@ -21,12 +21,14 @@ const PERMISSION_OPTIONS: SegmentedOption<McpToolPermission>[] = [
   { value: "off", label: "Off" },
 ];
 
-// One tool: its name and description on the left, its permission control on the right.
+// One tool: its name and description on the left, its permission control on
+// the right. Shared by the MCP tool rows and the built-in kiri tool rows —
+// the caller supplies the permission key to record against.
 function ToolRow({
   tool,
   onChange,
 }: {
-  tool: McpTool;
+  tool: { name: string; description?: string; permission: McpToolPermission };
   onChange: (permission: McpToolPermission) => void;
 }) {
   return (
@@ -45,6 +47,45 @@ function ToolRow({
           options={PERMISSION_OPTIONS}
         />
       </div>
+    </div>
+  );
+}
+
+// The gated built-in kiri tools: first-party session tools that execute user
+// scripts, so they carry the same standing permission as an MCP tool. Open
+// by default — the card is short and always present, and a permission set
+// from a transcript prompt should be findable without a click.
+function BuiltinCard({
+  tools,
+  onSetPermission,
+}: {
+  tools: McpBuiltinTool[];
+  onSetPermission: (tool: string, permission: McpToolPermission) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-sm border border-rule bg-canvas-2">
+      <Disclosure
+        defaultOpen
+        summary={
+          <span className="flex items-baseline gap-3">
+            <span className="font-mono text-ink text-sm">Built-in tools</span>
+            <span className="ml-auto font-mono text-ink-muted text-xs uppercase tracking-widest">
+              kiri
+            </span>
+          </span>
+        }
+      >
+        <ul className="space-y-5">
+          {tools.map((tool) => (
+            <li key={tool.name}>
+              <ToolRow
+                tool={tool}
+                onChange={(permission) => onSetPermission(tool.name, permission)}
+              />
+            </li>
+          ))}
+        </ul>
+      </Disclosure>
     </div>
   );
 }
@@ -108,12 +149,13 @@ function ServerCard({
 }
 
 /**
- * The MCP management surface: every configured server as a collapsible card
- * showing its connection state, revealing under each connected one its tools,
- * each carrying an Always allow / Ask / Off control. Setting a permission
- * persists it and is enforced from the next
- * turn — an "Off" tool is never offered to the model. Live-refreshes via
- * `useMcpToolsLive`, so a completed sign-in fills a server's tools in.
+ * The tool-permission management surface: the gated built-in kiri tools, then
+ * every configured MCP server as a collapsible card showing its connection
+ * state, revealing under each connected one its tools, each carrying an
+ * Always allow / Ask / Off control. Setting a permission persists it and is
+ * enforced from the next turn — an "Off" tool is never offered to the model.
+ * Live-refreshes via `useMcpToolsLive`, so a completed sign-in fills a
+ * server's tools in.
  */
 export function McpTools() {
   const query = useMcpTools();
@@ -126,21 +168,23 @@ export function McpTools() {
       </Notice>
     );
   }
-  const { servers } = query.data;
-  if (servers.length === 0) {
-    return (
-      <EmptyState>No MCP servers are configured — add one under mcp in your kiri.yaml.</EmptyState>
-    );
-  }
+  const { servers, builtin } = query.data;
+  const onSetPermission = (tool: string, permission: McpToolPermission) =>
+    void setPermission(tool, permission);
   return (
     <div className="space-y-4">
-      {servers.map((server) => (
-        <ServerCard
-          key={server.name}
-          server={server}
-          onSetPermission={(tool, permission) => void setPermission(tool, permission)}
-        />
-      ))}
+      {builtin.length > 0 ? (
+        <BuiltinCard tools={builtin} onSetPermission={onSetPermission} />
+      ) : null}
+      {servers.length === 0 ? (
+        <EmptyState>
+          No MCP servers are configured — add one under mcp in your kiri.yaml.
+        </EmptyState>
+      ) : (
+        servers.map((server) => (
+          <ServerCard key={server.name} server={server} onSetPermission={onSetPermission} />
+        ))
+      )}
     </div>
   );
 }

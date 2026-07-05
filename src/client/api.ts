@@ -661,9 +661,17 @@ export interface McpServerTools {
   tools: McpTool[];
 }
 
-/** Per-server tools and permissions for the MCP management page. */
+/** A built-in kiri session tool that carries a standing permission, keyed by its plain `name`. */
+export interface McpBuiltinTool {
+  name: string;
+  description: string;
+  permission: McpToolPermission;
+}
+
+/** Per-server tools and permissions for the MCP management page, plus the gated built-in kiri tools. */
 export interface McpToolsResult {
   servers: McpServerTools[];
+  builtin: McpBuiltinTool[];
 }
 
 /** Fetch every configured MCP server with its tools and their standing permissions. Throws on non-2xx. */

@@ -23,6 +23,7 @@ import {
   setSessionPinned,
   setSessionStatus,
 } from "../sessions/index.ts";
+import { workflowSchema } from "../workflows/index.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -1211,6 +1212,78 @@ describe("sessions routes", () => {
 
       // The tool was never offered, so its executor never ran.
       expect(ran).toBe(false);
+    });
+
+    it("pauses run_workflow for approval by default, then runs it when resumed", async () => {
+      env.registry.replace(
+        new Map([["greet", workflowSchema.parse({ name: "greet", steps: [{ sh: "printf ok" }] })]]),
+      );
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(
+        fakeClients({ model: toolCallModel("run_workflow", '{"name":"greet"}') }),
+        { bus },
+      );
+      createSession(env.db, MODEL, { id: "s1" });
+
+      // Turn 1: run_workflow executes user scripts, so it pauses like an
+      // ungranted MCP tool even though it is first-party.
+      const firstSettled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "run greet")).text();
+      await firstSettled;
+
+      const paused = getSessionMessages(env.db, "s1");
+      const pendingTool = toolPartOf(paused[1]);
+      expect(pendingTool.state).toBe("approval-requested");
+      expect(pendingTool.output).toBeUndefined();
+
+      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
+        part.state === "approval-requested"
+          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
+          : part,
+      );
+      const secondSettled = waitForSettled("s1");
+      await (await postRaw(app, "s1", { role: "assistant", parts: respondedParts })).text();
+      await secondSettled;
+
+      const finished = toolPartOf(getSessionMessages(env.db, "s1")[1]);
+      expect(finished.state).toBe("output-available");
+      expect((finished.output as { status: string }).status).toBe("ok");
+    });
+
+    it("runs an allowed run_workflow straight through without pausing", async () => {
+      env.registry.replace(
+        new Map([["greet", workflowSchema.parse({ name: "greet", steps: [{ sh: "printf ok" }] })]]),
+      );
+      createToolPermissionStore(env.config.toolPermissionsFile()).set("run_workflow", "allow");
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(
+        fakeClients({ model: toolCallModel("run_workflow", '{"name":"greet"}') }),
+        { bus },
+      );
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "run greet")).text();
+      await settled;
+
+      const part = toolPartOf(getSessionMessages(env.db, "s1")[1]);
+      expect(part.state).toBe("output-available");
+      expect((part.output as { status: string }).status).toBe("ok");
+    });
+
+    it("offers list_workflows without permission gating", async () => {
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolCallModel("list_workflows", "{}") }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "what workflows are there?")).text();
+      await settled;
+
+      // No pause: the list tool only reads kiri's own registry.
+      const part = toolPartOf(getSessionMessages(env.db, "s1")[1]);
+      expect(part.state).toBe("output-available");
+      expect(part.output).toEqual([]);
     });
   });
 });

@@ -197,6 +197,24 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("replace_article only when most of the body is changing");
   });
 
+  it("includes workflow guidance only when run_workflow is active", () => {
+    const withWorkflows = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["list_workflows", "run_workflow"],
+    });
+    expect(withWorkflows).toContain("You can run the user's workflows");
+    expect(withWorkflows).toContain("call list_workflows to check the exact name");
+
+    // list_workflows alone (run_workflow withheld by its permission) carries
+    // no run guidance — the list tool's own description suffices.
+    const listOnly = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["list_workflows"] });
+    expect(listOnly).not.toContain("You can run the user's workflows");
+    expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain(
+      "You can run the user's workflows",
+    );
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });

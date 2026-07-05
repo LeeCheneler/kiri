@@ -18,6 +18,7 @@ import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  GATED_BUILTIN_TOOLS,
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermissionStore,
@@ -36,13 +37,17 @@ import {
   setSessionPinned,
   updateSessionModel,
   updateSessionPersona,
+  workflowTools,
 } from "../sessions/index.ts";
+import type { Registry } from "../workflows/index.ts";
 import { articleParamSchema, onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
   /** Workspace config; the session system prompt reads `kiri.md` (and personas) against it. */
   config: ConfigStore;
+  /** Workflow registry backing the first-party workflow tools — read live, so a definition change is reflected on the next turn. */
+  registry: Registry;
   /**
    * Required: every session resolves and streams turns against a model, and
    * the picker lists models off this same client — a session surface without
@@ -155,7 +160,8 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
  * alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, config, llmClients, bus, cancelRegistry, mcpRegistry, toolPermissions } = deps;
+  const { db, config, registry, llmClients, bus, cancelRegistry, mcpRegistry, toolPermissions } =
+    deps;
   const app = new Hono();
 
   // One registry of in-flight turn streams for this surface: the turn endpoint
@@ -163,36 +169,49 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // rejoins the live response. A caller may inject one to share it.
   const streamRegistry = deps.streamRegistry ?? createStreamRegistry();
 
-  // The tools offered to a turn: the live MCP server tools, each filtered and
-  // gated by its standing permission, plus the first-party article tools. Read
-  // per turn (not once) so a config reload that adds or drops MCP servers, and
-  // a permission change since the last turn, are both reflected on the next
-  // turn. The article tools are not permission-gated — they only write to
-  // kiri's own database and the user's request in chat is the authorisation —
-  // and, merged last, they take the name on a collision with an MCP tool.
+  // Wrap a tool with its standing permission. An "off" tool is withheld from
+  // the model entirely (null — never offered). An "ask" tool (the default)
+  // always pauses for an Allow / Always allow / Deny decision. An "allow"
+  // tool runs straight away — except a call the user has already answered
+  // this turn, which must still report as needing approval so the SDK
+  // honours that answer on resume. (The SDK re-checks `needsApproval` when
+  // resuming and denies a call that no longer needs it — so a fresh "allow"
+  // would otherwise cancel the very call the user just allowed.)
+  const gate = (name: string, gatedTool: ToolSet[string]): ToolSet[string] | null => {
+    const permission = toolPermissions.get(name);
+    if (permission === "off") return null;
+    return {
+      ...gatedTool,
+      needsApproval: (
+        _input: unknown,
+        { toolCallId, messages }: { toolCallId: string; messages: ModelMessage[] },
+      ) => permission !== "allow" || hasPriorApprovalRequest(messages, toolCallId),
+    };
+  };
+
+  // The tools offered to a turn: the live MCP server tools plus the
+  // first-party sets. Read per turn (not once) so a config reload that adds
+  // or drops MCP servers, and a permission change since the last turn, are
+  // both reflected on the next turn. First-party tools that only read or
+  // write kiri's own data — the article tools and list_workflows — are not
+  // permission-gated: the user's request in chat is the authorisation.
+  // run_workflow is the exception: it executes user-authored scripts, so it
+  // rides the same standing permission machinery as an MCP tool ("ask" by
+  // default). First-party tools are merged after the gated MCP set, so they
+  // take the name on a collision.
   const activeTools = (sessionId: string): ToolSet => {
-    const tools = mcpRegistry?.tools() ?? {};
-    const gated: ToolSet = {};
-    for (const [name, tool] of Object.entries(tools)) {
-      const permission = toolPermissions.get(name);
-      // An "off" tool is withheld from the model entirely, so it's never offered.
-      if (permission === "off") continue;
-      gated[name] = {
-        ...tool,
-        // An "ask" tool always pauses for an Allow / Always allow / Deny
-        // decision. An "allow" tool runs straight away — except a call the user
-        // has already answered this turn, which must still report as needing
-        // approval so the SDK honours that answer on resume. (The SDK re-checks
-        // `needsApproval` when resuming and denies a call that no longer needs
-        // it — so a fresh "allow" would otherwise cancel the very call the user
-        // just allowed.)
-        needsApproval: (
-          _input: unknown,
-          { toolCallId, messages }: { toolCallId: string; messages: ModelMessage[] },
-        ) => permission !== "allow" || hasPriorApprovalRequest(messages, toolCallId),
-      };
+    const tools: ToolSet = {};
+    for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
+      const offered = gate(name, mcpTool);
+      if (offered !== null) tools[name] = offered;
     }
-    return { ...gated, ...articleTools(db, sessionId, (event) => bus?.publish(event)) };
+    const workflow = workflowTools({ db, registry, config, bus, cancelRegistry, llmClients });
+    tools.list_workflows = workflow.list_workflows;
+    for (const { name } of GATED_BUILTIN_TOOLS) {
+      const offered = gate(name, workflow[name]);
+      if (offered !== null) tools[name] = offered;
+    }
+    return { ...tools, ...articleTools(db, sessionId, (event) => bus?.publish(event)) };
   };
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));

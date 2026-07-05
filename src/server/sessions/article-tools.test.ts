@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ToolExecutionOptions, ToolSet } from "ai";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
+import { articles, runs } from "../db/schema.ts";
 import type { KiriEvent } from "../events/index.ts";
 import { articleTools } from "./article-tools.ts";
 import { createSession } from "./store.ts";
@@ -205,6 +206,30 @@ describe("articleTools", () => {
   });
 
   describe("read_article", () => {
+    // A run-produced article, as the runner would store it: linked to a runs
+    // row via runId, no sessionId.
+    const seedRunArticle = (runId: string, slug: string, contentMd: string): void => {
+      db.insert(runs)
+        .values({
+          id: runId,
+          workflowName: "news",
+          status: "ok",
+          startedAt: new Date(),
+          definitionSnapshot: { name: "news", steps: [] },
+        })
+        .run();
+      db.insert(articles)
+        .values({
+          id: crypto.randomUUID(),
+          runId,
+          slug,
+          name: "Edition",
+          contentMd,
+          createdAt: new Date(),
+        })
+        .run();
+    };
+
     it("returns the article's name and full body", async () => {
       await run(tools.create_article, { slug: "notes", content_md: "# Notes\n\nBody." });
       expect(await run(tools.read_article, { slug: "notes" })).toEqual({
@@ -214,9 +239,32 @@ describe("articleTools", () => {
       });
     });
 
-    it("rejects an unknown slug", () => {
+    it("rejects an unknown slug, naming the run_id recovery", () => {
       expect(run(tools.read_article, { slug: "ghost" })).rejects.toThrow(
-        'No article with slug "ghost" in this session',
+        'No article with slug "ghost" in this session — call list_articles to see what exists, or pass run_id',
+      );
+    });
+
+    it("reads an article a workflow run produced when run_id is set", async () => {
+      seedRunArticle("r1", "edition", "# Edition\n\nStories.");
+      expect(await run(tools.read_article, { slug: "edition", run_id: "r1" })).toEqual({
+        slug: "edition",
+        name: "Edition",
+        content_md: "# Edition\n\nStories.",
+      });
+    });
+
+    it("does not fall back to session articles when run_id is set", async () => {
+      await run(tools.create_article, { slug: "edition", content_md: "# Mine" });
+      expect(run(tools.read_article, { slug: "edition", run_id: "ghost" })).rejects.toThrow(
+        'No article with slug "edition" on run "ghost"',
+      );
+    });
+
+    it("keeps session reads session-scoped when run_id is unset", async () => {
+      seedRunArticle("r1", "edition", "# Edition");
+      expect(run(tools.read_article, { slug: "edition" })).rejects.toThrow(
+        'No article with slug "edition" in this session',
       );
     });
   });

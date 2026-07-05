@@ -13,10 +13,13 @@ type Article = typeof articles.$inferSelect;
  * First-party tools that let a session write and manage its own articles —
  * standalone documents saved outside the transcript and read back through the
  * articles UI. Scoped to `sessionId`: the tools see and touch only articles
- * that session produced. Every write publishes `article.written` so open views
- * can refresh. Expected failures (unknown slug, duplicate slug, ambiguous
- * edit) throw with a message naming the tool call that recovers from them —
- * the SDK surfaces it to the model as a tool error and the turn continues.
+ * that session produced — except `read_article` with a `run_id`, which reads
+ * an article a workflow run produced (run articles are immutable, so the
+ * write tools stay session-scoped). Every write publishes `article.written`
+ * so open views can refresh. Expected failures (unknown slug, duplicate slug,
+ * ambiguous edit) throw with a message naming the tool call that recovers
+ * from them — the SDK surfaces it to the model as a tool error and the turn
+ * continues.
  */
 export function articleTools(
   db: KiriDb,
@@ -174,12 +177,38 @@ export function articleTools(
     }),
 
     read_article: tool({
-      description: "Read the full markdown body of one of this session's articles.",
+      description:
+        "Read the full markdown body of an article: one of this session's by slug, or — when run_id is set — one a workflow run produced.",
       inputSchema: z.object({
         slug: articleSlugSchema.describe("Slug of the article to read."),
+        run_id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Set to read an article a workflow run produced instead of a session article: the run's id, as reported in a run_workflow outcome. Leave unset for this session's own articles.",
+          ),
       }),
-      execute: async ({ slug }) => {
-        const row = requireArticle(slug);
+      execute: async ({ slug, run_id }) => {
+        if (run_id !== undefined) {
+          const row = db
+            .select()
+            .from(articles)
+            .where(and(eq(articles.runId, run_id), eq(articles.slug, slug)))
+            .get();
+          if (!row) {
+            throw new Error(
+              `No article with slug "${slug}" on run "${run_id}" — a run_workflow outcome lists its run's article slugs alongside its run_id.`,
+            );
+          }
+          return { slug: row.slug, name: row.name, content_md: row.contentMd };
+        }
+        const row = bySlug(slug);
+        if (!row) {
+          throw new Error(
+            `No article with slug "${slug}" in this session — call list_articles to see what exists, or pass run_id to read an article a workflow run produced.`,
+          );
+        }
         return { slug, name: row.name, content_md: row.contentMd };
       },
     }),
