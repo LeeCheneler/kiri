@@ -49,6 +49,12 @@ const FeedProbe = () => {
   return <p>{data ? data.map((s) => s.id).join(",") || "empty" : "loading"}</p>;
 };
 
+const PinnedFeedProbe = () => {
+  useSessionsLive();
+  const { data } = useSessionsFeed({ pinned: true });
+  return <p>{data ? data.map((s) => s.id).join(",") || "empty" : "loading"}</p>;
+};
+
 // Serve a session whose model encodes the fetch count, so a refetch is
 // observable as the rendered model advancing m-1 → m-2 → …
 const serveCountingSession = () => {
@@ -176,6 +182,34 @@ describe("sessions state", () => {
     );
     const page = await fetchSessionsPage({ cursor: "c1" });
     expect(page.sessions[0]?.id).toBe("c1");
+  });
+
+  it("narrows the pinned feed with the pinned=true param", async () => {
+    server.use(
+      http.get("*/api/sessions", ({ request }) => {
+        const pinned = new URL(request.url).searchParams.get("pinned") ?? "absent";
+        return HttpResponse.json({ sessions: [sessionRow(pinned)], nextCursor: null });
+      }),
+    );
+    renderProbe(<PinnedFeedProbe />);
+    expect(await screen.findByText("true")).toBeDefined();
+  });
+
+  it("refetches the pinned feed on session events", async () => {
+    let calls = 0;
+    server.use(
+      http.get("*/api/sessions", () => {
+        calls++;
+        return HttpResponse.json({ sessions: [sessionRow(`p-${calls}`)], nextCursor: null });
+      }),
+    );
+    const { sources } = renderProbe(<PinnedFeedProbe />);
+    await screen.findByText("p-1");
+
+    // The pinned feed keys under ["sessions", "feed"], so the subtree
+    // invalidation a session.updated triggers reaches it too.
+    act(() => sources[0]?.emit({ type: "session.updated", id: "s1", status: "idle" }));
+    await screen.findByText("p-2");
   });
 
   it("creates a session against a model", async () => {

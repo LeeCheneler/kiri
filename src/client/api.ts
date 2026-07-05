@@ -759,15 +759,16 @@ export interface SessionsPage {
 
 /**
  * Fetch one page of the session list, newest first. Pass `cursor` from the
- * previous page's `nextCursor` to advance and `limit` (1–100) to size the page.
- * Throws on non-2xx.
+ * previous page's `nextCursor` to advance, `limit` (1–100) to size the page,
+ * and `pinned: true` to narrow the page to pinned sessions. Throws on non-2xx.
  */
 export const fetchSessionsPage = async (
-  opts: { cursor?: string; limit?: number } = {},
+  opts: { cursor?: string; limit?: number; pinned?: true } = {},
 ): Promise<SessionsPage> => {
   const params = new URLSearchParams();
   if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.pinned) params.set("pinned", "true");
   const qs = params.toString();
   return json<SessionsPage>(await apiFetch(`/api/sessions${qs ? `?${qs}` : ""}`));
 };

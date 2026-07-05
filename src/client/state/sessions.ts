@@ -84,14 +84,19 @@ export function useUpdateSession(id: string): {
 
 /**
  * Read the full session history as an infinite, cursor-paginated feed, newest
- * first. The first page fetches on mount; `fetchNextPage` advances by the
- * previous page's `nextCursor` until it runs dry. `data` is the loaded pages
- * flattened into one newest-first array. Kept current by `useSessionsLive`.
+ * first — or, with `pinned: true`, just the pinned sessions. The first page
+ * fetches on mount; `fetchNextPage` advances by the previous page's
+ * `nextCursor` until it runs dry. `data` is the loaded pages flattened into
+ * one newest-first array. Both variants key under `["sessions", "feed"]`, so
+ * `useSessionsLive`'s subtree invalidations keep them current.
  */
-export function useSessionsFeed(): UseInfiniteQueryResult<SessionListEntry[], Error> {
+export function useSessionsFeed(
+  opts: { pinned?: true } = {},
+): UseInfiniteQueryResult<SessionListEntry[], Error> {
   return useInfiniteQuery({
-    queryKey: sessionsFeedKey,
-    queryFn: ({ pageParam }) => fetchSessionsPage({ cursor: pageParam, limit: FEED_PAGE_SIZE }),
+    queryKey: opts.pinned ? ([...sessionsFeedKey, "pinned"] as const) : sessionsFeedKey,
+    queryFn: ({ pageParam }) =>
+      fetchSessionsPage({ cursor: pageParam, limit: FEED_PAGE_SIZE, pinned: opts.pinned }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     select: (data) => data.pages.flatMap((page) => page.sessions),
