@@ -10,6 +10,7 @@ export {
   getSession,
   getSessionMessages,
   getSessionPreviews,
+  setSessionPinned,
   setSessionStatus,
   updateSessionModel,
   updateSessionPersona,

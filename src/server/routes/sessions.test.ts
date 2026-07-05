@@ -20,6 +20,7 @@ import {
   createToolPermissionStore,
   getSession,
   getSessionMessages,
+  setSessionPinned,
   setSessionStatus,
 } from "../sessions/index.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
@@ -343,6 +344,34 @@ describe("sessions routes", () => {
       const res = await app.request("/api/sessions?cursor=nope");
       expect(res.status).toBe(400);
     });
+
+    it("filters to pinned sessions and pages within them when passed pinned=true", async () => {
+      createSession(env.db, MODEL, { id: "s1", startedAt: new Date(1000) });
+      createSession(env.db, MODEL, { id: "s2", startedAt: new Date(2000) });
+      createSession(env.db, MODEL, { id: "s3", startedAt: new Date(3000) });
+      setSessionPinned(env.db, "s1", true);
+      setSessionPinned(env.db, "s3", true);
+      const app = makeApp(fakeClients());
+
+      const page1 = (await (await app.request("/api/sessions?pinned=true&limit=1")).json()) as {
+        sessions: { id: string; pinned: boolean }[];
+        nextCursor: string | null;
+      };
+      expect(page1.sessions.map((s) => s.id)).toEqual(["s3"]);
+      expect(page1.sessions[0]?.pinned).toBe(true);
+      expect(page1.nextCursor).toBe("s3");
+
+      const page2 = (await (
+        await app.request(`/api/sessions?pinned=true&limit=1&cursor=${page1.nextCursor}`)
+      ).json()) as { sessions: { id: string }[]; nextCursor: string | null };
+      expect(page2.sessions.map((s) => s.id)).toEqual(["s1"]);
+    });
+
+    it("400s a pinned value other than true", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions?pinned=false");
+      expect(res.status).toBe(400);
+    });
   });
 
   describe("GET /api/sessions/:id", () => {
@@ -614,6 +643,27 @@ describe("sessions routes", () => {
       expect(res.status).toBe(400);
       expect((await res.json()) as { error: string }).toEqual({ error: 'unknown persona "ghost"' });
       expect(getSession(env.db, "s1")?.persona).toBeNull();
+    });
+
+    it("pins and unpins the session and publishes session.updated", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await patchBody(app, "s1", { pinned: true });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { session: { pinned: boolean } };
+      expect(body.session.pinned).toBe(true);
+      expect(getSession(env.db, "s1")?.pinned).toBe(true);
+      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+
+      const unpin = await patchBody(app, "s1", { pinned: false });
+
+      expect(unpin.status).toBe(200);
+      expect(getSession(env.db, "s1")?.pinned).toBe(false);
     });
   });
 
