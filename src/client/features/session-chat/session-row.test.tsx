@@ -12,6 +12,7 @@ const base: SessionListEntry = {
   status: "idle",
   model: "local:google/gemma-4-26b-a4b-qat",
   persona: null,
+  pinned: false,
   startedAt: "2026-05-09T12:00:00.000Z",
   finishedAt: null,
   error: null,

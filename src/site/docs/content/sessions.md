@@ -102,6 +102,13 @@ pointer; the piece itself lives on its own page.
   page updates live as the edit lands.
 - Articles belong to their session: deleting the session deletes them.
 
+## Pinning
+
+Pin a session to keep it to hand. **pin session** in the right-hand aside
+puts it on the **Pinned** tab of the activity feed; **unpin session** takes
+it off. A pin is just a bookmark — it doesn't change how the session runs,
+and the session still appears in the other feed views as usual.
+
 ## Context and cost
 
 The right-hand aside tracks spend as you go: running input/output **tokens**,

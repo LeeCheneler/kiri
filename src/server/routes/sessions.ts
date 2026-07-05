@@ -33,6 +33,7 @@ import {
   listPersonas,
   resumeTurn,
   runTurn,
+  setSessionPinned,
   updateSessionModel,
   updateSessionPersona,
 } from "../sessions/index.ts";
@@ -79,16 +80,23 @@ const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string
 
 const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
 
-// Either field may be set independently: the aside swaps the model and the
-// persona through this one endpoint. `persona: null` detaches; omitting a field
-// leaves it unchanged.
+// Any field may be set independently: the aside swaps the model and the
+// persona, and the pin control flips `pinned`, all through this one endpoint.
+// `persona: null` detaches; omitting a field leaves it unchanged.
 const patchSessionBodySchema = z
-  .object({ model: z.string().min(1).optional(), persona: z.string().min(1).nullable().optional() })
+  .object({
+    model: z.string().min(1).optional(),
+    persona: z.string().min(1).nullable().optional(),
+    pinned: z.boolean().optional(),
+  })
   .strict();
 
 const sessionListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_SESSION_LIMIT).default(DEFAULT_SESSION_LIMIT),
+  // The Pinned feed's one filter: `pinned=true` narrows the list to pinned
+  // sessions. There is no unpinned-only view, so no other value is accepted.
+  pinned: z.literal("true").optional(),
 });
 
 // Only the trailing message rides the request; the server loads the prior turns
@@ -216,7 +224,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "/sessions",
     zValidator("query", sessionListQuerySchema, onZodFail("invalid query")),
     (c) => {
-      const { cursor, limit } = c.req.valid("query");
+      const { cursor, limit, pinned } = c.req.valid("query");
 
       // Keyset pagination on (started_at DESC, id DESC), mirroring runs: the
       // cursor is the last seen session's id; resolve its started_at and page
@@ -237,12 +245,18 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .select()
         .from(sessionsTable)
         .where(
-          anchor
-            ? or(
-                lt(sessionsTable.startedAt, anchor.startedAt),
-                and(eq(sessionsTable.startedAt, anchor.startedAt), lt(sessionsTable.id, anchor.id)),
-              )
-            : undefined,
+          and(
+            pinned ? eq(sessionsTable.pinned, true) : undefined,
+            anchor
+              ? or(
+                  lt(sessionsTable.startedAt, anchor.startedAt),
+                  and(
+                    eq(sessionsTable.startedAt, anchor.startedAt),
+                    lt(sessionsTable.id, anchor.id),
+                  ),
+                )
+              : undefined,
+          ),
         )
         .orderBy(desc(sessionsTable.startedAt), desc(sessionsTable.id))
         .limit(limit)
@@ -376,7 +390,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model, persona } = c.req.valid("json");
+      const { model, persona, pinned } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Validate the model resolves now, mirroring create, so a bad id fails the
@@ -396,6 +410,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         }
         updateSessionPersona(db, id, persona);
       }
+      if (pinned !== undefined) setSessionPinned(db, id, pinned);
       const updated = getSession(db, id) as typeof session;
       // The turn endpoint resolves the model and composes the persona per turn,
       // so either change applies from the next turn. Announce it like any other

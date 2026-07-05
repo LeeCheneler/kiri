@@ -716,6 +716,8 @@ export interface Session {
   model: string;
   /** Name of the persona attached at creation (`personas/<name>.md`), or null for none. */
   persona: string | null;
+  /** Whether the user has pinned the session onto the feed's Pinned tab. */
+  pinned: boolean;
   startedAt: string;
   /** Set once the session reaches a terminal `failed`/`cancelled`; null while usable. */
   finishedAt: string | null;
@@ -757,15 +759,16 @@ export interface SessionsPage {
 
 /**
  * Fetch one page of the session list, newest first. Pass `cursor` from the
- * previous page's `nextCursor` to advance and `limit` (1–100) to size the page.
- * Throws on non-2xx.
+ * previous page's `nextCursor` to advance, `limit` (1–100) to size the page,
+ * and `pinned: true` to narrow the page to pinned sessions. Throws on non-2xx.
  */
 export const fetchSessionsPage = async (
-  opts: { cursor?: string; limit?: number } = {},
+  opts: { cursor?: string; limit?: number; pinned?: true } = {},
 ): Promise<SessionsPage> => {
   const params = new URLSearchParams();
   if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.pinned) params.set("pinned", "true");
   const qs = params.toString();
   return json<SessionsPage>(await apiFetch(`/api/sessions${qs ? `?${qs}` : ""}`));
 };
@@ -858,6 +861,23 @@ export const patchSessionPersona = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ persona }),
+    }),
+  );
+
+/**
+ * Pin or unpin a session, returning the updated row. A display flag only —
+ * pinned sessions surface on the feed's Pinned tab. Throws `ApiError` on
+ * non-2xx (404 for an unknown session).
+ */
+export const patchSessionPinned = async (
+  id: string,
+  pinned: boolean,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned }),
     }),
   );
 
