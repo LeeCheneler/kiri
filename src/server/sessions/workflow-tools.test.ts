@@ -199,7 +199,11 @@ describe("workflowTools", () => {
     });
 
     it("cancels the run it started when the turn aborts", async () => {
-      seed(registry, [define({ name: "slow", steps: [{ sh: "sleep 5" }] })]);
+      // `exec 1>&- 2>&-` closes sh's stdout/stderr before sleep is forked, so
+      // Bun's pipe readers get EOF immediately. Without this, an orphaned
+      // sleep inherits the write ends and hangs the readers until natural
+      // completion (only matters on Linux/CI; macOS resolves them sooner).
+      seed(registry, [define({ name: "slow", steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }] })]);
       const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 25 });
       const controller = new AbortController();
 
