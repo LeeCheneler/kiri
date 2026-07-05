@@ -44,3 +44,4 @@ export {
   resumeTurn,
   runTurn,
 } from "./turn.ts";
+export { type WorkflowToolsDeps, workflowTools } from "./workflow-tools.ts";
