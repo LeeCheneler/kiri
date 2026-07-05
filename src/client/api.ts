@@ -716,6 +716,8 @@ export interface Session {
   model: string;
   /** Name of the persona attached at creation (`personas/<name>.md`), or null for none. */
   persona: string | null;
+  /** Whether the user has pinned the session onto the feed's Pinned tab. */
+  pinned: boolean;
   startedAt: string;
   /** Set once the session reaches a terminal `failed`/`cancelled`; null while usable. */
   finishedAt: string | null;
@@ -858,6 +860,23 @@ export const patchSessionPersona = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ persona }),
+    }),
+  );
+
+/**
+ * Pin or unpin a session, returning the updated row. A display flag only —
+ * pinned sessions surface on the feed's Pinned tab. Throws `ApiError` on
+ * non-2xx (404 for an unknown session).
+ */
+export const patchSessionPinned = async (
+  id: string,
+  pinned: boolean,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned }),
     }),
   );
 
