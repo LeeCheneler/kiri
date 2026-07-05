@@ -83,6 +83,7 @@ function buildWorkflowGuidance(tools: string[]): string | null {
     "Running workflows:",
     "- run_workflow blocks until the run finishes, and the user can watch it live in the activity feed. Report the outcome in a sentence or two — the terminal status plus its summary — and don't replay per-step detail into the chat.",
     "- A failed run is a result to report, not something to retry: say which step failed and why, and re-run only when the user asks.",
+    "- Articles a run produces are already saved and readable in the app; read one with read_article (its slug plus the run's run_id) only when the user asks about its content.",
   ].join("\n");
 }
 

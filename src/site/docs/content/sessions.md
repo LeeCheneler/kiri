@@ -100,8 +100,8 @@ invokes it for you:
 - The run is a normal kiri run: it appears in the activity feed as it
   executes, with full step output and traces on its run page.
 - The session waits for the run to finish and reports the outcome — status,
-  summary, and any articles it produced. Stopping the turn (**Escape**)
-  cancels the run too.
+  summary, and any articles it produced. Ask and it reads a produced article
+  back to you. Stopping the turn (**Escape**) cancels the run too.
 - Running a workflow asks for approval like an MCP tool call; listing your
   workflows never prompts.
 

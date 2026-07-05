@@ -118,7 +118,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
 
     run_workflow: tool({
       description:
-        "Run one of the workspace's workflows by name and wait for it to finish. Returns the run's terminal status, per-step outcomes, its summary, and the articles it produced. The run appears in the kiri activity feed with its full step output and traces, so report the outcome briefly rather than replaying it. Every required input must be supplied — call list_workflows first when unsure of the name or inputs.",
+        "Run one of the workspace's workflows by name and wait for it to finish. Returns the run's terminal status, per-step outcomes, its summary, and the articles it produced (read one with read_article, passing this run's run_id). The run appears in the kiri activity feed with its full step output and traces, so report the outcome briefly rather than replaying it. Every required input must be supplied — call list_workflows first when unsure of the name or inputs.",
       inputSchema: z.object({
         name: z
           .string()
