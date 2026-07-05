@@ -14,6 +14,7 @@ import {
   getSession,
   getSessionMessages,
   getSessionPreviews,
+  setSessionPinned,
   setSessionStatus,
   updateMessage,
   updateSessionPersona,
@@ -43,8 +44,19 @@ describe("sessions store", () => {
     expect(session.status).toBe("idle");
     expect(session.model).toBe(MODEL);
     expect(session.persona).toBeNull();
+    expect(session.pinned).toBe(false);
     expect(session.finishedAt).toBeNull();
     expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("pins and unpins a session", () => {
+    createSession(db, MODEL, { id: "s1" });
+
+    expect(setSessionPinned(db, "s1", true).pinned).toBe(true);
+    expect(getSession(db, "s1")?.pinned).toBe(true);
+
+    expect(setSessionPinned(db, "s1", false).pinned).toBe(false);
+    expect(getSession(db, "s1")?.pinned).toBe(false);
   });
 
   it("attaches and detaches a persona", () => {

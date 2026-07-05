@@ -191,6 +191,11 @@ export const sessions = sqliteTable("sessions", {
    * degrades to no overlay on the next turn.
    */
   persona: text("persona"),
+  /**
+   * Whether the user has pinned the session. A display flag only — pinned
+   * sessions surface on the feed's Pinned tab; execution is unaffected.
+   */
+  pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   /** Stamped when the session reaches a terminal `failed`/`cancelled` state; null while it remains usable. */
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),

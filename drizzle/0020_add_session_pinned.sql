@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `pinned` integer DEFAULT false NOT NULL;
