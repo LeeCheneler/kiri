@@ -43,9 +43,9 @@ correctness bugs first, then design and clarity. Cite file:line. Be direct.
 
 ## Tools from MCP servers
 
-Beyond the built-in article tools (below), a session's tools come from **MCP
-servers** you declare under `mcp:` in `kiri.yaml`. Web search, for example,
-via Tavily's remote server:
+Beyond the built-in tools (articles and workflows, below), a session's tools
+come from **MCP servers** you declare under `mcp:` in `kiri.yaml`. Web search,
+for example, via Tavily's remote server:
 
 ```yaml
 mcp:
@@ -85,9 +85,25 @@ the **MCP page** in the left nav; decisions persist to a gitignored
 `.kiri/tool-permissions.json` and apply on the next call, no restart. A pending
 approval survives a reload — the session picks up where it paused.
 
-The built-in article tools are the exception: they run without a prompt. They
-can only write articles inside kiri — asking for one in chat is the
-authorisation.
+Most built-in tools are the exception: the article tools and `list_workflows`
+run without a prompt — they only touch kiri's own data, and asking in chat is
+the authorisation. `run_workflow` executes your workflows, so it asks like an
+MCP tool; its standing permission lives under **Built-in tools** on the same
+MCP page.
+
+## Running workflows
+
+Sessions can run the workflows you've defined. Ask in chat — "run my dev news
+round-up" — and the session finds the workflow, fills its declared inputs, and
+invokes it for you:
+
+- The run is a normal kiri run: it appears in the activity feed as it
+  executes, with full step output and traces on its run page.
+- The session waits for the run to finish and reports the outcome — status,
+  summary, and any articles it produced. Stopping the turn (**Escape**)
+  cancels the run too.
+- Running a workflow asks for approval like an MCP tool call; listing your
+  workflows never prompts.
 
 ## Articles
 
