@@ -10,6 +10,21 @@ import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow } from "../runner/index.ts";
 import { type Registry, type WorkflowDefinition, buildInputSchema } from "../workflows/index.ts";
 
+/**
+ * The first-party session tools that ride the standing tool-permission
+ * machinery — every other first-party tool only reads or writes kiri's own
+ * data and runs un-gated. The session routes gate each listed tool per call,
+ * and the MCP page lists them so a recorded permission can be reviewed and
+ * changed. `description` is the management-surface blurb, not the
+ * model-facing tool description.
+ */
+export const GATED_BUILTIN_TOOLS = [
+  {
+    name: "run_workflow",
+    description: "Run one of the workspace's workflows and wait for it to finish.",
+  },
+] as const;
+
 export interface WorkflowToolsDeps {
   db: KiriDb;
   /** Workflow definitions, read live so a file change is reflected on the next call. */

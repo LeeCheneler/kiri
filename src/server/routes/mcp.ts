@@ -8,7 +8,7 @@ import type { EventBus } from "../events/index.ts";
 import type { McpCredentialStore } from "../mcp/oauth-store.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { McpHttpServer } from "../mcp/schema.ts";
-import type { ToolPermissionStore } from "../sessions/index.ts";
+import { GATED_BUILTIN_TOOLS, type ToolPermissionStore } from "../sessions/index.ts";
 import { onZodFail } from "./shared.ts";
 
 /**
@@ -113,7 +113,15 @@ export function mcpRoutes(deps: McpRoutesDeps): Hono {
         permission: permissions.get(tool.namespacedName),
       })),
     }));
-    return c.json({ servers });
+    // The gated built-in session tools ride alongside, so their standing
+    // permissions are reviewable and reversible from the same surface.
+    // Un-gated built-ins carry no permission, so they aren't listed.
+    const builtin = GATED_BUILTIN_TOOLS.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      permission: permissions.get(tool.name),
+    }));
+    return c.json({ servers, builtin });
   });
 
   // Set a tool's standing permission (allow/ask/off), keyed by its namespaced

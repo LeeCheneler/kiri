@@ -33,6 +33,7 @@ const toolsPayload = {
     { name: "github", type: "http", state: "needs-sign-in", tools: [] },
     { name: "down", type: "stdio", state: "failed", error: "Unable to connect", tools: [] },
   ],
+  builtin: [],
 };
 
 describe("<McpTools>", () => {
@@ -49,7 +50,7 @@ describe("<McpTools>", () => {
   });
 
   it("shows an empty state when no servers are configured", async () => {
-    server.use(http.get("*/api/mcp/tools", () => HttpResponse.json({ servers: [] })));
+    server.use(http.get("*/api/mcp/tools", () => HttpResponse.json({ servers: [], builtin: [] })));
     renderTools();
     expect(await screen.findByText(/no mcp servers are configured/i)).toBeDefined();
   });
@@ -111,6 +112,7 @@ describe("<McpTools>", () => {
               tools: [{ name: "search", namespacedName: "linear__search", permission }],
             },
           ],
+          builtin: [],
         }),
       ),
       http.post("*/api/mcp/tool-permissions", async ({ request }) => {
@@ -136,6 +138,48 @@ describe("<McpTools>", () => {
       const settled = screen.getByRole("radiogroup", { name: "Permission for search" });
       expect(
         (within(settled).getByRole("radio", { name: "Off" }) as HTMLInputElement).checked,
+      ).toBe(true);
+    });
+  });
+
+  it("renders the built-in kiri tools and persists their permission change", async () => {
+    let permission = "ask";
+    const recorded: { tool?: string; permission?: string }[] = [];
+    server.use(
+      http.get("*/api/mcp/tools", () =>
+        HttpResponse.json({
+          servers: [],
+          builtin: [
+            {
+              name: "run_workflow",
+              description: "Run one of the workspace's workflows and wait for it to finish.",
+              permission,
+            },
+          ],
+        }),
+      ),
+      http.post("*/api/mcp/tool-permissions", async ({ request }) => {
+        const body = (await request.json()) as { tool?: string; permission?: string };
+        recorded.push(body);
+        permission = body.permission ?? permission;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderTools();
+
+    // The built-in card is open by default — no expand click needed. The
+    // permission is keyed by the tool's plain name, not a namespaced one.
+    const group = await screen.findByRole("radiogroup", { name: "Permission for run_workflow" });
+    expect((within(group).getByRole("radio", { name: "Ask" }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    await userEvent.click(within(group).getByRole("radio", { name: "Always allow" }));
+
+    expect(recorded).toEqual([{ tool: "run_workflow", permission: "allow" }]);
+    await waitFor(() => {
+      const settled = screen.getByRole("radiogroup", { name: "Permission for run_workflow" });
+      expect(
+        (within(settled).getByRole("radio", { name: "Always allow" }) as HTMLInputElement).checked,
       ).toBe(true);
     });
   });

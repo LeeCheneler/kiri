@@ -95,6 +95,8 @@ describe("mcp routes", () => {
       ];
       // A recorded "off" decision must surface in the listing; the unset tool reads "ask".
       createToolPermissionStore(env.config.toolPermissionsFile()).set("linear__search", "off");
+      // The gated built-in tools honour recorded permissions the same way.
+      createToolPermissionStore(env.config.toolPermissionsFile()).set("run_workflow", "allow");
       const app = buildApp(async () => "REDIRECT", {
         registry: fakeRegistry(statuses, undefined, catalog),
       });
@@ -125,6 +127,7 @@ describe("mcp routes", () => {
           },
           { name: "down", type: "stdio", state: "failed", error: "boom", tools: [] },
         ],
+        builtin: [{ name: "run_workflow", description: expect.any(String), permission: "allow" }],
       });
     });
   });

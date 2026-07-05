@@ -18,6 +18,7 @@ import type { LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  GATED_BUILTIN_TOOLS,
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermissionStore,
@@ -206,8 +207,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     }
     const workflow = workflowTools({ db, registry, config, bus, cancelRegistry, llmClients });
     tools.list_workflows = workflow.list_workflows;
-    const runWorkflow = gate("run_workflow", workflow.run_workflow);
-    if (runWorkflow !== null) tools.run_workflow = runWorkflow;
+    for (const { name } of GATED_BUILTIN_TOOLS) {
+      const offered = gate(name, workflow[name]);
+      if (offered !== null) tools[name] = offered;
+    }
     return { ...tools, ...articleTools(db, sessionId, (event) => bus?.publish(event)) };
   };
 
