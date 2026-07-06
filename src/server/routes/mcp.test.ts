@@ -147,6 +147,7 @@ describe("mcp routes", () => {
           { name: "edit_workflow", description: expect.any(String), permission: "ask" },
           { name: "replace_workflow", description: expect.any(String), permission: "ask" },
           { name: "run_workflow", description: expect.any(String), permission: "allow" },
+          { name: "rerun_workflow", description: expect.any(String), permission: "ask" },
         ],
       });
     });

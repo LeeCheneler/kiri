@@ -6,6 +6,7 @@ import type { ToolExecutionOptions, ToolSet } from "ai";
 import { createConfigStore } from "../config/store.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
+import { articles, runs } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
 import {
@@ -246,6 +247,140 @@ describe("workflowTools", () => {
       const output = (await pending) as { status: string; steps: { status: string }[] };
       expect(output.status).toBe("cancelled");
       expect(output.steps[0]?.status).toBe("cancelled");
+    });
+  });
+
+  describe("rerun_workflow", () => {
+    it("rejects an unknown run id", () => {
+      expect(run(tools().rerun_workflow, { run_id: "nope" })).rejects.toThrow(
+        'No run with id "nope"',
+      );
+    });
+
+    it("rejects a run that is still in flight", () => {
+      db.insert(runs)
+        .values({
+          id: "run-live",
+          workflowName: "greet",
+          status: "running",
+          startedAt: new Date(),
+          definitionSnapshot: { name: "greet", steps: [{ sh: "printf ok" }] },
+        })
+        .run();
+
+      expect(run(tools().rerun_workflow, { run_id: "run-live" })).rejects.toThrow(
+        'Run "run-live" is still in flight',
+      );
+    });
+
+    it("rejects a run whose workflow no longer exists", async () => {
+      seed(registry, [define({ name: "greet", steps: [{ sh: "printf ok" }] })]);
+      const first = (await run(tools().run_workflow, { name: "greet" })) as { run_id: string };
+
+      seed(registry, []);
+
+      expect(run(tools().rerun_workflow, { run_id: first.run_id })).rejects.toThrow(
+        'Workflow "greet" no longer exists',
+      );
+    });
+
+    it("validates inputs against the workflow's current definition", async () => {
+      seed(registry, [define({ name: "greet", steps: [{ sh: "printf ok" }] })]);
+      const first = (await run(tools().run_workflow, { name: "greet" })) as { run_id: string };
+
+      // Authoring iteration: the workflow now declares a required input.
+      seed(registry, [
+        define({
+          name: "greet",
+          inputs: [{ name: "who", required: true }],
+          steps: [{ sh: 'printf "hello $WHO"', env: { WHO: { input: "who" } } }],
+        }),
+      ]);
+
+      expect(run(tools().rerun_workflow, { run_id: first.run_id })).rejects.toThrow(
+        'Invalid inputs for workflow "greet": input "who" is required',
+      );
+    });
+
+    it("re-executes the current definition in place under the same run id", async () => {
+      seed(registry, [
+        define({
+          name: "greet",
+          steps: [{ sh: 'printf "v1"', name: "V1" }],
+          articles: [{ slug: "v1-notes", sh: 'printf "# V1 Notes"' }],
+        }),
+      ]);
+      const first = (await run(tools().run_workflow, { name: "greet" })) as { run_id: string };
+
+      seed(registry, [
+        define({
+          name: "greet",
+          inputs: [{ name: "who", required: true }],
+          steps: [{ sh: 'printf "hello $WHO"', name: "V2", env: { WHO: { input: "who" } } }],
+          articles: [{ slug: "v2-notes", sh: 'printf "# V2 Notes"' }],
+        }),
+      ]);
+
+      const output = await run(tools().rerun_workflow, {
+        run_id: first.run_id,
+        inputs: { who: "kiri" },
+      });
+
+      expect(output).toEqual({
+        run_id: first.run_id,
+        status: "ok",
+        error: undefined,
+        summary: null,
+        steps: [
+          { name: "V2", status: "ok", error: undefined, stdout: undefined, stderr: undefined },
+          {
+            name: "article: v2-notes",
+            status: "ok",
+            error: undefined,
+            stdout: undefined,
+            stderr: undefined,
+          },
+        ],
+        articles: [{ slug: "v2-notes", name: "V2 Notes" }],
+      });
+
+      // In place: still exactly one run row, and the previous iteration's
+      // article was wiped rather than accumulated alongside the new one.
+      expect(db.select().from(runs).all()).toHaveLength(1);
+      const articleRows = db.select().from(articles).all();
+      expect(articleRows).toHaveLength(1);
+      expect(articleRows[0]?.slug).toBe("v2-notes");
+
+      // The rerun is first-class: it publishes its own lifecycle events
+      // under the reused id.
+      const started = events.filter(
+        (event) => event.type === "run.started" && event.id === first.run_id,
+      );
+      expect(started).toHaveLength(2);
+    });
+
+    it("cancels the rerun it started when the turn aborts", async () => {
+      const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 25 });
+      seed(registry, [define({ name: "slow", steps: [{ sh: "printf ok" }] })]);
+      const first = (await run(tools({ cancelRegistry }).run_workflow, { name: "slow" })) as {
+        run_id: string;
+      };
+
+      // Same stream-closing preamble as run_workflow's cancel test, so an
+      // orphaned sleep can't hang the pipe readers on Linux/CI.
+      seed(registry, [define({ name: "slow", steps: [{ sh: "exec 1>&- 2>&-; sleep 5" }] })]);
+      const controller = new AbortController();
+
+      const pending = run(
+        tools({ cancelRegistry }).rerun_workflow,
+        { run_id: first.run_id },
+        { abortSignal: controller.signal },
+      );
+      setTimeout(() => controller.abort(), 50);
+
+      const output = (await pending) as { run_id: string; status: string };
+      expect(output.run_id).toBe(first.run_id);
+      expect(output.status).toBe("cancelled");
     });
   });
 

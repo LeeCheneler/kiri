@@ -4,4 +4,5 @@ export {
   type RunWorkflowArgs,
   type RunWorkflowResult,
   type StartedRun,
+  wipeRunForRerun,
 } from "./run-workflow.ts";

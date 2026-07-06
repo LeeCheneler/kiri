@@ -215,6 +215,25 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("adds the rerun line to workflow guidance only when rerun_workflow is active", () => {
+    const withRerun = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["list_workflows", "run_workflow", "rerun_workflow"],
+    });
+    expect(withRerun).toContain("go through rerun_workflow with the earlier run_id");
+
+    // rerun_workflow withheld by its permission drops the line, not the
+    // whole workflow-guidance layer.
+    const withoutRerun = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["list_workflows", "run_workflow"],
+    });
+    expect(withoutRerun).toContain("You can run the user's workflows");
+    expect(withoutRerun).not.toContain("go through rerun_workflow");
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });

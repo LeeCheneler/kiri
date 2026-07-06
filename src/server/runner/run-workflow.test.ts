@@ -12,7 +12,7 @@ import { type KiriEvent, createEventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { WorkflowDefinition, WorkflowStep } from "../workflows/index.ts";
 import { createCancelRegistry } from "./cancel-registry.ts";
-import { runWorkflow } from "./run-workflow.ts";
+import { runWorkflow, wipeRunForRerun } from "./run-workflow.ts";
 
 describe("runWorkflow", () => {
   let cwd: string;
@@ -1567,9 +1567,9 @@ describe("runWorkflow", () => {
       expect(original.error).not.toBeNull();
       const originalStartedAt = original.startedAt;
 
-      // The endpoint will wipe step rows before invoking; mirror that here so
-      // the rerun assertion lands on a clean post-rerun row count.
-      db.delete(runSteps).where(eq(runSteps.runId, first.runId)).run();
+      // Callers wipe before invoking with a reused runId; do the same so the
+      // rerun assertion lands on a clean post-rerun row count.
+      wipeRunForRerun(db, config, first.runId);
 
       // Sleep a tick so the refreshed startedAt is strictly newer.
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -1612,7 +1612,7 @@ describe("runWorkflow", () => {
       expect(before?.finishedAt).toBeInstanceOf(Date);
       expect(before?.error).not.toBeNull();
 
-      db.delete(runSteps).where(eq(runSteps.runId, first.runId)).run();
+      wipeRunForRerun(db, config, first.runId);
 
       // Bundle that hangs long enough to observe the runner mid-flight,
       // then exits ok. We assert the row is in `running` with cleared
@@ -1628,6 +1628,73 @@ describe("runWorkflow", () => {
       expect(midflight?.summary).toBeNull();
 
       await done;
+    });
+
+    it("wipeRunForRerun clears the run's produced state and nothing else", async () => {
+      writeBundle(
+        "emit-rec",
+        `#!/bin/sh
+echo '{"title":"Follow up","workflow":"other"}' > "$KIRI_RECOMMENDATIONS_FILE"
+`,
+      );
+      const wf: WorkflowDefinition = {
+        name: "wipe-target",
+        steps: [{ use: "emit-rec" }],
+        articles: [{ slug: "notes", sh: 'printf "# Notes"' }],
+      };
+      const target = await runWorkflow(db, wf, { config }).done;
+      expect(target.status).toBe("ok");
+
+      // A sibling run whose rows must survive the wipe, including its
+      // recommendation's inbound actioned link to the target run.
+      const sibling = await runWorkflow(db, makeWorkflow("bystander", useSteps("emit-rec")), {
+        config,
+      }).done;
+      db.update(recommendations)
+        .set({ actionedRunId: target.runId })
+        .where(eq(recommendations.runId, sibling.runId))
+        .run();
+
+      // A crashed runner's leftover scratch dir.
+      mkdirSync(config.runDir(target.runId), { recursive: true });
+      writeFileSync(join(config.runDir(target.runId), "leftover.txt"), "stale");
+
+      wipeRunForRerun(db, config, target.runId);
+
+      const rowsFor = (runId: string) => ({
+        steps: db.select().from(runSteps).where(eq(runSteps.runId, runId)).all(),
+        articles: db.select().from(articles).where(eq(articles.runId, runId)).all(),
+        recommendations: db
+          .select()
+          .from(recommendations)
+          .where(eq(recommendations.runId, runId))
+          .all(),
+      });
+
+      const wiped = rowsFor(target.runId);
+      expect(wiped.steps).toHaveLength(0);
+      expect(wiped.articles).toHaveLength(0);
+      expect(wiped.recommendations).toHaveLength(0);
+      expect(existsSync(config.runDir(target.runId))).toBe(false);
+
+      // The runs row itself is untouched — reusing it is runWorkflow's job.
+      expect(db.select().from(runs).where(eq(runs.id, target.runId)).get()?.status).toBe("ok");
+
+      const kept = rowsFor(sibling.runId);
+      expect(kept.steps).toHaveLength(1);
+      expect(kept.recommendations).toHaveLength(1);
+      expect(kept.recommendations[0]?.actionedRunId).toBe(target.runId);
+    });
+
+    it("wipeRunForRerun tolerates an already-removed scratch dir", async () => {
+      const result = await runWorkflow(db, makeWorkflow("clean", [{ sh: "printf ok" }]), {
+        config,
+      }).done;
+      expect(result.status).toBe("ok");
+      // Normal completion already removed the scratch dir.
+      expect(existsSync(config.runDir(result.runId))).toBe(false);
+
+      expect(() => wipeRunForRerun(db, config, result.runId)).not.toThrow();
     });
   });
 

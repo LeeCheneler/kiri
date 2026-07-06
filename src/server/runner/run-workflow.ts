@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { resolveArticleName } from "../../shared/article-name.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, runSteps, runs } from "../db/schema.ts";
+import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { resolveGitHead } from "../git/head.ts";
 import {
@@ -35,7 +35,7 @@ export interface RunWorkflowArgs {
   bus?: EventBus;
   /** Optional cancel registry. When supplied, the runner registers the run, publishes the active step's child handle for SIGTERM/SIGKILL, checks for cancellation between steps, and translates a cancel-induced step failure into a `cancelled` terminal status. */
   cancelRegistry?: CancelRegistry;
-  /** When supplied, reuse this existing `runs` row instead of inserting a new one. The row's `status`, `startedAt`, `definitionSnapshot`, `inputs`, `gitSha`, and `gitDirty` are refreshed, and `finishedAt`/`error`/`summary` are cleared. Used by the in-place rerun path; the caller is responsible for wiping prior `runSteps` / `articles` and the scratch dir first. */
+  /** When supplied, reuse this existing `runs` row instead of inserting a new one. The row's `status`, `startedAt`, `definitionSnapshot`, `inputs`, `gitSha`, and `gitDirty` are refreshed, and `finishedAt`/`error`/`summary` are cleared. Used by the in-place rerun path; the caller is responsible for wiping the run's prior state first via `wipeRunForRerun`. */
   runId?: string;
   /** Explicit input values supplied at invocation. Used together with each declared input's `default` to produce the resolved snapshot persisted on `runs.inputs` and consulted when resolving `{ input: <name> }` env references. Ignored when the workflow declares no `inputs:` block. */
   inputs?: Record<string, string>;
@@ -202,6 +202,24 @@ const buildEnv = (
 };
 
 /**
+ * Clear a settled run's produced state — its `runSteps`, `articles`, and
+ * `recommendations` rows plus the scratch dir — so `runWorkflow` can reuse
+ * the `runs` row via `args.runId` without accumulating stale rows. Inbound
+ * `actionedRunId` references from other runs' recommendations stay intact:
+ * the run id persists, so those links still resolve.
+ */
+export function wipeRunForRerun(db: KiriDb, config: ConfigStore, runId: string): void {
+  db.transaction((tx) => {
+    tx.delete(articles).where(eq(articles.runId, runId)).run();
+    tx.delete(runSteps).where(eq(runSteps.runId, runId)).run();
+    tx.delete(recommendations).where(eq(recommendations.runId, runId)).run();
+  });
+  // Normally already gone via the runner's own cleanup; a crashed runner can
+  // leave it behind, and `force: true` makes the common case a no-op.
+  rmSync(config.runDir(runId), { recursive: true, force: true });
+}
+
+/**
  * Start a workflow run.
  *
  * The `runs` row and `runId` are created synchronously so API callers can
@@ -219,9 +237,8 @@ const buildEnv = (
  * Rerun path (`args.runId` supplied): the existing `runs` row is updated
  * back to `"running"` with a fresh `startedAt`/`definitionSnapshot`/
  * `inputs`/git ref, and `finishedAt`/`error`/`summary` are cleared.
- * Trigger is preserved. Callers must wipe prior `runSteps` / `articles`
- * and the scratch dir before invoking so the rerun doesn't accumulate
- * stale rows.
+ * Trigger is preserved. Callers must wipe the run's prior state first
+ * (`wipeRunForRerun`) so the rerun doesn't accumulate stale rows.
  *
  * Halt-on-failure: the run is fail-fast end to end. A failed step leaves
  * later steps uncreated and skips all articles and the summariser; a

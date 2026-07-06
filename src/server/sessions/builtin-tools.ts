@@ -19,8 +19,9 @@ export interface BuiltinTool {
  * tools card shows its permission for review and change. Defaults encode the
  * trust posture: tools that only read or write kiri's own data run without
  * prompting (`allow` — the request in chat is the authorisation), while
- * tools that execute user-authored scripts (`run_workflow`) or write files
- * into the workspace repo (the workflow write tools) ask first.
+ * tools that execute user-authored scripts (`run_workflow`, `rerun_workflow`)
+ * or write files into the workspace repo (the workflow write tools) ask
+ * first.
  */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   {
@@ -81,6 +82,11 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   {
     name: "run_workflow",
     description: "Run one of the workspace's workflows and wait for it to finish.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "rerun_workflow",
+    description: "Re-execute an existing run in place, replacing its results in the feed.",
     defaultPermission: "ask",
   },
 ];
