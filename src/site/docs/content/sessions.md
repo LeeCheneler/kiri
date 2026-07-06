@@ -88,8 +88,9 @@ approval survives a reload — the session picks up where it paused.
 Kiri's built-in tools carry the same controls, each with its own default:
 the article tools, workflow listing and reads, and the authoring guide
 default to **Always allow** — they only touch kiri's own data, and asking in
-chat is the authorisation — while `run_workflow` executes your workflows and
-the workflow write tools put files in your repo, so those default to
+chat is the authorisation — while the run tools (`run_workflow`,
+`rerun_workflow`) execute your workflows and the workflow write tools put
+files in your repo, so those default to
 **Ask**. All of them are listed under **Built-in tools** on the same Tools &
 MCP page, so any default can be reviewed and changed, including switching a
 tool off entirely.
@@ -107,9 +108,12 @@ invokes it for you:
   failing step's output, so it can tell you what broke. Ask and it reads a
   produced article back to you. Stopping the turn (**Escape**) cancels the
   run too.
-- Running a workflow asks for approval by default; listing your workflows
-  never prompts. Both are permissions you can change under **Built-in
-  tools** on the Tools & MCP page.
+- Repeat the request and the session reruns the *same* run in place — one
+  feed entry that updates, not a new one per attempt. The rerun executes
+  the workflow as it is now, so any edits since the last run apply.
+- Running or rerunning a workflow asks for approval by default; listing
+  your workflows never prompts. All are permissions you can change under
+  **Built-in tools** on the Tools & MCP page.
 
 ## Authoring workflows
 
@@ -131,6 +135,9 @@ style, make targeted edits to one, or rewrite one wholesale:
   `kiri.md` (e.g. "for workflow llm steps, prefer
   `anthropic:claude-haiku-4-5`") and sessions will pick it automatically —
   recommended if you author often.
+- Have the session test what it's authoring and it runs the workflow once,
+  then reruns that same run after each fix — your feed keeps a single
+  evolving test run instead of collecting one per attempt.
 
 ## Articles
 

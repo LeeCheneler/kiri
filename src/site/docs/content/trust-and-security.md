@@ -48,10 +48,11 @@ Tools & MCP page and persisted by tool name to a gitignored
 which you can also hand-edit. Kiri's built-in tools follow the same rules with
 per-tool defaults: the article tools, workflow listing and reads, and the
 authoring guide default to Always allow — they only write articles inside
-kiri and read its own data, no shell, no network. `run_workflow` runs your
-scripts, and the workflow write tools put runnable YAML into your repo, so
+kiri and read its own data, no shell, no network. The run tools
+(`run_workflow`, `rerun_workflow`) run your scripts, and the workflow write
+tools put runnable YAML into your repo, so
 those default to Ask — and an authored workflow only ever *executes* through
-the same gates as any other: `run_workflow`'s approval or your click in the
+the same gates as any other: a run tool's approval or your click in the
 catalog, with the file itself an ordinary git change you can review first.
 Every write is validated against the workflow schema before it touches disk.
 All of them are listed under **Built-in tools** on the Tools & MCP page, so
