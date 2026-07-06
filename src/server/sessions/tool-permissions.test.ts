@@ -24,6 +24,26 @@ describe("createToolPermissionStore", () => {
     expect(existsSync(filePath)).toBe(false);
   });
 
+  it("returns the caller's fallback for an unrecorded tool", () => {
+    const store = createToolPermissionStore(filePath);
+    expect(store.get("create_article", "allow")).toBe("allow");
+    expect(store.get("run_workflow", "ask")).toBe("ask");
+  });
+
+  it("prefers a recorded decision over the fallback", () => {
+    const store = createToolPermissionStore(filePath);
+    store.set("create_article", "off");
+    expect(store.get("create_article", "allow")).toBe("off");
+  });
+
+  it("persists an explicit ask so it overrides an allow fallback", () => {
+    const store = createToolPermissionStore(filePath);
+    store.set("create_article", "ask");
+    // A fresh store still sees the decision: ask must stick for a tool whose
+    // fallback is allow, so it is recorded rather than treated as clearing.
+    expect(createToolPermissionStore(filePath).get("create_article", "allow")).toBe("ask");
+  });
+
   it("persists allow and off so a later store sees them", () => {
     const store = createToolPermissionStore(filePath);
     store.set("tavily__search", "allow");
@@ -35,18 +55,12 @@ describe("createToolPermissionStore", () => {
     expect(reopened.list()).toEqual({ tavily__search: "allow", linear__create_issue: "off" });
   });
 
-  it("clears an entry back to ask, removing it from the file", () => {
+  it("records a change back to ask alongside the other decisions", () => {
     const store = createToolPermissionStore(filePath);
     store.set("tavily__search", "off");
     store.set("tavily__search", "ask");
     expect(store.get("tavily__search")).toBe("ask");
-    expect(store.list()).toEqual({});
-  });
-
-  it("setting ask on an unrecorded tool writes no file", () => {
-    const store = createToolPermissionStore(filePath);
-    store.set("tavily__search", "ask");
-    expect(existsSync(filePath)).toBe(false);
+    expect(store.list()).toEqual({ tavily__search: "ask" });
   });
 
   it("only changes the named tool, not its siblings", () => {

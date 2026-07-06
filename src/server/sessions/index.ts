@@ -1,4 +1,5 @@
 export { articleTools } from "./article-tools.ts";
+export { BUILTIN_TOOLS, type BuiltinTool } from "./builtin-tools.ts";
 export {
   type Message,
   type NewMessage,
@@ -44,8 +45,4 @@ export {
   resumeTurn,
   runTurn,
 } from "./turn.ts";
-export {
-  GATED_BUILTIN_TOOLS,
-  type WorkflowToolsDeps,
-  workflowTools,
-} from "./workflow-tools.ts";
+export { type WorkflowToolsDeps, workflowTools } from "./workflow-tools.ts";
