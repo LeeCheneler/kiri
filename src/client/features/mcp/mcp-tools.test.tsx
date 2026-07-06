@@ -167,8 +167,9 @@ describe("<McpTools>", () => {
     );
     renderTools();
 
-    // The built-in card is open by default — no expand click needed. The
+    // The built-in card is collapsed by default, so expand it first. The
     // permission is keyed by the tool's plain name, not a namespaced one.
+    await userEvent.click(await screen.findByRole("button", { name: /built-in tools/i }));
     const group = await screen.findByRole("radiogroup", { name: "Permission for run_workflow" });
     expect((within(group).getByRole("radio", { name: "Ask" }) as HTMLInputElement).checked).toBe(
       true,

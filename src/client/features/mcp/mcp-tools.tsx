@@ -52,9 +52,9 @@ function ToolRow({
 }
 
 // The built-in kiri tools: every first-party session tool, each carrying the
-// same standing permission control as an MCP tool. Open by default — the
-// card is short and always present, and a permission set from a transcript
-// prompt should be findable without a click.
+// same standing permission control as an MCP tool. Collapsed by default —
+// the card is always present and most of its tools sit on sensible defaults,
+// so it opens on demand rather than pushing the MCP servers down the page.
 function BuiltinCard({
   tools,
   onSetPermission,
@@ -65,7 +65,6 @@ function BuiltinCard({
   return (
     <div className="overflow-hidden rounded-sm border border-rule bg-canvas-2">
       <Disclosure
-        defaultOpen
         summary={
           <span className="flex items-baseline gap-3">
             <span className="font-mono text-ink text-sm">Built-in tools</span>
