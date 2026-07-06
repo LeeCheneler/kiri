@@ -179,18 +179,18 @@ describe("workflowTools", () => {
       expect(events).toContainEqual({ type: "run.finished", id: run_id, status: "ok" });
     });
 
-    it("reports a failed run's outcome instead of throwing", async () => {
+    it("reports a failed run's outcome with the failing step's streams", async () => {
       seed(registry, [
         define({
           name: "broken",
-          steps: [{ sh: "exit 7" }, { sh: "printf never" }],
+          steps: [{ sh: "printf partial; echo boom >&2; exit 7" }, { sh: "printf never" }],
         }),
       ]);
 
       const output = (await run(tools().run_workflow, { name: "broken" })) as {
         status: string;
         error?: string;
-        steps: { status: string; error?: string }[];
+        steps: { status: string; error?: string; stdout?: string; stderr?: string }[];
       };
 
       expect(output.status).toBe("failed");
@@ -199,6 +199,32 @@ describe("workflowTools", () => {
       expect(output.steps).toHaveLength(1);
       expect(output.steps[0]?.status).toBe("failed");
       expect(output.steps[0]?.error).toBe(output.error as string);
+      // The failing step's captured streams ride along so the model can
+      // diagnose the failure — the error alone is just the exit code.
+      expect(output.steps[0]?.stdout).toBe("partial");
+      expect(output.steps[0]?.stderr).toBe("boom\n");
+    });
+
+    it("tail-truncates a failed step's streams and omits empty ones", async () => {
+      // The stderr payload is one char over what survives the cap, with an
+      // emoji placed so its surrogate pair straddles the cut: the kept tail
+      // would start with the orphaned low half, which truncation drops.
+      seed(registry, [
+        define({
+          name: "chatty",
+          steps: [{ sh: "{ printf 'x😀'; head -c 8191 /dev/zero | tr '\\0' 'y'; } >&2; exit 1" }],
+        }),
+      ]);
+
+      const output = (await run(tools().run_workflow, { name: "chatty" })) as {
+        steps: { stdout?: string; stderr?: string }[];
+      };
+
+      expect(output.steps[0]?.stderr).toBe(
+        `[truncated — full output on the run page]\n${"y".repeat(8191)}`,
+      );
+      // Nothing went to stdout, so the field is omitted rather than empty.
+      expect(output.steps[0]?.stdout).toBeUndefined();
     });
 
     it("cancels the run it started when the turn aborts", async () => {

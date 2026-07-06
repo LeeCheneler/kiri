@@ -62,10 +62,31 @@ const phaseLabel = (
   return summaryStepLabel(definition.steps[row.index]);
 };
 
+// Per-stream cap on the failure output attached to a failed phase in the
+// run outcome. The tail is kept — a failing process prints its cause last —
+// and the marker points at the run page, which holds the full streams.
+const FAILURE_STREAM_CAP = 8 * 1024;
+
+const failureStreamTail = (value: string): string | undefined => {
+  if (value === "") return undefined;
+  if (value.length <= FAILURE_STREAM_CAP) return value;
+  let tail = value.slice(-FAILURE_STREAM_CAP);
+  // slice() cuts at a UTF-16 code-unit index, so a character encoded as a
+  // surrogate pair (emoji etc.) can be split in half at the cap. A kept
+  // tail starting with a low surrogate (0xdc00–0xdfff) carries an orphan
+  // half — drop it so the output stays well-formed Unicode.
+  const first = tail.charCodeAt(0);
+  if (first >= 0xdc00 && first <= 0xdfff) tail = tail.slice(1);
+  return `[truncated — full output on the run page]\n${tail}`;
+};
+
 // The compact outcome handed back to the model once a run settles: terminal
 // status, per-phase statuses with the failing phase's error, the summary,
-// and the articles produced. Step output stays on the run page — the result
-// reports what happened, it doesn't replay the run into the conversation.
+// and the articles produced. Success output stays on the run page — the
+// result reports what happened, it doesn't replay the run into the
+// conversation. A failed phase is the exception: the tails of its captured
+// stdout/stderr ride along, since its error message alone (often just the
+// exit code) gives the model nothing to diagnose the failure with.
 const runOutcome = (db: KiriDb, runId: string, definition: WorkflowDefinition) => {
   // The runner finalises the runs row before `done` resolves, so the row is
   // present; drizzle's `.get()` types it optional regardless.
@@ -87,11 +108,19 @@ const runOutcome = (db: KiriDb, runId: string, definition: WorkflowDefinition) =
     status: run.status,
     error: (run.error as { message: string } | null)?.message,
     summary: run.summary,
-    steps: stepRows.map((row) => ({
-      name: phaseLabel(definition, row),
-      status: row.status,
-      error: (row.error as { message: string } | null)?.message,
-    })),
+    steps: stepRows.map((row) => {
+      // The runner stamps traces on every finalised row, so a failed row
+      // always carries them; the cast is total for the rows read here.
+      const traces =
+        row.status === "failed" ? (row.traces as { stdout: string; stderr: string }) : null;
+      return {
+        name: phaseLabel(definition, row),
+        status: row.status,
+        error: (row.error as { message: string } | null)?.message,
+        stdout: traces === null ? undefined : failureStreamTail(traces.stdout),
+        stderr: traces === null ? undefined : failureStreamTail(traces.stderr),
+      };
+    }),
     articles: articleRows,
   };
 };
@@ -166,7 +195,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
 
     run_workflow: tool({
       description:
-        "Run one of the workspace's workflows by name and wait for it to finish. Returns the run's terminal status, per-step outcomes, its summary, and the articles it produced (read one with read_article, passing this run's run_id). The run appears in the kiri activity feed with its full step output and traces, so report the outcome briefly rather than replaying it. Every required input must be supplied — call list_workflows first when unsure of the name or inputs.",
+        "Run one of the workspace's workflows by name and wait for it to finish. Returns the run's terminal status, per-step outcomes, its summary, and the articles it produced (read one with read_article, passing this run's run_id). A failed step's entry includes the tail of its captured stdout and stderr, so diagnose a failure from the result. The run appears in the kiri activity feed with its full step output and traces, so report the outcome briefly rather than replaying it. Every required input must be supplied — call list_workflows first when unsure of the name or inputs.",
       inputSchema: z.object({
         name: z
           .string()
