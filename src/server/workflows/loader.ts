@@ -77,13 +77,71 @@ const validateLlmSteps = (
 };
 
 /**
+ * Result of validating one workflow's raw YAML source: the parsed definition
+ * when it is valid, or the human-readable reason it is not.
+ */
+export type ParseWorkflowSourceResult =
+  | { ok: true; workflow: WorkflowDefinition }
+  | { ok: false; reason: string };
+
+/**
+ * Validate one workflow's raw YAML source against everything the loader
+ * checks per file: YAML parse, the workflow schema, `use:` bundle existence,
+ * `llm:` provider registration against `providerNames`, and prompt-file
+ * existence. The single validation gate for workflow sources — the directory
+ * loader runs every file through it, and any other writer must too, so
+ * nothing invalid is ever treated as loadable.
+ */
+export function parseWorkflowSource(
+  raw: string,
+  config: ConfigStore,
+  providerNames: ReadonlySet<string>,
+): ParseWorkflowSourceResult {
+  let parsed: unknown;
+  try {
+    parsed = Bun.YAML.parse(raw);
+  } catch (cause) {
+    return { ok: false, reason: reasonOf(cause) };
+  }
+
+  const result = workflowSchema.safeParse(parsed);
+  if (!result.success) {
+    return { ok: false, reason: result.error.message };
+  }
+  const wf = result.data;
+
+  const missing = validateBundles(wf, config);
+  if (missing.length > 0) {
+    const list = missing.map((n) => `"${n}"`).join(", ");
+    const noun = missing.length === 1 ? "bundle" : "bundles";
+    return {
+      ok: false,
+      reason: `missing ${noun} ${list}: expected <name>/run.sh under ${config.bundlesDir()}`,
+    };
+  }
+
+  const { unknownProviders, missingPromptFiles } = validateLlmSteps(wf, config, providerNames);
+  if (unknownProviders.length > 0) {
+    const list = unknownProviders.map((n) => `"${n}"`).join(", ");
+    const noun = unknownProviders.length === 1 ? "provider" : "providers";
+    return { ok: false, reason: `unknown llm ${noun} ${list}: not declared in kiri.yaml` };
+  }
+  if (missingPromptFiles.length > 0) {
+    const list = missingPromptFiles.map((n) => `"${n}"`).join(", ");
+    const noun = missingPromptFiles.length === 1 ? "file" : "files";
+    return {
+      ok: false,
+      reason: `missing prompt ${noun} ${list}: resolved against ${config.cwd()}`,
+    };
+  }
+
+  return { ok: true, workflow: wf };
+}
+
+/**
  * Scan the workspace's `workflows/` directory for `*.yaml`/`*.yml` files
- * (top-level only — nested files are out of scope by design), parse each as
- * YAML, validate against the workflow schema, and collect the results.
- * `config` resolves `use: <name>` bundles and `llm:` prompt files against
- * the workspace; a workflow referencing a missing bundle, a missing prompt
- * file, or an llm provider absent from `providerNames` (the names registered
- * from the provider config) is recorded as a per-file failure. Per-file
+ * (top-level only — nested files are out of scope by design), run each
+ * through {@link parseWorkflowSource}, and collect the results. Per-file
  * failures (parse errors, validation, duplicates, missing bundles) populate
  * `result.failures` and the scan continues; only directory-level errors
  * (e.g. the workflows directory doesn't exist) throw.
@@ -111,51 +169,12 @@ export async function loadWorkflows(
       continue;
     }
 
-    let parsed: unknown;
-    try {
-      parsed = Bun.YAML.parse(raw);
-    } catch (cause) {
-      failures.push({ path: file, reason: reasonOf(cause) });
+    const parsed = parseWorkflowSource(raw, config, providerNames);
+    if (!parsed.ok) {
+      failures.push({ path: file, reason: parsed.reason });
       continue;
     }
-
-    const result = workflowSchema.safeParse(parsed);
-    if (!result.success) {
-      failures.push({ path: file, reason: result.error.message });
-      continue;
-    }
-    const wf = result.data;
-
-    const missing = validateBundles(wf, config);
-    if (missing.length > 0) {
-      const list = missing.map((n) => `"${n}"`).join(", ");
-      const noun = missing.length === 1 ? "bundle" : "bundles";
-      failures.push({
-        path: file,
-        reason: `missing ${noun} ${list}: expected <name>/run.sh under ${config.bundlesDir()}`,
-      });
-      continue;
-    }
-
-    const { unknownProviders, missingPromptFiles } = validateLlmSteps(wf, config, providerNames);
-    if (unknownProviders.length > 0) {
-      const list = unknownProviders.map((n) => `"${n}"`).join(", ");
-      const noun = unknownProviders.length === 1 ? "provider" : "providers";
-      failures.push({
-        path: file,
-        reason: `unknown llm ${noun} ${list}: not declared in kiri.yaml`,
-      });
-      continue;
-    }
-    if (missingPromptFiles.length > 0) {
-      const list = missingPromptFiles.map((n) => `"${n}"`).join(", ");
-      const noun = missingPromptFiles.length === 1 ? "file" : "files";
-      failures.push({
-        path: file,
-        reason: `missing prompt ${noun} ${list}: resolved against ${config.cwd()}`,
-      });
-      continue;
-    }
+    const wf = parsed.workflow;
 
     const existing = sources.get(wf.name);
     if (existing !== undefined) {

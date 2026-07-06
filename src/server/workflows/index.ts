@@ -17,7 +17,13 @@ export {
   isUseStep,
   workflowSchema,
 } from "./schema.ts";
-export { type LoadResult, type WorkflowLoadFailure, loadWorkflows } from "./loader.ts";
+export {
+  type LoadResult,
+  type ParseWorkflowSourceResult,
+  type WorkflowLoadFailure,
+  loadWorkflows,
+  parseWorkflowSource,
+} from "./loader.ts";
 export { workflowJsonSchema } from "./json-schema.ts";
 export { type Registry, createRegistry } from "./registry.ts";
 export { buildInputSchema } from "./build-input-schema.ts";

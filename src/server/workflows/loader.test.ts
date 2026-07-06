@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
-import { loadWorkflows } from "./loader.ts";
+import { loadWorkflows, parseWorkflowSource } from "./loader.ts";
 
 const yamlSource = (name: string, useName = name) =>
   `name: ${name}
@@ -521,5 +521,54 @@ articles:
   it("throws when the workflows directory does not exist", () => {
     const missingConfig = createConfigStore(join(cwd, "does-not-exist"));
     expect(loadWorkflows(missingConfig)).rejects.toThrow();
+  });
+});
+
+// The single-source gate the loader is built on, exercised directly the way
+// another writer would call it: raw YAML in, a definition or a reason out.
+describe("parseWorkflowSource", () => {
+  let cwd: string;
+  let config: ConfigStore;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "kiri-parse-source-"));
+    mkdirSync(join(cwd, "workflows"));
+    config = createConfigStore(cwd);
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns the parsed definition for a valid source", () => {
+    writeBundle(cwd, "foo");
+    const result = parseWorkflowSource(yamlSource("Foo"), config, new Set());
+    expect(result).toEqual({ ok: true, workflow: { name: "Foo", steps: [{ use: "Foo" }] } });
+  });
+
+  it("returns the reason for invalid YAML", () => {
+    const result = parseWorkflowSource("name: [unclosed", config, new Set());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBeString();
+  });
+
+  it("returns the reason for a schema violation", () => {
+    const result = parseWorkflowSource("name: Empty\nsteps: []\n", config, new Set());
+    expect(result.ok).toBe(false);
+  });
+
+  it("returns the reason for a missing bundle", () => {
+    const result = parseWorkflowSource(yamlSource("Foo"), config, new Set());
+    expect(result).toEqual({
+      ok: false,
+      reason: `missing bundle "Foo": expected <name>/run.sh under ${join(cwd, "bundles")}`,
+    });
+  });
+
+  it("checks llm providers against the supplied names", () => {
+    const source =
+      "name: Digest\nsteps:\n  - llm:\n      model: anthropic:claude\n      prompt: hi\n";
+    expect(parseWorkflowSource(source, config, new Set(["anthropic"])).ok).toBe(true);
+    expect(parseWorkflowSource(source, config, new Set()).ok).toBe(false);
   });
 });
