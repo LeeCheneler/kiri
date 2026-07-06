@@ -211,4 +211,8 @@ number) in \`title\` so entries stay scannable in a mixed feed.
    YAML and retry rather than giving up or asking the user to fix it.
 6. A saved workflow appears in the catalog immediately (no restart, no run
    needed to "activate" it). Run it only when the user wants it executed.
+7. When you do test a workflow across edits, call run_workflow once, then
+   re-execute with rerun_workflow (same run_id) after each fix — every
+   attempt replaces the same activity-feed entry instead of adding one, and
+   the workflow's current file is what runs each time.
 `;

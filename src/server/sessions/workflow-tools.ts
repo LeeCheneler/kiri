@@ -196,7 +196,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
 
     run_workflow: tool({
       description:
-        "Run one of the workspace's workflows by name and wait for it to finish. Returns the run's terminal status, per-step outcomes, its summary, and the articles it produced (read one with read_article, passing this run's run_id). A failed step's entry includes the tail of its captured stdout and stderr, so diagnose a failure from the result. The run appears in the kiri activity feed with its full step output and traces, so report the outcome briefly rather than replaying it. Every required input must be supplied — call list_workflows first when unsure of the name or inputs.",
+        "Run one of the workspace's workflows by name and wait for it to finish. Returns the run's terminal status, per-step outcomes, its summary, and the articles it produced (read one with read_article, passing this run's run_id). A failed step's entry includes the tail of its captured stdout and stderr, so diagnose a failure from the result. The run appears in the kiri activity feed with its full step output and traces, so report the outcome briefly rather than replaying it. Every required input must be supplied — call list_workflows first when unsure of the name or inputs. Start each workflow at most once per conversation this way: to execute it again — retrying, or testing an edit — use rerun_workflow with this run's run_id instead of piling a second run into the feed.",
       inputSchema: z.object({
         name: z
           .string()
