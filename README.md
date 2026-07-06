@@ -34,7 +34,7 @@ articles:
 ## Two ways to work
 
 - **Workflows** — scripted chores like the one above. Chain shell commands, reusable script bundles (e.g. one that spawns Claude Code), and first-party model completions. Runs produce articles — markdown with inline charts and diagrams — and can recommend one-click follow-ups. Reach for a workflow when you know the shape of the work.
-- **Sessions** — open-ended, streaming chat with the same models, plus tools from MCP servers you configure (web search, your issue tracker, anything MCP speaks). MCP tool calls are approval-gated, built-in article tools let a session write and revise articles of its own, built-in workflow tools let it run your workflows for you (approval-gated too), and a workspace `kiri.md` plus optional personas shape the system prompt. Reach for a session when you don't yet know the shape of the work.
+- **Sessions** — open-ended, streaming chat with the same models, plus tools from MCP servers you configure (web search, your issue tracker, anything MCP speaks). MCP tool calls are approval-gated, built-in article tools let a session write and revise articles of its own, and built-in workflow tools let it run your workflows for you — and author new ones: work something out in chat, then have the session save it as a validated workflow YAML in your repo (writes and runs approval-gated too). A workspace `kiri.md` plus optional personas shape the system prompt. Reach for a session when you don't yet know the shape of the work.
 
 Both land in a single activity feed.
 

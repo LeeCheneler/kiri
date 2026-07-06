@@ -57,5 +57,5 @@ Both land in the same activity feed.
 - [Recipes](/docs/recipes) — release notes, one-click PR reviews, a daily
   briefing.
 - [Writing workflows](/docs/workflows) — the golden path, step by step.
-- [Sessions](/docs/sessions) — chat, personas, MCP tools, running workflows,
-  and articles.
+- [Sessions](/docs/sessions) — chat, personas, MCP tools, running and
+  authoring workflows, and articles.

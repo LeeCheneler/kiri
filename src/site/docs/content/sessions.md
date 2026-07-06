@@ -86,12 +86,13 @@ the **Tools & MCP page** in the left nav; decisions persist to a gitignored
 approval survives a reload — the session picks up where it paused.
 
 Kiri's built-in tools carry the same controls, each with its own default:
-the article tools and `list_workflows` default to **Always allow** — they
-only touch kiri's own data, and asking in chat is the authorisation — while
-`run_workflow` executes your workflows, so it defaults to **Ask**. All of
-them are listed under **Built-in tools** on the same Tools & MCP page, so
-any default can be reviewed and changed, including switching a tool off
-entirely.
+the article tools, workflow listing and reads, and the authoring guide
+default to **Always allow** — they only touch kiri's own data, and asking in
+chat is the authorisation — while `run_workflow` executes your workflows and
+the workflow write tools put files in your repo, so those default to
+**Ask**. All of them are listed under **Built-in tools** on the same Tools &
+MCP page, so any default can be reviewed and changed, including switching a
+tool off entirely.
 
 ## Running workflows
 
@@ -107,6 +108,27 @@ invokes it for you:
 - Running a workflow asks for approval by default; listing your workflows
   never prompts. Both are permissions you can change under **Built-in
   tools** on the Tools & MCP page.
+
+## Authoring workflows
+
+Sessions can also write workflows. Work something out in conversation —
+a data pull, a report format, a check you'd repeat — then ask the session
+to "save that as a workflow", and it authors the YAML file into your
+`workflows/` directory. It can read your existing workflows to match their
+style, make targeted edits to one, or rewrite one wholesale:
+
+- Every write is validated first — YAML, schema, referenced bundles, llm
+  providers — so a broken file never lands in your repo; the session is
+  told exactly what was wrong and fixes it itself.
+- Creating or editing a workflow asks for approval by default (it's a file
+  in your repo); reading one never prompts. The saved workflow appears in
+  your catalog immediately and is a normal git change you can review and
+  commit.
+- For workflows with `llm:` steps the session won't invent a model — it
+  uses what your existing workflows use, or asks. Name a preference in
+  `kiri.md` (e.g. "for workflow llm steps, prefer
+  `anthropic:claude-haiku-4-5`") and sessions will pick it automatically —
+  recommended if you author often.
 
 ## Articles
 

@@ -806,6 +806,7 @@ Authoring notes:
 - Every layer is **read fresh from disk each turn**, so an edit takes effect on the next turn — git is the source of truth, nothing is snapshotted.
 - The persona is **swappable mid-conversation** from the aside (applies from the next turn), alongside the model. There is no persona at creation: a session starts with none, and you attach one when you want it. The leading **None** option detaches.
 - Persona names come from filenames — keep them tidy and kebab-case (`code-reviewer.md`, `release-notes.md`).
+- Sessions can **author workflows** through built-in tools (create/edit/replace whole YAML files, validated before every write). When authoring an `llm:` step a session won't invent a `provider:model` — it follows `kiri.md`, copies an existing workflow, or asks. **Recommended:** name your preferred models in `kiri.md` (e.g. "for workflow llm steps, prefer `anthropic:claude-haiku-4-5`") so sessions pick them automatically.
 
 Example `personas/code-reviewer.md`:
 
@@ -837,7 +838,7 @@ mcp:
 ```
 
 - An entry is **`stdio`** (`command`, `args?`, `env?` — kiri spawns the subprocess) or **`http`** (`url`, `headers?`, `auth: oauth?` — Streamable HTTP). Header and env values are `{ env: <NAME> }` refs, never literals. `auth: oauth` has kiri run a browser sign-in and keep the tokens in `.kiri/mcp-credentials.json` (mode 0600).
-- Tools are offered to the model namespaced **`<server>__<tool>`**. Each carries a standing permission — `allow`, `ask` (the default for MCP tools), or `off` — persisted in `.kiri/tool-permissions.json` and managed from the **Tools & MCP page** (`/mcp`). An `ask` tool pauses the turn with an Allow / Always allow / Deny prompt before it runs; an `off` tool is never offered to the model. Kiri's built-in session tools ride the same controls with their own defaults (the article and workflow-listing tools `allow`; `run_workflow` `ask`).
+- Tools are offered to the model namespaced **`<server>__<tool>`**. Each carries a standing permission — `allow`, `ask` (the default for MCP tools), or `off` — persisted in `.kiri/tool-permissions.json` and managed from the **Tools & MCP page** (`/mcp`). An `ask` tool pauses the turn with an Allow / Always allow / Deny prompt before it runs; an `off` tool is never offered to the model. Kiri's built-in session tools ride the same controls with their own defaults (the article tools and workflow reads `allow`; `run_workflow` and the workflow write tools `ask`).
 - A server whose env ref is unset, that fails to connect, or that awaits OAuth sign-in is simply absent from the session's toolset; the reason surfaces as a config-health check (an unsigned-in OAuth server shows a one-click **Connect** prompt).
 - Each tool call's result is capped (truncated past ~128 KB) and time-boxed, so a huge payload or hung server degrades to a tool error the model can recover from.
 - A `stdio` server is an arbitrary subprocess — treat configuring one with the same care as running any script.

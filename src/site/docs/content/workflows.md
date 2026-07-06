@@ -145,6 +145,10 @@ That `claude-code` bundle — a step that spawns the Claude Code CLI — ships i
 the repo's [examples](/docs/recipes), ready to copy. The
 [reference](/docs/workflow-reference) covers authoring your own.
 
+You don't have to write every workflow by hand, either: a session can author
+one for you — work the steps out in chat, then ask it to save the result as
+a workflow. See [Sessions → Authoring workflows](/docs/sessions).
+
 ## Next
 
 - [Recipes](/docs/recipes) — complete workflows to copy and adapt.
