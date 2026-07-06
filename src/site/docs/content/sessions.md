@@ -81,15 +81,17 @@ and its input:
 
 Each tool also has a standing permission — **Always allow**, **Ask** (default),
 or **Off**, which withholds the tool from the model entirely. Manage them on
-the **MCP page** in the left nav; decisions persist to a gitignored
+the **Tools & MCP page** in the left nav; decisions persist to a gitignored
 `.kiri/tool-permissions.json` and apply on the next call, no restart. A pending
 approval survives a reload — the session picks up where it paused.
 
-Most built-in tools are the exception: the article tools and `list_workflows`
-run without a prompt — they only touch kiri's own data, and asking in chat is
-the authorisation. `run_workflow` executes your workflows, so it asks like an
-MCP tool; its standing permission lives under **Built-in tools** on the same
-MCP page.
+Kiri's built-in tools carry the same controls, each with its own default:
+the article tools and `list_workflows` default to **Always allow** — they
+only touch kiri's own data, and asking in chat is the authorisation — while
+`run_workflow` executes your workflows, so it defaults to **Ask**. All of
+them are listed under **Built-in tools** on the same Tools & MCP page, so
+any default can be reviewed and changed, including switching a tool off
+entirely.
 
 ## Running workflows
 
@@ -102,8 +104,9 @@ invokes it for you:
 - The session waits for the run to finish and reports the outcome — status,
   summary, and any articles it produced. Ask and it reads a produced article
   back to you. Stopping the turn (**Escape**) cancels the run too.
-- Running a workflow asks for approval like an MCP tool call; listing your
-  workflows never prompts.
+- Running a workflow asks for approval by default; listing your workflows
+  never prompts. Both are permissions you can change under **Built-in
+  tools** on the Tools & MCP page.
 
 ## Articles
 

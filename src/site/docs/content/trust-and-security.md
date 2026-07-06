@@ -42,12 +42,16 @@ In sessions, the model can't run an MCP tool behind your back. Unless a tool
 is set to **Always allow**, every call pauses for an explicit **Allow / Always
 allow / Deny** before it executes — so even a prompt-injected instruction to call
 a tool still has to clear you first. Each tool's standing permission (Always
-allow, Ask, or **Off** — withheld from the model entirely) is managed on the MCP
-page and persisted by tool name to a gitignored `.kiri/tool-permissions.json`,
-which you can also hand-edit. The one exception is kiri's built-in article
-tools, which run without a prompt: they can only write articles inside kiri —
-no shell, no network, nothing outside its own database. See
-[Sessions](/docs/sessions).
+allow, Ask, or **Off** — withheld from the model entirely) is managed on the
+Tools & MCP page and persisted by tool name to a gitignored
+`.kiri/tool-permissions.json`,
+which you can also hand-edit. Kiri's built-in tools follow the same rules with
+per-tool defaults: the article tools and `list_workflows` default to Always
+allow — they only write articles inside kiri and read its workflow catalog,
+no shell, no network, nothing outside its own database — while `run_workflow`
+runs your scripts and so defaults to Ask. All of them are listed under
+**Built-in tools** on the Tools & MCP page, so any default can be tightened
+or the tool switched off entirely. See [Sessions](/docs/sessions).
 
 ## Secrets
 
