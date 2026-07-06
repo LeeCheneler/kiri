@@ -47,7 +47,9 @@ const tokenLimit = z.number().positive().optional().catch(undefined);
 // One entry from a provider's `GET /models` listing, normalised to an id and the
 // limits it reports under whichever field names the provider uses. Context
 // prefers the actually-served value (OpenRouter's `top_provider`, Anthropic's
-// `max_input_tokens`) over a theoretical maximum. Unknown keys are ignored.
+// `max_input_tokens`) over a theoretical maximum. DeepInfra nests its limits
+// under `metadata`; its `metadata.max_tokens` merely repeats the context
+// length, so only `metadata.context_length` is read. Unknown keys are ignored.
 const listingEntrySchema = z
   .object({
     id: z.string(),
@@ -55,6 +57,7 @@ const listingEntrySchema = z
       .object({ context_length: tokenLimit, max_completion_tokens: tokenLimit })
       .optional()
       .catch(undefined),
+    metadata: z.object({ context_length: tokenLimit }).optional().catch(undefined),
     max_input_tokens: tokenLimit,
     context_length: tokenLimit,
     max_model_len: tokenLimit,
@@ -73,7 +76,8 @@ const listingEntrySchema = z
         entry.context_length ??
         entry.max_model_len ??
         entry.max_context_length ??
-        entry.context_window,
+        entry.context_window ??
+        entry.metadata?.context_length,
       outputLimit:
         entry.top_provider?.max_completion_tokens ??
         entry.max_tokens ??
@@ -126,8 +130,9 @@ type ProviderModel = z.infer<typeof listingEntrySchema>;
  * API keys are read from `env` at call time and sent as the provider's auth
  * header; their values are never returned or echoed in a failure reason. Each
  * model carries its context window and output cap when the provider's listing
- * reports them (Anthropic, OpenRouter, vLLM, LM Studio all do); a provider whose
- * listing omits them — notably OpenAI — leaves those fields undefined.
+ * reports them (Anthropic, OpenRouter, vLLM, DeepInfra, LM Studio all do); a
+ * provider whose listing omits them — notably OpenAI — leaves those fields
+ * undefined.
  */
 export async function listLlmModels(
   registry: LlmProviderRegistry,
