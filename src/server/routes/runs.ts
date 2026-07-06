@@ -11,7 +11,7 @@ import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
-import { runWorkflow } from "../runner/index.ts";
+import { runWorkflow, wipeRunForRerun } from "../runner/index.ts";
 import { type Registry, buildInputSchema } from "../workflows/index.ts";
 import {
   articleParamSchema,
@@ -316,20 +316,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
       const check = buildInputSchema(wf).safeParse(inputs);
       if (!check.success) return c.json(zodErrorBody(check.error, "invalid inputs"), 400);
 
-      // Cascade-wipe articles, step rows, and the rerun's own
-      // recommendations (mirrors the delete path, minus the final `runs`
-      // delete) so the rerun starts with a clean slate under the same
-      // run id. Inbound `actionedRunId` references from other runs are
-      // deliberately left intact: the id persists, so the link still
-      // resolves to a real run — same as everywhere else. Scratch dir
-      // is removed too — normally already gone, but a crashed runner
-      // can leave it behind.
-      db.transaction((tx) => {
-        tx.delete(articles).where(eq(articles.runId, id)).run();
-        tx.delete(runSteps).where(eq(runSteps.runId, id)).run();
-        tx.delete(recommendations).where(eq(recommendations.runId, id)).run();
-      });
-      rmSync(config.runDir(id), { recursive: true, force: true });
+      wipeRunForRerun(db, config, id);
       const { done } = runWorkflow(db, wf, {
         config,
         bus,
