@@ -75,6 +75,8 @@ export interface SessionsRoutesDeps {
   mcpRegistry?: McpRegistry;
   /** Standing per-tool permissions: an "off" tool is withheld, an "ask" tool is gated, an "allow" tool runs straight through. */
   toolPermissions: ToolPermissionStore;
+  /** Live provider names for the workflow authoring tools' validation gate; forwarded to `workflowTools`. */
+  getProviderNames?: () => ReadonlySet<string>;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -161,8 +163,17 @@ const extractApprovals = (parts: UIMessage["parts"]): ToolApprovalDecision[] => 
  * alongside the system routes.
  */
 export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
-  const { db, config, registry, llmClients, bus, cancelRegistry, mcpRegistry, toolPermissions } =
-    deps;
+  const {
+    db,
+    config,
+    registry,
+    llmClients,
+    bus,
+    cancelRegistry,
+    mcpRegistry,
+    toolPermissions,
+    getProviderNames,
+  } = deps;
   const app = new Hono();
 
   // One registry of in-flight turn streams for this surface: the turn endpoint
@@ -212,7 +223,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (offered !== null) tools[name] = offered;
     }
     const builtin: ToolSet = {
-      ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients }),
+      ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {

@@ -109,6 +109,9 @@ describe("watchWorkflows", () => {
     await waitFor(() => registry.getWorkflow("new") !== undefined);
 
     expect(logs.some((m) => m.includes('added "new"'))).toBe(true);
+    // The rebuild carries sources through, so the new workflow's file is
+    // resolvable by name off the registry.
+    expect(registry.getSource("new")).toBe(join(dir, "new.yaml"));
     watcher.stop();
   });
 

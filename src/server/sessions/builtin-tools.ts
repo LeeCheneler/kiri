@@ -19,7 +19,8 @@ export interface BuiltinTool {
  * tools card shows its permission for review and change. Defaults encode the
  * trust posture: tools that only read or write kiri's own data run without
  * prompting (`allow` — the request in chat is the authorisation), while
- * `run_workflow` executes user-authored scripts, so it asks first.
+ * tools that execute user-authored scripts (`run_workflow`) or write files
+ * into the workspace repo (the workflow write tools) ask first.
  */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   {
@@ -51,6 +52,31 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "list_workflows",
     description: "List the workspace's workflows and their declared inputs.",
     defaultPermission: "allow",
+  },
+  {
+    name: "read_workflow_authoring_guide",
+    description: "Return kiri's workflow-authoring reference for the session to follow.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "read_workflow",
+    description: "Read the raw YAML of one of the workspace's workflows.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "create_workflow",
+    description: "Write a new workflow YAML file into the workspace.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "edit_workflow",
+    description: "Make a targeted text replacement in a workflow's YAML file.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "replace_workflow",
+    description: "Rewrite a workflow's YAML file wholesale.",
+    defaultPermission: "ask",
   },
   {
     name: "run_workflow",

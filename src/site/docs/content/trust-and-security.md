@@ -46,12 +46,17 @@ allow, Ask, or **Off** — withheld from the model entirely) is managed on the
 Tools & MCP page and persisted by tool name to a gitignored
 `.kiri/tool-permissions.json`,
 which you can also hand-edit. Kiri's built-in tools follow the same rules with
-per-tool defaults: the article tools and `list_workflows` default to Always
-allow — they only write articles inside kiri and read its workflow catalog,
-no shell, no network, nothing outside its own database — while `run_workflow`
-runs your scripts and so defaults to Ask. All of them are listed under
-**Built-in tools** on the Tools & MCP page, so any default can be tightened
-or the tool switched off entirely. See [Sessions](/docs/sessions).
+per-tool defaults: the article tools, workflow listing and reads, and the
+authoring guide default to Always allow — they only write articles inside
+kiri and read its own data, no shell, no network. `run_workflow` runs your
+scripts, and the workflow write tools put runnable YAML into your repo, so
+those default to Ask — and an authored workflow only ever *executes* through
+the same gates as any other: `run_workflow`'s approval or your click in the
+catalog, with the file itself an ordinary git change you can review first.
+Every write is validated against the workflow schema before it touches disk.
+All of them are listed under **Built-in tools** on the Tools & MCP page, so
+any default can be tightened or the tool switched off entirely. See
+[Sessions](/docs/sessions).
 
 ## Secrets
 
