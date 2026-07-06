@@ -218,6 +218,31 @@ describe("listLlmModels", () => {
     expect(result.models).toEqual([{ id: "local:qwen", provider: "local", contextWindow: 32768 }]);
   });
 
+  it("reads a deepinfra-style metadata.context_length without treating metadata.max_tokens as an output cap", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            {
+              id: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+              metadata: { context_length: 131072, max_tokens: 131072 },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([
+      {
+        id: "local:meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        provider: "local",
+        contextWindow: 131072,
+      },
+    ]);
+  });
+
   it("ignores non-positive or non-numeric limit fields", async () => {
     server.use(
       http.get("https://api.openai.com/v1/models", () =>

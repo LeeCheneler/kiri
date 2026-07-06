@@ -154,8 +154,9 @@ and the session still appears in the other feed views as usual.
 
 The right-hand aside tracks spend as you go: running input/output **tokens**,
 and **context** as `current / limit` when the provider reports the model's
-window (Anthropic, OpenRouter, vLLM, and LM Studio do; OpenAI doesn't). As a
-conversation nears the window a warning appears above the composer.
+window (Anthropic, OpenRouter, vLLM, DeepInfra, and LM Studio do; OpenAI
+doesn't). As a conversation nears the window a warning appears above the
+composer.
 
 To stretch a session, once context passes halfway kiri trims what it sends
 each turn: the three most recent tool results ride in full, older ones are
