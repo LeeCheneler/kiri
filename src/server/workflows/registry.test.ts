@@ -12,6 +12,21 @@ describe("registry", () => {
     const reg = createRegistry();
     expect(reg.listWorkflows()).toEqual([]);
     expect(reg.getWorkflow("missing")).toBeUndefined();
+    expect(reg.getSource("missing")).toBeUndefined();
+  });
+
+  it("exposes each workflow's source file when replace supplies them", () => {
+    const reg = createRegistry();
+    reg.replace(new Map([["a", make("a")]]), new Map([["a", "/ws/workflows/a.yaml"]]));
+    expect(reg.getSource("a")).toBe("/ws/workflows/a.yaml");
+    expect(reg.getSource("other")).toBeUndefined();
+  });
+
+  it("clears sources when replace omits them", () => {
+    const reg = createRegistry();
+    reg.replace(new Map([["a", make("a")]]), new Map([["a", "/ws/workflows/a.yaml"]]));
+    reg.replace(new Map([["a", make("a")]]));
+    expect(reg.getSource("a")).toBeUndefined();
   });
 
   it("exposes workflows put in via replace", () => {

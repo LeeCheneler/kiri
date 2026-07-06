@@ -171,7 +171,7 @@ const getProviderNames = () => new Set(llmRegistry.listProviders().map((p) => p.
 const llmClients = createLlmClients(llmRegistry, process.env);
 
 const initial = await loadWorkflows(config, getProviderNames());
-registry.replace(initial.workflows);
+registry.replace(initial.workflows, initial.sources);
 for (const failure of initial.failures) {
   console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
 }

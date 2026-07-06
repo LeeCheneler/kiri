@@ -115,7 +115,7 @@ export function watchWorkflows(
       }
     }
     snapshot = next;
-    registry.replace(result.workflows);
+    registry.replace(result.workflows, result.sources);
   };
 
   const schedule = () => {
