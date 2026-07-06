@@ -542,8 +542,8 @@ describe("parseWorkflowSource", () => {
 
   it("returns the parsed definition for a valid source", () => {
     writeBundle(cwd, "foo");
-    const result = parseWorkflowSource(yamlSource("Foo"), config, new Set());
-    expect(result).toEqual({ ok: true, workflow: { name: "Foo", steps: [{ use: "Foo" }] } });
+    const result = parseWorkflowSource(yamlSource("foo"), config, new Set());
+    expect(result).toEqual({ ok: true, workflow: { name: "foo", steps: [{ use: "foo" }] } });
   });
 
   it("returns the reason for invalid YAML", () => {
