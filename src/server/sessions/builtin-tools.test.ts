@@ -1,0 +1,39 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createConfigStore } from "../config/store.ts";
+import { type KiriDb, openDatabase } from "../db/index.ts";
+import { migrate } from "../db/migrate.ts";
+import { createRegistry } from "../workflows/index.ts";
+import { articleTools } from "./article-tools.ts";
+import { BUILTIN_TOOLS } from "./builtin-tools.ts";
+import { workflowTools } from "./workflow-tools.ts";
+
+describe("BUILTIN_TOOLS", () => {
+  let dir: string;
+  let db: KiriDb;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-builtin-tools-"));
+    db = openDatabase(join(dir, "state.db"));
+    migrate(db);
+  });
+
+  afterEach(() => {
+    db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The registry is the session routes' source of truth for which built-in
+  // tools exist: each entry is offered by looking its name up in the merged
+  // first-party toolset. A tool added to either side without the other would
+  // ship un-gated or broken, so pin the two to exact agreement.
+  it("names every first-party session tool exactly once", () => {
+    const offered = {
+      ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
+      ...articleTools(db, "session-1", () => {}),
+    };
+    expect(BUILTIN_TOOLS.map((tool) => tool.name).sort()).toEqual(Object.keys(offered).sort());
+  });
+});

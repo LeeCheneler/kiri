@@ -51,10 +51,10 @@ function ToolRow({
   );
 }
 
-// The gated built-in kiri tools: first-party session tools that execute user
-// scripts, so they carry the same standing permission as an MCP tool. Open
-// by default — the card is short and always present, and a permission set
-// from a transcript prompt should be findable without a click.
+// The built-in kiri tools: every first-party session tool, each carrying the
+// same standing permission control as an MCP tool. Open by default — the
+// card is short and always present, and a permission set from a transcript
+// prompt should be findable without a click.
 function BuiltinCard({
   tools,
   onSetPermission,

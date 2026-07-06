@@ -772,7 +772,7 @@ describe("sessions routes", () => {
       expect(systemText).toContain("You can save articles");
     });
 
-    it("runs an article tool straight through un-gated and persists the article", async () => {
+    it("runs an article tool straight through by default and persists the article", async () => {
       const input = JSON.stringify({ slug: "pr-digest", content_md: "# PR Digest\n\nBody." });
       const { bus, waitForSettled } = createSessionWaiter();
       const seen: KiriEvent[] = [];
@@ -784,8 +784,9 @@ describe("sessions routes", () => {
       await (await postMessage(app, "s1", "write me a digest")).text();
       await settled;
 
-      // No approval pause despite no standing permission: the tool ran and the
-      // model answered in the same turn.
+      // No approval pause with no recorded permission: the article tools
+      // default to allow, so the tool ran and the model answered in the same
+      // turn.
       const rows = getSessionMessages(env.db, "s1");
       expect(toolPartOf(rows[1]).state).toBe("output-available");
       expect(toolPartOf(rows[1]).output).toEqual({ slug: "pr-digest", name: "PR Digest" });
@@ -794,6 +795,42 @@ describe("sessions routes", () => {
       expect(row?.slug).toBe("pr-digest");
       expect(row?.contentMd).toBe("# PR Digest\n\nBody.");
       expect(seen).toContainEqual({ type: "article.written", sessionId: "s1", slug: "pr-digest" });
+    });
+
+    it("withholds an off article tool and drops its guidance from the prompt", async () => {
+      // A built-in tool rides the same standing permissions as an MCP tool:
+      // a recorded "off" overrides its allow default, withholding it, and the
+      // article guidance keyed off create_article disappears with it.
+      createToolPermissionStore(env.config.toolPermissionsFile()).set("create_article", "off");
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "write me a digest")).text();
+      await settled;
+
+      expect(toolNames).not.toContain("create_article");
+      expect(toolNames).toContain("edit_article");
+      expect(systemText).not.toContain("You can save articles");
     });
 
     it("persists the user message under the id the client sent", async () => {
@@ -1271,7 +1308,7 @@ describe("sessions routes", () => {
       expect((part.output as { status: string }).status).toBe("ok");
     });
 
-    it("offers list_workflows without permission gating", async () => {
+    it("runs list_workflows straight through on its allow default", async () => {
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: toolCallModel("list_workflows", "{}") }), { bus });
       createSession(env.db, MODEL, { id: "s1" });

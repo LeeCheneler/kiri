@@ -95,7 +95,7 @@ describe("mcp routes", () => {
       ];
       // A recorded "off" decision must surface in the listing; the unset tool reads "ask".
       createToolPermissionStore(env.config.toolPermissionsFile()).set("linear__search", "off");
-      // The gated built-in tools honour recorded permissions the same way.
+      // Built-in tools honour recorded permissions the same way.
       createToolPermissionStore(env.config.toolPermissionsFile()).set("run_workflow", "allow");
       const app = buildApp(async () => "REDIRECT", {
         registry: fakeRegistry(statuses, undefined, catalog),
@@ -127,7 +127,18 @@ describe("mcp routes", () => {
           },
           { name: "down", type: "stdio", state: "failed", error: "boom", tools: [] },
         ],
-        builtin: [{ name: "run_workflow", description: expect.any(String), permission: "allow" }],
+        // Every built-in tool is listed: unset tools report their declared
+        // default (allow for the kiri-data tools), the recorded run_workflow
+        // decision wins over its ask default.
+        builtin: [
+          { name: "create_article", description: expect.any(String), permission: "allow" },
+          { name: "replace_article", description: expect.any(String), permission: "allow" },
+          { name: "edit_article", description: expect.any(String), permission: "allow" },
+          { name: "list_articles", description: expect.any(String), permission: "allow" },
+          { name: "read_article", description: expect.any(String), permission: "allow" },
+          { name: "list_workflows", description: expect.any(String), permission: "allow" },
+          { name: "run_workflow", description: expect.any(String), permission: "allow" },
+        ],
       });
     });
   });
