@@ -124,7 +124,13 @@ export function parseWorkflowSource(
   if (unknownProviders.length > 0) {
     const list = unknownProviders.map((n) => `"${n}"`).join(", ");
     const noun = unknownProviders.length === 1 ? "provider" : "providers";
-    return { ok: false, reason: `unknown llm ${noun} ${list}: not declared in kiri.yaml` };
+    // Name the valid set so a wrong guess (a hand-edit or an authoring tool
+    // call) self-corrects in one step instead of a blind retry.
+    const known =
+      providerNames.size > 0
+        ? ` (configured providers: ${Array.from(providerNames).sort().join(", ")})`
+        : "";
+    return { ok: false, reason: `unknown llm ${noun} ${list}: not declared in kiri.yaml${known}` };
   }
   if (missingPromptFiles.length > 0) {
     const list = missingPromptFiles.map((n) => `"${n}"`).join(", ");

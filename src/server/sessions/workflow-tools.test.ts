@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolExecutionOptions, ToolSet } from "ai";
@@ -12,8 +12,10 @@ import {
   type Registry,
   type WorkflowDefinition,
   createRegistry,
+  loadWorkflows,
   workflowSchema,
 } from "../workflows/index.ts";
+import { WORKFLOW_AUTHORING_GUIDE } from "./workflow-authoring-guide.ts";
 import { type WorkflowToolsDeps, workflowTools } from "./workflow-tools.ts";
 
 // Invoke a tool's execute with a minimal ToolExecutionOptions, casting away
@@ -44,6 +46,7 @@ describe("workflowTools", () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-workflow-tools-"));
+    mkdirSync(join(dir, "workflows"));
     db = openDatabase(join(dir, "state.db"));
     migrate(db);
     registry = createRegistry();
@@ -217,6 +220,274 @@ describe("workflowTools", () => {
       const output = (await pending) as { status: string; steps: { status: string }[] };
       expect(output.status).toBe("cancelled");
       expect(output.steps[0]?.status).toBe("cancelled");
+    });
+  });
+
+  // Authoring fixtures work off real files: write YAML into workflows/, load
+  // it through the real loader, and seed the registry with the result —
+  // the same definitions-plus-sources state the watcher maintains live.
+  const writeWorkflowFile = (filename: string, content: string): string => {
+    const path = join(dir, "workflows", filename);
+    writeFileSync(path, content);
+    return path;
+  };
+
+  const syncFromDisk = async (): Promise<void> => {
+    const result = await loadWorkflows(createConfigStore(dir));
+    registry.replace(result.workflows, result.sources);
+  };
+
+  const GREET_YAML = "name: greet\nsteps:\n  - sh: printf ok\n";
+
+  describe("read_workflow_authoring_guide", () => {
+    it("returns the authoring reference verbatim", async () => {
+      expect(await run(tools().read_workflow_authoring_guide, {})).toBe(WORKFLOW_AUTHORING_GUIDE);
+    });
+  });
+
+  describe("read_workflow", () => {
+    it("returns the raw YAML and workspace-relative file of an existing workflow", async () => {
+      writeWorkflowFile("greet.yaml", GREET_YAML);
+      await syncFromDisk();
+
+      const output = await run(tools().read_workflow, { name: "greet" });
+
+      expect(output).toEqual({
+        name: "greet",
+        file: "workflows/greet.yaml",
+        content_yaml: GREET_YAML,
+      });
+    });
+
+    it("rejects an unknown workflow name", () => {
+      expect(run(tools().read_workflow, { name: "nope" })).rejects.toThrow(
+        'No workflow named "nope" — call list_workflows',
+      );
+    });
+  });
+
+  describe("create_workflow", () => {
+    it("writes the file with a trailing newline and reports name and file", async () => {
+      const output = await run(tools().create_workflow, {
+        slug: "hello",
+        content_yaml: "name: hello\nsteps:\n  - sh: printf hi",
+      });
+
+      expect(output).toEqual({ name: "hello", file: "workflows/hello.yaml" });
+      expect(readFileSync(join(dir, "workflows", "hello.yaml"), "utf8")).toBe(
+        "name: hello\nsteps:\n  - sh: printf hi\n",
+      );
+      // The created file round-trips through the real loader, so the watcher's
+      // next rebuild will pick it up into the catalog.
+      const loaded = await loadWorkflows(createConfigStore(dir));
+      expect(loaded.workflows.has("hello")).toBe(true);
+      expect(loaded.failures).toEqual([]);
+    });
+
+    it("rejects invalid YAML without writing anything", async () => {
+      expect(
+        run(tools().create_workflow, { slug: "broken", content_yaml: "name: [oops" }),
+      ).rejects.toThrow("Invalid workflow YAML — nothing was written.");
+      expect(existsSync(join(dir, "workflows", "broken.yaml"))).toBe(false);
+    });
+
+    it("rejects a schema violation without writing anything", async () => {
+      expect(
+        run(tools().create_workflow, { slug: "empty", content_yaml: "name: empty\nsteps: []\n" }),
+      ).rejects.toThrow("Invalid workflow YAML");
+      expect(existsSync(join(dir, "workflows", "empty.yaml"))).toBe(false);
+    });
+
+    it("rejects a workflow referencing a missing bundle", () => {
+      expect(
+        run(tools().create_workflow, {
+          slug: "bundled",
+          content_yaml: "name: bundled\nsteps:\n  - use: ghost\n",
+        }),
+      ).rejects.toThrow('"ghost"');
+    });
+
+    it("validates llm providers against the live provider names", async () => {
+      const content_yaml =
+        "name: digest\nsteps:\n  - llm:\n      model: anthropic:claude\n      prompt: hi\n";
+      // Without a provider source every llm workflow is unknown-provider.
+      expect(run(tools().create_workflow, { slug: "digest", content_yaml })).rejects.toThrow(
+        'unknown llm provider "anthropic"',
+      );
+      // A wrong guess against a configured set names the valid providers.
+      expect(
+        run(tools({ getProviderNames: () => new Set(["local"]) }).create_workflow, {
+          slug: "digest",
+          content_yaml,
+        }),
+      ).rejects.toThrow("configured providers: local");
+      const output = await run(
+        tools({ getProviderNames: () => new Set(["anthropic"]) }).create_workflow,
+        { slug: "digest", content_yaml },
+      );
+      expect(output).toEqual({ name: "digest", file: "workflows/digest.yaml" });
+    });
+
+    it("rejects a workflow name the registry already has", async () => {
+      writeWorkflowFile("greet.yaml", GREET_YAML);
+      await syncFromDisk();
+      expect(
+        run(tools().create_workflow, { slug: "other", content_yaml: GREET_YAML }),
+      ).rejects.toThrow('A workflow named "greet" already exists');
+      expect(existsSync(join(dir, "workflows", "other.yaml"))).toBe(false);
+    });
+
+    it("rejects a slug whose .yaml or .yml file already exists", async () => {
+      writeWorkflowFile("taken.yaml", GREET_YAML);
+      expect(
+        run(tools().create_workflow, {
+          slug: "taken",
+          content_yaml: "name: fresh\nsteps:\n  - sh: printf hi\n",
+        }),
+      ).rejects.toThrow("workflows/taken.yaml already exists");
+
+      writeWorkflowFile("legacy.yml", "name: legacy\nsteps:\n  - sh: printf ok\n");
+      expect(
+        run(tools().create_workflow, {
+          slug: "legacy",
+          content_yaml: "name: fresh\nsteps:\n  - sh: printf hi\n",
+        }),
+      ).rejects.toThrow("workflows/legacy.yml already exists");
+    });
+  });
+
+  describe("edit_workflow", () => {
+    const seedGreet = async (): Promise<string> => {
+      const path = writeWorkflowFile("greet.yaml", GREET_YAML);
+      await syncFromDisk();
+      return path;
+    };
+
+    it("rejects identical old and new strings", () => {
+      expect(
+        run(tools().edit_workflow, { name: "greet", old_string: "x", new_string: "x" }),
+      ).rejects.toThrow("identical — nothing to change");
+    });
+
+    it("rejects an unknown workflow name", () => {
+      expect(
+        run(tools().edit_workflow, { name: "nope", old_string: "a", new_string: "b" }),
+      ).rejects.toThrow('No workflow named "nope"');
+    });
+
+    it("rejects an old_string absent from the file", async () => {
+      await seedGreet();
+      expect(
+        run(tools().edit_workflow, { name: "greet", old_string: "absent", new_string: "b" }),
+      ).rejects.toThrow("old_string was not found");
+    });
+
+    it("rejects an ambiguous old_string unless replace_all is set", async () => {
+      writeWorkflowFile("two.yaml", "name: two\nsteps:\n  - sh: printf ok\n  - sh: printf ok\n");
+      await syncFromDisk();
+
+      expect(
+        run(tools().edit_workflow, {
+          name: "two",
+          old_string: "printf ok",
+          new_string: "printf done",
+        }),
+      ).rejects.toThrow("appears 2 times");
+
+      const output = await run(tools().edit_workflow, {
+        name: "two",
+        old_string: "printf ok",
+        new_string: "printf done",
+        replace_all: true,
+      });
+      expect(output).toEqual({ name: "two", file: "workflows/two.yaml", replacements: 2 });
+      expect(readFileSync(join(dir, "workflows", "two.yaml"), "utf8")).toBe(
+        "name: two\nsteps:\n  - sh: printf done\n  - sh: printf done\n",
+      );
+    });
+
+    it("applies a unique edit and writes the validated result", async () => {
+      const path = await seedGreet();
+      const output = await run(tools().edit_workflow, {
+        name: "greet",
+        old_string: "printf ok",
+        new_string: "printf hello",
+      });
+      expect(output).toEqual({ name: "greet", file: "workflows/greet.yaml", replacements: 1 });
+      expect(readFileSync(path, "utf8")).toBe("name: greet\nsteps:\n  - sh: printf hello\n");
+    });
+
+    it("rejects an edit whose result fails validation, leaving the file unchanged", async () => {
+      const path = await seedGreet();
+      expect(
+        run(tools().edit_workflow, { name: "greet", old_string: "steps:", new_string: "stepz:" }),
+      ).rejects.toThrow("Invalid workflow YAML — nothing was written.");
+      expect(readFileSync(path, "utf8")).toBe(GREET_YAML);
+    });
+
+    it("allows a rename to an unused name and rejects a colliding one", async () => {
+      writeWorkflowFile("greet.yaml", GREET_YAML);
+      writeWorkflowFile("other.yaml", "name: other\nsteps:\n  - sh: printf ok\n");
+      await syncFromDisk();
+
+      expect(
+        run(tools().edit_workflow, {
+          name: "greet",
+          old_string: "name: greet",
+          new_string: "name: other",
+        }),
+      ).rejects.toThrow('A workflow named "other" already exists');
+
+      const output = await run(tools().edit_workflow, {
+        name: "greet",
+        old_string: "name: greet",
+        new_string: "name: welcome",
+      });
+      expect(output).toEqual({ name: "welcome", file: "workflows/greet.yaml", replacements: 1 });
+    });
+  });
+
+  describe("replace_workflow", () => {
+    it("rewrites the file wholesale behind the validation gate", async () => {
+      const path = writeWorkflowFile("greet.yaml", GREET_YAML);
+      await syncFromDisk();
+
+      const output = await run(tools().replace_workflow, {
+        name: "greet",
+        content_yaml: "name: greet\ndescription: says hi\nsteps:\n  - sh: printf hi",
+      });
+
+      expect(output).toEqual({ name: "greet", file: "workflows/greet.yaml" });
+      expect(readFileSync(path, "utf8")).toBe(
+        "name: greet\ndescription: says hi\nsteps:\n  - sh: printf hi\n",
+      );
+    });
+
+    it("rejects invalid content, leaving the file unchanged", async () => {
+      const path = writeWorkflowFile("greet.yaml", GREET_YAML);
+      await syncFromDisk();
+      expect(
+        run(tools().replace_workflow, { name: "greet", content_yaml: "steps: []\n" }),
+      ).rejects.toThrow("Invalid workflow YAML");
+      expect(readFileSync(path, "utf8")).toBe(GREET_YAML);
+    });
+
+    it("rejects an unknown workflow name", () => {
+      expect(
+        run(tools().replace_workflow, { name: "nope", content_yaml: GREET_YAML }),
+      ).rejects.toThrow('No workflow named "nope"');
+    });
+
+    it("rejects a rewrite renaming onto an existing workflow", async () => {
+      writeWorkflowFile("greet.yaml", GREET_YAML);
+      writeWorkflowFile("other.yaml", "name: other\nsteps:\n  - sh: printf ok\n");
+      await syncFromDisk();
+      expect(
+        run(tools().replace_workflow, {
+          name: "greet",
+          content_yaml: "name: other\nsteps:\n  - sh: printf hi\n",
+        }),
+      ).rejects.toThrow('A workflow named "other" already exists');
     });
   });
 });

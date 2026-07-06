@@ -128,8 +128,8 @@ describe("mcp routes", () => {
           { name: "down", type: "stdio", state: "failed", error: "boom", tools: [] },
         ],
         // Every built-in tool is listed: unset tools report their declared
-        // default (allow for the kiri-data tools), the recorded run_workflow
-        // decision wins over its ask default.
+        // default (allow for the kiri-data tools, ask for the workflow write
+        // tools), the recorded run_workflow decision wins over its ask default.
         builtin: [
           { name: "create_article", description: expect.any(String), permission: "allow" },
           { name: "replace_article", description: expect.any(String), permission: "allow" },
@@ -137,6 +137,15 @@ describe("mcp routes", () => {
           { name: "list_articles", description: expect.any(String), permission: "allow" },
           { name: "read_article", description: expect.any(String), permission: "allow" },
           { name: "list_workflows", description: expect.any(String), permission: "allow" },
+          {
+            name: "read_workflow_authoring_guide",
+            description: expect.any(String),
+            permission: "allow",
+          },
+          { name: "read_workflow", description: expect.any(String), permission: "allow" },
+          { name: "create_workflow", description: expect.any(String), permission: "ask" },
+          { name: "edit_workflow", description: expect.any(String), permission: "ask" },
+          { name: "replace_workflow", description: expect.any(String), permission: "ask" },
           { name: "run_workflow", description: expect.any(String), permission: "allow" },
         ],
       });

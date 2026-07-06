@@ -95,6 +95,13 @@ export interface AppDeps {
    * `bin/kiri.ts` passes `process.env`; defaults to it when omitted.
    */
   env?: Record<string, string | undefined>;
+  /**
+   * Live LLM provider names, forwarded to the session workflow-authoring
+   * tools so an authored `llm:` step validates against the same set the
+   * loader uses. Omitted ⇒ authored `llm:` steps are rejected as
+   * unknown-provider, matching a workspace with no providers configured.
+   */
+  getProviderNames?: () => ReadonlySet<string>;
 }
 
 // Upper bound on request body size. Invoke bodies are
@@ -220,6 +227,7 @@ export function createApp(deps: AppDeps): Hono {
         mcpRegistry,
         toolPermissions,
         streamRegistry: deps.streamRegistry,
+        getProviderNames: deps.getProviderNames,
       }),
     );
   }

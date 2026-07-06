@@ -197,6 +197,7 @@ const app = createApp({
   mcpAuth: auth,
   version: VERSION,
   env: process.env,
+  getProviderNames,
 });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
