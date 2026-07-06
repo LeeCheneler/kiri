@@ -9,7 +9,7 @@ import { articles, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { type LlmClients, summaryStepLabel } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
-import { runWorkflow } from "../runner/index.ts";
+import { runWorkflow, wipeRunForRerun } from "../runner/index.ts";
 import {
   type Registry,
   type WorkflowDefinition,
@@ -127,17 +127,18 @@ const runOutcome = (db: KiriDb, runId: string, definition: WorkflowDefinition) =
 
 /**
  * First-party tools bridging a session into the workflow pillar: listing the
- * workspace's workflows, running one, and authoring them — reading, creating,
- * editing, and replacing the YAML files in `workflows/`. Every write runs the
- * loader's own validation gate first, so nothing invalid ever reaches disk,
- * and lands in the watched directory, so the catalog picks it up without a
- * restart. `run_workflow` blocks until the run settles and returns a compact
- * outcome; the run itself is first-class (feed entry, live events,
+ * workspace's workflows, running one — fresh, or re-executing an existing run
+ * in place — and authoring them: reading, creating, editing, and replacing
+ * the YAML files in `workflows/`. Every write runs the loader's own
+ * validation gate first, so nothing invalid ever reaches disk, and lands in
+ * the watched directory, so the catalog picks it up without a restart.
+ * `run_workflow` and `rerun_workflow` block until the run settles and return
+ * a compact outcome; the run itself is first-class (feed entry, live events,
  * cancellable from the UI), and aborting the turn requests cancellation of
- * the run it started. Expected failures (unknown workflow, invalid inputs or
- * YAML, duplicate names, ambiguous edits) throw with a message naming the
- * call that recovers from them, surfaced to the model as a tool error so it
- * self-corrects mid-turn.
+ * the run it started. Expected failures (unknown workflow or run, invalid
+ * inputs or YAML, duplicate names, ambiguous edits) throw with a message
+ * naming the call that recovers from them, surfaced to the model as a tool
+ * error so it self-corrects mid-turn.
  */
 export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
   const { db, registry, config, bus, cancelRegistry, llmClients, getProviderNames } = deps;
@@ -241,6 +242,71 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
           abortSignal?.removeEventListener("abort", onAbort);
         }
         return runOutcome(db, runId, definition);
+      },
+    }),
+
+    rerun_workflow: tool({
+      description:
+        "Re-execute a finished run of one of the workspace's workflows and wait for it to finish, replacing that run's previous results under the same run_id and activity-feed entry. Reach for it instead of run_workflow whenever you are repeating a run you already started — above all when test-running edits to a workflow you are authoring — so iterating doesn't stack near-identical runs in the user's feed. The workflow's current definition is what runs, so edits made since the last run apply. Inputs follow run_workflow's contract and are not carried over from the previous run — re-supply every required input. Returns the same outcome shape as run_workflow.",
+      inputSchema: z.object({
+        run_id: z
+          .string()
+          .min(1)
+          .describe(
+            "Id of the run to re-execute, as reported by an earlier run_workflow or rerun_workflow outcome.",
+          ),
+        inputs: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            "Values for the workflow's declared inputs, keyed by input name. Required inputs must be present — the previous run's values are not reused; omit the field entirely for a workflow that declares none.",
+          ),
+      }),
+      execute: async ({ run_id, inputs }, { abortSignal }) => {
+        const run = db.select().from(runs).where(eq(runs.id, run_id)).get();
+        if (!run) {
+          throw new Error(
+            `No run with id "${run_id}" — pass the run_id from an earlier run_workflow outcome, or start a fresh run with run_workflow.`,
+          );
+        }
+        if (run.status === "running") {
+          throw new Error(
+            `Run "${run_id}" is still in flight — wait for it to settle before rerunning it.`,
+          );
+        }
+        const definition = registry.getWorkflow(run.workflowName);
+        if (!definition) {
+          throw new Error(
+            `Workflow "${run.workflowName}" no longer exists — if it was renamed, start a fresh run with run_workflow.`,
+          );
+        }
+        const check = buildInputSchema(definition).safeParse(inputs ?? {});
+        if (!check.success) {
+          const issues = check.error.issues.map((issue) => issue.message).join("; ");
+          throw new Error(
+            `Invalid inputs for workflow "${run.workflowName}": ${issues} — call list_workflows to see its declared inputs.`,
+          );
+        }
+
+        wipeRunForRerun(db, config, run_id);
+        const { done } = runWorkflow(db, definition, {
+          config,
+          bus,
+          cancelRegistry,
+          runId: run_id,
+          inputs,
+          llmClients,
+        });
+        // Same abort mapping as run_workflow: cancelling the turn cancels
+        // the rerun it started.
+        const onAbort = () => cancelRegistry?.requestCancel(run_id);
+        abortSignal?.addEventListener("abort", onAbort, { once: true });
+        try {
+          await done;
+        } finally {
+          abortSignal?.removeEventListener("abort", onAbort);
+        }
+        return runOutcome(db, run_id, definition);
       },
     }),
 
