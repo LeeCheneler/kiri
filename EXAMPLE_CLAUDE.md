@@ -6,6 +6,8 @@ Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a line
 
 > **One rule that bites people early:** kiri runs steps with a **scoped env**. Nothing from the parent shell is inherited. If a step needs `MY_TOKEN`, set it explicitly under that step's `env:`. The exceptions are `PATH`, `HOME`, `USER`, `LOGNAME`, and the `KIRI_*` vars kiri injects.
 
+> **A second one:** steps execute **directly on the machine that runs kiri** — never a container or Linux CI image — so write `sh:` scripts for that OS (check `uname -s` if unsure). On macOS the userland is BSD, not GNU: `sed -i` needs a suffix argument (`sed -i ''`), `date` has no `-d` (use `-v` / `-j -f`), `grep` has no `-P`, and `timeout`/`tac`/`nproc` don't exist. And since steps run via `sh -c`, write POSIX sh, not bash — no arrays, no `[[ ]]`, no `set -o pipefail`.
+
 ---
 
 ## Workspace layout

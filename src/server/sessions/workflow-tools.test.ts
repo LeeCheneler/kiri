@@ -16,7 +16,8 @@ import {
   loadWorkflows,
   workflowSchema,
 } from "../workflows/index.ts";
-import { WORKFLOW_AUTHORING_GUIDE } from "./workflow-authoring-guide.ts";
+import { detectHostEnvironment } from "./host-environment.ts";
+import { buildWorkflowAuthoringGuide } from "./workflow-authoring-guide.ts";
 import { type WorkflowToolsDeps, workflowTools } from "./workflow-tools.ts";
 
 // Invoke a tool's execute with a minimal ToolExecutionOptions, casting away
@@ -401,8 +402,10 @@ describe("workflowTools", () => {
   const GREET_YAML = "name: greet\nsteps:\n  - sh: printf ok\n";
 
   describe("read_workflow_authoring_guide", () => {
-    it("returns the authoring reference verbatim", async () => {
-      expect(await run(tools().read_workflow_authoring_guide, {})).toBe(WORKFLOW_AUTHORING_GUIDE);
+    it("returns the authoring reference built for the running machine", async () => {
+      expect(await run(tools().read_workflow_authoring_guide, {})).toBe(
+        buildWorkflowAuthoringGuide(detectHostEnvironment()),
+      );
     });
   });
 
