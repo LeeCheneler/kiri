@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { humaniseSlug } from "../../shared/humanise-slug.ts";
 import type { ConfigStore } from "../config/store.ts";
+import { type HostEnvironment, describeHost, detectHostEnvironment } from "./host-environment.ts";
 import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
@@ -144,11 +145,12 @@ function buildResponseGuidance(): string {
 // replies land in, and guidance on the available tools. Built per turn rather
 // than kept as a constant because it states the live date and the active tool
 // set. Not user-editable — `kiri.md` and personas customise on top of it.
-function buildCorePrompt(now: Date, tools: string[]): string {
+function buildCorePrompt(now: Date, tools: string[], host: HostEnvironment): string {
   const today = now.toISOString().slice(0, 10);
   const intro = [
     "You are a capable, careful AI assistant running inside kiri, a local-first personal automation tool, in an interactive chat session.",
     "The session is a multi-turn conversation with a single user on their own machine, running while the kiri app is open.",
+    `That machine is ${describeHost(host)}. Any shell command, script, or platform-specific advice you produce runs on or applies to this system — write it for this platform and its userland, not for a generic Linux box.`,
     `Today's date is ${today}. Your training has a knowledge cutoff, so the world has moved on since: there are models, libraries, releases, versions, products, people, and events you have simply never heard of. When the user refers to something you don't recognise, treat it as real and newer than your training, not as a mistake on their part — your not knowing a thing is not evidence it doesn't exist. Never assert from memory alone that something doesn't exist or that the user is mistaken about it: when the point is checkable, verify it first — reach for a tool when one is available — and only then answer; when you have no way to verify, say what you're unsure of rather than answering as though it were current.`,
     "Your replies are rendered as GitHub-flavoured Markdown in a chat feed — format every reply as Markdown.",
     "Mathematics renders via KaTeX. Wrap inline maths in single dollar signs (`$…$`) and display maths in double dollar signs (`$$…$$`). KaTeX covers standard TeX maths mode — fractions (`\\frac`), roots (`\\sqrt`), sums and integrals (`\\sum`, `\\int`), Greek letters, super/subscripts, relations and operators (`\\times`, `\\leq`, `\\approx`), and environments such as `aligned`, `cases`, `matrix`, and `array`. Reach for it when something is genuinely a formula; for a stray symbol in prose, plain Unicode (×, ÷, ≤, ≥, ≈, π, →) reads fine without a maths block.",
@@ -231,6 +233,8 @@ export interface BuildSystemPromptOptions {
   tools?: string[];
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
+  /** Host injection for tests; defaults to the running process's machine. */
+  host?: HostEnvironment;
 }
 
 /**
@@ -242,7 +246,9 @@ export interface BuildSystemPromptOptions {
  * the source of truth and nothing snapshotted onto the session.
  */
 export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
-  const sections = [buildCorePrompt(opts.now ?? new Date(), opts.tools ?? [])];
+  const sections = [
+    buildCorePrompt(opts.now ?? new Date(), opts.tools ?? [], opts.host ?? detectHostEnvironment()),
+  ];
   const instructions = readInstructions(opts.config.instructionsFile());
   if (instructions !== null) sections.push(instructions);
   if (opts.persona) {

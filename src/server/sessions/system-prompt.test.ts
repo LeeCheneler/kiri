@@ -39,6 +39,24 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Today's date is 2026-06-17.");
   });
 
+  it("names the host machine and targets shell output at its platform", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      host: { platform: "darwin", release: "25.5.0", arch: "arm64" },
+    });
+    // Shell commands and scripts run on the user's actual machine, so the
+    // prompt must pin the platform — otherwise the model defaults to
+    // generic-Linux idioms that fail on a BSD userland.
+    expect(prompt).toContain("macOS (Darwin 25.5.0, arm64; BSD userland, not GNU)");
+    expect(prompt).toContain("not for a generic Linux box");
+  });
+
+  it("detects the running machine when no host is injected", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).toContain("That machine is ");
+  });
+
   it("states a knowledge cutoff so the model flags answers it can't verify", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(prompt).toContain("knowledge cutoff");

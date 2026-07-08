@@ -16,7 +16,8 @@ import {
   buildInputSchema,
   parseWorkflowSource,
 } from "../workflows/index.ts";
-import { WORKFLOW_AUTHORING_GUIDE } from "./workflow-authoring-guide.ts";
+import { detectHostEnvironment } from "./host-environment.ts";
+import { buildWorkflowAuthoringGuide } from "./workflow-authoring-guide.ts";
 
 export interface WorkflowToolsDeps {
   db: KiriDb;
@@ -312,9 +313,9 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
 
     read_workflow_authoring_guide: tool({
       description:
-        "Return kiri's complete workflow-authoring reference: the YAML file shape, the three step kinds, data-flow and env rules, articles and summarize, inputs, and the working method for authoring well. Call it once per conversation before your first create_workflow, edit_workflow, or replace_workflow call — its content is authoritative and more detailed than any tool description. Don't call it again once its content is in the conversation.",
+        "Return kiri's complete workflow-authoring reference: the YAML file shape, the host machine and shell environment scripts run on, the three step kinds, data-flow and env rules, articles and summarize, inputs, and the working method for authoring well. Call it once per conversation before your first create_workflow, edit_workflow, or replace_workflow call — its content is authoritative and more detailed than any tool description. Don't call it again once its content is in the conversation.",
       inputSchema: z.object({}),
-      execute: async () => WORKFLOW_AUTHORING_GUIDE,
+      execute: async () => buildWorkflowAuthoringGuide(detectHostEnvironment()),
     }),
 
     read_workflow: tool({

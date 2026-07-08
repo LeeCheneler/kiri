@@ -1,13 +1,49 @@
+import { type HostEnvironment, describeHost } from "./host-environment.ts";
+
+// The host-specific shell rules for the guide's environment section. A
+// model's training prior is GNU/Linux shell, so the darwin branch spells out
+// the BSD divergences that actually break scripts; the linux branch mirrors
+// it for BSD-isms; anything else gets a verify-first fallback.
+const hostShellRules = (host: HostEnvironment): string => {
+  if (host.platform === "darwin") {
+    return `This machine is **${describeHost(host)}**. Write every
+script for macOS — generic-Linux shell fails here. The traps:
+
+- \`sed -i\` needs an explicit backup-suffix argument on BSD sed: write
+  \`sed -i ''\` (bare GNU-style \`-i\` is an error).
+- \`date\` has no \`-d\`/\`--date\`: use \`date -v-1d\` for offsets and
+  \`date -j -f '<fmt>' '<value>'\` for parsing.
+- \`grep\` has no \`-P\`: use \`-E\` with POSIX classes instead of PCRE.
+- \`stat\` takes \`-f\` format strings (GNU \`-c\` fails); \`timeout\`, \`tac\`,
+  and \`nproc\` don't exist; GNU-only long options (\`--color\`,
+  \`--sort=size\`, …) are generally absent from BSD tools.
+- No \`apt\`, \`systemctl\`, or \`/proc\` — those are Linux-only.`;
+  }
+  if (host.platform === "linux") {
+    return `This machine is **${describeHost(host)}**. Write every
+script for Linux with GNU tools — don't use BSD/macOS forms:
+
+- \`sed -i ''\` is a BSD-ism — GNU sed takes bare \`sed -i\`.
+- \`date -v\`, \`stat -f\`, \`pbcopy\`, \`open\`, and \`defaults\` are macOS-only.`;
+  }
+  return `This machine reports platform \`${host.platform}\` (${host.release}, ${host.arch}).
+Verify any platform-specific flag against this system before relying on it,
+and prefer portable POSIX forms.`;
+};
+
 /**
- * The workflow-authoring reference served by the `read_workflow_authoring_guide`
- * session tool. Loaded into a conversation once, on demand, before the model's
- * first authoring call — kept out of the system prompt so sessions that never
- * author workflows don't pay for it. Content is scoped to what a session can
- * do through the workflow tools: it teaches the YAML contract, the execution
- * model, and the working method, but not filesystem-side authoring (bundles,
- * prompt files, kiri.yaml) that sessions have no tools for.
+ * Build the workflow-authoring reference served by the
+ * `read_workflow_authoring_guide` session tool, tailored to the host the
+ * workflows will run on. Loaded into a conversation once, on demand, before
+ * the model's first authoring call — kept out of the system prompt so
+ * sessions that never author workflows don't pay for it. Content is scoped
+ * to what a session can do through the workflow tools: it teaches the YAML
+ * contract, the execution model, the host environment scripts must target,
+ * and the working method, but not filesystem-side authoring (bundles, prompt
+ * files, kiri.yaml) that sessions have no tools for.
  */
-export const WORKFLOW_AUTHORING_GUIDE = `# Kiri workflow authoring guide
+export const buildWorkflowAuthoringGuide = (host: HostEnvironment): string =>
+  `# Kiri workflow authoring guide
 
 You are authoring workflows for kiri: a local-first personal automation tool.
 A workflow is a **linear pipeline** defined in one YAML file: each step's
@@ -17,6 +53,19 @@ feed summary. The user runs workflows on demand from kiri's catalog (or asks
 you to, via run_workflow). Everything in this guide is enforced by a
 validation gate: nothing invalid ever reaches disk, and a rejected write
 tells you exactly what to fix — fix it and retry.
+
+## Host environment — scripts run on THIS machine
+
+Workflow steps execute directly on the user's machine, never in a container,
+VM, or Linux CI image. ${hostShellRules(host)}
+
+On any host:
+
+- \`sh:\` scripts run via \`sh -c\`, and \`sh\` is not bash: write POSIX sh —
+  no arrays, no \`[[ ]]\`, no \`set -o pipefail\`, no process substitution.
+- Don't assume optional CLIs (\`jq\`, \`gh\`, …) are installed: PATH is the
+  user's own, so tools they use exist, but prefer commands an existing
+  workflow already uses before reaching for an exotic one.
 
 ## The file
 
@@ -74,7 +123,8 @@ A step is **exactly one** of three shapes (mixing them in one step is an error):
 
 - \`sh: <script>\` — inline shell via \`sh -c\`. Use a \`|\` block scalar for
   multi-line scripts, and start every non-trivial one with \`set -eu\` —
-  without it, sh does not stop on the first failure.
+  without it, sh does not stop on the first failure. Write it for the host
+  environment above: POSIX sh, this machine's tools and flags.
 - \`use: <bundle>\` — runs \`bundles/<bundle>/run.sh\` from the workspace. Only
   reference a bundle you have seen used in an existing workflow, and copy its
   \`env:\` contract from that usage — an unknown bundle is rejected, and you
