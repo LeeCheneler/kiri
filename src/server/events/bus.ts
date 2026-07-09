@@ -33,6 +33,7 @@ export type KiriEvent =
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string }
   | { type: "tool.permission.updated"; tool: string }
+  | { type: "persona.changed" }
   | { type: "config.changed" };
 
 export type RunStatus = "running" | "ok" | "failed" | "cancelled";

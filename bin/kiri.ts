@@ -21,6 +21,7 @@ import { type CreateMcpClient, connectMcpServer } from "../src/server/mcp/connec
 import { createMcpCredentialStore } from "../src/server/mcp/oauth-store.ts";
 import { createMcpRegistry } from "../src/server/mcp/registry.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
+import { watchPersonas } from "../src/server/sessions/index.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
 // Replaced at build time via `bun build --define`; falls back to "dev" for local runs.
@@ -184,6 +185,9 @@ const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
   bus,
   mcpRegistry,
 });
+// Personas are read fresh from disk per turn; the watcher exists so the
+// picker follows an edit without a reload.
+const personaWatcher = watchPersonas(config, { bus });
 
 const app = createApp({
   db,
@@ -207,6 +211,7 @@ const shutdown = async () => {
   // workflow watcher is torn down.
   configWatcher.stop();
   watcher.stop();
+  personaWatcher.stop();
   server.stop();
   // Close MCP connections so spawned stdio subprocesses are terminated cleanly.
   await mcpRegistry.close();
