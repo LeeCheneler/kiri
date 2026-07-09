@@ -138,6 +138,62 @@ describe("LiveEventsProvider", () => {
     expect(sources).toHaveLength(1);
   });
 
+  it("retries at once when the tab regains focus mid-backoff", async () => {
+    const { factory, sources } = captureEventSources();
+    render(
+      // Long enough that only the focus can be what rebuilds the stream.
+      <LiveEventsProvider factory={factory} reconnectBaseMs={10_000}>
+        <p>x</p>
+      </LiveEventsProvider>,
+    );
+    act(() => sources[0]?.triggerError());
+    expect(sources).toHaveLength(1);
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => sources.length === 2);
+  });
+
+  it("retries at once when the tab becomes visible mid-backoff", async () => {
+    const { factory, sources } = captureEventSources();
+    render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={10_000}>
+        <p>x</p>
+      </LiveEventsProvider>,
+    );
+    act(() => sources[0]?.triggerError());
+
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => sources.length === 2);
+  });
+
+  it("stays put when the tab is hidden or the stream is healthy", async () => {
+    const { factory, sources } = captureEventSources();
+    render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={10_000}>
+        <p>x</p>
+      </LiveEventsProvider>,
+    );
+
+    // Healthy stream: focus is not a refetch trigger, so nothing is rebuilt.
+    act(() => sources[0]?.triggerOpen());
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(sources).toHaveLength(1);
+
+    // Backing off, but the tab is hidden — leave it for the timer. `visibilityState`
+    // is inherited, so shadow it with an own property and delete it afterwards;
+    // leaving it defined would report "hidden" to every later test in the process.
+    act(() => sources[0]?.triggerError());
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    try {
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await Bun.sleep(20);
+      expect(sources).toHaveLength(1);
+    } finally {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+    expect(document.visibilityState).toBe("visible");
+  });
+
   it("falls back to the native EventSource when no factory is provided", () => {
     const constructed: string[] = [];
     class StubEventSource {

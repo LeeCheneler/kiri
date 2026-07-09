@@ -140,7 +140,8 @@ const LiveEventsContext = createContext<LiveEventsContextValue | null>(null);
  * with a non-200 or a wrong content type — leaving a `CLOSED` stream that would
  * otherwise never deliver another event, freezing every query behind it. The
  * rebuild backs off exponentially so a persistently failing endpoint isn't
- * hammered.
+ * hammered, and focusing the tab retries at once rather than waiting the
+ * backoff out.
  *
  * `factory` and `reconnectBaseMs` are test seams; production callers omit both.
  */
@@ -231,10 +232,30 @@ export function LiveEventsProvider({
       }
     }
 
+    // Coming back to the tab, skip whatever is left of the backoff and retry at
+    // once. A pending timer is the only sign the stream is down: an abandoned one
+    // is detached, and a live or reconnecting stream has none. This checks the
+    // transport rather than refetching on focus — the reconnect's own resync
+    // does that, keeping the bus the single source of freshness.
+    const reconnectNow = () => {
+      if (disposed || retryTimer === null) return;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+      connect();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") reconnectNow();
+    };
+
     connect();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", reconnectNow);
 
     return () => {
       disposed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", reconnectNow);
       if (retryTimer !== null) clearTimeout(retryTimer);
       detach();
     };
