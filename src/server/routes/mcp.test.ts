@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type EventBus, createEventBus } from "../events/index.ts";
+import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import { createMcpCredentialStore } from "../mcp/oauth-store.ts";
 import type { McpRegistry, McpServerCatalog, McpServerStatus } from "../mcp/registry.ts";
@@ -167,6 +167,22 @@ describe("mcp routes", () => {
       expect(
         createToolPermissionStore(env.config.toolPermissionsFile()).get("linear__search"),
       ).toBe("off");
+    });
+
+    it("announces the write so other open tool listings refetch", async () => {
+      const bus = createEventBus();
+      const events: KiriEvent[] = [];
+      bus.subscribe((e) => events.push(e));
+      const app = buildApp(async () => "REDIRECT", { bus });
+
+      const res = await app.request("/api/mcp/tool-permissions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "linear__search", permission: "off" }),
+      });
+
+      expect(res.status).toBe(204);
+      expect(events).toEqual([{ type: "tool.permission.updated", tool: "linear__search" }]);
     });
 
     it("rejects an unknown permission value", async () => {

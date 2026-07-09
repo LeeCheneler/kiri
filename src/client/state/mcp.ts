@@ -46,13 +46,14 @@ export function useMcpTools(): UseQueryResult<McpToolsResult> {
 
 /**
  * Refetch the MCP tool listing whenever the server reports a config change or an
- * OAuth sign-in completes (both publish `config.changed`), and on event-stream
- * reconnect. Mount once near the root via `<LiveSync>`.
+ * OAuth sign-in completes (both publish `config.changed`), whenever a tool's
+ * standing permission is written, and on event-stream reconnect. Mount once near
+ * the root via `<LiveSync>`.
  */
 export function useMcpToolsLive(): void {
   const queryClient = useQueryClient();
   useLiveSync({
-    on: ["config.changed"],
+    on: ["config.changed", "tool.permission.updated"],
     refetch: () => {
       void queryClient.invalidateQueries({ queryKey: mcpToolsKey });
     },

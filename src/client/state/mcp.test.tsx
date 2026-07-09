@@ -74,4 +74,22 @@ describe("mcp state", () => {
     });
     expect(await screen.findByText("tools-servers:2")).toBeDefined();
   });
+
+  it("refetches the tool listing when a permission is written elsewhere", async () => {
+    server.use(
+      http.get("*/api/mcp/tools", () => HttpResponse.json({ servers: [{ name: "linear" }] })),
+    );
+    const { sources } = renderProbe(<ToolsProbe />);
+    expect(await screen.findByText("tools-servers:1")).toBeDefined();
+
+    server.use(
+      http.get("*/api/mcp/tools", () =>
+        HttpResponse.json({ servers: [{ name: "linear" }, { name: "files" }] }),
+      ),
+    );
+    act(() => {
+      sources[0]?.emit({ type: "tool.permission.updated", tool: "linear__search" });
+    });
+    expect(await screen.findByText("tools-servers:2")).toBeDefined();
+  });
 });
