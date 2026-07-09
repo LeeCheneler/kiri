@@ -129,10 +129,11 @@ const LiveEventsContext = createContext<LiveEventsContextValue | null>(null);
 
 /**
  * Owns the single `EventSource('/api/events')` for the app and fans incoming
- * events out to subscribers registered via `useLiveSync`. On every reconnect
- * (open after the first), every subscriber's `refetch` fires so the UI
- * recovers from any events missed while disconnected. The initial open is
- * intentionally silent — surfaces fetch on mount.
+ * events out to subscribers registered via `useLiveSync`. On every reconnect,
+ * every subscriber's `refetch` fires so the UI recovers from any events missed
+ * while disconnected. Only the page's first open is silent — surfaces fetch on
+ * mount — and a stream rebuilt after a failure counts as a reconnect even when
+ * the original never opened.
  *
  * A stream the browser abandons is rebuilt here. `EventSource` retries a
  * dropped transport itself, but gives up for good when a reconnect is answered
@@ -166,7 +167,8 @@ export function LiveEventsProvider({
     let handlers = new Map<KiriEventType, (event: MessageEvent) => void>();
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
-    let openCount = 0;
+    let hasOpened = false;
+    let wasAbandoned = false;
     let disposed = false;
 
     const detach = () => {
@@ -180,6 +182,7 @@ export function LiveEventsProvider({
     };
 
     const scheduleReconnect = () => {
+      wasAbandoned = true;
       detach();
       const delay = Math.min(reconnectBaseMs * 2 ** attempt, RECONNECT_MAX_MS);
       attempt++;
@@ -191,21 +194,26 @@ export function LiveEventsProvider({
 
     function connect() {
       if (disposed) return;
-      const opened = factory(eventsUrl());
-      source = opened;
+      const stream = factory(eventsUrl());
+      source = stream;
 
-      opened.onopen = () => {
+      stream.onopen = () => {
         attempt = 0;
-        openCount++;
-        if (openCount === 1) return;
+        // Surfaces fetch on mount, so the page's first open needs no resync.
+        // Every later open does — including the first open of a stream rebuilt
+        // after the original was abandoned before it ever opened, since events
+        // published in that gap were never delivered.
+        const initial = !hasOpened && !wasAbandoned;
+        hasOpened = true;
+        if (initial) return;
         for (const sub of subscribersRef.current) sub.onReconnect?.();
       };
 
       // A dropped transport leaves the stream connecting and the browser retries
       // it unaided; only a `CLOSED` stream is one it has abandoned, and only that
       // needs rebuilding.
-      opened.onerror = () => {
-        if (disposed || opened.readyState !== CLOSED) return;
+      stream.onerror = () => {
+        if (disposed || stream.readyState !== CLOSED) return;
         scheduleReconnect();
       };
 
@@ -218,7 +226,7 @@ export function LiveEventsProvider({
             sub.onEvent?.(parsed);
           }
         };
-        opened.addEventListener(type, handler);
+        stream.addEventListener(type, handler);
         handlers.set(type, handler);
       }
     }

@@ -247,6 +247,24 @@ describe("useLiveSync", () => {
     expect(b).toHaveBeenCalledTimes(1);
   });
 
+  it("resyncs when a stream rebuilt after a failed initial connect opens", async () => {
+    const { factory, sources } = captureEventSources();
+    const refetch = mock(() => {});
+    render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={1}>
+        <Probe on={["run.started"]} refetch={refetch} />
+      </LiveEventsProvider>,
+    );
+
+    // The first stream is abandoned before it ever opens, so events published
+    // between mount and the rebuild's open were never delivered.
+    act(() => sources[0]?.triggerError());
+    await waitFor(() => sources.length === 2);
+
+    act(() => sources[1]?.triggerOpen());
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the latest refetch and filter without re-subscribing", () => {
     const { factory, sources } = captureEventSources();
     const a = mock(() => {});
