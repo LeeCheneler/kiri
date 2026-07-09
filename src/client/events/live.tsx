@@ -68,6 +68,7 @@ export interface EventSourceLike {
   addEventListener(type: string, handler: (event: MessageEvent) => void): void;
   removeEventListener(type: string, handler: (event: MessageEvent) => void): void;
   close(): void;
+  readonly readyState: number;
   onopen: ((event: Event) => void) | null;
   onerror: ((event: Event) => void) | null;
 }
@@ -107,6 +108,12 @@ const eventsUrl = (): string => {
 
 const defaultFactory: EventSourceFactory = (url) => new EventSource(url);
 
+/** `EventSource.CLOSED`: the browser has abandoned the stream and will not retry it. */
+const CLOSED = 2;
+
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+
 interface Subscriber {
   types: Set<KiriEventType>;
   filter: ((event: KiriEvent) => boolean) | undefined;
@@ -122,20 +129,30 @@ const LiveEventsContext = createContext<LiveEventsContextValue | null>(null);
 
 /**
  * Owns the single `EventSource('/api/events')` for the app and fans incoming
- * events out to subscribers registered via `useLiveSync`. On every reconnect
- * (open after the first), every subscriber's `refetch` fires so the UI
- * recovers from any events missed while disconnected. The initial open is
- * intentionally silent — surfaces fetch on mount.
+ * events out to subscribers registered via `useLiveSync`. On every reconnect,
+ * every subscriber's `refetch` fires so the UI recovers from any events missed
+ * while disconnected. Only the page's first open is silent — surfaces fetch on
+ * mount — and a stream rebuilt after a failure counts as a reconnect even when
+ * the original never opened.
  *
- * `factory` is a test seam; production callers omit it and get the native
- * `EventSource`.
+ * A stream the browser abandons is rebuilt here. `EventSource` retries a
+ * dropped transport itself, but gives up for good when a reconnect is answered
+ * with a non-200 or a wrong content type — leaving a `CLOSED` stream that would
+ * otherwise never deliver another event, freezing every query behind it. The
+ * rebuild backs off exponentially so a persistently failing endpoint isn't
+ * hammered, and focusing the tab retries at once rather than waiting the
+ * backoff out.
+ *
+ * `factory` and `reconnectBaseMs` are test seams; production callers omit both.
  */
 export function LiveEventsProvider({
   children,
   factory = defaultFactory,
+  reconnectBaseMs = RECONNECT_BASE_MS,
 }: {
   children: ReactNode;
   factory?: EventSourceFactory;
+  reconnectBaseMs?: number;
 }) {
   const subscribersRef = useRef<Set<Subscriber>>(new Set());
 
@@ -147,35 +164,102 @@ export function LiveEventsProvider({
   }, []);
 
   useEffect(() => {
-    const source = factory(eventsUrl());
-    let openCount = 0;
+    let source: EventSourceLike | null = null;
+    let handlers = new Map<KiriEventType, (event: MessageEvent) => void>();
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    let hasOpened = false;
+    let wasAbandoned = false;
+    let disposed = false;
 
-    source.onopen = () => {
-      openCount++;
-      if (openCount === 1) return;
-      for (const sub of subscribersRef.current) sub.onReconnect?.();
-    };
-
-    const handlers = new Map<KiriEventType, (event: MessageEvent) => void>();
-    for (const type of KIRI_EVENT_TYPES) {
-      const handler = (event: MessageEvent) => {
-        const parsed = JSON.parse(event.data) as KiriEvent;
-        for (const sub of subscribersRef.current) {
-          if (!sub.types.has(parsed.type)) continue;
-          if (sub.filter && !sub.filter(parsed)) continue;
-          sub.onEvent?.(parsed);
-        }
-      };
-      source.addEventListener(type, handler);
-      handlers.set(type, handler);
-    }
-
-    return () => {
+    const detach = () => {
+      if (!source) return;
       source.onopen = null;
+      source.onerror = null;
       for (const [type, handler] of handlers) source.removeEventListener(type, handler);
       source.close();
+      source = null;
+      handlers = new Map();
     };
-  }, [factory]);
+
+    const scheduleReconnect = () => {
+      wasAbandoned = true;
+      detach();
+      const delay = Math.min(reconnectBaseMs * 2 ** attempt, RECONNECT_MAX_MS);
+      attempt++;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        connect();
+      }, delay);
+    };
+
+    function connect() {
+      if (disposed) return;
+      const stream = factory(eventsUrl());
+      source = stream;
+
+      stream.onopen = () => {
+        attempt = 0;
+        // Surfaces fetch on mount, so the page's first open needs no resync.
+        // Every later open does — including the first open of a stream rebuilt
+        // after the original was abandoned before it ever opened, since events
+        // published in that gap were never delivered.
+        const initial = !hasOpened && !wasAbandoned;
+        hasOpened = true;
+        if (initial) return;
+        for (const sub of subscribersRef.current) sub.onReconnect?.();
+      };
+
+      // A dropped transport leaves the stream connecting and the browser retries
+      // it unaided; only a `CLOSED` stream is one it has abandoned, and only that
+      // needs rebuilding.
+      stream.onerror = () => {
+        if (disposed || stream.readyState !== CLOSED) return;
+        scheduleReconnect();
+      };
+
+      for (const type of KIRI_EVENT_TYPES) {
+        const handler = (event: MessageEvent) => {
+          const parsed = JSON.parse(event.data) as KiriEvent;
+          for (const sub of subscribersRef.current) {
+            if (!sub.types.has(parsed.type)) continue;
+            if (sub.filter && !sub.filter(parsed)) continue;
+            sub.onEvent?.(parsed);
+          }
+        };
+        stream.addEventListener(type, handler);
+        handlers.set(type, handler);
+      }
+    }
+
+    // Coming back to the tab, skip whatever is left of the backoff and retry at
+    // once. A pending timer is the only sign the stream is down: an abandoned one
+    // is detached, and a live or reconnecting stream has none. This checks the
+    // transport rather than refetching on focus — the reconnect's own resync
+    // does that, keeping the bus the single source of freshness.
+    const reconnectNow = () => {
+      if (disposed || retryTimer === null) return;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+      connect();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") reconnectNow();
+    };
+
+    connect();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", reconnectNow);
+
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", reconnectNow);
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      detach();
+    };
+  }, [factory, reconnectBaseMs]);
 
   return <LiveEventsContext.Provider value={{ subscribe }}>{children}</LiveEventsContext.Provider>;
 }
