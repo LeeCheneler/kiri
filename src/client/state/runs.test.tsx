@@ -84,6 +84,11 @@ describe("runs state", () => {
 
     act(() => sources[0]?.emit({ type: "run.finished", id: "r1", status: "ok" }));
     await screen.findByText("wf-4");
+
+    // Deletion restales the detail too, so navigating back to a deleted run
+    // refetches into its not-found state rather than serving the cached row.
+    act(() => sources[0]?.emit({ type: "run.deleted", id: "r1" }));
+    await screen.findByText("wf-5");
   });
 
   it("refetches on recommendation events that name the run", async () => {
