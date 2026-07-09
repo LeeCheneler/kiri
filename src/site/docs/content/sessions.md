@@ -34,7 +34,8 @@ turn — git stays the source of truth.
   `personas/<name>.md`, attached per session from the aside and injected
   after `kiri.md`. The picker humanises filenames —
   `personas/code-reviewer.md` lists as *Code Reviewer* — and you can swap or
-  detach mid-conversation.
+  detach mid-conversation. Add or remove a persona file while kiri is running
+  and the picker updates on its own; no reload needed.
 
 ```
 You are a meticulous senior code reviewer. Read diffs closely, flag
