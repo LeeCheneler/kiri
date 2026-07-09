@@ -19,7 +19,7 @@ import {
   patchSessionPersona,
   patchSessionPinned,
 } from "../api.ts";
-import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
+import { useLiveEvent, useLiveReconnect, useLiveSync } from "../events/live.tsx";
 
 const sessionKey = (id: string) => ["session", id] as const;
 const sessionsFeedKey = ["sessions", "feed"] as const;
@@ -40,13 +40,27 @@ export function useModels(): UseQueryResult<ModelsResult> {
 }
 
 /**
- * Read the personas available to attach at session creation. Like the models
- * list, this is fetched on first use and served from cache — personas are
- * workspace files read per turn on the server, so the picker need not live-sync;
- * a restart (or cache invalidation) refreshes it.
+ * Read the personas available to attach at session creation. Fetched on first
+ * use and served from cache thereafter; kept current by `usePersonasLive` as
+ * `personas/*.md` files come and go.
  */
 export function usePersonas(): UseQueryResult<Persona[]> {
   return useQuery({ queryKey: personasKey, queryFn: fetchPersonas });
+}
+
+/**
+ * Invalidate the persona list whenever the file watcher reports a persona
+ * added, changed, or removed — and on event-stream reconnect, recovering any
+ * change missed while disconnected. Mount once near the root via `<LiveSync>`.
+ */
+export function usePersonasLive(): void {
+  const queryClient = useQueryClient();
+  useLiveSync({
+    on: ["persona.changed"],
+    refetch: () => {
+      void queryClient.invalidateQueries({ queryKey: personasKey });
+    },
+  });
 }
 
 /**
