@@ -18,6 +18,8 @@ export type KiriEventType =
   | "workflow.added"
   | "workflow.updated"
   | "workflow.removed"
+  | "tool.permission.updated"
+  | "persona.changed"
   | "config.changed";
 
 /** Session lifecycle states; `idle` is the between-turns resting state, replacing a run's terminal `ok`. */
@@ -57,6 +59,8 @@ export type KiriEvent =
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string }
+  | { type: "tool.permission.updated"; tool: string }
+  | { type: "persona.changed" }
   | { type: "config.changed" };
 
 /** Minimal `EventSource` surface so tests can swap in a controllable fake. */
@@ -88,6 +92,8 @@ const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
   "workflow.added",
   "workflow.updated",
   "workflow.removed",
+  "tool.permission.updated",
+  "persona.changed",
   "config.changed",
 ];
 

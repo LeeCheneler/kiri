@@ -132,6 +132,9 @@ export function mcpRoutes(deps: McpRoutesDeps): Hono {
     (c) => {
       const { tool, permission } = c.req.valid("json");
       permissions.set(tool, permission);
+      // Announce the write so every open tool listing reflects it, not just the
+      // one that made the change.
+      bus?.publish({ type: "tool.permission.updated", tool });
       return c.body(null, 204);
     },
   );

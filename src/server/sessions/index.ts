@@ -17,6 +17,11 @@ export {
   updateSessionPersona,
 } from "./store.ts";
 export {
+  type PersonaWatcher,
+  type WatchPersonasOptions,
+  watchPersonas,
+} from "./personas-watcher.ts";
+export {
   type StreamRegistry,
   type StreamSink,
   createStreamRegistry,

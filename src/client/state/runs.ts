@@ -91,6 +91,8 @@ export function useRunFeed(): UseInfiniteQueryResult<RunListEntry[], Error> {
  * run's status onto the producing run (actioned, and the reflected status
  * updates from the server). Each event names the affected run, so the
  * invalidation is keyed — only a mounted detail for that run refetches.
+ * Deletion invalidates too, so an unmounted detail restales rather than
+ * serving a deleted run when navigated back to.
  * On event-stream reconnect every run query is invalidated so a mounted
  * detail recovers anything missed while disconnected. Mount once near the
  * root via `<LiveSync>`.
@@ -102,6 +104,7 @@ export function useRunsLive(): void {
       "run.updated",
       "run.step.updated",
       "run.finished",
+      "run.deleted",
       "recommendation.actioned",
       "recommendation.updated",
     ],
