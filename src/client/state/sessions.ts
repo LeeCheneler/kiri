@@ -31,8 +31,9 @@ const FEED_PAGE_SIZE = 25;
 
 /**
  * Read the available models for the picker. Fetches on first use and serves the
- * cache thereafter — there is no live-sync because provider config is read once
- * at startup and fixed for the process lifetime (restart kiri to pick up edits).
+ * cache thereafter. A `kiri.yaml` edit swaps the provider registry and publishes
+ * `config.changed`, which `useConfigHealthLive` bridges to this query's key — so
+ * the picker follows provider edits without a restart.
  */
 export function useModels(): UseQueryResult<ModelsResult> {
   return useQuery({ queryKey: modelsKey, queryFn: fetchModels });
