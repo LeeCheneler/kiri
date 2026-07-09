@@ -68,6 +68,7 @@ export interface EventSourceLike {
   addEventListener(type: string, handler: (event: MessageEvent) => void): void;
   removeEventListener(type: string, handler: (event: MessageEvent) => void): void;
   close(): void;
+  readonly readyState: number;
   onopen: ((event: Event) => void) | null;
   onerror: ((event: Event) => void) | null;
 }
@@ -107,6 +108,12 @@ const eventsUrl = (): string => {
 
 const defaultFactory: EventSourceFactory = (url) => new EventSource(url);
 
+/** `EventSource.CLOSED`: the browser has abandoned the stream and will not retry it. */
+const CLOSED = 2;
+
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+
 interface Subscriber {
   types: Set<KiriEventType>;
   filter: ((event: KiriEvent) => boolean) | undefined;
@@ -127,15 +134,23 @@ const LiveEventsContext = createContext<LiveEventsContextValue | null>(null);
  * recovers from any events missed while disconnected. The initial open is
  * intentionally silent — surfaces fetch on mount.
  *
- * `factory` is a test seam; production callers omit it and get the native
- * `EventSource`.
+ * A stream the browser abandons is rebuilt here. `EventSource` retries a
+ * dropped transport itself, but gives up for good when a reconnect is answered
+ * with a non-200 or a wrong content type — leaving a `CLOSED` stream that would
+ * otherwise never deliver another event, freezing every query behind it. The
+ * rebuild backs off exponentially so a persistently failing endpoint isn't
+ * hammered.
+ *
+ * `factory` and `reconnectBaseMs` are test seams; production callers omit both.
  */
 export function LiveEventsProvider({
   children,
   factory = defaultFactory,
+  reconnectBaseMs = RECONNECT_BASE_MS,
 }: {
   children: ReactNode;
   factory?: EventSourceFactory;
+  reconnectBaseMs?: number;
 }) {
   const subscribersRef = useRef<Set<Subscriber>>(new Set());
 
@@ -147,35 +162,75 @@ export function LiveEventsProvider({
   }, []);
 
   useEffect(() => {
-    const source = factory(eventsUrl());
+    let source: EventSourceLike | null = null;
+    let handlers = new Map<KiriEventType, (event: MessageEvent) => void>();
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
     let openCount = 0;
+    let disposed = false;
 
-    source.onopen = () => {
-      openCount++;
-      if (openCount === 1) return;
-      for (const sub of subscribersRef.current) sub.onReconnect?.();
-    };
-
-    const handlers = new Map<KiriEventType, (event: MessageEvent) => void>();
-    for (const type of KIRI_EVENT_TYPES) {
-      const handler = (event: MessageEvent) => {
-        const parsed = JSON.parse(event.data) as KiriEvent;
-        for (const sub of subscribersRef.current) {
-          if (!sub.types.has(parsed.type)) continue;
-          if (sub.filter && !sub.filter(parsed)) continue;
-          sub.onEvent?.(parsed);
-        }
-      };
-      source.addEventListener(type, handler);
-      handlers.set(type, handler);
-    }
-
-    return () => {
+    const detach = () => {
+      if (!source) return;
       source.onopen = null;
+      source.onerror = null;
       for (const [type, handler] of handlers) source.removeEventListener(type, handler);
       source.close();
+      source = null;
+      handlers = new Map();
     };
-  }, [factory]);
+
+    const scheduleReconnect = () => {
+      detach();
+      const delay = Math.min(reconnectBaseMs * 2 ** attempt, RECONNECT_MAX_MS);
+      attempt++;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        connect();
+      }, delay);
+    };
+
+    function connect() {
+      if (disposed) return;
+      const opened = factory(eventsUrl());
+      source = opened;
+
+      opened.onopen = () => {
+        attempt = 0;
+        openCount++;
+        if (openCount === 1) return;
+        for (const sub of subscribersRef.current) sub.onReconnect?.();
+      };
+
+      // A dropped transport leaves the stream connecting and the browser retries
+      // it unaided; only a `CLOSED` stream is one it has abandoned, and only that
+      // needs rebuilding.
+      opened.onerror = () => {
+        if (disposed || opened.readyState !== CLOSED) return;
+        scheduleReconnect();
+      };
+
+      for (const type of KIRI_EVENT_TYPES) {
+        const handler = (event: MessageEvent) => {
+          const parsed = JSON.parse(event.data) as KiriEvent;
+          for (const sub of subscribersRef.current) {
+            if (!sub.types.has(parsed.type)) continue;
+            if (sub.filter && !sub.filter(parsed)) continue;
+            sub.onEvent?.(parsed);
+          }
+        };
+        opened.addEventListener(type, handler);
+        handlers.set(type, handler);
+      }
+    }
+
+    connect();
+
+    return () => {
+      disposed = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      detach();
+    };
+  }, [factory, reconnectBaseMs]);
 
   return <LiveEventsContext.Provider value={{ subscribe }}>{children}</LiveEventsContext.Provider>;
 }

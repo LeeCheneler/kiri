@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
 import { act, render } from "@testing-library/react";
 import { useState } from "react";
-import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
+import { CONNECTING, captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import {
   type KiriEvent,
   LiveEventsProvider,
@@ -9,6 +9,15 @@ import {
   useLiveReconnect,
   useLiveSync,
 } from "./live.tsx";
+
+// The reconnect is a real timer, so poll rather than sleep a fixed guess.
+const waitFor = async (predicate: () => boolean, timeoutMs = 500): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("waitFor timed out");
+    await Bun.sleep(2);
+  }
+};
 
 const Probe = ({
   on,
@@ -47,9 +56,92 @@ describe("LiveEventsProvider", () => {
     expect(sources[0]?.closed).toBe(true);
   });
 
+  it("leaves a dropped transport to the browser's own retry", async () => {
+    const { factory, sources } = captureEventSources();
+    render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={1}>
+        <p>x</p>
+      </LiveEventsProvider>,
+    );
+    act(() => sources[0]?.triggerOpen());
+
+    // Still CONNECTING: the browser is already reconnecting this stream.
+    act(() => sources[0]?.triggerError(CONNECTING));
+
+    await Bun.sleep(20);
+    expect(sources).toHaveLength(1);
+  });
+
+  it("rebuilds the stream the browser has abandoned", async () => {
+    const { factory, sources } = captureEventSources();
+    render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={1}>
+        <p>x</p>
+      </LiveEventsProvider>,
+    );
+    act(() => sources[0]?.triggerOpen());
+
+    act(() => sources[0]?.triggerError());
+
+    await waitFor(() => sources.length === 2);
+    expect(sources[0]?.closed).toBe(true);
+    expect(sources[1]?.url).toBe("/api/events");
+  });
+
+  it("backs off exponentially while the endpoint keeps failing", async () => {
+    const { factory, sources } = captureEventSources();
+    render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={20}>
+        <p>x</p>
+      </LiveEventsProvider>,
+    );
+
+    // First failure waits ~20ms, the second ~40ms — so after ~30ms the second
+    // stream exists but a further failure has not yet produced a third.
+    act(() => sources[0]?.triggerError());
+    await waitFor(() => sources.length === 2);
+    act(() => sources[1]?.triggerError());
+    await Bun.sleep(30);
+    expect(sources).toHaveLength(2);
+
+    await waitFor(() => sources.length === 3, 200);
+  });
+
+  it("resets the backoff once a rebuilt stream opens", async () => {
+    const { factory, sources } = captureEventSources();
+    render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={20}>
+        <p>x</p>
+      </LiveEventsProvider>,
+    );
+    act(() => sources[0]?.triggerError());
+    await waitFor(() => sources.length === 2);
+
+    // A successful open clears the attempt count, so the next failure waits the
+    // base delay again rather than the doubled one.
+    act(() => sources[1]?.triggerOpen());
+    act(() => sources[1]?.triggerError());
+    await waitFor(() => sources.length === 3, 60);
+  });
+
+  it("abandons a pending reconnect when the provider unmounts", async () => {
+    const { factory, sources } = captureEventSources();
+    const ui = render(
+      <LiveEventsProvider factory={factory} reconnectBaseMs={20}>
+        <p>x</p>
+      </LiveEventsProvider>,
+    );
+    act(() => sources[0]?.triggerError());
+    ui.unmount();
+
+    await Bun.sleep(50);
+    expect(sources).toHaveLength(1);
+  });
+
   it("falls back to the native EventSource when no factory is provided", () => {
     const constructed: string[] = [];
     class StubEventSource {
+      readyState = 0;
       onopen: (() => void) | null = null;
       onerror: (() => void) | null = null;
       constructor(url: string) {
