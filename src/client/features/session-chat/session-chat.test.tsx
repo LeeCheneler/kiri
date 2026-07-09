@@ -134,6 +134,48 @@ const sentToolPart = (body: unknown) => {
   return part as unknown as { state: string; approval: { approved: boolean } };
 };
 
+// happy-dom has no layout, so the page never actually scrolls. Stand in for it:
+// track the page offset and the foot it can scroll to, and capture the chat's own
+// scrolls. The chat always asks to scroll to the foot and a real browser clamps
+// that to the furthest the page allows, so `window.scrollTo` lands the offset on
+// `foot` here — which is what lets a test move the foot and watch the chat cope.
+// Install before rendering: the chat reads the offset as it lands on the foot.
+const stubScrolling = (initialFoot: number) => {
+  let top = initialFoot;
+  let foot = initialFoot;
+  const descriptor = Object.getOwnPropertyDescriptor(document.documentElement, "scrollTop");
+  Object.defineProperty(document.documentElement, "scrollTop", {
+    configurable: true,
+    get: () => top,
+  });
+  const scrollCalls: ScrollToOptions[] = [];
+  const originalScrollTo = window.scrollTo;
+  window.scrollTo = ((options: ScrollToOptions) => {
+    scrollCalls.push(options);
+    top = foot;
+  }) as typeof scrollTo;
+
+  return {
+    scrollCalls,
+    // Move the page and fire the event the browser would fire for it.
+    scrollTo(next: number) {
+      top = next;
+      window.dispatchEvent(new Event("scroll"));
+    },
+    // Grow or shrink the page, moving the foot the chat scrolls to.
+    setFoot(next: number) {
+      foot = next;
+    },
+    restore() {
+      window.scrollTo = originalScrollTo;
+      // Drop the shadowing own property so the prototype's accessor is exposed
+      // again — assigning `undefined` would leave the shadow in place.
+      if (descriptor) Object.defineProperty(document.documentElement, "scrollTop", descriptor);
+      else Reflect.deleteProperty(document.documentElement, "scrollTop");
+    },
+  };
+};
+
 const renderChat = (id = "s1") => {
   const queryClient = createQueryClient();
   const { hook } = memoryLocation({ path: `/sessions/${id}` });
@@ -774,11 +816,7 @@ describe("<SessionChat>", () => {
         HttpResponse.json(sessionDetail([message("m1", "assistant", "Latest reply")])),
       ),
     );
-    const scrollCalls: ScrollToOptions[] = [];
-    const originalScrollTo = window.scrollTo;
-    window.scrollTo = ((options: ScrollToOptions) => {
-      scrollCalls.push(options);
-    }) as typeof window.scrollTo;
+    const scroll = stubScrolling(0);
 
     try {
       renderChat();
@@ -786,40 +824,25 @@ describe("<SessionChat>", () => {
 
       // Landing jumps straight to the latest message: an instant scroll that
       // opts out of the document's smooth scroll-behavior.
-      expect(scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
-      expect(scrollCalls.some((o) => o.behavior === "smooth")).toBe(false);
+      expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+      expect(scroll.scrollCalls.some((o) => o.behavior === "smooth")).toBe(false);
     } finally {
-      window.scrollTo = originalScrollTo;
+      scroll.restore();
     }
   });
 
-  it("stops following the transcript once the user scrolls up", async () => {
+  it("stops following the transcript once the user scrolls up, even by a pixel", async () => {
     let detail = sessionDetail([message("m1", "user", "Question")], { status: "running" });
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(detail)));
-    const { queryClient } = renderChat();
-
-    await screen.findByText(/working/i);
-
-    // happy-dom has no layout, so report the page as scrolled well above the foot
-    // before firing the scroll that un-pins us.
-    const metrics: Record<string, number> = { scrollTop: 0, scrollHeight: 5000, clientHeight: 800 };
-    const originalDescriptors = Object.keys(metrics).map(
-      (key) => [key, Object.getOwnPropertyDescriptor(document.documentElement, key)] as const,
-    );
-    for (const [key, value] of Object.entries(metrics)) {
-      Object.defineProperty(document.documentElement, key, {
-        configurable: true,
-        get: () => value,
-      });
-    }
-    const scrollCalls: ScrollToOptions[] = [];
-    const originalScrollTo = window.scrollTo;
-    window.scrollTo = ((options: ScrollToOptions) => {
-      scrollCalls.push(options);
-    }) as typeof window.scrollTo;
+    const scroll = stubScrolling(5000);
 
     try {
-      window.dispatchEvent(new Event("scroll"));
+      const { queryClient } = renderChat();
+      await screen.findByText(/working/i);
+      scroll.scrollCalls.length = 0;
+
+      // One pixel of upward movement is enough to hand control to the user.
+      scroll.scrollTo(4999);
 
       // The turn settles off-screen and folds in. Because the user scrolled up,
       // the new message must not yank the page back to the foot.
@@ -830,13 +853,106 @@ describe("<SessionChat>", () => {
       await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
       await screen.findByText("An answer");
 
-      expect(scrollCalls).toHaveLength(0);
+      expect(scroll.scrollCalls).toHaveLength(0);
     } finally {
-      window.scrollTo = originalScrollTo;
-      for (const [key, descriptor] of originalDescriptors) {
-        if (descriptor) Object.defineProperty(document.documentElement, key, descriptor);
-        else delete (document.documentElement as unknown as Record<string, unknown>)[key];
-      }
+      scroll.restore();
+    }
+  });
+
+  it("keeps following the transcript when the page scrolls down beneath it", async () => {
+    let detail = sessionDetail([message("m1", "user", "Question")], { status: "running" });
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(detail)));
+    const scroll = stubScrolling(5000);
+
+    try {
+      const { queryClient } = renderChat();
+      await screen.findByText(/working/i);
+      scroll.scrollCalls.length = 0;
+
+      // Downward movement is the page growing under a pinned view and our own
+      // follow chasing the new foot — not the user — so it stays pinned.
+      scroll.setFoot(5200);
+      scroll.scrollTo(5200);
+
+      detail = sessionDetail(
+        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+        { status: "idle" },
+      );
+      await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+      await screen.findByText("An answer");
+
+      expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("keeps following when the page shortens under a followed message", async () => {
+    let detail = sessionDetail([message("m1", "user", "Question")], { status: "running" });
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(detail)));
+    const scroll = stubScrolling(5000);
+
+    try {
+      const { queryClient } = renderChat();
+      await screen.findByText(/working/i);
+
+      // The page gets shorter as the turn settles — the working cue goes away, and
+      // sending collapses a tall composer — so following the new message lands the
+      // page *above* the offset we last saw. That drop is our own scroll, not the
+      // user's, and must not un-pin.
+      scroll.setFoot(4800);
+      detail = sessionDetail(
+        [message("m1", "user", "Question"), message("m2", "assistant", "An answer")],
+        { status: "idle" },
+      );
+      await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+      await screen.findByText("An answer");
+      window.dispatchEvent(new Event("scroll"));
+      scroll.scrollCalls.length = 0;
+
+      // Still pinned, so the next message is followed too.
+      detail = sessionDetail(
+        [
+          message("m1", "user", "Question"),
+          message("m2", "assistant", "An answer"),
+          message("m3", "user", "Another"),
+        ],
+        { status: "idle" },
+      );
+      await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+      await screen.findByText("Another");
+
+      expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("re-pins to the foot when the next message is sent", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([message("m1", "assistant", "An answer")])),
+      ),
+      http.post("*/api/sessions/:id/messages", () => assistantReply("Hi back")),
+    );
+    const scroll = stubScrolling(5000);
+
+    try {
+      renderChat();
+      await screen.findByText("An answer");
+
+      // Scrolling up to re-read only un-pins until the next turn.
+      scroll.scrollTo(1000);
+      scroll.scrollCalls.length = 0;
+
+      await user.type(screen.getByRole("textbox", { name: /message/i }), "Hello there");
+      await user.keyboard("{Enter}");
+      await screen.findByText("Hi back");
+
+      expect(scroll.scrollCalls.some((o) => o.behavior === "instant")).toBe(true);
+    } finally {
+      scroll.restore();
     }
   });
 });
