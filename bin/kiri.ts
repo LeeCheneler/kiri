@@ -139,15 +139,20 @@ const mcpCredentialStore = createMcpCredentialStore(
   config.mcpCredentialsFile(),
   "http://127.0.0.1:4242",
 );
-const mcpRegistry = createMcpRegistry((server, env) =>
-  connectMcpServer(
-    server,
-    env,
-    createMCPClient as unknown as CreateMcpClient,
-    server.type === "http" && server.oauth
-      ? mcpCredentialStore.providerFor(server.name)
-      : undefined,
-  ),
+const mcpRegistry = createMcpRegistry(
+  (server, env) =>
+    connectMcpServer(
+      server,
+      env,
+      createMCPClient as unknown as CreateMcpClient,
+      server.type === "http" && server.oauth
+        ? mcpCredentialStore.providerFor(server.name)
+        : undefined,
+    ),
+  // A tool call that finds its OAuth expired flips the server to needs-sign-in;
+  // announce it like a config change so the app re-fetches status and shows the
+  // Connect prompt without a reload.
+  () => bus.publish({ type: "config.changed" }),
 );
 await mcpRegistry.replace(kiriConfig.mcp, process.env);
 const mcpStatuses = mcpRegistry.status();

@@ -1,4 +1,5 @@
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ToolSet } from "ai";
 import { boundMcpTool } from "./bound-tool.ts";
 import type { McpClient } from "./connect.ts";
@@ -68,8 +69,25 @@ export interface McpRegistry {
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-/** Create an empty MCP registry that connects servers via `connect`. */
-export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
+/**
+ * Whether a tool-call failure means the server's OAuth is no longer usable — an
+ * expired/revoked token the SDK couldn't refresh (`UnauthorizedError`) or a 401
+ * the transport hit again right after re-authing. Distinct from an ordinary tool
+ * error, which must not flip a server to needs-sign-in.
+ */
+const isAuthLoss = (cause: unknown): boolean =>
+  cause instanceof UnauthorizedError ||
+  (cause instanceof StreamableHTTPError && cause.code === 401);
+
+/**
+ * Create an empty MCP registry that connects servers via `connect`. `onAuthLost`
+ * is invoked with a server's name when one of its tool calls reveals its OAuth
+ * has expired and can't be refreshed, so the caller can prompt a re-sign-in.
+ */
+export function createMcpRegistry(
+  connect: ConnectMcpServer,
+  onAuthLost?: (serverName: string) => void,
+): McpRegistry {
   let clients: McpClient[] = [];
   let toolSet: ToolSet = {};
   let statuses: McpServerStatus[] = [];
@@ -77,6 +95,43 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
 
   const closeAll = (toClose: McpClient[]): Promise<unknown> =>
     Promise.allSettled(toClose.map((client) => client.close()));
+
+  // Reclassify a connected server as needing sign-in after a tool call lost its
+  // OAuth: drop its now-unusable tools and catalog entry, flip its status, and
+  // notify. Idempotent and guarded on `connected` so a stale failure from a
+  // just-reloaded server (or a second dead tool in the same turn) is a no-op.
+  const markSignInLost = (serverName: string): void => {
+    const status = statuses.find((s) => s.name === serverName);
+    if (!status || status.state !== "connected") return;
+    const catalog = catalogs.find((c) => c.name === serverName);
+    for (const t of catalog?.tools ?? []) delete toolSet[t.namespacedName];
+    catalogs = catalogs.filter((c) => c.name !== serverName);
+    statuses = statuses.map((s) =>
+      s.name === serverName ? { name: s.name, type: s.type, state: "needs-sign-in" } : s,
+    );
+    onAuthLost?.(serverName);
+  };
+
+  // Wrap a bound tool so a call that loses the server's OAuth flips it to
+  // needs-sign-in and rejects with an actionable message; every other error
+  // (and a tool with no execute) passes through untouched.
+  const watchAuth = (toolDef: ToolSet[string], serverName: string): ToolSet[string] => {
+    const original = toolDef.execute;
+    if (!original) return toolDef;
+    const execute = async (...args: Parameters<NonNullable<ToolSet[string]["execute"]>>) => {
+      try {
+        return await original(...args);
+      } catch (cause) {
+        if (!isAuthLoss(cause)) throw cause;
+        markSignInLost(serverName);
+        throw new Error(
+          `MCP server "${serverName}" needs re-authentication — its sign-in has expired. Reconnect it from the Tools & MCP page.`,
+          { cause },
+        );
+      }
+    };
+    return { ...toolDef, execute } as ToolSet[string];
+  };
 
   return {
     tools: () => toolSet,
@@ -129,7 +184,10 @@ export function createMcpRegistry(connect: ConnectMcpServer): McpRegistry {
         const toolInfos: McpToolInfo[] = [];
         for (const name of names) {
           const namespacedName = `${result.server.name}__${name}`;
-          nextTools[namespacedName] = boundMcpTool(result.tools[name]);
+          nextTools[namespacedName] = watchAuth(
+            boundMcpTool(result.tools[name]),
+            result.server.name,
+          );
           toolInfos.push({ name, namespacedName, description: result.tools[name].description });
         }
         nextStatuses.push({
