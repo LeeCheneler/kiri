@@ -315,14 +315,15 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #     command: npx
 #     args: ["-y", "@modelcontextprotocol/server-memory"]
 #
-# Give sessions first-party tools to find, read, and search files by
-# declaring \`filesystem:\` with the directories they may touch — without
-# it the tools aren't offered at all. "." is the workspace root:
+# Give sessions first-party tools to find, list, read, and search files
+# by declaring \`filesystem:\` with the directories they may touch —
+# without it the tools aren't offered at all. "." is the workspace root
+# and a leading ~ expands to your home directory:
 #
 # filesystem:
 #   allowed_directories:
 #     - .
-#     - /absolute/path/to/another/dir  # no ~ expansion — use a full path
+#     - ~/notes
 `;
 
 /** Relative paths reported by `initRepo`. */

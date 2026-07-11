@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type { LlmProvider, ProviderType } from "../llm/schema.ts";
 import type { McpServer, McpServerEntry, McpServerUnresolved } from "../mcp/schema.ts";
 import { kiriConfigSchema } from "./schema.ts";
@@ -43,6 +44,15 @@ export interface KiriConfigLoadResult {
 
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
+
+// Expand a leading `~` to the user's home directory — the natural way to
+// declare a home-relative sandbox entry. `~user` forms are not supported and
+// resolve as ordinary workspace-relative paths.
+const expandHome = (dir: string): string => {
+  if (dir === "~") return homedir();
+  if (dir.startsWith("~/")) return join(homedir(), dir.slice(2));
+  return dir;
+};
 
 /** An empty result (no providers, no MCP servers, no sandbox), optionally carrying a failure. */
 const emptyResult = (extra: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadResult => ({
@@ -141,9 +151,9 @@ function loadConfigFile(
   const { mcp, mcpUnresolved } = resolveMcpServers(result.data.mcp ?? {}, env);
   // Declaring the sandbox is what enables the filesystem tools — nothing is
   // accessible by default. Entries resolve against the workspace root, so "."
-  // grants the root itself.
+  // grants the root itself, and a leading ~ expands to the home directory.
   const allowedDirectories = (result.data.filesystem?.allowed_directories ?? []).map((dir) =>
-    resolve(config.cwd(), dir),
+    resolve(config.cwd(), expandHome(dir)),
   );
   return { providers, mcp, mcpUnresolved, allowedDirectories };
 }

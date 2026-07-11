@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadKiriConfig } from "./loader.ts";
 import { type ConfigStore, createConfigStore } from "./store.ts";
@@ -343,6 +343,29 @@ mcp:
     const result = loadKiriConfig(config, {});
     expect(result.failure).toBeUndefined();
     expect(result.allowedDirectories).toEqual([cwd, join(cwd, "shared"), "/srv/absolute"]);
+  });
+
+  it("expands a leading ~ to the home directory", () => {
+    write(
+      cwd,
+      // A bare ~ is YAML null, so granting the whole home directory needs the
+      // quoted string form; ~/x is an ordinary plain scalar.
+      `filesystem:
+  allowed_directories:
+    - "~"
+    - ~/projects/notes
+    - ~tilde-literal
+`,
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    // `~user` forms aren't supported: they resolve as ordinary
+    // workspace-relative paths rather than guessing at another user's home.
+    expect(result.allowedDirectories).toEqual([
+      homedir(),
+      join(homedir(), "projects", "notes"),
+      join(cwd, "~tilde-literal"),
+    ]);
   });
 
   it("treats an empty allowed_directories the same as an absent section", () => {

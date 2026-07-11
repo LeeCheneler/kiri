@@ -7,7 +7,7 @@ const filesystemSchema = z
     allowed_directories: z
       .array(z.string().min(1))
       .describe(
-        'Directories the session filesystem tools may touch, each relative to the workspace root (absolute paths allowed; "." grants the workspace root itself). An empty list is the same as omitting the section.',
+        'Directories the session filesystem tools may touch, each relative to the workspace root ("." grants the workspace root itself). Absolute paths are allowed, and a leading ~ expands to your home directory. An empty list is the same as omitting the section.',
       ),
   })
   .strict()
