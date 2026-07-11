@@ -90,12 +90,12 @@ Kiri's built-in tools carry the same controls, each with its own default:
 the article tools, workflow listing and reads, and the authoring guide
 default to **Always allow** — they only touch kiri's own data, and asking in
 chat is the authorisation — as do the file-reading tools, whose reach is the
-`filesystem:` sandbox you declared (see *Reading your files* below). The run
-tools (`run_workflow`, `rerun_workflow`) execute your workflows and the
-workflow write tools put files in your repo, so those default to
-**Ask**. All of them are listed under **Built-in tools** on the same Tools &
-MCP page, so any default can be reviewed and changed, including switching a
-tool off entirely.
+`filesystem:` sandbox you declared (see *Working with your files* below). The
+run tools (`run_workflow`, `rerun_workflow`) execute your workflows, the
+workflow write tools put files in your repo, and the filesystem write tools
+change your own files, so those default to **Ask**. All of them are listed
+under **Built-in tools** on the same Tools & MCP page, so any default can be
+reviewed and changed, including switching a tool off entirely.
 
 ## Running workflows
 
@@ -154,11 +154,12 @@ pointer; the piece itself lives on its own page.
   page updates live as the edit lands.
 - Articles belong to their session: deleting the session deletes them.
 
-## Reading your files
+## Working with your files
 
-Declare `filesystem:` in `kiri.yaml` and sessions gain read tools over the
+Declare `filesystem:` in `kiri.yaml` and sessions gain file tools over the
 directories you list — find files by glob, list a directory, read a file,
-search contents by regex:
+search contents by regex, and, with your approval per change, write and edit
+files, create directories, and delete files or directories:
 
 ```yaml
 filesystem:
@@ -169,17 +170,22 @@ filesystem:
 
 - The list is the entire boundary, and declaring it is what turns the tools
   on — without the section they aren't offered at all. Every path the model
-  supplies is checked against it, including through symlinks. Entries resolve
-  relative to the workspace root; a leading `~` expands to your home
-  directory (granting the whole home directory needs the quoted `"~"` form —
-  a bare `~` is YAML null).
-- Hidden (dot-prefixed) files are never listed, read, or searched — `.env`
-  and `.kiri/` stay out of reach. Binary files aren't read, and oversized
-  results are truncated with a note so one big file can't swamp the
-  conversation.
-- The tools are read-only and default to **Always allow** — declaring the
-  sandbox is the authorisation. Tighten or switch any of them off under
-  **Built-in tools** on the Tools & MCP page.
+  supplies is checked against it — including through symlinks, and including
+  paths it's about to create. Entries resolve relative to the workspace
+  root; a leading `~` expands to your home directory (granting the whole
+  home directory needs the quoted `"~"` form — a bare `~` is YAML null).
+- Hidden (dot-prefixed) files are never listed, read, searched, or written —
+  `.env` and `.kiri/` stay out of reach. Binary files aren't read or
+  written, and oversized results are truncated with a note so one big file
+  can't swamp the conversation.
+- The read tools default to **Always allow** — declaring the sandbox is the
+  authorisation. The write tools — write file, edit file, create directory,
+  delete file, delete directory — default to **Ask**: each change pauses for
+  your decision with the exact edit previewed as a diff, and the transcript
+  shows every change it made the same way. Deleting a non-empty directory
+  takes an explicit recursive opt-in, and an allowed directory itself can
+  never be deleted. Tighten or switch any of them off under **Built-in
+  tools** on the Tools & MCP page.
 
 ## Pinning
 
