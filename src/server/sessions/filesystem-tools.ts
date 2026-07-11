@@ -11,8 +11,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
-import { type ToolSet, tool } from "ai";
+import { type JSONValue, type ToolSet, tool } from "ai";
+import { structuredPatch } from "diff";
 import { z } from "zod";
+import { compactWriteOutput } from "./write-tool-diffs.ts";
 
 // Byte cap on a returned file body — the same budget as an MCP tool result, so
 // one huge file can't blow the model's context. Larger files return their head
@@ -33,6 +35,11 @@ const MAX_SEARCH_FILE_BYTES = 4 * 1024 * 1024;
 // result.
 const MAX_MATCH_TEXT = 500;
 
+// Cap on the unified diff a write result carries. The diff feeds the app's
+// transcript rendering — never the model — but it is persisted per message,
+// so a pathological rewrite mustn't bloat the session store.
+const MAX_DIFF_LENGTH = 64 * 1024;
+
 // Non-fatal so a multi-byte character split at the byte cap is dropped rather
 // than decoded to an invalid fragment.
 const decoder = new TextDecoder("utf-8", { fatal: false });
@@ -43,6 +50,7 @@ export interface FilesystemToolsOptions {
   maxFindResults?: number;
   maxSearchMatches?: number;
   maxSearchFileBytes?: number;
+  maxDiffLength?: number;
 }
 
 // Whether a buffer looks like binary content: a NUL byte in its head. The
@@ -83,7 +91,34 @@ export function filesystemTools(
     maxFindResults = MAX_FIND_RESULTS,
     maxSearchMatches = MAX_SEARCH_MATCHES,
     maxSearchFileBytes = MAX_SEARCH_FILE_BYTES,
+    maxDiffLength = MAX_DIFF_LENGTH,
   } = options;
+
+  // A unified diff of a file change — hunk headers and +/-/context lines, no
+  // file-name preamble — for the app's transcript to render. The model never
+  // receives it: toModelOutput and the send-time history transform strip it
+  // (see write-tool-diffs.ts). Cut at the cap on a line boundary and flagged,
+  // so the renderer can say the diff is partial.
+  const unifiedDiff = (before: string, after: string): { diff: string; diffTruncated?: true } => {
+    const { hunks } = structuredPatch("", "", before, after);
+    const text = hunks
+      .map(
+        (hunk) =>
+          `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join("\n")}`,
+      )
+      .join("\n");
+    if (text.length <= maxDiffLength) return { diff: text };
+    const cut = text.slice(0, maxDiffLength);
+    const lastLine = cut.lastIndexOf("\n");
+    return { diff: lastLine > 0 ? cut.slice(0, lastLine) : cut, diffTruncated: true };
+  };
+
+  // What the model receives in place of a diff-carrying write result: the
+  // same object minus the app-only diff fields.
+  const modelOutput = ({ output }: { output: unknown }) => ({
+    type: "json" as const,
+    value: compactWriteOutput(output) as JSONValue,
+  });
 
   // The sandbox as real paths, deduplicated; an entry that doesn't exist on
   // disk can't contain anything and is skipped.
@@ -407,19 +442,26 @@ export function filesystemTools(
       }),
       execute: async ({ path, content }) => {
         const { real, exists } = confineTarget(path);
+        const next = withTrailingNewline(content);
         if (exists) {
           if (statSync(real).isDirectory()) {
             throw new Error(`"${path}" is a directory — pass the path of a file to write.`);
           }
-          if (isBinary(readFileSync(real))) {
+          const before = readFileSync(real);
+          if (isBinary(before)) {
             throw new Error(`"${path}" is a binary file — the filesystem tools write text only.`);
           }
-        } else {
-          mkdirSync(dirname(real), { recursive: true });
+          writeFileSync(real, next);
+          // An overwrite's diff shows what the new content displaced; a
+          // created file carries none — its content is already the call's
+          // input, so the app renders that directly.
+          return { path: real, created: false, ...unifiedDiff(before.toString("utf8"), next) };
         }
-        writeFileSync(real, withTrailingNewline(content));
-        return { path: real, created: !exists };
+        mkdirSync(dirname(real), { recursive: true });
+        writeFileSync(real, next);
+        return { path: real, created: true };
       },
+      toModelOutput: modelOutput,
     }),
 
     edit_file: tool({
@@ -458,9 +500,11 @@ export function filesystemTools(
             `old_string appears ${count} times in "${path}" — include more surrounding context to pin down one occurrence, or set replace_all to change every one.`,
           );
         }
-        writeFileSync(real, raw.replaceAll(old_string, new_string));
-        return { path: real, replacements: count };
+        const next = raw.replaceAll(old_string, new_string);
+        writeFileSync(real, next);
+        return { path: real, replacements: count, ...unifiedDiff(raw, next) };
       },
+      toModelOutput: modelOutput,
     }),
 
     create_directory: tool({

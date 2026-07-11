@@ -344,6 +344,58 @@ describe("runTurn", () => {
     expect(stored).not.toContain("rows[3]{id,tag}");
   });
 
+  it("drops a write result's diff for the model, leaving it in storage", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "edit" }] },
+      { id: "u0" },
+    );
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-edit_file",
+            toolCallId: "c1",
+            state: "output-available",
+            input: { path: "/ws/a.md", old_string: "OLDLINE", new_string: "NEWLINE" },
+            output: {
+              path: "/ws/a.md",
+              replacements: 1,
+              diff: "@@ -1,1 +1,1 @@\n-OLDLINE\n+NEWLINE",
+            },
+          },
+        ] as UIMessage["parts"],
+      },
+      { id: "a1" },
+    );
+
+    const capture: { prompt?: unknown } = {};
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)) },
+      {
+        session,
+        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
+      },
+    );
+    await response.text();
+    await done;
+
+    // The model sees the compact metadata; the diff — already implied by the
+    // call's input — never reaches it from history.
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("/ws/a.md");
+    expect(sent).not.toContain("@@ -1,1");
+
+    // Storage keeps the diff for the app's transcript rendering.
+    const stored = JSON.stringify(getSessionMessages(db, "s1").find((r) => r.id === "a1")?.parts);
+    expect(stored).toContain("@@ -1,1");
+  });
+
   it("rejects before persisting anything when the model cannot be resolved", async () => {
     const llmClients: LlmClients = {
       resolveModel: () => {

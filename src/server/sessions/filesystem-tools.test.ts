@@ -391,14 +391,62 @@ describe("filesystemTools", () => {
       expect(readFileSync(join(workspace, "docs", "deep", "guide.md"), "utf8")).toBe("guide\n");
     });
 
-    it("overwrites an existing file", async () => {
+    it("overwrites an existing file, reporting the change as a unified diff", async () => {
       writeFileSync(join(workspace, "notes.md"), "old\n");
       const result = await run(tools().write_file, {
         path: join(workspace, "notes.md"),
         content: "new\n",
       });
-      expect(result).toEqual({ path: ws("notes.md"), created: false });
+      expect(result).toEqual({
+        path: ws("notes.md"),
+        created: false,
+        diff: "@@ -1,1 +1,1 @@\n-old\n+new",
+      });
       expect(readFileSync(join(workspace, "notes.md"), "utf8")).toBe("new\n");
+    });
+
+    it("carries no diff when creating — the content is already the call's input", async () => {
+      const result = (await run(tools().write_file, {
+        path: join(workspace, "fresh.md"),
+        content: "hello\n",
+      })) as Record<string, unknown>;
+      expect(result.created).toBe(true);
+      expect("diff" in result).toBe(false);
+    });
+
+    it("truncates an oversized diff on a line boundary and flags it", async () => {
+      writeFileSync(join(workspace, "a.md"), "one\ntwo\nthree\n");
+      const result = (await run(tools([workspace], { maxDiffLength: 25 }).write_file, {
+        path: join(workspace, "a.md"),
+        content: "uno\ndos\ntres\n",
+      })) as { diff: string; diffTruncated?: true };
+      expect(result.diffTruncated).toBe(true);
+      expect(result.diff.length).toBeLessThanOrEqual(25);
+      expect(result.diff.endsWith("\n")).toBe(false);
+
+      // A cap tighter than the first line still yields a flagged fragment.
+      writeFileSync(join(workspace, "b.md"), "one\n");
+      const tiny = (await run(tools([workspace], { maxDiffLength: 4 }).write_file, {
+        path: join(workspace, "b.md"),
+        content: "uno\n",
+      })) as { diff: string; diffTruncated?: true };
+      expect(tiny.diffTruncated).toBe(true);
+      expect(tiny.diff).toBe("@@ -");
+    });
+
+    it("strips the diff from what the model receives via toModelOutput", async () => {
+      const output = { path: "/ws/a.md", created: false, diff: "-a\n+b", diffTruncated: true };
+      const result = await tools().write_file.toModelOutput?.({
+        toolCallId: "call-1",
+        input: { path: "/ws/a.md", content: "b\n" },
+        output,
+      });
+      expect(result).toEqual({
+        type: "json",
+        value: { path: "/ws/a.md", created: false },
+      });
+      // The persisted output object itself is untouched.
+      expect(output.diff).toBe("-a\n+b");
     });
 
     it("writes empty content as an empty file", async () => {
@@ -482,14 +530,18 @@ describe("filesystemTools", () => {
   });
 
   describe("edit_file", () => {
-    it("replaces a unique occurrence", async () => {
+    it("replaces a unique occurrence, reporting the change as a unified diff", async () => {
       writeFileSync(join(workspace, "a.md"), "alpha beta gamma\n");
       const result = await run(tools().edit_file, {
         path: join(workspace, "a.md"),
         old_string: "beta",
         new_string: "delta",
       });
-      expect(result).toEqual({ path: ws("a.md"), replacements: 1 });
+      expect(result).toEqual({
+        path: ws("a.md"),
+        replacements: 1,
+        diff: "@@ -1,1 +1,1 @@\n-alpha beta gamma\n+alpha delta gamma",
+      });
       expect(readFileSync(join(workspace, "a.md"), "utf8")).toBe("alpha delta gamma\n");
     });
 
@@ -511,7 +563,11 @@ describe("filesystemTools", () => {
         new_string: "z",
         replace_all: true,
       });
-      expect(result).toEqual({ path: ws("a.md"), replacements: 3 });
+      expect(result).toEqual({
+        path: ws("a.md"),
+        replacements: 3,
+        diff: "@@ -1,1 +1,1 @@\n-x y x y x\n+z y z y z",
+      });
       expect(readFileSync(join(workspace, "a.md"), "utf8")).toBe("z y z y z\n");
     });
 
