@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { ToolExecutionOptions, ToolSet } from "ai";
@@ -360,6 +369,345 @@ describe("filesystemTools", () => {
       writeFileSync(join(workspace, "a.md"), "quiet\n");
       const result = await run(tools().search_files, { pattern: "absent" });
       expect(result).toEqual({ matches: [] });
+    });
+  });
+
+  describe("write_file", () => {
+    it("creates a new file, adding the missing trailing newline", async () => {
+      const result = await run(tools().write_file, {
+        path: join(workspace, "notes.md"),
+        content: "# Notes",
+      });
+      expect(result).toEqual({ path: ws("notes.md"), created: true });
+      expect(readFileSync(join(workspace, "notes.md"), "utf8")).toBe("# Notes\n");
+    });
+
+    it("creates missing parent directories", async () => {
+      const result = await run(tools().write_file, {
+        path: join(workspace, "docs", "deep", "guide.md"),
+        content: "guide\n",
+      });
+      expect(result).toEqual({ path: ws("docs", "deep", "guide.md"), created: true });
+      expect(readFileSync(join(workspace, "docs", "deep", "guide.md"), "utf8")).toBe("guide\n");
+    });
+
+    it("overwrites an existing file", async () => {
+      writeFileSync(join(workspace, "notes.md"), "old\n");
+      const result = await run(tools().write_file, {
+        path: join(workspace, "notes.md"),
+        content: "new\n",
+      });
+      expect(result).toEqual({ path: ws("notes.md"), created: false });
+      expect(readFileSync(join(workspace, "notes.md"), "utf8")).toBe("new\n");
+    });
+
+    it("writes empty content as an empty file", async () => {
+      await run(tools().write_file, { path: join(workspace, "empty.md"), content: "" });
+      expect(readFileSync(join(workspace, "empty.md"), "utf8")).toBe("");
+    });
+
+    it("rejects a relative path", async () => {
+      expect(run(tools().write_file, { path: "notes.md", content: "x" })).rejects.toThrow(
+        /use an absolute path/,
+      );
+    });
+
+    it("rejects ../ traversal out of the sandbox without touching disk", async () => {
+      const escapePath = join(workspace, "..", basename(outside), "new.md");
+      expect(run(tools().write_file, { path: escapePath, content: "x" })).rejects.toThrow(
+        /outside the directories/,
+      );
+      expect(existsSync(join(outside, "new.md"))).toBe(false);
+    });
+
+    it("rejects a new path under a symlinked directory that resolves outside", async () => {
+      symlinkSync(outside, join(workspace, "linked"));
+      expect(
+        run(tools().write_file, { path: join(workspace, "linked", "new.md"), content: "x" }),
+      ).rejects.toThrow(/outside the directories/);
+      expect(existsSync(join(outside, "new.md"))).toBe(false);
+    });
+
+    it("rejects writing through a symlink whose target is outside", async () => {
+      writeFileSync(join(outside, "target.md"), "keep\n");
+      symlinkSync(join(outside, "target.md"), join(workspace, "leak.md"));
+      expect(
+        run(tools().write_file, { path: join(workspace, "leak.md"), content: "x" }),
+      ).rejects.toThrow(/outside the directories/);
+      expect(readFileSync(join(outside, "target.md"), "utf8")).toBe("keep\n");
+    });
+
+    it("rejects writing through a broken symlink rather than creating its target", async () => {
+      symlinkSync(join(outside, "missing.md"), join(workspace, "broken.md"));
+      expect(
+        run(tools().write_file, { path: join(workspace, "broken.md"), content: "x" }),
+      ).rejects.toThrow(/No such path/);
+      expect(existsSync(join(outside, "missing.md"))).toBe(false);
+    });
+
+    it("rejects hidden paths, existing or not", async () => {
+      writeFileSync(join(workspace, ".env"), "SECRET=1");
+      mkdirSync(join(workspace, ".kiri"));
+      expect(
+        run(tools().write_file, { path: join(workspace, ".env"), content: "x" }),
+      ).rejects.toThrow(/hidden/);
+      expect(
+        run(tools().write_file, { path: join(workspace, ".kiri", "new.json"), content: "x" }),
+      ).rejects.toThrow(/hidden/);
+      expect(
+        run(tools().write_file, { path: join(workspace, ".fresh", "new.md"), content: "x" }),
+      ).rejects.toThrow(/hidden/);
+      expect(readFileSync(join(workspace, ".env"), "utf8")).toBe("SECRET=1");
+    });
+
+    it("rejects a directory path", async () => {
+      mkdirSync(join(workspace, "sub"));
+      expect(
+        run(tools().write_file, { path: join(workspace, "sub"), content: "x" }),
+      ).rejects.toThrow(/is a directory/);
+    });
+
+    it("rejects overwriting a binary file", async () => {
+      writeFileSync(join(workspace, "blob.bin"), Buffer.from([0x89, 0x50, 0x00, 0x47]));
+      expect(
+        run(tools().write_file, { path: join(workspace, "blob.bin"), content: "x" }),
+      ).rejects.toThrow(/binary file/);
+    });
+
+    it("reports an empty sandbox when no directories are configured", async () => {
+      expect(
+        run(tools([]).write_file, { path: join(workspace, "a.md"), content: "x" }),
+      ).rejects.toThrow(/none are configured/);
+    });
+  });
+
+  describe("edit_file", () => {
+    it("replaces a unique occurrence", async () => {
+      writeFileSync(join(workspace, "a.md"), "alpha beta gamma\n");
+      const result = await run(tools().edit_file, {
+        path: join(workspace, "a.md"),
+        old_string: "beta",
+        new_string: "delta",
+      });
+      expect(result).toEqual({ path: ws("a.md"), replacements: 1 });
+      expect(readFileSync(join(workspace, "a.md"), "utf8")).toBe("alpha delta gamma\n");
+    });
+
+    it("deletes the match when new_string is empty", async () => {
+      writeFileSync(join(workspace, "a.md"), "keep drop\n");
+      await run(tools().edit_file, {
+        path: join(workspace, "a.md"),
+        old_string: " drop",
+        new_string: "",
+      });
+      expect(readFileSync(join(workspace, "a.md"), "utf8")).toBe("keep\n");
+    });
+
+    it("replaces every occurrence with replace_all, reporting the count", async () => {
+      writeFileSync(join(workspace, "a.md"), "x y x y x\n");
+      const result = await run(tools().edit_file, {
+        path: join(workspace, "a.md"),
+        old_string: "x",
+        new_string: "z",
+        replace_all: true,
+      });
+      expect(result).toEqual({ path: ws("a.md"), replacements: 3 });
+      expect(readFileSync(join(workspace, "a.md"), "utf8")).toBe("z y z y z\n");
+    });
+
+    it("errors when old_string and new_string are identical", async () => {
+      writeFileSync(join(workspace, "a.md"), "same\n");
+      expect(
+        run(tools().edit_file, {
+          path: join(workspace, "a.md"),
+          old_string: "same",
+          new_string: "same",
+        }),
+      ).rejects.toThrow(/identical — nothing to change/);
+    });
+
+    it("errors when old_string is not found, naming read_file as the recovery", async () => {
+      writeFileSync(join(workspace, "a.md"), "present\n");
+      expect(
+        run(tools().edit_file, {
+          path: join(workspace, "a.md"),
+          old_string: "absent",
+          new_string: "x",
+        }),
+      ).rejects.toThrow(/call read_file and retry/);
+    });
+
+    it("errors on an ambiguous match without replace_all, leaving the file untouched", async () => {
+      writeFileSync(join(workspace, "a.md"), "dup dup\n");
+      expect(
+        run(tools().edit_file, {
+          path: join(workspace, "a.md"),
+          old_string: "dup",
+          new_string: "x",
+        }),
+      ).rejects.toThrow(/appears 2 times .* set replace_all/);
+      expect(readFileSync(join(workspace, "a.md"), "utf8")).toBe("dup dup\n");
+    });
+
+    it("rejects a missing file, naming find_files as the recovery", async () => {
+      expect(
+        run(tools().edit_file, {
+          path: join(workspace, "gone.md"),
+          old_string: "a",
+          new_string: "b",
+        }),
+      ).rejects.toThrow(/call find_files/);
+    });
+
+    it("rejects a directory path", async () => {
+      mkdirSync(join(workspace, "sub"));
+      expect(
+        run(tools().edit_file, { path: join(workspace, "sub"), old_string: "a", new_string: "b" }),
+      ).rejects.toThrow(/is a directory/);
+    });
+
+    it("rejects a binary file", async () => {
+      writeFileSync(join(workspace, "blob.bin"), Buffer.from([0x89, 0x50, 0x00, 0x47]));
+      expect(
+        run(tools().edit_file, {
+          path: join(workspace, "blob.bin"),
+          old_string: "a",
+          new_string: "b",
+        }),
+      ).rejects.toThrow(/binary file/);
+    });
+
+    it("rejects hidden paths and paths outside the sandbox", async () => {
+      writeFileSync(join(workspace, ".env"), "SECRET=1");
+      writeFileSync(join(outside, "notes.md"), "keep\n");
+      expect(
+        run(tools().edit_file, {
+          path: join(workspace, ".env"),
+          old_string: "SECRET",
+          new_string: "X",
+        }),
+      ).rejects.toThrow(/hidden/);
+      expect(
+        run(tools().edit_file, {
+          path: join(outside, "notes.md"),
+          old_string: "keep",
+          new_string: "x",
+        }),
+      ).rejects.toThrow(/outside the directories/);
+      expect(readFileSync(join(outside, "notes.md"), "utf8")).toBe("keep\n");
+    });
+  });
+
+  describe("create_directory", () => {
+    it("creates a directory including missing parents", async () => {
+      const result = await run(tools().create_directory, {
+        path: join(workspace, "a", "b", "c"),
+      });
+      expect(result).toEqual({ path: ws("a", "b", "c"), created: true });
+      expect(existsSync(join(workspace, "a", "b", "c"))).toBe(true);
+    });
+
+    it("succeeds without change when the directory already exists", async () => {
+      mkdirSync(join(workspace, "sub"));
+      const result = await run(tools().create_directory, { path: join(workspace, "sub") });
+      expect(result).toEqual({ path: ws("sub"), created: false });
+    });
+
+    it("rejects a path that is a file", async () => {
+      writeFileSync(join(workspace, "a.md"), "a");
+      expect(run(tools().create_directory, { path: join(workspace, "a.md") })).rejects.toThrow(
+        /is a file/,
+      );
+    });
+
+    it("rejects hidden and escaping paths without touching disk", async () => {
+      expect(
+        run(tools().create_directory, { path: join(workspace, ".hidden", "sub") }),
+      ).rejects.toThrow(/hidden/);
+      const escapePath = join(workspace, "..", basename(outside), "made");
+      expect(run(tools().create_directory, { path: escapePath })).rejects.toThrow(
+        /outside the directories/,
+      );
+      expect(existsSync(join(workspace, ".hidden"))).toBe(false);
+      expect(existsSync(join(outside, "made"))).toBe(false);
+    });
+  });
+
+  describe("delete_file", () => {
+    it("deletes a file", async () => {
+      writeFileSync(join(workspace, "a.md"), "a");
+      const result = await run(tools().delete_file, { path: join(workspace, "a.md") });
+      expect(result).toEqual({ path: ws("a.md"), deleted: true });
+      expect(existsSync(join(workspace, "a.md"))).toBe(false);
+    });
+
+    it("rejects a directory path, naming delete_directory", async () => {
+      mkdirSync(join(workspace, "sub"));
+      expect(run(tools().delete_file, { path: join(workspace, "sub") })).rejects.toThrow(
+        /call delete_directory instead/,
+      );
+    });
+
+    it("rejects a missing file", async () => {
+      expect(run(tools().delete_file, { path: join(workspace, "gone.md") })).rejects.toThrow(
+        /call find_files/,
+      );
+    });
+
+    it("rejects hidden paths and paths outside the sandbox", async () => {
+      writeFileSync(join(workspace, ".env"), "SECRET=1");
+      writeFileSync(join(outside, "keep.md"), "keep");
+      expect(run(tools().delete_file, { path: join(workspace, ".env") })).rejects.toThrow(/hidden/);
+      expect(run(tools().delete_file, { path: join(outside, "keep.md") })).rejects.toThrow(
+        /outside the directories/,
+      );
+      expect(existsSync(join(workspace, ".env"))).toBe(true);
+      expect(existsSync(join(outside, "keep.md"))).toBe(true);
+    });
+  });
+
+  describe("delete_directory", () => {
+    it("deletes an empty directory", async () => {
+      mkdirSync(join(workspace, "sub"));
+      const result = await run(tools().delete_directory, { path: join(workspace, "sub") });
+      expect(result).toEqual({ path: ws("sub"), deleted: true });
+      expect(existsSync(join(workspace, "sub"))).toBe(false);
+    });
+
+    it("refuses a non-empty directory unless recursive is set", async () => {
+      mkdirSync(join(workspace, "sub"));
+      writeFileSync(join(workspace, "sub", "a.md"), "a");
+      expect(run(tools().delete_directory, { path: join(workspace, "sub") })).rejects.toThrow(
+        /not empty — set recursive/,
+      );
+      expect(existsSync(join(workspace, "sub", "a.md"))).toBe(true);
+
+      const result = await run(tools().delete_directory, {
+        path: join(workspace, "sub"),
+        recursive: true,
+      });
+      expect(result).toEqual({ path: ws("sub"), deleted: true });
+      expect(existsSync(join(workspace, "sub"))).toBe(false);
+    });
+
+    it("rejects a file path, naming delete_file", async () => {
+      writeFileSync(join(workspace, "a.md"), "a");
+      expect(run(tools().delete_directory, { path: join(workspace, "a.md") })).rejects.toThrow(
+        /call delete_file instead/,
+      );
+    });
+
+    it("never deletes an allowed directory itself", async () => {
+      expect(run(tools().delete_directory, { path: workspace })).rejects.toThrow(/never the root/);
+      expect(existsSync(workspace)).toBe(true);
+    });
+
+    it("rejects a directory outside the sandbox", async () => {
+      mkdirSync(join(outside, "sub"));
+      expect(run(tools().delete_directory, { path: join(outside, "sub") })).rejects.toThrow(
+        /outside the directories/,
+      );
+      expect(existsSync(join(outside, "sub"))).toBe(true);
     });
   });
 });

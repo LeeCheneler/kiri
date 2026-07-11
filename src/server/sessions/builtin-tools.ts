@@ -22,7 +22,7 @@ export interface BuiltinTool {
  * filesystem read tools (reads confined to the sandbox the user declared in
  * `kiri.yaml` — declaring it is the authorisation), while tools that execute
  * user-authored scripts (`run_workflow`, `rerun_workflow`) or write files
- * into the workspace repo (the workflow write tools) ask first. A tool whose
+ * (the workflow and filesystem write tools) ask first. A tool whose
  * capability isn't configured (the filesystem tools with no declared sandbox)
  * is withheld from the model regardless of its permission.
  */
@@ -111,5 +111,30 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "search_files",
     description: "Search file contents in the allowed directories.",
     defaultPermission: "allow",
+  },
+  {
+    name: "write_file",
+    description: "Create or overwrite a text file in the allowed directories.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "edit_file",
+    description: "Make a targeted text replacement in a file in the allowed directories.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "create_directory",
+    description: "Create a directory in the allowed directories.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "delete_file",
+    description: "Delete a file in the allowed directories.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "delete_directory",
+    description: "Delete a directory in the allowed directories.",
+    defaultPermission: "ask",
   },
 ];

@@ -100,21 +100,54 @@ function buildWorkflowGuidance(tools: string[]): string | null {
 // Cross-cutting guidance for the first-party filesystem tools — the sandbox
 // contract no single tool description can carry: which directories are
 // reachable (stated up front, so the model needn't discover them through
-// errors), the absolute-path currency, and scoping discipline. Keyed off
-// read_file, so it appears exactly when the tools are offered and never in a
-// plain chat.
+// errors), the absolute-path currency, scoping discipline, and the write
+// contract. Each half is keyed off its own tools — read bullets off read_file,
+// write bullets off the write pair — so turning a capability off drops its
+// guidance, and none of it appears in a plain chat.
 function buildFilesystemGuidance(
   tools: string[],
   allowedDirectories: readonly string[],
 ): string | null {
-  if (!tools.includes("read_file")) return null;
+  const reads = tools.includes("read_file");
+  const writes = tools.includes("write_file") || tools.includes("edit_file");
+  const manages = ["create_directory", "delete_file", "delete_directory"].some((name) =>
+    tools.includes(name),
+  );
+  if (!reads && !writes && !manages) return null;
+  const capabilities = [
+    ...(reads
+      ? [
+          "find_files finds them by glob pattern, list_directory lists a directory one level at a time, read_file reads one file, and search_files greps their contents",
+        ]
+      : []),
+    ...(writes
+      ? [
+          "write_file writes a whole file (creating or overwriting it) and edit_file makes a targeted replacement inside one",
+        ]
+      : []),
+    ...(manages
+      ? [
+          "create_directory makes a directory, and delete_file / delete_directory remove files and directories",
+        ]
+      : []),
+  ].join("; ");
   return [
-    "You can work with the user's files: find_files finds them by glob pattern, list_directory lists a directory one level at a time, read_file reads one file, and search_files greps their contents. They reach exactly these directories (and their subdirectories), which the user has allowed:",
+    `You can work with the user's files: ${capabilities}. The tools reach exactly these directories (and their subdirectories), which the user has allowed:`,
     ...allowedDirectories.map((dir) => `- ${dir}`),
     "Working with files:",
     "- Every path is absolute: results report absolute paths and the paths you pass must be absolute too — never relative to some working directory.",
-    "- Scope narrowly: find or search first, then read the specific files that answer the need. Don't trawl whole trees or read files speculatively.",
+    ...(reads
+      ? [
+          "- Scope narrowly: find or search first, then read the specific files that answer the need. Don't trawl whole trees or read files speculatively.",
+        ]
+      : []),
     "- Hidden (dot-prefixed) files and binary files are outside your reach, and an oversized result is cut with a note saying so — treat a truncated result as incomplete and tighten the call rather than reading it as the whole picture.",
+    ...(writes
+      ? [
+          "- Read before you change: base every edit or overwrite on the file's current contents, copying edit_file's old_string verbatim from read_file output — it must match exactly, whitespace included, and exactly once (add surrounding context to pin down one occurrence, or set replace_all).",
+          "- Prefer edit_file's targeted replacements for changing an existing file; reach for write_file to create a new file or when a rewrite is genuinely wholesale.",
+        ]
+      : []),
   ].join("\n");
 }
 

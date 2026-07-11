@@ -280,6 +280,53 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("keys the write half of filesystem guidance off the write tools", () => {
+    // Reads without writes (the write tools off) carry no write contract.
+    const readsOnly = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["find_files", "read_file", "search_files"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(readsOnly).not.toContain("write_file");
+    expect(readsOnly).not.toContain("Read before you change");
+
+    // The full set carries every half: reads, writes, and directory/delete
+    // management.
+    const readsAndWrites = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: [
+        "find_files",
+        "read_file",
+        "search_files",
+        "write_file",
+        "edit_file",
+        "create_directory",
+        "delete_file",
+        "delete_directory",
+      ],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(readsAndWrites).toContain("read_file reads one file");
+    expect(readsAndWrites).toContain("write_file writes a whole file");
+    expect(readsAndWrites).toContain("create_directory makes a directory");
+    expect(readsAndWrites).toContain("Read before you change");
+
+    // Writes with read_file off still get the sandbox contract and the write
+    // bullets — just not the read-scoping advice.
+    const writesOnly = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["write_file", "edit_file"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(writesOnly).toContain("You can work with the user's files");
+    expect(writesOnly).toContain("- /srv/notes");
+    expect(writesOnly).toContain("Read before you change");
+    expect(writesOnly).not.toContain("Scope narrowly");
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });

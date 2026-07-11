@@ -1,5 +1,16 @@
-import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 
@@ -38,10 +49,18 @@ export interface FilesystemToolsOptions {
 // heuristic git itself uses.
 const isBinary = (content: Buffer): boolean => content.subarray(0, 8192).includes(0);
 
+// Written files gain a final newline when missing — the POSIX text-file
+// convention models routinely drop. Empty content stays empty: a deliberately
+// blank file shouldn't hold a stray blank line.
+const withTrailingNewline = (content: string): string =>
+  content === "" || content.endsWith("\n") ? content : `${content}\n`;
+
 /**
- * First-party tools that let a session find, list, read, and search files —
- * `find_files`, `list_directory`, `read_file`, `search_files` — confined to
- * the workspace's declared sandbox. Paths are absolute in both directions: every
+ * First-party tools that let a session find, list, read, search, and change
+ * files — `find_files`, `list_directory`, `read_file`, `search_files`,
+ * `write_file`, `edit_file`, `create_directory`, `delete_file`,
+ * `delete_directory` — confined to the workspace's declared sandbox.
+ * Paths are absolute in both directions: every
  * model-supplied path must be absolute (a relative one is rejected with the
  * allowed set named — nothing ever resolves against a working directory), and
  * results report real absolute paths, so a find_files result feeds straight
@@ -94,22 +113,17 @@ export function filesystemTools(
   const describeSandbox = (dirs: string[]): string =>
     dirs.length === 0 ? "none are configured" : dirs.map((dir) => `"${dir}"`).join(", ");
 
-  // Resolve a model-supplied path to its real absolute form and reject — as a
-  // recoverable tool error — anything relative, outside the sandbox, or hidden
-  // within it.
-  const confine = (userPath: string): string => {
-    const dirs = sandboxDirs();
+  const requireAbsolute = (dirs: string[], userPath: string): void => {
     if (!isAbsolute(userPath)) {
       throw new Error(
         `Relative path "${userPath}" — use an absolute path; the directories kiri may access are ${describeSandbox(dirs)}.`,
       );
     }
-    let real: string;
-    try {
-      real = realpathSync(userPath);
-    } catch {
-      throw new Error(`No such path "${userPath}" — call find_files to see what exists.`);
-    }
+  };
+
+  // Reject — as a recoverable tool error — a resolved path that sits outside
+  // every sandbox directory or under a hidden segment within one.
+  const requireWithin = (dirs: string[], userPath: string, real: string): void => {
     const root = within(dirs, real);
     if (root === undefined) {
       throw new Error(
@@ -121,7 +135,54 @@ export function filesystemTools(
         `"${userPath}" is a hidden (dot-prefixed) path — hidden files are outside the filesystem tools' reach.`,
       );
     }
+  };
+
+  // Resolve a model-supplied path to its real absolute form and reject — as a
+  // recoverable tool error — anything relative, outside the sandbox, or hidden
+  // within it.
+  const confine = (userPath: string): string => {
+    const dirs = sandboxDirs();
+    requireAbsolute(dirs, userPath);
+    let real: string;
+    try {
+      real = realpathSync(userPath);
+    } catch {
+      throw new Error(`No such path "${userPath}" — call find_files to see what exists.`);
+    }
+    requireWithin(dirs, userPath, real);
     return real;
+  };
+
+  // Confine a path that may not exist yet. An existing entry confines like any
+  // read — so a symlink is judged by where it points, and a broken one is
+  // rejected outright rather than written through. A missing one confines the
+  // nearest existing ancestor, then re-checks the full target so an escaping
+  // or hidden suffix is rejected before anything touches disk. Returns the
+  // real target path and whether an entry already exists there.
+  const confineTarget = (userPath: string): { real: string; exists: boolean } => {
+    const dirs = sandboxDirs();
+    requireAbsolute(dirs, userPath);
+    // lstat so a symlink counts as an existing entry even when its target is
+    // missing — the ancestor walk below must never legitimise one.
+    let entryExists = true;
+    try {
+      lstatSync(userPath);
+    } catch {
+      entryExists = false;
+    }
+    if (entryExists) {
+      return { real: confine(userPath), exists: true };
+    }
+    // normalize collapses "." and ".." so the walk judges the path's true
+    // location; the missing suffix can hold no symlinks yet.
+    const target = normalize(userPath);
+    let ancestor = dirname(target);
+    while (!existsSync(ancestor)) {
+      ancestor = dirname(ancestor);
+    }
+    const real = join(realpathSync(ancestor), relative(ancestor, target));
+    requireWithin(dirs, userPath, real);
+    return { real, exists: false };
   };
 
   const confineDir = (userPath: string): string => {
@@ -334,6 +395,136 @@ export function filesystemTools(
           };
         }
         return { matches };
+      },
+    }),
+
+    write_file: tool({
+      description:
+        "Write a text file in the directories kiri may access, by absolute path — creating it (missing parent directories are created too) or overwriting it wholesale. Prefer edit_file for a targeted change to an existing file, and read_file first so an overwrite starts from the file's current contents. Hidden (dot-prefixed) paths, binary files, and paths outside the allowed directories are rejected.",
+      inputSchema: z.object({
+        path: z.string().min(1).describe("Absolute path of the file to write."),
+        content: z.string().describe("The full contents the file should hold."),
+      }),
+      execute: async ({ path, content }) => {
+        const { real, exists } = confineTarget(path);
+        if (exists) {
+          if (statSync(real).isDirectory()) {
+            throw new Error(`"${path}" is a directory — pass the path of a file to write.`);
+          }
+          if (isBinary(readFileSync(real))) {
+            throw new Error(`"${path}" is a binary file — the filesystem tools write text only.`);
+          }
+        } else {
+          mkdirSync(dirname(real), { recursive: true });
+        }
+        writeFileSync(real, withTrailingNewline(content));
+        return { path: real, created: !exists };
+      },
+    }),
+
+    edit_file: tool({
+      description:
+        "Make a targeted edit to a text file in the directories kiri may access, by absolute path: old_string is replaced with new_string. old_string must match the file's current contents exactly — copy it verbatim from read_file output, whitespace included — and match exactly once; when it appears several times, include more surrounding context to pin down one occurrence, or set replace_all to change every one.",
+      inputSchema: z.object({
+        path: z.string().min(1).describe("Absolute path of the file to edit."),
+        old_string: z.string().min(1).describe("Exact text to replace, as it appears in the file."),
+        new_string: z.string().describe("Replacement text. Empty deletes old_string."),
+        replace_all: z
+          .boolean()
+          .optional()
+          .describe("Replace every occurrence instead of requiring exactly one match."),
+      }),
+      execute: async ({ path, old_string, new_string, replace_all }) => {
+        if (old_string === new_string) {
+          throw new Error("old_string and new_string are identical — nothing to change.");
+        }
+        const real = confine(path);
+        if (statSync(real).isDirectory()) {
+          throw new Error(`"${path}" is a directory — pass the path of a file to edit.`);
+        }
+        const content = readFileSync(real);
+        if (isBinary(content)) {
+          throw new Error(`"${path}" is a binary file — the filesystem tools edit text only.`);
+        }
+        const raw = content.toString("utf8");
+        const count = raw.split(old_string).length - 1;
+        if (count === 0) {
+          throw new Error(
+            `old_string was not found in "${path}" — call read_file and retry with the exact current text.`,
+          );
+        }
+        if (count > 1 && replace_all !== true) {
+          throw new Error(
+            `old_string appears ${count} times in "${path}" — include more surrounding context to pin down one occurrence, or set replace_all to change every one.`,
+          );
+        }
+        writeFileSync(real, raw.replaceAll(old_string, new_string));
+        return { path: real, replacements: count };
+      },
+    }),
+
+    create_directory: tool({
+      description:
+        "Create a directory (and any missing parents) in the directories kiri may access, by absolute path. Creating a directory that already exists succeeds without changing anything. write_file creates its parent directories itself, so reach for this only when an empty directory is wanted on its own.",
+      inputSchema: z.object({
+        path: z.string().min(1).describe("Absolute path of the directory to create."),
+      }),
+      execute: async ({ path }) => {
+        const { real, exists } = confineTarget(path);
+        if (exists) {
+          if (!statSync(real).isDirectory()) {
+            throw new Error(`"${path}" is a file — pass the path of a directory to create.`);
+          }
+          return { path: real, created: false };
+        }
+        mkdirSync(real, { recursive: true });
+        return { path: real, created: true };
+      },
+    }),
+
+    delete_file: tool({
+      description:
+        "Delete one file in the directories kiri may access, by absolute path. Directories go through delete_directory instead. Deletion is permanent — there is no undo.",
+      inputSchema: z.object({
+        path: z.string().min(1).describe("Absolute path of the file to delete."),
+      }),
+      execute: async ({ path }) => {
+        const real = confine(path);
+        if (statSync(real).isDirectory()) {
+          throw new Error(`"${path}" is a directory — call delete_directory instead.`);
+        }
+        unlinkSync(real);
+        return { path: real, deleted: true };
+      },
+    }),
+
+    delete_directory: tool({
+      description:
+        "Delete a directory in the directories kiri may access, by absolute path. An empty directory is removed outright; deleting one with contents requires recursive, which removes everything inside it — including hidden (dot-prefixed) files the other filesystem tools never touch. Deletion is permanent — there is no undo.",
+      inputSchema: z.object({
+        path: z.string().min(1).describe("Absolute path of the directory to delete."),
+        recursive: z
+          .boolean()
+          .optional()
+          .describe("Also delete everything inside a non-empty directory."),
+      }),
+      execute: async ({ path, recursive }) => {
+        const real = confine(path);
+        if (!statSync(real).isDirectory()) {
+          throw new Error(`"${path}" is a file — call delete_file instead.`);
+        }
+        if (sandboxDirs().includes(real)) {
+          throw new Error(
+            `"${path}" is one of the allowed directories themselves — delete things inside it, never the root.`,
+          );
+        }
+        if (readdirSync(real).length > 0 && recursive !== true) {
+          throw new Error(
+            `"${path}" is not empty — set recursive to delete it and everything inside.`,
+          );
+        }
+        rmSync(real, { recursive: true });
+        return { path: real, deleted: true };
       },
     }),
   };
