@@ -1,5 +1,7 @@
 import { type DynamicToolUIPart, type ToolUIPart, getToolName } from "ai";
+import type { ReactNode } from "react";
 import { Button } from "../../design-system/actions/button.tsx";
+import { Diff, patchFromStrings } from "../../design-system/content/diff.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 
@@ -37,14 +39,70 @@ const humanizeName = (name: string): string => {
 };
 
 // A short input detail for the collapsed summary, when the call carries an
-// obvious one — a string `query` or a list of `urls`; nothing otherwise.
+// obvious one — a string `query`, a `path` (the filesystem tools), or a list
+// of `urls`; nothing otherwise.
 const summaryDetail = (input: unknown): string | null => {
   if (input === null || typeof input !== "object") return null;
-  const { query, urls } = input as { query?: unknown; urls?: unknown };
+  const { query, path, urls } = input as { query?: unknown; path?: unknown; urls?: unknown };
   if (typeof query === "string") return query;
+  if (typeof path === "string") return path;
   if (Array.isArray(urls)) {
     const list = urls.filter((url): url is string => typeof url === "string").join(", ");
     return list === "" ? null : list;
+  }
+  return null;
+};
+
+// A settled filesystem write's change as a renderable patch: the unified diff
+// its result carries for an overwrite or edit, or — for a created file, whose
+// result carries none — its content from the call's input, shown as additions.
+const fileChange = (
+  name: string,
+  input: unknown,
+  output: unknown,
+): { patch: string; truncated: boolean } | null => {
+  if (name !== "write_file" && name !== "edit_file") return null;
+  if (output === null || typeof output !== "object") return null;
+  const { diff, diffTruncated, created } = output as {
+    diff?: unknown;
+    diffTruncated?: unknown;
+    created?: unknown;
+  };
+  if (typeof diff === "string") return { patch: diff, truncated: diffTruncated === true };
+  if (created === true && input !== null && typeof input === "object") {
+    const { content } = input as { content?: unknown };
+    if (typeof content === "string")
+      return { patch: patchFromStrings("", content), truncated: false };
+  }
+  return null;
+};
+
+// A change preview for a filesystem write awaiting approval, derived from the
+// call's input alone: an edit as its old lines removed and new lines added, a
+// write as its full content added. Null for calls with nothing diffable to
+// show (deletes, directories) — the JSON input serves those.
+const approvalPreview = (name: string, input: unknown): ReactNode | null => {
+  if (input === null || typeof input !== "object") return null;
+  if (name === "edit_file") {
+    const { old_string, new_string, replace_all } = input as {
+      old_string?: unknown;
+      new_string?: unknown;
+      replace_all?: unknown;
+    };
+    if (typeof old_string !== "string" || typeof new_string !== "string") return null;
+    return (
+      <div className="space-y-2">
+        <Diff patch={patchFromStrings(old_string, new_string)} />
+        {replace_all === true && (
+          <p className="font-mono text-ink-muted text-xs">Applies to every occurrence.</p>
+        )}
+      </div>
+    );
+  }
+  if (name === "write_file") {
+    const { content } = input as { content?: unknown };
+    if (typeof content !== "string") return null;
+    return <Diff patch={patchFromStrings("", content)} />;
   }
   return null;
 };
@@ -58,7 +116,7 @@ function ToolInput({ input }: { input: unknown }) {
   );
 }
 
-function ToolPanel({ part }: { part: ToolPart }) {
+function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
   if (part.state === "output-error") {
     if (part.errorText === CANCELLED_ERROR_TEXT) {
       return <p className="font-mono text-ink-muted text-sm">You cancelled this call.</p>;
@@ -70,6 +128,11 @@ function ToolPanel({ part }: { part: ToolPart }) {
     );
   }
   if (part.state === "output-available") {
+    // A filesystem write's result renders as the change itself — the unified
+    // diff (or a created file's content), still untrusted text shown verbatim,
+    // never markdown.
+    const change = fileChange(name, part.input, part.output);
+    if (change) return <Diff patch={change.patch} truncated={change.truncated} />;
     // Tool output is untrusted data, never markdown — render it as formatted
     // JSON rather than interpreting it.
     return <ToolInput input={part.output} />;
@@ -86,6 +149,8 @@ function ToolPanel({ part }: { part: ToolPart }) {
  * so the decision is informed, with Allow (run once), Always allow (run and stop
  * prompting for this tool), and Deny (refuse and let the assistant continue). Shown
  * expanded rather than collapsed — it needs a response before the turn resumes.
+ * A filesystem write shows the change it would make as a diff-style preview in
+ * place of the raw JSON input.
  */
 function ToolApproval({
   part,
@@ -96,11 +161,16 @@ function ToolApproval({
   name: string;
   onDecision: ToolDecisionHandler;
 }) {
+  const detail = summaryDetail(part.input);
+  const preview = approvalPreview(name, part.input);
   return (
     <div className="border border-rule" data-tool={name}>
       <div className="space-y-3 px-4 py-3">
         <div className="flex items-baseline gap-3 font-mono text-xs">
-          <span className="uppercase tracking-widest text-ink-muted">{humanizeName(name)}</span>
+          <span className="shrink-0 uppercase tracking-widest text-ink-muted">
+            {humanizeName(name)}
+          </span>
+          {detail ? <span className="min-w-0 truncate text-ink">{detail}</span> : null}
           <span className="ml-auto shrink-0">
             <Status status="pending" />
           </span>
@@ -108,7 +178,10 @@ function ToolApproval({
         <p className="font-mono text-ink text-sm">
           The assistant wants to run this tool. Review its input, then decide.
         </p>
-        <ToolInput input={part.input} />
+        {/* Cap the preview like an expanded result, so a huge write stays contained. */}
+        <div className="max-h-[17.5rem] overflow-y-auto">
+          {preview ?? <ToolInput input={part.input} />}
+        </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" onClick={() => onDecision(part, "allow")}>
             Allow
@@ -167,7 +240,7 @@ export function ToolInvocation({
         {/* Cap the expanded result at ~14 lines (of text-sm) and scroll past
             that, so a long result stays contained in the box. */}
         <div className="max-h-[17.5rem] overflow-y-auto">
-          <ToolPanel part={part} />
+          <ToolPanel part={part} name={name} />
         </div>
       </Disclosure>
     </div>

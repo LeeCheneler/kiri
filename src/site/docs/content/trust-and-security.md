@@ -49,8 +49,9 @@ which you can also hand-edit. Kiri's built-in tools follow the same rules with
 per-tool defaults: the article tools, workflow listing and reads, and the
 authoring guide default to Always allow — they only write articles inside
 kiri and read its own data, no shell, no network. The run tools
-(`run_workflow`, `rerun_workflow`) run your scripts, and the workflow write
-tools put runnable YAML into your repo, so
+(`run_workflow`, `rerun_workflow`) run your scripts, the workflow write
+tools put runnable YAML into your repo, and the filesystem write tools
+change your own files, so
 those default to Ask — and an authored workflow only ever *executes* through
 the same gates as any other: a run tool's approval or your click in the
 catalog, with the file itself an ordinary git change you can review first.
@@ -59,14 +60,17 @@ All of them are listed under **Built-in tools** on the Tools & MCP page, so
 any default can be tightened or the tool switched off entirely. See
 [Sessions](/docs/sessions).
 
-The file-reading tools have their own boundary: they exist only when you
+The filesystem tools have their own boundary: they exist only when you
 declare `filesystem: allowed_directories` in `kiri.yaml` — a git-reviewable
 decision, like configuring an MCP server. Every path the model supplies must
 resolve inside a declared directory (symlinks are followed to their real
-target and checked, so a link can't smuggle a path out), hidden dot-files
-like `.env` and `.kiri/` are unreachable outright, and the tools are strictly
-read-only. They default to Always allow because declaring the sandbox is the
-authorisation — narrow the list, or switch them off, and that's the whole
+target and checked, so a link can't smuggle a path out — even for a file
+that doesn't exist yet), and hidden dot-files like `.env` and `.kiri/` are
+unreachable outright. The read tools default to Always allow because
+declaring the sandbox is the authorisation; the write and delete tools
+default to Ask, so every change pauses for your decision with the exact edit
+previewed as a diff — and a delete can never take out an allowed directory
+itself. Narrow the list, or switch the tools off, and that's the whole
 surface gone.
 
 ## Secrets

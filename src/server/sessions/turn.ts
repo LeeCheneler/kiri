@@ -21,6 +21,7 @@ import {
 } from "./store.ts";
 import type { StreamRegistry, StreamSink } from "./stream-registry.ts";
 import { toonEncodeToolResults } from "./toon-tool-results.ts";
+import { stripWriteToolDiffs } from "./write-tool-diffs.ts";
 
 export interface RunTurnDeps {
   db: KiriDb;
@@ -256,10 +257,12 @@ async function streamCore(
     contextTokens: currentContextTokens(rows),
     contextWindow,
   });
-  // Re-encode surviving JSON tool results as TOON wherever that is smaller — a
-  // further send-time saving on top of culling, per result so it never enlarges
-  // one. Like culling, the untouched `history` still feeds persistence below.
-  const modelHistory = toonEncodeToolResults(culledHistory);
+  // Two further send-time savings on top of culling, both leaving the
+  // untouched `history` to feed persistence below: drop the app-only diff
+  // from filesystem write results (the model already knows the change from
+  // the call's input), then re-encode surviving JSON tool results as TOON
+  // wherever that is smaller — per result, so it never enlarges one.
+  const modelHistory = toonEncodeToolResults(stripWriteToolDiffs(culledHistory));
   const modelMessages = await convertToModelMessages(modelHistory);
 
   // Compose the turn's system prompt — the kiri core layer, the workspace's

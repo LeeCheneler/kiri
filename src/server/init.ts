@@ -315,10 +315,11 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #     command: npx
 #     args: ["-y", "@modelcontextprotocol/server-memory"]
 #
-# Give sessions first-party tools to find, list, read, and search files
-# by declaring \`filesystem:\` with the directories they may touch —
-# without it the tools aren't offered at all. "." is the workspace root
-# and a leading ~ expands to your home directory:
+# Give sessions first-party tools to find, read, search, and change
+# files by declaring \`filesystem:\` with the directories they may touch —
+# without it the tools aren't offered at all (reads run freely; writes,
+# edits, and deletes ask first). "." is the workspace root and a
+# leading ~ expands to your home directory:
 #
 # filesystem:
 #   allowed_directories:

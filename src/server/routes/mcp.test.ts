@@ -152,6 +152,11 @@ describe("mcp routes", () => {
           { name: "list_directory", description: expect.any(String), permission: "allow" },
           { name: "read_file", description: expect.any(String), permission: "allow" },
           { name: "search_files", description: expect.any(String), permission: "allow" },
+          { name: "write_file", description: expect.any(String), permission: "ask" },
+          { name: "edit_file", description: expect.any(String), permission: "ask" },
+          { name: "create_directory", description: expect.any(String), permission: "ask" },
+          { name: "delete_file", description: expect.any(String), permission: "ask" },
+          { name: "delete_directory", description: expect.any(String), permission: "ask" },
         ],
       });
     });
