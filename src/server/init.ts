@@ -310,10 +310,19 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #     type: http
 #     url: https://mcp.tavily.com/mcp/
 #     auth: oauth
-#   filesystem:
+#   memory:
 #     type: stdio
 #     command: npx
-#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+#     args: ["-y", "@modelcontextprotocol/server-memory"]
+#
+# Give sessions first-party tools to find, read, and search files by
+# declaring \`filesystem:\` with the directories they may touch — without
+# it the tools aren't offered at all. "." is the workspace root:
+#
+# filesystem:
+#   allowed_directories:
+#     - .
+#     - /absolute/path/to/another/dir  # no ~ expansion — use a full path
 `;
 
 /** Relative paths reported by `initRepo`. */

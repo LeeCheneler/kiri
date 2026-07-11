@@ -320,4 +320,40 @@ mcp:
     expect(result.mcp.size).toBe(0);
     expect(result.mcpUnresolved.map((u) => u.name)).toEqual(["linear"]);
   });
+
+  it("leaves the sandbox empty when the file is absent (tools withheld)", () => {
+    expect(loadKiriConfig(config, {}).allowedDirectories).toEqual([]);
+  });
+
+  it("leaves the sandbox empty when the filesystem section is absent", () => {
+    write(cwd, "providers: {}\n");
+    expect(loadKiriConfig(config, {}).allowedDirectories).toEqual([]);
+  });
+
+  it("resolves declared directories against the workspace root", () => {
+    write(
+      cwd,
+      `filesystem:
+  allowed_directories:
+    - .
+    - notes/../shared
+    - /srv/absolute
+`,
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect(result.allowedDirectories).toEqual([cwd, join(cwd, "shared"), "/srv/absolute"]);
+  });
+
+  it("treats an empty allowed_directories the same as an absent section", () => {
+    write(cwd, "filesystem:\n  allowed_directories: []\n");
+    expect(loadKiriConfig(config, {}).allowedDirectories).toEqual([]);
+  });
+
+  it("empties the sandbox on a failed load (fail closed)", () => {
+    write(cwd, "filesystem:\n  allowed_directories: [/srv/other]\njunk: true\n");
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeDefined();
+    expect(result.allowedDirectories).toEqual([]);
+  });
 });

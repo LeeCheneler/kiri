@@ -114,6 +114,38 @@ describe("kiriConfigSchema", () => {
     expect(() => kiriConfigSchema.parse({ providers: { "": { type: "anthropic" } } })).toThrow();
   });
 
+  it("parses a filesystem section with allowed directories", () => {
+    const result = kiriConfigSchema.parse({
+      filesystem: { allowed_directories: [".", "/srv/notes"] },
+    });
+    expect(result.filesystem).toEqual({ allowed_directories: [".", "/srv/notes"] });
+  });
+
+  it("parses an empty allowed_directories list (same as an absent section)", () => {
+    const result = kiriConfigSchema.parse({ filesystem: { allowed_directories: [] } });
+    expect(result.filesystem?.allowed_directories).toEqual([]);
+  });
+
+  it("leaves filesystem undefined when the key is absent", () => {
+    expect(kiriConfigSchema.parse({}).filesystem).toBeUndefined();
+  });
+
+  it("requires allowed_directories on a filesystem section", () => {
+    const result = kiriConfigSchema.safeParse({ filesystem: {} });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].path).toEqual(["filesystem", "allowed_directories"]);
+  });
+
+  it("rejects an empty directory entry", () => {
+    expect(() => kiriConfigSchema.parse({ filesystem: { allowed_directories: [""] } })).toThrow();
+  });
+
+  it("rejects an unknown filesystem key (strict)", () => {
+    expect(() =>
+      kiriConfigSchema.parse({ filesystem: { allowed_directories: ["."], junk: true } }),
+    ).toThrow();
+  });
+
   it("rejects an unknown top-level key (strict)", () => {
     expect(() => kiriConfigSchema.parse({ providers: {}, junk: true })).toThrow();
   });
