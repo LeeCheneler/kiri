@@ -10,6 +10,7 @@ import { Textarea } from "../design-system/actions/textarea.tsx";
 import { ToggleChip } from "../design-system/actions/toggle-chip.tsx";
 import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.tsx";
 import { Code, CodeBlock } from "../design-system/content/code.tsx";
+import { Diff } from "../design-system/content/diff.tsx";
 import { Disclosure } from "../design-system/content/disclosure.tsx";
 import { EmptyState } from "../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../design-system/content/eyebrow.tsx";
@@ -685,6 +686,39 @@ export function DesignSystemContent() {
   );
 }`}</CodeBlock>
                 </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Diff</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Diff</span> ·{" "}
+              <span className="text-ink-muted">patchFromStrings</span> ·
+              design-system/content/diff.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A file change as a unified diff: hunk headers as faint separators feeding old/new
+                line numbers into the gutter, additions in the ok tone, removals in the failed tone.
+                Pass the hunk-only patches the filesystem write tools produce, or build a
+                header-less pseudo-diff from two whole strings with <Code>patchFromStrings</Code>{" "}
+                when only the before/after sides are known — a one-sided pseudo (a whole file
+                arriving or going) numbers from 1, a mixed one drops the number gutters entirely.{" "}
+                <Code>truncated</Code> appends a note that the server cut the diff short.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Diff
+                  patch={[
+                    "@@ -12,7 +12,7 @@",
+                    " export function greet(name) {",
+                    '-  return "Hello, " + name;',
+                    "+  return `Hello, ${name}!`;",
+                    " }",
+                  ].join("\n")}
+                />
               </Card>
             </div>
           </article>
