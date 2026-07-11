@@ -252,6 +252,34 @@ describe("buildSystemPrompt", () => {
     expect(withoutRerun).not.toContain("go through rerun_workflow");
   });
 
+  it("includes filesystem guidance with the allowed directories only when read_file is active", () => {
+    const withFilesystem = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["find_files", "read_file", "search_files"],
+      allowedDirectories: ["/srv/notes", "/srv/projects"],
+    });
+    expect(withFilesystem).toContain("You can work with the user's files");
+    // The sandbox is enumerated so the model needn't discover the reachable
+    // roots through errors, and the absolute-path currency is stated.
+    expect(withFilesystem).toContain("- /srv/notes");
+    expect(withFilesystem).toContain("- /srv/projects");
+    expect(withFilesystem).toContain("must be absolute");
+
+    // find_files alone (read_file withheld by its permission) carries no
+    // filesystem guidance — the find tool's own description suffices.
+    const findOnly = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["find_files"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(findOnly).not.toContain("You can work with the user's files");
+    expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain(
+      "You can work with the user's files",
+    );
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });

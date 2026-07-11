@@ -296,6 +296,12 @@ async function streamCore(
   const sink = streamRegistry?.open(session.id);
 
   const response = result.toUIMessageStreamResponse({
+    // Surface real error text in the stream and transcript instead of the
+    // SDK's masked "An error occurred." default. The masking keeps server
+    // internals from leaking to remote clients; kiri is single-user and
+    // local, and a tool error's message is the recovery instruction — the
+    // model acts on it, so the transcript should show the same thing.
+    onError: errorMessage,
     // Passing the history puts the stream in persistence mode: the response
     // message reuses the last message's id when it continues an assistant turn
     // (an approval resume), so the continuation lands on the same row, and a

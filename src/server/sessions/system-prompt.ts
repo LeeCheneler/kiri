@@ -97,6 +97,27 @@ function buildWorkflowGuidance(tools: string[]): string | null {
   return lines.join("\n");
 }
 
+// Cross-cutting guidance for the first-party filesystem tools — the sandbox
+// contract no single tool description can carry: which directories are
+// reachable (stated up front, so the model needn't discover them through
+// errors), the absolute-path currency, and scoping discipline. Keyed off
+// read_file, so it appears exactly when the tools are offered and never in a
+// plain chat.
+function buildFilesystemGuidance(
+  tools: string[],
+  allowedDirectories: readonly string[],
+): string | null {
+  if (!tools.includes("read_file")) return null;
+  return [
+    "You can work with the user's files: find_files finds them by glob pattern, list_directory lists a directory one level at a time, read_file reads one file, and search_files greps their contents. They reach exactly these directories (and their subdirectories), which the user has allowed:",
+    ...allowedDirectories.map((dir) => `- ${dir}`),
+    "Working with files:",
+    "- Every path is absolute: results report absolute paths and the paths you pass must be absolute too — never relative to some working directory.",
+    "- Scope narrowly: find or search first, then read the specific files that answer the need. Don't trawl whole trees or read files speculatively.",
+    "- Hidden (dot-prefixed) files and binary files are outside your reach, and an oversized result is cut with a note saying so — treat a truncated result as incomplete and tighten the call rather than reading it as the whole picture.",
+  ].join("\n");
+}
+
 // Cross-cutting strategy for the session's active tools. The SDK sends each
 // tool's own definition (the *what*, and for MCP tools the *when*); this layer
 // adds what no single tool's schema can: spend the token budget deliberately.
@@ -145,7 +166,12 @@ function buildResponseGuidance(): string {
 // replies land in, and guidance on the available tools. Built per turn rather
 // than kept as a constant because it states the live date and the active tool
 // set. Not user-editable — `kiri.md` and personas customise on top of it.
-function buildCorePrompt(now: Date, tools: string[], host: HostEnvironment): string {
+function buildCorePrompt(
+  now: Date,
+  tools: string[],
+  host: HostEnvironment,
+  allowedDirectories: readonly string[],
+): string {
   const today = now.toISOString().slice(0, 10);
   const intro = [
     "You are a capable, careful AI assistant running inside kiri, a local-first personal automation tool, in an interactive chat session.",
@@ -165,6 +191,7 @@ function buildCorePrompt(now: Date, tools: string[], host: HostEnvironment): str
     buildDiagramGuidance(),
     buildArticleGuidance(tools),
     buildWorkflowGuidance(tools),
+    buildFilesystemGuidance(tools, allowedDirectories),
   ];
   return sections.filter((section): section is string => section !== null).join("\n\n");
 }
@@ -231,6 +258,8 @@ export interface BuildSystemPromptOptions {
   persona?: string | null;
   /** Names of the tools active this session; drives the core layer's tool-use guidance. */
   tools?: string[];
+  /** The filesystem tools' sandbox, enumerated in their guidance so the model knows the reachable roots up front. */
+  allowedDirectories?: readonly string[];
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
   /** Host injection for tests; defaults to the running process's machine. */
@@ -247,7 +276,12 @@ export interface BuildSystemPromptOptions {
  */
 export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   const sections = [
-    buildCorePrompt(opts.now ?? new Date(), opts.tools ?? [], opts.host ?? detectHostEnvironment()),
+    buildCorePrompt(
+      opts.now ?? new Date(),
+      opts.tools ?? [],
+      opts.host ?? detectHostEnvironment(),
+      opts.allowedDirectories ?? [],
+    ),
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
   if (instructions !== null) sections.push(instructions);
@@ -267,6 +301,8 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
 export function createSystemPromptBuilder(
   config: ConfigStore,
   tools: string[] = [],
+  allowedDirectories: readonly string[] = [],
 ): (session: Session) => string {
-  return (session: Session) => buildSystemPrompt({ config, persona: session.persona, tools });
+  return (session: Session) =>
+    buildSystemPrompt({ config, persona: session.persona, tools, allowedDirectories });
 }

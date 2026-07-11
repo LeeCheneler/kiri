@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type { LlmProvider, ProviderType } from "../llm/schema.ts";
 import type { McpServer, McpServerEntry, McpServerUnresolved } from "../mcp/schema.ts";
 import { kiriConfigSchema } from "./schema.ts";
@@ -28,6 +30,12 @@ export interface KiriConfigLoadResult {
   mcp: Map<string, McpServer>;
   /** MCP servers excluded because a declared env ref names an unset variable. */
   mcpUnresolved: McpServerUnresolved[];
+  /**
+   * Absolute directories the session filesystem tools are confined to. Empty
+   * when the file or its `filesystem:` section is absent — the tools are
+   * withheld entirely — and on a failed load (fail closed).
+   */
+  allowedDirectories: string[];
   /** Set when a present file failed to load. An absent file is not a failure. */
   failure?: KiriConfigLoadFailure;
   /** Non-fatal note — e.g. both `kiri.yaml` and `kiri.yml` exist and the canonical one was used. */
@@ -37,17 +45,28 @@ export interface KiriConfigLoadResult {
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-/** An empty result (no providers, no MCP servers), optionally carrying a failure. */
+// Expand a leading `~` to the user's home directory — the natural way to
+// declare a home-relative sandbox entry. `~user` forms are not supported and
+// resolve as ordinary workspace-relative paths.
+const expandHome = (dir: string): string => {
+  if (dir === "~") return homedir();
+  if (dir.startsWith("~/")) return join(homedir(), dir.slice(2));
+  return dir;
+};
+
+/** An empty result (no providers, no MCP servers, no sandbox), optionally carrying a failure. */
 const emptyResult = (extra: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadResult => ({
   providers: new Map(),
   mcp: new Map(),
   mcpUnresolved: [],
+  allowedDirectories: [],
   ...extra,
 });
 
 /**
  * Load the workspace's `kiri.yaml` (or `kiri.yml`) and resolve its `providers:`
- * and `mcp:` maps. An absent file is first-class: an empty registry, not a
+ * and `mcp:` maps and `filesystem:` sandbox. An absent file is first-class: an
+ * empty registry, not a
  * failure. A present file that fails to read, parse, or validate — or whose
  * declared provider `{ env: }` refs name a variable missing from `env` — yields
  * an empty result plus a `failure` describing why, the same posture as a
@@ -68,7 +87,7 @@ export function loadKiriConfig(
   const present = candidates.filter((path) => existsSync(path));
   if (present.length === 0) return emptyResult();
 
-  const result = loadConfigFile(present[0], env);
+  const result = loadConfigFile(config, present[0], env);
   if (present.length > 1) {
     result.warning = `both ${candidates[0]} and ${candidates[1]} exist — using ${candidates[0]}`;
   }
@@ -77,6 +96,7 @@ export function loadKiriConfig(
 
 /** Read, parse, validate, and resolve a single config file known to exist. */
 function loadConfigFile(
+  config: ConfigStore,
   path: string,
   env: Record<string, string | undefined>,
 ): KiriConfigLoadResult {
@@ -129,7 +149,13 @@ function loadConfigFile(
   }
 
   const { mcp, mcpUnresolved } = resolveMcpServers(result.data.mcp ?? {}, env);
-  return { providers, mcp, mcpUnresolved };
+  // Declaring the sandbox is what enables the filesystem tools — nothing is
+  // accessible by default. Entries resolve against the workspace root, so "."
+  // grants the root itself, and a leading ~ expands to the home directory.
+  const allowedDirectories = (result.data.filesystem?.allowed_directories ?? []).map((dir) =>
+    resolve(config.cwd(), expandHome(dir)),
+  );
+  return { providers, mcp, mcpUnresolved, allowedDirectories };
 }
 
 /** Resolve declared MCP servers, excluding any whose declared env refs are unset. */

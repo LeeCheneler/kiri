@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadKiriConfig } from "./loader.ts";
 import { type ConfigStore, createConfigStore } from "./store.ts";
@@ -319,5 +319,64 @@ mcp:
     expect(result.providers.has("anthropic")).toBe(true);
     expect(result.mcp.size).toBe(0);
     expect(result.mcpUnresolved.map((u) => u.name)).toEqual(["linear"]);
+  });
+
+  it("leaves the sandbox empty when the file is absent (tools withheld)", () => {
+    expect(loadKiriConfig(config, {}).allowedDirectories).toEqual([]);
+  });
+
+  it("leaves the sandbox empty when the filesystem section is absent", () => {
+    write(cwd, "providers: {}\n");
+    expect(loadKiriConfig(config, {}).allowedDirectories).toEqual([]);
+  });
+
+  it("resolves declared directories against the workspace root", () => {
+    write(
+      cwd,
+      `filesystem:
+  allowed_directories:
+    - .
+    - notes/../shared
+    - /srv/absolute
+`,
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect(result.allowedDirectories).toEqual([cwd, join(cwd, "shared"), "/srv/absolute"]);
+  });
+
+  it("expands a leading ~ to the home directory", () => {
+    write(
+      cwd,
+      // A bare ~ is YAML null, so granting the whole home directory needs the
+      // quoted string form; ~/x is an ordinary plain scalar.
+      `filesystem:
+  allowed_directories:
+    - "~"
+    - ~/projects/notes
+    - ~tilde-literal
+`,
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    // `~user` forms aren't supported: they resolve as ordinary
+    // workspace-relative paths rather than guessing at another user's home.
+    expect(result.allowedDirectories).toEqual([
+      homedir(),
+      join(homedir(), "projects", "notes"),
+      join(cwd, "~tilde-literal"),
+    ]);
+  });
+
+  it("treats an empty allowed_directories the same as an absent section", () => {
+    write(cwd, "filesystem:\n  allowed_directories: []\n");
+    expect(loadKiriConfig(config, {}).allowedDirectories).toEqual([]);
+  });
+
+  it("empties the sandbox on a failed load (fail closed)", () => {
+    write(cwd, "filesystem:\n  allowed_directories: [/srv/other]\njunk: true\n");
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeDefined();
+    expect(result.allowedDirectories).toEqual([]);
   });
 });
