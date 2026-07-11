@@ -18,10 +18,13 @@ export interface BuiltinTool {
  * session routes gate each listed tool per call, and the MCP page's Built-in
  * tools card shows its permission for review and change. Defaults encode the
  * trust posture: tools that only read or write kiri's own data run without
- * prompting (`allow` — the request in chat is the authorisation), while
- * tools that execute user-authored scripts (`run_workflow`, `rerun_workflow`)
- * or write files into the workspace repo (the workflow write tools) ask
- * first.
+ * prompting (`allow` — the request in chat is the authorisation), as do the
+ * filesystem read tools (reads confined to the sandbox the user declared in
+ * `kiri.yaml` — declaring it is the authorisation), while tools that execute
+ * user-authored scripts (`run_workflow`, `rerun_workflow`) or write files
+ * into the workspace repo (the workflow write tools) ask first. A tool whose
+ * capability isn't configured (the filesystem tools with no declared sandbox)
+ * is withheld from the model regardless of its permission.
  */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   {
@@ -88,5 +91,25 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "rerun_workflow",
     description: "Re-execute an existing run in place, replacing its results in the feed.",
     defaultPermission: "ask",
+  },
+  {
+    name: "find_files",
+    description: "Find files by glob pattern in the allowed directories.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "list_directory",
+    description: "List a directory's immediate entries in the allowed directories.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "read_file",
+    description: "Read a text file from the allowed directories.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "search_files",
+    description: "Search file contents in the allowed directories.",
+    defaultPermission: "allow",
   },
 ];

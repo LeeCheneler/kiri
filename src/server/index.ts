@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { loadKiriConfig } from "./config/loader.ts";
 import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
@@ -102,6 +103,13 @@ export interface AppDeps {
    * unknown-provider, matching a workspace with no providers configured.
    */
   getProviderNames?: () => ReadonlySet<string>;
+  /**
+   * Live sandbox for the session filesystem tools. Defaults to reading
+   * `filesystem.allowed_directories` from `kiri.yaml` on each turn — the
+   * same fresh-from-disk posture as `kiri.md` — so an edit applies on the
+   * next turn. Empty ⇒ the filesystem tools are withheld.
+   */
+  getAllowedDirectories?: () => readonly string[];
 }
 
 // Upper bound on request body size. Invoke bodies are
@@ -228,6 +236,8 @@ export function createApp(deps: AppDeps): Hono {
         toolPermissions,
         streamRegistry: deps.streamRegistry,
         getProviderNames: deps.getProviderNames,
+        getAllowedDirectories:
+          deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),
       }),
     );
   }

@@ -148,6 +148,10 @@ describe("mcp routes", () => {
           { name: "replace_workflow", description: expect.any(String), permission: "ask" },
           { name: "run_workflow", description: expect.any(String), permission: "allow" },
           { name: "rerun_workflow", description: expect.any(String), permission: "ask" },
+          { name: "find_files", description: expect.any(String), permission: "allow" },
+          { name: "list_directory", description: expect.any(String), permission: "allow" },
+          { name: "read_file", description: expect.any(String), permission: "allow" },
+          { name: "search_files", description: expect.any(String), permission: "allow" },
         ],
       });
     });

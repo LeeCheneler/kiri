@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { zValidator } from "@hono/zod-validator";
 import {
   type ModelMessage,
@@ -29,6 +30,7 @@ import {
   createSystemPromptBuilder,
   deleteMessagesFrom,
   deleteSession,
+  filesystemTools,
   getSession,
   getSessionMessages,
   getSessionPreviews,
@@ -77,6 +79,14 @@ export interface SessionsRoutesDeps {
   toolPermissions: ToolPermissionStore;
   /** Live provider names for the workflow authoring tools' validation gate; forwarded to `workflowTools`. */
   getProviderNames?: () => ReadonlySet<string>;
+  /**
+   * Live sandbox for the first-party filesystem tools: the absolute
+   * directories declared under `filesystem.allowed_directories` in
+   * `kiri.yaml`, read per turn so a config edit applies on the next one.
+   * Empty (or omitted) withholds the filesystem tools entirely — declaring
+   * the sandbox is what enables them.
+   */
+  getAllowedDirectories?: () => readonly string[];
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -176,6 +186,15 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   } = deps;
   const app = new Hono();
 
+  // The filesystem tools' sandbox for a turn, read fresh so a kiri.yaml edit
+  // applies on the next turn; one read serves the whole turn, so the offered
+  // tools and the guidance enumerate the same set. Filtered to directories
+  // that exist: a declared entry that isn't on disk can't be browsed, and
+  // offering tools (or advertising a root) that every call would then reject
+  // reads as broken — with nothing usable, the tools are withheld outright.
+  const sandboxDirectories = (): readonly string[] =>
+    (deps.getAllowedDirectories?.() ?? []).filter((dir) => existsSync(dir));
+
   // One registry of in-flight turn streams for this surface: the turn endpoint
   // fills it, the resume endpoint reads it, so a client that reconnects mid-turn
   // rejoins the live response. A caller may inject one to share it.
@@ -216,18 +235,25 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // own data (the user's request in chat is the authorisation), "ask" for
   // run_workflow, which executes user-authored scripts. Built-in tools are
   // merged after the gated MCP set, so they take the name on a collision.
+  // The filesystem tools self-gate on configuration like an MCP server: no
+  // declared sandbox, no tools — a BUILTIN_TOOLS entry absent from the merged
+  // set is simply withheld.
   const activeTools = (sessionId: string): ToolSet => {
     const tools: ToolSet = {};
     for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
       const offered = gate(name, mcpTool, "ask");
       if (offered !== null) tools[name] = offered;
     }
+    const sandbox = sandboxDirectories();
     const builtin: ToolSet = {
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
+      ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
-      const offered = gate(name, builtin[name], defaultPermission);
+      const builtinTool = builtin[name];
+      if (builtinTool === undefined) continue;
+      const offered = gate(name, builtinTool, defaultPermission);
       if (offered !== null) tools[name] = offered;
     }
     return tools;
@@ -481,9 +507,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
       // Resolve the live, approval-gated tools for this turn and compose the
       // system prompt from their names so the core layer's tool guidance matches
-      // what the model is actually offered.
+      // what the model is actually offered; the filesystem sandbox rides along
+      // so its guidance can enumerate the reachable directories.
       const tools = activeTools(id);
-      const buildSystemPrompt = createSystemPromptBuilder(config, Object.keys(tools));
+      const buildSystemPrompt = createSystemPromptBuilder(
+        config,
+        Object.keys(tools),
+        sandboxDirectories(),
+      );
       const turnDeps = {
         db,
         llmClients,

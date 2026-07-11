@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type Tool, type ToolSet, tool } from "ai";
@@ -831,6 +831,140 @@ describe("sessions routes", () => {
       expect(toolNames).not.toContain("create_article");
       expect(toolNames).toContain("edit_article");
       expect(systemText).not.toContain("You can save articles");
+    });
+
+    it("offers the filesystem tools with sandbox guidance when kiri.yaml declares one", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "what files are there?")).text();
+      await settled;
+
+      expect(toolNames).toEqual(
+        expect.arrayContaining(["find_files", "list_directory", "read_file", "search_files"]),
+      );
+      // The guidance layer turned on and enumerated the declared sandbox —
+      // "." resolved against the workspace root.
+      expect(systemText).toContain("You can work with the user's files");
+      expect(systemText).toContain(`- ${env.cwd}`);
+    });
+
+    it("withholds the filesystem tools when no sandbox is declared", async () => {
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "what files are there?")).text();
+      await settled;
+
+      // Declaring the sandbox is what enables the capability: without it the
+      // tools aren't offered and their guidance never appears, while the other
+      // built-ins are unaffected.
+      expect(toolNames).not.toContain("find_files");
+      expect(toolNames).not.toContain("read_file");
+      expect(toolNames).not.toContain("search_files");
+      expect(toolNames).toContain("create_article");
+      expect(systemText).not.toContain("You can work with the user's files");
+    });
+
+    it("withholds the filesystem tools when no declared directory exists on disk", async () => {
+      // A declared sandbox whose every entry is missing is unusable: offering
+      // the tools (and advertising the root) would just make each call fail.
+      writeFileSync(
+        join(env.cwd, "kiri.yaml"),
+        `filesystem:\n  allowed_directories: [${join(env.cwd, "does-not-exist")}]\n`,
+      );
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "what files are there?")).text();
+      await settled;
+
+      expect(toolNames).not.toContain("read_file");
+      expect(systemText).not.toContain("You can work with the user's files");
+    });
+
+    it("runs a filesystem read tool straight through by default", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      writeFileSync(join(env.cwd, "notes.md"), "remember the milk\n");
+      const input = JSON.stringify({ path: join(env.cwd, "notes.md") });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolCallModel("read_file", input) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "read my notes")).text();
+      await settled;
+
+      // No approval pause with no recorded permission: the filesystem read
+      // tools default to allow, so the read ran and the model answered in the
+      // same turn. The result reports the file's real path.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      expect(toolPartOf(rows[1]).output).toEqual({
+        path: realpathSync(join(env.cwd, "notes.md")),
+        content: "remember the milk\n",
+      });
     });
 
     it("persists the user message under the id the client sent", async () => {

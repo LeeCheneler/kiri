@@ -8,6 +8,7 @@ import { migrate } from "../db/migrate.ts";
 import { createRegistry } from "../workflows/index.ts";
 import { articleTools } from "./article-tools.ts";
 import { BUILTIN_TOOLS } from "./builtin-tools.ts";
+import { filesystemTools } from "./filesystem-tools.ts";
 import { workflowTools } from "./workflow-tools.ts";
 
 describe("BUILTIN_TOOLS", () => {
@@ -33,6 +34,7 @@ describe("BUILTIN_TOOLS", () => {
     const offered = {
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
       ...articleTools(db, "session-1", () => {}),
+      ...filesystemTools(() => [dir]),
     };
     expect(BUILTIN_TOOLS.map((tool) => tool.name).sort()).toEqual(Object.keys(offered).sort());
   });
