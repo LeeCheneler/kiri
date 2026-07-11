@@ -59,6 +59,16 @@ All of them are listed under **Built-in tools** on the Tools & MCP page, so
 any default can be tightened or the tool switched off entirely. See
 [Sessions](/docs/sessions).
 
+The file-reading tools have their own boundary: they exist only when you
+declare `filesystem: allowed_directories` in `kiri.yaml` — a git-reviewable
+decision, like configuring an MCP server. Every path the model supplies must
+resolve inside a declared directory (symlinks are followed to their real
+target and checked, so a link can't smuggle a path out), hidden dot-files
+like `.env` and `.kiri/` are unreachable outright, and the tools are strictly
+read-only. They default to Always allow because declaring the sandbox is the
+authorisation — narrow the list, or switch them off, and that's the whole
+surface gone.
+
 ## Secrets
 
 Kiri has no first-class secrets store. Keep secrets **out of YAML and out of

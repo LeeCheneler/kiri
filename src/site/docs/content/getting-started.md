@@ -101,7 +101,8 @@ Run it again — same data, but now the article reads like a colleague wrote it.
 
 ## Where kiri keeps things
 
-- **`kiri.yaml`** — structured config: model providers, MCP servers. Committed.
+- **`kiri.yaml`** — structured config: model providers, MCP servers, the
+  session file sandbox. Committed.
 - **`.env`** — secrets, auto-loaded at boot. Git-ignored.
 - **`kiri.md`** and **`personas/`** — system-prompt layers for
   [sessions](/docs/sessions).
