@@ -1,5 +1,6 @@
 export { articleTools } from "./article-tools.ts";
 export { BUILTIN_TOOLS, type BuiltinTool } from "./builtin-tools.ts";
+export { type FilesystemToolsOptions, filesystemTools } from "./filesystem-tools.ts";
 export {
   type Message,
   type NewMessage,
