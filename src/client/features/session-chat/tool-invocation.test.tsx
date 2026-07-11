@@ -140,4 +140,186 @@ describe("<ToolInvocation>", () => {
     await user.click(screen.getByRole("button"));
     expect(screen.getByText("You denied this call.")).toBeDefined();
   });
+
+  // Build a filesystem write-tool part; the write tools get diff rendering
+  // rather than the generic JSON panels.
+  const writePart = (tool: string, overrides: Record<string, unknown>): ToolUIPart =>
+    ({ type: `tool-${tool}`, toolCallId: "c1", ...overrides }) as unknown as ToolUIPart;
+
+  it("shows the path in the collapsed summary for filesystem calls", () => {
+    render(
+      <ToolInvocation
+        part={writePart("delete_file", {
+          state: "output-available",
+          input: { path: "/ws/old.md" },
+          output: { path: "/ws/old.md", deleted: true },
+        })}
+      />,
+    );
+    expect(screen.getByText("/ws/old.md")).toBeDefined();
+  });
+
+  it("renders a write result's diff as toned rows instead of JSON", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("edit_file", {
+          state: "output-available",
+          input: { path: "/ws/a.md", old_string: "old line", new_string: "new line" },
+          output: {
+            path: "/ws/a.md",
+            replacements: 1,
+            diff: "@@ -1,1 +1,1 @@\n-old line\n+new line",
+          },
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    const removed = screen.getByText("old line").closest("[data-diff-line]");
+    expect(removed?.getAttribute("data-diff-line")).toBe("removed");
+    expect(
+      screen.getByText("new line").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+    expect(screen.queryByText(/"replacements"/)).toBeNull();
+  });
+
+  it("notes a truncated diff on a write result", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("write_file", {
+          state: "output-available",
+          input: { path: "/ws/a.md", content: "next\n" },
+          output: {
+            path: "/ws/a.md",
+            created: false,
+            diff: "@@ -1,9 +1,1 @@",
+            diffTruncated: true,
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("… diff truncated")).toBeDefined();
+  });
+
+  it("renders a created file's content as additions, from the call's input", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("write_file", {
+          state: "output-available",
+          input: { path: "/ws/new.md", content: "fresh line\n" },
+          output: { path: "/ws/new.md", created: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(
+      screen.getByText("fresh line").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+  });
+
+  it("previews an edit awaiting approval as a change, not JSON", () => {
+    render(
+      <ToolInvocation
+        part={writePart("edit_file", {
+          state: "approval-requested",
+          input: {
+            path: "/ws/a.md",
+            old_string: "old line",
+            new_string: "new line",
+            replace_all: true,
+          },
+          approval: { id: "a1" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("/ws/a.md")).toBeDefined();
+    expect(
+      screen.getByText("old line").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("removed");
+    expect(
+      screen.getByText("new line").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+    expect(screen.getByText("Applies to every occurrence.")).toBeDefined();
+    expect(screen.queryByText(/"old_string"/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+  });
+
+  it("previews a write awaiting approval as its content added", () => {
+    render(
+      <ToolInvocation
+        part={writePart("write_file", {
+          state: "approval-requested",
+          input: { path: "/ws/new.md", content: "incoming\n" },
+          approval: { id: "a1" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+    expect(
+      screen.getByText("incoming").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+  });
+
+  it("keeps the JSON input for approvals with nothing diffable to show", () => {
+    render(
+      <ToolInvocation
+        part={writePart("delete_directory", {
+          state: "approval-requested",
+          input: { path: "/ws/scratch", recursive: true },
+          approval: { id: "a1" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+    expect(screen.getByText(/"recursive": true/)).toBeDefined();
+  });
+
+  it("falls back to JSON when a write part carries no renderable change", async () => {
+    const user = userEvent.setup();
+    // A created-file result whose input lacks the content string — nothing to
+    // rebuild the change from, so the raw output shows instead.
+    render(
+      <ToolInvocation
+        part={writePart("write_file", {
+          state: "output-available",
+          input: {},
+          output: { path: "/ws/new.md", created: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"created": true/)).toBeDefined();
+  });
+
+  it("falls back to the JSON input for a malformed write approval", () => {
+    render(
+      <ToolInvocation
+        part={writePart("write_file", {
+          state: "approval-requested",
+          input: { path: "/ws/new.md" },
+          approval: { id: "a1" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+    expect(screen.getByText(/"path": "\/ws\/new.md"/)).toBeDefined();
+
+    render(
+      <ToolInvocation
+        part={writePart("edit_file", {
+          state: "approval-requested",
+          input: { path: "/ws/a.md", old_string: "x" },
+          approval: { id: "a2" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+    expect(screen.getByText(/"old_string": "x"/)).toBeDefined();
+  });
 });
