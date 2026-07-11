@@ -203,14 +203,18 @@ function ToolApproval({
  * open Allow / Always allow / Deny prompt (when `onDecision` is wired); every
  * other state renders as a collapsible block showing the tool, what it was
  * called with, and its status, expanding to the result. Tool output is untrusted
- * data and renders as formatted JSON, never markdown.
+ * data and renders as formatted JSON, never markdown. `framed` (default true)
+ * draws the block's own bordered box; pass false when the row sits inside a
+ * container that provides its own framing.
  */
 export function ToolInvocation({
   part,
   onDecision,
+  framed = true,
 }: {
   part: ToolPart;
   onDecision?: ToolDecisionHandler;
+  framed?: boolean;
 }) {
   const name = getToolName(part);
   if (part.state === "approval-requested" && onDecision) {
@@ -223,7 +227,7 @@ export function ToolInvocation({
       ? "cancelled"
       : (STATE_STATUS[part.state] ?? "working");
   return (
-    <div className="border border-rule" data-tool={name}>
+    <div className={framed ? "border border-rule" : undefined} data-tool={name}>
       <Disclosure
         summary={
           <span className="flex items-baseline gap-3 font-mono text-xs">
