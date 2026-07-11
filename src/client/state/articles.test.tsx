@@ -11,6 +11,7 @@ import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import {
   useArticle,
+  useRunArticlesLive,
   useSessionArticle,
   useSessionArticles,
   useSessionArticlesLive,
@@ -29,9 +30,10 @@ const renderProbe = (runId: string, slug: string) =>
     </QueryClientProvider>,
   );
 
-// The root-level article live bridge, as `<LiveSync>` mounts it in the app.
+// The root-level article live bridges, as `<LiveSync>` mounts them in the app.
 const Live = () => {
   useSessionArticlesLive();
+  useRunArticlesLive();
   return null;
 };
 
@@ -77,6 +79,32 @@ const serveCountingDetail = () => {
         contentMd: "# Hello\n\nBody.\n",
         createdAt: new Date().toISOString(),
         heading: "Hello",
+      });
+    }),
+  );
+  return () => calls;
+};
+
+// Serve a run article whose name encodes the fetch count, so a refetch is
+// observable as the rendered name advancing v-1 → v-2 → …
+const serveCountingRunDetail = () => {
+  let calls = 0;
+  server.use(
+    http.get("*/api/runs/:id/articles/:slug", ({ params }) => {
+      calls++;
+      return HttpResponse.json({
+        id: "art-1",
+        runId: params.id,
+        slug: params.slug,
+        name: `v-${calls}`,
+        contentMd: "# Hello\n\nBody.\n",
+        createdAt: new Date().toISOString(),
+        workflowName: "briefing",
+        heading: "Hello",
+        gitSha: null,
+        gitDirty: null,
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
       });
     }),
   );
@@ -184,6 +212,65 @@ describe("articles state", () => {
 
     // The first open is the initial connect; the second is a reconnect, which
     // must re-sync anything missed while disconnected.
+    act(() => source().triggerOpen());
+    act(() => source().triggerOpen());
+
+    expect(await screen.findByText("v-2")).toBeDefined();
+  });
+
+  it("refetches a mounted run article when its run finishes", async () => {
+    serveCountingRunDetail();
+    const { source } = renderLive(<Probe runId="run-1" slug="briefing" />);
+    expect(await screen.findByText("v-1")).toBeDefined();
+
+    act(() => source().emit({ type: "run.finished", id: "run-1", status: "ok" }));
+
+    expect(await screen.findByText("v-2")).toBeDefined();
+  });
+
+  it("marks an unmounted run article stale so returning after a rerun refetches", async () => {
+    serveCountingRunDetail();
+    const { wrap, rerender, source } = renderLive(<Probe runId="run-1" slug="briefing" />);
+    expect(await screen.findByText("v-1")).toBeDefined();
+
+    // Navigate away, rerun the run, come back: a rerun rewrites the articles
+    // under the same run id, so the revisit must refetch rather than serve
+    // the pre-rerun body from cache.
+    rerender(wrap(null));
+    act(() => source().emit({ type: "run.finished", id: "run-1", status: "ok" }));
+    rerender(wrap(<Probe runId="run-1" slug="briefing" />));
+
+    expect(await screen.findByText("v-2")).toBeDefined();
+  });
+
+  it("restales a run's article when the run is deleted", async () => {
+    serveCountingRunDetail();
+    const { source } = renderLive(<Probe runId="run-1" slug="briefing" />);
+    expect(await screen.findByText("v-1")).toBeDefined();
+
+    act(() => source().emit({ type: "run.deleted", id: "run-1" }));
+
+    expect(await screen.findByText("v-2")).toBeDefined();
+  });
+
+  it("does not refetch a run article on another run's lifecycle", async () => {
+    const calls = serveCountingRunDetail();
+    const { source } = renderLive(<Probe runId="run-1" slug="briefing" />);
+    expect(await screen.findByText("v-1")).toBeDefined();
+
+    act(() => source().emit({ type: "run.finished", id: "other", status: "ok" }));
+    act(() => source().emit({ type: "run.deleted", id: "other" }));
+    await flushAsync();
+
+    expect(screen.getByText("v-1")).toBeDefined();
+    expect(calls()).toBe(1);
+  });
+
+  it("re-syncs run article queries on event-stream reconnect", async () => {
+    serveCountingRunDetail();
+    const { source } = renderLive(<Probe runId="run-1" slug="briefing" />);
+    expect(await screen.findByText("v-1")).toBeDefined();
+
     act(() => source().triggerOpen());
     act(() => source().triggerOpen());
 

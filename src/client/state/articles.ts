@@ -17,10 +17,10 @@ const sessionArticleKey = (sessionId: string, slug: string) =>
 const sessionArticlesKey = (sessionId: string) => ["session-articles", sessionId] as const;
 
 /**
- * Read a single article by run id and slug, fetching on first use
- * and serving the cache thereafter. Run articles are immutable once written,
- * so there is no live-sync hook — the cache never goes stale, and back/forward
- * navigation repaints without a refetch. The cache is keyed by the pair, so
+ * Read a single article by run id and slug, fetching on first use and serving
+ * the cache thereafter. A rerun rewrites the run's articles in place under the
+ * same run id, so the cache is kept current by `useRunArticlesLive`, mounted
+ * once near the root via `<LiveSync>`. The cache is keyed by the pair, so
  * changing either param swaps to a separate entry rather than racing.
  */
 export function useArticle(runId: string, slug: string): UseQueryResult<ArticleDetail> {
@@ -28,9 +28,34 @@ export function useArticle(runId: string, slug: string): UseQueryResult<ArticleD
 }
 
 /**
+ * Bridges run lifecycle events to the run article caches. A rerun reuses the
+ * run's id — wiping its articles and writing fresh ones — so `run.finished`
+ * invalidates the run's article queries whether or not a consumer is mounted;
+ * navigating back to an article after a rerun refetches instead of serving
+ * the pre-rerun body. `run.deleted` restales them too, so a deleted run's
+ * article 404s rather than rendering from cache. Invalidation waits for
+ * `run.finished` rather than reacting to `run.started`, so a mounted article
+ * keeps the old body during the rerun instead of flashing not-found while the
+ * wiped rows are rewritten. Reconnect re-syncs every run article query. Mount
+ * once near the root via `<LiveSync>`.
+ */
+export function useRunArticlesLive(): void {
+  const queryClient = useQueryClient();
+  useLiveEvent({
+    on: ["run.finished", "run.deleted"],
+    handler: (event) => {
+      void queryClient.invalidateQueries({ queryKey: ["article", event.id] });
+    },
+  });
+  useLiveReconnect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["article"] });
+  });
+}
+
+/**
  * Read a single session-produced article, fetching on first use and serving
- * the cache thereafter. Unlike a run's, a session's article is editable — the
- * session can rewrite it in a later turn — so the cache is kept current by
+ * the cache thereafter. A session's article is editable — the session can
+ * rewrite it in a later turn — so the cache is kept current by
  * `useSessionArticlesLive`, mounted once near the root via `<LiveSync>`.
  */
 export function useSessionArticle(
