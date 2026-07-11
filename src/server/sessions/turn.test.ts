@@ -131,6 +131,18 @@ const echoTools = {
   }),
 };
 
+// The same tool, but failing — its thrown message is the model's (and the
+// transcript's) recovery instruction.
+const failingEchoTools = {
+  echo: tool({
+    description: "Echo the value back.",
+    inputSchema: z.object({ value: z.string() }),
+    execute: async (_input: { value: string }): Promise<{ echoed: string }> => {
+      throw new Error('no value "hi" — call list_values first.');
+    },
+  }),
+};
+
 // The same tool, but gated behind approval — a call pauses the turn until the
 // user allows or denies it, mirroring what `gateTools` does for an ungranted
 // MCP tool.
@@ -496,6 +508,28 @@ describe("runTurn", () => {
 
     // The context footprint is the last step alone (3+4), not the summed total.
     expect(rows[1]?.contextTokens).toBe(7);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it("persists a failed tool call's real message as its errorText", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(toolLoopModel()), tools: failingEchoTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    const rows = getSessionMessages(db, "s1");
+    const parts = rows[1]?.parts as Array<{ type: string; state?: string; errorText?: string }>;
+    const toolPart = parts.find((p) => p.type === "tool-echo");
+    expect(toolPart?.state).toBe("output-error");
+    // The thrown message reaches the transcript, not the SDK's masked
+    // "An error occurred." default — it names the recovery, and the user
+    // should see the same thing the model acts on.
+    expect(toolPart?.errorText).toBe('no value "hi" — call list_values first.');
+    // A tool error doesn't fail the turn: the model read it and answered.
     expect(getSession(db, "s1")?.status).toBe("idle");
   });
 
