@@ -126,6 +126,74 @@ describe("filesystemTools", () => {
     });
   });
 
+  describe("list_directory", () => {
+    it("lists immediate entries with directories marked by a trailing slash", async () => {
+      writeFileSync(join(workspace, "notes.md"), "n");
+      mkdirSync(join(workspace, "docs"));
+      writeFileSync(join(workspace, "docs", "nested.md"), "hidden from this level");
+      const result = await run(tools().list_directory, { path: workspace });
+      expect(result).toEqual({ path: ws(), entries: ["docs/", "notes.md"] });
+    });
+
+    it("never lists hidden entries", async () => {
+      writeFileSync(join(workspace, "visible.md"), "ok");
+      writeFileSync(join(workspace, ".env"), "SECRET=1");
+      mkdirSync(join(workspace, ".kiri"));
+      const result = await run(tools().list_directory, { path: workspace });
+      expect(result).toEqual({ path: ws(), entries: ["visible.md"] });
+    });
+
+    it("returns an empty listing for an empty directory", async () => {
+      mkdirSync(join(workspace, "empty"));
+      const result = await run(tools().list_directory, { path: join(workspace, "empty") });
+      expect(result).toEqual({ path: ws("empty"), entries: [] });
+    });
+
+    it("shows a symlinked entry that stays inside the sandbox, with its target's kind", async () => {
+      mkdirSync(join(workspace, "sub"));
+      symlinkSync(join(workspace, "sub"), join(workspace, "sub-link"));
+      const result = await run(tools().list_directory, { path: workspace });
+      expect(result).toEqual({ path: ws(), entries: ["sub-link/", "sub/"] });
+    });
+
+    it("skips symlinked entries that resolve outside the sandbox, and broken ones", async () => {
+      writeFileSync(join(outside, "secret.md"), "leaked");
+      symlinkSync(join(outside, "secret.md"), join(workspace, "leak.md"));
+      symlinkSync(join(workspace, "missing.md"), join(workspace, "broken.md"));
+      writeFileSync(join(workspace, "safe.md"), "safe");
+      const result = await run(tools().list_directory, { path: workspace });
+      expect(result).toEqual({ path: ws(), entries: ["safe.md"] });
+    });
+
+    it("rejects a relative path", async () => {
+      expect(run(tools().list_directory, { path: "sub" })).rejects.toThrow(/use an absolute path/);
+    });
+
+    it("rejects a path outside the sandbox", async () => {
+      expect(run(tools().list_directory, { path: outside })).rejects.toThrow(
+        /outside the directories/,
+      );
+    });
+
+    it("rejects a file path", async () => {
+      writeFileSync(join(workspace, "a.md"), "a");
+      expect(run(tools().list_directory, { path: join(workspace, "a.md") })).rejects.toThrow(
+        /not a directory/,
+      );
+    });
+
+    it("caps the listing with a note", async () => {
+      for (const name of ["a.md", "b.md", "c.md"]) {
+        writeFileSync(join(workspace, name), name);
+      }
+      const result = (await run(tools([workspace], { maxFindResults: 2 }).list_directory, {
+        path: workspace,
+      })) as { entries: string[]; note: string };
+      expect(result.entries).toEqual(["a.md", "b.md"]);
+      expect(result.note).toMatch(/showing 2 of 3 entries/);
+    });
+  });
+
   describe("read_file", () => {
     it("reads a file by absolute path, reporting its real path", async () => {
       mkdirSync(join(workspace, "docs"));

@@ -1,5 +1,5 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, sep } from "node:path";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 
@@ -39,9 +39,9 @@ export interface FilesystemToolsOptions {
 const isBinary = (content: Buffer): boolean => content.subarray(0, 8192).includes(0);
 
 /**
- * First-party tools that let a session find, read, and search files —
- * `find_files`, `read_file`, `search_files` — confined to the workspace's
- * declared sandbox. Paths are absolute in both directions: every
+ * First-party tools that let a session find, list, read, and search files —
+ * `find_files`, `list_directory`, `read_file`, `search_files` — confined to
+ * the workspace's declared sandbox. Paths are absolute in both directions: every
  * model-supplied path must be absolute (a relative one is rejected with the
  * allowed set named — nothing ever resolves against a working directory), and
  * results report real absolute paths, so a find_files result feeds straight
@@ -193,6 +193,48 @@ export function filesystemTools(
           };
         }
         return { files: sorted };
+      },
+    }),
+
+    list_directory: tool({
+      description:
+        'List a directory\'s immediate entries in the directories kiri may access, by absolute path; directories in the result end with "/". Use it to orient in an unfamiliar directory one level at a time — reach for find_files when you already know a name pattern, and search_files for contents. Hidden (dot-prefixed) entries are never included.',
+      inputSchema: z.object({
+        path: z.string().min(1).describe("Absolute path of the directory to list."),
+      }),
+      execute: async ({ path }) => {
+        const real = confineDir(path);
+        const dirs = sandboxDirs();
+        const entries: string[] = [];
+        for (const entry of readdirSync(real, { withFileTypes: true })) {
+          if (entry.name.startsWith(".")) continue;
+          let isDirectory: boolean;
+          if (entry.isSymbolicLink()) {
+            // A symlinked entry is shown only when it resolves inside the
+            // sandbox, with the kind of what it points at; a broken one has
+            // nothing to show.
+            let resolved: string;
+            try {
+              resolved = realpathSync(join(real, entry.name));
+            } catch {
+              continue;
+            }
+            if (within(dirs, resolved) === undefined) continue;
+            isDirectory = statSync(resolved).isDirectory();
+          } else {
+            isDirectory = entry.isDirectory();
+          }
+          entries.push(isDirectory ? `${entry.name}/` : entry.name);
+        }
+        entries.sort();
+        if (entries.length > maxFindResults) {
+          return {
+            path: real,
+            entries: entries.slice(0, maxFindResults),
+            note: `showing ${maxFindResults} of ${entries.length} entries`,
+          };
+        }
+        return { path: real, entries };
       },
     }),
 
