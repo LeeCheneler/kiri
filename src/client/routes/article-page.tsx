@@ -39,8 +39,9 @@ export function ArticlePage({
 /**
  * Article content. Reads a single article by `(runId, slug)` from
  * the shared query cache and renders it through the shared `ArticleReader`,
- * situated under its producing workflow and run. Run articles are immutable
- * once written, so the cache never goes stale — there is no live sync.
+ * situated under its producing workflow and run. A rerun rewrites the run's
+ * articles under the same id, so the cache is kept current by
+ * `useRunArticlesLive`, mounted once near the root via `<LiveSync>`.
  */
 export function ArticleContent({
   params,
