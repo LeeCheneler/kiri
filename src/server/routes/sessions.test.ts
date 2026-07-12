@@ -609,6 +609,37 @@ describe("sessions routes", () => {
         body: JSON.stringify(body),
       });
 
+    it("sets and clears the session's image model", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      expect(getSession(env.db, "s1")?.imageModel).toBeNull();
+
+      const res = await patchBody(app, "s1", { imageModel: "openrouter:gemini-image" });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { session: { imageModel: string | null } };
+      expect(body.session.imageModel).toBe("openrouter:gemini-image");
+      expect(getSession(env.db, "s1")?.imageModel).toBe("openrouter:gemini-image");
+
+      const cleared = await patchBody(app, "s1", { imageModel: null });
+
+      expect(cleared.status).toBe(200);
+      expect(getSession(env.db, "s1")?.imageModel).toBeNull();
+    });
+
+    it("rejects an image model that does not resolve and leaves it unchanged", async () => {
+      const app = makeApp(fakeClients({ resolveError: 'unknown llm provider "ghost"' }));
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await patchBody(app, "s1", { imageModel: "ghost:model" });
+
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'unknown llm provider "ghost"',
+      });
+      expect(getSession(env.db, "s1")?.imageModel).toBeNull();
+    });
+
     it("attaches a workspace persona and publishes session.updated", async () => {
       const events: KiriEvent[] = [];
       const bus = createEventBus();

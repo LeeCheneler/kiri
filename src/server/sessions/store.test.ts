@@ -17,6 +17,7 @@ import {
   setSessionPinned,
   setSessionStatus,
   updateMessage,
+  updateSessionImageModel,
   updateSessionPersona,
 } from "./store.ts";
 
@@ -57,6 +58,19 @@ describe("sessions store", () => {
 
     expect(setSessionPinned(db, "s1", false).pinned).toBe(false);
     expect(getSession(db, "s1")?.pinned).toBe(false);
+  });
+
+  it("sets and clears the image model", () => {
+    createSession(db, MODEL, { id: "s1" });
+    expect(getSession(db, "s1")?.imageModel).toBeNull();
+
+    expect(updateSessionImageModel(db, "s1", "openrouter:gemini-image").imageModel).toBe(
+      "openrouter:gemini-image",
+    );
+    expect(getSession(db, "s1")?.imageModel).toBe("openrouter:gemini-image");
+
+    expect(updateSessionImageModel(db, "s1", null).imageModel).toBeNull();
+    expect(getSession(db, "s1")?.imageModel).toBeNull();
   });
 
   it("attaches and detaches a persona", () => {

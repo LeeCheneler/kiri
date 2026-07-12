@@ -724,6 +724,8 @@ export interface Session {
   status: SessionStatus;
   /** `provider:model` id the session's turns run against. */
   model: string;
+  /** `provider:model` id the session generates images with, or null when image generation is off. */
+  imageModel: string | null;
   /** Name of the persona attached at creation (`personas/<name>.md`), or null for none. */
   persona: string | null;
   /** Whether the user has pinned the session onto the feed's Pinned tab. */

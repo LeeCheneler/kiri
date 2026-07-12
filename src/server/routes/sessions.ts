@@ -38,6 +38,7 @@ import {
   resumeTurn,
   runTurn,
   setSessionPinned,
+  updateSessionImageModel,
   updateSessionModel,
   updateSessionPersona,
   workflowTools,
@@ -104,6 +105,7 @@ const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
 const patchSessionBodySchema = z
   .object({
     model: z.string().min(1).optional(),
+    imageModel: z.string().min(1).nullable().optional(),
     persona: z.string().min(1).nullable().optional(),
     pinned: z.boolean().optional(),
   })
@@ -454,7 +456,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model, persona, pinned } = c.req.valid("json");
+      const { model, imageModel, persona, pinned } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Validate the model resolves now, mirroring create, so a bad id fails the
@@ -466,6 +468,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
         }
         updateSessionModel(db, id, model);
+      }
+      // The image model follows the same contract; `null` turns generation off.
+      if (imageModel !== undefined) {
+        if (imageModel !== null) {
+          try {
+            llmClients.resolveModel(imageModel);
+          } catch (cause) {
+            return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
+          }
+        }
+        updateSessionImageModel(db, id, imageModel);
       }
       // A named persona must be one the workspace defines; `null` detaches.
       if (persona !== undefined) {

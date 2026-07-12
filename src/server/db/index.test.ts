@@ -1025,7 +1025,17 @@ describe("db", () => {
       .map((r) => r.name)
       .sort();
     expect(sessionCols).toEqual(
-      ["error", "finished_at", "id", "model", "persona", "pinned", "started_at", "status"].sort(),
+      [
+        "error",
+        "finished_at",
+        "id",
+        "image_model",
+        "model",
+        "persona",
+        "pinned",
+        "started_at",
+        "status",
+      ].sort(),
     );
 
     const indexes = sqlite
