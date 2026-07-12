@@ -45,3 +45,13 @@ mcp:
   #   type: stdio
   #   command: npx
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+
+# Working directories for the shell tool offered to agentic sessions.
+# Declaring this section is what enables the tool — without it, sessions
+# cannot run commands at all. Entries resolve against the workspace root
+# ("." is the root itself); absolute paths and a leading ~ work too. Note
+# these only confine where a command *runs* — not what it can touch — so
+# every call asks for your approval by default.
+# shell:
+#   working_directories:
+#     - .
