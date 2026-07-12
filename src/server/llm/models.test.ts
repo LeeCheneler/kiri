@@ -346,8 +346,10 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:chatty", provider: "local", output: "text" },
-      { id: "local:painter", provider: "local", output: "image" },
+      // The arrow's left-hand side answers image input: chatty takes
+      // text+image, painter takes text only.
+      { id: "local:chatty", provider: "local", output: "text", imageInput: true },
+      { id: "local:painter", provider: "local", output: "image", imageInput: false },
       { id: "local:mystery", provider: "local", output: "text" },
     ]);
   });
@@ -374,7 +376,9 @@ describe("listLlmModels", () => {
     expect(result.models).toEqual([
       { id: "local:flux", provider: "local", output: "image" },
       { id: "local:glm", provider: "local", output: "text" },
-      { id: "local:qwen-vl", provider: "local", output: "text" },
+      // The "vlm" tag marks a vision chat model; a plain "chat" tag says
+      // nothing about input, so glm stays unknown rather than false.
+      { id: "local:qwen-vl", provider: "local", output: "text", imageInput: true },
       { id: "local:thinker", provider: "local", output: "text" },
     ]);
   });
@@ -419,6 +423,104 @@ describe("listLlmModels", () => {
 
     expect(result.models).toEqual([
       { id: "local:mistral-large", provider: "local", output: "text" },
+    ]);
+  });
+
+  it("classifies image input from reported input modalities", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            {
+              id: "google/gemini",
+              architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+            },
+            {
+              id: "deepseek/deepseek-chat",
+              architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+            },
+            // An empty input list is no signal, not "text only".
+            { id: "mystery", architecture: { input_modalities: [], output_modalities: ["text"] } },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([
+      { id: "local:google/gemini", provider: "local", output: "text", imageInput: true },
+      { id: "local:deepseek/deepseek-chat", provider: "local", output: "text", imageInput: false },
+      { id: "local:mystery", provider: "local", output: "text" },
+    ]);
+  });
+
+  it("reads an anthropic-style image_input capability", async () => {
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "claude-opus-4-8", capabilities: { image_input: { supported: true } } },
+            { id: "claude-text-only", capabilities: { image_input: { supported: false } } },
+            // No image_input field — unknown, and the entry still lists.
+            { id: "claude-bare", capabilities: {} },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(result.models).toEqual([
+      { id: "anthropic:claude-opus-4-8", provider: "anthropic", output: "text", imageInput: true },
+      {
+        id: "anthropic:claude-text-only",
+        provider: "anthropic",
+        output: "text",
+        imageInput: false,
+      },
+      { id: "anthropic:claude-bare", provider: "anthropic", output: "text" },
+    ]);
+  });
+
+  it("reads a mistral-style vision capability", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "pixtral-large", capabilities: { completion_chat: true, vision: true } },
+            { id: "mistral-large", capabilities: { completion_chat: true, vision: false } },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([
+      { id: "local:pixtral-large", provider: "local", output: "text", imageInput: true },
+      { id: "local:mistral-large", provider: "local", output: "text", imageInput: false },
+    ]);
+  });
+
+  it("treats a together-style vlm type as accepting image input", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "llama-vision", type: "vlm" },
+            // A plain chat type says nothing about input.
+            { id: "llama-chat", type: "chat" },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([
+      { id: "local:llama-vision", provider: "local", output: "text", imageInput: true },
+      { id: "local:llama-chat", provider: "local", output: "text" },
     ]);
   });
 

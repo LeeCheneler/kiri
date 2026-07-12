@@ -1,6 +1,7 @@
 import { humaniseSlug } from "../../../shared/humanise-slug.ts";
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
+import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useModels, usePersonas, useSession, useUpdateSession } from "../../state/sessions.ts";
@@ -19,7 +20,8 @@ const PERSONA_NONE = "None";
 const IMAGE_MODEL_NONE = "None";
 
 /**
- * The session chat right rail: the session's model, the current context fill,
+ * The session chat right rail: the session's model (with whether it accepts
+ * image input, when known), the current context fill,
  * and when it started. Reads the same shared session
  * query the chat body uses (no second fetch) and renders nothing until it
  * resolves. `now` is injectable so tests render a deterministic relative
@@ -47,6 +49,11 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
     a.localeCompare(b, undefined, { sensitivity: "base" }),
   );
   const turnInFlight = session.status === "running";
+
+  // Whether the selected model accepts image input, when its provider's
+  // listing says either way. Unknown (a bare listing, or a pinned model the
+  // provider no longer lists) shows nothing rather than a guess.
+  const imageInput = models.find((model) => model.id === session.model)?.imageInput;
 
   // Image model, same pattern: image-output models only, `None` leading as
   // the off option, the selected model pinned even if delisted. The picker
@@ -90,6 +97,11 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           disabled={turnInFlight}
           onChange={(model) => void setModel(model)}
         />
+        {imageInput !== undefined ? (
+          <div className="mt-2">
+            <Meta>{imageInput ? "Accepts image input" : "Text input only"}</Meta>
+          </div>
+        ) : null}
         {/* A provider whose listing failed leaves a gap in the picker; name it
             and why, so a missing model reads as a config issue, not an absence. */}
         {modelFailures.length > 0 ? (

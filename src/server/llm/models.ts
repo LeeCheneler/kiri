@@ -26,6 +26,8 @@ export interface LlmModelInfo {
   outputLimit?: number;
   /** What the model produces. Models producing neither text nor images are never listed. */
   output: LlmModelOutput;
+  /** Whether the model accepts image input, when the provider's listing reports it. */
+  imageInput?: boolean;
 }
 
 /** A provider whose model listing failed. Never fatal — collected, not thrown. */
@@ -79,25 +81,33 @@ const NON_TEXT_TYPES = new Set([
   "video",
 ]);
 
-// The arrow form ("text+image->text") predates `output_modalities` in
-// OpenRouter-shaped listings; its right-hand side is the output list.
-function parseModalityArrow(modality: string | undefined): string[] | undefined {
+// The arrow form ("text+image->text") predates the modality arrays in
+// OpenRouter-shaped listings; the left-hand side lists inputs, the right outputs.
+function parseModalityArrow(
+  modality: string | undefined,
+): { inputs: string[]; outputs: string[] } | undefined {
   const [inputs, outputs, rest] = modality?.split("->") ?? [];
   if (inputs === undefined || outputs === undefined || rest !== undefined) return undefined;
-  return outputs
-    .split("+")
-    .map((part) => part.trim().toLowerCase())
-    .filter((part) => part !== "");
+  const parts = (side: string) =>
+    side
+      .split("+")
+      .map((part) => part.trim().toLowerCase())
+      .filter((part) => part !== "");
+  return { inputs: parts(inputs), outputs: parts(outputs) };
 }
 
 // What a listing entry may expose about its modality, whichever shape the
 // provider uses. All fields are optional; classification tries each in turn.
 interface ModalitySignals {
   id: string;
-  architecture?: { output_modalities?: string[]; modality?: string };
+  architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
   metadata?: { tags?: string[] };
   type?: string;
-  capabilities?: { completion_chat?: boolean };
+  capabilities?: {
+    completion_chat?: boolean;
+    vision?: boolean;
+    image_input?: { supported?: boolean };
+  };
 }
 
 // Classify a listing entry by what it produces. Providers expose modality in
@@ -113,7 +123,8 @@ function classifyOutput(entry: ModalitySignals): LlmModelOutput | undefined {
   if (entry.id.startsWith(ROUTER_ID_PREFIX)) return "text";
 
   const modalities =
-    entry.architecture?.output_modalities ?? parseModalityArrow(entry.architecture?.modality);
+    entry.architecture?.output_modalities ??
+    parseModalityArrow(entry.architecture?.modality)?.outputs;
   if (modalities !== undefined && modalities.length > 0) {
     if (modalities.includes("image")) return "image";
     return modalities.every((modality) => modality === "text") ? "text" : undefined;
@@ -140,9 +151,34 @@ function classifyOutput(entry: ModalitySignals): LlmModelOutput | undefined {
   return NON_TEXT_ID.test(entry.id) ? undefined : "text";
 }
 
+// Classify whether a listing entry accepts image (vision) input. Input signals
+// are sparser than output ones: OpenRouter-shaped listings report
+// `architecture.input_modalities` (or the arrow form's left-hand side),
+// Anthropic reports `capabilities.image_input.supported`, Mistral
+// `capabilities.vision`, and DeepInfra tags vision chat models "vlm" (as does
+// a Together-style `type`). A bare listing (notably OpenAI's) carries no input
+// signal at all, so the answer is undefined — unknown rather than false; only
+// an explicit provider signal may say no.
+function classifyImageInput(entry: ModalitySignals): boolean | undefined {
+  const modalities =
+    entry.architecture?.input_modalities ??
+    parseModalityArrow(entry.architecture?.modality)?.inputs;
+  if (modalities !== undefined && modalities.length > 0) return modalities.includes("image");
+
+  const imageInput = entry.capabilities?.image_input?.supported;
+  if (imageInput !== undefined) return imageInput;
+
+  const vision = entry.capabilities?.vision;
+  if (vision !== undefined) return vision;
+
+  if (entry.metadata?.tags?.includes("vlm") || entry.type === "vlm") return true;
+  return undefined;
+}
+
 // One entry from a provider's `GET /models` listing, normalised to an id, the
-// limits it reports under whichever field names the provider uses, and whether
-// it generates images. Context prefers the actually-served value (OpenRouter's
+// limits it reports under whichever field names the provider uses, whether it
+// generates images, and whether it accepts image input when the listing says.
+// Context prefers the actually-served value (OpenRouter's
 // `top_provider`, Anthropic's `max_input_tokens`) over a theoretical maximum.
 // DeepInfra nests its limits under `metadata`; its `metadata.max_tokens` merely
 // repeats the context length, so only `metadata.context_length` is read.
@@ -152,6 +188,7 @@ const listingEntrySchema = z
     id: z.string(),
     architecture: z
       .object({
+        input_modalities: z.array(z.string()).optional().catch(undefined),
         output_modalities: z.array(z.string()).optional().catch(undefined),
         modality: z.string().optional().catch(undefined),
       })
@@ -159,7 +196,14 @@ const listingEntrySchema = z
       .catch(undefined),
     type: z.string().optional().catch(undefined),
     capabilities: z
-      .object({ completion_chat: z.boolean().optional().catch(undefined) })
+      .object({
+        completion_chat: z.boolean().optional().catch(undefined),
+        vision: z.boolean().optional().catch(undefined),
+        image_input: z
+          .object({ supported: z.boolean().optional().catch(undefined) })
+          .optional()
+          .catch(undefined),
+      })
       .optional()
       .catch(undefined),
     top_provider: z
@@ -185,6 +229,7 @@ const listingEntrySchema = z
   .transform((entry) => ({
     id: entry.id,
     output: classifyOutput(entry),
+    imageInput: classifyImageInput(entry),
     limits: {
       contextWindow:
         entry.top_provider?.context_length ??
@@ -250,7 +295,10 @@ type ProviderModel = z.infer<typeof listingEntrySchema>;
  * provider whose listing omits them — notably OpenAI — leaves those fields
  * undefined. Each model is classified by what it produces — text or images —
  * from its reported output modalities (OpenRouter) or its id (OpenAI); models
- * producing neither (audio, video) are left off the list entirely.
+ * producing neither (audio, video) are left off the list entirely. Whether a
+ * model accepts image input is read from the listing's input modalities or
+ * capability flags when present; a listing that says nothing (OpenAI) leaves
+ * `imageInput` undefined — unknown, not false.
  */
 export async function listLlmModels(
   registry: LlmProviderRegistry,
@@ -274,6 +322,7 @@ export async function listLlmModels(
         provider: provider.name,
         ...entry.limits,
         output: entry.output,
+        imageInput: entry.imageInput,
       });
     }
   }
