@@ -5,7 +5,8 @@ import { Diff, patchFromStrings } from "../../design-system/content/diff.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 
-type ToolPart = ToolUIPart | DynamicToolUIPart;
+/** A tool-call part of an assistant message, static or dynamic. */
+export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
 // Marker carried as a cancelled tool call's `errorText`. Cancelling a turn
 // stops an in-flight call mid-flight (the AI SDK has no terminal "cancelled"
@@ -32,11 +33,20 @@ const STATE_STATUS: Record<string, StatusKind> = {
   "output-denied": "cancelled",
 };
 
-// "create_issue" → "Create issue".
-const humanizeName = (name: string): string => {
+/** A tool name as readable copy: "create_issue" → "Create issue". */
+export const humanizeName = (name: string): string => {
   const spaced = name.replace(/_/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 };
+
+/**
+ * A tool call's run state in the shared status vocabulary, reading a cancelled
+ * call (which rides on `output-error`) as cancelled rather than failed.
+ */
+export const toolStatus = (part: ToolPart): StatusKind =>
+  part.state === "output-error" && part.errorText === CANCELLED_ERROR_TEXT
+    ? "cancelled"
+    : (STATE_STATUS[part.state] ?? "working");
 
 // A short input detail for the collapsed summary, when the call carries an
 // obvious one — a string `query`, a `path` (the filesystem tools), or a list
@@ -221,11 +231,7 @@ export function ToolInvocation({
     return <ToolApproval part={part} name={name} onDecision={onDecision} />;
   }
   const detail = summaryDetail(part.input);
-  // A cancelled call rides on `output-error` but reads as cancelled, not failed.
-  const status =
-    part.state === "output-error" && part.errorText === CANCELLED_ERROR_TEXT
-      ? "cancelled"
-      : (STATE_STATUS[part.state] ?? "working");
+  const status = toolStatus(part);
   return (
     <div className={framed ? "border border-rule" : undefined} data-tool={name}>
       <Disclosure
