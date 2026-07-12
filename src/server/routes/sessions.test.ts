@@ -107,6 +107,9 @@ const fakeClients = (
     if (opts.resolveError) throw new Error(opts.resolveError);
     return opts.model ?? (new MockLanguageModelV3({}) as unknown as LlmModel);
   },
+  resolveImageModel: () => {
+    throw new Error("no image model in this fake");
+  },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: opts.models ?? [], failures: [] }),
   contextWindowFor: async () => undefined,

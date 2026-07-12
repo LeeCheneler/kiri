@@ -13,6 +13,7 @@ export {
 export {
   type GenerateLlmTextResult,
   type LlmClients,
+  type LlmImageModel,
   type LlmModel,
   type LlmUsage,
   createLlmClients,

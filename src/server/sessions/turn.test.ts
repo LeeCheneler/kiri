@@ -35,6 +35,9 @@ const USER_MESSAGE: UIMessage = {
 // against a mock without touching a real provider.
 const clientsFor = (model: LlmModel): LlmClients => ({
   resolveModel: () => model,
+  resolveImageModel: () => {
+    throw new Error("no image model in this fake");
+  },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
   contextWindowFor: async () => undefined,
@@ -399,6 +402,9 @@ describe("runTurn", () => {
   it("rejects before persisting anything when the model cannot be resolved", async () => {
     const llmClients: LlmClients = {
       resolveModel: () => {
+        throw new Error('unknown llm provider "anthropic"');
+      },
+      resolveImageModel: () => {
         throw new Error('unknown llm provider "anthropic"');
       },
       generateText: async () => ({ text: "", usage: {} }),

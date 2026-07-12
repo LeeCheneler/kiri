@@ -35,6 +35,9 @@ describe("runLlmStep", () => {
       resolveModel: () => {
         throw new Error("resolveModel is not part of the runner contract");
       },
+      resolveImageModel: () => {
+        throw new Error("resolveImageModel is not part of the runner contract");
+      },
       generateText: async (options) => {
         calls.push(options);
         return result;
@@ -131,6 +134,9 @@ describe("runLlmStep", () => {
       resolveModel: () => {
         throw new Error("unused");
       },
+      resolveImageModel: () => {
+        throw new Error("unused");
+      },
       generateText: async () => {
         throw new Error("401 invalid x-api-key");
       },
@@ -157,6 +163,9 @@ describe("runLlmStep", () => {
       resolveModel: () => {
         throw new Error("unused");
       },
+      resolveImageModel: () => {
+        throw new Error("unused");
+      },
       generateText: () => Promise.reject("socket hang up"),
       listModels: async () => ({ models: [], failures: [] }),
       contextWindowFor: async () => undefined,
@@ -178,6 +187,9 @@ describe("runLlmStep", () => {
   it("publishes an abort handle whose kill() cancels the in-flight call", async () => {
     const clients: LlmClients = {
       resolveModel: () => {
+        throw new Error("unused");
+      },
+      resolveImageModel: () => {
         throw new Error("unused");
       },
       generateText: ({ abortSignal }) =>
