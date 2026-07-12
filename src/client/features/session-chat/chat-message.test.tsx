@@ -4,14 +4,27 @@ import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { wrapAttachedFile } from "./attachments.ts";
 import { ChatMessage, type ResubmitHandler } from "./chat-message.tsx";
+import type { ToolDecisionHandler } from "./tool-invocation.tsx";
 
 const message = (role: "user" | "assistant", parts: unknown[]): UIMessage =>
   ({ id: "m1", role, parts }) as UIMessage;
 
 const renderMessage = (
   msg: UIMessage,
-  { busy = false, onResubmit = () => {} }: { busy?: boolean; onResubmit?: ResubmitHandler } = {},
-) => render(<ChatMessage message={msg} busy={busy} onResubmit={onResubmit} />);
+  {
+    busy = false,
+    onResubmit = () => {},
+    onToolDecision,
+  }: { busy?: boolean; onResubmit?: ResubmitHandler; onToolDecision?: ToolDecisionHandler } = {},
+) =>
+  render(
+    <ChatMessage
+      message={msg}
+      busy={busy}
+      onResubmit={onResubmit}
+      onToolDecision={onToolDecision}
+    />,
+  );
 
 const editField = () =>
   screen.queryByRole("textbox", { name: "Edit message" }) as HTMLTextAreaElement | null;
@@ -79,6 +92,70 @@ describe("<ChatMessage>", () => {
     expect(screen.getByText("Here is what I found.")).toBeDefined();
     expect(screen.getByText("Create issue")).toBeDefined();
     expect(screen.getByText("kiri release")).toBeDefined();
+  });
+
+  it("folds a run of consecutive tool calls into one chain panel", () => {
+    renderMessage(
+      message("assistant", [
+        { type: "text", text: "Let me dig in." },
+        {
+          type: "tool-read_file",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { path: "/ws/a.md" },
+          output: {},
+        },
+        { type: "step-start" },
+        {
+          type: "tool-search",
+          toolCallId: "c2",
+          state: "output-available",
+          input: { query: "kiri" },
+          output: {},
+        },
+        { type: "text", text: "Done." },
+      ]),
+    );
+
+    expect(screen.getByText("2 tool calls")).toBeDefined();
+    // The individual calls sit inside the collapsed panel, not in the transcript.
+    expect(screen.queryByText("/ws/a.md")).toBeNull();
+    expect(screen.getByText("Let me dig in.")).toBeDefined();
+    expect(screen.getByText("Done.")).toBeDefined();
+  });
+
+  it("keeps a call awaiting approval out of the fold, its prompt in view", () => {
+    renderMessage(
+      message("assistant", [
+        {
+          type: "tool-read_file",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { path: "/ws/a.md" },
+          output: {},
+        },
+        {
+          type: "tool-write_file",
+          toolCallId: "c2",
+          state: "approval-requested",
+          input: { path: "/ws/b.md", content: "hi\n" },
+          approval: { id: "ap1" },
+        },
+        {
+          type: "tool-read_file",
+          toolCallId: "c3",
+          state: "output-available",
+          input: { path: "/ws/c.md" },
+          output: {},
+        },
+      ]),
+      { onToolDecision: () => {} },
+    );
+
+    // The prompt needs a verdict, so it renders open rather than folded away —
+    // and with no run of consecutive calls left, no chain panel forms.
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+    expect(screen.queryByText(/tool calls/)).toBeNull();
   });
 
   it("renders nothing for an assistant turn with no content yet", () => {

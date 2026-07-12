@@ -1,4 +1,4 @@
-import { type FileUIPart, type UIMessage, isToolUIPart } from "ai";
+import type { FileUIPart, UIMessage } from "ai";
 import { useEffect, useId, useState } from "react";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
@@ -7,6 +7,7 @@ import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./at
 import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import { MessageComposer } from "./message-composer.tsx";
+import { type Segment, ToolChain, segmentParts } from "./tool-chain.tsx";
 import { type ToolDecisionHandler, ToolInvocation } from "./tool-invocation.tsx";
 
 /** Resend an edited user message, re-running the conversation from that point. */
@@ -35,11 +36,6 @@ const attachedFiles = (message: UIMessage): { filename: string; content: string 
     const parsed = parseAttachedFile(part.text);
     return parsed ? [parsed] : [];
   });
-
-// Whether an assistant message has anything worth rendering yet: non-empty text
-// or a tool call. A just-submitted turn has neither until its first chunk lands.
-const hasAssistantContent = (message: UIMessage): boolean =>
-  message.parts.some((part) => (part.type === "text" && part.text !== "") || isToolUIPart(part));
 
 // A user message: image thumbnails above its text, the text rendered verbatim
 // (whitespace preserved) since it's exactly what the user typed. Boxed in a card
@@ -141,29 +137,41 @@ function UserMessage({
   );
 }
 
-// An assistant message: its parts rendered in order so tool calls sit inline
-// with the prose — a lead-in line, the tool block, then the answer that follows.
-// Text renders as markdown; tool calls render as collapsible tool blocks, or an
-// Allow / Always allow / Deny prompt while one awaits the user's decision.
+// An assistant message: its segments rendered in order so tool activity sits
+// inline with the prose — a lead-in line, the tool block, then the answer that
+// follows. Text renders as markdown; a lone tool call renders as a collapsible
+// tool block and a run of consecutive calls folds into a single chain panel; a
+// call awaiting the user's decision renders an Allow / Always allow / Deny
+// prompt, never folded away.
 function AssistantMessage({
-  message,
+  segments,
   onToolDecision,
 }: {
-  message: UIMessage;
+  segments: Segment[];
   onToolDecision?: ToolDecisionHandler;
 }) {
   return (
     <article>
       <Eyebrow tone="accent">Assistant</Eyebrow>
       <div className="mt-2 space-y-3">
-        {message.parts.map((part, index) => {
-          if (part.type === "text" && part.text !== "") {
-            // biome-ignore lint/suspicious/noArrayIndexKey: assistant parts are append-only within a turn and never reorder, so the index is a stable key.
-            return <Markdown key={index} content={part.text} />;
+        {segments.map((segment) => {
+          if (segment.kind === "text") {
+            return <Markdown key={segment.index} content={segment.text} />;
           }
-          if (isToolUIPart(part))
-            return <ToolInvocation key={part.toolCallId} part={part} onDecision={onToolDecision} />;
-          return null;
+          if (segment.kind === "approval") {
+            return (
+              <ToolInvocation
+                key={segment.part.toolCallId}
+                part={segment.part}
+                onDecision={onToolDecision}
+              />
+            );
+          }
+          return segment.parts.length === 1 ? (
+            <ToolInvocation key={segment.parts[0].toolCallId} part={segment.parts[0]} />
+          ) : (
+            <ToolChain key={segment.parts[0].toolCallId} parts={segment.parts} />
+          );
         })}
       </div>
     </article>
@@ -175,8 +183,9 @@ function AssistantMessage({
  * attachments as thumbnails, boxed in a card with an edit control — editing and
  * resending it (`onResubmit`) re-runs the conversation from that point. An
  * assistant message renders its parts in order — markdown prose interleaved with
- * collapsible tool-call blocks. Labelled with who spoke so the transcript reads
- * as a conversation. A just-submitted assistant turn, still awaiting its first
+ * collapsible tool-call blocks, with a run of consecutive calls folded into one
+ * collapsible chain panel. Labelled with who spoke so the transcript reads as a
+ * conversation. A just-submitted assistant turn, still awaiting its first
  * chunk, renders nothing. `busy` disables editing while a turn is in flight.
  */
 export function ChatMessage({
@@ -192,6 +201,7 @@ export function ChatMessage({
 }) {
   if (message.role === "user")
     return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
-  if (!hasAssistantContent(message)) return null;
-  return <AssistantMessage message={message} onToolDecision={onToolDecision} />;
+  const segments = segmentParts(message.parts);
+  if (segments.length === 0) return null;
+  return <AssistantMessage segments={segments} onToolDecision={onToolDecision} />;
 }

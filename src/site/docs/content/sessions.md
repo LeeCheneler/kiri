@@ -66,9 +66,11 @@ mcp:
 - Kiri connects on boot and on every `kiri.yaml` edit, discovers each server's
   tools, and namespaces them `<server>__<tool>`. A server that can't connect
   is simply absent, the reason shown on the activity page.
-- Tool calls show inline in the transcript as expandable blocks. Results are
-  untrusted data and are capped in size; a call that runs too long is reported
-  back to the model as an error. Press **Escape** to stop a running turn.
+- Tool calls show inline in the transcript as expandable blocks, and a run of
+  back-to-back calls folds into a single expandable panel summarising the
+  count, the tools used, and an overall status. Results are untrusted data and
+  are capped in size; a call that runs too long is reported back to the model
+  as an error. Press **Escape** to stop a running turn.
 
 ## Approving tool calls
 
