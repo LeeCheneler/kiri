@@ -859,6 +859,25 @@ export const patchSessionModel = async (id: string, model: string): Promise<{ se
   );
 
 /**
+ * Change the `provider:model` id a session generates images with, or pass
+ * `null` to turn image generation off. Resolved when an image is generated,
+ * so the change applies to the next generation. Throws `ApiError` on non-2xx
+ * — 404 for an unknown session, 400 when the model can't be resolved against
+ * the provider registry.
+ */
+export const patchSessionImageModel = async (
+  id: string,
+  imageModel: string | null,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageModel }),
+    }),
+  );
+
+/**
  * Attach a persona to a session (`personas/<name>.md`), or pass `null` to
  * detach. The system prompt is composed per turn, so the change takes effect
  * from the next turn. Throws `ApiError` on non-2xx — 404 for an unknown

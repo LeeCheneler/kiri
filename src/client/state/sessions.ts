@@ -15,6 +15,7 @@ import {
   fetchPersonas,
   fetchSession,
   fetchSessionsPage,
+  patchSessionImageModel,
   patchSessionModel,
   patchSessionPersona,
   patchSessionPinned,
@@ -73,14 +74,15 @@ export function useSession(id: string): UseQueryResult<SessionDetail> {
 }
 
 /**
- * Change a session's model, persona, or pinned flag and write the server's
- * updated row straight into the cached detail, so the control reflects the
- * choice at once. A user-initiated change shouldn't wait on the
+ * Change a session's model, image model, persona, or pinned flag and write the
+ * server's updated row straight into the cached detail, so the control
+ * reflects the choice at once. A user-initiated change shouldn't wait on the
  * `session.updated` echo to land before showing — the PATCH already returns
  * the authoritative session; we keep the loaded messages and swap it in.
  */
 export function useUpdateSession(id: string): {
   setModel: (model: string) => Promise<void>;
+  setImageModel: (imageModel: string | null) => Promise<void>;
   setPersona: (persona: string | null) => Promise<void>;
   setPinned: (pinned: boolean) => Promise<void>;
 } {
@@ -92,6 +94,8 @@ export function useUpdateSession(id: string): {
   };
   return {
     setModel: async (model) => apply((await patchSessionModel(id, model)).session),
+    setImageModel: async (imageModel) =>
+      apply((await patchSessionImageModel(id, imageModel)).session),
     setPersona: async (persona) => apply((await patchSessionPersona(id, persona)).session),
     setPinned: async (pinned) => apply((await patchSessionPinned(id, pinned)).session),
   };
