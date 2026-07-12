@@ -24,6 +24,7 @@ export {
   type WatchPersonasOptions,
   watchPersonas,
 } from "./personas-watcher.ts";
+export { type ShellToolsOptions, shellTools } from "./shell-tools.ts";
 export {
   type StreamRegistry,
   type StreamSink,

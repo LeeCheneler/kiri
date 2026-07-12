@@ -110,6 +110,12 @@ export interface AppDeps {
    * next turn. Empty ⇒ the filesystem tools are withheld.
    */
   getAllowedDirectories?: () => readonly string[];
+  /**
+   * Live working directories for the session shell tool. Defaults to reading
+   * `shell.working_directories` from `kiri.yaml` on each turn, the same
+   * posture as the filesystem sandbox. Empty ⇒ `run_command` is withheld.
+   */
+  getShellDirectories?: () => readonly string[];
 }
 
 // Upper bound on request body size. Invoke bodies are
@@ -238,6 +244,8 @@ export function createApp(deps: AppDeps): Hono {
         getProviderNames: deps.getProviderNames,
         getAllowedDirectories:
           deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),
+        getShellDirectories:
+          deps.getShellDirectories ?? (() => loadKiriConfig(config, env).shellDirectories),
       }),
     );
   }

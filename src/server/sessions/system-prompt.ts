@@ -151,6 +151,31 @@ function buildFilesystemGuidance(
   ].join("\n");
 }
 
+// Cross-cutting guidance for the first-party shell tool — the judgement no
+// tool description can carry: the safety bar a proposed command must clear.
+// The user reviews each call, but the model must never lean on that review as
+// its safety margin — the guidance holds it to proposing only commands that
+// are already safe, minimal, and aimed at the user's actual goal, stated as
+// hard prohibitions rather than advice. Keyed off run_command, so it appears
+// exactly when running commands is offered and never in a plain chat.
+function buildShellGuidance(tools: string[], workingDirectories: readonly string[]): string | null {
+  if (!tools.includes("run_command")) return null;
+  return [
+    "You can run shell commands with run_command: real commands, executed as the user on their machine, in these working directories (or their subdirectories):",
+    ...workingDirectories.map((dir) => `- ${dir}`),
+    'Every command must be one you would run unattended. The user reviews each call before it runs, but that review is a backstop, not your safety margin — never propose a command hoping the review will catch a problem, and never propose one to "see what happens". When you are unsure whether a command is safe or wanted, ask in chat first.',
+    "Hard rules — prohibitions, not preferences:",
+    "- Run only what serves the user's actual request, scoped as narrowly as it can be. No side quests, no speculative cleanup, no \"while I'm here\" changes.",
+    "- Stay inside the working directories above. The tool only anchors where a command starts; keeping every path it reads or writes inside those directories is your responsibility.",
+    "- Never run destructive commands beyond the immediate, named need: no rm -rf except on a specific path the user named or you created this conversation, no wiping or reformatting anything, no dropping databases, no killing processes you didn't start, no shutdown or reboot.",
+    "- Never escalate or alter the machine: no sudo, no broad permission changes (chmod/chown -R), no editing shell profiles, system settings, cron, or launch agents, no installing software outside the project's own dependency manager.",
+    "- Never read or print secrets: no dumping .env or credential files, no printing keys or tokens, no env/printenv. Command output enters the conversation and is sent to a model provider — treat secrets as unprintable.",
+    "- Never fetch-and-execute: no piping a download into a shell, and no running a script you haven't read in this conversation or written yourself.",
+    "- Git: everyday operations are fine, but never force-push, hard-reset a shared branch, rewrite published history, or delete branches and tags unless the user explicitly asked for exactly that.",
+    "Mechanics: prefer the filesystem tools to read, search, and edit files — reach for run_command to build, test, lint, use git, and run the project's own scripts and tooling. Commands run non-interactively and are killed at their timeout, so use flags that avoid prompts and pagers, and never start servers, watchers, or anything meant to keep running. A non-zero exit or truncated output is a result to read and report honestly, not to paper over.",
+  ].join("\n");
+}
+
 // Cross-cutting strategy for the session's active tools. The SDK sends each
 // tool's own definition (the *what*, and for MCP tools the *when*); this layer
 // adds what no single tool's schema can: spend the token budget deliberately.
@@ -204,6 +229,7 @@ function buildCorePrompt(
   tools: string[],
   host: HostEnvironment,
   allowedDirectories: readonly string[],
+  shellDirectories: readonly string[],
 ): string {
   const today = now.toISOString().slice(0, 10);
   const intro = [
@@ -225,6 +251,7 @@ function buildCorePrompt(
     buildArticleGuidance(tools),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, allowedDirectories),
+    buildShellGuidance(tools, shellDirectories),
   ];
   return sections.filter((section): section is string => section !== null).join("\n\n");
 }
@@ -293,6 +320,8 @@ export interface BuildSystemPromptOptions {
   tools?: string[];
   /** The filesystem tools' sandbox, enumerated in their guidance so the model knows the reachable roots up front. */
   allowedDirectories?: readonly string[];
+  /** The shell tool's working directories, enumerated in its guidance alongside the command-safety rules. */
+  shellDirectories?: readonly string[];
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
   /** Host injection for tests; defaults to the running process's machine. */
@@ -314,6 +343,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.tools ?? [],
       opts.host ?? detectHostEnvironment(),
       opts.allowedDirectories ?? [],
+      opts.shellDirectories ?? [],
     ),
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
@@ -335,7 +365,14 @@ export function createSystemPromptBuilder(
   config: ConfigStore,
   tools: string[] = [],
   allowedDirectories: readonly string[] = [],
+  shellDirectories: readonly string[] = [],
 ): (session: Session) => string {
   return (session: Session) =>
-    buildSystemPrompt({ config, persona: session.persona, tools, allowedDirectories });
+    buildSystemPrompt({
+      config,
+      persona: session.persona,
+      tools,
+      allowedDirectories,
+      shellDirectories,
+    });
 }

@@ -1038,6 +1038,125 @@ describe("sessions routes", () => {
       });
     });
 
+    it("offers run_command with shell guidance when kiri.yaml declares working directories", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "run the tests")).text();
+      await settled;
+
+      expect(toolNames).toContain("run_command");
+      // The guidance layer turned on with its safety contract, enumerating
+      // the declared working directory — "." resolved against the workspace
+      // root — while the filesystem tools stay withheld (no sandbox declared).
+      expect(systemText).toContain("You can run shell commands");
+      expect(systemText).toContain(`- ${env.cwd}`);
+      expect(systemText).toContain("not your safety margin");
+      expect(toolNames).not.toContain("read_file");
+    });
+
+    it("withholds run_command when no working directories are declared", async () => {
+      let toolNames: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "run the tests")).text();
+      await settled;
+
+      // Declaring where commands may run is what enables the capability:
+      // without it the tool isn't offered and its guidance never appears.
+      expect(toolNames).not.toContain("run_command");
+      expect(systemText).not.toContain("You can run shell commands");
+    });
+
+    it("pauses run_command for approval by default, then runs it when approved", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+      const input = JSON.stringify({ command: "echo hi" });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: toolCallModel("run_command", input) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "say hi in the shell")).text();
+      await settled;
+
+      // Unlike the filesystem reads, run_command executes model-authored
+      // commands, so its default permission asks: the turn pauses with the
+      // call unexecuted until the user answers.
+      const paused = getSessionMessages(env.db, "s1");
+      const pendingTool = toolPartOf(paused[1]);
+      expect(pendingTool.state).toBe("approval-requested");
+      expect(pendingTool.output).toBeUndefined();
+
+      // Approving resumes the turn and the command actually runs, in the
+      // workspace root the declared "." resolved to.
+      const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
+        part.state === "approval-requested"
+          ? { ...part, state: "approval-responded", approval: { ...part.approval, approved: true } }
+          : part,
+      );
+      const resumed = waitForSettled("s1");
+      const res = await app.request("/api/sessions/s1/messages", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: { role: "assistant", parts: respondedParts } }),
+      });
+      expect(res.status).toBe(200);
+      await res.text();
+      await resumed;
+
+      const rows = getSessionMessages(env.db, "s1");
+      const ranTool = toolPartOf(rows[1]);
+      expect(ranTool.state).toBe("output-available");
+      expect(ranTool.output).toEqual({
+        cwd: realpathSync(env.cwd),
+        exitCode: 0,
+        stdout: "hi\n",
+        stderr: "",
+        durationMs: expect.any(Number),
+      });
+    });
+
     it("persists the user message under the id the client sent", async () => {
       const model = streamingModel([
         { type: "text-start", id: "t1" },
