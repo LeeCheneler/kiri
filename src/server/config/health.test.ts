@@ -15,6 +15,7 @@ const result = (overrides: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadRe
   mcp: new Map(),
   mcpUnresolved: [],
   allowedDirectories: [],
+  shellDirectories: [],
   ...overrides,
 });
 

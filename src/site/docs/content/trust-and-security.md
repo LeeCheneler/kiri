@@ -52,8 +52,8 @@ kiri and read its own data, no shell, no network. `generate_image` defaults
 to Always allow too: it exists only while you've picked an image model for
 the session, and picking it is the authorisation. The run tools
 (`run_workflow`, `rerun_workflow`) run your scripts, the workflow write
-tools put runnable YAML into your repo, and the filesystem write tools
-change your own files, so
+tools put runnable YAML into your repo, the filesystem write tools
+change your own files, and `run_command` runs shell commands, so
 those default to Ask — and an authored workflow only ever *executes* through
 the same gates as any other: a run tool's approval or your click in the
 catalog, with the file itself an ordinary git change you can review first.
@@ -74,6 +74,20 @@ default to Ask, so every change pauses for your decision with the exact edit
 previewed as a diff — and a delete can never take out an allowed directory
 itself. Narrow the list, or switch the tools off, and that's the whole
 surface gone.
+
+The shell tool draws its line differently, and it's worth being precise
+about where: `run_command` exists only when you declare
+`shell: working_directories` in `kiri.yaml` — the same git-reviewable
+opt-in — but the declared directories only anchor where a command *runs*.
+A shell command can touch anything you can, which is exactly why the tool
+is never pre-authorised: every call defaults to Ask and shows you the exact
+command, verbatim, with its directory, before anything executes. The system
+prompt holds the model to safe, narrowly-scoped commands — no destruction
+beyond what you asked for, no privilege escalation, no printing secrets, no
+piping downloads into a shell — as a first line of defence, but the approval
+in front of you is the boundary. Commands run as you, with your environment,
+killed at a hard timeout; nothing outlives the turn. If that trade isn't
+right for a workspace, leave `shell:` undeclared and the tool doesn't exist.
 
 ## Secrets
 

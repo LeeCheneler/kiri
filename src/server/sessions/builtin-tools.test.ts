@@ -11,6 +11,7 @@ import { articleTools } from "./article-tools.ts";
 import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
+import { shellTools } from "./shell-tools.ts";
 import { workflowTools } from "./workflow-tools.ts";
 
 // The merged-set check only reads tool names; no client method ever runs.
@@ -50,6 +51,7 @@ describe("BUILTIN_TOOLS", () => {
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
       ...articleTools(db, "session-1", () => {}),
       ...filesystemTools(() => [dir]),
+      ...shellTools(() => [dir]),
       ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
     };
     expect(BUILTIN_TOOLS.map((tool) => tool.name).sort()).toEqual(Object.keys(offered).sort());

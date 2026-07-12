@@ -368,4 +368,129 @@ describe("<ToolInvocation>", () => {
     );
     expect(screen.getByText(/"old_string": "x"/)).toBeDefined();
   });
+
+  it("shows the command in the collapsed summary for shell calls", () => {
+    render(
+      <ToolInvocation
+        part={writePart("run_command", {
+          state: "output-available",
+          input: { command: "bun test" },
+          output: { cwd: "/ws", exitCode: 0, stdout: "", stderr: "", durationMs: 12 },
+        })}
+      />,
+    );
+    expect(screen.getByText("bun test")).toBeDefined();
+  });
+
+  it("previews a shell command awaiting approval verbatim, with its directory", () => {
+    render(
+      <ToolInvocation
+        part={writePart("run_command", {
+          state: "approval-requested",
+          input: { command: "git status", cwd: "/ws/app" },
+          approval: { id: "a1" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+    // The command itself is the preview — shown verbatim, not as JSON — and
+    // the summary row carries it too.
+    expect(screen.getAllByText("git status").length).toBeGreaterThan(0);
+    expect(screen.getByText("in /ws/app")).toBeDefined();
+    expect(screen.queryByText(/"command"/)).toBeNull();
+  });
+
+  it("falls back to the JSON input for a malformed shell approval", () => {
+    render(
+      <ToolInvocation
+        part={writePart("run_command", {
+          state: "approval-requested",
+          input: { cwd: "/ws/app" },
+          approval: { id: "a1" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+    expect(screen.getByText(/"cwd": "\/ws\/app"/)).toBeDefined();
+  });
+
+  it("renders a shell result as exit status and output streams, not JSON", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("run_command", {
+          state: "output-available",
+          input: { command: "bun test" },
+          output: {
+            cwd: "/ws",
+            exitCode: 1,
+            stdout: "1 fail\n",
+            stderr: "boom\n",
+            durationMs: 42,
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("exited 1 · 42 ms")).toBeDefined();
+    expect(screen.getByText(/1 fail/)).toBeDefined();
+    expect(screen.getByText("stderr")).toBeDefined();
+    expect(screen.getByText(/boom/)).toBeDefined();
+    expect(screen.queryByText(/"exitCode"/)).toBeNull();
+  });
+
+  it("reports a timed-out command as killed, with truncated tails flagged", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("run_command", {
+          state: "output-available",
+          input: { command: "bun test" },
+          output: {
+            cwd: "/ws",
+            exitCode: null,
+            stdout: "tail of output",
+            stderr: "",
+            durationMs: 120000,
+            timedOut: true,
+            stdoutTruncated: true,
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("killed at its timeout · 120000 ms")).toBeDefined();
+    expect(screen.getByText(/\[truncated — tail shown\]/)).toBeDefined();
+  });
+
+  it("says so when a command produced no output", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("run_command", {
+          state: "output-available",
+          input: { command: "true" },
+          output: { cwd: "/ws", exitCode: 0, stdout: "", stderr: "", durationMs: 3 },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("exited 0 · 3 ms")).toBeDefined();
+    expect(screen.getByText("No output.")).toBeDefined();
+  });
+
+  it("falls back to JSON for a shell result missing its streams", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("run_command", {
+          state: "output-available",
+          input: { command: "true" },
+          output: { unexpected: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"unexpected": true/)).toBeDefined();
+  });
 });

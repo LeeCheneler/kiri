@@ -36,6 +36,12 @@ export interface KiriConfigLoadResult {
    * withheld entirely — and on a failed load (fail closed).
    */
   allowedDirectories: string[];
+  /**
+   * Absolute directories the session shell tool may run commands in. Empty
+   * when the file or its `shell:` section is absent — the tool is withheld
+   * entirely — and on a failed load (fail closed).
+   */
+  shellDirectories: string[];
   /** Set when a present file failed to load. An absent file is not a failure. */
   failure?: KiriConfigLoadFailure;
   /** Non-fatal note — e.g. both `kiri.yaml` and `kiri.yml` exist and the canonical one was used. */
@@ -54,12 +60,13 @@ const expandHome = (dir: string): string => {
   return dir;
 };
 
-/** An empty result (no providers, no MCP servers, no sandbox), optionally carrying a failure. */
+/** An empty result (no providers, no MCP servers, no sandbox, no shell), optionally carrying a failure. */
 const emptyResult = (extra: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadResult => ({
   providers: new Map(),
   mcp: new Map(),
   mcpUnresolved: [],
   allowedDirectories: [],
+  shellDirectories: [],
   ...extra,
 });
 
@@ -155,7 +162,12 @@ function loadConfigFile(
   const allowedDirectories = (result.data.filesystem?.allowed_directories ?? []).map((dir) =>
     resolve(config.cwd(), expandHome(dir)),
   );
-  return { providers, mcp, mcpUnresolved, allowedDirectories };
+  // Declaring working directories is what enables the shell tool — commands
+  // run nowhere by default. Entries resolve exactly like the sandbox above.
+  const shellDirectories = (result.data.shell?.working_directories ?? []).map((dir) =>
+    resolve(config.cwd(), expandHome(dir)),
+  );
+  return { providers, mcp, mcpUnresolved, allowedDirectories, shellDirectories };
 }
 
 /** Resolve declared MCP servers, excluding any whose declared env refs are unset. */

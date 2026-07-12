@@ -327,6 +327,41 @@ describe("buildSystemPrompt", () => {
     expect(writesOnly).not.toContain("Scope narrowly");
   });
 
+  it("includes shell guidance with the working directories only when run_command is active", () => {
+    const withShell = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["run_command"],
+      shellDirectories: ["/srv/projects/app", "/srv/projects/lib"],
+    });
+    expect(withShell).toContain("You can run shell commands");
+    // The working directories are enumerated so the model needn't discover
+    // them through errors.
+    expect(withShell).toContain("- /srv/projects/app");
+    expect(withShell).toContain("- /srv/projects/lib");
+    // The safety contract rides with the tool: the approval review is not the
+    // model's safety margin, and the prohibitions are stated as hard rules.
+    expect(withShell).toContain("not your safety margin");
+    expect(withShell).toContain("Hard rules");
+    expect(withShell).toContain("Never read or print secrets");
+    expect(withShell).toContain("Never fetch-and-execute");
+
+    // Without run_command (withheld by permission or configuration) none of
+    // the shell guidance appears.
+    const withoutShell = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file"],
+      allowedDirectories: ["/srv/notes"],
+      shellDirectories: ["/srv/projects/app"],
+    });
+    expect(withoutShell).not.toContain("You can run shell commands");
+    expect(withoutShell).not.toContain("Hard rules");
+    expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain(
+      "You can run shell commands",
+    );
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });

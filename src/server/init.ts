@@ -325,6 +325,15 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #   allowed_directories:
 #     - .
 #     - ~/notes
+#
+# Let sessions run shell commands — builds, tests, git — by declaring
+# \`shell:\` with the directories commands may run in; without it the tool
+# isn't offered at all. The list only anchors where a command starts, not
+# what it can touch, so every command asks for your approval first:
+#
+# shell:
+#   working_directories:
+#     - .
 `;
 
 /** Relative paths reported by `initRepo`. */

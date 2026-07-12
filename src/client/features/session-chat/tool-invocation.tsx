@@ -1,8 +1,10 @@
 import { type DynamicToolUIPart, type FileUIPart, type ToolUIPart, getToolName } from "ai";
 import type { ReactNode } from "react";
 import { Button } from "../../design-system/actions/button.tsx";
+import { CodeBlock } from "../../design-system/content/code.tsx";
 import { Diff, patchFromStrings } from "../../design-system/content/diff.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
+import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { FullWidthImage } from "./image-thumb.tsx";
 
@@ -50,18 +52,21 @@ export const toolStatus = (part: ToolPart): StatusKind =>
     : (STATE_STATUS[part.state] ?? "working");
 
 // A short input detail for the collapsed summary, when the call carries an
-// obvious one — a string `query`, a `path` (the filesystem tools), a `prompt`
-// (generate_image), or a list of `urls`; nothing otherwise.
+// obvious one — a string `query`, a `path` (the filesystem tools), a `command`
+// (run_command), a `prompt` (generate_image), or a list of `urls`; nothing
+// otherwise.
 const summaryDetail = (input: unknown): string | null => {
   if (input === null || typeof input !== "object") return null;
-  const { query, path, prompt, urls } = input as {
+  const { query, path, command, prompt, urls } = input as {
     query?: unknown;
     path?: unknown;
+    command?: unknown;
     prompt?: unknown;
     urls?: unknown;
   };
   if (typeof query === "string") return query;
   if (typeof path === "string") return path;
+  if (typeof command === "string") return command;
   if (typeof prompt === "string") return prompt;
   if (Array.isArray(urls)) {
     const list = urls.filter((url): url is string => typeof url === "string").join(", ");
@@ -94,6 +99,56 @@ const fileChange = (
   return null;
 };
 
+// A settled run_command result as terminal-style output: the exit status
+// line, then stdout and stderr verbatim — untrusted text, never markdown.
+// Falls back to null (the JSON rendering) when the output isn't the tool's
+// shape.
+const commandResult = (name: string, output: unknown): ReactNode | null => {
+  if (name !== "run_command") return null;
+  if (output === null || typeof output !== "object") return null;
+  const { exitCode, stdout, stderr, durationMs, timedOut, stdoutTruncated, stderrTruncated } =
+    output as {
+      exitCode?: unknown;
+      stdout?: unknown;
+      stderr?: unknown;
+      durationMs?: unknown;
+      timedOut?: unknown;
+      stdoutTruncated?: unknown;
+      stderrTruncated?: unknown;
+    };
+  if (typeof stdout !== "string" || typeof stderr !== "string") return null;
+  const failed = timedOut === true || (typeof exitCode === "number" && exitCode !== 0);
+  const status =
+    timedOut === true
+      ? "killed at its timeout"
+      : `exited ${typeof exitCode === "number" ? exitCode : "before completing"}`;
+  const duration = typeof durationMs === "number" ? ` · ${Math.round(durationMs)} ms` : "";
+  return (
+    <div className="space-y-2 font-mono text-xs">
+      <p className={failed ? "text-status-failed" : "text-ink-muted"}>
+        {status}
+        {duration}
+      </p>
+      {stdout !== "" && (
+        <CodeBlock>
+          {stdoutTruncated === true ? "[truncated — tail shown]\n" : ""}
+          {stdout}
+        </CodeBlock>
+      )}
+      {stderr !== "" && (
+        <div className="space-y-1">
+          <Eyebrow tone="muted">stderr</Eyebrow>
+          <CodeBlock>
+            {stderrTruncated === true ? "[truncated — tail shown]\n" : ""}
+            {stderr}
+          </CodeBlock>
+        </div>
+      )}
+      {stdout === "" && stderr === "" && <p className="text-ink-muted">No output.</p>}
+    </div>
+  );
+};
+
 /**
  * A settled generate_image result's image as a file part for the shared
  * click-to-preview thumbnail — the result carries it as a data URL. Null for
@@ -112,12 +167,26 @@ export const generatedImage = (part: ToolPart): FileUIPart | null => {
   };
 };
 
-// A change preview for a filesystem write awaiting approval, derived from the
-// call's input alone: an edit as its old lines removed and new lines added, a
-// write as its full content added. Null for calls with nothing diffable to
-// show (deletes, directories) — the JSON input serves those.
+// A change preview for a call awaiting approval, derived from its input
+// alone: a filesystem edit as its old lines removed and new lines added, a
+// write as its full content added, and a shell command shown verbatim (with
+// its directory when named) — the decision the user is making is precisely
+// "run this". Null for calls with nothing better than the JSON input to show
+// (deletes, directories).
 const approvalPreview = (name: string, input: unknown): ReactNode | null => {
   if (input === null || typeof input !== "object") return null;
+  if (name === "run_command") {
+    const { command, cwd } = input as { command?: unknown; cwd?: unknown };
+    if (typeof command !== "string") return null;
+    // The command sits in a code block so it reads as the machine layer —
+    // visually distinct from the prompt copy around it.
+    return (
+      <div className="space-y-2">
+        <CodeBlock>{command}</CodeBlock>
+        {typeof cwd === "string" && <p className="font-mono text-ink-muted text-xs">in {cwd}</p>}
+      </div>
+    );
+  }
   if (name === "edit_file") {
     const { old_string, new_string, replace_all } = input as {
       old_string?: unknown;
@@ -168,6 +237,10 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     // never markdown.
     const change = fileChange(name, part.input, part.output);
     if (change) return <Diff patch={change.patch} truncated={change.truncated} />;
+    // A shell command's result renders as its exit status and output streams
+    // rather than JSON.
+    const command = commandResult(name, part.output);
+    if (command) return command;
     // A generated image renders below the block; the expanded panel shows the
     // call's metadata without dumping the data URL's base64 as JSON.
     if (generatedImage(part)) {
@@ -191,7 +264,8 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
  * prompting for this tool), and Deny (refuse and let the assistant continue). Shown
  * expanded rather than collapsed — it needs a response before the turn resumes.
  * A filesystem write shows the change it would make as a diff-style preview in
- * place of the raw JSON input.
+ * place of the raw JSON input; a shell command shows the command it would run,
+ * verbatim.
  */
 function ToolApproval({
   part,

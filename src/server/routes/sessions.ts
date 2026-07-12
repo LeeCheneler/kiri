@@ -39,6 +39,7 @@ import {
   resumeTurn,
   runTurn,
   setSessionPinned,
+  shellTools,
   updateSessionImageModel,
   updateSessionModel,
   updateSessionPersona,
@@ -89,6 +90,14 @@ export interface SessionsRoutesDeps {
    * the sandbox is what enables them.
    */
   getAllowedDirectories?: () => readonly string[];
+  /**
+   * Live working directories for the first-party shell tool: the absolute
+   * directories declared under `shell.working_directories` in `kiri.yaml`,
+   * read per turn so a config edit applies on the next one. Empty (or
+   * omitted) withholds `run_command` entirely — declaring where commands may
+   * run is what enables it.
+   */
+  getShellDirectories?: () => readonly string[];
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -198,6 +207,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const sandboxDirectories = (): readonly string[] =>
     (deps.getAllowedDirectories?.() ?? []).filter((dir) => existsSync(dir));
 
+  // The shell tool's working directories, on the same live-read, must-exist
+  // posture as the filesystem sandbox: nothing usable, no run_command.
+  const shellWorkingDirectories = (): readonly string[] =>
+    (deps.getShellDirectories?.() ?? []).filter((dir) => existsSync(dir));
+
   // One registry of in-flight turn streams for this surface: the turn endpoint
   // fills it, the resume endpoint reads it, so a client that reconnects mid-turn
   // rejoins the live response. A caller may inject one to share it.
@@ -236,11 +250,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // permission machinery; what differs is the default, declared per built-in
   // tool in BUILTIN_TOOLS — "allow" for tools that only read or write kiri's
   // own data (the user's request in chat is the authorisation), "ask" for
-  // run_workflow, which executes user-authored scripts. Built-in tools are
+  // run_workflow and run_command, which execute scripts. Built-in tools are
   // merged after the gated MCP set, so they take the name on a collision.
-  // The filesystem tools self-gate on configuration like an MCP server: no
-  // declared sandbox, no tools — a BUILTIN_TOOLS entry absent from the merged
-  // set is simply withheld.
+  // The filesystem and shell tools self-gate on configuration like an MCP
+  // server: no declared directories, no tools — a BUILTIN_TOOLS entry absent
+  // from the merged set is simply withheld.
   const activeTools = (sessionId: string): ToolSet => {
     const tools: ToolSet = {};
     for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
@@ -248,6 +262,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (offered !== null) tools[name] = offered;
     }
     const sandbox = sandboxDirectories();
+    const shellDirs = shellWorkingDirectories();
     // The image tools self-gate on selection the same way the filesystem
     // tools self-gate on configuration: no image model on the session, no
     // generate_image offered.
@@ -255,6 +270,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
+      ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
@@ -525,13 +541,15 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
       // Resolve the live, approval-gated tools for this turn and compose the
       // system prompt from their names so the core layer's tool guidance matches
-      // what the model is actually offered; the filesystem sandbox rides along
-      // so its guidance can enumerate the reachable directories.
+      // what the model is actually offered; the filesystem sandbox and shell
+      // working directories ride along so their guidance can enumerate the
+      // reachable roots.
       const tools = activeTools(id);
       const buildSystemPrompt = createSystemPromptBuilder(
         config,
         Object.keys(tools),
         sandboxDirectories(),
+        shellWorkingDirectories(),
       );
       const turnDeps = {
         db,

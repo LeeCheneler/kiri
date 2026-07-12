@@ -146,6 +146,33 @@ describe("kiriConfigSchema", () => {
     ).toThrow();
   });
 
+  it("parses a shell section with working directories", () => {
+    const result = kiriConfigSchema.parse({
+      shell: { working_directories: [".", "/srv/projects"] },
+    });
+    expect(result.shell).toEqual({ working_directories: [".", "/srv/projects"] });
+  });
+
+  it("leaves shell undefined when the key is absent", () => {
+    expect(kiriConfigSchema.parse({}).shell).toBeUndefined();
+  });
+
+  it("requires working_directories on a shell section", () => {
+    const result = kiriConfigSchema.safeParse({ shell: {} });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].path).toEqual(["shell", "working_directories"]);
+  });
+
+  it("rejects an empty working-directory entry", () => {
+    expect(() => kiriConfigSchema.parse({ shell: { working_directories: [""] } })).toThrow();
+  });
+
+  it("rejects an unknown shell key (strict)", () => {
+    expect(() =>
+      kiriConfigSchema.parse({ shell: { working_directories: ["."], junk: true } }),
+    ).toThrow();
+  });
+
   it("rejects an unknown top-level key (strict)", () => {
     expect(() => kiriConfigSchema.parse({ providers: {}, junk: true })).toThrow();
   });

@@ -21,10 +21,12 @@ export interface BuiltinTool {
  * prompting (`allow` — the request in chat is the authorisation), as do the
  * filesystem read tools (reads confined to the sandbox the user declared in
  * `kiri.yaml` — declaring it is the authorisation), while tools that execute
- * user-authored scripts (`run_workflow`, `rerun_workflow`) or write files
- * (the workflow and filesystem write tools) ask first. A tool whose
- * capability isn't configured (the filesystem tools with no declared sandbox)
- * is withheld from the model regardless of its permission.
+ * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
+ * (the workflow and filesystem write tools), or run model-authored commands
+ * (`run_command`) ask first. A tool whose capability isn't configured (the
+ * filesystem tools with no declared sandbox, `run_command` with no declared
+ * working directories) is withheld from the model regardless of its
+ * permission.
  */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   {
@@ -140,6 +142,11 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   {
     name: "delete_directory",
     description: "Delete a directory in the allowed directories.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "run_command",
+    description: "Run a shell command in the allowed working directories.",
     defaultPermission: "ask",
   },
 ];
