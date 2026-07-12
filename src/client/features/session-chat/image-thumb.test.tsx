@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { PreviewableImage } from "./image-thumb.tsx";
+import { FullWidthImage, PreviewableImage } from "./image-thumb.tsx";
 
 const part = {
   type: "file" as const,
@@ -26,6 +26,24 @@ describe("<PreviewableImage>", () => {
     expect(screen.getAllByAltText("shot.png")).toHaveLength(2);
 
     // A backdrop click lands on the dialog element itself and closes it.
+    await user.click(screen.getByRole("dialog"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+});
+
+describe("<FullWidthImage>", () => {
+  it("opens a full-resolution preview on click and closes it again", async () => {
+    const user = userEvent.setup();
+    render(<FullWidthImage part={part} />);
+
+    expect(screen.getAllByAltText("shot.png")).toHaveLength(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.getByRole("dialog")).toBeDefined();
+    expect(screen.getAllByAltText("shot.png")).toHaveLength(2);
+
     await user.click(screen.getByRole("dialog"));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });

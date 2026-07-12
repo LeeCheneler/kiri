@@ -1,9 +1,10 @@
-import { type DynamicToolUIPart, type ToolUIPart, getToolName } from "ai";
+import { type DynamicToolUIPart, type FileUIPart, type ToolUIPart, getToolName } from "ai";
 import type { ReactNode } from "react";
 import { Button } from "../../design-system/actions/button.tsx";
 import { Diff, patchFromStrings } from "../../design-system/content/diff.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
+import { FullWidthImage } from "./image-thumb.tsx";
 
 /** A tool-call part of an assistant message, static or dynamic. */
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
@@ -49,13 +50,19 @@ export const toolStatus = (part: ToolPart): StatusKind =>
     : (STATE_STATUS[part.state] ?? "working");
 
 // A short input detail for the collapsed summary, when the call carries an
-// obvious one — a string `query`, a `path` (the filesystem tools), or a list
-// of `urls`; nothing otherwise.
+// obvious one — a string `query`, a `path` (the filesystem tools), a `prompt`
+// (generate_image), or a list of `urls`; nothing otherwise.
 const summaryDetail = (input: unknown): string | null => {
   if (input === null || typeof input !== "object") return null;
-  const { query, path, urls } = input as { query?: unknown; path?: unknown; urls?: unknown };
+  const { query, path, prompt, urls } = input as {
+    query?: unknown;
+    path?: unknown;
+    prompt?: unknown;
+    urls?: unknown;
+  };
   if (typeof query === "string") return query;
   if (typeof path === "string") return path;
+  if (typeof prompt === "string") return prompt;
   if (Array.isArray(urls)) {
     const list = urls.filter((url): url is string => typeof url === "string").join(", ");
     return list === "" ? null : list;
@@ -85,6 +92,24 @@ const fileChange = (
       return { patch: patchFromStrings("", content), truncated: false };
   }
   return null;
+};
+
+/**
+ * A settled generate_image result's image as a file part for the shared
+ * click-to-preview thumbnail — the result carries it as a data URL. Null for
+ * other tools, unsettled calls, and results without one.
+ */
+export const generatedImage = (part: ToolPart): FileUIPart | null => {
+  if (getToolName(part) !== "generate_image" || part.state !== "output-available") return null;
+  if (part.output === null || typeof part.output !== "object") return null;
+  const { image, mediaType } = part.output as { image?: unknown; mediaType?: unknown };
+  if (typeof image !== "string") return null;
+  return {
+    type: "file",
+    mediaType: typeof mediaType === "string" ? mediaType : "image/png",
+    filename: "Generated image",
+    url: image,
+  };
 };
 
 // A change preview for a filesystem write awaiting approval, derived from the
@@ -143,6 +168,12 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     // never markdown.
     const change = fileChange(name, part.input, part.output);
     if (change) return <Diff patch={change.patch} truncated={change.truncated} />;
+    // A generated image renders below the block; the expanded panel shows the
+    // call's metadata without dumping the data URL's base64 as JSON.
+    if (generatedImage(part)) {
+      const { image: _image, ...rest } = part.output as Record<string, unknown>;
+      return <ToolInput input={rest} />;
+    }
     // Tool output is untrusted data, never markdown — render it as formatted
     // JSON rather than interpreting it.
     return <ToolInput input={part.output} />;
@@ -232,6 +263,7 @@ export function ToolInvocation({
   }
   const detail = summaryDetail(part.input);
   const status = toolStatus(part);
+  const image = generatedImage(part);
   return (
     <div className={framed ? "border border-rule" : undefined} data-tool={name}>
       <Disclosure
@@ -253,6 +285,13 @@ export function ToolInvocation({
           <ToolPanel part={part} name={name} />
         </div>
       </Disclosure>
+      {/* The generated image is the call's product for the user — always
+          visible below the collapsible detail, never folded away. */}
+      {image ? (
+        <div className="px-4 pb-4">
+          <FullWidthImage part={image} />
+        </div>
+      ) : null}
     </div>
   );
 }

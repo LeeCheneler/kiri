@@ -142,7 +142,8 @@ function UserMessage({
 // follows. Text renders as markdown; a lone tool call renders as a collapsible
 // tool block and a run of consecutive calls folds into a single chain panel; a
 // call awaiting the user's decision renders an Allow / Always allow / Deny
-// prompt, never folded away.
+// prompt, never folded away — nor is a settled generated image, which renders
+// its thumbnail below the call.
 function AssistantMessage({
   segments,
   onToolDecision,
@@ -166,6 +167,9 @@ function AssistantMessage({
                 onDecision={onToolDecision}
               />
             );
+          }
+          if (segment.kind === "image") {
+            return <ToolInvocation key={segment.part.toolCallId} part={segment.part} />;
           }
           return segment.parts.length === 1 ? (
             <ToolInvocation key={segment.parts[0].toolCallId} part={segment.parts[0]} />

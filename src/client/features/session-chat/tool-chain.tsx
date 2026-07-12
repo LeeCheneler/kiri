@@ -1,17 +1,24 @@
 import { type UIMessage, getToolName, isToolUIPart } from "ai";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
-import { ToolInvocation, type ToolPart, humanizeName, toolStatus } from "./tool-invocation.tsx";
+import {
+  ToolInvocation,
+  type ToolPart,
+  generatedImage,
+  humanizeName,
+  toolStatus,
+} from "./tool-invocation.tsx";
 
 /**
  * A renderable slice of an assistant message: a piece of prose, a call awaiting
- * the user's approval, or a chain of consecutive tool calls that folds into one
- * panel. `index` on a text segment is the part's position in the message, kept
- * as a stable render key.
+ * the user's approval, a settled call whose result is a generated image, or a
+ * chain of consecutive tool calls that folds into one panel. `index` on a text
+ * segment is the part's position in the message, kept as a stable render key.
  */
 export type Segment =
   | { kind: "text"; index: number; text: string }
   | { kind: "approval"; part: ToolPart }
+  | { kind: "image"; part: ToolPart }
   | { kind: "chain"; parts: ToolPart[] };
 
 /**
@@ -19,7 +26,8 @@ export type Segment =
  * calls join one chain — step boundaries, empty text, and other non-rendering
  * parts sit between chained calls and don't break one — while non-empty prose
  * does. A call awaiting approval always stands alone, so its Allow / Deny
- * prompt can't be folded out of sight.
+ * prompt can't be folded out of sight; a settled generated image stands alone
+ * the same way — it is content like prose, not plumbing to fold up.
  */
 export function segmentParts(parts: UIMessage["parts"]): Segment[] {
   const segments: Segment[] = [];
@@ -36,6 +44,9 @@ export function segmentParts(parts: UIMessage["parts"]): Segment[] {
       if (part.state === "approval-requested") {
         flush();
         segments.push({ kind: "approval", part });
+      } else if (generatedImage(part) !== null) {
+        flush();
+        segments.push({ kind: "image", part });
       } else {
         chain.push(part);
       }

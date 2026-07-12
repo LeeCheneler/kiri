@@ -64,6 +64,30 @@ describe("segmentParts", () => {
     ]);
   });
 
+  it("keeps a settled generated image out of any chain, while an unsettled one chains", () => {
+    const [a, c] = [tool("a"), tool("c")];
+    const settled = tool("b", {
+      type: "tool-generate_image",
+      input: { prompt: "a red panda" },
+      output: { model: "fake:paint", mediaType: "image/png", image: "data:image/png;base64,AA" },
+    });
+    expect(segmentParts(parts(a, settled, c))).toEqual([
+      { kind: "chain", parts: [a] as ToolPart[] },
+      { kind: "image", part: settled },
+      { kind: "chain", parts: [c] as ToolPart[] },
+    ]);
+
+    // Still generating: nothing to show yet, so it folds like any other call.
+    const inFlight = tool("b", {
+      type: "tool-generate_image",
+      state: "input-available",
+      input: { prompt: "a red panda" },
+    });
+    expect(segmentParts(parts(a, inFlight, c))).toEqual([
+      { kind: "chain", parts: [a, inFlight, c] as ToolPart[] },
+    ]);
+  });
+
   it("yields nothing for parts that render nothing", () => {
     expect(segmentParts(parts())).toEqual([]);
     expect(

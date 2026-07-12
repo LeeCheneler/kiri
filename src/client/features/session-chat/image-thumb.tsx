@@ -13,6 +13,32 @@ export function ImageThumb({ src, alt }: { src: string; alt: string }) {
 }
 
 /**
+ * A generated image in the transcript: rendered at up to the container's full
+ * width, opening the full-resolution image in a modal preview on click.
+ */
+export function FullWidthImage({ part }: { part: FileUIPart }) {
+  const [open, setOpen] = useState(false);
+  const alt = part.filename ?? "Image";
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="View full size"
+        className="block cursor-pointer outline-none focus-visible:outline-1 focus-visible:outline-accent"
+      >
+        <img src={part.url} alt={alt} className="max-w-full rounded-sm border border-rule" />
+      </button>
+      {open ? (
+        <Modal title={alt} onClose={() => setOpen(false)}>
+          <img src={part.url} alt={alt} className="mx-auto max-h-[70vh] w-auto rounded-sm" />
+        </Modal>
+      ) : null}
+    </>
+  );
+}
+
+/**
  * A sent image in the transcript: a thumbnail that opens the full image in a
  * modal preview on click.
  */
