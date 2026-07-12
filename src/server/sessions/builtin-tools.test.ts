@@ -5,11 +5,26 @@ import { join } from "node:path";
 import { createConfigStore } from "../config/store.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
+import type { LlmClients } from "../llm/index.ts";
 import { createRegistry } from "../workflows/index.ts";
 import { articleTools } from "./article-tools.ts";
 import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 import { filesystemTools } from "./filesystem-tools.ts";
+import { imageTools } from "./image-tools.ts";
 import { workflowTools } from "./workflow-tools.ts";
+
+// The merged-set check only reads tool names; no client method ever runs.
+const stubClients: LlmClients = {
+  resolveModel: () => {
+    throw new Error("unused");
+  },
+  resolveImageModel: () => {
+    throw new Error("unused");
+  },
+  generateText: async () => ({ text: "", usage: {} }),
+  listModels: async () => ({ models: [], failures: [] }),
+  contextWindowFor: async () => undefined,
+};
 
 describe("BUILTIN_TOOLS", () => {
   let dir: string;
@@ -35,6 +50,7 @@ describe("BUILTIN_TOOLS", () => {
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
       ...articleTools(db, "session-1", () => {}),
       ...filesystemTools(() => [dir]),
+      ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
     };
     expect(BUILTIN_TOOLS.map((tool) => tool.name).sort()).toEqual(Object.keys(offered).sort());
   });

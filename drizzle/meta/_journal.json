@@ -148,6 +148,13 @@
       "when": 1783264586017,
       "tag": "0020_add_session_pinned",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1783852575443,
+      "tag": "0021_add_session_image_model",
+      "breakpoints": true
     }
   ]
 }

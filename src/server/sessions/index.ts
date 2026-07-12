@@ -1,6 +1,7 @@
 export { articleTools } from "./article-tools.ts";
 export { BUILTIN_TOOLS, type BuiltinTool } from "./builtin-tools.ts";
 export { type FilesystemToolsOptions, filesystemTools } from "./filesystem-tools.ts";
+export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
 export {
   type Message,
   type NewMessage,
@@ -14,6 +15,7 @@ export {
   getSessionPreviews,
   setSessionPinned,
   setSessionStatus,
+  updateSessionImageModel,
   updateSessionModel,
   updateSessionPersona,
 } from "./store.ts";

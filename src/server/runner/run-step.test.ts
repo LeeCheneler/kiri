@@ -255,6 +255,9 @@ describe("runStep", () => {
           resolveModel: () => {
             throw new Error("unused");
           },
+          resolveImageModel: () => {
+            throw new Error("unused");
+          },
           generateText: async ({ prompt }) => ({ text: `completed: ${prompt}`, usage: {} }),
           listModels: async () => ({ models: [], failures: [] }),
           contextWindowFor: async () => undefined,

@@ -94,6 +94,28 @@ describe("<ChatMessage>", () => {
     expect(screen.getByText("kiri release")).toBeDefined();
   });
 
+  it("shows a generated image without expanding anything", () => {
+    renderMessage(
+      message("assistant", [
+        { type: "text", text: "Here you go." },
+        {
+          type: "tool-generate_image",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { prompt: "a red panda" },
+          output: {
+            model: "fake:paint",
+            mediaType: "image/png",
+            image: "data:image/png;base64,AAAA",
+          },
+        },
+      ]),
+    );
+
+    const thumb = screen.getByRole("img", { name: "Generated image" }) as HTMLImageElement;
+    expect(thumb.src).toBe("data:image/png;base64,AAAA");
+  });
+
   it("folds a run of consecutive tool calls into one chain panel", () => {
     renderMessage(
       message("assistant", [

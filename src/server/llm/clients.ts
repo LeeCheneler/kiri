@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { type LanguageModel, generateText } from "ai";
+import { type ImageModel, type LanguageModel, generateText } from "ai";
 import { type LlmModelsResult, listLlmModels } from "./models.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
@@ -12,6 +12,12 @@ import type { LlmProvider } from "./schema.ts";
  * outside this module needs to import the AI SDK.
  */
 export type LlmModel = LanguageModel;
+
+/**
+ * A constructed, ready-to-call image-generation model, produced by
+ * `resolveImageModel` and handed to the AI SDK's `generateImage`.
+ */
+export type LlmImageModel = ImageModel;
 
 // How long a fetched model listing is reused for context-window lookups. A
 // model's window is effectively constant, so a few minutes' cache spares a
@@ -40,6 +46,12 @@ export interface LlmClients {
    * from the registry — the error lists the configured provider names.
    */
   resolveModel(id: string): LlmModel;
+  /**
+   * Build an image-generation model for a `provider:model` id. The same id
+   * and registry contract as `resolveModel`; additionally throws for an
+   * `anthropic` provider, which offers no image generation.
+   */
+  resolveImageModel(id: string): LlmImageModel;
   /**
    * Resolve a `provider:model` id and run a single non-streaming completion
    * against it. Resolution errors and provider/API errors both surface as a
@@ -108,27 +120,40 @@ export function createLlmClients(
       return models.find((model) => model.id === id)?.contextWindow;
     },
     resolveModel(id) {
-      const separator = id.indexOf(":");
-      const providerName = separator === -1 ? id : id.slice(0, separator);
-      const modelId = separator === -1 ? "" : id.slice(separator + 1);
-      if (!providerName || !modelId) {
-        throw new Error(`invalid llm model id "${id}" — expected "provider:model" form`);
-      }
-
-      const provider = registry.getProvider(providerName);
-      if (!provider) {
-        const known = registry.listProviders().map((p) => p.name);
-        throw new Error(
-          `unknown llm provider "${providerName}" — configured providers: ${
-            known.length > 0 ? known.join(", ") : "(none)"
-          }`,
-        );
-      }
-
+      const { provider, modelId } = resolveProvider(registry, id);
       return buildModel(provider, modelId, env);
+    },
+    resolveImageModel(id) {
+      const { provider, modelId } = resolveProvider(registry, id);
+      return buildImageModel(provider, modelId, env);
     },
   };
   return clients;
+}
+
+/** Split a `provider:model` id and look its provider up in the registry, throwing on either failure. */
+function resolveProvider(
+  registry: LlmProviderRegistry,
+  id: string,
+): { provider: LlmProvider; modelId: string } {
+  const separator = id.indexOf(":");
+  const providerName = separator === -1 ? id : id.slice(0, separator);
+  const modelId = separator === -1 ? "" : id.slice(separator + 1);
+  if (!providerName || !modelId) {
+    throw new Error(`invalid llm model id "${id}" — expected "provider:model" form`);
+  }
+
+  const provider = registry.getProvider(providerName);
+  if (!provider) {
+    const known = registry.listProviders().map((p) => p.name);
+    throw new Error(
+      `unknown llm provider "${providerName}" — configured providers: ${
+        known.length > 0 ? known.join(", ") : "(none)"
+      }`,
+    );
+  }
+
+  return { provider, modelId };
 }
 
 /** Construct an AI SDK model for a resolved provider, reading its API key from `env` now. */
@@ -158,6 +183,29 @@ function buildModel(
         apiKey,
         includeUsage: true,
       })(modelId);
+  }
+}
+
+/** Construct an AI SDK image model for a resolved provider, reading its API key from `env` now. */
+function buildImageModel(
+  provider: LlmProvider,
+  modelId: string,
+  env: Record<string, string | undefined>,
+): LlmImageModel {
+  const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
+  switch (provider.type) {
+    case "anthropic":
+      throw new Error(`provider "${provider.name}" is anthropic, which offers no image generation`);
+    case "openai":
+      return createOpenAI({ apiKey, baseURL: provider.baseUrl }).imageModel(modelId);
+    case "openai-compatible":
+      // Calls the provider's OpenAI-style `/images/generations` endpoint —
+      // OpenRouter and other gateways serve it alongside chat completions.
+      return createOpenAICompatible({
+        name: provider.name,
+        baseURL: provider.baseUrl as string,
+        apiKey,
+      }).imageModel(modelId);
   }
 }
 

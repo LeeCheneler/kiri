@@ -35,6 +35,7 @@ const baseSession: SessionListEntry = {
   id: "s1",
   status: "idle",
   model: "anthropic:claude",
+  imageModel: null,
   persona: null,
   pinned: false,
   startedAt: "2026-05-09T08:00:00.000Z",

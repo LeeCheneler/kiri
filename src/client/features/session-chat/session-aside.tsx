@@ -14,6 +14,10 @@ const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
 // "None" would collide with it — an acceptable edge for a personal tool.
 const PERSONA_NONE = "None";
 
+// The image-model picker entry that means "image generation off". Model ids
+// are always `provider:model`, so a real model can never collide with it.
+const IMAGE_MODEL_NONE = "None";
+
 /**
  * The session chat right rail: the session's model, the current context fill,
  * and when it started. Reads the same shared session
@@ -23,7 +27,7 @@ const PERSONA_NONE = "None";
  */
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
-  const { setModel, setPersona } = useUpdateSession(id);
+  const { setModel, setImageModel, setPersona } = useUpdateSession(id);
   const modelsData = useModels().data;
   const models = modelsData?.models ?? [];
   const modelFailures = modelsData?.failures ?? [];
@@ -33,15 +37,33 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const contextTokens = currentContextTokens(detail.messages);
   const contextLimit = contextWindowForModel(models, session.model);
   // Pin the current model into the options even if the provider no longer lists
-  // it, so the control always has a value to show. Sorted so the long list is
-  // scannable. Swapping is blocked mid-turn: the in-flight turn already resolved
-  // its model and the change applies next.
-  const modelIds = models.map((model) => model.id);
+  // it, so the control always has a value to show. Only text-output models can
+  // hold a conversation, so only they are offered. Sorted so the long list is
+  // scannable. Swapping is blocked mid-turn: the in-flight turn already
+  // resolved its model and the change applies next.
+  const modelIds = models.filter((model) => model.output === "text").map((model) => model.id);
   const withCurrent = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
   const modelOptions = [...withCurrent].sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: "base" }),
   );
   const turnInFlight = session.status === "running";
+
+  // Image model, same pattern: image-output models only, `None` leading as
+  // the off option, the selected model pinned even if delisted. The picker
+  // hides entirely when no provider offers an image model and none is
+  // selected — image generation simply isn't available.
+  const imageModelIds = models.filter((model) => model.output === "image").map((model) => model.id);
+  const withCurrentImageModel =
+    session.imageModel && !imageModelIds.includes(session.imageModel)
+      ? [session.imageModel, ...imageModelIds]
+      : imageModelIds;
+  const imageModelOptions = [
+    IMAGE_MODEL_NONE,
+    ...[...withCurrentImageModel].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    ),
+  ];
+  const showImageModel = withCurrentImageModel.length > 0;
 
   // Persona, same pattern as model: pin the attached one into the list even if
   // the workspace no longer defines it, so the control can show and clear it —
@@ -85,6 +107,17 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           </div>
         ) : null}
       </section>
+      {showImageModel ? (
+        <section className={SECTION_CLASS}>
+          <Combobox
+            label="Image model"
+            options={imageModelOptions}
+            value={session.imageModel ?? IMAGE_MODEL_NONE}
+            disabled={turnInFlight}
+            onChange={(value) => void setImageModel(value === IMAGE_MODEL_NONE ? null : value)}
+          />
+        </section>
+      ) : null}
       {showPersona ? (
         <section className={SECTION_CLASS}>
           <Combobox

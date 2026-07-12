@@ -10,7 +10,7 @@ import { createQueryClient } from "../../state/query-client.ts";
 import { NewSessionButton } from "./new-session-button.tsx";
 
 const models = (...ids: string[]) => ({
-  models: ids.map((id) => ({ id, provider: id.split(":")[0] })),
+  models: ids.map((id) => ({ id, provider: id.split(":")[0], output: "text" })),
   failures: [],
 });
 
@@ -80,6 +80,32 @@ describe("<NewSessionButton>", () => {
       http.post("*/api/sessions", async ({ request }) => {
         sentModel = ((await request.json()) as { model: string }).model;
         return HttpResponse.json({ session: session("new-2", sentModel) }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderButton();
+
+    await user.click(await enabledButton());
+
+    await waitFor(() => expect(sentModel).toBe("openai:gpt"));
+  });
+
+  it("skips non-text models when falling back to the first model", async () => {
+    let sentModel: string | undefined;
+    server.use(
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "openrouter:gemini-image", provider: "openrouter", output: "image" },
+            { id: "openai:gpt", provider: "openai", output: "text" },
+          ],
+          failures: [],
+        }),
+      ),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.post("*/api/sessions", async ({ request }) => {
+        sentModel = ((await request.json()) as { model: string }).model;
+        return HttpResponse.json({ session: session("new-3", sentModel) }, { status: 201 });
       }),
     );
     const user = userEvent.setup();

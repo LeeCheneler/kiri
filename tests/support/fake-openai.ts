@@ -19,14 +19,21 @@
  *   once the loop feeds the result back it settles with "All done." — so a
  *   test drives any offered tool with any input, deterministically. Any other
  *   message echoes like `echo`.
+ * - `paint` — an image-generation model. Its listing entry reports an image
+ *   output modality, and `POST …/images/generations` returns a fixed 1×1 PNG
+ *   (or the stub error when the prompt starts with `boom`).
  *
  * The same `fakeOpenAiFetch` handler backs both the in-process server the
  * integration tests spin up and the standalone process Playwright boots for e2e.
  */
 
 /** Model ids the stub serves; each selects a behaviour. */
-export const FAKE_MODELS = ["echo", "slow", "boom", "tool"] as const;
+export const FAKE_MODELS = ["echo", "slow", "boom", "tool", "paint"] as const;
 export type FakeModel = (typeof FAKE_MODELS)[number];
+
+/** The 1×1 transparent PNG every stub image generation returns, base64-encoded. */
+export const FAKE_IMAGE_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 /** Fixed token usage every successful completion reports. */
 export const FAKE_USAGE = { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 } as const;
@@ -45,6 +52,14 @@ export interface ChatCompletionRequest {
   model?: string;
   messages?: ChatMessage[];
   stream?: boolean;
+}
+
+/** An image-generation request body the stub received — captured for assertions. */
+export interface ImageGenerationRequest {
+  model?: string;
+  prompt?: string;
+  n?: number;
+  size?: string;
 }
 
 const textOf = (content: ChatMessage["content"]): string => {
@@ -203,10 +218,17 @@ const errorResponse = (): Response =>
     { status: 400 },
   );
 
+// `paint` reports its image output modality the way OpenRouter does, so the
+// listing classifier routes it to the image-model picker, not the chat picker.
 const modelsListing = (): Response =>
   Response.json({
     object: "list",
-    data: FAKE_MODELS.map((id) => ({ id, object: "model", owned_by: "kiri-test" })),
+    data: FAKE_MODELS.map((id) => ({
+      id,
+      object: "model",
+      owned_by: "kiri-test",
+      ...(id === "paint" ? { architecture: { output_modalities: ["image"] } } : {}),
+    })),
   });
 
 /**
@@ -218,6 +240,12 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
   const { pathname } = new URL(req.url);
 
   if (req.method === "GET" && pathname.endsWith("/models")) return modelsListing();
+
+  if (req.method === "POST" && pathname.endsWith("/images/generations")) {
+    const body = (await req.json()) as ImageGenerationRequest;
+    if ((body.prompt ?? "").startsWith("boom")) return errorResponse();
+    return Response.json({ created: 0, data: [{ b64_json: FAKE_IMAGE_B64 }] });
+  }
 
   if (req.method === "POST" && pathname.endsWith("/chat/completions")) {
     const body = (await req.json()) as {
@@ -266,6 +294,8 @@ export interface FakeOpenAi {
   port: number;
   /** Chat-completion request bodies the stub received, in order — for asserting what kiri sent the model. */
   requests: ChatCompletionRequest[];
+  /** Image-generation request bodies the stub received, in order. */
+  imageRequests: ImageGenerationRequest[];
   stop(): void;
 }
 
@@ -277,13 +307,18 @@ export interface FakeOpenAi {
  */
 export const startFakeOpenAi = (port = 0): FakeOpenAi => {
   const requests: ChatCompletionRequest[] = [];
+  const imageRequests: ImageGenerationRequest[] = [];
   const server = Bun.serve({
     port,
     fetch: async (req) => {
-      // Capture chat-completion bodies; clone first so the handler can still
-      // read the stream.
-      if (req.method === "POST" && new URL(req.url).pathname.endsWith("/chat/completions")) {
+      // Capture request bodies; clone first so the handler can still read the
+      // stream.
+      const { pathname } = new URL(req.url);
+      if (req.method === "POST" && pathname.endsWith("/chat/completions")) {
         requests.push((await req.clone().json()) as ChatCompletionRequest);
+      }
+      if (req.method === "POST" && pathname.endsWith("/images/generations")) {
+        imageRequests.push((await req.clone().json()) as ImageGenerationRequest);
       }
       return fakeOpenAiFetch(req);
     },
@@ -293,6 +328,7 @@ export const startFakeOpenAi = (port = 0): FakeOpenAi => {
     url: `http://127.0.0.1:${actualPort}/v1`,
     port: actualPort,
     requests,
+    imageRequests,
     stop: () => server.stop(true),
   };
 };

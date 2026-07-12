@@ -22,6 +22,7 @@ import {
   getSessionMessages,
   setSessionPinned,
   setSessionStatus,
+  updateSessionImageModel,
 } from "../sessions/index.ts";
 import { workflowSchema } from "../workflows/index.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
@@ -100,12 +101,15 @@ const fakeClients = (
   opts: {
     model?: LlmModel;
     resolveError?: string;
-    models?: { id: string; provider: string }[];
+    models?: { id: string; provider: string; output: "text" | "image" }[];
   } = {},
 ): LlmClients => ({
   resolveModel: () => {
     if (opts.resolveError) throw new Error(opts.resolveError);
     return opts.model ?? (new MockLanguageModelV3({}) as unknown as LlmModel);
+  },
+  resolveImageModel: () => {
+    throw new Error("no image model in this fake");
   },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: opts.models ?? [], failures: [] }),
@@ -193,14 +197,16 @@ describe("sessions routes", () => {
   describe("GET /api/models", () => {
     it("returns the aggregated model listing", async () => {
       const app = makeApp(
-        fakeClients({ models: [{ id: "anthropic:claude", provider: "anthropic" }] }),
+        fakeClients({
+          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+        }),
       );
 
       const res = await app.request("/api/models");
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        models: [{ id: "anthropic:claude", provider: "anthropic" }],
+        models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
         failures: [],
       });
     });
@@ -607,6 +613,37 @@ describe("sessions routes", () => {
         body: JSON.stringify(body),
       });
 
+    it("sets and clears the session's image model", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      expect(getSession(env.db, "s1")?.imageModel).toBeNull();
+
+      const res = await patchBody(app, "s1", { imageModel: "openrouter:gemini-image" });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { session: { imageModel: string | null } };
+      expect(body.session.imageModel).toBe("openrouter:gemini-image");
+      expect(getSession(env.db, "s1")?.imageModel).toBe("openrouter:gemini-image");
+
+      const cleared = await patchBody(app, "s1", { imageModel: null });
+
+      expect(cleared.status).toBe(200);
+      expect(getSession(env.db, "s1")?.imageModel).toBeNull();
+    });
+
+    it("rejects an image model that does not resolve and leaves it unchanged", async () => {
+      const app = makeApp(fakeClients({ resolveError: 'unknown llm provider "ghost"' }));
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await patchBody(app, "s1", { imageModel: "ghost:model" });
+
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'unknown llm provider "ghost"',
+      });
+      expect(getSession(env.db, "s1")?.imageModel).toBeNull();
+    });
+
     it("attaches a workspace persona and publishes session.updated", async () => {
       const events: KiriEvent[] = [];
       const bus = createEventBus();
@@ -831,6 +868,40 @@ describe("sessions routes", () => {
       expect(toolNames).not.toContain("create_article");
       expect(toolNames).toContain("edit_article");
       expect(systemText).not.toContain("You can save articles");
+    });
+
+    it("offers generate_image only while an image model is selected", async () => {
+      // The image tools self-gate on the session's selection the way the
+      // filesystem tools self-gate on configuration.
+      let toolNames: string[] = [];
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const first = waitForSettled("s1");
+      await (await postMessage(app, "s1", "hello")).text();
+      await first;
+      expect(toolNames).not.toContain("generate_image");
+
+      updateSessionImageModel(env.db, "s1", "fake:paint");
+      const second = waitForSettled("s1");
+      await (await postMessage(app, "s1", "hello again")).text();
+      await second;
+      expect(toolNames).toContain("generate_image");
     });
 
     it("offers the filesystem tools with sandbox guidance when kiri.yaml declares one", async () => {

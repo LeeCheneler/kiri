@@ -55,6 +55,20 @@ export function updateSessionModel(db: KiriDb, id: string, model: string): Sessi
 }
 
 /**
+ * Set the `provider:model` id the session generates images with, or pass
+ * `null` to turn image generation off. Resolved when an image is generated,
+ * so the change applies to the next generation. Returns the updated row.
+ */
+export function updateSessionImageModel(
+  db: KiriDb,
+  id: string,
+  imageModel: string | null,
+): Session {
+  db.update(sessions).set({ imageModel }).where(eq(sessions.id, id)).run();
+  return getSession(db, id) as Session;
+}
+
+/**
  * Attach a persona to a session (`personas/<name>.md`), or pass `null` to
  * detach. Like the model, the persona is read into the system prompt at the
  * start of each turn, so the change takes effect from the next turn. Returns

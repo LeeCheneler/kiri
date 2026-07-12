@@ -13,6 +13,7 @@ export {
 export {
   type GenerateLlmTextResult,
   type LlmClients,
+  type LlmImageModel,
   type LlmModel,
   type LlmUsage,
   createLlmClients,
@@ -20,6 +21,7 @@ export {
 } from "./clients.ts";
 export {
   type LlmModelInfo,
+  type LlmModelOutput,
   type LlmModelsFailure,
   type LlmModelsResult,
   listLlmModels,

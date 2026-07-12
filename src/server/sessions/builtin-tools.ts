@@ -53,6 +53,11 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
+    name: "generate_image",
+    description: "Generate an image with the session's selected image model.",
+    defaultPermission: "allow",
+  },
+  {
     name: "list_workflows",
     description: "List the workspace's workflows and their declared inputs.",
     defaultPermission: "allow",

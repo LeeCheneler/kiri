@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `image_model` text;

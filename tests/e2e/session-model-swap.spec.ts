@@ -15,7 +15,7 @@ test("swapping the model mid-chat changes which model the next turn runs against
   // fails — where echo would have replied — proving the swap took effect for the
   // turns that follow it.
   await useModel(page, "fake:boom");
-  await expect(page.getByLabel(/model/i)).toHaveValue("fake:boom");
+  await expect(page.getByLabel(/^model/i)).toHaveValue("fake:boom");
 
   await sendMessage(page, "after the swap");
   await expect(page.locator('[data-status="failed"]')).toBeVisible({ timeout: 10_000 });
@@ -31,5 +31,5 @@ test("the model select is disabled while a turn is streaming", async ({ page }) 
   // While the slow turn streams the session is running, so the model can't be
   // swapped out from under the in-flight turn.
   await expect(page.locator('[data-status="working"]')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByLabel(/model/i)).toBeDisabled();
+  await expect(page.getByLabel(/^model/i)).toBeDisabled();
 });

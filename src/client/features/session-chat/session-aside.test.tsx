@@ -50,8 +50,8 @@ describe("<SessionAside>", () => {
       http.get("*/api/models", () =>
         HttpResponse.json({
           models: [
-            { id: "anthropic:claude", provider: "anthropic" },
-            { id: "openai:gpt", provider: "openai" },
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openai:gpt", provider: "openai", output: "text" },
           ],
           failures: [],
         }),
@@ -81,9 +81,9 @@ describe("<SessionAside>", () => {
       http.get("*/api/models", () =>
         HttpResponse.json({
           models: [
-            { id: "openai:gpt", provider: "openai" },
-            { id: "anthropic:claude", provider: "anthropic" },
-            { id: "google:gemini", provider: "google" },
+            { id: "openai:gpt", provider: "openai", output: "text" },
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "google:gemini", provider: "google", output: "text" },
           ],
           failures: [],
         }),
@@ -99,12 +99,148 @@ describe("<SessionAside>", () => {
     ]);
   });
 
+  it("offers only text-output models in the model picker", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /^model/i }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "anthropic:claude",
+    ]);
+  });
+
+  it("offers image-output models in the image model picker, with None leading", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
+            { id: "openai:gpt-image-1", provider: "openai", output: "image" },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /image model/i }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "None",
+      "openai:gpt-image-1",
+      "openrouter:google/gemini-image",
+    ]);
+  });
+
+  it("hides the image model picker when no provider offers an image model", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await screen.findByRole("combobox", { name: /^model/i });
+    expect(screen.queryByRole("combobox", { name: /image model/i })).toBeNull();
+  });
+
+  it("sets the session's image model when one is picked", async () => {
+    let patched: { imageModel?: string | null } = {};
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
+          ],
+          failures: [],
+        }),
+      ),
+      http.patch("*/api/sessions/:id", async ({ request }) => {
+        patched = (await request.json()) as { imageModel?: string | null };
+        return HttpResponse.json(sessionDetail({ imageModel: "openrouter:google/gemini-image" }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const combobox = (await screen.findByRole("combobox", {
+      name: /image model/i,
+    })) as HTMLInputElement;
+    await userEvent.click(combobox);
+    await userEvent.click(screen.getByRole("option", { name: "openrouter:google/gemini-image" }));
+
+    await waitFor(() => expect(patched.imageModel).toBe("openrouter:google/gemini-image"));
+    await waitFor(() => expect(combobox.value).toBe("openrouter:google/gemini-image"));
+  });
+
+  it("turns image generation off when None is picked", async () => {
+    let patched: { imageModel?: string | null } = { imageModel: "unset" };
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ imageModel: "openrouter:google/gemini-image" })),
+      ),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
+          ],
+          failures: [],
+        }),
+      ),
+      http.patch("*/api/sessions/:id", async ({ request }) => {
+        patched = (await request.json()) as { imageModel?: string | null };
+        return HttpResponse.json(sessionDetail({ imageModel: null }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const combobox = (await screen.findByRole("combobox", {
+      name: /image model/i,
+    })) as HTMLInputElement;
+    expect(combobox.value).toBe("openrouter:google/gemini-image");
+    await userEvent.click(combobox);
+    await userEvent.click(screen.getByRole("option", { name: "None" }));
+
+    await waitFor(() => expect(patched.imageModel).toBeNull());
+    await waitFor(() => expect(combobox.value).toBe("None"));
+  });
+
+  it("pins a selected image model that the provider no longer lists", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ imageModel: "openrouter:delisted-image" })),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const combobox = (await screen.findByRole("combobox", {
+      name: /image model/i,
+    })) as HTMLInputElement;
+    expect(combobox.value).toBe("openrouter:delisted-image");
+  });
+
   it("surfaces a provider whose model listing failed", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
       http.get("*/api/models", () =>
         HttpResponse.json({
-          models: [{ id: "anthropic:claude", provider: "anthropic" }],
+          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
           failures: [{ provider: "openai", reason: "401 Unauthorized" }],
         }),
       ),
@@ -150,7 +286,14 @@ describe("<SessionAside>", () => {
       ),
       http.get("*/api/models", () =>
         HttpResponse.json({
-          models: [{ id: "anthropic:claude", provider: "anthropic", contextWindow: 200000 }],
+          models: [
+            {
+              id: "anthropic:claude",
+              provider: "anthropic",
+              contextWindow: 200000,
+              output: "text",
+            },
+          ],
           failures: [],
         }),
       ),

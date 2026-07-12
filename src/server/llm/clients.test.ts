@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { generateImage } from "ai";
 import { http, HttpResponse, delay } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import { createLlmClients, generateLlmText } from "./clients.ts";
@@ -22,6 +23,10 @@ const local: LlmProvider = {
   type: "openai-compatible",
   baseUrl: "http://localhost:1234/v1",
 };
+
+// A 1x1 transparent PNG, so the SDK's media-type sniffing sees real image bytes.
+const TINY_PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 const anthropicMessages = (text: string, usage = { input_tokens: 11, output_tokens: 22 }) =>
   http.post("https://api.anthropic.com/v1/messages", () =>
@@ -94,6 +99,55 @@ describe("llm clients", () => {
     expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 13, totalTokens: 20 });
   });
 
+  it("resolves an openai image model against the images endpoint with the key", async () => {
+    let headers: Headers | undefined;
+    server.use(
+      http.post("https://api.openai.com/v1/images/generations", ({ request }) => {
+        headers = request.headers;
+        return HttpResponse.json({ created: 0, data: [{ b64_json: TINY_PNG_B64 }] });
+      }),
+    );
+    const clients = createLlmClients(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+
+    const { image } = await generateImage({
+      model: clients.resolveImageModel("openai:gpt-image-1"),
+      prompt: "a red panda",
+    });
+
+    expect(image.base64).toBe(TINY_PNG_B64);
+    expect(headers?.get("authorization")).toBe("Bearer sk-test");
+  });
+
+  it("resolves an openai-compatible image model against its base_url images endpoint", async () => {
+    server.use(
+      http.post("http://localhost:1234/v1/images/generations", () =>
+        HttpResponse.json({ created: 0, data: [{ b64_json: TINY_PNG_B64 }] }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(local), {});
+
+    const { image } = await generateImage({
+      model: clients.resolveImageModel("local:flux"),
+      prompt: "a red panda",
+    });
+
+    expect(image.base64).toBe(TINY_PNG_B64);
+  });
+
+  it("refuses an image model on an anthropic provider", () => {
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(() => clients.resolveImageModel("anthropic:claude")).toThrow(
+      /offers no image generation/,
+    );
+  });
+
+  it("rejects an image model id whose provider is not configured", () => {
+    const clients = createLlmClients(registryWith(openai), {});
+
+    expect(() => clients.resolveImageModel("ghost:model")).toThrow(/unknown llm provider "ghost"/);
+  });
+
   it("lists models across configured providers via listModels", async () => {
     server.use(
       http.get("https://api.anthropic.com/v1/models", () =>
@@ -104,7 +158,9 @@ describe("llm clients", () => {
 
     const result = await clients.listModels();
 
-    expect(result.models).toEqual([{ id: "anthropic:claude-haiku-4-5", provider: "anthropic" }]);
+    expect(result.models).toEqual([
+      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text" },
+    ]);
     expect(result.failures).toEqual([]);
   });
 

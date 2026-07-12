@@ -59,6 +59,52 @@ describe("<ToolInvocation>", () => {
     expect(screen.queryByText("ticket")).toBeNull();
   });
 
+  it("renders a settled generated image below the block, with the prompt as detail", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={part({
+          type: "tool-generate_image",
+          state: "output-available",
+          input: { prompt: "a red panda" },
+          output: {
+            model: "fake:paint",
+            mediaType: "image/png",
+            image: "data:image/png;base64,AAAA",
+          },
+        })}
+      />,
+    );
+
+    // The image is visible without expanding anything, and previews on click.
+    const thumb = screen.getByRole("img", { name: "Generated image" }) as HTMLImageElement;
+    expect(thumb.src).toBe("data:image/png;base64,AAAA");
+    expect(screen.getByText("a red panda")).toBeDefined();
+
+    // The expanded panel shows the call's metadata without the base64 payload.
+    await user.click(screen.getByRole("button", { name: /generate image/i }));
+    expect(screen.getByText(/"model": "fake:paint"/)).toBeDefined();
+    expect(screen.queryByText(/base64,AAAA/)).toBeNull();
+  });
+
+  it("renders a plain JSON result for a generate_image output without an image", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={part({
+          type: "tool-generate_image",
+          state: "output-available",
+          input: { prompt: "a red panda" },
+          output: { note: "nothing came back" },
+        })}
+      />,
+    );
+
+    expect(screen.queryByRole("img")).toBeNull();
+    await user.click(screen.getByRole("button", { name: /generate image/i }));
+    expect(screen.getByText(/"note": "nothing came back"/)).toBeDefined();
+  });
+
   it("surfaces a tool error", async () => {
     const user = userEvent.setup();
     const { container } = render(

@@ -6,10 +6,10 @@ import { useModels, useSessionsFeed } from "../../state/sessions.ts";
 
 /**
  * One-click new-session action. Starts a session against a default model — the
- * most recent session's model, falling back to the first available model — and
- * navigates to its chat, no model picker in the way (the model is swappable
- * once inside, as is the persona). Disabled, with a hint, when no models are
- * configured.
+ * most recent session's model, falling back to the first available text-output
+ * model (only those can drive a session) — and navigates to its chat, no model
+ * picker in the way (the model is swappable once inside, as is the persona).
+ * Disabled, with a hint, when no models are configured.
  */
 export function NewSessionButton() {
   const [, navigate] = useLocation();
@@ -17,7 +17,8 @@ export function NewSessionButton() {
   const sessions = useSessionsFeed();
   const [starting, setStarting] = useState(false);
 
-  const defaultModel = sessions.data?.[0]?.model ?? models.data?.models[0]?.id;
+  const defaultModel =
+    sessions.data?.[0]?.model ?? models.data?.models.find((model) => model.output === "text")?.id;
 
   const start = async () => {
     if (defaultModel === undefined) return;

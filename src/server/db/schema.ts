@@ -184,6 +184,13 @@ export const sessions = sqliteTable("sessions", {
   /** `provider:model` id the session's turns run against, resolved through the same registry `llm:` steps use. */
   model: text("model").notNull(),
   /**
+   * `provider:model` id of the image-generation model the session generates
+   * images with, or null when image generation is off. A selection reference
+   * like `model` — resolved when an image is generated, so a change applies
+   * to the next generation.
+   */
+  imageModel: text("image_model"),
+  /**
    * Name of the persona (`personas/<name>.md`) attached when the session was
    * created, or null for none. A selection reference like `model` — not a
    * snapshot of the persona's text, which is read fresh from disk each turn so

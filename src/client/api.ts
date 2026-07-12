@@ -575,6 +575,8 @@ export interface ModelInfo {
   contextWindow?: number;
   /** Maximum output tokens, when the provider's listing reports it. */
   outputLimit?: number;
+  /** What the model produces. Models producing neither text nor images are never listed. */
+  output: "text" | "image";
 }
 
 /** A provider whose model listing failed, surfaced so the picker can explain a gap. */
@@ -722,6 +724,8 @@ export interface Session {
   status: SessionStatus;
   /** `provider:model` id the session's turns run against. */
   model: string;
+  /** `provider:model` id the session generates images with, or null when image generation is off. */
+  imageModel: string | null;
   /** Name of the persona attached at creation (`personas/<name>.md`), or null for none. */
   persona: string | null;
   /** Whether the user has pinned the session onto the feed's Pinned tab. */
@@ -851,6 +855,25 @@ export const patchSessionModel = async (id: string, model: string): Promise<{ se
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model }),
+    }),
+  );
+
+/**
+ * Change the `provider:model` id a session generates images with, or pass
+ * `null` to turn image generation off. Resolved when an image is generated,
+ * so the change applies to the next generation. Throws `ApiError` on non-2xx
+ * — 404 for an unknown session, 400 when the model can't be resolved against
+ * the provider registry.
+ */
+export const patchSessionImageModel = async (
+  id: string,
+  imageModel: string | null,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageModel }),
     }),
   );
 

@@ -33,6 +33,7 @@ import migration0019 from "../../../drizzle/0019_decouple_articles_from_runs.sql
   type: "text",
 };
 import migration0020 from "../../../drizzle/0020_add_session_pinned.sql" with { type: "text" };
+import migration0021 from "../../../drizzle/0021_add_session_image_model.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -76,6 +77,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0018_rename_is_publish_to_is_article", sql: migration0018 },
   { name: "0019_decouple_articles_from_runs", sql: migration0019 },
   { name: "0020_add_session_pinned", sql: migration0020 },
+  { name: "0021_add_session_image_model", sql: migration0021 },
 ];
 
 /**
