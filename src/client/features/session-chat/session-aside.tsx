@@ -33,10 +33,11 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const contextTokens = currentContextTokens(detail.messages);
   const contextLimit = contextWindowForModel(models, session.model);
   // Pin the current model into the options even if the provider no longer lists
-  // it, so the control always has a value to show. Sorted so the long list is
-  // scannable. Swapping is blocked mid-turn: the in-flight turn already resolved
-  // its model and the change applies next.
-  const modelIds = models.map((model) => model.id);
+  // it, so the control always has a value to show. Only text-output models can
+  // hold a conversation, so only they are offered. Sorted so the long list is
+  // scannable. Swapping is blocked mid-turn: the in-flight turn already
+  // resolved its model and the change applies next.
+  const modelIds = models.filter((model) => model.output === "text").map((model) => model.id);
   const withCurrent = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
   const modelOptions = [...withCurrent].sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: "base" }),

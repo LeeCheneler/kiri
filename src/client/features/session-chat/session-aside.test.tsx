@@ -50,8 +50,8 @@ describe("<SessionAside>", () => {
       http.get("*/api/models", () =>
         HttpResponse.json({
           models: [
-            { id: "anthropic:claude", provider: "anthropic" },
-            { id: "openai:gpt", provider: "openai" },
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openai:gpt", provider: "openai", output: "text" },
           ],
           failures: [],
         }),
@@ -81,9 +81,9 @@ describe("<SessionAside>", () => {
       http.get("*/api/models", () =>
         HttpResponse.json({
           models: [
-            { id: "openai:gpt", provider: "openai" },
-            { id: "anthropic:claude", provider: "anthropic" },
-            { id: "google:gemini", provider: "google" },
+            { id: "openai:gpt", provider: "openai", output: "text" },
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "google:gemini", provider: "google", output: "text" },
           ],
           failures: [],
         }),
@@ -99,12 +99,33 @@ describe("<SessionAside>", () => {
     ]);
   });
 
+  it("offers only text-output models in the model picker", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /model/i }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "anthropic:claude",
+    ]);
+  });
+
   it("surfaces a provider whose model listing failed", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
       http.get("*/api/models", () =>
         HttpResponse.json({
-          models: [{ id: "anthropic:claude", provider: "anthropic" }],
+          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
           failures: [{ provider: "openai", reason: "401 Unauthorized" }],
         }),
       ),
@@ -150,7 +171,14 @@ describe("<SessionAside>", () => {
       ),
       http.get("*/api/models", () =>
         HttpResponse.json({
-          models: [{ id: "anthropic:claude", provider: "anthropic", contextWindow: 200000 }],
+          models: [
+            {
+              id: "anthropic:claude",
+              provider: "anthropic",
+              contextWindow: 200000,
+              output: "text",
+            },
+          ],
           failures: [],
         }),
       ),
