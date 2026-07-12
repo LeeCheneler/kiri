@@ -98,10 +98,12 @@ chat is the authorisation — as do the file-reading tools, whose reach is the
 `generate_image`, which runs against the image model you picked (see
 *Generating images* below). The
 run tools (`run_workflow`, `rerun_workflow`) execute your workflows, the
-workflow write tools put files in your repo, and the filesystem write tools
-change your own files, so those default to **Ask**. All of them are listed
-under **Built-in tools** on the same Tools & MCP page, so any default can be
-reviewed and changed, including switching a tool off entirely.
+workflow write tools put files in your repo, the filesystem write tools
+change your own files, and `run_command` runs shell commands on your machine
+(see *Running shell commands* below), so those default to **Ask**. All of
+them are listed under **Built-in tools** on the same Tools & MCP page, so
+any default can be reviewed and changed, including switching a tool off
+entirely.
 
 ## Running workflows
 
@@ -208,6 +210,38 @@ filesystem:
   takes an explicit recursive opt-in, and an allowed directory itself can
   never be deleted. Tighten or switch any of them off under **Built-in
   tools** on the Tools & MCP page.
+
+## Running shell commands
+
+Declare `shell:` in `kiri.yaml` and sessions gain a `run_command` tool —
+builds, tests, git, your project's own scripts — run in the working
+directories you list:
+
+```yaml
+shell:
+  working_directories:
+    - . # the workspace itself
+    - ~/projects/my-app
+```
+
+- Declaring the section is what turns the tool on — without it, sessions
+  can't run commands at all. Entries resolve like the filesystem sandbox:
+  relative to the workspace root, with `~` expanding to your home directory.
+- Be clear about what the list does: it confines where a command *starts*,
+  not what it can touch — a shell command can reach anything you can. That's
+  why every call defaults to **Ask**: the exact command is shown verbatim,
+  with its directory, before anything runs, and the system prompt holds the
+  model to safe, narrowly-scoped commands as a first line of defence in
+  front of your approval.
+- Commands run non-interactively and are killed at their timeout (120
+  seconds unless the call asks for more, capped at ten minutes) — servers
+  and watchers aren't supported, and cancelling the turn kills the command
+  with it. The transcript shows each command's exit status, stdout, and
+  stderr, with long output trimmed to its tail.
+- Prefer this for *executing* things; reading and editing files is the
+  filesystem tools' job, with their tighter boundary and diff previews.
+  Tighten `run_command` or switch it off under **Built-in tools** on the
+  Tools & MCP page.
 
 ## Pinning
 
