@@ -38,10 +38,14 @@ describe("llm model listing", () => {
     expect(result.models.map((m) => m.id).sort()).toEqual([
       "fake:boom",
       "fake:echo",
+      "fake:paint",
       "fake:slow",
       "fake:tool",
     ]);
     expect(result.models.every((m) => m.provider === "fake")).toBe(true);
+    // The stub's `paint` reports an image output modality; the rest are chat.
+    expect(result.models.find((m) => m.id === "fake:paint")?.output).toBe("image");
+    expect(result.models.find((m) => m.id === "fake:echo")?.output).toBe("text");
   });
 
   it("collects an unreachable provider as a failure while live ones still resolve", async () => {
@@ -53,7 +57,7 @@ describe("llm model listing", () => {
 
     const result = await clients.listModels();
 
-    expect(result.models.map((m) => m.provider)).toEqual(["fake", "fake", "fake", "fake"]);
+    expect(result.models.map((m) => m.provider)).toEqual(["fake", "fake", "fake", "fake", "fake"]);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0].provider).toBe("dead");
     expect(result.failures[0].reason).toBeTruthy();

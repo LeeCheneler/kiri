@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { FAKE_USAGE, fakeOpenAiFetch } from "../support/fake-openai.ts";
+import {
+  FAKE_IMAGE_B64,
+  FAKE_USAGE,
+  fakeOpenAiFetch,
+  startFakeOpenAi,
+} from "../support/fake-openai.ts";
 
 const post = (body: unknown, init: RequestInit = {}): Request =>
   new Request("http://stub/v1/chat/completions", {
@@ -76,5 +81,43 @@ describe("fake openai stub handler", () => {
     const res = await fakeOpenAiFetch(new Request("http://stub/v1/nonsense"));
 
     expect(res.status).toBe(404);
+  });
+
+  it("generates a fixed image from the images endpoint", async () => {
+    const res = await fakeOpenAiFetch(
+      new Request("http://stub/v1/images/generations", {
+        method: "POST",
+        body: JSON.stringify({ model: "paint", prompt: "a red panda" }),
+      }),
+    );
+    const json = (await res.json()) as { data: { b64_json: string }[] };
+
+    expect(res.status).toBe(200);
+    expect(json.data).toEqual([{ b64_json: FAKE_IMAGE_B64 }]);
+  });
+
+  it("fails an image generation whose prompt starts with boom", async () => {
+    const res = await fakeOpenAiFetch(
+      new Request("http://stub/v1/images/generations", {
+        method: "POST",
+        body: JSON.stringify({ model: "paint", prompt: "boom please" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+  });
+
+  it("captures image-generation request bodies on the running server", async () => {
+    const fake = startFakeOpenAi();
+    try {
+      await fetch(`${fake.url}/images/generations`, {
+        method: "POST",
+        body: JSON.stringify({ model: "paint", prompt: "a red panda" }),
+      });
+
+      expect(fake.imageRequests).toEqual([{ model: "paint", prompt: "a red panda" }]);
+    } finally {
+      fake.stop();
+    }
   });
 });
