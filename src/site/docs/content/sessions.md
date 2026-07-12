@@ -7,7 +7,9 @@ activity feed.
 
 Start one with **+ New session** in the side nav. Sessions use the same
 `kiri.yaml` provider registry as `llm:` steps; swap the model any time from
-the right-hand aside — it applies from the next turn. A streaming turn
+the right-hand aside — it applies from the next turn. A note under the picker
+says whether the chosen model accepts image input, when its provider reports
+that — worth a glance before pasting in a screenshot. A streaming turn
 survives a reload: it keeps running on the server, and reopening the session
 rejoins it live.
 

@@ -120,6 +120,57 @@ describe("<SessionAside>", () => {
     ]);
   });
 
+  it("notes that the selected model accepts image input", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text", imageInput: true },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    expect(await screen.findByText("Accepts image input")).toBeDefined();
+  });
+
+  it("notes that the selected model is text input only", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text", imageInput: false },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    expect(await screen.findByText("Text input only")).toBeDefined();
+  });
+
+  it("omits the image input note when the listing doesn't say", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await screen.findByRole("combobox", { name: /^model/i });
+    expect(screen.queryByText("Accepts image input")).toBeNull();
+    expect(screen.queryByText("Text input only")).toBeNull();
+  });
+
   it("offers image-output models in the image model picker, with None leading", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),

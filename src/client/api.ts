@@ -577,6 +577,8 @@ export interface ModelInfo {
   outputLimit?: number;
   /** What the model produces. Models producing neither text nor images are never listed. */
   output: "text" | "image";
+  /** Whether the model accepts image input; absent when the provider's listing doesn't say. */
+  imageInput?: boolean;
 }
 
 /** A provider whose model listing failed, surfaced so the picker can explain a gap. */
