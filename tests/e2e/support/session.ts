@@ -19,7 +19,8 @@ export const startSession = async (page: Page): Promise<string> => {
  * await. Drives the searchable combobox: open it, type to filter, pick the match.
  */
 export const useModel = async (page: Page, model: string): Promise<void> => {
-  const combobox = page.getByLabel(/model/i);
+  // Anchored: /model/i would also match the sibling "Image model" picker.
+  const combobox = page.getByLabel(/^model/i);
   if ((await combobox.inputValue()) === model) return;
   const persisted = page.waitForResponse(
     (res) => res.request().method() === "PATCH" && res.url().includes("/api/sessions/"),
