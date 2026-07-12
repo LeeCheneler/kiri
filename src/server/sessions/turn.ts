@@ -11,6 +11,7 @@ import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { cullToolHistory, currentContextTokens } from "./cull-tool-results.ts";
+import { stripImageToolResults } from "./image-tool-results.ts";
 import {
   type Message,
   type Session,
@@ -257,12 +258,16 @@ async function streamCore(
     contextTokens: currentContextTokens(rows),
     contextWindow,
   });
-  // Two further send-time savings on top of culling, both leaving the
+  // Three further send-time savings on top of culling, all leaving the
   // untouched `history` to feed persistence below: drop the app-only diff
   // from filesystem write results (the model already knows the change from
-  // the call's input), then re-encode surviving JSON tool results as TOON
-  // wherever that is smaller — per result, so it never enlarges one.
-  const modelHistory = toonEncodeToolResults(stripWriteToolDiffs(culledHistory));
+  // the call's input), drop the image payload from generate_image results
+  // (the image is for the user, not the model), then re-encode surviving
+  // JSON tool results as TOON wherever that is smaller — per result, so it
+  // never enlarges one.
+  const modelHistory = toonEncodeToolResults(
+    stripWriteToolDiffs(stripImageToolResults(culledHistory)),
+  );
   const modelMessages = await convertToModelMessages(modelHistory);
 
   // Compose the turn's system prompt — the kiri core layer, the workspace's

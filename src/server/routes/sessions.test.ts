@@ -22,6 +22,7 @@ import {
   getSessionMessages,
   setSessionPinned,
   setSessionStatus,
+  updateSessionImageModel,
 } from "../sessions/index.ts";
 import { workflowSchema } from "../workflows/index.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
@@ -867,6 +868,40 @@ describe("sessions routes", () => {
       expect(toolNames).not.toContain("create_article");
       expect(toolNames).toContain("edit_article");
       expect(systemText).not.toContain("You can save articles");
+    });
+
+    it("offers generate_image only while an image model is selected", async () => {
+      // The image tools self-gate on the session's selection the way the
+      // filesystem tools self-gate on configuration.
+      let toolNames: string[] = [];
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          toolNames = (options.tools ?? []).map((t) => t.name);
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const first = waitForSettled("s1");
+      await (await postMessage(app, "s1", "hello")).text();
+      await first;
+      expect(toolNames).not.toContain("generate_image");
+
+      updateSessionImageModel(env.db, "s1", "fake:paint");
+      const second = waitForSettled("s1");
+      await (await postMessage(app, "s1", "hello again")).text();
+      await second;
+      expect(toolNames).toContain("generate_image");
     });
 
     it("offers the filesystem tools with sandbox guidance when kiri.yaml declares one", async () => {

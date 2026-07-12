@@ -21,10 +21,12 @@ import {
   createSystemPromptBuilder,
   getSession,
   getSessionMessages,
+  imageTools,
   runTurn,
+  updateSessionImageModel,
   updateSessionPersona,
 } from "../../src/server/sessions/index.ts";
-import { type FakeOpenAi, startFakeOpenAi } from "../support/fake-openai.ts";
+import { FAKE_IMAGE_B64, type FakeOpenAi, startFakeOpenAi } from "../support/fake-openai.ts";
 
 /**
  * Integration coverage for session turns over the *real* streaming stack:
@@ -124,6 +126,48 @@ describe("session turn streaming", () => {
     const messages = getSessionMessages(db, session.id);
     expect(assistantText(messages[1].parts)).toBe("All done.");
     expect(getSession(db, session.id)?.status).toBe("idle");
+  });
+
+  it("drives generate_image over the wire, keeping the image bytes out of the model's context", async () => {
+    const session = createSession(db, "fake:tool");
+    updateSessionImageModel(db, session.id, "fake:paint");
+    const tools = imageTools({ db, sessionId: session.id, llmClients });
+
+    const first = await runTurn(
+      { db, llmClients, tools },
+      { session, userMessage: userMessage('call:generate_image {"prompt":"a red panda"}') },
+    );
+    await first.done;
+
+    // The stub generated from the session's selected model with the prompt…
+    expect(fake.imageRequests).toMatchObject([{ model: "paint", prompt: "a red panda" }]);
+
+    // …the stored transcript carries the result as a renderable data URL…
+    const messages = getSessionMessages(db, session.id);
+    const toolPart = (
+      messages[1].parts as Array<{
+        type: string;
+        output?: { image?: string; model?: string; mediaType?: string };
+      }>
+    ).find((p) => p.type === "tool-generate_image");
+    expect(toolPart?.output).toEqual({
+      model: "fake:paint",
+      mediaType: "image/png",
+      image: `data:image/png;base64,${FAKE_IMAGE_B64}`,
+    });
+    expect(assistantText(messages[1].parts)).toBe("All done.");
+
+    // …and no chat request ever carries the base64 payload: the same-turn
+    // follow-up sees toModelOutput's compact form, and the next turn's
+    // history is stripped at send time.
+    const second = await runTurn(
+      { db, llmClients, tools },
+      { session: getSession(db, session.id) ?? session, userMessage: userMessage("thanks") },
+    );
+    await second.done;
+    for (const request of fake.requests) {
+      expect(JSON.stringify(request)).not.toContain(FAKE_IMAGE_B64);
+    }
   });
 
   it("composes the layered system prompt — core, kiri.md, persona — and sends it to the model", async () => {

@@ -34,6 +34,7 @@ import {
   getSession,
   getSessionMessages,
   getSessionPreviews,
+  imageTools,
   listPersonas,
   resumeTurn,
   runTurn,
@@ -247,10 +248,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (offered !== null) tools[name] = offered;
     }
     const sandbox = sandboxDirectories();
+    // The image tools self-gate on selection the same way the filesystem
+    // tools self-gate on configuration: no image model on the session, no
+    // generate_image offered.
     const builtin: ToolSet = {
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
+      ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
       const builtinTool = builtin[name];
