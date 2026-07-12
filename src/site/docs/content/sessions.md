@@ -92,7 +92,9 @@ Kiri's built-in tools carry the same controls, each with its own default:
 the article tools, workflow listing and reads, and the authoring guide
 default to **Always allow** — they only touch kiri's own data, and asking in
 chat is the authorisation — as do the file-reading tools, whose reach is the
-`filesystem:` sandbox you declared (see *Working with your files* below). The
+`filesystem:` sandbox you declared (see *Working with your files* below), and
+`generate_image`, which runs against the image model you picked (see
+*Generating images* below). The
 run tools (`run_workflow`, `rerun_workflow`) execute your workflows, the
 workflow write tools put files in your repo, and the filesystem write tools
 change your own files, so those default to **Ask**. All of them are listed
@@ -155,6 +157,22 @@ pointer; the piece itself lives on its own page.
 - Ask for changes and the session edits the article in place — an open article
   page updates live as the edit lands.
 - Articles belong to their session: deleting the session deletes them.
+
+## Generating images
+
+Pick an **Image model** in the right-hand aside and the session can generate
+images. The picker lists the image-capable models your providers offer and
+only appears when there is at least one; **None** switches generation off
+again.
+
+- Ask in chat — "make a cover image for this post" — and the assistant
+  generates it with your selected model. The image appears full width in the
+  conversation; click it for the full-resolution view.
+- Selecting the model is the authorisation, so `generate_image` runs without
+  prompting by default — tighten it or switch it off under **Built-in tools**
+  on the Tools & MCP page. Each generation is a normal provider-billed call.
+- Generated images stay in the transcript but are never sent back to the
+  chat model on later turns, so generating doesn't eat your context window.
 
 ## Working with your files
 

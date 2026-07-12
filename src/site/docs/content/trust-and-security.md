@@ -48,7 +48,9 @@ Tools & MCP page and persisted by tool name to a gitignored
 which you can also hand-edit. Kiri's built-in tools follow the same rules with
 per-tool defaults: the article tools, workflow listing and reads, and the
 authoring guide default to Always allow — they only write articles inside
-kiri and read its own data, no shell, no network. The run tools
+kiri and read its own data, no shell, no network. `generate_image` defaults
+to Always allow too: it exists only while you've picked an image model for
+the session, and picking it is the authorisation. The run tools
 (`run_workflow`, `rerun_workflow`) run your scripts, the workflow write
 tools put runnable YAML into your repo, and the filesystem write tools
 change your own files, so
