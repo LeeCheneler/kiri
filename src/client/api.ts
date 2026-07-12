@@ -575,6 +575,8 @@ export interface ModelInfo {
   contextWindow?: number;
   /** Maximum output tokens, when the provider's listing reports it. */
   outputLimit?: number;
+  /** What the model produces. Models producing neither text nor images are never listed. */
+  output: "text" | "image";
 }
 
 /** A provider whose model listing failed, surfaced so the picker can explain a gap. */

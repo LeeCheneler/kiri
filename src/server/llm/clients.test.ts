@@ -104,7 +104,9 @@ describe("llm clients", () => {
 
     const result = await clients.listModels();
 
-    expect(result.models).toEqual([{ id: "anthropic:claude-haiku-4-5", provider: "anthropic" }]);
+    expect(result.models).toEqual([
+      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text" },
+    ]);
     expect(result.failures).toEqual([]);
   });
 

@@ -20,6 +20,7 @@ export {
 } from "./clients.ts";
 export {
   type LlmModelInfo,
+  type LlmModelOutput,
   type LlmModelsFailure,
   type LlmModelsResult,
   listLlmModels,

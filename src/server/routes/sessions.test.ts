@@ -100,7 +100,7 @@ const fakeClients = (
   opts: {
     model?: LlmModel;
     resolveError?: string;
-    models?: { id: string; provider: string }[];
+    models?: { id: string; provider: string; output: "text" | "image" }[];
   } = {},
 ): LlmClients => ({
   resolveModel: () => {
@@ -193,14 +193,16 @@ describe("sessions routes", () => {
   describe("GET /api/models", () => {
     it("returns the aggregated model listing", async () => {
       const app = makeApp(
-        fakeClients({ models: [{ id: "anthropic:claude", provider: "anthropic" }] }),
+        fakeClients({
+          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+        }),
       );
 
       const res = await app.request("/api/models");
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        models: [{ id: "anthropic:claude", provider: "anthropic" }],
+        models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
         failures: [],
       });
     });
