@@ -971,14 +971,16 @@ describe("db", () => {
     // Seed the migration ledger through 0013 so the session migrations
     // (0014 creating the tables, 0015 dropping the agent columns, 0016 adding
     // the persona column, 0017 dropping the running-token columns) are the ones
-    // outstanding. 0018 renames run_steps.is_publish and 0019 rebuilds
-    // articles, so the fixture carries a minimal shape of each; the other
-    // run-side tables stay irrelevant.
+    // outstanding. 0018 renames run_steps.is_publish, 0019 rebuilds articles,
+    // and 0022's backfill reads runs, so the fixture carries a minimal shape
+    // of each; the other run-side tables stay irrelevant.
     sqlite.run(`CREATE TABLE run_steps (
       id TEXT PRIMARY KEY NOT NULL,
       is_publish INTEGER DEFAULT 0 NOT NULL
     )`);
-    sqlite.run("CREATE TABLE runs (id TEXT PRIMARY KEY NOT NULL)");
+    sqlite.run(
+      "CREATE TABLE runs (id TEXT PRIMARY KEY NOT NULL, workflow_name TEXT, summary TEXT)",
+    );
     sqlite.run(`CREATE TABLE articles (
       id TEXT PRIMARY KEY NOT NULL,
       run_id TEXT NOT NULL,
@@ -1054,7 +1056,8 @@ describe("db", () => {
     );
     // Stand up the post-0018 shape 0019 rebuilds `articles` from: the old
     // NOT NULL run_id column, plus the runs/sessions parents its foreign
-    // keys enforce during the copy.
+    // keys enforce during the copy. 0022's backfill also reads messages,
+    // so the fixture carries its minimal shape.
     sqlite.run(`CREATE TABLE runs (
       id TEXT PRIMARY KEY NOT NULL,
       workflow_name TEXT NOT NULL,
@@ -1088,6 +1091,12 @@ describe("db", () => {
     )`);
     sqlite.run("CREATE UNIQUE INDEX articles_run_id_slug_unique ON articles (run_id, slug)");
     sqlite.run("CREATE INDEX articles_run_id_idx ON articles (run_id)");
+    sqlite.run(`CREATE TABLE messages (
+      id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      parts TEXT NOT NULL
+    )`);
     const priorMigrations = [
       "0000_initial",
       "0001_index_run_nodes_run_id",
@@ -1148,6 +1157,302 @@ describe("db", () => {
       "articles_run_id_slug_unique",
       "articles_session_id_idx",
       "articles_session_id_slug_unique",
+    ]);
+  });
+
+  interface SearchRow {
+    title: string;
+    body: string;
+    entity_type: string;
+    entity_id: string;
+    source_id: string;
+  }
+
+  const searchRows = (db: KiriDb, entityType: string): SearchRow[] =>
+    db.$client
+      .query<SearchRow, [string]>(
+        "SELECT title, body, entity_type, entity_id, source_id FROM search_fts WHERE entity_type = ? ORDER BY source_id",
+      )
+      .all(entityType);
+
+  it("keeps search_fts in step with articles through insert, update, and delete", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-fts",
+        workflowName: "digester",
+        status: "ok",
+        startedAt: new Date(),
+        definitionSnapshot: {},
+      })
+      .run();
+    db.insert(articles)
+      .values({
+        id: "art-fts",
+        runId: "run-fts",
+        slug: "digest",
+        name: "Daily Digest",
+        contentMd: "Pelicans nested on the pier.",
+        createdAt: new Date(),
+      })
+      .run();
+
+    expect(searchRows(db, "article")).toEqual([
+      {
+        title: "Daily Digest",
+        body: "Pelicans nested on the pier.",
+        entity_type: "article",
+        entity_id: "art-fts",
+        source_id: "art-fts",
+      },
+    ]);
+
+    db.update(articles)
+      .set({ contentMd: "Herons replaced them overnight." })
+      .where(eq(articles.id, "art-fts"))
+      .run();
+    const updated = searchRows(db, "article");
+    expect(updated).toHaveLength(1);
+    expect(updated[0]?.body).toBe("Herons replaced them overnight.");
+
+    db.delete(articles).where(eq(articles.id, "art-fts")).run();
+    expect(searchRows(db, "article")).toHaveLength(0);
+  });
+
+  it("indexes only the text parts of user/assistant messages", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-fts", status: "idle", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-fts-a",
+        sessionId: "sess-fts",
+        index: 0,
+        role: "user",
+        parts: [
+          { type: "text", text: "Find the pelican report" },
+          { type: "file", url: "blob:x" },
+        ],
+        createdAt: new Date(),
+      })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-fts-b",
+        sessionId: "sess-fts",
+        index: 1,
+        role: "assistant",
+        parts: [
+          { type: "reasoning", text: "chain of thought" },
+          { type: "text", text: "Here it" },
+          { type: "text", text: "is." },
+        ],
+        createdAt: new Date(),
+      })
+      .run();
+    // System messages and messages with no text parts contribute nothing.
+    db.insert(messages)
+      .values({
+        id: "msg-fts-c",
+        sessionId: "sess-fts",
+        index: 2,
+        role: "system",
+        parts: [{ type: "text", text: "persona overlay" }],
+        createdAt: new Date(),
+      })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-fts-d",
+        sessionId: "sess-fts",
+        index: 3,
+        role: "assistant",
+        parts: [{ type: "tool-run_command", state: "output-available" }],
+        createdAt: new Date(),
+      })
+      .run();
+
+    expect(searchRows(db, "session")).toEqual([
+      {
+        title: "",
+        body: "Find the pelican report",
+        entity_type: "session",
+        entity_id: "sess-fts",
+        source_id: "msg-fts-a",
+      },
+      {
+        title: "",
+        body: "Here it is.",
+        entity_type: "session",
+        entity_id: "sess-fts",
+        source_id: "msg-fts-b",
+      },
+    ]);
+  });
+
+  it("re-indexes a message on update and drops it on delete", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-upd", status: "idle", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-upd",
+        sessionId: "sess-upd",
+        index: 0,
+        role: "assistant",
+        parts: [{ type: "text", text: "first draft" }],
+        createdAt: new Date(),
+      })
+      .run();
+
+    db.update(messages)
+      .set({ parts: [{ type: "text", text: "second draft" }] })
+      .where(eq(messages.id, "msg-upd"))
+      .run();
+    const updated = searchRows(db, "session");
+    expect(updated).toHaveLength(1);
+    expect(updated[0]?.body).toBe("second draft");
+
+    db.delete(messages).where(eq(messages.id, "msg-upd")).run();
+    expect(searchRows(db, "session")).toHaveLength(0);
+  });
+
+  it("indexes a run only while it has a summary", () => {
+    migrate(db);
+
+    db.insert(runs)
+      .values({
+        id: "run-sum",
+        workflowName: "aggregator",
+        status: "running",
+        startedAt: new Date(),
+        definitionSnapshot: {},
+      })
+      .run();
+    expect(searchRows(db, "run")).toHaveLength(0);
+
+    db.update(runs).set({ summary: "Two steps ran cleanly." }).where(eq(runs.id, "run-sum")).run();
+    expect(searchRows(db, "run")).toEqual([
+      {
+        title: "aggregator",
+        body: "Two steps ran cleanly.",
+        entity_type: "run",
+        entity_id: "run-sum",
+        source_id: "run-sum",
+      },
+    ]);
+
+    // The rerun path clears summary on the reused row — the index entry must go with it.
+    db.update(runs).set({ summary: null }).where(eq(runs.id, "run-sum")).run();
+    expect(searchRows(db, "run")).toHaveLength(0);
+
+    db.update(runs).set({ summary: "Second attempt." }).where(eq(runs.id, "run-sum")).run();
+    db.delete(runs).where(eq(runs.id, "run-sum")).run();
+    expect(searchRows(db, "run")).toHaveLength(0);
+  });
+
+  it("matches stemmed prefix queries against indexed text", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-match", status: "idle", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(articles)
+      .values({
+        id: "art-match",
+        sessionId: "sess-match",
+        slug: "digest",
+        name: "Digest",
+        contentMd: "Pelicans nested on the pier.",
+        createdAt: new Date(),
+      })
+      .run();
+
+    // 'porter unicode61' stems "pelicans" → a "pelican"* prefix query hits it.
+    const hits = db.$client
+      .query<{ entity_id: string }, [string]>(
+        "SELECT entity_id FROM search_fts WHERE search_fts MATCH ? ORDER BY bm25(search_fts)",
+      )
+      .all('"pelican"*');
+    expect(hits).toEqual([{ entity_id: "art-match" }]);
+  });
+
+  it("backfills search_fts from existing rows when migrating a pre-search DB", () => {
+    const sqlite = db.$client;
+    sqlite.run(
+      "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
+    );
+    // Minimal post-0021 shapes of the three tables 0022's backfill reads.
+    sqlite.run(`CREATE TABLE runs (
+      id TEXT PRIMARY KEY NOT NULL,
+      workflow_name TEXT NOT NULL,
+      summary TEXT
+    )`);
+    sqlite.run(`CREATE TABLE articles (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      content_md TEXT NOT NULL
+    )`);
+    sqlite.run(`CREATE TABLE messages (
+      id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      parts TEXT NOT NULL
+    )`);
+    const priorMigrations = [
+      "0000_initial",
+      "0001_index_run_nodes_run_id",
+      "0002_rename_run_nodes_to_run_steps",
+      "0003_add_run_summary_columns",
+      "0004_add_publish_support",
+      "0005_add_run_git_columns",
+      "0006_drop_step_materials",
+      "0007_drop_step_usage",
+      "0008_rename_run_artefacts_to_articles",
+      "0009_add_run_inputs",
+      "0010_add_recommendations",
+      "0011_drop_run_trigger",
+      "0012_add_run_step_timing",
+      "0013_rename_article_columns",
+      "0014_add_sessions_and_messages",
+      "0015_drop_session_agent_columns",
+      "0016_add_session_persona",
+      "0017_drop_session_token_totals",
+      "0018_rename_is_publish_to_is_article",
+      "0019_decouple_articles_from_runs",
+      "0020_add_session_pinned",
+      "0021_add_session_image_model",
+    ];
+    sqlite.run(
+      `INSERT INTO __kiri_migrations (name, applied_at) VALUES ${priorMigrations
+        .map((name) => `('${name}', 0)`)
+        .join(", ")}`,
+    );
+    sqlite.run("INSERT INTO runs VALUES ('r1', 'wf', 'Ran fine.'), ('r2', 'wf', NULL)");
+    sqlite.run("INSERT INTO articles VALUES ('a1', 'Digest', 'Old pelican news')");
+    sqlite.run(
+      `INSERT INTO messages VALUES
+        ('m1', 's1', 'user', '[{"type":"text","text":"hello there"}]'),
+        ('m2', 's1', 'assistant', '[{"type":"tool-run_command","state":"output-available"}]'),
+        ('m3', 's1', 'system', '[{"type":"text","text":"overlay"}]')`,
+    );
+
+    migrate(db);
+
+    const rows = sqlite
+      .query<{ entity_type: string; entity_id: string; source_id: string; body: string }, []>(
+        "SELECT entity_type, entity_id, source_id, body FROM search_fts ORDER BY entity_type, source_id",
+      )
+      .all();
+    expect(rows).toEqual([
+      { entity_type: "article", entity_id: "a1", source_id: "a1", body: "Old pelican news" },
+      { entity_type: "run", entity_id: "r1", source_id: "r1", body: "Ran fine." },
+      { entity_type: "session", entity_id: "s1", source_id: "m1", body: "hello there" },
     ]);
   });
 });
