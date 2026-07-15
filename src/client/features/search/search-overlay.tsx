@@ -142,7 +142,9 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal title="Search" onClose={onClose} size="lg">
-      <div onKeyDown={onInputKeyDown}>
+      {/* flex-col stretches the bare TextInput to the modal's width — the same
+          mechanism the labelled Field lockup relies on. */}
+      <div onKeyDown={onInputKeyDown} className="flex flex-col">
         <label htmlFor={inputId} className="sr-only">
           Search
         </label>
