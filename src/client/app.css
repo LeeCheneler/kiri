@@ -188,6 +188,14 @@ dialog[open]::backdrop {
   animation: modal-backdrop-in 180ms ease-out;
 }
 
+/* showModal() makes the background inert but not scroll-proof: wheel and
+   touch gestures over the backdrop still scroll the document. Lock the
+   page's scroller while any dialog is open — body overflow propagates to
+   the viewport, and the dialog's own content scrolls independently. */
+body:has(dialog[open]) {
+  overflow: hidden;
+}
+
 /* Down-chevron affordance for closed dropdown controls: a muted-ink chevron
    0.75rem off the right edge. The user-agent <select> chevron sits flush
    against the border with no breathing room, so we draw our own — and the
