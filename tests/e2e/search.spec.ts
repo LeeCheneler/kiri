@@ -23,18 +23,23 @@ test("search finds an article from the home search box and opens it", async ({ p
   await expect(box).toBeFocused();
 
   // A body phrase, not the title — proving content is indexed, and the
-  // matched terms come back highlighted.
+  // matched terms come back highlighted. Other specs (and retries) run the
+  // articles workflow against the same fixture server, so several identical
+  // articles can exist — any Daily Digest hit proves the path.
   await box.fill("first body paragraph");
-  const hit = dialog.getByRole("link", { name: /daily digest/i });
+  const hit = dialog.getByRole("link", { name: /daily digest/i }).first();
   await expect(hit).toBeVisible();
   await expect(dialog.locator("mark").first()).toBeVisible();
 
   await hit.click();
-  await expect(page).toHaveURL(`/runs/${runId}/articles/digest`);
+  await expect(page).toHaveURL(/\/runs\/[^/]+\/articles\/digest$/);
 });
 
 test("the keyboard shortcut opens search on any page and Escape closes it", async ({ page }) => {
   await page.goto("/workflows");
+  // The shortcut listener attaches when React mounts — wait for the page
+  // to be interactive so the keypress can't race hydration.
+  await expect(page.getByPlaceholder("Filter workflows…")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
 
   const dialog = page.getByRole("dialog");
