@@ -3,6 +3,7 @@ import { ActivityFeed } from "../features/activity-feed/activity-feed.tsx";
 import { ConfigHealthPanel } from "../features/config-health/config-health-panel.tsx";
 import { McpStatusPanel } from "../features/mcp/mcp-status-panel.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
+import { SearchTrigger } from "../features/search/search-trigger.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
 /**
@@ -17,8 +18,9 @@ export function HomePage() {
 }
 
 /**
- * Home content — the Activity breadcrumb above the live, cross-workflow
- * activity feed. `now` is injectable so tests render deterministic timestamps.
+ * Home content — the Activity breadcrumb, the search box, and the live,
+ * cross-workflow activity feed. `now` is injectable so tests render
+ * deterministic timestamps.
  */
 export function HomeContent({ now }: { now?: Date }) {
   return (
@@ -26,6 +28,9 @@ export function HomeContent({ now }: { now?: Date }) {
       <ConfigHealthPanel />
       <McpStatusPanel />
       <Breadcrumb items={[]} current="Activity" />
+      <div className="mt-6">
+        <SearchTrigger />
+      </div>
       <div className="mt-6">
         <ActivityFeed now={now} />
       </div>

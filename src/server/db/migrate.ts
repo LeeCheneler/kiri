@@ -34,6 +34,7 @@ import migration0019 from "../../../drizzle/0019_decouple_articles_from_runs.sql
 };
 import migration0020 from "../../../drizzle/0020_add_session_pinned.sql" with { type: "text" };
 import migration0021 from "../../../drizzle/0021_add_session_image_model.sql" with { type: "text" };
+import migration0022 from "../../../drizzle/0022_add_search_index.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -54,6 +55,13 @@ interface Migration {
  * hand-written: drizzle-kit's rename-detection prompt is
  * interactive-only. The next auto-generated migration may need its
  * `prevId` adjusted to chain off `drizzle/meta/0013_snapshot.json`.
+ *
+ * `0022_add_search_index` (and its meta snapshot) is also hand-written:
+ * FTS5 virtual tables and triggers can't be modelled in the drizzle
+ * schema, so `search_fts` exists only in SQL. It mirrors `articles`,
+ * `messages` (user/assistant text parts), and `runs` (summaries) via
+ * triggers — schema changes to those tables must keep the triggers in
+ * step.
  */
 const MIGRATIONS: Migration[] = [
   { name: "0000_initial", sql: migration0000 },
@@ -78,6 +86,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0019_decouple_articles_from_runs", sql: migration0019 },
   { name: "0020_add_session_pinned", sql: migration0020 },
   { name: "0021_add_session_image_model", sql: migration0021 },
+  { name: "0022_add_search_index", sql: migration0022 },
 ];
 
 /**

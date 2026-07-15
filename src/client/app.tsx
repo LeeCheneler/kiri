@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Route, Switch } from "wouter";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
 import { ScrollReset } from "./features/page-shell/scroll-reset.tsx";
+import { SearchProvider } from "./features/search/search-provider.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
 import { DesignSystemPage } from "./routes/design-system-page.tsx";
 import { HomePage } from "./routes/home-page.tsx";
@@ -22,7 +23,8 @@ import { createQueryClient } from "./state/query-client.ts";
  * `EventSource('/api/events')` connection; `<LiveSync>` bridges the two,
  * invalidating cached queries as server events arrive. Each route renders
  * its own page shell (wordmark, nav, and right-rail marginalia), so the
- * root is just the providers and the route switch.
+ * root is just the providers and the route switch. `<SearchProvider>`
+ * hosts the search overlay above the routes so ⌘K reaches it from any page.
  *
  * `liveEventsFactory` is a test seam — production callers omit it and
  * get the native `EventSource`.
@@ -34,18 +36,20 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
       <LiveEventsProvider factory={liveEventsFactory}>
         <LiveSync />
         <ScrollReset />
-        <Switch>
-          <Route path="/" component={HomePage} />
-          <Route path="/workflows" component={WorkflowsPage} />
-          <Route path="/workflows/:name" component={WorkflowPage} />
-          <Route path="/mcp" component={McpPage} />
-          <Route path="/sessions/:id/articles/:slug" component={SessionArticlePage} />
-          <Route path="/sessions/:id" component={SessionPage} />
-          <Route path="/runs/:id/articles/:slug" component={ArticlePage} />
-          <Route path="/runs/:id" component={RunPage} />
-          <Route path="/dev/design-system" component={DesignSystemPage} />
-          <Route component={NotFoundPage} />
-        </Switch>
+        <SearchProvider>
+          <Switch>
+            <Route path="/" component={HomePage} />
+            <Route path="/workflows" component={WorkflowsPage} />
+            <Route path="/workflows/:name" component={WorkflowPage} />
+            <Route path="/mcp" component={McpPage} />
+            <Route path="/sessions/:id/articles/:slug" component={SessionArticlePage} />
+            <Route path="/sessions/:id" component={SessionPage} />
+            <Route path="/runs/:id/articles/:slug" component={ArticlePage} />
+            <Route path="/runs/:id" component={RunPage} />
+            <Route path="/dev/design-system" component={DesignSystemPage} />
+            <Route component={NotFoundPage} />
+          </Switch>
+        </SearchProvider>
       </LiveEventsProvider>
     </QueryClientProvider>
   );

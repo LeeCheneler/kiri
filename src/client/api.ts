@@ -820,6 +820,63 @@ export const fetchActivityPage = async (
   return json<ActivityPage>(await apiFetch(`/api/activity${qs ? `?${qs}` : ""}`));
 };
 
+/**
+ * One piece of a search-result snippet. `match` marks the pieces that hit a
+ * query term so the UI can highlight them.
+ */
+export interface SearchSnippetSegment {
+  text: string;
+  match: boolean;
+}
+
+/** An article search hit. `runId`/`sessionId` name the producer — exactly one is set. */
+export interface SearchArticleHit {
+  id: string;
+  slug: string;
+  name: string;
+  runId: string | null;
+  sessionId: string | null;
+  snippet: SearchSnippetSegment[];
+}
+
+/** A session search hit: its feed preview (may be empty) and the best-ranked matching message. */
+export interface SearchSessionHit {
+  id: string;
+  preview: string;
+  snippet: SearchSnippetSegment[];
+}
+
+/** A run search hit, matched on its summary. */
+export interface SearchRunHit {
+  id: string;
+  workflowName: string;
+  snippet: SearchSnippetSegment[];
+}
+
+/** A workflow-definition search hit, matched on name/description/group. */
+export interface SearchWorkflowHit {
+  name: string;
+  description?: string;
+  group?: string;
+}
+
+/** Grouped results from `GET /api/search`. */
+export interface SearchResults {
+  articles: SearchArticleHit[];
+  sessions: SearchSessionHit[];
+  runs: SearchRunHit[];
+  workflows: SearchWorkflowHit[];
+}
+
+/**
+ * Search articles, sessions, run summaries, and workflow definitions for `q`.
+ * A blank `q` returns empty groups. Throws on non-2xx.
+ */
+export const fetchSearch = async (q: string): Promise<SearchResults> => {
+  const params = new URLSearchParams({ q });
+  return json<SearchResults>(await apiFetch(`/api/search?${params}`));
+};
+
 /** A session with its ordered messages, as returned by `GET /api/sessions/:id`. */
 export interface SessionDetail {
   session: Session;
