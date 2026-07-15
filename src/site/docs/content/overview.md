@@ -36,7 +36,10 @@ calls alike — then renders the output as an article in your feed.
   configure. Sessions write articles too, on request, and can run your
   workflows for you. Reach for a session when you don't.
 
-Both land in the same activity feed.
+Both land in the same activity feed — and everything they produce is
+searchable: press `⌘K` (or click the search box above the feed) and results
+appear as you type, across articles, session transcripts, run summaries, and
+your workflows.
 
 ## Why kiri
 
