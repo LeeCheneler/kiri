@@ -1317,6 +1317,51 @@ describe("db", () => {
     ]);
   });
 
+  it("never indexes a child session's messages", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-top", status: "idle", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(sessions)
+      .values({
+        id: "sess-child",
+        status: "idle",
+        model: "m",
+        startedAt: new Date(),
+        parentSessionId: "sess-top",
+        parentToolCallId: "call_1",
+      })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-top",
+        sessionId: "sess-top",
+        index: 0,
+        role: "user",
+        parts: [{ type: "text", text: "delegate the pelican research" }],
+        createdAt: new Date(),
+      })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-child",
+        sessionId: "sess-child",
+        index: 0,
+        role: "assistant",
+        parts: [{ type: "text", text: "pelicans dive for fish" }],
+        createdAt: new Date(),
+      })
+      .run();
+    // The update trigger must not re-admit a child message either.
+    db.update(messages)
+      .set({ parts: [{ type: "text", text: "pelicans scoop fish in their pouches" }] })
+      .where(eq(messages.id, "msg-child"))
+      .run();
+
+    expect(searchRows(db, "session").map((r) => r.source_id)).toEqual(["msg-top"]);
+  });
+
   it("re-indexes a message on update and drops it on delete", () => {
     migrate(db);
 

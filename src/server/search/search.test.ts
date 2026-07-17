@@ -153,6 +153,25 @@ describe("search", () => {
     expect(results.sessions[0]?.snippet.some((segment) => segment.match)).toBe(true);
   });
 
+  it("never surfaces a child session's transcript", () => {
+    seedSession("parent");
+    seedMessage("m1", "parent", 0, "user", "Tell me about pelicans");
+    db.insert(sessions)
+      .values({
+        id: "child",
+        status: "idle",
+        model: "m",
+        startedAt: new Date(),
+        parentSessionId: "parent",
+        parentToolCallId: "call_1",
+      })
+      .run();
+    seedMessage("m2", "child", 0, "assistant", "Pelicans dive for fish.");
+
+    const results = search({ db, registry }, "pelican");
+    expect(results.sessions.map((s) => s.id)).toEqual(["parent"]);
+  });
+
   it("leaves the preview empty for a session with no user text", () => {
     seedSession("sess-2");
     seedMessage("m1", "sess-2", 0, "assistant", "Unprompted pelican facts.");
