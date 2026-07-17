@@ -76,6 +76,19 @@ export function findChildByToolCall(
 }
 
 /**
+ * List a session's child sessions oldest-first — one per delegate call its
+ * turns have spawned. A session with no children yields an empty list.
+ */
+export function getSessionChildren(db: KiriDb, parentSessionId: string): Session[] {
+  return db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.parentSessionId, parentSessionId))
+    .orderBy(asc(sessions.startedAt), asc(sessions.id))
+    .all();
+}
+
+/**
  * Set the `provider:model` id a session's turns run against. The turn endpoint
  * resolves the model per turn, so the change takes effect from the next turn.
  * Returns the updated row.

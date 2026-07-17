@@ -431,6 +431,56 @@ describe("sessions routes", () => {
     });
   });
 
+  describe("GET /api/sessions/:id/children", () => {
+    it("lists the session's children oldest-first with their lineage", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, {
+        id: "c2",
+        startedAt: new Date(2000),
+        parentSessionId: "s1",
+        parentToolCallId: "call_2",
+      });
+      createSession(env.db, MODEL, {
+        id: "c1",
+        startedAt: new Date(1000),
+        parentSessionId: "s1",
+        parentToolCallId: "call_1",
+      });
+      // Another session's child never leaks into this listing.
+      createSession(env.db, MODEL, { id: "s2" });
+      createSession(env.db, MODEL, {
+        id: "other-child",
+        parentSessionId: "s2",
+        parentToolCallId: "call_3",
+      });
+
+      const res = await app.request("/api/sessions/s1/children");
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        children: { id: string; parentToolCallId: string; status: string }[];
+      };
+      expect(body.children.map((c) => [c.id, c.parentToolCallId])).toEqual([
+        ["c1", "call_1"],
+        ["c2", "call_2"],
+      ]);
+    });
+
+    it("returns an empty list for a session with no children", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/children");
+      expect(((await res.json()) as { children: unknown[] }).children).toEqual([]);
+    });
+
+    it("404s an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost/children");
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe("session article reads", () => {
     const insertArticle = (sessionId: string, slug: string, contentMd: string, createdAt: Date) =>
       env.db

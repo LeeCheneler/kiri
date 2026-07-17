@@ -34,6 +34,7 @@ import {
   deleteSession,
   filesystemTools,
   getSession,
+  getSessionChildren,
   getSessionMessages,
   getSessionPreviews,
   imageTools,
@@ -520,6 +521,20 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       return c.json({ session, messages: getSessionMessages(db, id) });
+    },
+  );
+
+  // The sessions a session's delegate calls have spawned. Children are hidden
+  // from the list and feed, so this is how the transcript finds the child
+  // behind a delegate tool call — matched client-side on parentToolCallId —
+  // including one still mid-run after a reload.
+  app.get(
+    "/sessions/:id/children",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      return c.json({ children: getSessionChildren(db, id) });
     },
   );
 

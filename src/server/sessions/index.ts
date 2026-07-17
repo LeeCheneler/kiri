@@ -13,6 +13,7 @@ export {
   deleteSession,
   findChildByToolCall,
   getSession,
+  getSessionChildren,
   getSessionMessages,
   getSessionPreviews,
   setSessionPinned,
