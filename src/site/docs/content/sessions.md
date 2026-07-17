@@ -94,9 +94,10 @@ Kiri's built-in tools carry the same controls, each with its own default:
 the article tools, workflow listing and reads, and the authoring guide
 default to **Always allow** — they only touch kiri's own data, and asking in
 chat is the authorisation — as do the file-reading tools, whose reach is the
-`filesystem:` sandbox you declared (see *Working with your files* below), and
+`filesystem:` sandbox you declared (see *Working with your files* below),
 `generate_image`, which runs against the image model you picked (see
-*Generating images* below). The
+*Generating images* below), and `delegate`, whose worker only ever holds
+tools you already always-allow (see *Delegating research* below). The
 run tools (`run_workflow`, `rerun_workflow`) execute your workflows, the
 workflow write tools put files in your repo, the filesystem write tools
 change your own files, and `run_command` runs shell commands on your machine
@@ -242,6 +243,31 @@ shell:
   filesystem tools' job, with their tighter boundary and diff previews.
   Tighten `run_command` or switch it off under **Built-in tools** on the
   Tools & MCP page.
+
+## Delegating research
+
+For a task that would take a pile of searching and reading — "compare these
+three libraries", "what changed in X this year" — the assistant can hand the
+legwork to a **delegated worker**: a separate, hidden session that runs the
+task in its own context and reports back. Only the written report returns to
+your conversation, so the transcript holds the findings rather than pages of
+intermediate results, and your context window stays lean.
+
+- The call renders as a **Delegate** box in the transcript — collapsed to the
+  task and a live status, expanding to the worker's transcript as it works,
+  with a link to open the worker as a full session page and a cancel that
+  stops just the delegated task (the assistant is told and carries on).
+- The worker only holds tools set to **Always allow** — a tool that would ask
+  first is simply not offered to it, so delegation never runs anything you
+  haven't already allowed to run unprompted. If a research worker comes back
+  empty-handed, that's the first thing to check: give your search tool
+  **Always allow** on the Tools & MCP page.
+- Workers don't appear in the activity feed, the session list, or search —
+  they belong to the conversation that spawned them — but each is a real
+  session you can open, and continue, at its own URL.
+
+Delegation is on by default; switch the `delegate` tool to **Ask** or **Off**
+under **Built-in tools** on the Tools & MCP page.
 
 ## Pinning
 

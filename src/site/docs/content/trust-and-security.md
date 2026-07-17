@@ -58,6 +58,13 @@ those default to Ask — and an authored workflow only ever *executes* through
 the same gates as any other: a run tool's approval or your click in the
 catalog, with the file itself an ordinary git change you can review first.
 Every write is validated against the workflow schema before it touches disk.
+
+Delegation holds the same line from the other side. The `delegate` tool
+(Always allow by default) spawns a hidden worker session that runs
+unattended, so the worker only holds tools already set to Always allow — a
+tool that would ask first is not offered to it at all, and a worker can't
+spawn workers. Delegating can never run anything unprompted that the chat
+itself couldn't.
 All of them are listed under **Built-in tools** on the Tools & MCP page, so
 any default can be tightened or the tool switched off entirely. See
 [Sessions](/docs/sessions).
