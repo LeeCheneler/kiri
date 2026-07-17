@@ -14,6 +14,7 @@ import {
   fetchModels,
   fetchPersonas,
   fetchSession,
+  fetchSessionChildren,
   fetchSessionsPage,
   patchSessionImageModel,
   patchSessionModel,
@@ -23,6 +24,10 @@ import {
 import { useLiveEvent, useLiveReconnect, useLiveSync } from "../events/live.tsx";
 
 const sessionKey = (id: string) => ["session", id] as const;
+// Keyed by the parent under its own subtree, not under `sessionKey`: a child's
+// lifecycle events carry the child's id, so the live bridge invalidates this
+// whole subtree rather than deriving which parent a child event belongs to.
+const sessionChildrenKey = (id: string) => ["session-children", id] as const;
 const sessionsFeedKey = ["sessions", "feed"] as const;
 const modelsKey = ["models"] as const;
 const personasKey = ["personas"] as const;
@@ -71,6 +76,15 @@ export function usePersonasLive(): void {
  */
 export function useSession(id: string): UseQueryResult<SessionDetail> {
   return useQuery({ queryKey: sessionKey(id), queryFn: () => fetchSession(id) });
+}
+
+/**
+ * Read the child sessions a session's delegate calls have spawned, oldest
+ * first. Fetches on first use and serves the cache thereafter; kept current by
+ * `useSessionsLive`, which refetches it as children start, stream, and settle.
+ */
+export function useSessionChildren(id: string): UseQueryResult<Session[]> {
+  return useQuery({ queryKey: sessionChildrenKey(id), queryFn: () => fetchSessionChildren(id) });
 }
 
 /**
@@ -145,10 +159,15 @@ export function useSessionsLive(): void {
       const id = "sessionId" in event ? event.sessionId : event.id;
       void queryClient.invalidateQueries({ queryKey: sessionKey(id) });
       void queryClient.invalidateQueries({ queryKey: sessionsFeedKey });
+      // A child's events carry the child's id, not its parent's, so refetch
+      // every mounted children lookup — at most the open session page's one
+      // light query — rather than deriving the parent here.
+      void queryClient.invalidateQueries({ queryKey: ["session-children"] });
     },
   });
   useLiveReconnect(() => {
     void queryClient.invalidateQueries({ queryKey: ["session"] });
     void queryClient.invalidateQueries({ queryKey: sessionsFeedKey });
+    void queryClient.invalidateQueries({ queryKey: ["session-children"] });
   });
 }

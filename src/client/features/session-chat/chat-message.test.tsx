@@ -31,6 +31,23 @@ const editField = () =>
 const editButton = () => screen.getByRole("button", { name: "edit" });
 
 describe("<ChatMessage>", () => {
+  it("renders a delegate call as a plain tool block when no session id is supplied", () => {
+    // Without the owning session there is no child lookup — the embedded
+    // child-session box needs it, so the call degrades to the ordinary block.
+    renderMessage(
+      message("assistant", [
+        {
+          type: "tool-delegate",
+          toolCallId: "c1",
+          state: "input-available",
+          input: { task: "Research pelicans" },
+        },
+      ]),
+    );
+    expect(screen.getByText("Delegate")).toBeDefined();
+    expect(screen.getByRole("button", { name: /delegate/i })).toBeDefined();
+  });
+
   it("renders a user message verbatim with its image attachments", () => {
     renderMessage(
       message("user", [

@@ -20,12 +20,19 @@ export interface NewMessage {
 /**
  * Insert a new session against `model` (a `provider:model` id), starting it
  * `idle` with no persona. A persona is attached later via
- * `updateSessionPersona`, not at creation. Returns the persisted row.
+ * `updateSessionPersona`, not at creation. Pass `parentSessionId` (with the
+ * spawning `parentToolCallId`) to create a child session; omit them for a
+ * top-level one. Returns the persisted row.
  */
 export function createSession(
   db: KiriDb,
   model: string,
-  opts: { id?: string; startedAt?: Date } = {},
+  opts: {
+    id?: string;
+    startedAt?: Date;
+    parentSessionId?: string;
+    parentToolCallId?: string;
+  } = {},
 ): Session {
   const id = opts.id ?? crypto.randomUUID();
   db.insert(sessions)
@@ -34,6 +41,8 @@ export function createSession(
       status: "idle",
       model,
       startedAt: opts.startedAt ?? new Date(),
+      parentSessionId: opts.parentSessionId ?? null,
+      parentToolCallId: opts.parentToolCallId ?? null,
     })
     .run();
   return getSession(db, id) as Session;
@@ -42,6 +51,41 @@ export function createSession(
 /** Read a session by id, or `undefined` if none exists. */
 export function getSession(db: KiriDb, id: string): Session | undefined {
   return db.select().from(sessions).where(eq(sessions.id, id)).get();
+}
+
+/**
+ * Find the child session spawned from a parent's specific tool call, or
+ * `undefined` if none exists yet. Lets a parent's tool-call block re-attach its
+ * running child after a reload, and makes child creation idempotent for one call.
+ */
+export function findChildByToolCall(
+  db: KiriDb,
+  parentSessionId: string,
+  parentToolCallId: string,
+): Session | undefined {
+  return db
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.parentSessionId, parentSessionId),
+        eq(sessions.parentToolCallId, parentToolCallId),
+      ),
+    )
+    .get();
+}
+
+/**
+ * List a session's child sessions oldest-first — one per delegate call its
+ * turns have spawned. A session with no children yields an empty list.
+ */
+export function getSessionChildren(db: KiriDb, parentSessionId: string): Session[] {
+  return db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.parentSessionId, parentSessionId))
+    .orderBy(asc(sessions.startedAt), asc(sessions.id))
+    .all();
 }
 
 /**
@@ -231,15 +275,26 @@ export function setSessionStatus(
 }
 
 /**
- * Permanently delete a session with its messages and articles in one
- * transaction. Both hold an FK to the session, so they go first — an in-code
- * cascade matching the rest of the codebase rather than a schema-level
- * ON DELETE. Deleting an absent session removes nothing.
+ * Permanently delete a session — and any child sessions it spawned — with
+ * their messages and articles in one transaction. Messages and articles hold
+ * an FK to the session, so they go first — an in-code cascade matching the
+ * rest of the codebase rather than a schema-level ON DELETE. Children never
+ * have children of their own, so one level of cascade is complete. Deleting
+ * an absent session removes nothing.
  */
 export function deleteSession(db: KiriDb, id: string): void {
   db.transaction((tx) => {
-    tx.delete(articles).where(eq(articles.sessionId, id)).run();
-    tx.delete(messages).where(eq(messages.sessionId, id)).run();
+    const childIds = tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.parentSessionId, id))
+      .all()
+      .map((row) => row.id);
+    const ids = [...childIds, id];
+    tx.delete(articles).where(inArray(articles.sessionId, ids)).run();
+    tx.delete(messages).where(inArray(messages.sessionId, ids)).run();
+    // Children first: they hold an FK to the parent, and foreign_keys is ON.
+    if (childIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, childIds)).run();
     tx.delete(sessions).where(eq(sessions.id, id)).run();
   });
 }

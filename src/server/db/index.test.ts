@@ -963,6 +963,20 @@ describe("db", () => {
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
+  it("declares sessions.parent_session_id → sessions.id self foreign key", () => {
+    const fks = getTableConfig(sessions).foreignKeys;
+    expect(fks).toHaveLength(1);
+    const fk = fks[0] as unknown as {
+      reference: () => {
+        columns: { name: string }[];
+        foreignColumns: { name: string }[];
+      };
+    };
+    const ref = fk.reference();
+    expect(ref.columns.map((c) => c.name)).toEqual(["parent_session_id"]);
+    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+  });
+
   it("adds the sessions + messages tables when migrating a pre-sessions DB", () => {
     const sqlite = db.$client;
     sqlite.run(
@@ -1033,6 +1047,8 @@ describe("db", () => {
         "id",
         "image_model",
         "model",
+        "parent_session_id",
+        "parent_tool_call_id",
         "persona",
         "pinned",
         "started_at",
@@ -1047,6 +1063,14 @@ describe("db", () => {
       .all()
       .map((r) => r.name);
     expect(indexes).toEqual(["messages_session_id_idx"]);
+
+    const sessionIndexes = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='sessions' AND name NOT LIKE 'sqlite_%'",
+      )
+      .all()
+      .map((r) => r.name);
+    expect(sessionIndexes).toEqual(["sessions_parent_session_id_idx"]);
   });
 
   it("preserves article rows when migrating a pre-decoupling DB", () => {
@@ -1293,6 +1317,51 @@ describe("db", () => {
     ]);
   });
 
+  it("never indexes a child session's messages", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-top", status: "idle", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(sessions)
+      .values({
+        id: "sess-child",
+        status: "idle",
+        model: "m",
+        startedAt: new Date(),
+        parentSessionId: "sess-top",
+        parentToolCallId: "call_1",
+      })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-top",
+        sessionId: "sess-top",
+        index: 0,
+        role: "user",
+        parts: [{ type: "text", text: "delegate the pelican research" }],
+        createdAt: new Date(),
+      })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-child",
+        sessionId: "sess-child",
+        index: 0,
+        role: "assistant",
+        parts: [{ type: "text", text: "pelicans dive for fish" }],
+        createdAt: new Date(),
+      })
+      .run();
+    // The update trigger must not re-admit a child message either.
+    db.update(messages)
+      .set({ parts: [{ type: "text", text: "pelicans scoop fish in their pouches" }] })
+      .where(eq(messages.id, "msg-child"))
+      .run();
+
+    expect(searchRows(db, "session").map((r) => r.source_id)).toEqual(["msg-top"]);
+  });
+
   it("re-indexes a message on update and drops it on delete", () => {
     migrate(db);
 
@@ -1387,12 +1456,14 @@ describe("db", () => {
     sqlite.run(
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
     );
-    // Minimal post-0021 shapes of the three tables 0022's backfill reads.
+    // Minimal post-0021 shapes of the three tables 0022's backfill reads,
+    // plus sessions, which 0023 alters with the lineage columns.
     sqlite.run(`CREATE TABLE runs (
       id TEXT PRIMARY KEY NOT NULL,
       workflow_name TEXT NOT NULL,
       summary TEXT
     )`);
+    sqlite.run("CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL)");
     sqlite.run(`CREATE TABLE articles (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,

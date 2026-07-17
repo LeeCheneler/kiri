@@ -33,8 +33,9 @@ calls alike — then renders the output as an article in your feed.
 - **Workflows** — scripted chores like the one above. Reach for a workflow when
   you know the shape of the work.
 - **Sessions** — chat with the same models, plus tools from MCP servers you
-  configure. Sessions write articles too, on request, and can run your
-  workflows for you. Reach for a session when you don't.
+  configure. Sessions write articles too, on request, can run your
+  workflows for you, and can delegate research to a separate worker session
+  that reports back just the findings. Reach for a session when you don't.
 
 Both land in the same activity feed — and everything they produce is
 searchable: press `⌘K` (or click the search box above the feed) and results

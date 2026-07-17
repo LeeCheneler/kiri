@@ -74,6 +74,13 @@ function BuiltinCard({
           </span>
         }
       >
+        {/* The one permission interaction that isn't self-evident from a row:
+            a delegated worker inherits only Always-allow tools, so an Ask
+            tool's absence from a worker is a setting here, not a bug. */}
+        <p className="mb-5 font-mono text-ink-muted text-xs">
+          Tools set to Ask are never offered to delegated worker sessions — a worker runs
+          unattended, so it only holds tools set to Always allow.
+        </p>
         <ul className="space-y-5">
           {tools.map((tool) => (
             <li key={tool.name}>

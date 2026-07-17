@@ -7,7 +7,7 @@ import {
   UI_MESSAGE_STREAM_HEADERS,
   isToolUIPart,
 } from "ai";
-import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
@@ -20,6 +20,7 @@ import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   BUILTIN_TOOLS,
+  type RunTurnDeps,
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermission,
@@ -28,10 +29,12 @@ import {
   createSession,
   createStreamRegistry,
   createSystemPromptBuilder,
+  delegateTool,
   deleteMessagesFrom,
   deleteSession,
   filesystemTools,
   getSession,
+  getSessionChildren,
   getSessionMessages,
   getSessionPreviews,
   imageTools,
@@ -243,6 +246,70 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     };
   };
 
+  // The first-party tool sets bound to a session, before permission gating.
+  // The image tools self-gate on selection the same way the filesystem tools
+  // self-gate on configuration: no image model on the session, no
+  // generate_image offered. The delegate tool is merged separately by each
+  // caller — only a top-level session's own turn offers it.
+  const builtinToolsFor = (sessionId: string): ToolSet => {
+    const sandbox = sandboxDirectories();
+    const shellDirs = shellWorkingDirectories();
+    return {
+      ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
+      ...articleTools(db, sessionId, (event) => bus?.publish(event)),
+      ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
+      ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
+      ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
+    };
+  };
+
+  // Withheld from a delegate-driven worker regardless of permission: a worker
+  // can't spawn workers, and its deliverable is the report — articles it wrote
+  // would ride a hidden session rather than a surface the user sees.
+  const childWithheld = new Set(["delegate", "create_article", "replace_article", "edit_article"]);
+
+  // The tools a delegate-driven child turn runs with: the same catalogue
+  // narrowed to tools whose standing permission is "allow", offered ungated.
+  // A worker runs unattended — no approval prompt can surface mid-delegation —
+  // so a tool the user hasn't already allowed to run unprompted is simply
+  // absent. Delegation therefore never widens what runs without asking.
+  const childActiveTools = (childSessionId: string): ToolSet => {
+    const tools: ToolSet = {};
+    for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
+      if (toolPermissions.get(name, "ask") === "allow") tools[name] = mcpTool;
+    }
+    const builtin = builtinToolsFor(childSessionId);
+    for (const { name, defaultPermission } of BUILTIN_TOOLS) {
+      const builtinTool = builtin[name];
+      if (builtinTool === undefined || childWithheld.has(name)) continue;
+      if (toolPermissions.get(name, defaultPermission) === "allow") tools[name] = builtinTool;
+    }
+    return tools;
+  };
+
+  // The turn dependencies a delegate-driven child session runs against: its
+  // allow-only tool set and the worker system prompt over those tools (the
+  // prompt builder chooses the worker layer by the child's lineage). Shares
+  // this surface's stream registry and cancel registry, so a reconnecting
+  // client can rejoin the child's live stream and a cancel reaches its turn.
+  const childTurnDeps = (childSessionId: string): RunTurnDeps => {
+    const tools = childActiveTools(childSessionId);
+    return {
+      db,
+      llmClients,
+      bus,
+      cancelRegistry,
+      streamRegistry,
+      buildSystemPrompt: createSystemPromptBuilder(
+        config,
+        Object.keys(tools),
+        sandboxDirectories(),
+        shellWorkingDirectories(),
+      ),
+      tools,
+    };
+  };
+
   // The tools offered to a turn: the live MCP server tools plus the
   // first-party sets. Read per turn (not once) so a config reload that adds
   // or drops MCP servers, and a permission change since the last turn, are
@@ -261,17 +328,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const offered = gate(name, mcpTool, "ask");
       if (offered !== null) tools[name] = offered;
     }
-    const sandbox = sandboxDirectories();
-    const shellDirs = shellWorkingDirectories();
-    // The image tools self-gate on selection the same way the filesystem
-    // tools self-gate on configuration: no image model on the session, no
-    // generate_image offered.
     const builtin: ToolSet = {
-      ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
-      ...articleTools(db, sessionId, (event) => bus?.publish(event)),
-      ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
-      ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
-      ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
+      ...builtinToolsFor(sessionId),
+      // A worker can't spawn workers: delegate is offered only to a session
+      // with no parent.
+      ...(getSession(db, sessionId)?.parentSessionId
+        ? {}
+        : delegateTool({ db, parentSessionId: sessionId, childTurnDeps, bus, cancelRegistry })),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
       const builtinTool = builtin[name];
@@ -333,6 +396,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .from(sessionsTable)
         .where(
           and(
+            // Child sessions are part of their parent's transcript, not
+            // standalone activity — the list shows only top-level sessions.
+            isNull(sessionsTable.parentSessionId),
             pinned ? eq(sessionsTable.pinned, true) : undefined,
             anchor
               ? or(
@@ -455,6 +521,20 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       return c.json({ session, messages: getSessionMessages(db, id) });
+    },
+  );
+
+  // The sessions a session's delegate calls have spawned. Children are hidden
+  // from the list and feed, so this is how the transcript finds the child
+  // behind a delegate tool call — matched client-side on parentToolCallId —
+  // including one still mid-run after a reload.
+  app.get(
+    "/sessions/:id/children",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      return c.json({ children: getSessionChildren(db, id) });
     },
   );
 

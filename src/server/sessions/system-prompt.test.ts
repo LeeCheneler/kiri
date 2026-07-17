@@ -3,10 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
+import type { Session } from "./store.ts";
 import {
   INSTRUCTIONS_FILENAME,
   PERSONAS_DIRNAME,
+  buildChildSessionPrompt,
   buildSystemPrompt,
+  createSystemPromptBuilder,
   listPersonas,
   loadPersona,
 } from "./system-prompt.ts";
@@ -432,6 +435,119 @@ describe("buildSystemPrompt", () => {
     const withMissing = buildSystemPrompt({ config, persona: "ghost", now: FIXED_NOW });
     const withNone = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(withMissing).toBe(withNone);
+  });
+});
+
+describe("delegate guidance", () => {
+  let dir: string;
+  let config: ConfigStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-sysprompt-delegate-"));
+    config = createConfigStore(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("steers research to the delegate tool only when it is offered", () => {
+    const withDelegate = buildSystemPrompt({
+      config,
+      tools: ["delegate", "tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withDelegate).toContain("prefer the `delegate` tool");
+    // It must also steer against re-running the delegated work — the leak the
+    // tool exists to prevent.
+    expect(withDelegate).toContain("do not re-run the searches it already made");
+    // A session without delegate gets no delegation steer — direct search is
+    // the only research path it has.
+    const withoutDelegate = buildSystemPrompt({
+      config,
+      tools: ["tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withoutDelegate).not.toContain("prefer the `delegate` tool");
+  });
+});
+
+describe("buildChildSessionPrompt", () => {
+  it("frames the worker as a delegated sub-agent that reports back", () => {
+    const prompt = buildChildSessionPrompt({ now: FIXED_NOW });
+    expect(prompt).toContain("focused assistant");
+    expect(prompt).toContain("cannot see the parent conversation");
+    expect(prompt).toContain("Report back:");
+    expect(prompt).toContain("Synthesise, don't dump");
+    expect(prompt).toContain("2026-06-17");
+    // The user's chat layers never apply to a delegated worker.
+    expect(prompt).not.toContain("interactive chat session");
+  });
+
+  it("names the host machine so platform-specific output fits it", () => {
+    const prompt = buildChildSessionPrompt({
+      now: FIXED_NOW,
+      host: { platform: "darwin", release: "25.5.0", arch: "arm64" },
+    });
+    expect(prompt).toContain("macOS (Darwin 25.5.0, arm64; BSD userland, not GNU)");
+    expect(buildChildSessionPrompt({ now: FIXED_NOW })).toContain("You are running on ");
+  });
+
+  it("includes tool-use guidance only when tools are active", () => {
+    const withTools = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
+    expect(withTools).toContain("You have tools available");
+    expect(buildChildSessionPrompt({ now: FIXED_NOW })).not.toContain("You have tools available");
+  });
+
+  it("carries the capability guidance its tool set activates", () => {
+    const prompt = buildChildSessionPrompt({
+      tools: ["read_file", "run_command"],
+      allowedDirectories: ["/workspace/notes"],
+      shellDirectories: ["/workspace/project"],
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain("You can work with the user's files");
+    expect(prompt).toContain("/workspace/notes");
+    expect(prompt).toContain("You can run shell commands with run_command");
+    expect(prompt).toContain("/workspace/project");
+    // Neither section appears when its tools are absent.
+    const bare = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
+    expect(bare).not.toContain("You can work with the user's files");
+    expect(bare).not.toContain("You can run shell commands");
+  });
+});
+
+describe("createSystemPromptBuilder", () => {
+  let dir: string;
+  let config: ConfigStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-sysprompt-builder-"));
+    config = createConfigStore(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // A minimal session stand-in: the builder reads only `parentSessionId` and
+  // `persona` — a non-null parent marks a child session.
+  const sessionWith = (parentSessionId: string | null): Session =>
+    ({ parentSessionId, persona: null }) as unknown as Session;
+
+  it("composes the layered chat prompt for a top-level session", () => {
+    writeFileSync(config.instructionsFile(), "Be terse.");
+    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith(null));
+    expect(prompt).toContain("interactive chat session");
+    expect(prompt).toContain("Be terse.");
+  });
+
+  it("uses the worker prompt for a child session, ignoring kiri.md", () => {
+    writeFileSync(config.instructionsFile(), "Be terse.");
+    const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith("parent"));
+    expect(prompt).toContain("focused assistant");
+    expect(prompt).toContain("You have tools available");
+    expect(prompt).not.toContain("Be terse.");
   });
 });
 

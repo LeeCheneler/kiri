@@ -9,6 +9,7 @@ import type { LlmClients } from "../llm/index.ts";
 import { createRegistry } from "../workflows/index.ts";
 import { articleTools } from "./article-tools.ts";
 import { BUILTIN_TOOLS } from "./builtin-tools.ts";
+import { delegateTool } from "./delegate-tool.ts";
 import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
 import { shellTools } from "./shell-tools.ts";
@@ -53,6 +54,11 @@ describe("BUILTIN_TOOLS", () => {
       ...filesystemTools(() => [dir]),
       ...shellTools(() => [dir]),
       ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
+      ...delegateTool({
+        db,
+        parentSessionId: "session-1",
+        childTurnDeps: () => ({ db, llmClients: stubClients }),
+      }),
     };
     expect(BUILTIN_TOOLS.map((tool) => tool.name).sort()).toEqual(Object.keys(offered).sort());
   });

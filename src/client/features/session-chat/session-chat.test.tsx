@@ -632,6 +632,37 @@ describe("<SessionChat>", () => {
     await waitFor(() => expect(screen.queryByText(/working/i)).toBeNull());
   });
 
+  it("folds in a turn that grew an existing message's parts while away", async () => {
+    // An approval resumed elsewhere extends the paused assistant message in
+    // place — same message count, more parts — so the fold-in must compare
+    // parts, not just messages.
+    let detail = sessionDetail(
+      [message("m1", "user", "Question"), message("m2", "assistant", "Working on it.")],
+      { status: "running" },
+    );
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(detail)));
+    const { queryClient } = renderChat();
+
+    await screen.findByText("Working on it.");
+
+    detail = sessionDetail(
+      [
+        message("m1", "user", "Question"),
+        {
+          ...message("m2", "assistant", "Working on it."),
+          parts: [
+            { type: "text", text: "Working on it." },
+            { type: "text", text: "Now finished." },
+          ],
+        },
+      ],
+      { status: "idle" },
+    );
+    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+
+    expect(await screen.findByText("Now finished.")).toBeDefined();
+  });
+
   it("surfaces a turn that failed while away", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>

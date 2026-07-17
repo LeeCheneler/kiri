@@ -162,6 +162,20 @@
       "when": 1784141815879,
       "tag": "0022_add_search_index",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1784290455010,
+      "tag": "0023_add_session_lineage",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1784293100319,
+      "tag": "0024_exclude_child_sessions_from_search",
+      "breakpoints": true
     }
   ]
 }

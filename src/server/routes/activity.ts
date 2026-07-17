@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, count, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
@@ -137,16 +137,21 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
       .limit(limit)
       .all();
 
+    // Child sessions never appear in the feed — only top-level sessions.
+    const topLevelSessions = isNull(sessions.parentSessionId);
     const sessionRows = db
       .select()
       .from(sessions)
       .where(
         anchor
-          ? or(
-              lt(sessions.startedAt, anchor.startedAt),
-              and(eq(sessions.startedAt, anchor.startedAt), lt(sessions.id, anchor.id)),
+          ? and(
+              topLevelSessions,
+              or(
+                lt(sessions.startedAt, anchor.startedAt),
+                and(eq(sessions.startedAt, anchor.startedAt), lt(sessions.id, anchor.id)),
+              ),
             )
-          : undefined,
+          : topLevelSessions,
       )
       .orderBy(desc(sessions.startedAt), desc(sessions.id))
       .limit(limit)
