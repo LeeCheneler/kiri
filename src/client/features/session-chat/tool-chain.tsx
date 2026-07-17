@@ -11,14 +11,16 @@ import {
 
 /**
  * A renderable slice of an assistant message: a piece of prose, a call awaiting
- * the user's approval, a settled call whose result is a generated image, or a
- * chain of consecutive tool calls that folds into one panel. `index` on a text
- * segment is the part's position in the message, kept as a stable render key.
+ * the user's approval, a settled call whose result is a generated image, a
+ * delegate call rendered as its embedded child session, or a chain of
+ * consecutive tool calls that folds into one panel. `index` on a text segment
+ * is the part's position in the message, kept as a stable render key.
  */
 export type Segment =
   | { kind: "text"; index: number; text: string }
   | { kind: "approval"; part: ToolPart }
   | { kind: "image"; part: ToolPart }
+  | { kind: "delegate"; part: ToolPart }
   | { kind: "chain"; parts: ToolPart[] };
 
 /**
@@ -27,7 +29,8 @@ export type Segment =
  * parts sit between chained calls and don't break one — while non-empty prose
  * does. A call awaiting approval always stands alone, so its Allow / Deny
  * prompt can't be folded out of sight; a settled generated image stands alone
- * the same way — it is content like prose, not plumbing to fold up.
+ * the same way — it is content like prose, not plumbing to fold up — as does a
+ * delegate call, which renders as an embedded child-session box.
  */
 export function segmentParts(parts: UIMessage["parts"]): Segment[] {
   const segments: Segment[] = [];
@@ -44,6 +47,9 @@ export function segmentParts(parts: UIMessage["parts"]): Segment[] {
       if (part.state === "approval-requested") {
         flush();
         segments.push({ kind: "approval", part });
+      } else if (getToolName(part) === "delegate") {
+        flush();
+        segments.push({ kind: "delegate", part });
       } else if (generatedImage(part) !== null) {
         flush();
         segments.push({ kind: "image", part });

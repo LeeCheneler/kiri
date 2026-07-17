@@ -203,6 +203,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
               key={message.id}
               message={message}
               busy={busy}
+              sessionId={session.id}
               onResubmit={handleResubmit}
               onToolDecision={onToolDecision}
             />

@@ -64,6 +64,22 @@ describe("segmentParts", () => {
     ]);
   });
 
+  it("keeps a delegate call out of any chain", () => {
+    const [a, c] = [tool("a"), tool("c")];
+    const delegate = tool("b", {
+      type: "tool-delegate",
+      state: "input-available",
+      input: { task: "Research pelicans" },
+    });
+    const segments = segmentParts(parts(a, delegate, c));
+
+    expect(segments).toEqual([
+      { kind: "chain", parts: [a] as ToolPart[] },
+      { kind: "delegate", part: delegate },
+      { kind: "chain", parts: [c] as ToolPart[] },
+    ]);
+  });
+
   it("keeps a settled generated image out of any chain, while an unsettled one chains", () => {
     const [a, c] = [tool("a"), tool("c")];
     const settled = tool("b", {

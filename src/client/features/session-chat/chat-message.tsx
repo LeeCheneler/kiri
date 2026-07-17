@@ -4,6 +4,7 @@ import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
+import { ChildSession } from "./child-session.tsx";
 import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import { MessageComposer } from "./message-composer.tsx";
@@ -146,9 +147,11 @@ function UserMessage({
 // its thumbnail below the call.
 function AssistantMessage({
   segments,
+  sessionId,
   onToolDecision,
 }: {
   segments: Segment[];
+  sessionId?: string;
   onToolDecision?: ToolDecisionHandler;
 }) {
   return (
@@ -166,6 +169,20 @@ function AssistantMessage({
                 part={segment.part}
                 onDecision={onToolDecision}
               />
+            );
+          }
+          // A delegate call renders as its embedded child session — the box
+          // needs the owning session to find the child, so it degrades to a
+          // plain tool block in a context that doesn't supply one.
+          if (segment.kind === "delegate") {
+            return sessionId ? (
+              <ChildSession
+                key={segment.part.toolCallId}
+                part={segment.part}
+                parentSessionId={sessionId}
+              />
+            ) : (
+              <ToolInvocation key={segment.part.toolCallId} part={segment.part} />
             );
           }
           if (segment.kind === "image") {
@@ -195,11 +212,14 @@ function AssistantMessage({
 export function ChatMessage({
   message,
   busy,
+  sessionId,
   onResubmit,
   onToolDecision,
 }: {
   message: UIMessage;
   busy: boolean;
+  /** The owning session; lets a delegate call render its embedded child session. */
+  sessionId?: string;
   onResubmit: ResubmitHandler;
   onToolDecision?: ToolDecisionHandler;
 }) {
@@ -207,5 +227,7 @@ export function ChatMessage({
     return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
   const segments = segmentParts(message.parts);
   if (segments.length === 0) return null;
-  return <AssistantMessage segments={segments} onToolDecision={onToolDecision} />;
+  return (
+    <AssistantMessage segments={segments} sessionId={sessionId} onToolDecision={onToolDecision} />
+  );
 }

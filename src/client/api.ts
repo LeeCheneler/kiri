@@ -732,6 +732,10 @@ export interface Session {
   persona: string | null;
   /** Whether the user has pinned the session onto the feed's Pinned tab. */
   pinned: boolean;
+  /** The parent session this one was spawned from, or null for a top-level session. */
+  parentSessionId: string | null;
+  /** The parent's spawning tool call, or null for a top-level session. */
+  parentToolCallId: string | null;
   startedAt: string;
   /** Set once the session reaches a terminal `failed`/`cancelled`; null while usable. */
   finishedAt: string | null;
@@ -886,6 +890,18 @@ export interface SessionDetail {
 /** Fetch a single session with its messages. Throws on non-2xx (404 for unknown ids). */
 export const fetchSession = async (id: string): Promise<SessionDetail> =>
   json<SessionDetail>(await apiFetch(`/api/sessions/${encodeURIComponent(id)}`));
+
+/**
+ * Fetch the child sessions a session's delegate calls have spawned, oldest
+ * first. Children are hidden from the list and feed, so this is the transcript's
+ * lookup for the session behind a delegate call. Throws on non-2xx.
+ */
+export const fetchSessionChildren = async (id: string): Promise<Session[]> =>
+  (
+    await json<{ children: Session[] }>(
+      await apiFetch(`/api/sessions/${encodeURIComponent(id)}/children`),
+    )
+  ).children;
 
 /**
  * Create a session against `model` (a `provider:model` id), returning the new
