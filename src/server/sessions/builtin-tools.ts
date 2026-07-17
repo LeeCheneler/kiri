@@ -23,10 +23,12 @@ export interface BuiltinTool {
  * `kiri.yaml` — declaring it is the authorisation), while tools that execute
  * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
  * (the workflow and filesystem write tools), or run model-authored commands
- * (`run_command`) ask first. A tool whose capability isn't configured (the
- * filesystem tools with no declared sandbox, `run_command` with no declared
- * working directories) is withheld from the model regardless of its
- * permission.
+ * (`run_command`) ask first. `delegate` runs without prompting because its
+ * worker holds only standing-allow tools — delegation never widens what runs
+ * unprompted. A tool whose capability isn't configured (the filesystem tools
+ * with no declared sandbox, `run_command` with no declared working
+ * directories) is withheld from the model regardless of its permission, as is
+ * `delegate` from a child session — a worker can't spawn workers.
  */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   {
@@ -148,5 +150,10 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "run_command",
     description: "Run a shell command in the allowed working directories.",
     defaultPermission: "ask",
+  },
+  {
+    name: "delegate",
+    description: "Delegate a self-contained task to an isolated worker session that reports back.",
+    defaultPermission: "allow",
   },
 ];

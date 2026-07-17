@@ -176,6 +176,23 @@ function buildShellGuidance(tools: string[], workingDirectories: readonly string
   ].join("\n");
 }
 
+// Cross-cutting guidance for the first-party delegate tool — the judgement no
+// tool description can carry alone: when to delegate rather than research
+// inline, and that a returned report closes the task rather than seeding a
+// re-run (the leak delegation exists to prevent). Keyed off the tool's name,
+// so a session not offered it — or a child session, which never is — gets no
+// delegation steer.
+function buildDelegateGuidance(tools: string[]): string | null {
+  if (!tools.includes("delegate")) return null;
+  return [
+    "You can delegate: the `delegate` tool hands a self-contained task to a separate worker session that does the legwork — searches, fetches, reads — in its own context and returns only a written report, keeping this conversation lean. For research or gathering that will take more than a couple of tool calls, prefer the `delegate` tool over running those calls here yourself.",
+    "Delegating well:",
+    "- Write the task as a complete, self-contained brief: the worker cannot see this conversation, so state the goal, the specifics to find or produce, and the shape of report you want back.",
+    "- When the report comes back it is the research, done — answer from it, and do not re-run the searches it already made. Delegate a follow-up task only for something the report genuinely didn't cover.",
+    "- Delegate real legwork, not trivia: for a single lookup, one direct tool call is cheaper than a worker.",
+  ].join("\n");
+}
+
 // Cross-cutting strategy for the session's active tools. The SDK sends each
 // tool's own definition (the *what*, and for MCP tools the *when*); this layer
 // adds what no single tool's schema can: spend the token budget deliberately.
@@ -246,6 +263,7 @@ function buildCorePrompt(
     intro,
     buildResponseGuidance(),
     buildToolGuidance(tools),
+    buildDelegateGuidance(tools),
     buildChartGuidance(),
     buildDiagramGuidance(),
     buildArticleGuidance(tools),

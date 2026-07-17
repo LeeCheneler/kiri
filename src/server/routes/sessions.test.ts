@@ -18,6 +18,7 @@ import {
   createSession,
   createStreamRegistry,
   createToolPermissionStore,
+  findChildByToolCall,
   getSession,
   getSessionMessages,
   setSessionPinned,
@@ -1409,6 +1410,152 @@ describe("sessions routes", () => {
       });
 
       expect(res.status).toBe(409);
+    });
+  });
+
+  describe("first-party delegate tool", () => {
+    // A model that captures the tools and system prompt it was offered, then
+    // replies with a short text — for asserting what a turn was armed with.
+    const capturingModel = (capture: { toolNames?: string[]; systemText?: string }): LlmModel =>
+      new MockLanguageModelV3({
+        doStream: async (options) => {
+          capture.toolNames = (options.tools ?? []).map((t) => t.name);
+          const system = options.prompt.find((m) => m.role === "system");
+          capture.systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+    it("offers delegate to a top-level turn and steers research to it", async () => {
+      const capture: { toolNames?: string[]; systemText?: string } = {};
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: capturingModel(capture) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "research something")).text();
+      await settled;
+
+      expect(capture.toolNames).toContain("delegate");
+      expect(capture.systemText).toContain("prefer the `delegate` tool");
+    });
+
+    it("never offers delegate to a child's own turn, which runs the worker prompt", async () => {
+      const capture: { toolNames?: string[]; systemText?: string } = {};
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model: capturingModel(capture) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, {
+        id: "child",
+        parentSessionId: "s1",
+        parentToolCallId: "call_1",
+      });
+
+      const settled = waitForSettled("child");
+      await (await postMessage(app, "child", "follow up on the task")).text();
+      await settled;
+
+      expect(capture.toolNames).not.toContain("delegate");
+      expect(capture.systemText).toContain("focused assistant");
+      expect(capture.systemText).not.toContain("prefer the `delegate` tool");
+    });
+
+    it("runs a delegated task in a hidden child session and feeds back only its report", async () => {
+      // The one standing-allow MCP tool: the worker may hold it; ask-gated
+      // tools and the withheld set must never reach it.
+      createToolPermissionStore(env.config.toolPermissionsFile()).set("tavily__search", "allow");
+      let childToolNames: string[] = [];
+      let call = 0;
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          call += 1;
+          // Call order is deterministic: the parent's first step issues the
+          // delegate call, its execute drives the child's whole turn (call 2),
+          // then the parent's second step answers from the report.
+          if (call === 1) {
+            return {
+              stream: convertArrayToReadableStream([
+                {
+                  type: "tool-call",
+                  toolCallId: "c1",
+                  toolName: "delegate",
+                  input: '{"task":"Find pelican facts"}',
+                },
+                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+              ]),
+            };
+          }
+          if (call === 2) {
+            childToolNames = (options.tools ?? []).map((t) => t.name);
+            return {
+              stream: convertArrayToReadableStream([
+                { type: "text-start", id: "t1" },
+                { type: "text-delta", id: "t1", delta: "Pelicans: all good." },
+                { type: "text-end", id: "t1" },
+                { type: "finish", finishReason: finishReason("stop"), usage: usage(4, 3) },
+              ]),
+            };
+          }
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t2" },
+              { type: "text-delta", id: "t2", delta: "Summarised." },
+              { type: "text-end", id: "t2" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(6, 2) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), {
+        bus,
+        mcpRegistry: fakeMcp({ tavily__search: mcpTool() }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "research pelicans")).text();
+      await settled;
+
+      // The parent transcript holds the call with the report as its output,
+      // then the model's answer from it.
+      const rows = getSessionMessages(env.db, "s1");
+      const part = toolPartOf(rows[1]);
+      expect(part.type).toBe("tool-delegate");
+      expect(part.state).toBe("output-available");
+      expect(part.output).toBe("Pelicans: all good.");
+      expect(JSON.stringify(rows[1]?.parts)).toContain("Summarised.");
+
+      // The child is linked to the spawning call, ran the task as its own
+      // transcript, and settled idle.
+      const child = findChildByToolCall(env.db, "s1", "c1");
+      expect(child?.status).toBe("idle");
+      const childRows = getSessionMessages(env.db, child?.id ?? "");
+      expect(childRows.map((r) => r.role)).toEqual(["user", "assistant"]);
+      expect(JSON.stringify(childRows[0]?.parts)).toContain("Find pelican facts");
+
+      // Hidden from the list, yet served at its own URL.
+      const list = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string }[];
+      };
+      expect(list.sessions.map((s) => s.id)).toEqual(["s1"]);
+      expect((await app.request(`/api/sessions/${child?.id}`)).status).toBe(200);
+
+      // The worker held only standing-allow tools: the allowed MCP search and
+      // the article reads, never the ask-gated, withheld, or spawning ones.
+      expect(childToolNames).toContain("tavily__search");
+      expect(childToolNames).toContain("read_article");
+      expect(childToolNames).not.toContain("delegate");
+      expect(childToolNames).not.toContain("create_article");
+      expect(childToolNames).not.toContain("run_workflow");
     });
   });
 

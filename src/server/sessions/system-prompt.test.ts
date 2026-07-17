@@ -438,6 +438,40 @@ describe("buildSystemPrompt", () => {
   });
 });
 
+describe("delegate guidance", () => {
+  let dir: string;
+  let config: ConfigStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-sysprompt-delegate-"));
+    config = createConfigStore(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("steers research to the delegate tool only when it is offered", () => {
+    const withDelegate = buildSystemPrompt({
+      config,
+      tools: ["delegate", "tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withDelegate).toContain("prefer the `delegate` tool");
+    // It must also steer against re-running the delegated work — the leak the
+    // tool exists to prevent.
+    expect(withDelegate).toContain("do not re-run the searches it already made");
+    // A session without delegate gets no delegation steer — direct search is
+    // the only research path it has.
+    const withoutDelegate = buildSystemPrompt({
+      config,
+      tools: ["tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withoutDelegate).not.toContain("prefer the `delegate` tool");
+  });
+});
+
 describe("buildChildSessionPrompt", () => {
   it("frames the worker as a delegated sub-agent that reports back", () => {
     const prompt = buildChildSessionPrompt({ now: FIXED_NOW });
