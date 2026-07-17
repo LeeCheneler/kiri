@@ -352,6 +352,22 @@ describe("sessions routes", () => {
       expect(res.status).toBe(400);
     });
 
+    it("excludes child sessions from the list", async () => {
+      createSession(env.db, MODEL, { id: "top", startedAt: new Date(1000) });
+      createSession(env.db, MODEL, {
+        id: "child",
+        startedAt: new Date(2000),
+        parentSessionId: "top",
+        parentToolCallId: "call_1",
+      });
+      const app = makeApp(fakeClients());
+
+      const page = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string }[];
+      };
+      expect(page.sessions.map((s) => s.id)).toEqual(["top"]);
+    });
+
     it("filters to pinned sessions and pages within them when passed pinned=true", async () => {
       createSession(env.db, MODEL, { id: "s1", startedAt: new Date(1000) });
       createSession(env.db, MODEL, { id: "s2", startedAt: new Date(2000) });

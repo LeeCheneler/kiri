@@ -7,7 +7,7 @@ import {
   UI_MESSAGE_STREAM_HEADERS,
   isToolUIPart,
 } from "ai";
-import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
@@ -333,6 +333,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .from(sessionsTable)
         .where(
           and(
+            // Child sessions are part of their parent's transcript, not
+            // standalone activity — the list shows only top-level sessions.
+            isNull(sessionsTable.parentSessionId),
             pinned ? eq(sessionsTable.pinned, true) : undefined,
             anchor
               ? or(
