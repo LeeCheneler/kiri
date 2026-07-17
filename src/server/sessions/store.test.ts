@@ -11,6 +11,7 @@ import {
   createSession,
   deleteMessagesFrom,
   deleteSession,
+  findChildByToolCall,
   getSession,
   getSessionMessages,
   getSessionPreviews,
@@ -38,7 +39,7 @@ describe("sessions store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("creates an idle session against the model with no persona by default", () => {
+  it("creates an idle top-level session against the model by default", () => {
     const session = createSession(db, MODEL, { id: "s1" });
 
     expect(session.id).toBe("s1");
@@ -47,7 +48,36 @@ describe("sessions store", () => {
     expect(session.persona).toBeNull();
     expect(session.pinned).toBe(false);
     expect(session.finishedAt).toBeNull();
+    expect(session.parentSessionId).toBeNull();
+    expect(session.parentToolCallId).toBeNull();
     expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("creates a child session carrying its parent and spawning tool call", () => {
+    createSession(db, MODEL, { id: "parent" });
+    const child = createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call_1",
+    });
+
+    expect(child.parentSessionId).toBe("parent");
+    expect(child.parentToolCallId).toBe("call_1");
+    expect(getSession(db, "child")?.parentSessionId).toBe("parent");
+  });
+
+  it("finds a child by its parent and spawning tool call", () => {
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call_1",
+    });
+
+    expect(findChildByToolCall(db, "parent", "call_1")?.id).toBe("child");
+    // A different tool call, or a different parent, has no child.
+    expect(findChildByToolCall(db, "parent", "call_2")).toBeUndefined();
+    expect(findChildByToolCall(db, "other", "call_1")).toBeUndefined();
   });
 
   it("pins and unpins a session", () => {
@@ -216,6 +246,25 @@ describe("sessions store", () => {
     expect(getSession(db, "s2")?.id).toBe("s2");
     expect(getSessionMessages(db, "s2")).toHaveLength(1);
     expect(db.select().from(articles).where(eq(articles.sessionId, "s2")).all()).toHaveLength(1);
+  });
+
+  it("deletes a session's children and their messages along with it", () => {
+    createSession(db, MODEL, { id: "parent" });
+    appendMessage(db, "parent", { role: "user", parts: [{ type: "text", text: "Delegate" }] });
+    createSession(db, MODEL, {
+      id: "child",
+      parentSessionId: "parent",
+      parentToolCallId: "call_1",
+    });
+    appendMessage(db, "child", { role: "user", parts: [{ type: "text", text: "Task" }] });
+    createSession(db, MODEL, { id: "other" });
+
+    deleteSession(db, "parent");
+
+    expect(getSession(db, "parent")).toBeUndefined();
+    expect(getSession(db, "child")).toBeUndefined();
+    expect(getSessionMessages(db, "child")).toHaveLength(0);
+    expect(getSession(db, "other")?.id).toBe("other");
   });
 
   it("is a no-op deleting a session that does not exist", () => {

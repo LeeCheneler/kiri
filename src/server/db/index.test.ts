@@ -963,6 +963,20 @@ describe("db", () => {
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
+  it("declares sessions.parent_session_id → sessions.id self foreign key", () => {
+    const fks = getTableConfig(sessions).foreignKeys;
+    expect(fks).toHaveLength(1);
+    const fk = fks[0] as unknown as {
+      reference: () => {
+        columns: { name: string }[];
+        foreignColumns: { name: string }[];
+      };
+    };
+    const ref = fk.reference();
+    expect(ref.columns.map((c) => c.name)).toEqual(["parent_session_id"]);
+    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+  });
+
   it("adds the sessions + messages tables when migrating a pre-sessions DB", () => {
     const sqlite = db.$client;
     sqlite.run(
@@ -1033,6 +1047,8 @@ describe("db", () => {
         "id",
         "image_model",
         "model",
+        "parent_session_id",
+        "parent_tool_call_id",
         "persona",
         "pinned",
         "started_at",
@@ -1047,6 +1063,14 @@ describe("db", () => {
       .all()
       .map((r) => r.name);
     expect(indexes).toEqual(["messages_session_id_idx"]);
+
+    const sessionIndexes = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='sessions' AND name NOT LIKE 'sqlite_%'",
+      )
+      .all()
+      .map((r) => r.name);
+    expect(sessionIndexes).toEqual(["sessions_parent_session_id_idx"]);
   });
 
   it("preserves article rows when migrating a pre-decoupling DB", () => {
@@ -1387,12 +1411,14 @@ describe("db", () => {
     sqlite.run(
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
     );
-    // Minimal post-0021 shapes of the three tables 0022's backfill reads.
+    // Minimal post-0021 shapes of the three tables 0022's backfill reads,
+    // plus sessions, which 0023 alters with the lineage columns.
     sqlite.run(`CREATE TABLE runs (
       id TEXT PRIMARY KEY NOT NULL,
       workflow_name TEXT NOT NULL,
       summary TEXT
     )`);
+    sqlite.run("CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL)");
     sqlite.run(`CREATE TABLE articles (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
