@@ -177,19 +177,26 @@ function buildShellGuidance(tools: string[], workingDirectories: readonly string
 }
 
 // Cross-cutting guidance for the first-party delegate tool — the judgement no
-// tool description can carry alone: when to delegate rather than research
-// inline, and that a returned report closes the task rather than seeding a
-// re-run (the leak delegation exists to prevent). Keyed off the tool's name,
-// so a session not offered it — or a child session, which never is — gets no
-// delegation steer.
+// tool description can carry alone. The trigger is phrased on request shapes
+// (a comparison, a roundup, a latest-news check) rather than a call-count
+// threshold: a threshold asks the model to forecast its own calls, and a
+// model deciding greedily forecasts "one more lookup" every time and never
+// delegates — the shape of the user's request is checkable before the first
+// call, even by a small model. A returned report closes the task rather than
+// seeding a re-run (the leak delegation exists to prevent). Keyed off the
+// tool's name, so a session not offered it — or a child session, which never
+// is — gets no delegation steer.
 function buildDelegateGuidance(tools: string[]): string | null {
   if (!tools.includes("delegate")) return null;
   return [
-    "You can delegate: the `delegate` tool hands a self-contained task to a separate worker session that does the legwork — searches, fetches, reads — in its own context and returns only a written report, keeping this conversation lean. For research or gathering that will take more than a couple of tool calls, prefer the `delegate` tool over running those calls here yourself.",
+    "You can delegate: the `delegate` tool hands a self-contained task to a worker session — the same model as you, holding the tools the user always allows — that does the legwork in its own context and returns only a written report, so this conversation holds the findings rather than the working. The user watches the worker live in the transcript, so delegating hides nothing.",
+    'Delegation is the rule for research, not an option to weigh. A comparison ("how does X compare to Y"), a roundup or comprehensive breakdown, a "what\'s the latest on X", any request answered by gathering from more than one place: these go to `delegate` as your first tool call for the request. Running their searches, fetches, and reads in this conversation is a mistake, however efficient each call looks. The only research to run inline is a single specific lookup — one search or one read whose result you use directly.',
     "Delegating well:",
+    '- Catch yourself at the plan: the moment your next step is "let me research / search / look into", that step is the delegate task — write it as the brief instead of making its first call yourself. Mid-way counts too: needing a second call on the same question means you are past the line — stop and delegate the remainder.',
     "- Write the task as a complete, self-contained brief: the worker cannot see this conversation, so state the goal, the specifics to find or produce, and the shape of report you want back.",
+    "- Independent strands are separate tasks: delegate each in its own call — several can run in the same step — rather than bundling unrelated questions into one brief.",
     "- When the report comes back it is the research, done — answer from it, and do not re-run the searches it already made. Delegate a follow-up task only for something the report genuinely didn't cover.",
-    "- Delegate real legwork, not trivia: for a single lookup, one direct tool call is cheaper than a worker.",
+    "- Delegate legwork, not action: a worker runs unattended, so anything the user approves per call — writes, shell commands — stays here.",
   ].join("\n");
 }
 
@@ -202,13 +209,21 @@ function buildDelegateGuidance(tools: string[]): string | null {
 // keeping raw/full-content options off by default (a single raw page can dwarf
 // everything else and is the most common blow-up), before covering parallelism
 // and treating a capped or timed-out result as incomplete (kiri caps each
-// result and aborts a call past its time budget). Returns null when no tools
-// are active, so the section never appears in a plain chat.
+// result and aborts a call past its time budget). When the delegate tool is
+// active, the spend bullets open by routing multi-call research to it — these
+// rules otherwise teach exactly the efficient inline searching that delegation
+// should replace. Returns null when no tools are active, so the section never
+// appears in a plain chat.
 function buildToolGuidance(tools: string[]): string | null {
   if (tools.length === 0) return null;
   return [
     "You have tools available. The bar is a correct, complete answer, and a tool is often the surest way there — so reach for one rather than guessing whenever a call would actually settle the question. Frugality serves that bar, it doesn't compete with it: every result is spent from a finite budget and stays in the conversation to be re-paid on each later turn, so a needless or bloated call costs you repeatedly and crowds out room to reason — yet a call you skip, or scope so thin it yields a wrong answer, costs far more than its tokens ever could.",
     "Within that, spend deliberately:",
+    ...(tools.includes("delegate")
+      ? [
+          "- Route before you run: research that needs more than a single lookup is not run here — hand the whole job to the `delegate` tool first (see below). The rules that follow govern the calls you do make in this conversation.",
+        ]
+      : []),
     "- Call a tool when it beats what you reliably know — to act on the world, or to fetch something specific you can't otherwise verify — not to confirm the obvious or re-fetch what the conversation already holds. Never claim a result you didn't get.",
     "- Default to the narrowest form of every call, widening only on shown need. The parameters are your main control over cost: tighten the query instead of pulling broad and sifting, and set any limit, count, depth, or field choice to the least that *fully* answers — never the equivalent of an unbounded `SELECT *` over a wide table.",
     '- Full-content options — raw text, a whole fetched page, a deep extraction — are the largest single sink, often tens of thousands of tokens each. Keep them off until a cheaper result has fallen short and shown exactly what\'s missing, then take only the minimum that fills the gap. Never request them speculatively or "to be safe".',

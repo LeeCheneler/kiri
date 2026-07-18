@@ -1494,7 +1494,7 @@ describe("sessions routes", () => {
       await settled;
 
       expect(capture.toolNames).toContain("delegate");
-      expect(capture.systemText).toContain("prefer the `delegate` tool");
+      expect(capture.systemText).toContain("Delegation is the rule for research");
     });
 
     it("never offers delegate to a child's own turn, which runs the worker prompt", async () => {

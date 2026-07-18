@@ -1,5 +1,5 @@
 import type { FileUIPart, UIMessage } from "ai";
-import { useEffect, useId, useState } from "react";
+import { memo, useEffect, useId, useState } from "react";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
@@ -208,8 +208,13 @@ function AssistantMessage({
  * collapsible chain panel. Labelled with who spoke so the transcript reads as a
  * conversation. A just-submitted assistant turn, still awaiting its first
  * chunk, renders nothing. `busy` disables editing while a turn is in flight.
+ *
+ * Memoised: a streamed delta replaces only the streaming message's object, so
+ * every settled message skips re-rendering (and re-parsing its markdown)
+ * throughout the turn. Callers must pass referentially stable handlers or the
+ * memo never holds.
  */
-export function ChatMessage({
+export const ChatMessage = memo(function ChatMessage({
   message,
   busy,
   sessionId,
@@ -230,4 +235,4 @@ export function ChatMessage({
   return (
     <AssistantMessage segments={segments} sessionId={sessionId} onToolDecision={onToolDecision} />
   );
-}
+});
