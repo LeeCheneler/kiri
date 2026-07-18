@@ -116,6 +116,11 @@ export function useSessionConversation(opts: {
     id: session.id,
     messages: initialMessages,
     transport,
+    // Cap transcript re-renders to ~16/s. A fast provider otherwise delivers
+    // deltas quicker than a grown transcript can re-render, and the backlog
+    // pins the main thread until the tab freezes; 60 ms still reads as live
+    // streaming.
+    experimental_throttle: 60,
     // Once every pending tool approval on the latest turn has a verdict, send it
     // straight back so the turn resumes without another user action.
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,

@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { ApiError, type SessionDetail } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
@@ -165,11 +165,17 @@ function Chat({ detail }: { detail: SessionDetail }) {
   };
 
   // Resend an edited user message via the conversation engine, pulling the
-  // transcript back to the foot for the re-run turn.
-  const handleResubmit = async (messageId: string, parts: UIMessage["parts"]) => {
+  // transcript back to the foot for the re-run turn. `resubmit` re-derives on
+  // every streamed delta (it closes over the live transcript), so passing it
+  // straight down would defeat `ChatMessage`'s memo; route it through a ref —
+  // the latest-closure pattern the live events provider uses — so every
+  // message receives one stable handler that always calls the current engine.
+  const resubmitRef = useRef(resubmit);
+  resubmitRef.current = resubmit;
+  const handleResubmit = useCallback(async (messageId: string, parts: UIMessage["parts"]) => {
     pinnedToBottom.current = true;
-    await resubmit(messageId, parts);
-  };
+    await resubmitRef.current(messageId, parts);
+  }, []);
 
   // Esc cancels an in-flight turn. The composer has no `onCancel` in this view,
   // so it leaves Escape alone; catch it on the window while a turn is busy.
