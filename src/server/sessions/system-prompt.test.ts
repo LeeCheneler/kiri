@@ -457,7 +457,13 @@ describe("delegate guidance", () => {
       tools: ["delegate", "tavily__search"],
       now: FIXED_NOW,
     });
-    expect(withDelegate).toContain("prefer the `delegate` tool");
+    // The steer must install delegation as the rule for multi-call research,
+    // not an optional alternative — triggered by the shape of the request
+    // before the first call, the moment a model otherwise slides into inline
+    // searching — and the general tool strategy must route research to it
+    // before teaching efficient inline calling.
+    expect(withDelegate).toContain("Delegation is the rule for research");
+    expect(withDelegate).toContain("Route before you run");
     // It must also steer against re-running the delegated work — the leak the
     // tool exists to prevent.
     expect(withDelegate).toContain("do not re-run the searches it already made");
@@ -468,7 +474,8 @@ describe("delegate guidance", () => {
       tools: ["tavily__search"],
       now: FIXED_NOW,
     });
-    expect(withoutDelegate).not.toContain("prefer the `delegate` tool");
+    expect(withoutDelegate).not.toContain("Delegation is the rule for research");
+    expect(withoutDelegate).not.toContain("Route before you run");
   });
 });
 
