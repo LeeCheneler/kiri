@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -49,6 +49,27 @@ describe("<DesignSystemPage>", () => {
     await user.click(screen.getByRole("button", { name: "open dialog (full)" }));
     expect(screen.getByRole("dialog", { name: /discard draft/i })).toBeDefined();
     await user.click(screen.getByRole("button", { name: /discard/i }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens and settles the ConfirmModal demo at each emphasis", async () => {
+    const user = userEvent.setup();
+    const { hook } = memoryLocation({ path: "/dev/design-system" });
+    render(
+      <Router hook={hook}>
+        <DesignSystemContent />
+      </Router>,
+    );
+    await screen.findAllByRole("figure");
+
+    await user.click(screen.getByRole("button", { name: "confirm an action" }));
+    const primary = screen.getByRole("dialog", { name: /run again\?/i });
+    await user.click(within(primary).getByRole("button", { name: /^run again$/i }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "confirm a destructive action" }));
+    const negative = screen.getByRole("dialog", { name: /delete this run\?/i });
+    await user.click(within(negative).getByRole("button", { name: /^cancel$/i }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 

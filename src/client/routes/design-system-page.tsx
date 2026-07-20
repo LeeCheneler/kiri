@@ -33,6 +33,7 @@ import { NavList } from "../design-system/navigation/nav-list.tsx";
 import { Tabs } from "../design-system/navigation/tabs.tsx";
 import { Toc, type TocEntry } from "../design-system/navigation/toc.tsx";
 import { Card } from "../design-system/surfaces/card.tsx";
+import { ConfirmModal } from "../design-system/surfaces/confirm-modal.tsx";
 import { Drawer } from "../design-system/surfaces/drawer.tsx";
 import { Modal } from "../design-system/surfaces/modal.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
@@ -296,6 +297,42 @@ function ModalDemo() {
   );
 }
 
+// Interactive specimen for the ConfirmModal — one trigger per emphasis, so the
+// default `primary` confirm and the destructive `negative` one can be compared.
+function ConfirmModalDemo() {
+  const [variant, setVariant] = useState<"primary" | "negative" | null>(null);
+  const close = () => setVariant(null);
+  return (
+    <>
+      <div className="flex gap-4">
+        <Button onClick={() => setVariant("primary")}>confirm an action</Button>
+        <Button variant="negative" onClick={() => setVariant("negative")}>
+          confirm a destructive action
+        </Button>
+      </div>
+      {variant === "primary" && (
+        <ConfirmModal
+          title="Run again?"
+          body="The previous attempt's outputs will be cleared."
+          confirmLabel="run again"
+          onConfirm={close}
+          onCancel={close}
+        />
+      )}
+      {variant === "negative" && (
+        <ConfirmModal
+          title="Delete this run?"
+          body="This cannot be undone."
+          confirmLabel="delete"
+          variant="negative"
+          onConfirm={close}
+          onCancel={close}
+        />
+      )}
+    </>
+  );
+}
+
 // Interactive specimen for the Drawer — a button opens a left side panel
 // hosting navigation, the way the site rail does on small screens.
 function DrawerDemo() {
@@ -522,12 +559,38 @@ export function DesignSystemContent() {
                 footer actions are yours to compose, and <Code>size</Code> (<Code>md</Code> default,{" "}
                 <Code>lg</Code>, <Code>full</Code>) widens it — from a richer body up to a
                 viewport-spanning surface for content like a zoomable diagram. Reserve it for a
-                focused decision or a short form — anything longer belongs on its own page.
+                focused decision or a short form — anything longer belongs on its own page, and a
+                bare yes/no question belongs in the <Code>ConfirmModal</Code> below.
               </p>
             </Prose>
             <div className="mt-5">
               <Card>
                 <ModalDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">ConfirmModal</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">ConfirmModal</span> ·
+              design-system/surfaces/confirm-modal.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A <Code>Modal</Code> specialised to a single yes/no decision — the in-app
+                replacement for the browser's native confirm, so a pause-before-proceeding never
+                leaves kiri's surface. <Code>title</Code> asks the question, <Code>body</Code>{" "}
+                states the consequence, and <Code>confirmLabel</Code> names the confirming action;{" "}
+                <Code>variant</Code> sets that button's emphasis — <Code>negative</Code> for
+                destructive actions, <Code>primary</Code> (default) otherwise. The cancel button,
+                Escape, and a backdrop click all route to <Code>onCancel</Code>. Anything that
+                collects input is a form in a <Code>Modal</Code> instead.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <ConfirmModalDemo />
               </Card>
             </div>
           </article>
