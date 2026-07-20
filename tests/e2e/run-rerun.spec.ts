@@ -32,9 +32,12 @@ test("clicking 'run again' re-executes a terminal run under the same id and url"
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
   const url = page.url();
 
-  // The rerun handler shows a confirm prompt; accept it once.
-  page.once("dialog", (dialog) => dialog.accept());
+  // The rerun handler asks via the in-app confirm dialog; confirm it.
   await page.getByRole("button", { name: /run again/i }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /run again/i })
+    .click();
 
   // SSE drives the row back through running → ok without a reload. The
   // 2s sleep in `slow.yaml` keeps the running window observable.
@@ -54,8 +57,11 @@ test("rerunning does not create a duplicate row on the home feed", async ({ page
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: /run again/i }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /run again/i })
+    .click();
   // Wait for the rerun to settle so the home assertion isn't racing
   // mid-flight state.
   await expect(page.locator('[data-status="running"]').first()).toBeVisible({ timeout: 10_000 });

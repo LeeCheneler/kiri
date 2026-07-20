@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { ApiError, deleteSession } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
+import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { useSession, useUpdateSession } from "../../state/sessions.ts";
 import { clearSessionDraft } from "./session-draft.ts";
 
@@ -23,6 +24,7 @@ export function SessionActions({ id }: { id: string }) {
   const { setPinned } = useUpdateSession(id);
   const [pending, setPending] = useState(false);
   const [pinPending, setPinPending] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!detail) return null;
@@ -42,7 +44,7 @@ export function SessionActions({ id }: { id: string }) {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Delete this session? This cannot be undone.")) return;
+    setConfirmOpen(false);
     setError(null);
     setPending(true);
     try {
@@ -63,29 +65,41 @@ export function SessionActions({ id }: { id: string }) {
   };
 
   return (
-    <div className="flex flex-col items-start gap-2">
-      <Button
-        pending={pinPending}
-        pendingLabel={pinned ? "unpinning…" : "pinning…"}
-        onClick={handlePinToggle}
-      >
-        {pinned ? "unpin session" : "pin session"}
-      </Button>
-      <Button
-        variant="negative"
-        pending={pending}
-        pendingLabel="deleting…"
-        disabled={running}
-        title={running ? "a turn is in flight; cancel it first" : undefined}
-        onClick={handleDelete}
-      >
-        delete session
-      </Button>
-      {error ? (
-        <p role="alert" className="font-mono text-xs text-status-failed">
-          {error}
-        </p>
+    <>
+      <div className="flex flex-col items-start gap-2">
+        <Button
+          pending={pinPending}
+          pendingLabel={pinned ? "unpinning…" : "pinning…"}
+          onClick={handlePinToggle}
+        >
+          {pinned ? "unpin session" : "pin session"}
+        </Button>
+        <Button
+          variant="negative"
+          pending={pending}
+          pendingLabel="deleting…"
+          disabled={running}
+          title={running ? "a turn is in flight; cancel it first" : undefined}
+          onClick={() => setConfirmOpen(true)}
+        >
+          delete session
+        </Button>
+        {error ? (
+          <p role="alert" className="font-mono text-xs text-status-failed">
+            {error}
+          </p>
+        ) : null}
+      </div>
+      {confirmOpen ? (
+        <ConfirmModal
+          title="Delete this session?"
+          body="This cannot be undone."
+          confirmLabel="delete"
+          variant="negative"
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmOpen(false)}
+        />
       ) : null}
-    </div>
+    </>
   );
 }

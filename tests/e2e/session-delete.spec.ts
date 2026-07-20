@@ -8,9 +8,13 @@ test("deleting a session removes it and returns to the activity feed", async ({ 
   await sendMessage(page, "a throwaway message");
   await expect(page.getByText("You said: a throwaway message")).toBeVisible({ timeout: 10_000 });
 
-  // The delete control lives in the right rail and confirms before acting.
-  page.once("dialog", (dialog) => dialog.accept());
+  // The delete control lives in the right rail and confirms in-app before
+  // acting.
   await page.getByRole("button", { name: /delete session/i }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /^delete$/i })
+    .click();
 
   // The handler returns to the feed's Sessions view once the delete lands, and
   // the row is gone.
@@ -18,11 +22,13 @@ test("deleting a session removes it and returns to the activity feed", async ({ 
   await expect(page.locator(`a[href="/sessions/${id}"]`)).toHaveCount(0);
 });
 
-test("dismissing the confirm leaves the session intact", async ({ page }) => {
+test("cancelling the confirm leaves the session intact", async ({ page }) => {
   const id = await startSession(page);
 
-  page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: /delete session/i }).click();
+  const confirm = page.getByRole("dialog");
+  await confirm.getByRole("button", { name: /^cancel$/i }).click();
+  await expect(confirm).not.toBeVisible();
 
   // No navigation, still on the same session.
   await expect(page).toHaveURL(`/sessions/${id}`);

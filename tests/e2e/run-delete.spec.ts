@@ -16,8 +16,11 @@ test("clicking delete on the run detail page removes the row and navigates home"
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: /^delete$/i }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /^delete$/i })
+    .click();
 
   // The handler navigates to "/" once the 204 lands.
   await expect(page).toHaveURL("/");
@@ -28,13 +31,15 @@ test("clicking delete on the run detail page removes the row and navigates home"
   await expect(page.getByRole("heading", { name: /run not found/i })).toBeVisible();
 });
 
-test("dismissing the confirm prompt leaves the run intact", async ({ page, request }) => {
+test("cancelling the confirm dialog leaves the run intact", async ({ page, request }) => {
   const { runId } = await triggerRun(request, "quick");
   await page.goto(`/runs/${runId}`);
   await expect(page.locator('[data-status="ok"]').first()).toBeVisible({ timeout: 10_000 });
 
-  page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: /^delete$/i }).click();
+  const confirm = page.getByRole("dialog");
+  await confirm.getByRole("button", { name: /^cancel$/i }).click();
+  await expect(confirm).not.toBeVisible();
 
   // No navigation, no removal — still on the detail page, status still ok.
   await expect(page).toHaveURL(`/runs/${runId}`);
