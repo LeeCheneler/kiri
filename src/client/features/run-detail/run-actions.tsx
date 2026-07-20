@@ -9,6 +9,7 @@ import {
   rerunRun,
 } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
+import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { InvokeModal } from "../run-workflow/invoke-modal.tsx";
 
 const RERUN_NOTICE = "The previous attempt's steps, articles, and summary will be cleared.";
@@ -77,17 +78,22 @@ function TerminalActions({
   const [deletePending, setDeletePending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"rerun" | "delete" | null>(null);
 
   const hasInputs = (workflowInputs?.length ?? 0) > 0;
 
-  const handleRerun = async () => {
+  const handleRerun = () => {
     if (hasInputs) {
       // The modal's submit is the confirmation gesture for the inputs path.
       setError(null);
       setModalOpen(true);
       return;
     }
-    if (!window.confirm(`Run again? ${RERUN_NOTICE}`)) return;
+    setConfirmAction("rerun");
+  };
+
+  const startRerun = async () => {
+    setConfirmAction(null);
     setError(null);
     setRerunPending(true);
     try {
@@ -105,7 +111,7 @@ function TerminalActions({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Delete this run? This cannot be undone.")) return;
+    setConfirmAction(null);
     setError(null);
     setDeletePending(true);
     try {
@@ -140,11 +146,30 @@ function TerminalActions({
           variant="negative"
           pending={deletePending}
           pendingLabel="deleting…"
-          onClick={handleDelete}
+          onClick={() => setConfirmAction("delete")}
         >
           delete
         </Button>
       </ActionBar>
+      {confirmAction === "rerun" ? (
+        <ConfirmModal
+          title="Run again?"
+          body={RERUN_NOTICE}
+          confirmLabel="run again"
+          onConfirm={startRerun}
+          onCancel={() => setConfirmAction(null)}
+        />
+      ) : null}
+      {confirmAction === "delete" ? (
+        <ConfirmModal
+          title="Delete this run?"
+          body="This cannot be undone."
+          confirmLabel="delete"
+          variant="negative"
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmAction(null)}
+        />
+      ) : null}
       {modalOpen && workflowInputs ? (
         <InvokeModal
           workflowName={run.workflowName}

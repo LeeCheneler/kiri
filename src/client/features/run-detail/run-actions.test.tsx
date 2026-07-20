@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,11 +7,6 @@ import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../../tests/setup/msw.ts";
 import type { RunDetailRun, WorkflowInputSummary } from "../../api.ts";
 import { RunActions } from "./run-actions.tsx";
-
-const originalConfirm = window.confirm;
-afterEach(() => {
-  window.confirm = originalConfirm;
-});
 
 const makeRun = (overrides: Partial<RunDetailRun> = {}): RunDetailRun => ({
   id: "run-1",
@@ -40,6 +35,15 @@ const renderActions = (run: RunDetailRun, workflowInputs?: WorkflowInputSummary[
     </Router>,
   );
   return { history: memory.history };
+};
+
+type User = ReturnType<typeof userEvent.setup>;
+
+// Opens the named confirmation dialog from a header action and confirms it.
+const openAndConfirm = async (user: User, trigger: RegExp, confirm: RegExp) => {
+  await user.click(screen.getByRole("button", { name: trigger }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: confirm }));
 };
 
 describe("<RunActions>", () => {
@@ -76,7 +80,6 @@ describe("<RunActions>", () => {
 
   it("re-runs a no-input workflow after a confirm", async () => {
     const user = userEvent.setup();
-    window.confirm = () => true;
     const rerun: string[] = [];
     server.use(
       http.post("*/api/runs/:id/rerun", ({ params }) => {
@@ -86,13 +89,12 @@ describe("<RunActions>", () => {
     );
     renderActions(makeRun());
 
-    await user.click(screen.getByRole("button", { name: /run again/i }));
+    await openAndConfirm(user, /run again/i, /run again/i);
     await waitFor(() => expect(rerun).toEqual(["run-1"]));
   });
 
-  it("does not re-run when the confirm is dismissed", async () => {
+  it("does not re-run when the confirmation is cancelled", async () => {
     const user = userEvent.setup();
-    window.confirm = () => false;
     const rerun: string[] = [];
     server.use(
       http.post("*/api/runs/:id/rerun", () => {
@@ -103,12 +105,15 @@ describe("<RunActions>", () => {
     renderActions(makeRun());
 
     await user.click(screen.getByRole("button", { name: /run again/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(rerun).toEqual([]);
   });
 
   it("surfaces an inline error when re-run fails", async () => {
     const user = userEvent.setup();
-    window.confirm = () => true;
     server.use(
       http.post("*/api/runs/:id/rerun", () =>
         HttpResponse.json({ error: "still in flight" }, { status: 409 }),
@@ -116,7 +121,7 @@ describe("<RunActions>", () => {
     );
     renderActions(makeRun());
 
-    await user.click(screen.getByRole("button", { name: /run again/i }));
+    await openAndConfirm(user, /run again/i, /run again/i);
     await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/still in flight/i));
   });
 
@@ -171,17 +176,15 @@ describe("<RunActions>", () => {
 
   it("deletes after a confirm and navigates home", async () => {
     const user = userEvent.setup();
-    window.confirm = () => true;
     server.use(http.delete("*/api/runs/:id", () => new HttpResponse(null, { status: 204 })));
     const { history } = renderActions(makeRun());
 
-    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    await openAndConfirm(user, /^delete$/i, /^delete$/i);
     await waitFor(() => expect(history[history.length - 1]).toBe("/"));
   });
 
-  it("does not delete when the confirm is dismissed", async () => {
+  it("does not delete when the confirmation is cancelled", async () => {
     const user = userEvent.setup();
-    window.confirm = () => false;
     const deleted: string[] = [];
     server.use(
       http.delete("*/api/runs/:id", () => {
@@ -192,25 +195,27 @@ describe("<RunActions>", () => {
     const { history } = renderActions(makeRun());
 
     await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(deleted).toEqual([]);
     expect(history[history.length - 1]).toBe("/runs/run-1");
   });
 
   it("treats a 404 on delete as already-gone and navigates home", async () => {
     const user = userEvent.setup();
-    window.confirm = () => true;
     server.use(
       http.delete("*/api/runs/:id", () => HttpResponse.json({ error: "gone" }, { status: 404 })),
     );
     const { history } = renderActions(makeRun());
 
-    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    await openAndConfirm(user, /^delete$/i, /^delete$/i);
     await waitFor(() => expect(history[history.length - 1]).toBe("/"));
   });
 
   it("surfaces an inline error when delete fails for another reason", async () => {
     const user = userEvent.setup();
-    window.confirm = () => true;
     server.use(
       http.delete("*/api/runs/:id", () =>
         HttpResponse.json({ error: "still in flight" }, { status: 409 }),
@@ -218,7 +223,7 @@ describe("<RunActions>", () => {
     );
     const { history } = renderActions(makeRun());
 
-    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    await openAndConfirm(user, /^delete$/i, /^delete$/i);
     await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/still in flight/i));
     expect(history[history.length - 1]).toBe("/runs/run-1");
   });
