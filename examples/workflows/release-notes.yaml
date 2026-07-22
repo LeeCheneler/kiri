@@ -17,20 +17,24 @@ steps:
       - resolve prompt_file paths against the workspace root
       - bump the embedded sqlite driver
       CHANGES
+    id: changes
     name: Collect changes
 
   - llm:
       model: anthropic:claude-haiku-4-5
-      # {{KIRI_INPUT}} carries the previous step's stdout into the prompt,
-      # exactly as a bundle would read it from KIRI_INPUT.
+      # CHANGES is declared under env: as a { step: changes } ref — kiri
+      # resolves it to that step's stdout and the prompt reads it by name.
       prompt: |
         Rewrite these raw changelog lines as friendly release notes, grouped
         under "Features" and "Fixes". Keep it tight — one line each.
 
-        {{KIRI_INPUT}}
+        {{CHANGES}}
     id: draft
     name: Draft the notes
     description: A first-party completion — kiri calls the model directly, no bundle.
+    env:
+      CHANGES:
+        step: changes
 
 articles:
   - slug: release-notes
@@ -46,8 +50,16 @@ articles:
       DRAFT:
         step: draft
 
-# A zero-config summariser: an llm: step with only a model. Kiri supplies a
-# built-in summary prompt over the injected {{KIRI_SUMMARY_CONTEXT}} digest.
+# The summariser declares its data like any other step — here the finished
+# article, pulled in with an { article: <slug> } ref.
 summarize:
   llm:
     model: anthropic:claude-haiku-4-5
+    prompt: |
+      One friendly sentence for an activity feed: what shipped, according
+      to these release notes. No preamble.
+
+      {{NOTES}}
+  env:
+    NOTES:
+      article: release-notes

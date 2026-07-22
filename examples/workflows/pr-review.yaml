@@ -44,8 +44,16 @@ articles:
       PR:
         step: fetch
 
-# Zero-config: kiri's built-in summary prompt over the injected
-# {{KIRI_SUMMARY_CONTEXT}} digest.
+# The summariser takes the finished review through an { article: } ref
+# and asks for the feed line directly.
 summarize:
   llm:
     model: anthropic:claude-haiku-4-5
+    prompt: |
+      One sentence for an activity feed: the verdict and main point of
+      this code review. No preamble.
+
+      {{REVIEW}}
+  env:
+    REVIEW:
+      article: review

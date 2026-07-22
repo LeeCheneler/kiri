@@ -4,12 +4,14 @@ A workflow step that spawns the Claude Code CLI with a prompt rendered
 either from an inline string (`PROMPT`) or a template file under
 `prompts/` (`PROMPT_FILE`). Exactly one is required.
 
-Minimal usage — inline prompt:
+Minimal usage — inline prompt (upstream data arrives as an env ref,
+rendered into the prompt by name):
 
 ```yaml
 - use: claude-code
   env:
-    PROMPT: "Summarise {{KIRI_INPUT}} in one sentence."
+    PROMPT: "Summarise {{DATA}} in one sentence."
+    DATA: { step: fetch }
 ```
 
 Or, equivalently, from a template file:
@@ -58,11 +60,9 @@ your global claude settings to match the strictness you want.
 
 ## What `run.sh` does
 
-1. Reads the previous step's stdout (piped here by kiri) into
-   `KIRI_INPUT` and renders the prompt text — sourced from `PROMPT`
-   if set, otherwise from `$KIRI_REPO_ROOT/$PROMPT_FILE` — substituting
-   `{{VAR}}` placeholders from the environment (see *Prompt templates*
-   below).
+1. Renders the prompt text — sourced from `PROMPT` if set, otherwise
+   from `$KIRI_REPO_ROOT/$PROMPT_FILE` — substituting `{{VAR}}`
+   placeholders from the environment (see *Prompt templates* below).
 2. Spawns `claude -p "$prompt" --max-turns "$MAX_TURNS"` (plus
    `--model "$MODEL"` if set). The agent's final message lands on
    stdout and shows up in the run feed.
@@ -81,28 +81,31 @@ content.
 
 | Var | Source |
 | --- | --- |
-| `{{KIRI_INPUT}}` | Previous step's stdout (one trailing newline trimmed). |
 | `{{KIRI_RUN_ID}}` | Kiri-injected run identifier. |
 | `{{KIRI_STEP_INDEX}}` | Zero-based index of this step in the run. |
 | `{{KIRI_REPO_ROOT}}` | Absolute path of the workflow repo root. |
 | `{{KIRI_BUNDLE_DIR}}` | Absolute path of this bundle's directory. |
 | `{{MAX_TURNS}}` | Bundle env-var contract value, defaulted as documented above. |
 | `{{PROMPT}}`, `{{PROMPT_FILE}}`, `{{MODEL}}` | Bundle env-var contract values — resolve to empty when unset, since none have a default. |
-| Any `{{MY_VAR}}` | Anything set in the workflow's `env:` block. |
+| Any `{{MY_VAR}}` | Anything set in the workflow's `env:` block — including `{ step: <id> }` / `{ step, output }` / `{ article: <slug> }` refs, which arrive as ordinary env vars under the names you gave them. |
 
 ### Example
 
 ```yaml
-- sh: echo "Lee"
+# printf, not echo — { step: } refs are byte-for-byte, so a trailing
+# newline would otherwise land mid-sentence in the rendered prompt.
+- sh: printf 'Lee'
+  id: who
 - use: claude-code
   env:
     PROMPT_FILE: prompts/greet.tpl
     TONE: cheerful
+    NAME: { step: who }
 ```
 
 ```
 # prompts/greet.tpl
-Say a {{TONE}} one-sentence hello to {{KIRI_INPUT}}.
+Say a {{TONE}} one-sentence hello to {{NAME}}.
 ```
 
 Renders to: `Say a cheerful one-sentence hello to Lee.`

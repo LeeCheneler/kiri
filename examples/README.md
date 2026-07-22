@@ -48,12 +48,14 @@ bundle at all. An `llm:` step calls a model provider directly:
     prompt: |
       Summarise the following in three bullets.
 
-      {{KIRI_INPUT}}
+      {{DATA}}
+  env:
+    DATA: { step: fetch }
 ```
 
-`release-notes.yaml` shows the full shape — an `llm:` step in the pipeline,
-an `llm:` articles entry that writes the article, and a zero-config `llm:`
-summariser (`summarize: { llm: { model } }`, which uses a built-in prompt):
+`release-notes.yaml` shows the full shape — an `llm:` step taking an
+earlier step's stdout through a ref, an `llm:` articles entry that writes
+the article, and an `llm:` summariser prompting over the article:
 
 - **Providers live in `kiri.yaml`** (under `providers:`)**.** Each `model:` is a
   `provider:model` id whose prefix names an entry there. API keys are
@@ -61,12 +63,10 @@ summariser (`summarize: { llm: { model } }`, which uses a built-in prompt):
   secrets stay out of git. Point the example at `local:<model>` (the
   bundled `openai-compatible` entry) to run against LM Studio / Ollama
   with no key.
-- **Templating matches the bundles.** `{{KIRI_INPUT}}` carries the
-  previous step's stdout into an `llm:` step's prompt. Articles entries get
-  no piped stdin — they take exactly the data they declare through
-  `{ step: <id> }` / `{ article: <slug> }` env refs, rendered by name
-  (`{{DRAFT}}`). Summarise steps additionally receive the whole-run
-  digest as `{{KIRI_SUMMARY_CONTEXT}}` (per-stream capped at 64 KB).
+- **Templating matches the bundles.** Every phase takes exactly the data
+  it declares through `{ input: <name> }` / `{ step: <id> }` /
+  `{ step, output }` / `{ article: <slug> }` env refs, rendered into the
+  prompt by name (`{{DRAFT}}`). Nothing is auto-injected.
 
 Reach for a bundle (`claude-code`, `lm-studio`) when a step needs to *do*
 something — spawn a CLI, shell out, run an agent. Reach for `llm:` when it

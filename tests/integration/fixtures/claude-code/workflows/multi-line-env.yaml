@@ -1,0 +1,6 @@
+name: multi-line-env
+steps:
+  - use: claude-code
+    env:
+      PROMPT_FILE: prompts/multi-line-env.tpl
+      NAMES: "first\nsecond\nthird"

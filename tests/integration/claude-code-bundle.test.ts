@@ -140,18 +140,10 @@ describe("claude-code bundle: integration", () => {
     teardownWorkspace(ws);
   });
 
-  it("renders {{KIRI_INPUT}} inline for single-line stdin (no extra newline)", async () => {
-    const envelopes = await runScenario(ws, "single-line-input");
+  it("preserves internal newlines when an env value is multi-line", async () => {
+    const envelopes = await runScenario(ws, "multi-line-env");
 
-    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
-    const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "50"]);
-  });
-
-  it("preserves internal newlines when {{KIRI_INPUT}} is multi-line", async () => {
-    const envelopes = await runScenario(ws, "multi-line-input");
-
-    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
     expect(argv).toEqual(["-p", "Names:\nfirst\nsecond\nthird", "--max-turns", "50"]);
   });
@@ -237,7 +229,7 @@ describe("claude-code bundle: integration", () => {
   it("substitutes {{VAR}} placeholders inside an inline PROMPT", async () => {
     const envelopes = await runScenario(ws, "prompt-substitution");
 
-    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
     expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "50"]);
   });
