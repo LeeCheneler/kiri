@@ -424,8 +424,12 @@ describe("runWorkflow", () => {
 
     const result = await runWorkflow(db, wf, { config }).done;
 
+    // The kiri-controlled PATH is the run's shim dir ahead of the process
+    // PATH — the user-declared value must not appear anywhere in it.
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
+    expect(step?.output).toBe(
+      `PATH=${join(config.runDir(result.runId), ".bin")}:${process.env.PATH ?? ""}\n`,
+    );
   });
 
   it("forwards user env values for non-conflicting keys to the bundle", async () => {
@@ -1851,7 +1855,9 @@ echo '{"title":"Follow up","workflow":"other"}' > "$KIRI_RECOMMENDATIONS_FILE"
       const result = await runWorkflow(db, wf, { config }).done;
 
       const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-      expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
+      expect(step?.output).toBe(
+        `PATH=${join(config.runDir(result.runId), ".bin")}:${process.env.PATH ?? ""}\n`,
+      );
     });
 
     it("resolves env refs on a summarize: entry", async () => {
@@ -2223,6 +2229,167 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
         { index: 1, title: "B" },
         { index: 2, title: "C" },
       ]);
+    });
+  });
+
+  describe("named outputs", () => {
+    const emitLine = (name: string, value: string) =>
+      `printf '%s\\n' '${JSON.stringify({ name, value })}' >> "$KIRI_OUTPUTS_FILE"`;
+
+    it("puts an executable kiri-output shim on every step's PATH for the run's duration", async () => {
+      const wf = makeWorkflow("shimmed", [{ sh: "command -v kiri-output" }]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+      expect(step?.output).toBe(`${join(config.runDir(result.runId), ".bin", "kiri-output")}\n`);
+      // The shim lives in the scratch dir, so run teardown removed it.
+      expect(existsSync(config.runDir(result.runId))).toBe(false);
+    });
+
+    it("sets KIRI_OUTPUTS_FILE only on steps that declare outputs:", async () => {
+      const wf = makeWorkflow("channel-gating", [
+        {
+          sh: `echo "declared=\${KIRI_OUTPUTS_FILE:-unset}"; ${emitLine("seen", "yes")}`,
+          id: "a",
+          outputs: ["seen"],
+        },
+        { sh: 'echo "undeclared=${KIRI_OUTPUTS_FILE:-unset}"' },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(rows[0]?.output).toContain("declared=");
+      expect(rows[0]?.output).not.toContain("unset");
+      expect(rows[1]?.output).toBe("undeclared=unset\n");
+    });
+
+    it("persists emitted outputs on the step row and leaves undeclaring steps null", async () => {
+      const wf = makeWorkflow("emit", [
+        {
+          sh: `${emitLine("url", "https://example.com")}; ${emitLine("count", "3")}; echo done`,
+          id: "fetch",
+          outputs: ["url", "count"],
+        },
+        { sh: "echo plain" },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(rows[0]?.status).toBe("ok");
+      expect(rows[0]?.outputs).toEqual({ url: "https://example.com", count: "3" });
+      expect(rows[1]?.outputs).toBeNull();
+    });
+
+    it("ingests outputs a use: bundle appends to the channel file", async () => {
+      // Appends to $KIRI_OUTPUTS_FILE directly — the raw channel the
+      // kiri-output shim itself writes through; the shim's exec into the
+      // real CLI is covered end to end in shims.test.ts.
+      writeBundle(
+        "emitter",
+        `#!/bin/sh
+set -eu
+${emitLine("report", "all green")}
+echo emitted
+`,
+      );
+      const wf = makeWorkflow("bundle-emit", [{ use: "emitter", id: "scan", outputs: ["report"] }]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+      expect(step?.outputs).toEqual({ report: "all green" });
+    });
+
+    it("fails the step and the run when a declared output is not emitted", async () => {
+      const wf = makeWorkflow("missing-output", [
+        { sh: `${emitLine("url", "x")}; echo ok-exit`, id: "fetch", outputs: ["url", "count"] },
+        { sh: "echo never-runs" },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("failed");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      // Fail-fast: the later step is never created.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.status).toBe("failed");
+      expect(rows[0]?.outputs).toBeNull();
+      expect(rows[0]?.error).toMatchObject({
+        message: expect.stringContaining("did not emit: count"),
+      });
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.error).toMatchObject({
+        message: expect.stringContaining("did not emit: count"),
+      });
+    });
+
+    it("discards a failed step's recommendations when the failure is the outputs contract", async () => {
+      const wf = makeWorkflow("no-recs-on-contract-failure", [
+        {
+          sh: `echo '{"title":"T","workflow":"w"}' >> "$KIRI_RECOMMENDATIONS_FILE"; exit 0`,
+          id: "fetch",
+          outputs: ["never_emitted"],
+        },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("failed");
+      const recs = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .all();
+      expect(recs).toHaveLength(0);
+    });
+
+    it("skips undeclared emissions with a warning and keeps the declared ones", async () => {
+      const warnings: string[] = [];
+      const original = console.warn;
+      console.warn = (msg: unknown) => {
+        warnings.push(String(msg));
+      };
+      try {
+        const wf = makeWorkflow("undeclared", [
+          {
+            sh: `${emitLine("url", "kept")}; ${emitLine("stray", "dropped")}; echo done`,
+            id: "fetch",
+            outputs: ["url"],
+          },
+        ]);
+
+        const result = await runWorkflow(db, wf, { config }).done;
+
+        expect(result.status).toBe("ok");
+        const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+        expect(step?.outputs).toEqual({ url: "kept" });
+        expect(warnings.some((w) => w.includes('undeclared output "stray"'))).toBe(true);
+      } finally {
+        console.warn = original;
+      }
     });
   });
 

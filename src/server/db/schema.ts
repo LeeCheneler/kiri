@@ -90,6 +90,12 @@ export const runSteps = sqliteTable(
      * matters only for raw SQL inspection).
      */
     output: text("output", { mode: "json" }),
+    /**
+     * Named values the step emitted via its outputs channel, as a
+     * `Record<string, string>` keyed by declared output name. Null for
+     * steps that declare no `outputs:` (and rows predating the column).
+     */
+    outputs: text("outputs", { mode: "json" }),
     error: text("error", { mode: "json" }),
     traces: text("traces", { mode: "json" }),
     /**

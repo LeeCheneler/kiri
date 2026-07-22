@@ -50,6 +50,27 @@ export const stepIdSchema = z
     "Identifier later steps use to reference this step's stdout via `{ step: <id> }`. Lowercase letters, digits, hyphens, and underscores; must start with a letter. Unique within the workflow.",
   );
 
+/**
+ * The `outputs:` declaration on a main `sh:`/`use:` step — the named
+ * values the step promises to emit via `kiri-output <name> <value>`.
+ * Name grammar matches the step-id grammar; a step that exits ok without
+ * emitting every declared name fails. `llm:` steps can't write files, so
+ * they never declare outputs.
+ */
+const outputsSchema = z
+  .array(
+    z.string().regex(/^[a-z][a-z0-9_-]*$/, {
+      message: "output name must match ^[a-z][a-z0-9_-]*$",
+    }),
+  )
+  .min(1)
+  .refine((names) => new Set(names).size === names.length, {
+    message: "output names must be unique within a step",
+  })
+  .describe(
+    "Named values this step emits via `kiri-output <name> <value>`. Later phases reference one with `{ step: <id>, output: <name> }`. A step that exits ok without emitting every declared name fails.",
+  );
+
 const useStepSchema = z
   .object({
     use: z.string().min(1),
@@ -57,6 +78,7 @@ const useStepSchema = z
     name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
+    outputs: outputsSchema.optional(),
   })
   .strict();
 
@@ -67,6 +89,7 @@ const shStepSchema = z
     name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
+    outputs: outputsSchema.optional(),
   })
   .strict();
 
@@ -325,6 +348,28 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
       code: "custom",
       path: ["summarize", "id"],
       message: "summarize cannot declare an id — nothing runs after it to reference its output",
+    });
+  }
+
+  // Outputs exist to be referenced via `{ step: <id>, output: <name> }`,
+  // so a declaring step must be addressable: outputs without an id are
+  // unreferenceable, and summarize (which can't be referenced at all)
+  // can't declare them — same posture as the summarize-id rejection.
+  wf.steps.forEach((step, i) => {
+    if ("outputs" in step && step.outputs !== undefined && step.id === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["steps", i, "outputs"],
+        message:
+          "a step declaring outputs must also declare an id — outputs are referenced as { step: <id>, output: <name> }",
+      });
+    }
+  });
+  if (wf.summarize && "outputs" in wf.summarize && wf.summarize.outputs !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["summarize", "outputs"],
+      message: "summarize cannot declare outputs — nothing runs after it to reference them",
     });
   }
 

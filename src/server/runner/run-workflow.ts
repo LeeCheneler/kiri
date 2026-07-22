@@ -25,8 +25,10 @@ import {
   isUseStep,
 } from "../workflows/index.ts";
 import type { CancelRegistry } from "./cancel-registry.ts";
+import { ingestStepOutputs } from "./outputs.ts";
 import { ingestStepRecommendations } from "./recommendations.ts";
 import { type StepEnvelope, runStep } from "./run-step.ts";
+import { writeRunShims } from "./shims.ts";
 
 export interface RunWorkflowArgs {
   /** Workspace config. Bundles resolve via `config.bundleDir()`; the scratch dir lives at `config.runDir(runId)`. */
@@ -134,6 +136,12 @@ interface RefContext {
   articles: ReadonlyMap<string, string>;
 }
 
+// The run's helper shims (`kiri-output`) live inside the scratch dir and
+// are PATH-prepended to every step, so they exist exactly as long as the
+// run does.
+const runBinDir = (config: ConfigStore, runId: string): string =>
+  join(config.runDir(runId), ".bin");
+
 const buildEnv = (
   step: WorkflowStep,
   runId: string,
@@ -183,7 +191,7 @@ const buildEnv = (
     }
     env[key] = content;
   }
-  env.PATH = process.env.PATH ?? "";
+  env.PATH = `${runBinDir(config, runId)}:${process.env.PATH ?? ""}`;
   env.HOME = process.env.HOME ?? "";
   // USER/LOGNAME are POSIX user-identity vars; tools that authenticate as
   // the user (macOS Keychain lookups, ssh-agent, gpg) rely on them to
@@ -311,6 +319,8 @@ export function runWorkflow(
     flag?: "article" | "summary";
     input: string;
     envExtras?: Record<string, string>;
+    /** The step's named-outputs channel, present only when it declares `outputs:`. An ok envelope missing a declared name flips the step to failed. */
+    outputsChannel?: { file: string; declared: readonly string[] };
   }): Promise<{
     envelope: StepEnvelope;
     cancelled: boolean;
@@ -349,22 +359,52 @@ export function runWorkflow(
       onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
     });
 
+    // An ok envelope only settles as ok once the outputs contract holds:
+    // every declared name must have been emitted. A miss fails the step —
+    // the producer broke its promise, and failing here (rather than at a
+    // consumer's ref) blames the right party.
+    let outputs: Record<string, string> | null = null;
+    let outputsError: { message: string } | null = null;
+    if (opts.outputsChannel && envelope.status === "ok") {
+      const ingested = ingestStepOutputs(
+        runId,
+        opts.outputsChannel.file,
+        opts.outputsChannel.declared,
+      );
+      if (ingested.missing.length > 0) {
+        outputsError = {
+          message: `step declared outputs it did not emit: ${ingested.missing.join(", ")} — emit each with \`kiri-output <name> <value>\``,
+        };
+      } else {
+        outputs = ingested.outputs;
+      }
+    }
+
     // A `failed` envelope produced after cancel was requested is the child
     // reacting to our SIGTERM/SIGKILL — surface it as `cancelled` on the
     // step row so the UI distinguishes "we stopped this" from "the script
     // broke". An `ok` envelope is left as-is even if cancel was requested
-    // mid-execution: the step actually finished.
+    // mid-execution: the step actually finished — which is also why an
+    // outputs-contract failure stays `failed` under cancel: the child
+    // wasn't interrupted, it completed without emitting what it declared.
     const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
     const stepStatus: "ok" | "failed" | "cancelled" =
-      cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
+      cancelled && envelope.status === "failed"
+        ? "cancelled"
+        : outputsError !== null
+          ? "failed"
+          : envelope.status;
     const stepError =
-      cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
+      cancelled && envelope.status === "failed"
+        ? CANCELLED_ERROR
+        : (envelope.error ?? outputsError ?? null);
 
     db.update(runSteps)
       .set({
         status: stepStatus,
         finishedAt: new Date(),
         output: envelope.output,
+        outputs,
         error: stepError,
         traces: envelope.traces,
       })
@@ -388,6 +428,7 @@ export function runWorkflow(
 
     try {
       mkdirSync(scratchDir, { recursive: true });
+      writeRunShims(runBinDir(args.config, runId));
       let input = "";
       // Cross-step counter so the order steps emitted in is preserved
       // by `recommendations.index` regardless of how many lines each
@@ -398,15 +439,24 @@ export function runWorkflow(
 
         const step = definition.steps[i];
         const recommendationsFile = join(scratchDir, `recommendations-${i}.jsonl`);
-        const { envelope, cancelled, stepStatus } = await executePhase({
+        const outputsFile = join(scratchDir, `outputs-${i}.jsonl`);
+        // A completion can't write files, so llm steps get neither file
+        // channel; the outputs channel additionally requires the step to
+        // declare `outputs:` — kiri-output fails loudly without it.
+        const declaredOutputs = isLlmStep(step) ? undefined : step.outputs;
+        const { envelope, cancelled, stepStatus, stepError } = await executePhase({
           step,
           index: i,
           input,
-          // A completion can't write files, so llm steps aren't offered the
-          // recommendations channel; ingestion below no-ops on the absent file.
           envExtras: isLlmStep(step)
             ? undefined
-            : { KIRI_RECOMMENDATIONS_FILE: recommendationsFile },
+            : {
+                KIRI_RECOMMENDATIONS_FILE: recommendationsFile,
+                ...(declaredOutputs ? { KIRI_OUTPUTS_FILE: outputsFile } : {}),
+              },
+          outputsChannel: declaredOutputs
+            ? { file: outputsFile, declared: declaredOutputs }
+            : undefined,
         });
 
         if (stepStatus === "ok") {
@@ -425,9 +475,12 @@ export function runWorkflow(
           stdout: envelope.traces.stdout,
         });
 
-        if (envelope.status === "failed") {
-          status = cancelled ? "cancelled" : "failed";
-          runError = cancelled ? { ...CANCELLED_ERROR } : envelope.error;
+        // Halt on the step's settled status, not the raw envelope: an ok
+        // envelope that broke its outputs contract has already been marked
+        // failed on the row and must halt the pipeline the same way.
+        if (stepStatus !== "ok") {
+          status = stepStatus === "cancelled" ? "cancelled" : "failed";
+          runError = stepStatus === "cancelled" ? { ...CANCELLED_ERROR } : (stepError ?? undefined);
           break;
         }
         if (cancelled) break;

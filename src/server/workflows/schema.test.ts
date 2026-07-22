@@ -1054,6 +1054,90 @@ describe("step ids and output refs", () => {
   });
 });
 
+describe("declared step outputs", () => {
+  it("parses outputs on sh: and use: steps that declare an id", () => {
+    const result = workflowSchema.parse({
+      name: "with-outputs",
+      steps: [
+        { sh: "kiri-output url x", id: "fetch", outputs: ["url", "count"] },
+        { use: "scanner", id: "scan", outputs: ["report"] },
+      ],
+    });
+    expect(result.steps[0]).toMatchObject({ outputs: ["url", "count"] });
+    expect(result.steps[1]).toMatchObject({ outputs: ["report"] });
+  });
+
+  it("rejects outputs on a step without an id", () => {
+    const result = workflowSchema.safeParse({
+      name: "outputs-no-id",
+      steps: [{ sh: "kiri-output url x", outputs: ["url"] }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("must also declare an id");
+    }
+  });
+
+  it("rejects an output name outside the grammar", () => {
+    const result = workflowSchema.safeParse({
+      name: "bad-output-name",
+      steps: [{ sh: "echo", id: "s", outputs: ["Bad Name"] }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("output name must match");
+    }
+  });
+
+  it("rejects duplicate output names within a step", () => {
+    const result = workflowSchema.safeParse({
+      name: "dup-outputs",
+      steps: [{ sh: "echo", id: "s", outputs: ["url", "url"] }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("output names must be unique within a step");
+    }
+  });
+
+  it("rejects an empty outputs array", () => {
+    const result = workflowSchema.safeParse({
+      name: "empty-outputs",
+      steps: [{ sh: "echo", id: "s", outputs: [] }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects outputs on an llm: step", () => {
+    const result = workflowSchema.safeParse({
+      name: "llm-outputs",
+      steps: [{ llm: { model: "p:m", prompt: "hi" }, id: "gen", outputs: ["text"] }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects outputs on summarize", () => {
+    const result = workflowSchema.safeParse({
+      name: "summarize-outputs",
+      steps: [{ sh: "echo one" }],
+      summarize: { sh: "echo summary", outputs: ["gist"] },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("summarize cannot declare outputs");
+    }
+  });
+
+  it("rejects outputs on an articles entry", () => {
+    const result = workflowSchema.safeParse({
+      name: "article-outputs",
+      steps: [{ sh: "echo one" }],
+      articles: [{ slug: "digest", sh: "echo body", outputs: ["gist"] }],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("isUseArticle / isShArticle / isLlmArticle", () => {
   it("narrows a use: article entry", () => {
     const entry = { slug: "digest", use: "writer" } as const;

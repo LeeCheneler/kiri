@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runOutputCommand } from "./outputs.ts";
+import { ingestStepOutputs, runOutputCommand } from "./outputs.ts";
 
 describe("runOutputCommand", () => {
   let dir: string;
@@ -77,5 +77,114 @@ describe("runOutputCommand", () => {
 
   it.each([["a"], ["a-b_c9"], ["pr_number"]])("accepts the valid output name %p", (name) => {
     expect(runOutputCommand([name, "v"], { KIRI_OUTPUTS_FILE: file }).exitCode).toBe(0);
+  });
+});
+
+describe("ingestStepOutputs", () => {
+  let dir: string;
+  let file: string;
+  const runId = "run-test";
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-out-ingest-"));
+    file = join(dir, "outputs.jsonl");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const withSilencedWarn = <T>(fn: () => T): { result: T; warnings: string[] } => {
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (msg: unknown) => {
+      warnings.push(String(msg));
+    };
+    try {
+      return { result: fn(), warnings };
+    } finally {
+      console.warn = original;
+    }
+  };
+
+  const writeLines = (lines: string[]): void => {
+    writeFileSync(file, `${lines.join("\n")}\n`);
+  };
+
+  it("reports every declared name missing when the file does not exist", () => {
+    expect(ingestStepOutputs(runId, file, ["url", "count"])).toEqual({
+      outputs: {},
+      missing: ["url", "count"],
+    });
+  });
+
+  it("resolves every declared name when all are emitted", () => {
+    writeLines([
+      JSON.stringify({ name: "url", value: "https://example.com" }),
+      JSON.stringify({ name: "count", value: "3" }),
+    ]);
+
+    expect(ingestStepOutputs(runId, file, ["url", "count"])).toEqual({
+      outputs: { url: "https://example.com", count: "3" },
+      missing: [],
+    });
+  });
+
+  it("lists unemitted declared names in declaration order", () => {
+    writeLines([JSON.stringify({ name: "count", value: "3" })]);
+
+    expect(ingestStepOutputs(runId, file, ["url", "count", "title"])).toEqual({
+      outputs: { count: "3" },
+      missing: ["url", "title"],
+    });
+  });
+
+  it("keeps the last value when a name is emitted more than once", () => {
+    writeLines([
+      JSON.stringify({ name: "url", value: "first" }),
+      JSON.stringify({ name: "url", value: "second" }),
+    ]);
+
+    expect(ingestStepOutputs(runId, file, ["url"]).outputs).toEqual({ url: "second" });
+  });
+
+  it("skips undeclared names with a warning", () => {
+    writeLines([
+      JSON.stringify({ name: "url", value: "kept" }),
+      JSON.stringify({ name: "stray", value: "dropped" }),
+    ]);
+
+    const { result, warnings } = withSilencedWarn(() => ingestStepOutputs(runId, file, ["url"]));
+
+    expect(result).toEqual({ outputs: { url: "kept" }, missing: [] });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('undeclared output "stray"');
+    expect(warnings[0]).toContain(runId);
+  });
+
+  it("skips malformed JSON and schema-failing lines without aborting the rest", () => {
+    writeLines([
+      "{ not json",
+      JSON.stringify({ name: "url" }),
+      JSON.stringify({ name: "", value: "x" }),
+      JSON.stringify({ name: "url", value: "kept" }),
+      "   ",
+    ]);
+
+    const { result, warnings } = withSilencedWarn(() => ingestStepOutputs(runId, file, ["url"]));
+
+    expect(result).toEqual({ outputs: { url: "kept" }, missing: [] });
+    expect(warnings).toHaveLength(3);
+    expect(warnings[0]).toContain("malformed output line");
+    expect(warnings[1]).toContain("failing schema");
+  });
+
+  it("accepts an emitted empty-string value as present", () => {
+    writeLines([JSON.stringify({ name: "url", value: "" })]);
+
+    expect(ingestStepOutputs(runId, file, ["url"])).toEqual({
+      outputs: { url: "" },
+      missing: [],
+    });
   });
 });

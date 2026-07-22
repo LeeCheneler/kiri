@@ -1081,7 +1081,9 @@ describe("db", () => {
     // Stand up the post-0018 shape 0019 rebuilds `articles` from: the old
     // NOT NULL run_id column, plus the runs/sessions parents its foreign
     // keys enforce during the copy. 0022's backfill also reads messages,
-    // so the fixture carries its minimal shape.
+    // and 0025 alters run_steps, so the fixture carries their minimal
+    // shapes.
+    sqlite.run("CREATE TABLE run_steps (id TEXT PRIMARY KEY NOT NULL)");
     sqlite.run(`CREATE TABLE runs (
       id TEXT PRIMARY KEY NOT NULL,
       workflow_name TEXT NOT NULL,
@@ -1457,7 +1459,9 @@ describe("db", () => {
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
     );
     // Minimal post-0021 shapes of the three tables 0022's backfill reads,
-    // plus sessions, which 0023 alters with the lineage columns.
+    // plus sessions, which 0023 alters with the lineage columns, and
+    // run_steps, which 0025 alters with the outputs column.
+    sqlite.run("CREATE TABLE run_steps (id TEXT PRIMARY KEY NOT NULL)");
     sqlite.run(`CREATE TABLE runs (
       id TEXT PRIMARY KEY NOT NULL,
       workflow_name TEXT NOT NULL,
