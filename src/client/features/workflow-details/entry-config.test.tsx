@@ -63,6 +63,18 @@ describe("<EntryConfig>", () => {
     expect(screen.getByText("{ article: edition }")).toBeDefined();
   });
 
+  it("renders a named-output ref with its output field", () => {
+    render(
+      <EntryConfig
+        entry={{
+          sh: "echo hi",
+          env: { COUNT: { step: "fetch", output: "my_prs_count" } },
+        }}
+      />,
+    );
+    expect(screen.getByText("{ step: fetch, output: my_prs_count }")).toBeDefined();
+  });
+
   it("shows the bundle reference for a use entry", () => {
     render(<EntryConfig entry={{ use: "notify-bundle" }} />);
     expect(screen.getByText("notify-bundle")).toBeDefined();

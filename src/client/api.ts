@@ -8,12 +8,17 @@ import { z } from "zod";
  * step's stdout (by that step's `id`), or an article's markdown
  * (by its `slug`).
  */
-export type EnvValue = string | { input: string } | { step: string } | { article: string };
+export type EnvValue =
+  | string
+  | { input: string }
+  | { step: string; output?: string }
+  | { article: string };
 
 /**
  * The `llm:` block of a first-party LLM step. `model` is a `provider:model`
  * id; the prompt is inline (`prompt`) or a workspace-relative file path
- * (`prompt_file`) — never both, and a summariser may carry neither.
+ * (`prompt_file`) — exactly one of the two. (Both fields stay optional here:
+ * historical definition snapshots can predate the requirement.)
  */
 export interface LlmConfigSummary {
   model: string;
