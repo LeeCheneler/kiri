@@ -2,13 +2,14 @@
 
 > Turn repetitive AI chores into one-click buttons — on your own machine, against your own git repo.
 
-Describe a chore — release notes from your git log, a PR review, a morning briefing — as a small YAML file in your repo. Kiri runs it on your machine, shell steps piped into model steps, and writes the result up as an **article**: a readable page in a live feed, not scrollback in a terminal. Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. No cloud, no daemons: kiri runs only while the app is open.
+Describe a chore — release notes from your git log, a PR review, a morning briefing — as a small YAML file in your repo. Kiri runs it on your machine, shell steps feeding model steps through declared refs, and writes the result up as an **article**: a readable page in a live feed, not scrollback in a terminal. Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. No cloud, no daemons: kiri runs only while the app is open.
 
 ```yaml
 # workflows/release-notes.yaml
 name: Release Notes
 steps:
   - sh: git log --oneline v1.4.0..HEAD
+    id: commits
     name: Collect changes
   - llm:
       model: anthropic:claude-haiku-4-5
@@ -16,9 +17,12 @@ steps:
         Rewrite these commits as release notes,
         grouped under Features and Fixes.
 
-        {{KIRI_INPUT}}
+        {{COMMITS}}
     id: draft
     name: Draft the notes
+    env:
+      COMMITS:
+        step: commits
 articles:
   - slug: release-notes
     llm:

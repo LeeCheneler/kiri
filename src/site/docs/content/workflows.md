@@ -1,9 +1,9 @@
 # Writing workflows
 
-A workflow is a YAML file in `workflows/` — a named pipeline kiri runs when you
-click **Run**. This guide walks the golden path: run commands, pipe them into a
-model, publish an article. Every field in full lives in the
-[workflow reference](/docs/workflow-reference).
+A workflow is a YAML file in `workflows/` — a named sequence of steps kiri
+runs when you click **Run**. This guide walks the golden path: run commands,
+hand their output to a model, publish an article. Every field in full lives
+in the [workflow reference](/docs/workflow-reference).
 
 ## Start with a shell step
 
@@ -23,36 +23,45 @@ Two habits worth forming from the first step: start non-trivial scripts with
 repo files via `$KIRI_REPO_ROOT` — steps run in a per-run scratch directory,
 not your repo.
 
-## Pipe steps together
+## Wire steps together
 
-Each step's stdout becomes the next step's stdin, like a shell pipeline:
+A step passes data forward by declaring an `id:`; any later phase pulls its
+stdout in with a `{ step: <id> }` env ref — the value arrives as an ordinary
+env var under the name you chose:
 
 ```yaml
 name: Greet
 steps:
-  - sh: echo "Lee"
-  - sh: |
-      name=$(cat)
-      echo "hello, $name"
+  - sh: printf "Lee"
+    id: who
+  - sh: 'echo "hello, $NAME"'
+    env:
+      NAME: { step: who }
 ```
+
+Refs are checked when the file loads — a typo'd id is an error before
+anything runs — and they reach *any* earlier step, not just the previous one.
 
 ## Add a model step
 
 An `llm:` step sends a prompt to a model and puts the completion on stdout,
-exactly like any other step. `{{KIRI_INPUT}}` carries the previous step's
-output into the prompt:
+exactly like any other step. Refs render into the prompt as `{{VAR}}`
+placeholders:
 
 ```yaml
 name: Release Notes
 steps:
   - sh: git log --oneline v1.4.0..HEAD
+    id: commits
   - llm:
       model: anthropic:claude-haiku-4-5
       prompt: |
         Rewrite these commits as release notes,
         grouped under Features and Fixes.
 
-        {{KIRI_INPUT}}
+        {{COMMITS}}
+    env:
+      COMMITS: { step: commits }
 ```
 
 `model` is `provider:model` — the prefix names an entry in `kiri.yaml`. Wiring
@@ -62,20 +71,23 @@ one up takes four lines; see [Models & providers](/docs/llm-providers).
 
 Steps produce data; **articles** write it up. An `articles:` entry runs after
 the steps and its stdout becomes a rendered markdown page — in the feed, with
-its own URL. It doesn't read stdin: give the producing step an `id:` and wire
-its output in with a `{ step: <id> }` env ref:
+its own URL. Wire its data in the same way as any step — a `{ step: <id> }`
+env ref to the producer:
 
 ```yaml
 name: Release Notes
 steps:
   - sh: git log --oneline v1.4.0..HEAD
+    id: commits
   - llm:
       model: anthropic:claude-haiku-4-5
       prompt: |
         Rewrite these commits as release notes.
 
-        {{KIRI_INPUT}}
+        {{COMMITS}}
     id: draft
+    env:
+      COMMITS: { step: commits }
 articles:
   - slug: release-notes
     name: Release Notes
@@ -90,14 +102,17 @@ Articles can embed live charts and diagrams with fenced ` ```chart ` and
 
 ## Summarise the run
 
-`summarize:` gives the run a one-line summary for the feed. With a model and
-no prompt it's zero-config — kiri supplies a built-in prompt over a digest of
-the whole run:
+`summarize:` gives the run a one-line summary for the feed. Like every phase
+it declares its data with refs — hand it the finished article, or a named
+output, and ask for the feed line directly:
 
 ```yaml
 summarize:
   llm:
     model: anthropic:claude-haiku-4-5
+    prompt: "One sentence for an activity feed: {{NOTES}}"
+  env:
+    NOTES: { article: release-notes }
 ```
 
 ## Take inputs
@@ -148,12 +163,17 @@ on the run page under the step's row.
 
 ## Recommend follow-ups
 
-A step can propose next runs by writing JSON Lines to
-`$KIRI_RECOMMENDATIONS_FILE` — each line a workflow to invoke with pre-filled
-inputs. They render as one-click buttons on the run page. An aggregator that
-finds five open PRs can pin a **Review** button to each — see the
+A step can propose next runs with `kiri-recommend` — on the step's `PATH`,
+like `kiri-output` — each call a workflow to invoke with pre-filled inputs:
+
+```sh
+kiri-recommend --workflow "PR Review" --title "Review kiri #42" --input pr_number=42
+```
+
+They render as one-click buttons on the run page. An aggregator that finds
+five open PRs can pin a **Review** button to each — see the
 [one-click PR reviews recipe](/docs/recipes) for the full pattern, and the
-[reference](/docs/workflow-reference) for the line format.
+[reference](/docs/workflow-reference) for every flag.
 
 ## Grow a step into a bundle
 
@@ -165,7 +185,8 @@ parameters as env vars:
 steps:
   - use: claude-code
     env:
-      PROMPT: "Summarise {{KIRI_INPUT}} in one sentence."
+      PROMPT: "Summarise {{DATA}} in one sentence."
+      DATA: { step: fetch }
 ```
 
 That `claude-code` bundle — a step that spawns the Claude Code CLI — ships in

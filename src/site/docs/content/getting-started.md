@@ -115,8 +115,8 @@ expanded).
 
 ## Next
 
-- [Writing workflows](/docs/workflows) — pipe steps, take inputs, recommend
-  follow-ups.
+- [Writing workflows](/docs/workflows) — wire steps together, take inputs,
+  recommend follow-ups.
 - [Recipes](/docs/recipes) — release notes, one-click PR reviews, a daily
   briefing.
 - [Models & providers](/docs/llm-providers) — OpenAI, local models, and the

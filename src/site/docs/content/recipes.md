@@ -9,13 +9,14 @@ recipes need a provider in `kiri.yaml` (see
 ## Release notes from your git log
 
 One `llm:` step drafts from the log, a second writes the article, and a
-zero-config summariser captions the run — no bundle, no glue scripts:
+short summariser prompt captions the run — no bundle, no glue scripts:
 
 ```yaml
 # workflows/release-notes.yaml
 name: Release Notes
 steps:
   - sh: git log --oneline v1.4.0..HEAD
+    id: changes
     name: Collect changes
   - llm:
       model: anthropic:claude-haiku-4-5
@@ -23,9 +24,11 @@ steps:
         Rewrite these changelog lines as friendly release notes,
         grouped under Features and Fixes.
 
-        {{KIRI_INPUT}}
+        {{CHANGES}}
     id: draft
     name: Draft the notes
+    env:
+      CHANGES: { step: changes }
 articles:
   - slug: release-notes
     name: Release Notes
@@ -36,7 +39,10 @@ articles:
       DRAFT: { step: draft }
 summarize:
   llm:
-    model: anthropic:claude-haiku-4-5          # zero-config — built-in prompt
+    model: anthropic:claude-haiku-4-5
+    prompt: "One feed sentence: what shipped in these notes? {{NOTES}}"
+  env:
+    NOTES: { article: release-notes }
 ```
 
 ## One-click PR reviews
@@ -46,8 +52,8 @@ on you and emits one recommendation per match — each a one-click button on the
 run page. **PR Review** is the workflow those buttons invoke, its `repo` and
 `pr_number` inputs pre-filled.
 
-The queue aggregates with `gh`, then appends one JSON line per PR to
-`$KIRI_RECOMMENDATIONS_FILE`:
+The queue aggregates with `gh`, then emits one recommendation per PR with
+`kiri-recommend`:
 
 ```yaml
 # workflows/review-queue.yaml (excerpt — full version in examples/)
@@ -58,12 +64,13 @@ steps:
       gh search prs --review-requested=@me --state=open \
         --json number,title,repository,author --limit 100 |
       jq -c '.[]' | while read -r pr; do
-        jq -nc --argjson pr "$pr" '{
-          title: "Review pull request \($pr.repository.nameWithOwner) #\($pr.number)",
-          description: "\($pr.title) (by @\($pr.author.login))",
-          workflow: "PR Review",
-          inputs: { repo: $pr.repository.nameWithOwner, pr_number: ($pr.number|tostring) }
-        }' >> "$KIRI_RECOMMENDATIONS_FILE"
+        repo=$(echo "$pr" | jq -r .repository.nameWithOwner)
+        number=$(echo "$pr" | jq -r .number)
+        kiri-recommend \
+          --workflow "PR Review" \
+          --title "Review pull request ${repo} #${number}" \
+          --description "$(echo "$pr" | jq -r .title) (by @$(echo "$pr" | jq -r .author.login))" \
+          --input "repo=${repo}" --input "pr_number=${number}"
       done
     name: Aggregate open PRs
 ```
@@ -144,7 +151,8 @@ into your own `bundles/` and call it anywhere an agent should do the work:
 steps:
   - use: claude-code
     env:
-      PROMPT: "Summarise {{KIRI_INPUT}} in one sentence."
+      PROMPT: "Summarise {{DATA}} in one sentence."
+      DATA: { step: fetch }
       MODEL: haiku          # optional
       MAX_TURNS: "50"       # optional
 ```

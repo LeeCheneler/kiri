@@ -32,8 +32,9 @@ steps:
       echo "post-processing"
 \`\`\`
 
-Workflows are linear pipelines — each step's output feeds the next. No
-branches, conditionals, or fan-out/fan-in.
+Workflows are linear — steps run in declared order, and a step passes
+data forward by declaring an \`id\` that later phases reference (see
+*Environment variables*). No branches, conditionals, or fan-out/fan-in.
 
 \`description\` and \`group\` are optional top-level metadata: \`description\`
 renders as the deck beneath the workflow's title; \`group\` buckets the
@@ -72,8 +73,8 @@ deserve their own bundle. Multi-line via YAML's \`|\` block scalar.
 Runs a **first-party model completion** — no bundle. The model's text
 response becomes the step's output. \`model\` is a \`provider:model\` id whose
 prefix names an entry in \`kiri.yaml\` (see below); supply exactly one
-of \`prompt\` (inline) or \`prompt_file\`. \`{{KIRI_INPUT}}\` in the prompt carries
-the previous step's output.
+of \`prompt\` (inline) or \`prompt_file\`. Upstream data arrives through
+env refs, rendered into the prompt under the name you give them.
 
 \`\`\`yaml
 - llm:
@@ -81,11 +82,13 @@ the previous step's output.
     prompt: |
       Summarise this in three bullets.
 
-      {{KIRI_INPUT}}
+      {{DATA}}
+  env:
+    DATA:
+      step: fetch
 \`\`\`
 
-\`articles:\` and \`summarize:\` accept \`llm:\` too; \`summarize: { llm: { model } }\`
-with no prompt uses a built-in summary prompt.
+\`articles:\` and \`summarize:\` accept \`llm:\` too, with the same rules.
 
 #### Optional \`name\` and \`description\`
 
@@ -120,9 +123,10 @@ bundle's source directory. Steps run with their cwd set to a per-run
 scratch dir, so bundles must read sidecar files via this env var
 (\`cat "$KIRI_BUNDLE_DIR/prompt.tpl"\`) rather than relative paths.
 
-\`summarize:\` steps additionally get \`KIRI_SUMMARY_CONTEXT\` — a
-plain-text digest of the run (each step's output and each article,
-capped per stream) ready to drop into a prompt.
+Steps get **empty stdin** — data reaches a phase only through the env
+refs it declares. That includes \`articles:\` entries and \`summarize:\`:
+wire in exactly what each needs with \`{ step: }\` / \`{ step, output }\` /
+\`{ article: }\` refs.
 
 ## LLM providers
 
@@ -229,22 +233,26 @@ a small "N recommendations" count in its byline; the run detail page
 surfaces them under a **Recommended** section as trigger buttons that
 open the standard invoke modal pre-filled with the proposed inputs.
 
-To emit recommendations, write JSON Lines to the path in
-\`$KIRI_RECOMMENDATIONS_FILE\` — one object per line:
+To emit a recommendation, call \`kiri-recommend\` — a command kiri puts
+on every main step's PATH:
 
-\`\`\`json
-{ "title": "Review pull request owner/repo #42", "description": "<short context>", "workflow": "PR Review", "inputs": { "pr_number": "42", "repo": "owner/repo" } }
+\`\`\`sh
+kiri-recommend \\
+  --workflow "PR Review" \\
+  --title "Review pull request owner/repo #42" \\
+  --description "<short context>" \\
+  --input pr_number=42 --input repo=owner/repo
 \`\`\`
 
-- \`title\` and \`workflow\` are required; \`description\` and \`inputs\` are
-  optional. \`inputs\` is a flat \`{ string: string }\` map keyed by the
-  target workflow's declared input names.
-- \`KIRI_RECOMMENDATIONS_FILE\` is set on main \`steps:\` only — not on
-  \`articles:\` or \`summarize:\`.
-- Only \`ok\` steps' files are ingested; failed and cancelled steps'
-  files are discarded entirely.
-- Malformed JSON or schema-failing lines are logged and skipped without
-  failing the step — surrounding valid lines still ingest.
+- \`--workflow\` and \`--title\` are required; \`--description\` and
+  repeatable \`--input key=value\` pairs are optional. Input keys should
+  match the target workflow's declared input names.
+- A malformed call exits non-zero without writing, so a \`set -eu\`
+  script fails at the offending line.
+- Available on main \`steps:\` only — not on \`articles:\`, \`summarize:\`,
+  or \`llm:\` steps.
+- Only \`ok\` steps' recommendations are ingested; failed and cancelled
+  steps' are discarded entirely.
 
 Use this when a run *enumerates* things a follow-up could act on —
 open PRs, failing tests, queued items — so each enumerated thing
