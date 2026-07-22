@@ -143,6 +143,10 @@ Any step may also set:
   name, the script's first line, or the model id). Always set it on
   multi-line \`sh:\` steps so the UI shows a label, not code.
 - \`description\` — longer detail, shown when the step row is expanded.
+- \`outputs\` — \`sh:\`/\`use:\` steps only; requires an \`id\`. Named values
+  the step promises to emit via \`kiri-output <name> <value>\` (on PATH).
+  A step exiting ok without emitting every declared name **fails**, so
+  refs to outputs always resolve.
 
 ## Data flow
 
@@ -151,6 +155,11 @@ Any step may also set:
 - Non-adjacent data uses refs: give the producing step an \`id\`, and pull its
   stdout anywhere later with a \`{ step: <id> }\` env ref — byte-for-byte,
   never truncated.
+- A step computing **several values** should declare \`outputs:\` and emit
+  each with \`kiri-output\`; consumers pull one value with
+  \`{ step: <id>, output: <name> }\` instead of re-parsing stdout. Prefer
+  this over ad-hoc JSON-on-stdout when more than one downstream value is
+  needed.
 - \`articles:\` entries and \`summarize:\` get **empty stdin**. They receive
   exactly the data they declare through env refs — an articles entry
   expecting piped input is the most common authoring mistake.
@@ -165,12 +174,14 @@ except \`PATH\`, \`HOME\`, \`USER\`, \`LOGNAME\` — so CLIs that carry their ow
 auth (\`gh\`, \`claude\`) work, but a parent-shell \`MY_TOKEN\` does not exist
 unless the step declares it.
 
-- \`env:\` is a flat map. Every value is a **string literal** or one of three
-  refs: \`{ input: <name> }\`, \`{ step: <id> }\`, \`{ article: <slug> }\`.
+- \`env:\` is a flat map. Every value is a **string literal** or a ref:
+  \`{ input: <name> }\`, \`{ step: <id> }\`, \`{ step: <id>, output: <name> }\`,
+  \`{ article: <slug> }\`.
 - **Strings only.** Quote numbers and booleans: \`MAX_TURNS: "50"\`.
 - **Keys starting with \`KIRI_\` are rejected** — reserved namespace.
 - The ref graph is validated when the file loads: unknown names, unknown ids,
-  self- and forward-references are all errors. Refs are **backward-only**.
+  refs to undeclared output names, self- and forward-references are all
+  errors. Refs are **backward-only**.
 - \`{ article: <slug> }\` is only valid on \`articles:\` entries (earlier
   siblings only) and \`summarize:\` — never on a main step.
 - **Secrets never go in the YAML as literals** (workflow files live in git).
@@ -183,8 +194,9 @@ unless the step declares it.
 
 Kiri injects \`KIRI_RUN_ID\`, \`KIRI_STEP_INDEX\`, and \`KIRI_REPO_ROOT\` into
 every step; \`KIRI_BUNDLE_DIR\` into \`use:\` steps; \`KIRI_SUMMARY_CONTEXT\`
-into \`summarize:\` only; and \`KIRI_RECOMMENDATIONS_FILE\` into main \`sh:\` /
-\`use:\` steps only.
+into \`summarize:\` only; \`KIRI_RECOMMENDATIONS_FILE\` into main \`sh:\` /
+\`use:\` steps only; and \`KIRI_OUTPUTS_FILE\` only into steps declaring
+\`outputs:\` (write through \`kiri-output\`, not the file directly).
 
 ## llm: steps
 
@@ -204,7 +216,8 @@ into \`summarize:\` only; and \`KIRI_RECOMMENDATIONS_FILE\` into main \`sh:\` /
   \`{{KIRI_INPUT}}\` is the previous step's stdout (pipeline steps only —
   it is empty in articles, which must use refs: declare \`DATA: { step: x }\`
   and template \`{{DATA}}\`).
-- An \`llm:\` step cannot emit recommendations — no file channels.
+- An \`llm:\` step cannot emit recommendations or declare \`outputs:\` — no
+  file channels; its single product is the completion text.
 
 ## articles: — saved markdown documents
 

@@ -114,15 +114,18 @@ A step is **exactly one** of:
 - `name` — a short, human-readable label, shown as the step's title in the Schema tab and the run timeline. Defaults to the bundle reference (`use:`), the script's first non-empty line (`sh:`), or the model id (`llm:`). Set it so multi-line scripts read as a label, not a code fragment.
 - `description` — longer detail, surfaced when the step's row is expanded.
 
+`sh:`/`use:` steps (not `llm:`, not `summarize:`) may also declare `outputs: [<name>, ...]` — named values the step promises to emit with `kiri-output <name> <value>` (a helper kiri puts on the step's PATH). Names match the id grammar, are unique within the step, and require an `id`. A step that exits ok without emitting every declared name **fails**; consumers pull one value with `{ step: <id>, output: <name> }` instead of re-parsing stdout.
+
 Mixing `use:`, `sh:`, and `llm:` on the same step is a schema error.
 
 ### `env:` rules
 
-- Flat `key → value` map. Each value is **either** a literal string **or** one of three structured references:
+- Flat `key → value` map. Each value is **either** a literal string **or** a structured reference:
   - `{ input: <name> }` — a declared workflow input's value.
   - `{ step: <id> }` — an earlier step's stdout, **byte-for-byte** (never trimmed or truncated).
+  - `{ step: <id>, output: <name> }` — one named value the step emitted via `kiri-output`; the target step must declare the name in its `outputs:`.
   - `{ article: <slug> }` — an already-produced article's markdown. Only valid on `articles:` entries (earlier siblings only, by list order) and `summarize:` — a main step can't reference articles, they don't exist yet.
-- **The reference graph is validated at load time.** Unknown input names, step ids, and article slugs fail the workflow, as do self- and forward-references — refs are backward-only. At run time the fail-fast lifecycle guarantees every ref target completed `ok` before its consumer spawns.
+- **The reference graph is validated at load time.** Unknown input names, step ids, article slugs, and undeclared output names fail the workflow, as do self- and forward-references — refs are backward-only. At run time the fail-fast lifecycle guarantees every ref target completed `ok` before its consumer spawns.
 - **String values must be strings.** Numbers/booleans must be quoted: `MAX_TURNS: "50"`, not `MAX_TURNS: 50`.
 - Keys starting with `KIRI_` are **rejected at load time**. That namespace is reserved.
 - User env is applied **first**, then `PATH`, `HOME`, `USER`, `LOGNAME` from the kiri parent process, then `KIRI_*` overlays. A workflow can't shadow `PATH` or `KIRI_RUN_ID`.

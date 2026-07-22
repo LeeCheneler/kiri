@@ -101,8 +101,9 @@ expanded.
 \`env:\` is an optional flat map passed to the step. Each value is either
 a literal string or a structured reference: \`{ input: <name> }\` to a
 declared workflow input, \`{ step: <id> }\` to an earlier step's stdout
-(give that step an \`id:\`), or \`{ article: <slug> }\` to an
-already-produced article — valid on \`articles:\` entries and
+(give that step an \`id:\`), \`{ step: <id>, output: <name> }\` to one of
+its named outputs (see *Named outputs* below), or \`{ article: <slug> }\`
+to an already-produced article — valid on \`articles:\` entries and
 \`summarize:\` only. References are validated at load time and resolved
 at spawn. Each bundle defines its own contract for the keys it
 expects; kiri doesn't validate values.
@@ -183,6 +184,42 @@ steps:
   \`{ input: <name> }\` — refs to undeclared inputs fail at load time.
 - The resolved input map is snapshotted onto the run, so the feed shows
   what a run was invoked with.
+
+## Named outputs
+
+A main \`sh:\`/\`use:\` step that computes several values can declare
+them under \`outputs:\` and emit each by name with the \`kiri-output\`
+command, which kiri places on the step's PATH. Later steps, articles,
+and summarise pull exactly the value they need with
+\`{ step: <id>, output: <name> }\` instead of re-parsing stdout:
+
+\`\`\`yaml
+steps:
+  - sh: |
+      set -eu
+      kiri-output url "https://example.com/pr/42"
+      kiri-output count "3"
+    id: fetch
+    outputs: [url, count]
+  - sh: 'echo "count=$COUNT url=$URL"'
+    env:
+      COUNT: { step: fetch, output: count }
+      URL: { step: fetch, output: url }
+\`\`\`
+
+- Output names match \`^[a-z][a-z0-9_-]*$\` and are unique within the
+  step. Declaring \`outputs:\` requires an \`id\` — that's how refs
+  address them.
+- The declaration is a contract: a step that exits ok without emitting
+  every declared name **fails the run**. Refs to undeclared names fail
+  at load time, so a consumer's ref always resolves.
+- \`kiri-output\` in a step with no \`outputs:\` exits non-zero — under
+  \`set -e\` the step fails at the offending line. Emitting an
+  undeclared name warns and drops the value; re-emitting a declared
+  name overwrites it (last value wins).
+- \`llm:\` steps can't declare outputs — a completion's single product
+  is its text, referenced whole via \`{ step: <id> }\`.
+- Emitted values are shown in the step's expanded row on the run page.
 
 ## Recommendations
 

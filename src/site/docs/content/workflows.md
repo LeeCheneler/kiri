@@ -119,6 +119,33 @@ steps:
 
 One `PR Review` workflow now reviews any PR, instead of one file per PR.
 
+## Name your outputs
+
+When a step computes more than one value, whole-stdout refs force every
+consumer to re-parse the same blob. Declare `outputs:` instead and emit each
+value with `kiri-output`, which kiri puts on the step's `PATH`; later phases
+pull exactly the value they need with `{ step: <id>, output: <name> }`:
+
+```yaml
+steps:
+  - sh: |
+      set -eu
+      pr_count=$(gh pr list --state open --json number | jq length)
+      kiri-output count "$pr_count"
+      kiri-output repo "$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+    id: scan
+    outputs: [count, repo]
+  - sh: 'echo "$COUNT open PRs in $REPO"'
+    env:
+      COUNT: { step: scan, output: count }
+      REPO: { step: scan, output: repo }
+```
+
+The declaration is a contract: a step that exits ok without emitting every
+declared name fails, so a consumer's ref can never come up empty. Stdout
+stays what it always was — the step's log — and the emitted values show up
+on the run page under the step's row.
+
 ## Recommend follow-ups
 
 A step can propose next runs by writing JSON Lines to
