@@ -5,6 +5,7 @@ import { useInView } from "./use-in-view.ts";
 const WORKFLOW_YAML = `name: Release Notes
 steps:
   - sh: git log --oneline v1.4.0..HEAD
+    id: commits
     name: Collect changes
   - llm:
       model: anthropic:claude-haiku-4-5
@@ -12,8 +13,10 @@ steps:
         Rewrite these commits as release notes,
         grouped under Features and Fixes.
 
-        {{KIRI_INPUT}}
+        {{COMMITS}}
     id: draft
+    env:
+      COMMITS: { step: commits }
 articles:
   - slug: release-notes
     llm:

@@ -24,7 +24,9 @@ providers:
     prompt: |
       Summarise the following in three bullets.
 
-      {{KIRI_INPUT}}
+      {{DATA}}
+  env:
+    DATA: { step: fetch }
 - llm:
     model: local:llama-3.1-8b
     prompt_file: prompts/review.tpl

@@ -99,19 +99,17 @@ describe("llm step pipeline", () => {
     });
   });
 
-  it("renders the previous step's stdout into the prompt as KIRI_INPUT", async () => {
+  it("renders an earlier step's stdout into the prompt via a { step } ref", async () => {
     writeWorkflow(
-      "pipe",
-      'name: pipe\nsteps:\n  - sh: echo "from upstream"\n  - llm:\n      model: fake:echo\n      prompt: "Echo: {{KIRI_INPUT}}"\n',
+      "refs",
+      'name: refs\nsteps:\n  - sh: printf "from upstream"\n    id: upstream\n  - llm:\n      model: fake:echo\n      prompt: "Echo: {{UPSTREAM}}"\n    env:\n      UPSTREAM: { step: upstream }\n',
     );
 
-    const result = await loadAndRun("pipe");
+    const result = await loadAndRun("refs");
 
     expect(result.status).toBe("ok");
     const steps = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
     expect(steps).toHaveLength(2);
-    // The trailing newline from `echo` is trimmed before substitution, matching
-    // the runner's `KIRI_INPUT` contract.
     expect(steps[1].output).toBe("You said: Echo: from upstream");
   });
 

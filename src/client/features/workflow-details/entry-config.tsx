@@ -38,12 +38,17 @@ const hasEnv = (env: Record<string, EnvValue> | undefined): env is Record<string
   env !== undefined && Object.keys(env).length > 0;
 
 // Literal strings pass through; structured refs — `{ input: <name> }`,
-// `{ step: <id> }`, `{ article: <slug> }` — render in YAML-flavoured form so
-// the reader sees the shape they wrote in the workflow.
+// `{ step: <id> }`, `{ step: <id>, output: <name> }`, `{ article: <slug> }` —
+// render in YAML-flavoured form so the reader sees the shape they wrote in
+// the workflow.
 const renderEnvValue = (value: EnvValue): string => {
   if (typeof value === "string") return value;
   if ("input" in value) return `{ input: ${value.input} }`;
-  if ("step" in value) return `{ step: ${value.step} }`;
+  if ("step" in value) {
+    return value.output !== undefined
+      ? `{ step: ${value.step}, output: ${value.output} }`
+      : `{ step: ${value.step} }`;
+  }
   return `{ article: ${value.article} }`;
 };
 

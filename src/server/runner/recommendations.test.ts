@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { recommendations, runs } from "../db/schema.ts";
-import { ingestStepRecommendations } from "./recommendations.ts";
+import { ingestStepRecommendations, runRecommendCommand } from "./recommendations.ts";
 
 describe("ingestStepRecommendations", () => {
   let dir: string;
@@ -175,5 +175,93 @@ describe("ingestStepRecommendations", () => {
     expect(result).toBe(1);
     expect(warnings).toHaveLength(2);
     expect(allRows().map((r) => r.title)).toEqual(["kept"]);
+  });
+
+  describe("runRecommendCommand", () => {
+    let file: string;
+
+    beforeEach(() => {
+      file = join(dir, "recommendations-cmd.jsonl");
+    });
+
+    const env = () => ({ KIRI_RECOMMENDATIONS_FILE: file });
+
+    it("appends a minimal recommendation that the ingester accepts verbatim", () => {
+      const result = runRecommendCommand(
+        ["--workflow", "PR Review", "--title", "Review #42"],
+        env(),
+      );
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(ingestStepRecommendations(db, runId, file, 0)).toBe(1);
+      expect(allRows()[0]).toMatchObject({
+        title: "Review #42",
+        workflow: "PR Review",
+        description: null,
+        inputs: null,
+      });
+    });
+
+    it("carries description and repeated --input pairs, values keeping embedded equals signs", () => {
+      const result = runRecommendCommand(
+        [
+          "--workflow",
+          "PR Review",
+          "--title",
+          "Review owner/repo #42",
+          "--description",
+          "fix: quote args (by @lee)",
+          "--input",
+          "pr_number=42",
+          "--input",
+          "query=a=b",
+        ],
+        env(),
+      );
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(JSON.parse(readFileSync(file, "utf8").trim())).toEqual({
+        title: "Review owner/repo #42",
+        workflow: "PR Review",
+        description: "fix: quote args (by @lee)",
+        inputs: { pr_number: "42", query: "a=b" },
+      });
+    });
+
+    it("appends one line per invocation", () => {
+      runRecommendCommand(["--workflow", "w", "--title", "A"], env());
+      runRecommendCommand(["--workflow", "w", "--title", "B"], env());
+
+      expect(ingestStepRecommendations(db, runId, file, 0)).toBe(2);
+      expect(allRows().map((r) => r.title)).toEqual(["A", "B"]);
+    });
+
+    it("fails without writing when KIRI_RECOMMENDATIONS_FILE is unset", () => {
+      const result = runRecommendCommand(["--workflow", "w", "--title", "T"], {
+        KIRI_RECOMMENDATIONS_FILE: undefined,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.error).toContain("KIRI_RECOMMENDATIONS_FILE is not set");
+      expect(existsSync(file)).toBe(false);
+    });
+
+    it.each([
+      [["--title", "T"], "--workflow is required"],
+      [["--workflow", "w"], "--title is required"],
+      [["--workflow", "", "--title", "T"], "--workflow is required"],
+      [["--workflow", "w", "--title", "T", "--description", ""], "--description cannot be empty"],
+      [["--workflow", "w", "--title", "T", "--input", "noequals"], "--input expects <key>=<value>"],
+      [["--workflow", "w", "--title", "T", "--input", "=value"], "--input expects <key>=<value>"],
+      [["--workflow", "w", "--title", "T", "--input", "Bad-Key=1"], 'invalid input key "Bad-Key"'],
+      [["--workflow", "w", "--title", "T", "--stray", "x"], 'unknown argument "--stray"'],
+      [["--workflow", "w", "--title"], "--title requires a value"],
+    ] as const)("rejects %p without writing", (args, message) => {
+      const result = runRecommendCommand([...args], env());
+
+      expect(result.exitCode).toBe(1);
+      expect(result.error).toContain(message);
+      expect(existsSync(file)).toBe(false);
+    });
   });
 });

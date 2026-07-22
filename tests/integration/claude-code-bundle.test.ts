@@ -87,9 +87,7 @@ const readCapture = (ws: Workspace): Capture => {
 /**
  * Drive a fixture workflow by name. Loads + validates it through the real
  * loader (so YAML/schema/bundle errors surface), then drives each step
- * through `runStep` with PATH stubbed to the fixture's claude. Step
- * stdout is piped into the next step's stdin to mirror the real runner's
- * pipeline behaviour.
+ * through `runStep` with PATH stubbed to the fixture's claude.
  */
 const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]> => {
   const result = await loadWorkflows(createConfigStore(ws.cwd));
@@ -98,7 +96,6 @@ const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]>
   if (!def) throw new Error(`workflow not found in fixtures: ${name}`);
 
   const envelopes: StepEnvelope[] = [];
-  let input = "";
   for (let i = 0; i < def.steps.length; i++) {
     const step = def.steps[i];
     const env: Record<string, string> = {
@@ -119,12 +116,10 @@ const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]>
       step,
       config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
-      input,
       env,
     });
     envelopes.push(envelope);
     if (envelope.status === "failed") break;
-    input = envelope.output;
   }
   return envelopes;
 };
@@ -140,18 +135,10 @@ describe("claude-code bundle: integration", () => {
     teardownWorkspace(ws);
   });
 
-  it("renders {{KIRI_INPUT}} inline for single-line stdin (no extra newline)", async () => {
-    const envelopes = await runScenario(ws, "single-line-input");
+  it("preserves internal newlines when an env value is multi-line", async () => {
+    const envelopes = await runScenario(ws, "multi-line-env");
 
-    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
-    const { argv } = readCapture(ws);
-    expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "50"]);
-  });
-
-  it("preserves internal newlines when {{KIRI_INPUT}} is multi-line", async () => {
-    const envelopes = await runScenario(ws, "multi-line-input");
-
-    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
     expect(argv).toEqual(["-p", "Names:\nfirst\nsecond\nthird", "--max-turns", "50"]);
   });
@@ -237,7 +224,7 @@ describe("claude-code bundle: integration", () => {
   it("substitutes {{VAR}} placeholders inside an inline PROMPT", async () => {
     const envelopes = await runScenario(ws, "prompt-substitution");
 
-    expect(envelopes.map((e) => e.status)).toEqual(["ok", "ok"]);
+    expect(envelopes.map((e) => e.status)).toEqual(["ok"]);
     const { argv } = readCapture(ws);
     expect(argv).toEqual(["-p", "Hello, Lee.", "--max-turns", "50"]);
   });
@@ -248,12 +235,11 @@ describe("claude-code bundle: integration", () => {
     // the bundle's external dep. The stub never runs — the bundle's own
     // dep-check fires first and exits non-zero.
     const envelope = await runStep({
-      step: { use: "claude-code", env: { PROMPT_FILE: "prompts/single-line-input.tpl" } },
+      step: { use: "claude-code", env: { PROMPT_FILE: "prompts/custom-env.tpl" } },
       config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
-      input: "",
       env: {
-        PROMPT_FILE: "prompts/single-line-input.tpl",
+        PROMPT_FILE: "prompts/custom-env.tpl",
         PATH: "/usr/bin:/bin",
         HOME: process.env.HOME ?? "",
         USER: process.env.USER ?? "",

@@ -460,13 +460,16 @@ describe("workflowSchema", () => {
     });
   });
 
-  it("parses an llm summarize step with no prompt (falls back to the default)", () => {
-    const result = workflowSchema.parse({
-      name: "llm-sum-default",
+  it("rejects an llm summarize step with no prompt source", () => {
+    const result = workflowSchema.safeParse({
+      name: "llm-sum-promptless",
       steps: [{ use: "x" }],
       summarize: { llm: { model: "anthropic:claude-haiku-4-5" } },
     });
-    expect(result.summarize).toEqual({ llm: { model: "anthropic:claude-haiku-4-5" } });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("llm requires one of prompt or prompt_file");
+    }
   });
 
   it("rejects a step with both use and llm keys", () => {
@@ -1050,6 +1053,149 @@ describe("step ids and output refs", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.message).toContain("summarize cannot declare an id");
+    }
+  });
+});
+
+describe("declared step outputs", () => {
+  it("parses outputs on sh: and use: steps that declare an id", () => {
+    const result = workflowSchema.parse({
+      name: "with-outputs",
+      steps: [
+        { sh: "kiri-output url x", id: "fetch", outputs: ["url", "count"] },
+        { use: "scanner", id: "scan", outputs: ["report"] },
+      ],
+    });
+    expect(result.steps[0]).toMatchObject({ outputs: ["url", "count"] });
+    expect(result.steps[1]).toMatchObject({ outputs: ["report"] });
+  });
+
+  it("rejects outputs on a step without an id", () => {
+    const result = workflowSchema.safeParse({
+      name: "outputs-no-id",
+      steps: [{ sh: "kiri-output url x", outputs: ["url"] }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("must also declare an id");
+    }
+  });
+
+  it("rejects an output name outside the grammar", () => {
+    const result = workflowSchema.safeParse({
+      name: "bad-output-name",
+      steps: [{ sh: "echo", id: "s", outputs: ["Bad Name"] }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("output name must match");
+    }
+  });
+
+  it("rejects duplicate output names within a step", () => {
+    const result = workflowSchema.safeParse({
+      name: "dup-outputs",
+      steps: [{ sh: "echo", id: "s", outputs: ["url", "url"] }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("output names must be unique within a step");
+    }
+  });
+
+  it("rejects an empty outputs array", () => {
+    const result = workflowSchema.safeParse({
+      name: "empty-outputs",
+      steps: [{ sh: "echo", id: "s", outputs: [] }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects outputs on an llm: step", () => {
+    const result = workflowSchema.safeParse({
+      name: "llm-outputs",
+      steps: [{ llm: { model: "p:m", prompt: "hi" }, id: "gen", outputs: ["text"] }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects outputs on summarize", () => {
+    const result = workflowSchema.safeParse({
+      name: "summarize-outputs",
+      steps: [{ sh: "echo one" }],
+      summarize: { sh: "echo summary", outputs: ["gist"] },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("summarize cannot declare outputs");
+    }
+  });
+
+  it("rejects outputs on an articles entry", () => {
+    const result = workflowSchema.safeParse({
+      name: "article-outputs",
+      steps: [{ sh: "echo one" }],
+      articles: [{ slug: "digest", sh: "echo body", outputs: ["gist"] }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("parses { step, output } refs on later steps, articles, and summarize", () => {
+    const result = workflowSchema.parse({
+      name: "output-refs",
+      steps: [
+        { sh: "kiri-output url x; kiri-output count 2", id: "fetch", outputs: ["url", "count"] },
+        { use: "consumer", env: { URL: { step: "fetch", output: "url" } } },
+      ],
+      articles: [
+        { slug: "digest", use: "writer", env: { COUNT: { step: "fetch", output: "count" } } },
+      ],
+      summarize: { use: "summer", env: { URL: { step: "fetch", output: "url" } } },
+    });
+    expect(result.steps[1].env).toEqual({ URL: { step: "fetch", output: "url" } });
+  });
+
+  it("rejects an output ref to a name the target step does not declare", () => {
+    const result = workflowSchema.safeParse({
+      name: "unknown-output-ref",
+      steps: [
+        { sh: "kiri-output url x", id: "fetch", outputs: ["url"] },
+        { use: "consumer", env: { TITLE: { step: "fetch", output: "title" } } },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("references output");
+      expect(result.error.message).toContain("title");
+      expect(result.error.message).toContain("does not declare it in outputs:");
+    }
+  });
+
+  it("rejects an output ref to a step that declares no outputs", () => {
+    const result = workflowSchema.safeParse({
+      name: "no-outputs-ref",
+      steps: [
+        { sh: "echo plain", id: "fetch" },
+        { use: "consumer", env: { URL: { step: "fetch", output: "url" } } },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("does not declare it in outputs:");
+    }
+  });
+
+  it("keeps output refs backward-only", () => {
+    const result = workflowSchema.safeParse({
+      name: "forward-output-ref",
+      steps: [
+        { use: "consumer", env: { URL: { step: "later", output: "url" } } },
+        { sh: "kiri-output url x", id: "later", outputs: ["url"] },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("backward-only");
     }
   });
 });

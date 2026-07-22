@@ -41,12 +41,6 @@ else
   exit 1
 fi
 
-# Slurp the previous step's stdout (piped here by kiri) into KIRI_INPUT
-# so prompts can reference {{KIRI_INPUT}}. $() trims one trailing
-# newline so single-line outputs render inline; multi-line outputs
-# keep their internal newlines.
-export KIRI_INPUT="$(cat)"
-
 # Render {{VAR}} placeholders from the environment in a single
 # left-to-right pass. Same renderer as the claude-code bundle so
 # prompts are portable between the two. Unknown vars resolve to

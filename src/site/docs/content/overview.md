@@ -10,14 +10,17 @@ as an **article**: a readable page in a live feed, not scrollback in a terminal.
 name: Release Notes
 steps:
   - sh: git log --oneline v1.4.0..HEAD
+    id: commits
   - llm:
       model: anthropic:claude-haiku-4-5
       prompt: |
         Rewrite these commits as release notes,
         grouped under Features and Fixes.
 
-        {{KIRI_INPUT}}
+        {{COMMITS}}
     id: draft
+    env:
+      COMMITS: { step: commits }
 articles:
   - slug: release-notes
     sh: 'printf "%s" "$DRAFT"'
@@ -25,8 +28,9 @@ articles:
       DRAFT: { step: draft }
 ```
 
-Click **Run** and kiri pipes each step into the next — shell commands and model
-calls alike — then renders the output as an article in your feed.
+Click **Run** and kiri walks the steps in order — shell commands and model
+calls alike, each declaring the data it needs — then renders the output as an
+article in your feed.
 
 ## Two ways to work
 

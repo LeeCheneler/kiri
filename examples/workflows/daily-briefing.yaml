@@ -42,8 +42,16 @@ articles:
       NEWS:
         step: fetch
 
-# Zero-config: kiri's built-in summary prompt over the injected
-# {{KIRI_SUMMARY_CONTEXT}} digest.
+# The summariser takes the finished article through an { article: } ref
+# and asks for the feed line directly.
 summarize:
   llm:
     model: anthropic:claude-haiku-4-5
+    prompt: |
+      One sentence for an activity feed: today's top story from this
+      briefing. No preamble.
+
+      {{BRIEFING}}
+  env:
+    BRIEFING:
+      article: briefing

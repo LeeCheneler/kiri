@@ -39,26 +39,41 @@ steps:
         --argjson c "$team_prs" \
         '($a + $b + $c) | unique_by(.repository.nameWithOwner + "#" + (.number|tostring))')
 
+      # One recommendation per PR: kiri-recommend (on PATH inside every
+      # main step) validates and appends the JSON line for us.
       echo "$all" | jq -c '.[]' | while read -r pr; do
         number=$(echo "$pr" | jq -r .number)
         title=$(echo "$pr" | jq -r .title)
         author=$(echo "$pr" | jq -r .author.login)
         repo=$(echo "$pr" | jq -r .repository.nameWithOwner)
-        jq -nc \
-          --arg t "Review pull request ${repo} #${number}" \
-          --arg d "${title} (by @${author})" \
-          --arg n "${number}" \
-          --arg r "${repo}" \
-          '{title: $t, description: $d, workflow: "PR Review", inputs: {pr_number: $n, repo: $r}}' \
-          >> "$KIRI_RECOMMENDATIONS_FILE"
+        kiri-recommend \
+          --workflow "PR Review" \
+          --title "Review pull request ${repo} #${number}" \
+          --description "${title} (by @${author})" \
+          --input "pr_number=${number}" \
+          --input "repo=${repo}"
       done
 
+      kiri-output count "$(echo "$all" | jq 'length')"
       echo "$all" | jq -r 'length as $n | "Found \($n) open PR(s) awaiting your review."'
+    id: queue
+    outputs: [count]
     name: Aggregate open PRs
     description: Aggregate open PRs awaiting your review across all repos.
 
-# Zero-config: kiri's built-in summary prompt over the injected
-# {{KIRI_SUMMARY_CONTEXT}} digest.
+# The summariser takes the one number it needs as a named-output ref —
+# no model call, no re-parsing the step's stdout.
 summarize:
-  llm:
-    model: anthropic:claude-haiku-4-5
+  sh: |
+    set -eu
+    if [ "$COUNT" -eq 0 ]; then
+      echo "Review queue is clear — no open PRs awaiting you."
+    else
+      s="s"
+      [ "$COUNT" = "1" ] && s=""
+      echo "$COUNT open PR$s awaiting your review — each has a one-click review button."
+    fi
+  env:
+    COUNT:
+      step: queue
+      output: count

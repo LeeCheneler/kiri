@@ -13,7 +13,7 @@ A workflow lives at `workflows/*.yaml` and is validated on load.
 | `description` | no | One-liner rendered as the deck beneath the title. |
 | `group` | no | Label (e.g. `Dev`) shown as the page eyebrow to cluster related workflows. |
 | `inputs` | no | Parameters collected via a modal on Run. See Inputs below. |
-| `steps` | yes | The pipeline, run in order. |
+| `steps` | yes | The steps, run in order. |
 | `articles` | no | Markdown documents produced after the steps. |
 | `summarize` | no | Post-run step whose stdout becomes the run's summary. |
 
@@ -28,6 +28,7 @@ common fields:
 | `description` | Longer detail, revealed when the step's row is expanded. |
 | `id` | Handle for `{ step: <id> }` refs. Must match `^[a-z][a-z0-9_-]*$`. |
 | `env` | String-to-string map. Values must be strings (`MAX_TURNS: "50"`, not `50`); keys starting `KIRI_` are rejected at load. |
+| `outputs` | `sh:`/`use:` steps only. Named values the step promises to emit via `kiri-output`; requires an `id`. See Named outputs below. |
 
 ### `sh:` — inline shell
 
@@ -65,19 +66,23 @@ stdout. Token counts land in the run timeline.
     prompt: |
       Summarise this in three bullets.
 
-      {{KIRI_INPUT}}
+      {{DATA}}
+  env:
+    DATA: { step: fetch }
 ```
 
 - `model` is `provider:model`. A bare id with no prefix is a load-time error.
   Providers are declared in `kiri.yaml` — see
   [Models & providers](/docs/llm-providers).
-- Exactly one of `prompt` / `prompt_file` on a `steps:`/`articles:` entry
-  (`prompt_file` resolves against the workspace root). A `summarize:` step may
-  omit both for the built-in summary prompt.
-- Templating is single-pass `{{VAR}}` substitution: `{{KIRI_INPUT}}` is the
-  previous step's stdout (one trailing newline trimmed), the step's own `env:`
-  vars are available by name, unknown vars resolve empty.
-- No file channels: an `llm:` step gets no `KIRI_RECOMMENDATIONS_FILE`.
+- Exactly one of `prompt` / `prompt_file` on every llm entry — steps,
+  articles, and summarize alike (`prompt_file` resolves against the
+  workspace root).
+- Templating is single-pass `{{VAR}}` substitution: the step's `env:` vars —
+  including resolved refs — are available by name; unknown vars resolve
+  empty.
+- No file channels: an `llm:` step gets no `KIRI_RECOMMENDATIONS_FILE` and
+  cannot declare `outputs:` — its single product is the completion text on
+  stdout.
 
 ## Inputs
 
@@ -94,19 +99,48 @@ invokes on a single click.
 
 ## Data flow
 
-- Each step's stdout is piped to the next step's stdin; the first step gets
-  empty stdin.
-- `articles:` entries and `summarize:` get **empty** stdin — wire data in with
-  env refs.
+- **Every phase gets empty stdin.** Data moves between phases only through
+  the env refs each one declares.
 - `{ step: <id> }` resolves to that step's stdout, byte-for-byte. Valid on
   later `steps:`, `articles:`, and `summarize:`.
+- `{ step: <id>, output: <name> }` resolves to one named value the step
+  emitted via `kiri-output` — see Named outputs below. Valid in the same
+  places.
 - `{ article: <slug> }` resolves to an earlier article's markdown. Valid on
   later `articles:` entries and `summarize:`.
-- Refs are validated at load: unknown ids or slugs, duplicate ids, and
-  self/forward references are errors.
+- Refs are validated at load: unknown ids or slugs, duplicate ids, refs to
+  undeclared output names, and self/forward references are errors.
 - For an `llm:` consumer the resolved value is a prompt template var; for
   `sh:`/`use:` it's an env var — a very large output can hit the OS exec size
   limit, failing the step with an error naming the entry.
+
+## Named outputs
+
+A `sh:`/`use:` step that computes more than one value can declare them and
+emit each one by name, instead of making every consumer re-parse its stdout:
+
+```yaml
+- sh: |
+    set -eu
+    kiri-output url "https://example.com/pr/42"
+    kiri-output count "3"
+  id: fetch
+  outputs: [url, count]
+```
+
+- `outputs:` names match `^[a-z][a-z0-9_-]*$` and must be unique within the
+  step. Declaring any requires an `id` — refs address outputs as
+  `{ step: <id>, output: <name> }`.
+- `kiri-output <name> <value>` is on the step's `PATH` for the run's
+  duration. Called with a name outside the declaration it warns and the value
+  is dropped; called in a step with no `outputs:` it exits non-zero — under
+  `set -e` that fails the step at the call site.
+- The declaration is a contract: a step that exits ok without emitting every
+  declared name **fails**, so consumers' refs always resolve. Re-emitting a
+  name overwrites it — the last value wins.
+- Emitted values appear on the run page in the step's expanded row, and count
+  toward a consuming step's env size like any other ref.
+- Stdout is unaffected — declare outputs and stdout becomes plain logging.
 
 ## Step environment
 
@@ -120,8 +154,8 @@ apply first; these overwrite on collision:
 | `KIRI_STEP_INDEX` | every step | Zero-based index of this step in the run. |
 | `KIRI_REPO_ROOT` | every step | Absolute path of the workspace. Steps run in a scratch dir — use this to reach repo files. |
 | `KIRI_BUNDLE_DIR` | `use:` steps | Absolute path to the bundle's `bundles/<name>/` directory. |
-| `KIRI_SUMMARY_CONTEXT` | `summarize:` only | Prompt-ready digest of the run: workflow name and duration, each step's stdout, then the articles (each stream capped at 64 KB, marked `[truncated]`). An `llm:` summariser templates it as `{{KIRI_SUMMARY_CONTEXT}}`. |
-| `KIRI_RECOMMENDATIONS_FILE` | main `use:`/`sh:` steps | Path the step may write recommendation JSON Lines to. Not set for `llm:` steps. |
+| `KIRI_RECOMMENDATIONS_FILE` | main `use:`/`sh:` steps | Path the step's recommendations land in — write through `kiri-recommend`. Not set for `llm:` steps. |
+| `KIRI_OUTPUTS_FILE` | steps declaring `outputs:` | Path the step's named outputs land in — write through `kiri-output`, which handles the encoding. |
 | `PATH`, `HOME`, `USER`, `LOGNAME` | every step | Passed through from the kiri process so tools that authenticate as you keep working. |
 
 ## Articles
@@ -194,29 +228,36 @@ flowchart LR
 after `steps:` and `articles:`. Its stdout becomes the run's one-or-two-line
 summary on the feed row and run page.
 
-- Every summariser receives the run digest: as `$KIRI_SUMMARY_CONTEXT` for
-  `sh:`/`use:`, as `{{KIRI_SUMMARY_CONTEXT}}` for `llm:`.
-- It can pull specific outputs at full fidelity with `{ step: <id> }` /
-  `{ article: <slug> }` env refs.
-- An `llm:` summariser with no prompt is zero-config — kiri supplies a
-  built-in summary prompt.
+- Like every phase, it declares its data with env refs — typically the
+  finished article (`{ article: <slug> }`), a named output
+  (`{ step, output }`), or a step's stdout (`{ step: <id> }`). Keep the ref
+  narrow: pass what the summary is about, not every upstream blob.
+- An `llm:` summariser declares its prompt like any other llm entry; a
+  `sh:` summariser over a named output is often enough and costs nothing.
 - A failing summariser never fails the run; the summary just stays empty.
 
 ## Recommendations
 
-A main `use:`/`sh:` step can propose follow-up invocations by appending JSON
-Lines to `$KIRI_RECOMMENDATIONS_FILE` — one object per line, rendered as
-one-click buttons under **Recommended** on the run page.
+A main `use:`/`sh:` step can propose follow-up invocations, rendered as
+one-click buttons under **Recommended** on the run page. Emit each with
+`kiri-recommend` — on the step's `PATH` for the run's duration:
 
-| Field | Required | Description |
+```sh
+kiri-recommend --workflow "PR Review" --title "Review owner/repo #42" \
+  --description "fix: quote args (by @lee)" \
+  --input pr_number=42 --input repo=owner/repo
+```
+
+| Flag | Required | Description |
 | --- | --- | --- |
-| `title` | yes | Button label. |
-| `workflow` | yes | Name of the workflow to invoke. |
-| `description` | no | Supporting line under the title. |
-| `inputs` | no | `{ string: string }` map pre-filled into the invoke modal. |
+| `--title` | yes | Button label. |
+| `--workflow` | yes | Name of the workflow to invoke. |
+| `--description` | no | Supporting line under the title. |
+| `--input <key>=<value>` | no, repeatable | Pre-filled into the invoke modal; keys should match the target's declared inputs. |
 
-Malformed or schema-failing lines are skipped with a warning; the rest still
-ingest. A failed or cancelled step's file is discarded.
+A malformed call exits non-zero without writing — under `set -e` the step
+fails at the offending line. A failed or cancelled step's recommendations
+are discarded.
 
 ## Authoring a bundle
 

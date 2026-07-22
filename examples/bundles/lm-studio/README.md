@@ -5,12 +5,14 @@ LM Studio server (or any OpenAI-compatible HTTP endpoint). Prompt is
 rendered from an inline string (`PROMPT`) or a template file
 (`PROMPT_FILE`). Exactly one is required.
 
-Minimal usage — inline prompt:
+Minimal usage — inline prompt (upstream data arrives as an env ref,
+rendered into the prompt by name):
 
 ```yaml
 - use: lm-studio
   env:
-    PROMPT: "Summarise {{KIRI_INPUT}} in one sentence."
+    PROMPT: "Summarise {{DATA}} in one sentence."
+    DATA: { step: fetch }
 ```
 
 Or from a template file:
@@ -55,10 +57,9 @@ concatenated. Mirrors `claude-code`'s precedence rule.
 
 ## What `run.sh` does
 
-1. Reads the previous step's stdout into `KIRI_INPUT` and renders the
-   prompt — sourced from `PROMPT` or `$KIRI_REPO_ROOT/$PROMPT_FILE` —
-   substituting `{{VAR}}` placeholders from the environment (see
-   *Prompt templates* below).
+1. Renders the prompt — sourced from `PROMPT` or
+   `$KIRI_REPO_ROOT/$PROMPT_FILE` — substituting `{{VAR}}` placeholders
+   from the environment (see *Prompt templates* below).
 2. Builds the JSON request body via `jq`, so the prompt is escaped
    correctly regardless of quotes, newlines, or backslashes.
 3. POSTs to `$BASE_URL/chat/completions` with `curl --fail-with-body`,
@@ -79,14 +80,13 @@ Substituted values are not re-scanned, so a value containing
 
 | Var | Source |
 | --- | --- |
-| `{{KIRI_INPUT}}` | Previous step's stdout (one trailing newline trimmed). |
 | `{{KIRI_RUN_ID}}` | Kiri-injected run identifier. |
 | `{{KIRI_STEP_INDEX}}` | Zero-based index of this step in the run. |
 | `{{KIRI_REPO_ROOT}}` | Absolute path of the workflow repo root. |
 | `{{KIRI_BUNDLE_DIR}}` | Absolute path of this bundle's directory. |
 | `{{BASE_URL}}`, `{{MAX_TOKENS}}` | Bundle env-var contract values, defaulted as documented above. |
 | `{{MODEL}}`, `{{TEMPERATURE}}`, `{{PROMPT}}`, `{{PROMPT_FILE}}` | Bundle env-var contract values — resolve to empty when unset. |
-| Any `{{MY_VAR}}` | Anything set in the workflow's `env:` block. |
+| Any `{{MY_VAR}}` | Anything set in the workflow's `env:` block — including `{ step: <id> }` / `{ step, output }` / `{ article: <slug> }` refs, which arrive as ordinary env vars under the names you gave them. |
 
 ## Example: local triage in front of a cloud agent
 
@@ -97,23 +97,27 @@ cloud step only runs on the survivors:
 name: filtered-pr-review
 steps:
   - sh: gh search prs --review-requested=@me --state=open --json title,url,body
+    id: prs
   - use: lm-studio
+    id: triage
     env:
       MODEL: gemma-3-12b
+      PRS: { step: prs }
       PROMPT: |
         From this JSON list of PRs, output only those that look
         substantive — drop version bumps, dependabot, and lockfile
         churn. One PR per line as "<title> — <url>", nothing else.
 
-        {{KIRI_INPUT}}
+        {{PRS}}
   - use: claude-code
     env:
       MODEL: sonnet
+      SURVIVORS: { step: triage }
       PROMPT: |
         Review each PR below: check out the branch, read the diff,
         leave inline comments.
 
-        {{KIRI_INPUT}}
+        {{SURVIVORS}}
 ```
 
 Local handles "is this worth my attention"; cloud only runs on what

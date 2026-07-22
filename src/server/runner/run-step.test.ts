@@ -38,7 +38,6 @@ describe("runStep", () => {
         step: { use: "ok" },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 
@@ -57,7 +56,6 @@ describe("runStep", () => {
         step: { use: "fail" },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 
@@ -73,7 +71,6 @@ describe("runStep", () => {
         step: { use: "err" },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 
@@ -81,18 +78,18 @@ describe("runStep", () => {
       expect(envelope.traces.stderr).toBe("err\n");
     });
 
-    it("pipes input into the bundle's stdin", async () => {
-      writeBundle("cat", "#!/bin/sh\ncat\n");
+    it("gives the step empty stdin — a script that reads it sees immediate EOF", async () => {
+      writeBundle("cat", "#!/bin/sh\ncat\necho done\n");
 
       const envelope = await runStep({
         step: { use: "cat" },
         config,
         scratchDir,
-        input: "echo me back",
         env: {},
       });
 
-      expect(envelope.output).toBe("echo me back");
+      expect(envelope.status).toBe("ok");
+      expect(envelope.output).toBe("done\n");
     });
 
     it("runs the bundle with cwd set to the scratch dir", async () => {
@@ -102,7 +99,6 @@ describe("runStep", () => {
         step: { use: "pwd" },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 
@@ -121,7 +117,6 @@ describe("runStep", () => {
         step: { use: "env" },
         config,
         scratchDir,
-        input: "",
         env: { FOO: "bar" },
       });
 
@@ -134,7 +129,6 @@ describe("runStep", () => {
         step: { use: "missing" },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 
@@ -150,7 +144,6 @@ describe("runStep", () => {
         step: { sh: "echo hi" },
         config,
         scratchDir,
-        input: "",
         env: {},
         onSpawn: (proc) => captured.push(proc),
       });
@@ -168,7 +161,6 @@ describe("runStep", () => {
         step: { sh: "echo from-sh" },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 
@@ -181,7 +173,6 @@ describe("runStep", () => {
         step: { sh: "echo bye; exit 3" },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 
@@ -190,24 +181,11 @@ describe("runStep", () => {
       expect(envelope.traces.stdout).toBe("bye\n");
     });
 
-    it("pipes input into the inline snippet's stdin", async () => {
-      const envelope = await runStep({
-        step: { sh: "cat" },
-        config,
-        scratchDir,
-        input: "piped",
-        env: {},
-      });
-
-      expect(envelope.output).toBe("piped");
-    });
-
     it("fails cleanly when the env exceeds the exec size limit, naming the largest entry", async () => {
       const envelope = await runStep({
         step: { sh: "echo never-runs" },
         config,
         scratchDir,
-        input: "",
         env: { BIG: "x".repeat(950 * 1024), SMALL: "tiny" },
       });
 
@@ -223,7 +201,6 @@ describe("runStep", () => {
         step: { sh: "pwd" },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 
@@ -235,7 +212,6 @@ describe("runStep", () => {
         step: { sh: 'echo "FOO=$FOO USER=$USER"' },
         config,
         scratchDir,
-        input: "",
         env: { FOO: "bar" },
       });
 
@@ -246,11 +222,10 @@ describe("runStep", () => {
   describe("llm: steps", () => {
     it("dispatches to the llm executor instead of spawning", async () => {
       const envelope = await runStep({
-        step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise {{KIRI_INPUT}}" } },
+        step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise {{DATA}}" } },
         config,
         scratchDir,
-        input: "the news\n",
-        env: {},
+        env: { DATA: "the news" },
         llmClients: {
           resolveModel: () => {
             throw new Error("unused");
@@ -273,7 +248,6 @@ describe("runStep", () => {
         step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
         config,
         scratchDir,
-        input: "",
         env: {},
       });
 

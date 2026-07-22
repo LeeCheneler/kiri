@@ -101,9 +101,9 @@ describe("runWorkflow", () => {
     expect(step?.output).toBe("from-inline\n");
   });
 
-  it("pipes step output to the next step's stdin (mixed use → sh)", async () => {
+  it("gives every step empty stdin — upstream stdout reaches a step only via refs", async () => {
     writeBundle("emit", "#!/bin/sh\necho first-output\n");
-    const wf = makeWorkflow("pipe", [{ use: "emit" }, { sh: "cat" }]);
+    const wf = makeWorkflow("no-pipe", [{ use: "emit" }, { sh: 'printf "stdin=[%s]" "$(cat)"' }]);
 
     const result = await runWorkflow(db, wf, { config }).done;
 
@@ -116,7 +116,7 @@ describe("runWorkflow", () => {
       .all();
     expect(steps).toHaveLength(2);
     expect(steps[0].output).toBe("first-output\n");
-    expect(steps[1].output).toBe("first-output\n");
+    expect(steps[1].output).toBe("stdin=[]");
   });
 
   it("records an llm step with kind llm and fails the run when no llm clients are wired", async () => {
@@ -141,17 +141,21 @@ describe("runWorkflow", () => {
   });
 
   describe("llm: steps", () => {
-    it("pipes the completion text downstream and renders {{KIRI_INPUT}} from the previous step", async () => {
-      writeBundle("emit", "#!/bin/sh\necho first-output\n");
+    it("renders upstream data into the prompt via a { step } ref and exposes the completion downstream via its id", async () => {
+      writeBundle("emit", "#!/bin/sh\nprintf 'first-output'\n");
       const prompts: string[] = [];
       const llmClients = fakeLlm(async ({ prompt }) => {
         prompts.push(prompt);
         return { text: "llm-reply", usage: {} };
       });
-      const wf = makeWorkflow("llm-pipe", [
-        { use: "emit" },
-        { llm: { model: "anthropic:m", prompt: "Reply to: {{KIRI_INPUT}}" } },
-        { sh: "cat" },
+      const wf = makeWorkflow("llm-refs", [
+        { use: "emit", id: "emit" },
+        {
+          llm: { model: "anthropic:m", prompt: "Reply to: {{UPSTREAM}}" },
+          id: "reply",
+          env: { UPSTREAM: { step: "emit" } },
+        },
+        { sh: 'printf "%s" "$REPLY"', env: { REPLY: { step: "reply" } } },
       ]);
 
       const result = await runWorkflow(db, wf, { config, llmClients }).done;
@@ -424,8 +428,12 @@ describe("runWorkflow", () => {
 
     const result = await runWorkflow(db, wf, { config }).done;
 
+    // The kiri-controlled PATH is the run's shim dir ahead of the process
+    // PATH — the user-declared value must not appear anywhere in it.
     const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-    expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
+    expect(step?.output).toBe(
+      `PATH=${join(config.runDir(result.runId), ".bin")}:${process.env.PATH ?? ""}\n`,
+    );
   });
 
   it("forwards user env values for non-conflicting keys to the bundle", async () => {
@@ -963,45 +971,6 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBe("unset|unset");
     });
 
-    it("caps a chatty step's stdout in the summary digest at 64 KB", async () => {
-      // Emit ~80 KB of stdout so the per-stream cap bites.
-      writeBundle("firehose", "#!/bin/sh\nyes x | head -c 81920\n");
-      const wf: WorkflowDefinition = {
-        name: "ctx-cap",
-        steps: [{ use: "firehose" }],
-        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
-      };
-
-      const result = await runWorkflow(db, wf, { config }).done;
-      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      expect(run?.summary).toContain("[truncated]");
-      // Header + capped body land well under the raw 80 KB.
-      expect((run?.summary as string).length).toBeLessThan(81920);
-
-      // The step row keeps the full stream — only the digest is capped.
-      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
-      const firehose = stepsRows.find((s) => s.index === 0);
-      expect((firehose?.traces as { stdout: string }).stdout.length).toBe(81920);
-    });
-
-    it("includes produced articles in the summary digest", async () => {
-      writeBundle("step", "#!/bin/sh\necho one\n");
-      writeBundle("art", "#!/bin/sh\necho article-body\n");
-      const wf: WorkflowDefinition = {
-        name: "summer-sees-art",
-        steps: [{ use: "step" }],
-        articles: [{ slug: "art", name: "Article", use: "art" }],
-        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
-      };
-
-      const result = await runWorkflow(db, wf, { config }).done;
-      expect(result.status).toBe("ok");
-
-      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      expect(run?.summary).toContain("## Article: Article (art)");
-      expect(run?.summary).toContain("article-body");
-    });
-
     it("publishes summariser step events between run.step.updated and run.updated", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("summer", "#!/bin/sh\necho summary\n");
@@ -1057,8 +1026,8 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBeNull();
     });
 
-    it("stores an llm summariser's text and templates the digest into its prompt", async () => {
-      writeBundle("step", "#!/bin/sh\necho hello\n");
+    it("stores an llm summariser's text, rendering its prompt from declared refs", async () => {
+      writeBundle("step", "#!/bin/sh\nprintf 'hello'\n");
       const prompts: string[] = [];
       const llmClients = fakeLlm(async ({ prompt }) => {
         prompts.push(prompt);
@@ -1066,12 +1035,10 @@ describe("runWorkflow", () => {
       });
       const wf: WorkflowDefinition = {
         name: "llm-sum",
-        steps: [{ use: "step" }],
+        steps: [{ use: "step", id: "fetch" }],
         summarize: {
-          llm: {
-            model: "anthropic:m",
-            prompt: "digest={{KIRI_SUMMARY_CONTEXT}}",
-          },
+          llm: { model: "anthropic:m", prompt: "summarise={{DATA}}" },
+          env: { DATA: { step: "fetch" } },
         },
       };
 
@@ -1080,20 +1047,17 @@ describe("runWorkflow", () => {
       expect(result.status).toBe("ok");
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.summary).toBe("a tidy summary");
-
-      expect(prompts[0]).toContain("digest=Workflow: llm-sum");
-      expect(prompts[0]).toContain("hello");
+      expect(prompts).toEqual(["summarise=hello"]);
     });
 
-    it("falls back to the baked-in summary prompt when an llm summariser declares none", async () => {
+    it("fails only the summariser when an llm summariser reaches execution with no prompt", async () => {
+      // The schema rejects a prompt-less llm summarize at load; a definition
+      // constructed directly exercises the runner's behaviour when the
+      // invariant is bypassed — the summariser fails, the run stays ok.
       writeBundle("step", "#!/bin/sh\necho payload\n");
-      const prompts: string[] = [];
-      const llmClients = fakeLlm(async ({ prompt }) => {
-        prompts.push(prompt);
-        return { text: "default-prompt summary", usage: {} };
-      });
+      const llmClients = fakeLlm(async () => ({ text: "never", usage: {} }));
       const wf: WorkflowDefinition = {
-        name: "zero-config-sum",
+        name: "promptless-sum",
         steps: [{ use: "step" }],
         summarize: { llm: { model: "anthropic:m" } },
       };
@@ -1102,17 +1066,16 @@ describe("runWorkflow", () => {
 
       expect(result.status).toBe("ok");
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      expect(run?.summary).toBe("default-prompt summary");
-
-      // The default prompt carries the feed instructions and the inlined
-      // plain-text digest (not the JSON envelope).
-      expect(prompts[0]).toContain("activity feed");
-      expect(prompts[0]).toContain("Workflow: zero-config-sum");
-      expect(prompts[0]).toContain("payload");
-
-      // The snapshot keeps the authored definition, not the substituted prompt.
-      expect(run?.definitionSnapshot).toMatchObject({
-        summarize: { llm: { model: "anthropic:m" } },
+      expect(run?.summary).toBeNull();
+      const summariser = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .all()
+        .find((row) => row.isSummary);
+      expect(summariser?.status).toBe("failed");
+      expect(summariser?.error).toMatchObject({
+        message: expect.stringContaining("neither prompt nor prompt_file"),
       });
     });
   });
@@ -1851,7 +1814,9 @@ echo '{"title":"Follow up","workflow":"other"}' > "$KIRI_RECOMMENDATIONS_FILE"
       const result = await runWorkflow(db, wf, { config }).done;
 
       const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
-      expect(step?.output).toBe(`PATH=${process.env.PATH ?? ""}\n`);
+      expect(step?.output).toBe(
+        `PATH=${join(config.runDir(result.runId), ".bin")}:${process.env.PATH ?? ""}\n`,
+      );
     });
 
     it("resolves env refs on a summarize: entry", async () => {
@@ -2226,6 +2191,167 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
     });
   });
 
+  describe("named outputs", () => {
+    const emitLine = (name: string, value: string) =>
+      `printf '%s\\n' '${JSON.stringify({ name, value })}' >> "$KIRI_OUTPUTS_FILE"`;
+
+    it("puts an executable kiri-output shim on every step's PATH for the run's duration", async () => {
+      const wf = makeWorkflow("shimmed", [{ sh: "command -v kiri-output" }]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+      expect(step?.output).toBe(`${join(config.runDir(result.runId), ".bin", "kiri-output")}\n`);
+      // The shim lives in the scratch dir, so run teardown removed it.
+      expect(existsSync(config.runDir(result.runId))).toBe(false);
+    });
+
+    it("sets KIRI_OUTPUTS_FILE only on steps that declare outputs:", async () => {
+      const wf = makeWorkflow("channel-gating", [
+        {
+          sh: `echo "declared=\${KIRI_OUTPUTS_FILE:-unset}"; ${emitLine("seen", "yes")}`,
+          id: "a",
+          outputs: ["seen"],
+        },
+        { sh: 'echo "undeclared=${KIRI_OUTPUTS_FILE:-unset}"' },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(rows[0]?.output).toContain("declared=");
+      expect(rows[0]?.output).not.toContain("unset");
+      expect(rows[1]?.output).toBe("undeclared=unset\n");
+    });
+
+    it("persists emitted outputs on the step row and leaves undeclaring steps null", async () => {
+      const wf = makeWorkflow("emit", [
+        {
+          sh: `${emitLine("url", "https://example.com")}; ${emitLine("count", "3")}; echo done`,
+          id: "fetch",
+          outputs: ["url", "count"],
+        },
+        { sh: "echo plain" },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(rows[0]?.status).toBe("ok");
+      expect(rows[0]?.outputs).toEqual({ url: "https://example.com", count: "3" });
+      expect(rows[1]?.outputs).toBeNull();
+    });
+
+    it("ingests outputs a use: bundle appends to the channel file", async () => {
+      // Appends to $KIRI_OUTPUTS_FILE directly — the raw channel the
+      // kiri-output shim itself writes through; the shim's exec into the
+      // real CLI is covered end to end in shims.test.ts.
+      writeBundle(
+        "emitter",
+        `#!/bin/sh
+set -eu
+${emitLine("report", "all green")}
+echo emitted
+`,
+      );
+      const wf = makeWorkflow("bundle-emit", [{ use: "emitter", id: "scan", outputs: ["report"] }]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+      expect(step?.outputs).toEqual({ report: "all green" });
+    });
+
+    it("fails the step and the run when a declared output is not emitted", async () => {
+      const wf = makeWorkflow("missing-output", [
+        { sh: `${emitLine("url", "x")}; echo ok-exit`, id: "fetch", outputs: ["url", "count"] },
+        { sh: "echo never-runs" },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("failed");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      // Fail-fast: the later step is never created.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.status).toBe("failed");
+      expect(rows[0]?.outputs).toBeNull();
+      expect(rows[0]?.error).toMatchObject({
+        message: expect.stringContaining("did not emit: count"),
+      });
+
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.error).toMatchObject({
+        message: expect.stringContaining("did not emit: count"),
+      });
+    });
+
+    it("discards a failed step's recommendations when the failure is the outputs contract", async () => {
+      const wf = makeWorkflow("no-recs-on-contract-failure", [
+        {
+          sh: `echo '{"title":"T","workflow":"w"}' >> "$KIRI_RECOMMENDATIONS_FILE"; exit 0`,
+          id: "fetch",
+          outputs: ["never_emitted"],
+        },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("failed");
+      const recs = db
+        .select()
+        .from(recommendations)
+        .where(eq(recommendations.runId, result.runId))
+        .all();
+      expect(recs).toHaveLength(0);
+    });
+
+    it("skips undeclared emissions with a warning and keeps the declared ones", async () => {
+      const warnings: string[] = [];
+      const original = console.warn;
+      console.warn = (msg: unknown) => {
+        warnings.push(String(msg));
+      };
+      try {
+        const wf = makeWorkflow("undeclared", [
+          {
+            sh: `${emitLine("url", "kept")}; ${emitLine("stray", "dropped")}; echo done`,
+            id: "fetch",
+            outputs: ["url"],
+          },
+        ]);
+
+        const result = await runWorkflow(db, wf, { config }).done;
+
+        expect(result.status).toBe("ok");
+        const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+        expect(step?.outputs).toEqual({ url: "kept" });
+        expect(warnings.some((w) => w.includes('undeclared output "stray"'))).toBe(true);
+      } finally {
+        console.warn = original;
+      }
+    });
+  });
+
   describe("step output refs", () => {
     it("resolves { step: <id> } on a non-adjacent later step, stdout byte-for-byte", async () => {
       writeBundle("producer", "#!/bin/sh\necho data-123\n");
@@ -2248,9 +2374,8 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all();
-      // Step 2's stdin carried step 1's output; the ref reaches past it to
-      // step 0's stdout, delivered exactly as written — echo's trailing
-      // newline included.
+      // The ref reaches past the intervening step to step 0's stdout,
+      // delivered exactly as written — echo's trailing newline included.
       expect(rows[2].output).toBe("[data-123\n]");
     });
 
@@ -2326,6 +2451,88 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
       expect(prompts[0]).toBe("from=material\n");
     });
 
+    it("resolves { step, output } refs to a producer's named outputs", async () => {
+      const wf = makeWorkflow("named-ref", [
+        {
+          sh: `printf '%s\\n' '{"name":"url","value":"https://example.com"}' >> "$KIRI_OUTPUTS_FILE"; printf '%s\\n' '{"name":"count","value":"3"}' >> "$KIRI_OUTPUTS_FILE"; echo raw-stdout`,
+          id: "fetch",
+          outputs: ["url", "count"],
+        },
+        { sh: "echo between" },
+        {
+          sh: 'printf "url=%s count=%s whole=[%s]" "$URL" "$COUNT" "$WHOLE"',
+          env: {
+            URL: { step: "fetch", output: "url" },
+            COUNT: { step: "fetch", output: "count" },
+            // Whole-stdout and named-output refs to the same step coexist.
+            WHOLE: { step: "fetch" },
+          },
+        },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(rows[2]?.output).toBe("url=https://example.com count=3 whole=[raw-stdout\n]");
+    });
+
+    it("resolves { step, output } refs on articles and summarize", async () => {
+      writeBundle("writer", '#!/bin/sh\nprintf "# Report\\n\\ncount=%s" "$COUNT"\n');
+      writeBundle("summer", '#!/bin/sh\nprintf "summary url=%s" "$URL"\n');
+      const wf: WorkflowDefinition = {
+        name: "named-ref-phases",
+        steps: [
+          {
+            sh: `printf '%s\\n' '{"name":"url","value":"u1"}' >> "$KIRI_OUTPUTS_FILE"; printf '%s\\n' '{"name":"count","value":"7"}' >> "$KIRI_OUTPUTS_FILE"`,
+            id: "fetch",
+            outputs: ["url", "count"],
+          },
+        ],
+        articles: [
+          { slug: "report", use: "writer", env: { COUNT: { step: "fetch", output: "count" } } },
+        ],
+        summarize: { use: "summer", env: { URL: { step: "fetch", output: "url" } } },
+      };
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const article = db.select().from(articles).where(eq(articles.runId, result.runId)).get();
+      expect(article?.contentMd).toBe("# Report\n\ncount=7");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("summary url=u1");
+    });
+
+    it("fails the run when a { step, output } ref misses the named-output map", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      // The schema requires refs to point at declared outputs; tests
+      // construct definitions directly, so this exercises the runner's
+      // invariant guard for a producer that never landed a named map.
+      const wf: WorkflowDefinition = {
+        name: "ghost-output-ref",
+        steps: [
+          { sh: "echo plain", id: "fetch" },
+          { use: "hello", env: { URL: { step: "fetch", output: "url" } } },
+        ],
+      };
+
+      const { runId, done } = runWorkflow(db, wf, { config });
+      const thrown = await done.catch((e: unknown) => e);
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toMatch(
+        /env "URL" references output "url" on step "fetch", which was not emitted on this run/,
+      );
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("failed");
+    });
+
     it("fails the run when a { step } ref misses the output map", async () => {
       writeBundle("hello", "#!/bin/sh\necho hi\n");
       // The schema rejects unknown ids at load; tests construct definitions
@@ -2368,36 +2575,15 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
   });
 
   describe("summary context", () => {
-    it("injects the run digest into sh/use summarizers as $KIRI_SUMMARY_CONTEXT", async () => {
-      writeBundle("step", "#!/bin/sh\necho payload\n");
-      writeBundle("pub", "#!/bin/sh\necho article-body\n");
-      const wf: WorkflowDefinition = {
-        name: "digest-sum",
-        steps: [{ use: "step", id: "fetch", name: "Fetch data" }],
-        articles: [{ slug: "digest", use: "pub" }],
-        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
-      };
-
-      const result = await runWorkflow(db, wf, { config }).done;
-
-      expect(result.status).toBe("ok");
-      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      // The summariser echoed the digest back: header, labelled step
-      // section with its stdout, and the produced article.
-      expect(run?.summary).toContain("Workflow: digest-sum");
-      expect(run?.summary).toContain("## Step 0 — Fetch data");
-      expect(run?.summary).toContain("payload");
-      expect(run?.summary).toContain("## Article: Digest (digest)");
-      expect(run?.summary).toContain("article-body");
-    });
-
-    it("does not offer KIRI_SUMMARY_CONTEXT to main steps or articles", async () => {
+    it("never injects the retired KIRI_SUMMARY_CONTEXT — any phase sees it unset", async () => {
       writeBundle("step", '#!/bin/sh\nprintf "step=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
       writeBundle("pub", '#!/bin/sh\nprintf "pub=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
+      writeBundle("summer", '#!/bin/sh\nprintf "sum=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
       const wf: WorkflowDefinition = {
-        name: "digest-scope",
+        name: "digest-retired",
         steps: [{ use: "step" }],
         articles: [{ slug: "probe", use: "pub" }],
+        summarize: { use: "summer" },
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
@@ -2411,6 +2597,8 @@ echo '{"title":"C","workflow":"w"}' > "$KIRI_RECOMMENDATIONS_FILE"
         .all();
       expect(rows[0].output).toBe("step=unset");
       expect(rows[1].output).toBe("pub=unset");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("sum=unset");
     });
   });
 });

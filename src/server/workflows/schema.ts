@@ -9,10 +9,10 @@ const envValueSchema = z.union([
       "Reference to a workflow input by name. Resolved to the input's string value at spawn time.",
     ),
   z
-    .object({ step: z.string().min(1) })
+    .object({ step: z.string().min(1), output: z.string().min(1).optional() })
     .strict()
     .describe(
-      "Reference to an earlier step's stdout by that step's `id`. Resolved at spawn time to the step's stdout, byte-for-byte — never trimmed or truncated.",
+      "Reference to an earlier step by its `id`. Without `output`, resolves at spawn time to the step's stdout, byte-for-byte — never trimmed or truncated. With `output`, resolves to the value the step emitted for that declared output name via `kiri-output`.",
     ),
   z
     .object({ article: z.string().min(1) })
@@ -50,6 +50,27 @@ export const stepIdSchema = z
     "Identifier later steps use to reference this step's stdout via `{ step: <id> }`. Lowercase letters, digits, hyphens, and underscores; must start with a letter. Unique within the workflow.",
   );
 
+/**
+ * The `outputs:` declaration on a main `sh:`/`use:` step — the named
+ * values the step promises to emit via `kiri-output <name> <value>`.
+ * Name grammar matches the step-id grammar; a step that exits ok without
+ * emitting every declared name fails. `llm:` steps can't write files, so
+ * they never declare outputs.
+ */
+const outputsSchema = z
+  .array(
+    z.string().regex(/^[a-z][a-z0-9_-]*$/, {
+      message: "output name must match ^[a-z][a-z0-9_-]*$",
+    }),
+  )
+  .min(1)
+  .refine((names) => new Set(names).size === names.length, {
+    message: "output names must be unique within a step",
+  })
+  .describe(
+    "Named values this step emits via `kiri-output <name> <value>`. Later phases reference one with `{ step: <id>, output: <name> }`. A step that exits ok without emitting every declared name fails.",
+  );
+
 const useStepSchema = z
   .object({
     use: z.string().min(1),
@@ -57,6 +78,7 @@ const useStepSchema = z
     name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
+    outputs: outputsSchema.optional(),
   })
   .strict();
 
@@ -67,15 +89,15 @@ const shStepSchema = z
     name: stepNameSchema.optional(),
     description: z.string().min(1).optional(),
     env: envSchema.optional(),
+    outputs: outputsSchema.optional(),
   })
   .strict();
 
 /**
  * The `llm:` block of a first-party LLM step. Both prompt fields are
- * structurally optional because the rules are positional: `steps:` and
- * `articles:` require exactly one of `prompt` / `prompt_file`, while
- * `summarize:` allows neither (it falls back to a default summary prompt).
- * The cross-field checks live in `workflowSchema.superRefine`.
+ * structurally optional so the exactly-one-of-`prompt`/`prompt_file` rule
+ * can be cross-validated with a precise message in
+ * `workflowSchema.superRefine`.
  */
 const llmConfigSchema = z
   .object({
@@ -328,6 +350,28 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
     });
   }
 
+  // Outputs exist to be referenced via `{ step: <id>, output: <name> }`,
+  // so a declaring step must be addressable: outputs without an id are
+  // unreferenceable, and summarize (which can't be referenced at all)
+  // can't declare them — same posture as the summarize-id rejection.
+  wf.steps.forEach((step, i) => {
+    if ("outputs" in step && step.outputs !== undefined && step.id === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["steps", i, "outputs"],
+        message:
+          "a step declaring outputs must also declare an id — outputs are referenced as { step: <id>, output: <name> }",
+      });
+    }
+  });
+  if (wf.summarize && "outputs" in wf.summarize && wf.summarize.outputs !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["summarize", "outputs"],
+      message: "summarize cannot declare outputs — nothing runs after it to reference them",
+    });
+  }
+
   const articleSlugIndex = new Map<string, number>();
   wf.articles?.forEach((entry, i) => {
     if (!articleSlugIndex.has(entry.slug)) articleSlugIndex.set(entry.slug, i);
@@ -371,6 +415,19 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
             path: [...path, "env", key, "step"],
             message: `env "${key}" references step "${value.step}", which does not run before this step — refs are backward-only`,
           });
+        } else if (value.output !== undefined) {
+          // The declaration is the contract that makes run-time resolution
+          // total: only declared names are referenceable, and the runner
+          // fails a declaring step that skips one.
+          const targetStep = wf.steps[target];
+          const declared = targetStep && "outputs" in targetStep ? (targetStep.outputs ?? []) : [];
+          if (!declared.includes(value.output)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [...path, "env", key, "output"],
+              message: `env "${key}" references output "${value.output}" on step "${value.step}", which does not declare it in outputs:`,
+            });
+          }
         }
         continue;
       }
@@ -414,13 +471,11 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
     });
   }
 
-  // Prompt rules are positional: `steps:` and `articles:` require exactly one
-  // of `prompt` / `prompt_file`; `summarize:` allows neither (it falls back
-  // to a default summary prompt). Declaring both is invalid everywhere.
+  // Every llm entry — steps, articles, and summarize alike — declares
+  // exactly one of `prompt` / `prompt_file`.
   const checkLlmPrompt = (
     entry: z.infer<typeof stepSchema> | z.infer<typeof articleEntrySchema>,
     path: Array<string | number>,
-    promptRequired: boolean,
   ): void => {
     if (!("llm" in entry)) return;
     const { prompt, prompt_file } = entry.llm;
@@ -430,7 +485,7 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
         path: [...path, "llm"],
         message: "llm declares both prompt and prompt_file — set exactly one",
       });
-    } else if (prompt === undefined && prompt_file === undefined && promptRequired) {
+    } else if (prompt === undefined && prompt_file === undefined) {
       ctx.addIssue({
         code: "custom",
         path: [...path, "llm"],
@@ -438,9 +493,9 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
       });
     }
   };
-  wf.steps.forEach((step, i) => checkLlmPrompt(step, ["steps", i], true));
-  if (wf.summarize) checkLlmPrompt(wf.summarize, ["summarize"], false);
-  wf.articles?.forEach((entry, i) => checkLlmPrompt(entry, ["articles", i], true));
+  wf.steps.forEach((step, i) => checkLlmPrompt(step, ["steps", i]));
+  if (wf.summarize) checkLlmPrompt(wf.summarize, ["summarize"]);
+  wf.articles?.forEach((entry, i) => checkLlmPrompt(entry, ["articles", i]));
 });
 
 export type WorkflowDefinition = z.infer<typeof workflowSchema>;

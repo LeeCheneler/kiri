@@ -485,6 +485,7 @@ steps:
 summarize:
   llm:
     model: ghost:summariser
+    prompt: One sentence.
 `,
     );
     writeFileSync(

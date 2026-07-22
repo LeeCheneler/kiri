@@ -99,8 +99,12 @@ steps:                       # required, at least one
       prompt: |
         Review this pull request:
 
-        {{KIRI_INPUT}}
+        {{PR}}
     name: Review
+    id: review
+    env:
+      PR:
+        step: fetch          # refs render into the prompt under the name you give them
 
 articles:                    # optional — saved markdown documents, run after all steps pass
   - slug: review             # ^[a-z0-9-]+$, unique within the workflow
@@ -110,11 +114,15 @@ articles:                    # optional — saved markdown documents, run after 
       prompt: "Format this review as a markdown document with a # headline: {{REVIEW}}"
     env:
       REVIEW:
-        step: fetch          # articles get EMPTY stdin — data arrives via refs
+        step: review         # articles get EMPTY stdin — data arrives via refs
 
 summarize:                   # optional — one-shot feed summary, best-effort
   llm:
-    model: anthropic:claude-haiku-4-5   # no prompt = built-in summary prompt
+    model: anthropic:claude-haiku-4-5
+    prompt: "One feed sentence on this review: {{REVIEW}}"
+  env:
+    REVIEW:
+      step: review
 \`\`\`
 
 ## Steps
@@ -143,17 +151,24 @@ Any step may also set:
   name, the script's first line, or the model id). Always set it on
   multi-line \`sh:\` steps so the UI shows a label, not code.
 - \`description\` — longer detail, shown when the step row is expanded.
+- \`outputs\` — \`sh:\`/\`use:\` steps only; requires an \`id\`. Named values
+  the step promises to emit via \`kiri-output <name> <value>\` (on PATH).
+  A step exiting ok without emitting every declared name **fails**, so
+  refs to outputs always resolve.
 
 ## Data flow
 
-- \`steps[0]\` gets empty stdin; every later step gets the previous step's
-  **full stdout** on stdin. Adjacent data can just flow down the pipe.
-- Non-adjacent data uses refs: give the producing step an \`id\`, and pull its
-  stdout anywhere later with a \`{ step: <id> }\` env ref — byte-for-byte,
-  never truncated.
-- \`articles:\` entries and \`summarize:\` get **empty stdin**. They receive
-  exactly the data they declare through env refs — an articles entry
-  expecting piped input is the most common authoring mistake.
+- **Every phase gets empty stdin.** Data moves between phases only through
+  env refs: give the producing step an \`id\`, and pull its stdout anywhere
+  later with a \`{ step: <id> }\` env ref — byte-for-byte, never truncated.
+- A step computing **several values** should declare \`outputs:\` and emit
+  each with \`kiri-output\`; consumers pull one value with
+  \`{ step: <id>, output: <name> }\` instead of re-parsing stdout. Prefer
+  this over ad-hoc JSON-on-stdout when more than one downstream value is
+  needed.
+- \`articles:\` and \`summarize:\` follow the same rule: they receive exactly
+  the data they declare through env refs — a phase expecting piped stdin is
+  the most common authoring mistake, nothing arrives that way.
 - Runs are **fail-fast**: a failing step halts the pipeline, skips articles
   and summarize, and marks the run failed. A failing article entry does the
   same for what remains. Only a failing summariser is non-fatal.
@@ -165,12 +180,14 @@ except \`PATH\`, \`HOME\`, \`USER\`, \`LOGNAME\` — so CLIs that carry their ow
 auth (\`gh\`, \`claude\`) work, but a parent-shell \`MY_TOKEN\` does not exist
 unless the step declares it.
 
-- \`env:\` is a flat map. Every value is a **string literal** or one of three
-  refs: \`{ input: <name> }\`, \`{ step: <id> }\`, \`{ article: <slug> }\`.
+- \`env:\` is a flat map. Every value is a **string literal** or a ref:
+  \`{ input: <name> }\`, \`{ step: <id> }\`, \`{ step: <id>, output: <name> }\`,
+  \`{ article: <slug> }\`.
 - **Strings only.** Quote numbers and booleans: \`MAX_TURNS: "50"\`.
 - **Keys starting with \`KIRI_\` are rejected** — reserved namespace.
 - The ref graph is validated when the file loads: unknown names, unknown ids,
-  self- and forward-references are all errors. Refs are **backward-only**.
+  refs to undeclared output names, self- and forward-references are all
+  errors. Refs are **backward-only**.
 - \`{ article: <slug> }\` is only valid on \`articles:\` entries (earlier
   siblings only) and \`summarize:\` — never on a main step.
 - **Secrets never go in the YAML as literals** (workflow files live in git).
@@ -182,9 +199,10 @@ unless the step declares it.
   command string.
 
 Kiri injects \`KIRI_RUN_ID\`, \`KIRI_STEP_INDEX\`, and \`KIRI_REPO_ROOT\` into
-every step; \`KIRI_BUNDLE_DIR\` into \`use:\` steps; \`KIRI_SUMMARY_CONTEXT\`
-into \`summarize:\` only; and \`KIRI_RECOMMENDATIONS_FILE\` into main \`sh:\` /
-\`use:\` steps only.
+every step; \`KIRI_BUNDLE_DIR\` into \`use:\` steps;
+\`KIRI_RECOMMENDATIONS_FILE\` into main \`sh:\` / \`use:\` steps only; and
+\`KIRI_OUTPUTS_FILE\` only into steps declaring \`outputs:\` (write through
+\`kiri-output\`, not the file directly).
 
 ## llm: steps
 
@@ -196,15 +214,16 @@ into \`summarize:\` only; and \`KIRI_RECOMMENDATIONS_FILE\` into main \`sh:\` /
   authoring the \`llm:\` step. An unknown provider is rejected by validation
   (the rejection names the configured providers); an invented model id would
   only fail later, at run time.
-- Exactly **one** of \`prompt\` / \`prompt_file\` on steps and articles.
-  \`prompt_file\` must already exist in the workspace — you cannot create
-  prompt files from a session, so default to an inline \`prompt:\` block.
+- Exactly **one** of \`prompt\` / \`prompt_file\` on every llm entry — steps,
+  articles, and summarize alike. \`prompt_file\` must already exist in the
+  workspace — you cannot create prompt files from a session, so default to
+  an inline \`prompt:\` block.
 - Prompts are templates: \`{{VAR}}\` placeholders substitute from the step's
   env in one pass (unknown vars become empty; values are not re-scanned).
-  \`{{KIRI_INPUT}}\` is the previous step's stdout (pipeline steps only —
-  it is empty in articles, which must use refs: declare \`DATA: { step: x }\`
-  and template \`{{DATA}}\`).
-- An \`llm:\` step cannot emit recommendations — no file channels.
+  Upstream data arrives only through refs: declare \`DATA: { step: x }\` and
+  template \`{{DATA}}\`.
+- An \`llm:\` step cannot emit recommendations or declare \`outputs:\` — no
+  file channels; its single product is the completion text.
 
 ## articles: — saved markdown documents
 
@@ -225,23 +244,28 @@ into \`summarize:\` only; and \`KIRI_RECOMMENDATIONS_FILE\` into main \`sh:\` /
 
 - One \`sh:\` / \`use:\` / \`llm:\` step, run last, only on a fully-ok run. Its
   trimmed stdout becomes the run's summary on the activity feed. Failure
-  here never fails the run. It cannot declare an \`id\`.
-- Every summariser receives \`KIRI_SUMMARY_CONTEXT\`: a prompt-ready digest of
-  the whole run (step outputs and article bodies, each capped at 64 KB). A
-  shell summariser reads \`$KIRI_SUMMARY_CONTEXT\`; an llm prompt templates
-  \`{{KIRI_SUMMARY_CONTEXT}}\`. The digest is the lossy gist plane — when a
-  summariser needs full-fidelity output, take it through a ref instead.
-- \`summarize: { llm: { model } }\` with no prompt is the zero-config default
-  and is right for most workflows.
+  here never fails the run. It cannot declare an \`id\` or \`outputs\`.
+- Like every phase, it declares its data with refs — usually a named output
+  or an article: \`COUNT: { step: scan, output: count }\` into a one-line
+  \`sh:\` echo, or \`REVIEW: { article: review }\` templated into a short llm
+  prompt. Keep the ref narrow: pass the value or document the summary is
+  about, not every upstream blob.
 
 ## Recommendations (advanced)
 
 A main \`sh:\` / \`use:\` step that *enumerates* actionable things (open PRs,
-failing checks) can propose one-click follow-ups: append JSON Lines to
-\`$KIRI_RECOMMENDATIONS_FILE\`, one \`{ "title", "workflow", "description"?,
-"inputs"? }\` object per line, where \`workflow\` names another workflow and
-\`inputs\` matches its declared inputs. Put the distinguishing detail (repo,
-number) in \`title\` so entries stay scannable in a mixed feed.
+failing checks) can propose one-click follow-ups. Emit each with the
+\`kiri-recommend\` command (on PATH inside every main step):
+
+\`\`\`sh
+kiri-recommend --workflow "PR Review" --title "Review owner/repo #42" \\
+  --description "fix the thing (by @lee)" --input pr_number=42 --input repo=owner/repo
+\`\`\`
+
+\`--workflow\` names another workflow; \`--input\` keys match its declared
+inputs. A malformed call exits non-zero, failing a \`set -eu\` step at that
+line. Put the distinguishing detail (repo, number) in \`--title\` so entries
+stay scannable in a mixed feed.
 
 ## Working method
 

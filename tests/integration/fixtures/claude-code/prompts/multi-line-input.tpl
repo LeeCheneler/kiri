@@ -1,2 +1,0 @@
-Names:
-{{KIRI_INPUT}}

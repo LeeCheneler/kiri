@@ -39,6 +39,7 @@ import migration0023 from "../../../drizzle/0023_add_session_lineage.sql" with {
 import migration0024 from "../../../drizzle/0024_exclude_child_sessions_from_search.sql" with {
   type: "text",
 };
+import migration0025 from "../../../drizzle/0025_add_run_step_outputs.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -93,6 +94,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0022_add_search_index", sql: migration0022 },
   { name: "0023_add_session_lineage", sql: migration0023 },
   { name: "0024_exclude_child_sessions_from_search", sql: migration0024 },
+  { name: "0025_add_run_step_outputs", sql: migration0025 },
 ];
 
 /**

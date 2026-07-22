@@ -1,1 +1,0 @@
-Hello, {{KIRI_INPUT}}.

@@ -21,6 +21,8 @@ import { type CreateMcpClient, connectMcpServer } from "../src/server/mcp/connec
 import { createMcpCredentialStore } from "../src/server/mcp/oauth-store.ts";
 import { createMcpRegistry } from "../src/server/mcp/registry.ts";
 import { createCancelRegistry } from "../src/server/runner/cancel-registry.ts";
+import { runOutputCommand } from "../src/server/runner/outputs.ts";
+import { runRecommendCommand } from "../src/server/runner/recommendations.ts";
 import { watchPersonas } from "../src/server/sessions/index.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
 
@@ -86,6 +88,20 @@ if (args[0] === "--help" || args[0] === "-h") {
 if (args[0] === "--version" || args[0] === "-v") {
   console.log(VERSION);
   process.exit(0);
+}
+
+// Hidden plumbing behind the per-run PATH shims (`kiri-output`,
+// `kiri-recommend`) — each appends one line to its step-scoped channel
+// file. Not part of the public CLI surface, so they stay out of HELP.
+if (args[0] === "__output") {
+  const result = runOutputCommand(args.slice(1), process.env);
+  if (result.error) console.error(result.error);
+  process.exit(result.exitCode);
+}
+if (args[0] === "__recommend") {
+  const result = runRecommendCommand(args.slice(1), process.env);
+  if (result.error) console.error(result.error);
+  process.exit(result.exitCode);
 }
 
 if (args[0] === "init") {

@@ -176,6 +176,13 @@
       "when": 1784293100319,
       "tag": "0024_exclude_child_sessions_from_search",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1784751539316,
+      "tag": "0025_add_run_step_outputs",
+      "breakpoints": true
     }
   ]
 }

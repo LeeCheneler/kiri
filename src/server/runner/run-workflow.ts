@@ -7,13 +7,7 @@ import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { resolveGitHead } from "../git/head.ts";
-import {
-  DEFAULT_SUMMARY_PROMPT,
-  type LlmClients,
-  type SummaryContextArticle,
-  type SummaryContextStep,
-  buildSummaryContext,
-} from "../llm/index.ts";
+import type { LlmClients } from "../llm/index.ts";
 import {
   type ArticleEntry,
   type LlmConfig,
@@ -25,8 +19,10 @@ import {
   isUseStep,
 } from "../workflows/index.ts";
 import type { CancelRegistry } from "./cancel-registry.ts";
+import { ingestStepOutputs } from "./outputs.ts";
 import { ingestStepRecommendations } from "./recommendations.ts";
 import { type StepEnvelope, runStep } from "./run-step.ts";
+import { writeRunShims } from "./shims.ts";
 
 export interface RunWorkflowArgs {
   /** Workspace config. Bundles resolve via `config.bundleDir()`; the scratch dir lives at `config.runDir(runId)`. */
@@ -106,15 +102,6 @@ const articleAsStep = (entry: ArticleEntry): WorkflowStep => {
   return { sh: entry.sh, env: entry.env };
 };
 
-// The schema lets a summarize llm step omit both prompt fields so
-// `summarize: { llm: { model } }` works zero-config; the baked-in prompt
-// reads the injected {{KIRI_SUMMARY_CONTEXT}} digest. The substitution
-// stays out of the definition snapshot — that records what was authored.
-const withDefaultSummaryPrompt = (step: WorkflowStep): WorkflowStep =>
-  isLlmStep(step) && step.llm.prompt === undefined && step.llm.prompt_file === undefined
-    ? { ...step, llm: { ...step.llm, prompt: DEFAULT_SUMMARY_PROMPT } }
-    : step;
-
 /** The step's kind tag plus identifying config, for `run_steps.kind`. */
 const stepIdentOf = (step: WorkflowStep): StepIdent => {
   if (isUseStep(step)) return { kind: "use", use: step.use };
@@ -131,8 +118,16 @@ const stepIdentOf = (step: WorkflowStep): StepIdent => {
  */
 interface RefContext {
   stepOutputs: ReadonlyMap<string, string>;
+  /** Per-step named-output maps keyed by step id, for `{ step: <id>, output: <name> }` refs. */
+  stepNamedOutputs: ReadonlyMap<string, Record<string, string>>;
   articles: ReadonlyMap<string, string>;
 }
+
+// The run's helper shims (`kiri-output`) live inside the scratch dir and
+// are PATH-prepended to every step, so they exist exactly as long as the
+// run does.
+const runBinDir = (config: ConfigStore, runId: string): string =>
+  join(config.runDir(runId), ".bin");
 
 const buildEnv = (
   step: WorkflowStep,
@@ -166,6 +161,16 @@ const buildEnv = (
       continue;
     }
     if ("step" in value) {
+      if (value.output !== undefined) {
+        const named = refs.stepNamedOutputs.get(value.step)?.[value.output];
+        if (named === undefined) {
+          throw new Error(
+            `env "${key}" references output "${value.output}" on step "${value.step}", which was not emitted on this run`,
+          );
+        }
+        env[key] = named;
+        continue;
+      }
       const output = refs.stepOutputs.get(value.step);
       if (output === undefined) {
         throw new Error(
@@ -183,7 +188,7 @@ const buildEnv = (
     }
     env[key] = content;
   }
-  env.PATH = process.env.PATH ?? "";
+  env.PATH = `${runBinDir(config, runId)}:${process.env.PATH ?? ""}`;
   env.HOME = process.env.HOME ?? "";
   // USER/LOGNAME are POSIX user-identity vars; tools that authenticate as
   // the user (macOS Keychain lookups, ssh-agent, gpg) rely on them to
@@ -296,9 +301,12 @@ export function runWorkflow(
   args.bus?.publish({ type: "run.started", id: runId });
 
   // Populated as the run progresses: an ok step that declared an `id` lands
-  // its stdout here, and each stored article lands under its slug. Read by
-  // buildEnv when resolving `{ step: <id> }` / `{ article: <slug> }` refs.
+  // its stdout (and, when it declared `outputs:`, its named-output map)
+  // here, and each stored article lands under its slug. Read by buildEnv
+  // when resolving `{ step: <id> }` / `{ step, output }` /
+  // `{ article: <slug> }` refs.
   const stepOutputsById = new Map<string, string>();
+  const stepNamedOutputsById = new Map<string, Record<string, string>>();
   const articlesBySlug = new Map<string, string>();
 
   // Insert → publish "running" → spawn → translate envelope → update →
@@ -309,13 +317,16 @@ export function runWorkflow(
     step: WorkflowStep;
     index: number;
     flag?: "article" | "summary";
-    input: string;
     envExtras?: Record<string, string>;
+    /** The step's named-outputs channel, present only when it declares `outputs:`. An ok envelope missing a declared name flips the step to failed. */
+    outputsChannel?: { file: string; declared: readonly string[] };
   }): Promise<{
     envelope: StepEnvelope;
     cancelled: boolean;
     stepStatus: "ok" | "failed" | "cancelled";
     stepError: { message: string; stack?: string } | null;
+    /** The ingested named-output map when the step declared `outputs:` and settled ok; null otherwise. */
+    outputs: Record<string, string> | null;
   }> => {
     const stepId = crypto.randomUUID();
     db.insert(runSteps)
@@ -335,6 +346,7 @@ export function runWorkflow(
 
     const env = buildEnv(opts.step, runId, opts.index, args.config, resolvedInputs, {
       stepOutputs: stepOutputsById,
+      stepNamedOutputs: stepNamedOutputsById,
       articles: articlesBySlug,
     });
     if (opts.envExtras) Object.assign(env, opts.envExtras);
@@ -343,28 +355,57 @@ export function runWorkflow(
       step: opts.step,
       config: args.config,
       scratchDir,
-      input: opts.input,
       env,
       llmClients: args.llmClients,
       onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
     });
 
+    // An ok envelope only settles as ok once the outputs contract holds:
+    // every declared name must have been emitted. A miss fails the step —
+    // the producer broke its promise, and failing here (rather than at a
+    // consumer's ref) blames the right party.
+    let outputs: Record<string, string> | null = null;
+    let outputsError: { message: string } | null = null;
+    if (opts.outputsChannel && envelope.status === "ok") {
+      const ingested = ingestStepOutputs(
+        runId,
+        opts.outputsChannel.file,
+        opts.outputsChannel.declared,
+      );
+      if (ingested.missing.length > 0) {
+        outputsError = {
+          message: `step declared outputs it did not emit: ${ingested.missing.join(", ")} — emit each with \`kiri-output <name> <value>\``,
+        };
+      } else {
+        outputs = ingested.outputs;
+      }
+    }
+
     // A `failed` envelope produced after cancel was requested is the child
     // reacting to our SIGTERM/SIGKILL — surface it as `cancelled` on the
     // step row so the UI distinguishes "we stopped this" from "the script
     // broke". An `ok` envelope is left as-is even if cancel was requested
-    // mid-execution: the step actually finished.
+    // mid-execution: the step actually finished — which is also why an
+    // outputs-contract failure stays `failed` under cancel: the child
+    // wasn't interrupted, it completed without emitting what it declared.
     const cancelled = args.cancelRegistry?.isCancelled(runId) ?? false;
     const stepStatus: "ok" | "failed" | "cancelled" =
-      cancelled && envelope.status === "failed" ? "cancelled" : envelope.status;
+      cancelled && envelope.status === "failed"
+        ? "cancelled"
+        : outputsError !== null
+          ? "failed"
+          : envelope.status;
     const stepError =
-      cancelled && envelope.status === "failed" ? CANCELLED_ERROR : (envelope.error ?? null);
+      cancelled && envelope.status === "failed"
+        ? CANCELLED_ERROR
+        : (envelope.error ?? outputsError ?? null);
 
     db.update(runSteps)
       .set({
         status: stepStatus,
         finishedAt: new Date(),
         output: envelope.output,
+        outputs,
         error: stepError,
         traces: envelope.traces,
       })
@@ -373,7 +414,7 @@ export function runWorkflow(
 
     args.bus?.publish({ type: "run.step.updated", runId, step: opts.index, status: stepStatus });
 
-    return { envelope, cancelled, stepStatus, stepError };
+    return { envelope, cancelled, stepStatus, stepError, outputs };
   };
 
   const done = (async (): Promise<RunWorkflowResult> => {
@@ -381,14 +422,10 @@ export function runWorkflow(
     let runError: { message: string; stack?: string } | undefined;
     let caughtThrow: unknown;
     let summaryText: string | null = null;
-    // Accumulated step outcomes and articles, rendered into the digest
-    // handed to the summarize phase without a DB round-trip.
-    const executed: SummaryContextStep[] = [];
-    const producedArticles: SummaryContextArticle[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
-      let input = "";
+      writeRunShims(runBinDir(args.config, runId));
       // Cross-step counter so the order steps emitted in is preserved
       // by `recommendations.index` regardless of how many lines each
       // step contributed.
@@ -398,15 +435,23 @@ export function runWorkflow(
 
         const step = definition.steps[i];
         const recommendationsFile = join(scratchDir, `recommendations-${i}.jsonl`);
-        const { envelope, cancelled, stepStatus } = await executePhase({
+        const outputsFile = join(scratchDir, `outputs-${i}.jsonl`);
+        // A completion can't write files, so llm steps get neither file
+        // channel; the outputs channel additionally requires the step to
+        // declare `outputs:` — kiri-output fails loudly without it.
+        const declaredOutputs = isLlmStep(step) ? undefined : step.outputs;
+        const { envelope, cancelled, stepStatus, stepError, outputs } = await executePhase({
           step,
           index: i,
-          input,
-          // A completion can't write files, so llm steps aren't offered the
-          // recommendations channel; ingestion below no-ops on the absent file.
           envExtras: isLlmStep(step)
             ? undefined
-            : { KIRI_RECOMMENDATIONS_FILE: recommendationsFile },
+            : {
+                KIRI_RECOMMENDATIONS_FILE: recommendationsFile,
+                ...(declaredOutputs ? { KIRI_OUTPUTS_FILE: outputsFile } : {}),
+              },
+          outputsChannel: declaredOutputs
+            ? { file: outputsFile, declared: declaredOutputs }
+            : undefined,
         });
 
         if (stepStatus === "ok") {
@@ -418,21 +463,19 @@ export function runWorkflow(
           );
         }
 
-        executed.push({
-          step,
-          index: i,
-          durationMs: envelope.traces.durationMs,
-          stdout: envelope.traces.stdout,
-        });
-
-        if (envelope.status === "failed") {
-          status = cancelled ? "cancelled" : "failed";
-          runError = cancelled ? { ...CANCELLED_ERROR } : envelope.error;
+        // Halt on the step's settled status, not the raw envelope: an ok
+        // envelope that broke its outputs contract has already been marked
+        // failed on the row and must halt the pipeline the same way.
+        if (stepStatus !== "ok") {
+          status = stepStatus === "cancelled" ? "cancelled" : "failed";
+          runError = stepStatus === "cancelled" ? { ...CANCELLED_ERROR } : (stepError ?? undefined);
           break;
         }
         if (cancelled) break;
-        if (step.id !== undefined) stepOutputsById.set(step.id, envelope.output);
-        input = envelope.output;
+        if (step.id !== undefined) {
+          stepOutputsById.set(step.id, envelope.output);
+          if (outputs !== null) stepNamedOutputsById.set(step.id, outputs);
+        }
       }
 
       // Loop ended without a step failure but cancel was requested — either
@@ -462,14 +505,12 @@ export function runWorkflow(
         const articleStep = articleAsStep(entry);
         const articleIndex = definition.steps.length + pi;
 
-        // Articles get no auto-injected data: empty stdin, and whatever
-        // the entry declared through { step: <id> } / { article: <slug> }
-        // env refs. The retired run-context channel is not written.
+        // Articles get no auto-injected data: exactly what the entry
+        // declared through { step: <id> } / { article: <slug> } env refs.
         const { envelope, cancelled } = await executePhase({
           step: articleStep,
           index: articleIndex,
           flag: "article",
-          input: "",
         });
 
         if (envelope.status === "ok" && !cancelled) {
@@ -485,7 +526,6 @@ export function runWorkflow(
               createdAt: new Date(),
             })
             .run();
-          producedArticles.push({ slug: entry.slug, name, content_md: contentMd });
           articlesBySlug.set(entry.slug, contentMd);
         }
 
@@ -507,26 +547,14 @@ export function runWorkflow(
       // Failure here doesn't change the run's terminal status; the
       // summariser is best-effort.
       if (definition.summarize && status === "ok") {
-        const summarizeStep = withDefaultSummaryPrompt(definition.summarize);
         const summaryIndex = definition.steps.length + articleEntries.length;
-        // The gist plane: a prompt-ready plain-text digest of the run,
-        // injected the same way for every summarize shape — `sh:`/`use:`
-        // read $KIRI_SUMMARY_CONTEXT, `llm:` prompts template
-        // {{KIRI_SUMMARY_CONTEXT}}. Summarize runs only on fully-ok
-        // pipelines, so `executed` covers every authored step.
-        const summaryContext = buildSummaryContext({
-          workflow: definition.name,
-          durationMs: Date.now() - startedAt.getTime(),
-          steps: executed,
-          articles: producedArticles,
-        });
-
+        // Like every other phase, the summariser receives exactly the data
+        // its env: declares — { step: <id> } / { step, output } /
+        // { article: <slug> } refs resolved at spawn.
         const { envelope, cancelled } = await executePhase({
-          step: summarizeStep,
+          step: definition.summarize,
           index: summaryIndex,
           flag: "summary",
-          input: "",
-          envExtras: { KIRI_SUMMARY_CONTEXT: summaryContext },
         });
 
         if (envelope.status === "ok" && !cancelled) {
