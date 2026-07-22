@@ -197,6 +197,7 @@ function StepTrace({ row, entry, href }: { row: RunStepRow; entry: PhaseEntry; h
         </div>
       ) : null}
       {llm ? <LlmDetail llm={llm} /> : null}
+      {row.outputs ? <StepOutputs outputs={row.outputs} /> : null}
       <TracePart label="stdout" body={row.traces?.stdout ?? ""} />
       <TracePart label="stderr" body={row.traces?.stderr ?? ""} />
       {usage ? <LlmUsage usage={usage} /> : null}
@@ -276,6 +277,33 @@ function LlmUsage({ usage }: { usage: LlmUsageCounts }): ReactNode {
           <div key={c.label} className="flex items-baseline gap-2">
             <dt className="text-ink-muted">{c.label}</dt>
             <dd className="text-ink tabular-nums">{c.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * The named values a step emitted through its `outputs:` channel — what
+ * later phases' `{ step, output }` refs resolved to. Each value renders in
+ * its own code block since outputs can be multiline. An emitted-but-empty
+ * map (possible only for rows written before ingest validation) renders
+ * nothing.
+ */
+function StepOutputs({ outputs }: { outputs: Record<string, string> }): ReactNode {
+  const entries = Object.entries(outputs);
+  if (entries.length === 0) return null;
+  return (
+    <div>
+      <Eyebrow tone="muted">outputs</Eyebrow>
+      <dl className="mt-1.5 space-y-3">
+        {entries.map(([name, value]) => (
+          <div key={name}>
+            <dt className="font-mono text-xs text-ink-muted">{name}</dt>
+            <dd className="mt-1">
+              <CodeBlock>{value}</CodeBlock>
+            </dd>
           </div>
         ))}
       </dl>

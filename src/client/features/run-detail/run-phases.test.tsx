@@ -36,6 +36,7 @@ const makeStep = (overrides: Partial<RunStepRow> & { index: number }): RunStepRo
   startedAt: "2026-05-09T12:00:00.000Z",
   finishedAt: "2026-05-09T12:00:12.000Z",
   output: null,
+  outputs: null,
   error: null,
   traces: { stdout: "", stderr: "", durationMs: 12000 },
   isSummary: false,
@@ -145,6 +146,37 @@ describe("<RunPhases>", () => {
 
     expect(screen.getByText("hello stdout")).toBeDefined();
     expect(screen.getByText("(empty)")).toBeDefined();
+  });
+
+  it("reveals a step's emitted named outputs when expanded", async () => {
+    const user = userEvent.setup();
+    const run = makeRun({
+      name: "wf",
+      steps: [{ use: "fetch-pr", id: "fetch", outputs: ["url", "count"] }],
+    });
+    const steps = [
+      makeStep({ index: 0, outputs: { url: "https://example.com/pr/42", count: "3" } }),
+    ];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /fetch-pr/i }));
+
+    expect(screen.getByText("outputs")).toBeDefined();
+    expect(screen.getByText("url")).toBeDefined();
+    expect(screen.getByText("https://example.com/pr/42")).toBeDefined();
+    expect(screen.getByText("count")).toBeDefined();
+    expect(screen.getByText("3")).toBeDefined();
+  });
+
+  it("shows no outputs section for a step that declared none", async () => {
+    const user = userEvent.setup();
+    const run = makeRun({ name: "wf", steps: [{ use: "fetch-pr" }] });
+    const steps = [makeStep({ index: 0 })];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /fetch-pr/i }));
+
+    expect(screen.queryByText("outputs")).toBeNull();
   });
 
   it("times a running step live and marks a not-yet-run step pending", () => {

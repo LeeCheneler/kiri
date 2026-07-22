@@ -36,8 +36,16 @@ export type WorkflowStepSummary =
       name?: string;
       description?: string;
       env?: Record<string, EnvValue>;
+      outputs?: string[];
     }
-  | { sh: string; id?: string; name?: string; description?: string; env?: Record<string, EnvValue> }
+  | {
+      sh: string;
+      id?: string;
+      name?: string;
+      description?: string;
+      env?: Record<string, EnvValue>;
+      outputs?: string[];
+    }
   | {
       llm: LlmConfigSummary;
       id?: string;
@@ -233,6 +241,12 @@ export interface RunStepRow {
   startedAt: string | null;
   finishedAt: string | null;
   output: unknown;
+  /**
+   * Named values the step emitted through its `outputs:` channel, keyed by
+   * declared name. Null for steps that declare no outputs (and rows
+   * predating the channel).
+   */
+  outputs: Record<string, string> | null;
   error: { message: string; stack?: string } | null;
   /**
    * Captured execution traces, or null for rows predating trace capture.
