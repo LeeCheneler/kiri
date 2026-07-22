@@ -1,7 +1,7 @@
 # Writing workflows
 
 A workflow is a YAML file in `workflows/` — a named sequence of steps kiri
-runs when you click **Run**. This guide walks the golden path: run commands,
+runs on demand. This guide walks the golden path: run commands,
 hand their output to a model, publish an article. Every field in full lives
 in the [workflow reference](/docs/workflow-reference).
 
@@ -117,8 +117,8 @@ summarize:
 
 ## Take inputs
 
-`inputs:` turns one workflow into many buttons. Declaring any makes **Run**
-open a small form first; wire values into steps with `{ input: <name> }`:
+`inputs:` parameterises a workflow. Declaring any means a run collects the
+values first; wire them into steps with `{ input: <name> }`:
 
 ```yaml
 name: PR Review
@@ -170,8 +170,8 @@ like `kiri-output` — each call a workflow to invoke with pre-filled inputs:
 kiri-recommend --workflow "PR Review" --title "Review kiri #42" --input pr_number=42
 ```
 
-They render as one-click buttons on the run page. An aggregator that finds
-five open PRs can pin a **Review** button to each — see the
+They surface as one-click follow-ups on the run. An aggregator that finds
+five open PRs can attach a review to each — see the
 [one-click PR reviews recipe](/docs/recipes) for the full pattern, and the
 [reference](/docs/workflow-reference) for every flag.
 

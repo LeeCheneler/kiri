@@ -58,9 +58,9 @@ its keys from the right `.env`.
 
 ## Invoking workflows
 
-- **Manual** — click **Run** in the UI. Workflows with `inputs:` open a modal
-  first; workflows without invoke on a single click.
-- **Re-run** — an existing run can be re-triggered in place from its run page.
+- **Manual** — invoke from the app. Workflows with `inputs:` collect their
+  values first; workflows without invoke immediately.
+- **Re-run** — an existing run can be re-triggered in place.
 
 There is no cron, file watch, webhook, or inbox polling. For polling shapes,
 write a workflow whose first step does the poll and run it when you want it.

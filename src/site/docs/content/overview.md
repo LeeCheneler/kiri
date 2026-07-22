@@ -41,10 +41,9 @@ article in your feed.
   workflows for you, and can delegate research to a separate worker session
   that reports back just the findings. Reach for a session when you don't.
 
-Both land in the same activity feed — and everything they produce is
-searchable: press `⌘K` (or click the search box above the feed) and results
-appear as you type, across articles, session transcripts, run summaries, and
-your workflows.
+Both land in the same activity feed, and everything they produce is
+searchable — articles, session transcripts, run summaries, and the workflows
+themselves.
 
 ## Why kiri
 

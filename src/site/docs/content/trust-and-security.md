@@ -38,63 +38,38 @@ Treat data from outside your repo as **untrusted**:
 
 ## Tool calls in sessions
 
-In sessions, the model can't run an MCP tool behind your back. Unless a tool
-is set to **Always allow**, every call pauses for an explicit **Allow / Always
-allow / Deny** before it executes — so even a prompt-injected instruction to call
-a tool still has to clear you first. Each tool's standing permission (Always
-allow, Ask, or **Off** — withheld from the model entirely) is managed on the
-Tools & MCP page and persisted by tool name to a gitignored
-`.kiri/tool-permissions.json`,
-which you can also hand-edit. Kiri's built-in tools follow the same rules with
-per-tool defaults: the article tools, workflow listing and reads, and the
-authoring guide default to Always allow — they only write articles inside
-kiri and read its own data, no shell, no network. `generate_image` defaults
-to Always allow too: it exists only while you've picked an image model for
-the session, and picking it is the authorisation. The run tools
-(`run_workflow`, `rerun_workflow`) run your scripts, the workflow write
-tools put runnable YAML into your repo, the filesystem write tools
-change your own files, and `run_command` runs shell commands, so
-those default to Ask — and an authored workflow only ever *executes* through
-the same gates as any other: a run tool's approval or your click in the
-catalog, with the file itself an ordinary git change you can review first.
-Every write is validated against the workflow schema before it touches disk.
+In sessions, the model can't run a tool behind your back. Unless a tool is
+set to **Always allow**, every call pauses for an explicit **Allow / Always
+allow / Deny** before it executes — so even a prompt-injected instruction to
+call a tool still has to clear you first. Standing permissions (Always allow,
+Ask, or **Off** — withheld from the model entirely) persist by tool name to a
+gitignored `.kiri/tool-permissions.json`.
 
-Delegation holds the same line from the other side. The `delegate` tool
-(Always allow by default) spawns a hidden worker session that runs
-unattended, so the worker only holds tools already set to Always allow — a
-tool that would ask first is not offered to it at all, and a worker can't
-spawn workers. Delegating can never run anything unprompted that the chat
-itself couldn't.
-All of them are listed under **Built-in tools** on the Tools & MCP page, so
-any default can be tightened or the tool switched off entirely. See
-[Sessions](/docs/sessions).
+Built-in tools follow the same rules, with defaults set by blast radius:
+tools that only touch kiri's own data are pre-allowed, while anything that
+executes or changes your files — running workflows, writing workflow YAML,
+filesystem writes, `run_command` — asks first. The full table of defaults is
+in [Sessions](/docs/sessions). Three invariants hold throughout:
 
-The filesystem tools have their own boundary: they exist only when you
-declare `filesystem: allowed_directories` in `kiri.yaml` — a git-reviewable
-decision, like configuring an MCP server. Every path the model supplies must
-resolve inside a declared directory (symlinks are followed to their real
-target and checked, so a link can't smuggle a path out — even for a file
-that doesn't exist yet), and hidden dot-files like `.env` and `.kiri/` are
-unreachable outright. The read tools default to Always allow because
-declaring the sandbox is the authorisation; the write and delete tools
-default to Ask, so every change pauses for your decision with the exact edit
-previewed as a diff — and a delete can never take out an allowed directory
-itself. Narrow the list, or switch the tools off, and that's the whole
-surface gone.
-
-The shell tool draws its line differently, and it's worth being precise
-about where: `run_command` exists only when you declare
-`shell: working_directories` in `kiri.yaml` — the same git-reviewable
-opt-in — but the declared directories only anchor where a command *runs*.
-A shell command can touch anything you can, which is exactly why the tool
-is never pre-authorised: every call defaults to Ask and shows you the exact
-command, verbatim, with its directory, before anything executes. The system
-prompt holds the model to safe, narrowly-scoped commands — no destruction
-beyond what you asked for, no privilege escalation, no printing secrets, no
-piping downloads into a shell — as a first line of defence, but the approval
-in front of you is the boundary. Commands run as you, with your environment,
-killed at a hard timeout; nothing outlives the turn. If that trade isn't
-right for a workspace, leave `shell:` undeclared and the tool doesn't exist.
+- **Authored workflows execute only through the same gates.** A workflow a
+  session writes is validated against the schema before it touches disk, is
+  an ordinary git change you can review, and only ever *runs* via an
+  approved run tool or your own invocation.
+- **Sandboxes are declared in git.** The filesystem and shell tools exist
+  only when you declare `filesystem:` / `shell:` in `kiri.yaml` — a
+  reviewable opt-in. File paths must resolve inside the declared directories
+  (symlinks are followed to their real target and checked, even for files
+  that don't exist yet), and dot-files like `.env` and `.kiri/` are
+  unreachable outright. Shell working directories only anchor where a
+  command *runs* — a command can touch anything you can — which is why
+  `run_command` is never pre-authorised: the approval showing the verbatim
+  command is the boundary, with the system prompt holding the model to safe,
+  narrowly-scoped commands as a first line of defence in front of it.
+- **Delegated workers can't exceed the chat.** A worker session runs
+  unattended, so it only holds tools already set to Always allow — one that
+  would ask first isn't offered to it at all — and a worker can't spawn
+  workers. Delegating can never run anything unprompted that the chat itself
+  couldn't.
 
 ## Secrets
 
