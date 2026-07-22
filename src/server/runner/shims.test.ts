@@ -21,11 +21,16 @@ describe("writeRunShims", () => {
   const shimPath = () => join(binDir, "kiri-output");
   const shimContent = () => readFileSync(shimPath(), "utf8");
 
-  it("creates the bin dir and an executable kiri-output shim", () => {
+  it("creates the bin dir with executable kiri-output and kiri-recommend shims", () => {
     writeRunShims(binDir, { execPath: "/usr/local/bin/bun", main: "/repo/bin/kiri.ts" });
 
     expect(statSync(shimPath()).mode & 0o111).not.toBe(0);
     expect(shimContent().startsWith("#!/bin/sh\n")).toBe(true);
+    const recommendPath = join(binDir, "kiri-recommend");
+    expect(statSync(recommendPath).mode & 0o111).not.toBe(0);
+    expect(readFileSync(recommendPath, "utf8")).toContain(
+      `exec '/usr/local/bin/bun' '/repo/bin/kiri.ts' __recommend "$@"`,
+    );
   });
 
   it("execs the entry script through the runtime when running from source", () => {

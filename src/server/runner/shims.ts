@@ -15,7 +15,10 @@ export interface ShimTarget {
 // directly, with no entry-script argument.
 const BUNFS_PREFIX = "/$bunfs/";
 
-const SHIMS = [{ name: "kiri-output", command: "__output" }] as const;
+const SHIMS = [
+  { name: "kiri-output", command: "__output" },
+  { name: "kiri-recommend", command: "__recommend" },
+] as const;
 
 // POSIX single-quoting: the only character needing escape inside single
 // quotes is the quote itself, via '\''.
@@ -29,11 +32,12 @@ const execLine = ({ execPath, main }: ShimTarget, command: string): string => {
 };
 
 /**
- * Write the per-run helper shims (`kiri-output`) into `binDir`, creating the
- * directory if needed. Each shim is a two-line executable `sh` script that
- * execs back into the running kiri build; the runner prepends `binDir` to
- * every spawned step's PATH. Shims live in the run's scratch dir and are
- * regenerated for every run, so they never outlive it.
+ * Write the per-run helper shims (`kiri-output`, `kiri-recommend`) into
+ * `binDir`, creating the directory if needed. Each shim is a two-line
+ * executable `sh` script that execs back into the running kiri build; the
+ * runner prepends `binDir` to every spawned step's PATH. Shims live in the
+ * run's scratch dir and are regenerated for every run, so they never
+ * outlive it.
  */
 export function writeRunShims(
   binDir: string,
