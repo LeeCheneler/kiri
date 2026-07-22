@@ -77,6 +77,9 @@ steps:                       # required, ≥1
       model: anthropic:claude-haiku-4-5     # provider:model; provider names a kiri.yaml entry
       prompt: "Summarise {{RAW_PR}}."       # inline OR prompt_file: prompts/x.tpl (exactly one)
     name: "Summarise"        # optional — defaults to the model id when omitted
+    env:
+      RAW_PR:
+        step: fetch          # refs render into llm prompts by name
 
 articles:                    # optional — long-form markdown articles, produced after all steps complete ok
   - slug: digest             # required, kebab-case-only ([a-z0-9-]+), unique within workflow — the article's URL id
