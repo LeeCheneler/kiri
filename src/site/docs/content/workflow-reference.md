@@ -9,10 +9,10 @@ A workflow lives at `workflows/*.yaml` and is validated on load.
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `name` | yes | Display name; the label on the workflow's Run button. |
-| `description` | no | One-liner rendered as the deck beneath the title. |
-| `group` | no | Label (e.g. `Dev`) shown as the page eyebrow to cluster related workflows. |
-| `inputs` | no | Parameters collected via a modal on Run. See Inputs below. |
+| `name` | yes | Display name of the workflow. |
+| `description` | no | One-line description shown with the workflow. |
+| `group` | no | Label (e.g. `Dev`) that clusters related workflows. |
+| `inputs` | no | Parameters collected when the workflow is invoked. See Inputs below. |
 | `steps` | yes | The steps, run in order. |
 | `articles` | no | Markdown documents produced after the steps. |
 | `summarize` | no | Post-run step whose stdout becomes the run's summary. |
@@ -24,8 +24,8 @@ common fields:
 
 | Field | Description |
 | --- | --- |
-| `name` | Short label in the run timeline. Falls back to the `use:` ref, the first `sh:` line, or the `llm:` model id. |
-| `description` | Longer detail, revealed when the step's row is expanded. |
+| `name` | Short label for the step. Falls back to the `use:` ref, the first `sh:` line, or the `llm:` model id. |
+| `description` | Longer detail shown with the step. |
 | `id` | Handle for `{ step: <id> }` refs. Must match `^[a-z][a-z0-9_-]*$`. |
 | `env` | String-to-string map. Values must be strings (`MAX_TURNS: "50"`, not `50`); keys starting `KIRI_` are rejected at load. |
 | `outputs` | `sh:`/`use:` steps only. Named values the step promises to emit via `kiri-output`; requires an `id`. See Named outputs below. |
@@ -58,7 +58,7 @@ verbatim; what each key means is the bundle's contract, documented in its
 ### `llm:` — model completion
 
 Calls a provider directly, in-process; the completion text becomes the step's
-stdout. Token counts land in the run timeline.
+stdout. Token counts are recorded on the run.
 
 ```yaml
 - llm:
@@ -87,15 +87,15 @@ stdout. Token counts land in the run timeline.
 ## Inputs
 
 `inputs:` is a list of `{ name, description?, required?, default?, options? }`.
-Declaring any makes **Run** open a form first; a workflow without `inputs:`
-invokes on a single click.
+Declaring any means a run collects values first; a workflow without `inputs:`
+invokes immediately.
 
-- `required: true` gates submit until the field is non-empty.
-- `default` pre-fills the field; `options` constrains it to a picker.
+- `required: true` rejects an empty value.
+- `default` pre-fills a value; `options` constrains it to a fixed list.
 - Wire a value into any step / article / summarize `env:` with
   `{ input: <name> }`. Refs to undeclared inputs fail at load.
-- The resolved map is snapshotted onto the run, so the feed and run page show
-  what the run was invoked with.
+- The resolved map is snapshotted onto the run, so every run records what it
+  was invoked with.
 
 ## Data flow
 
@@ -138,8 +138,8 @@ emit each one by name, instead of making every consumer re-parse its stdout:
 - The declaration is a contract: a step that exits ok without emitting every
   declared name **fails**, so consumers' refs always resolve. Re-emitting a
   name overwrites it — the last value wins.
-- Emitted values appear on the run page in the step's expanded row, and count
-  toward a consuming step's env size like any other ref.
+- Emitted values are recorded on the run, and count toward a consuming
+  step's env size like any other ref.
 - Stdout is unaffected — declare outputs and stdout becomes plain logging.
 
 ## Step environment
@@ -166,7 +166,7 @@ shape as a step, plus:
 | Field | Required | Description |
 | --- | --- | --- |
 | `slug` | yes | Lowercase letters, digits, hyphens. Unique within the workflow. |
-| `name` | no | Series label — the feed chip and page eyebrow. Becomes the page title only when the body has no `# Headline`. |
+| `name` | no | Series label for the article. Becomes the page title only when the body has no `# Headline`. |
 
 - Entries run serially after `steps:` and before `summarize:`; each entry's
   stdout is the article body.
@@ -174,8 +174,7 @@ shape as a step, plus:
   title, and anything before it is dropped. `##` headings become the page's
   table of contents.
 - Markdown renders through a sandboxed parser — no raw-HTML pass-through.
-- Articles surface as chips on the feed row, links in the run body, and an
-  **Articles** phase on the run page.
+- Articles are linked from the run and the feed.
 
 ### Charts
 
@@ -226,7 +225,7 @@ flowchart LR
 
 `summarize:` has the same `{ use | sh | llm, env? }` shape as a step and runs
 after `steps:` and `articles:`. Its stdout becomes the run's one-or-two-line
-summary on the feed row and run page.
+summary in the feed.
 
 - Like every phase, it declares its data with env refs — typically the
   finished article (`{ article: <slug> }`), a named output
@@ -238,9 +237,9 @@ summary on the feed row and run page.
 
 ## Recommendations
 
-A main `use:`/`sh:` step can propose follow-up invocations, rendered as
-one-click buttons under **Recommended** on the run page. Emit each with
-`kiri-recommend` — on the step's `PATH` for the run's duration:
+A main `use:`/`sh:` step can propose follow-up invocations, surfaced as
+one-click recommendations on the run. Emit each with `kiri-recommend` — on
+the step's `PATH` for the run's duration:
 
 ```sh
 kiri-recommend --workflow "PR Review" --title "Review owner/repo #42" \
@@ -250,10 +249,10 @@ kiri-recommend --workflow "PR Review" --title "Review owner/repo #42" \
 
 | Flag | Required | Description |
 | --- | --- | --- |
-| `--title` | yes | Button label. |
+| `--title` | yes | Title of the recommendation. |
 | `--workflow` | yes | Name of the workflow to invoke. |
 | `--description` | no | Supporting line under the title. |
-| `--input <key>=<value>` | no, repeatable | Pre-filled into the invoke modal; keys should match the target's declared inputs. |
+| `--input <key>=<value>` | no, repeatable | Pre-filled into the invocation; keys should match the target's declared inputs. |
 
 A malformed call exits non-zero without writing — under `set -e` the step
 fails at the offending line. A failed or cancelled step's recommendations
@@ -293,7 +292,7 @@ Exit `0` on success, non-zero on failure. Resolve file reads against
   everything after it, including `articles:` and `summarize:`. A failing
   article entry halts the remaining entries and the summariser. Only a failing
   summariser is non-fatal.
-- **Cancel** from the UI sends `SIGTERM` then `SIGKILL`; a run cancelled
+- Cancelling a run sends `SIGTERM` then `SIGKILL`; a run cancelled
   mid-`steps:` skips the rest.
 - There is no cron, file watch, or webhook. For polling shapes, write a
   workflow whose first step does the poll and run it when you want it.

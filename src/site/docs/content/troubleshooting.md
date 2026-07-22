@@ -48,21 +48,18 @@ server's tools appear only when it's configured and connects; one whose
 `{ env: }` var is unset, or that fails to start, shows as a config-health check
 naming it. Set the missing variable (in your environment or workspace `.env`)
 and the server reconnects on the next `kiri.yaml` save. An `auth: oauth` server
-that you haven't signed into yet shows a **Connect** button on the activity
-page — click it, approve in the new tab, and its tools appear once kiri stores
-the tokens. For web search, add an MCP server that provides it — e.g. the Tavily
-MCP server.
+you haven't signed into yet offers a **Connect** action — sign in and its tools
+appear once kiri stores the tokens. For web search, add an MCP server that
+provides it — e.g. the Tavily MCP server.
 
 ## A tool call is stuck or its result is enormous
 
-Tool calls are bounded so neither can wedge a turn. A call that runs too long is
-abandoned after a time limit and reported back to the model as an error it can
-work around, and a result that's too large is capped (truncated with a marker)
-so it can't overrun the model's context or the provider's request-size limit. If
-a call is still running and you don't want to wait, press **Escape** to stop the
-turn — any call in flight shows as cancelled. A tool that's
-routinely slow or returns far too much usually wants a narrower input (search a
-specific subfolder rather than a huge tree, say).
+Tool calls are bounded so neither can wedge a turn: a call that runs too long
+is abandoned and reported back to the model as an error it can work around,
+and an oversized result is truncated with a marker so it can't overrun the
+model's context. Stopping the turn cancels any call in flight. A tool that's
+routinely slow or returns far too much usually wants a narrower input (search
+a specific subfolder rather than a huge tree, say).
 
 ## Edits aren't taking effect
 
