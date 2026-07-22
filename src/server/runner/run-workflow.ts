@@ -332,7 +332,6 @@ export function runWorkflow(
     step: WorkflowStep;
     index: number;
     flag?: "article" | "summary";
-    input: string;
     envExtras?: Record<string, string>;
     /** The step's named-outputs channel, present only when it declares `outputs:`. An ok envelope missing a declared name flips the step to failed. */
     outputsChannel?: { file: string; declared: readonly string[] };
@@ -371,7 +370,6 @@ export function runWorkflow(
       step: opts.step,
       config: args.config,
       scratchDir,
-      input: opts.input,
       env,
       llmClients: args.llmClients,
       onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
@@ -447,7 +445,6 @@ export function runWorkflow(
     try {
       mkdirSync(scratchDir, { recursive: true });
       writeRunShims(runBinDir(args.config, runId));
-      let input = "";
       // Cross-step counter so the order steps emitted in is preserved
       // by `recommendations.index` regardless of how many lines each
       // step contributed.
@@ -465,7 +462,6 @@ export function runWorkflow(
         const { envelope, cancelled, stepStatus, stepError, outputs } = await executePhase({
           step,
           index: i,
-          input,
           envExtras: isLlmStep(step)
             ? undefined
             : {
@@ -506,7 +502,6 @@ export function runWorkflow(
           stepOutputsById.set(step.id, envelope.output);
           if (outputs !== null) stepNamedOutputsById.set(step.id, outputs);
         }
-        input = envelope.output;
       }
 
       // Loop ended without a step failure but cancel was requested — either
@@ -536,14 +531,12 @@ export function runWorkflow(
         const articleStep = articleAsStep(entry);
         const articleIndex = definition.steps.length + pi;
 
-        // Articles get no auto-injected data: empty stdin, and whatever
-        // the entry declared through { step: <id> } / { article: <slug> }
-        // env refs. The retired run-context channel is not written.
+        // Articles get no auto-injected data: exactly what the entry
+        // declared through { step: <id> } / { article: <slug> } env refs.
         const { envelope, cancelled } = await executePhase({
           step: articleStep,
           index: articleIndex,
           flag: "article",
-          input: "",
         });
 
         if (envelope.status === "ok" && !cancelled) {
@@ -599,7 +592,6 @@ export function runWorkflow(
           step: summarizeStep,
           index: summaryIndex,
           flag: "summary",
-          input: "",
           envExtras: { KIRI_SUMMARY_CONTEXT: summaryContext },
         });
 

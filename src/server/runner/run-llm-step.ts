@@ -11,8 +11,6 @@ export interface RunLlmStepArgs {
   step: LlmStep;
   /** Workspace config. `prompt_file` paths resolve against `config.cwd()`. */
   config: ConfigStore;
-  /** Bytes the previous step piped downstream. Exposed to the prompt as `{{KIRI_INPUT}}`. */
-  input: string;
   /**
    * Scoped env vars, exactly as `runStep` receives them. An llm step spawns
    * nothing, so the map is consumed purely as the prompt's template vars —
@@ -38,7 +36,7 @@ export interface RunLlmStepArgs {
  * error, abort — yields `status: "failed"` with the cause's message.
  */
 export async function runLlmStep(args: RunLlmStepArgs): Promise<StepEnvelope> {
-  const { step, config, input, env, llmClients, onSpawn } = args;
+  const { step, config, env, llmClients, onSpawn } = args;
   const startedAt = performance.now();
   const fail = (error: { message: string; stack?: string }): StepEnvelope => ({
     status: "failed",
@@ -77,9 +75,7 @@ export async function runLlmStep(args: RunLlmStepArgs): Promise<StepEnvelope> {
     });
   }
 
-  // One trailing newline trimmed, matching the bundles' `KIRI_INPUT="$(cat)"`.
-  const kiriInput = input.endsWith("\n") ? input.slice(0, -1) : input;
-  const prompt = renderPrompt(template, { ...env, KIRI_INPUT: kiriInput });
+  const prompt = renderPrompt(template, env);
 
   // The cancel registry treats the abort handle like any child process:
   // publish it before the call so a cancel requested mid-flight (or already

@@ -6,9 +6,9 @@ import { runLlmStep } from "./run-llm-step.ts";
 
 /**
  * Standard envelope for a step, matching the shape every step variant
- * returns. `output` is the captured stdout; for a multi-step pipeline the
- * runner pipes this into the next step's stdin. `traces.usage` carries
- * token counts and is only present on `llm:` steps.
+ * returns. `output` is the captured stdout; later phases reach it through
+ * `{ step: <id> }` env refs. `traces.usage` carries token counts and is
+ * only present on `llm:` steps.
  */
 export interface StepEnvelope {
   status: "ok" | "failed";
@@ -24,8 +24,6 @@ export interface RunStepArgs {
   config: ConfigStore;
   /** Working directory for the spawned process — typically a per-run scratch dir. */
   scratchDir: string;
-  /** Bytes piped to the step's stdin. Pass `""` for the first step in a pipeline. */
-  input: string;
   /**
    * Scoped env vars exposed to the step. No parent-process inheritance —
    * pass exactly what the step should see. Empty object means an empty env.
@@ -74,9 +72,9 @@ const envByteSize = (env: Record<string, string>): number =>
  * env size guard doesn't apply to them.
  */
 export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
-  const { step, config, scratchDir, input, env, llmClients, onSpawn } = args;
+  const { step, config, scratchDir, env, llmClients, onSpawn } = args;
   if (isLlmStep(step)) {
-    return runLlmStep({ step, config, input, env, llmClients, onSpawn });
+    return runLlmStep({ step, config, env, llmClients, onSpawn });
   }
   const cmd = isUseStep(step) ? [config.bundleRunPath(step.use)] : ["sh", "-c", step.sh];
   const startedAt = performance.now();
@@ -105,19 +103,17 @@ export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
   let stderr: string;
   let exitCode: number;
   try {
+    // stdin is /dev/null: data reaches a step only through its declared
+    // env refs, so a script that reads stdin sees immediate EOF.
     const proc = Bun.spawn({
       cmd,
       cwd: scratchDir,
       env,
-      stdin: "pipe",
+      stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
     });
     onSpawn?.(proc);
-    proc.stdin.write(input);
-    // Awaiting `end()` waits for the buffer to drain to the OS pipe;
-    // `write()` only queues into Bun's FileSink and returns synchronously.
-    await proc.stdin.end();
     [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),

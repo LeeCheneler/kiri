@@ -61,17 +61,19 @@ describe("run pipeline", () => {
     expect(step?.output).toBe("hello world\n");
   });
 
-  it("pipes stdout from one sh step into the next step's stdin", async () => {
-    writeWorkflow("pipe", 'name: pipe\nsteps:\n  - sh: echo "first"\n  - sh: cat\n');
+  it("carries stdout between steps only through { step } refs — stdin stays empty", async () => {
+    writeWorkflow(
+      "refs",
+      'name: refs\nsteps:\n  - sh: printf "first"\n    id: one\n  - sh: printf "ref=[%s] stdin=[%s]" "$UP" "$(cat)"\n    env:\n      UP: { step: one }\n',
+    );
 
-    const result = await loadAndRun("pipe");
+    const result = await loadAndRun("refs");
 
     expect(result.status).toBe("ok");
     const stepRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
     expect(stepRows).toHaveLength(2);
-    expect(stepRows[0].output).toBe("first\n");
-    // `cat` reads stdin (stdout from step 0) and re-emits it.
-    expect(stepRows[1].output).toBe("first\n");
+    expect(stepRows[0].output).toBe("first");
+    expect(stepRows[1].output).toBe("ref=[first] stdin=[]");
   });
 
   it("halts on a failing sh step and does not insert later step rows", async () => {

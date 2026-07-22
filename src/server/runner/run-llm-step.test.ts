@@ -53,7 +53,6 @@ describe("runLlmStep", () => {
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:claude-haiku-4-5", prompt: "Summarise." } },
       config,
-      input: "",
       env: {},
       llmClients: clients,
     });
@@ -67,33 +66,17 @@ describe("runLlmStep", () => {
     expect(clients.calls[0]?.model).toBe("anthropic:claude-haiku-4-5");
   });
 
-  it("renders {{VAR}} placeholders from env and exposes input as {{KIRI_INPUT}}", async () => {
+  it("renders {{VAR}} placeholders from the step's env scope", async () => {
     const clients = recordingClients();
 
     await runLlmStep({
-      step: { llm: { model: "anthropic:m", prompt: "{{TONE}} take on: {{KIRI_INPUT}}" } },
+      step: { llm: { model: "anthropic:m", prompt: "{{TONE}} take on: {{DATA}}" } },
       config,
-      input: "previous stdout\n",
-      env: { TONE: "cheery" },
+      env: { TONE: "cheery", DATA: "previous stdout" },
       llmClients: clients,
     });
 
-    // Exactly one trailing newline trimmed, matching the bundles' $(cat).
     expect(clients.calls[0]?.prompt).toBe("cheery take on: previous stdout");
-  });
-
-  it("trims only one trailing newline from the input", async () => {
-    const clients = recordingClients();
-
-    await runLlmStep({
-      step: { llm: { model: "anthropic:m", prompt: "{{KIRI_INPUT}}" } },
-      config,
-      input: "lines\n\n",
-      env: {},
-      llmClients: clients,
-    });
-
-    expect(clients.calls[0]?.prompt).toBe("lines\n");
   });
 
   it("reads prompt_file against the repo root", async () => {
@@ -104,7 +87,6 @@ describe("runLlmStep", () => {
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt_file: "prompts/greet.tpl" } },
       config,
-      input: "",
       env: { NAME: "kiri" },
       llmClients: clients,
     });
@@ -119,7 +101,6 @@ describe("runLlmStep", () => {
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt_file: "prompts/gone.tpl" } },
       config,
-      input: "",
       env: {},
       llmClients: clients,
     });
@@ -147,7 +128,6 @@ describe("runLlmStep", () => {
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "p" } },
       config,
-      input: "",
       env: {},
       llmClients: clients,
     });
@@ -174,7 +154,6 @@ describe("runLlmStep", () => {
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "p" } },
       config,
-      input: "",
       env: {},
       llmClients: clients,
     });
@@ -204,7 +183,6 @@ describe("runLlmStep", () => {
     const pending = runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "p" } },
       config,
-      input: "",
       env: {},
       llmClients: clients,
       onSpawn: (h) => {
@@ -226,7 +204,6 @@ describe("runLlmStep", () => {
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m", prompt: "p" } },
       config,
-      input: "",
       env: {},
     });
 
@@ -240,7 +217,6 @@ describe("runLlmStep", () => {
     const envelope = await runLlmStep({
       step: { llm: { model: "anthropic:m" } },
       config,
-      input: "",
       env: {},
       llmClients: clients,
     });

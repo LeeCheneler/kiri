@@ -87,9 +87,7 @@ const readCapture = (ws: Workspace): Capture => {
 /**
  * Drive a fixture workflow by name. Loads + validates it through the real
  * loader (so YAML/schema/bundle errors surface), then drives each step
- * through `runStep` with PATH stubbed to the fixture's claude. Step
- * stdout is piped into the next step's stdin to mirror the real runner's
- * pipeline behaviour.
+ * through `runStep` with PATH stubbed to the fixture's claude.
  */
 const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]> => {
   const result = await loadWorkflows(createConfigStore(ws.cwd));
@@ -98,7 +96,6 @@ const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]>
   if (!def) throw new Error(`workflow not found in fixtures: ${name}`);
 
   const envelopes: StepEnvelope[] = [];
-  let input = "";
   for (let i = 0; i < def.steps.length; i++) {
     const step = def.steps[i];
     const env: Record<string, string> = {
@@ -119,12 +116,10 @@ const runScenario = async (ws: Workspace, name: string): Promise<StepEnvelope[]>
       step,
       config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
-      input,
       env,
     });
     envelopes.push(envelope);
     if (envelope.status === "failed") break;
-    input = envelope.output;
   }
   return envelopes;
 };
@@ -240,12 +235,11 @@ describe("claude-code bundle: integration", () => {
     // the bundle's external dep. The stub never runs — the bundle's own
     // dep-check fires first and exits non-zero.
     const envelope = await runStep({
-      step: { use: "claude-code", env: { PROMPT_FILE: "prompts/single-line-input.tpl" } },
+      step: { use: "claude-code", env: { PROMPT_FILE: "prompts/custom-env.tpl" } },
       config: createConfigStore(ws.cwd),
       scratchDir: ws.scratchDir,
-      input: "",
       env: {
-        PROMPT_FILE: "prompts/single-line-input.tpl",
+        PROMPT_FILE: "prompts/custom-env.tpl",
         PATH: "/usr/bin:/bin",
         HOME: process.env.HOME ?? "",
         USER: process.env.USER ?? "",

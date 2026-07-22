@@ -101,9 +101,9 @@ describe("runWorkflow", () => {
     expect(step?.output).toBe("from-inline\n");
   });
 
-  it("pipes step output to the next step's stdin (mixed use → sh)", async () => {
+  it("gives every step empty stdin — upstream stdout reaches a step only via refs", async () => {
     writeBundle("emit", "#!/bin/sh\necho first-output\n");
-    const wf = makeWorkflow("pipe", [{ use: "emit" }, { sh: "cat" }]);
+    const wf = makeWorkflow("no-pipe", [{ use: "emit" }, { sh: 'printf "stdin=[%s]" "$(cat)"' }]);
 
     const result = await runWorkflow(db, wf, { config }).done;
 
@@ -116,7 +116,7 @@ describe("runWorkflow", () => {
       .all();
     expect(steps).toHaveLength(2);
     expect(steps[0].output).toBe("first-output\n");
-    expect(steps[1].output).toBe("first-output\n");
+    expect(steps[1].output).toBe("stdin=[]");
   });
 
   it("records an llm step with kind llm and fails the run when no llm clients are wired", async () => {
@@ -141,17 +141,21 @@ describe("runWorkflow", () => {
   });
 
   describe("llm: steps", () => {
-    it("pipes the completion text downstream and renders {{KIRI_INPUT}} from the previous step", async () => {
-      writeBundle("emit", "#!/bin/sh\necho first-output\n");
+    it("renders upstream data into the prompt via a { step } ref and exposes the completion downstream via its id", async () => {
+      writeBundle("emit", "#!/bin/sh\nprintf 'first-output'\n");
       const prompts: string[] = [];
       const llmClients = fakeLlm(async ({ prompt }) => {
         prompts.push(prompt);
         return { text: "llm-reply", usage: {} };
       });
-      const wf = makeWorkflow("llm-pipe", [
-        { use: "emit" },
-        { llm: { model: "anthropic:m", prompt: "Reply to: {{KIRI_INPUT}}" } },
-        { sh: "cat" },
+      const wf = makeWorkflow("llm-refs", [
+        { use: "emit", id: "emit" },
+        {
+          llm: { model: "anthropic:m", prompt: "Reply to: {{UPSTREAM}}" },
+          id: "reply",
+          env: { UPSTREAM: { step: "emit" } },
+        },
+        { sh: 'printf "%s" "$REPLY"', env: { REPLY: { step: "reply" } } },
       ]);
 
       const result = await runWorkflow(db, wf, { config, llmClients }).done;
@@ -2415,9 +2419,8 @@ echo emitted
         .where(eq(runSteps.runId, result.runId))
         .orderBy(asc(runSteps.index))
         .all();
-      // Step 2's stdin carried step 1's output; the ref reaches past it to
-      // step 0's stdout, delivered exactly as written — echo's trailing
-      // newline included.
+      // The ref reaches past the intervening step to step 0's stdout,
+      // delivered exactly as written — echo's trailing newline included.
       expect(rows[2].output).toBe("[data-123\n]");
     });
 
