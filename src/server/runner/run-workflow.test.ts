@@ -2493,6 +2493,88 @@ echo emitted
       expect(prompts[0]).toBe("from=material\n");
     });
 
+    it("resolves { step, output } refs to a producer's named outputs", async () => {
+      const wf = makeWorkflow("named-ref", [
+        {
+          sh: `printf '%s\\n' '{"name":"url","value":"https://example.com"}' >> "$KIRI_OUTPUTS_FILE"; printf '%s\\n' '{"name":"count","value":"3"}' >> "$KIRI_OUTPUTS_FILE"; echo raw-stdout`,
+          id: "fetch",
+          outputs: ["url", "count"],
+        },
+        { sh: "echo between" },
+        {
+          sh: 'printf "url=%s count=%s whole=[%s]" "$URL" "$COUNT" "$WHOLE"',
+          env: {
+            URL: { step: "fetch", output: "url" },
+            COUNT: { step: "fetch", output: "count" },
+            // Whole-stdout and named-output refs to the same step coexist.
+            WHOLE: { step: "fetch" },
+          },
+        },
+      ]);
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const rows = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .orderBy(asc(runSteps.index))
+        .all();
+      expect(rows[2]?.output).toBe("url=https://example.com count=3 whole=[raw-stdout\n]");
+    });
+
+    it("resolves { step, output } refs on articles and summarize", async () => {
+      writeBundle("writer", '#!/bin/sh\nprintf "# Report\\n\\ncount=%s" "$COUNT"\n');
+      writeBundle("summer", '#!/bin/sh\nprintf "summary url=%s" "$URL"\n');
+      const wf: WorkflowDefinition = {
+        name: "named-ref-phases",
+        steps: [
+          {
+            sh: `printf '%s\\n' '{"name":"url","value":"u1"}' >> "$KIRI_OUTPUTS_FILE"; printf '%s\\n' '{"name":"count","value":"7"}' >> "$KIRI_OUTPUTS_FILE"`,
+            id: "fetch",
+            outputs: ["url", "count"],
+          },
+        ],
+        articles: [
+          { slug: "report", use: "writer", env: { COUNT: { step: "fetch", output: "count" } } },
+        ],
+        summarize: { use: "summer", env: { URL: { step: "fetch", output: "url" } } },
+      };
+
+      const result = await runWorkflow(db, wf, { config }).done;
+
+      expect(result.status).toBe("ok");
+      const article = db.select().from(articles).where(eq(articles.runId, result.runId)).get();
+      expect(article?.contentMd).toBe("# Report\n\ncount=7");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("summary url=u1");
+    });
+
+    it("fails the run when a { step, output } ref misses the named-output map", async () => {
+      writeBundle("hello", "#!/bin/sh\necho hi\n");
+      // The schema requires refs to point at declared outputs; tests
+      // construct definitions directly, so this exercises the runner's
+      // invariant guard for a producer that never landed a named map.
+      const wf: WorkflowDefinition = {
+        name: "ghost-output-ref",
+        steps: [
+          { sh: "echo plain", id: "fetch" },
+          { use: "hello", env: { URL: { step: "fetch", output: "url" } } },
+        ],
+      };
+
+      const { runId, done } = runWorkflow(db, wf, { config });
+      const thrown = await done.catch((e: unknown) => e);
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toMatch(
+        /env "URL" references output "url" on step "fetch", which was not emitted on this run/,
+      );
+      const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+      expect(run?.status).toBe("failed");
+    });
+
     it("fails the run when a { step } ref misses the output map", async () => {
       writeBundle("hello", "#!/bin/sh\necho hi\n");
       // The schema rejects unknown ids at load; tests construct definitions

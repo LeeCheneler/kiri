@@ -1136,6 +1136,65 @@ describe("declared step outputs", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("parses { step, output } refs on later steps, articles, and summarize", () => {
+    const result = workflowSchema.parse({
+      name: "output-refs",
+      steps: [
+        { sh: "kiri-output url x; kiri-output count 2", id: "fetch", outputs: ["url", "count"] },
+        { use: "consumer", env: { URL: { step: "fetch", output: "url" } } },
+      ],
+      articles: [
+        { slug: "digest", use: "writer", env: { COUNT: { step: "fetch", output: "count" } } },
+      ],
+      summarize: { use: "summer", env: { URL: { step: "fetch", output: "url" } } },
+    });
+    expect(result.steps[1].env).toEqual({ URL: { step: "fetch", output: "url" } });
+  });
+
+  it("rejects an output ref to a name the target step does not declare", () => {
+    const result = workflowSchema.safeParse({
+      name: "unknown-output-ref",
+      steps: [
+        { sh: "kiri-output url x", id: "fetch", outputs: ["url"] },
+        { use: "consumer", env: { TITLE: { step: "fetch", output: "title" } } },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("references output");
+      expect(result.error.message).toContain("title");
+      expect(result.error.message).toContain("does not declare it in outputs:");
+    }
+  });
+
+  it("rejects an output ref to a step that declares no outputs", () => {
+    const result = workflowSchema.safeParse({
+      name: "no-outputs-ref",
+      steps: [
+        { sh: "echo plain", id: "fetch" },
+        { use: "consumer", env: { URL: { step: "fetch", output: "url" } } },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("does not declare it in outputs:");
+    }
+  });
+
+  it("keeps output refs backward-only", () => {
+    const result = workflowSchema.safeParse({
+      name: "forward-output-ref",
+      steps: [
+        { use: "consumer", env: { URL: { step: "later", output: "url" } } },
+        { sh: "kiri-output url x", id: "later", outputs: ["url"] },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("backward-only");
+    }
+  });
 });
 
 describe("isUseArticle / isShArticle / isLlmArticle", () => {

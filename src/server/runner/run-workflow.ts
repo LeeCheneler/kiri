@@ -133,6 +133,8 @@ const stepIdentOf = (step: WorkflowStep): StepIdent => {
  */
 interface RefContext {
   stepOutputs: ReadonlyMap<string, string>;
+  /** Per-step named-output maps keyed by step id, for `{ step: <id>, output: <name> }` refs. */
+  stepNamedOutputs: ReadonlyMap<string, Record<string, string>>;
   articles: ReadonlyMap<string, string>;
 }
 
@@ -174,6 +176,16 @@ const buildEnv = (
       continue;
     }
     if ("step" in value) {
+      if (value.output !== undefined) {
+        const named = refs.stepNamedOutputs.get(value.step)?.[value.output];
+        if (named === undefined) {
+          throw new Error(
+            `env "${key}" references output "${value.output}" on step "${value.step}", which was not emitted on this run`,
+          );
+        }
+        env[key] = named;
+        continue;
+      }
       const output = refs.stepOutputs.get(value.step);
       if (output === undefined) {
         throw new Error(
@@ -304,9 +316,12 @@ export function runWorkflow(
   args.bus?.publish({ type: "run.started", id: runId });
 
   // Populated as the run progresses: an ok step that declared an `id` lands
-  // its stdout here, and each stored article lands under its slug. Read by
-  // buildEnv when resolving `{ step: <id> }` / `{ article: <slug> }` refs.
+  // its stdout (and, when it declared `outputs:`, its named-output map)
+  // here, and each stored article lands under its slug. Read by buildEnv
+  // when resolving `{ step: <id> }` / `{ step, output }` /
+  // `{ article: <slug> }` refs.
   const stepOutputsById = new Map<string, string>();
+  const stepNamedOutputsById = new Map<string, Record<string, string>>();
   const articlesBySlug = new Map<string, string>();
 
   // Insert → publish "running" → spawn → translate envelope → update →
@@ -326,6 +341,8 @@ export function runWorkflow(
     cancelled: boolean;
     stepStatus: "ok" | "failed" | "cancelled";
     stepError: { message: string; stack?: string } | null;
+    /** The ingested named-output map when the step declared `outputs:` and settled ok; null otherwise. */
+    outputs: Record<string, string> | null;
   }> => {
     const stepId = crypto.randomUUID();
     db.insert(runSteps)
@@ -345,6 +362,7 @@ export function runWorkflow(
 
     const env = buildEnv(opts.step, runId, opts.index, args.config, resolvedInputs, {
       stepOutputs: stepOutputsById,
+      stepNamedOutputs: stepNamedOutputsById,
       articles: articlesBySlug,
     });
     if (opts.envExtras) Object.assign(env, opts.envExtras);
@@ -413,7 +431,7 @@ export function runWorkflow(
 
     args.bus?.publish({ type: "run.step.updated", runId, step: opts.index, status: stepStatus });
 
-    return { envelope, cancelled, stepStatus, stepError };
+    return { envelope, cancelled, stepStatus, stepError, outputs };
   };
 
   const done = (async (): Promise<RunWorkflowResult> => {
@@ -444,7 +462,7 @@ export function runWorkflow(
         // channel; the outputs channel additionally requires the step to
         // declare `outputs:` — kiri-output fails loudly without it.
         const declaredOutputs = isLlmStep(step) ? undefined : step.outputs;
-        const { envelope, cancelled, stepStatus, stepError } = await executePhase({
+        const { envelope, cancelled, stepStatus, stepError, outputs } = await executePhase({
           step,
           index: i,
           input,
@@ -484,7 +502,10 @@ export function runWorkflow(
           break;
         }
         if (cancelled) break;
-        if (step.id !== undefined) stepOutputsById.set(step.id, envelope.output);
+        if (step.id !== undefined) {
+          stepOutputsById.set(step.id, envelope.output);
+          if (outputs !== null) stepNamedOutputsById.set(step.id, outputs);
+        }
         input = envelope.output;
       }
 

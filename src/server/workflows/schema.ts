@@ -9,10 +9,10 @@ const envValueSchema = z.union([
       "Reference to a workflow input by name. Resolved to the input's string value at spawn time.",
     ),
   z
-    .object({ step: z.string().min(1) })
+    .object({ step: z.string().min(1), output: z.string().min(1).optional() })
     .strict()
     .describe(
-      "Reference to an earlier step's stdout by that step's `id`. Resolved at spawn time to the step's stdout, byte-for-byte — never trimmed or truncated.",
+      "Reference to an earlier step by its `id`. Without `output`, resolves at spawn time to the step's stdout, byte-for-byte — never trimmed or truncated. With `output`, resolves to the value the step emitted for that declared output name via `kiri-output`.",
     ),
   z
     .object({ article: z.string().min(1) })
@@ -416,6 +416,19 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
             path: [...path, "env", key, "step"],
             message: `env "${key}" references step "${value.step}", which does not run before this step — refs are backward-only`,
           });
+        } else if (value.output !== undefined) {
+          // The declaration is the contract that makes run-time resolution
+          // total: only declared names are referenceable, and the runner
+          // fails a declaring step that skips one.
+          const targetStep = wf.steps[target];
+          const declared = targetStep && "outputs" in targetStep ? (targetStep.outputs ?? []) : [];
+          if (!declared.includes(value.output)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [...path, "env", key, "output"],
+              message: `env "${key}" references output "${value.output}" on step "${value.step}", which does not declare it in outputs:`,
+            });
+          }
         }
         continue;
       }
