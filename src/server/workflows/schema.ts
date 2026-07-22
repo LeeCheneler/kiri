@@ -95,10 +95,9 @@ const shStepSchema = z
 
 /**
  * The `llm:` block of a first-party LLM step. Both prompt fields are
- * structurally optional because the rules are positional: `steps:` and
- * `articles:` require exactly one of `prompt` / `prompt_file`, while
- * `summarize:` allows neither (it falls back to a default summary prompt).
- * The cross-field checks live in `workflowSchema.superRefine`.
+ * structurally optional so the exactly-one-of-`prompt`/`prompt_file` rule
+ * can be cross-validated with a precise message in
+ * `workflowSchema.superRefine`.
  */
 const llmConfigSchema = z
   .object({
@@ -472,13 +471,11 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
     });
   }
 
-  // Prompt rules are positional: `steps:` and `articles:` require exactly one
-  // of `prompt` / `prompt_file`; `summarize:` allows neither (it falls back
-  // to a default summary prompt). Declaring both is invalid everywhere.
+  // Every llm entry — steps, articles, and summarize alike — declares
+  // exactly one of `prompt` / `prompt_file`.
   const checkLlmPrompt = (
     entry: z.infer<typeof stepSchema> | z.infer<typeof articleEntrySchema>,
     path: Array<string | number>,
-    promptRequired: boolean,
   ): void => {
     if (!("llm" in entry)) return;
     const { prompt, prompt_file } = entry.llm;
@@ -488,7 +485,7 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
         path: [...path, "llm"],
         message: "llm declares both prompt and prompt_file — set exactly one",
       });
-    } else if (prompt === undefined && prompt_file === undefined && promptRequired) {
+    } else if (prompt === undefined && prompt_file === undefined) {
       ctx.addIssue({
         code: "custom",
         path: [...path, "llm"],
@@ -496,9 +493,9 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
       });
     }
   };
-  wf.steps.forEach((step, i) => checkLlmPrompt(step, ["steps", i], true));
-  if (wf.summarize) checkLlmPrompt(wf.summarize, ["summarize"], false);
-  wf.articles?.forEach((entry, i) => checkLlmPrompt(entry, ["articles", i], true));
+  wf.steps.forEach((step, i) => checkLlmPrompt(step, ["steps", i]));
+  if (wf.summarize) checkLlmPrompt(wf.summarize, ["summarize"]);
+  wf.articles?.forEach((entry, i) => checkLlmPrompt(entry, ["articles", i]));
 });
 
 export type WorkflowDefinition = z.infer<typeof workflowSchema>;

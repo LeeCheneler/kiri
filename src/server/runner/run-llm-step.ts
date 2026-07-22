@@ -67,9 +67,9 @@ export async function runLlmStep(args: RunLlmStepArgs): Promise<StepEnvelope> {
       });
     }
   } else {
-    // steps:/articles: schemas require a prompt source and the runner
-    // substitutes the default summary prompt before a summarize step gets
-    // here, so this is an invariant breach, not a user error.
+    // The schema requires a prompt source on every llm entry, so reaching
+    // this branch means the definition bypassed validation — an invariant
+    // breach, not a user error.
     return fail({
       message: `llm step declares neither prompt nor prompt_file (model "${step.llm.model}")`,
     });

@@ -460,13 +460,16 @@ describe("workflowSchema", () => {
     });
   });
 
-  it("parses an llm summarize step with no prompt (falls back to the default)", () => {
-    const result = workflowSchema.parse({
-      name: "llm-sum-default",
+  it("rejects an llm summarize step with no prompt source", () => {
+    const result = workflowSchema.safeParse({
+      name: "llm-sum-promptless",
       steps: [{ use: "x" }],
       summarize: { llm: { model: "anthropic:claude-haiku-4-5" } },
     });
-    expect(result.summarize).toEqual({ llm: { model: "anthropic:claude-haiku-4-5" } });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("llm requires one of prompt or prompt_file");
+    }
   });
 
   it("rejects a step with both use and llm keys", () => {

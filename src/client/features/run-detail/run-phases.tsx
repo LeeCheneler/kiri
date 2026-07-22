@@ -226,7 +226,8 @@ const promptExcerpt = (prompt: string): string =>
 /**
  * The llm-specific header of an expanded trace: the completion's model and
  * its prompt source — an inline `prompt` excerpt or the `prompt_file` path.
- * A zero-config summariser carries neither and shows only the model.
+ * A historical zero-config summariser row carries neither and shows only
+ * the model.
  */
 function LlmDetail({ llm }: { llm: LlmConfigSummary }) {
   return (

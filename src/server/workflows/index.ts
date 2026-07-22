@@ -24,6 +24,7 @@ export {
   loadWorkflows,
   parseWorkflowSource,
 } from "./loader.ts";
+export { stepLabel } from "./step-label.ts";
 export { workflowJsonSchema } from "./json-schema.ts";
 export { type Registry, createRegistry } from "./registry.ts";
 export { buildInputSchema } from "./build-input-schema.ts";

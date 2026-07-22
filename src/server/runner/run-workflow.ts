@@ -7,13 +7,7 @@ import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import { resolveGitHead } from "../git/head.ts";
-import {
-  DEFAULT_SUMMARY_PROMPT,
-  type LlmClients,
-  type SummaryContextArticle,
-  type SummaryContextStep,
-  buildSummaryContext,
-} from "../llm/index.ts";
+import type { LlmClients } from "../llm/index.ts";
 import {
   type ArticleEntry,
   type LlmConfig,
@@ -107,15 +101,6 @@ const articleAsStep = (entry: ArticleEntry): WorkflowStep => {
   if (isLlmArticle(entry)) return { llm: entry.llm, env: entry.env };
   return { sh: entry.sh, env: entry.env };
 };
-
-// The schema lets a summarize llm step omit both prompt fields so
-// `summarize: { llm: { model } }` works zero-config; the baked-in prompt
-// reads the injected {{KIRI_SUMMARY_CONTEXT}} digest. The substitution
-// stays out of the definition snapshot — that records what was authored.
-const withDefaultSummaryPrompt = (step: WorkflowStep): WorkflowStep =>
-  isLlmStep(step) && step.llm.prompt === undefined && step.llm.prompt_file === undefined
-    ? { ...step, llm: { ...step.llm, prompt: DEFAULT_SUMMARY_PROMPT } }
-    : step;
 
 /** The step's kind tag plus identifying config, for `run_steps.kind`. */
 const stepIdentOf = (step: WorkflowStep): StepIdent => {
@@ -437,10 +422,6 @@ export function runWorkflow(
     let runError: { message: string; stack?: string } | undefined;
     let caughtThrow: unknown;
     let summaryText: string | null = null;
-    // Accumulated step outcomes and articles, rendered into the digest
-    // handed to the summarize phase without a DB round-trip.
-    const executed: SummaryContextStep[] = [];
-    const producedArticles: SummaryContextArticle[] = [];
 
     try {
       mkdirSync(scratchDir, { recursive: true });
@@ -481,13 +462,6 @@ export function runWorkflow(
             recommendationIndex,
           );
         }
-
-        executed.push({
-          step,
-          index: i,
-          durationMs: envelope.traces.durationMs,
-          stdout: envelope.traces.stdout,
-        });
 
         // Halt on the step's settled status, not the raw envelope: an ok
         // envelope that broke its outputs contract has already been marked
@@ -552,7 +526,6 @@ export function runWorkflow(
               createdAt: new Date(),
             })
             .run();
-          producedArticles.push({ slug: entry.slug, name, content_md: contentMd });
           articlesBySlug.set(entry.slug, contentMd);
         }
 
@@ -574,25 +547,14 @@ export function runWorkflow(
       // Failure here doesn't change the run's terminal status; the
       // summariser is best-effort.
       if (definition.summarize && status === "ok") {
-        const summarizeStep = withDefaultSummaryPrompt(definition.summarize);
         const summaryIndex = definition.steps.length + articleEntries.length;
-        // The gist plane: a prompt-ready plain-text digest of the run,
-        // injected the same way for every summarize shape — `sh:`/`use:`
-        // read $KIRI_SUMMARY_CONTEXT, `llm:` prompts template
-        // {{KIRI_SUMMARY_CONTEXT}}. Summarize runs only on fully-ok
-        // pipelines, so `executed` covers every authored step.
-        const summaryContext = buildSummaryContext({
-          workflow: definition.name,
-          durationMs: Date.now() - startedAt.getTime(),
-          steps: executed,
-          articles: producedArticles,
-        });
-
+        // Like every other phase, the summariser receives exactly the data
+        // its env: declares — { step: <id> } / { step, output } /
+        // { article: <slug> } refs resolved at spawn.
         const { envelope, cancelled } = await executePhase({
-          step: summarizeStep,
+          step: definition.summarize,
           index: summaryIndex,
           flag: "summary",
-          envExtras: { KIRI_SUMMARY_CONTEXT: summaryContext },
         });
 
         if (envelope.status === "ok" && !cancelled) {

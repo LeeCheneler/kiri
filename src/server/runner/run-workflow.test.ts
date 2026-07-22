@@ -971,45 +971,6 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBe("unset|unset");
     });
 
-    it("caps a chatty step's stdout in the summary digest at 64 KB", async () => {
-      // Emit ~80 KB of stdout so the per-stream cap bites.
-      writeBundle("firehose", "#!/bin/sh\nyes x | head -c 81920\n");
-      const wf: WorkflowDefinition = {
-        name: "ctx-cap",
-        steps: [{ use: "firehose" }],
-        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
-      };
-
-      const result = await runWorkflow(db, wf, { config }).done;
-      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      expect(run?.summary).toContain("[truncated]");
-      // Header + capped body land well under the raw 80 KB.
-      expect((run?.summary as string).length).toBeLessThan(81920);
-
-      // The step row keeps the full stream — only the digest is capped.
-      const stepsRows = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).all();
-      const firehose = stepsRows.find((s) => s.index === 0);
-      expect((firehose?.traces as { stdout: string }).stdout.length).toBe(81920);
-    });
-
-    it("includes produced articles in the summary digest", async () => {
-      writeBundle("step", "#!/bin/sh\necho one\n");
-      writeBundle("art", "#!/bin/sh\necho article-body\n");
-      const wf: WorkflowDefinition = {
-        name: "summer-sees-art",
-        steps: [{ use: "step" }],
-        articles: [{ slug: "art", name: "Article", use: "art" }],
-        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
-      };
-
-      const result = await runWorkflow(db, wf, { config }).done;
-      expect(result.status).toBe("ok");
-
-      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      expect(run?.summary).toContain("## Article: Article (art)");
-      expect(run?.summary).toContain("article-body");
-    });
-
     it("publishes summariser step events between run.step.updated and run.updated", async () => {
       writeBundle("step", "#!/bin/sh\necho one\n");
       writeBundle("summer", "#!/bin/sh\necho summary\n");
@@ -1065,8 +1026,8 @@ describe("runWorkflow", () => {
       expect(run?.summary).toBeNull();
     });
 
-    it("stores an llm summariser's text and templates the digest into its prompt", async () => {
-      writeBundle("step", "#!/bin/sh\necho hello\n");
+    it("stores an llm summariser's text, rendering its prompt from declared refs", async () => {
+      writeBundle("step", "#!/bin/sh\nprintf 'hello'\n");
       const prompts: string[] = [];
       const llmClients = fakeLlm(async ({ prompt }) => {
         prompts.push(prompt);
@@ -1074,12 +1035,10 @@ describe("runWorkflow", () => {
       });
       const wf: WorkflowDefinition = {
         name: "llm-sum",
-        steps: [{ use: "step" }],
+        steps: [{ use: "step", id: "fetch" }],
         summarize: {
-          llm: {
-            model: "anthropic:m",
-            prompt: "digest={{KIRI_SUMMARY_CONTEXT}}",
-          },
+          llm: { model: "anthropic:m", prompt: "summarise={{DATA}}" },
+          env: { DATA: { step: "fetch" } },
         },
       };
 
@@ -1088,20 +1047,17 @@ describe("runWorkflow", () => {
       expect(result.status).toBe("ok");
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
       expect(run?.summary).toBe("a tidy summary");
-
-      expect(prompts[0]).toContain("digest=Workflow: llm-sum");
-      expect(prompts[0]).toContain("hello");
+      expect(prompts).toEqual(["summarise=hello"]);
     });
 
-    it("falls back to the baked-in summary prompt when an llm summariser declares none", async () => {
+    it("fails only the summariser when an llm summariser reaches execution with no prompt", async () => {
+      // The schema rejects a prompt-less llm summarize at load; a definition
+      // constructed directly exercises the runner's behaviour when the
+      // invariant is bypassed — the summariser fails, the run stays ok.
       writeBundle("step", "#!/bin/sh\necho payload\n");
-      const prompts: string[] = [];
-      const llmClients = fakeLlm(async ({ prompt }) => {
-        prompts.push(prompt);
-        return { text: "default-prompt summary", usage: {} };
-      });
+      const llmClients = fakeLlm(async () => ({ text: "never", usage: {} }));
       const wf: WorkflowDefinition = {
-        name: "zero-config-sum",
+        name: "promptless-sum",
         steps: [{ use: "step" }],
         summarize: { llm: { model: "anthropic:m" } },
       };
@@ -1110,17 +1066,16 @@ describe("runWorkflow", () => {
 
       expect(result.status).toBe("ok");
       const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      expect(run?.summary).toBe("default-prompt summary");
-
-      // The default prompt carries the feed instructions and the inlined
-      // plain-text digest (not the JSON envelope).
-      expect(prompts[0]).toContain("activity feed");
-      expect(prompts[0]).toContain("Workflow: zero-config-sum");
-      expect(prompts[0]).toContain("payload");
-
-      // The snapshot keeps the authored definition, not the substituted prompt.
-      expect(run?.definitionSnapshot).toMatchObject({
-        summarize: { llm: { model: "anthropic:m" } },
+      expect(run?.summary).toBeNull();
+      const summariser = db
+        .select()
+        .from(runSteps)
+        .where(eq(runSteps.runId, result.runId))
+        .all()
+        .find((row) => row.isSummary);
+      expect(summariser?.status).toBe("failed");
+      expect(summariser?.error).toMatchObject({
+        message: expect.stringContaining("neither prompt nor prompt_file"),
       });
     });
   });
@@ -2620,36 +2575,15 @@ echo emitted
   });
 
   describe("summary context", () => {
-    it("injects the run digest into sh/use summarizers as $KIRI_SUMMARY_CONTEXT", async () => {
-      writeBundle("step", "#!/bin/sh\necho payload\n");
-      writeBundle("pub", "#!/bin/sh\necho article-body\n");
-      const wf: WorkflowDefinition = {
-        name: "digest-sum",
-        steps: [{ use: "step", id: "fetch", name: "Fetch data" }],
-        articles: [{ slug: "digest", use: "pub" }],
-        summarize: { sh: 'printf "%s" "$KIRI_SUMMARY_CONTEXT"' },
-      };
-
-      const result = await runWorkflow(db, wf, { config }).done;
-
-      expect(result.status).toBe("ok");
-      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
-      // The summariser echoed the digest back: header, labelled step
-      // section with its stdout, and the produced article.
-      expect(run?.summary).toContain("Workflow: digest-sum");
-      expect(run?.summary).toContain("## Step 0 — Fetch data");
-      expect(run?.summary).toContain("payload");
-      expect(run?.summary).toContain("## Article: Digest (digest)");
-      expect(run?.summary).toContain("article-body");
-    });
-
-    it("does not offer KIRI_SUMMARY_CONTEXT to main steps or articles", async () => {
+    it("never injects the retired KIRI_SUMMARY_CONTEXT — any phase sees it unset", async () => {
       writeBundle("step", '#!/bin/sh\nprintf "step=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
       writeBundle("pub", '#!/bin/sh\nprintf "pub=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
+      writeBundle("summer", '#!/bin/sh\nprintf "sum=%s" "${KIRI_SUMMARY_CONTEXT:-unset}"\n');
       const wf: WorkflowDefinition = {
-        name: "digest-scope",
+        name: "digest-retired",
         steps: [{ use: "step" }],
         articles: [{ slug: "probe", use: "pub" }],
+        summarize: { use: "summer" },
       };
 
       const result = await runWorkflow(db, wf, { config }).done;
@@ -2663,6 +2597,8 @@ echo emitted
         .all();
       expect(rows[0].output).toBe("step=unset");
       expect(rows[1].output).toBe("pub=unset");
+      const run = db.select().from(runs).where(eq(runs.id, result.runId)).get();
+      expect(run?.summary).toBe("sum=unset");
     });
   });
 });

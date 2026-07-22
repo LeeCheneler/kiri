@@ -7,7 +7,7 @@ import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
-import { type LlmClients, summaryStepLabel } from "../llm/index.ts";
+import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow, wipeRunForRerun } from "../runner/index.ts";
 import {
@@ -15,6 +15,7 @@ import {
   type WorkflowDefinition,
   buildInputSchema,
   parseWorkflowSource,
+  stepLabel,
 } from "../workflows/index.ts";
 import { detectHostEnvironment } from "./host-environment.ts";
 import { buildWorkflowAuthoringGuide } from "./workflow-authoring-guide.ts";
@@ -60,7 +61,7 @@ const phaseLabel = (
   if (row.isArticle) {
     return `article: ${(definition.articles ?? [])[row.index - definition.steps.length].slug}`;
   }
-  return summaryStepLabel(definition.steps[row.index]);
+  return stepLabel(definition.steps[row.index]);
 };
 
 // Per-stream cap on the failure output attached to a failed phase in the
