@@ -8,6 +8,7 @@ import troubleshooting from "./content/troubleshooting.md?raw";
 import trustAndSecurity from "./content/trust-and-security.md?raw";
 import workflowReference from "./content/workflow-reference.md?raw";
 import workflows from "./content/workflows.md?raw";
+import worktrees from "./content/worktrees.md?raw";
 
 /** The left-rail section a documentation page is grouped under. */
 export type DocsSection = "Start" | "Guides" | "Reference";
@@ -35,6 +36,7 @@ export const DOCS_PAGES: DocsPage[] = [
   { slug: "workflows", title: "Writing workflows", section: "Guides", content: workflows },
   { slug: "recipes", title: "Recipes", section: "Guides", content: recipes },
   { slug: "sessions", title: "Sessions", section: "Guides", content: sessions },
+  { slug: "worktrees", title: "Worktrees", section: "Guides", content: worktrees },
   { slug: "llm-providers", title: "Models & providers", section: "Guides", content: llmProviders },
   {
     slug: "workflow-reference",

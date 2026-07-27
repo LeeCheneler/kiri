@@ -23,36 +23,16 @@ const prepareSchema = z
   })
   .strict();
 
-const cleanupSchema = z
-  .object({
-    mergedPr: z
-      .enum(["off", "suggest", "auto"])
-      .optional()
-      .describe(
-        'What to do once a worktree\'s pull request has merged: "off" ignores it, "suggest" flags it for one-click removal, "auto" removes it. Defaults to "suggest".',
-      ),
-    fetchIntervalMinutes: z
-      .number()
-      .int()
-      .min(0)
-      .optional()
-      .describe(
-        "How often, in minutes, to fetch remote state so merged pull requests are detected. Absent or 0 means manual refresh only.",
-      ),
-  })
-  .strict();
-
 const overridesSchema = z
   .object({
     prepare: prepareSchema.optional(),
-    cleanup: cleanupSchema.optional(),
   })
   .strict();
 
 /**
  * Schema for the `worktrees:` section in `kiri.yaml`: the folders to scan for
- * git repos and worktrees, plus the prepare/cleanup policy — as `defaults:` and
- * per-repo `repos:` overrides deep-merged over them.
+ * git repos and worktrees, plus the prepare policy — as `defaults:` and per-repo
+ * `repos:` overrides deep-merged over them.
  */
 export const worktreesSchema = z
   .object({
@@ -63,7 +43,7 @@ export const worktreesSchema = z
       ),
     defaults: overridesSchema
       .optional()
-      .describe("Baseline prepare and cleanup settings applied to every repo."),
+      .describe("Baseline prepare settings applied to every repo."),
     repos: z
       .record(z.string().min(1), overridesSchema)
       .optional()
@@ -73,7 +53,7 @@ export const worktreesSchema = z
   })
   .strict()
   .describe(
-    "Worktree management: the folders to scan for repos and the prepare/cleanup policy for creating and tidying their worktrees.",
+    "Worktree management: the folders to scan for repos and the prepare policy applied when creating their worktrees.",
   );
 
 /** The raw, validated `worktrees:` section. */
@@ -81,6 +61,3 @@ export type WorktreesConfig = z.infer<typeof worktreesSchema>;
 
 /** A single validated `prepare:` block — `defaults.prepare` or a repo override. */
 export type WorktreePrepareConfig = z.infer<typeof prepareSchema>;
-
-/** A single validated `cleanup:` block — `defaults.cleanup` or a repo override. */
-export type WorktreeCleanupConfig = z.infer<typeof cleanupSchema>;
