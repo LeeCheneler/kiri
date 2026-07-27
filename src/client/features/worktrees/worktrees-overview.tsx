@@ -9,7 +9,16 @@ import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Tag, type TagTone } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
-import { useRefreshWorktrees, useWorktrees } from "../../state/worktrees.ts";
+import {
+  useCreateWorktree,
+  usePruneWorktrees,
+  useRefreshWorktrees,
+  useRemoveWorktree,
+  useWorktrees,
+} from "../../state/worktrees.ts";
+import { CreateWorktreeModal } from "./create-worktree-modal.tsx";
+import { PruneWorktreesModal, pruneTargets } from "./prune-worktrees-modal.tsx";
+import { RemoveWorktreeModal } from "./remove-worktree-modal.tsx";
 
 // Trailing directory name of an absolute path — what a worktree is known by in
 // conversation ("kiri-feat-search"), with the full path kept alongside it.
@@ -32,11 +41,14 @@ const stateTags = (worktree: WorktreeStatus): { label: string; tone: TagTone }[]
   return tags;
 };
 
-// One worktree: what it is called, where its branch sits, and the state rail
-// that says what you would do with it.
-function WorktreeRow({ worktree }: { worktree: WorktreeStatus }) {
+// One worktree: what it is called, where its branch sits, the state rail that
+// says what you would do with it, and — for a linked worktree — the removal that
+// tidies it away. The rail and the action are kept apart, so a row of facts
+// never reads as a row of controls. The primary checkout carries no remove
+// action; it is the repo.
+function WorktreeRow({ worktree, onRemove }: { worktree: WorktreeStatus; onRemove: () => void }) {
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
       <div className="min-w-0">
         <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
           {dirName(worktree.path)}
@@ -46,20 +58,27 @@ function WorktreeRow({ worktree }: { worktree: WorktreeStatus }) {
           {worktree.detached ? "detached" : (worktree.branch ?? "no branch")}
         </p>
       </div>
-      <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-        {stateTags(worktree).map((tag) => (
-          <Tag key={tag.label} tone={tag.tone}>
-            {tag.label}
-          </Tag>
-        ))}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 sm:justify-end">
+        <div className="flex flex-wrap gap-2">
+          {stateTags(worktree).map((tag) => (
+            <Tag key={tag.label} tone={tag.tone}>
+              {tag.label}
+            </Tag>
+          ))}
+        </div>
+        {worktree.primary ? null : (
+          <Button variant="negative" onClick={onRemove}>
+            remove
+          </Button>
+        )}
       </div>
     </div>
   );
 }
 
-// What a collapsed repo still has to say: how many checkouts it holds, and how
-// many of them are carrying something. Counts are only tagged when non-zero, so
-// a settled repo collapses to its name and size.
+// What a collapsed repo still has to say: its default branch, how many checkouts
+// it holds, and how many of them are carrying something. Counts are only tagged
+// when non-zero, so a settled repo collapses to its name and size.
 const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => {
   const count = (predicate: (worktree: WorktreeStatus) => boolean) =>
     repo.worktrees.filter(predicate).length;
@@ -68,6 +87,9 @@ const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => 
   const gone = count((worktree) => worktree.upstreamGone);
   const prunable = count((worktree) => worktree.prunable);
   return [
+    ...(repo.defaultBranch === null
+      ? []
+      : [{ label: repo.defaultBranch, tone: "accent" as const }]),
     { label: `${total} ${total === 1 ? "worktree" : "worktrees"}`, tone: "neutral" as const },
     ...(dirty > 0 ? [{ label: `${dirty} dirty`, tone: "caution" as const }] : []),
     ...(gone > 0 ? [{ label: `${gone} upstream gone`, tone: "negative" as const }] : []),
@@ -75,11 +97,14 @@ const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => 
   ];
 };
 
-// One repo: a collapsible card whose summary is its name and the state of the
-// checkouts inside, revealing its primary path and every worktree row — primary
-// first, as the server orders them. A repo holding something that wants a
-// decision starts expanded, so the work shows without a click.
+// One repo: a collapsible card whose summary is its name, its default branch,
+// and the state of the checkouts inside, revealing its primary path and every
+// worktree row — primary first, as the server orders them. A repo holding
+// something that wants a decision starts expanded, so the work shows without a
+// click.
 function RepoCard({ repo }: { repo: RepoOverview }) {
+  const remove = useRemoveWorktree();
+  const [removing, setRemoving] = useState<WorktreeStatus | null>(null);
   const wantsAttention = repo.worktrees.some(
     (worktree) => worktree.dirty || worktree.upstreamGone || worktree.prunable,
   );
@@ -104,11 +129,18 @@ function RepoCard({ repo }: { repo: RepoOverview }) {
         <ul className="mt-5 space-y-4">
           {repo.worktrees.map((worktree) => (
             <li key={worktree.path}>
-              <WorktreeRow worktree={worktree} />
+              <WorktreeRow worktree={worktree} onRemove={() => setRemoving(worktree)} />
             </li>
           ))}
         </ul>
       </Disclosure>
+      {removing ? (
+        <RemoveWorktreeModal
+          worktree={removing}
+          onRemove={remove}
+          onClose={() => setRemoving(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -131,18 +163,25 @@ function ScannedRoots({ roots }: { roots: string[] }) {
 }
 
 /**
- * The Worktrees surface: every repo discovered under the configured roots,
- * each with its primary checkout and linked worktrees and their live state —
- * branch, dirty flag, upstream position, and the locked / prunable flags.
- * Read-only. Refreshing re-runs discovery on the server; the listing otherwise
- * stays current through `useWorktreesLive`, so a refresh triggered from
- * another open client lands here too.
+ * The Worktrees surface: every repo discovered under the configured roots, each
+ * with its default branch, its primary checkout and linked worktrees, and their
+ * live state — branch, dirty flag, upstream position, and the locked / prunable
+ * flags. The whole lifecycle runs from here: creating a worktree, removing one,
+ * and — when git is holding records for worktrees that have gone — clearing
+ * those stale entries from the banner that announces them. Refreshing re-runs
+ * discovery on the
+ * server; the listing otherwise stays current through `useWorktreesLive`, so an
+ * operation run from another open client lands here too.
  */
 export function WorktreesOverview() {
   const query = useWorktrees();
   const refresh = useRefreshWorktrees();
+  const create = useCreateWorktree();
+  const prune = usePruneWorktrees();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [pruning, setPruning] = useState(false);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -154,13 +193,25 @@ export function WorktreesOverview() {
       .finally(() => setRefreshing(false));
   };
 
+  const repos = query.data?.repos ?? [];
+  // The prune action only exists when something is actually stale, so nobody has
+  // to click a button to find out there was nothing to do.
+  const stale = pruneTargets(repos).reduce((total, target) => total + target.paths.length, 0);
+
   return (
     <section>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Breadcrumb items={[]} current="Worktrees" />
-        <Button onClick={onRefresh} pending={refreshing} pendingLabel="Refreshing…">
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={onRefresh} pending={refreshing} pendingLabel="Refreshing…">
+            Refresh
+          </Button>
+          {repos.length > 0 ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              New worktree
+            </Button>
+          ) : null}
+        </div>
       </div>
       {refreshError ? (
         <div className="mt-6">
@@ -169,9 +220,26 @@ export function WorktreesOverview() {
           </Notice>
         </div>
       ) : null}
+      {stale > 0 ? (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+          <Notice
+            tone="warning"
+            title={`${stale} stale ${stale === 1 ? "entry" : "entries"} to clear`}
+          >
+            Git still holds records for worktrees whose directories have gone.
+          </Notice>
+          <Button onClick={() => setPruning(true)}>Review and prune</Button>
+        </div>
+      ) : null}
       <div className="mt-6">
         <Body query={query} />
       </div>
+      {creating ? (
+        <CreateWorktreeModal repos={repos} onCreate={create} onClose={() => setCreating(false)} />
+      ) : null}
+      {pruning ? (
+        <PruneWorktreesModal repos={repos} onPrune={prune} onClose={() => setPruning(false)} />
+      ) : null}
     </section>
   );
 }

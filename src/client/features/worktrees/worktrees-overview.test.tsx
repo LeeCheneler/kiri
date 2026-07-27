@@ -39,6 +39,7 @@ const payload = {
       name: "kiri",
       root: "/projects/kiri",
       gitCommonDir: "/projects/kiri/.git",
+      defaultBranch: "main",
       worktrees: [
         worktree({ primary: true }),
         worktree({
@@ -121,6 +122,7 @@ describe("<WorktreesOverview>", () => {
           name: "site",
           root: "/projects/site",
           gitCommonDir: "/projects/site/.git",
+          defaultBranch: "main",
           worktrees: [worktree({ path: "/projects/site", primary: true })],
         },
       ],
@@ -159,6 +161,7 @@ describe("<WorktreesOverview>", () => {
               name: "bare",
               root: "/projects/bare",
               gitCommonDir: "/projects/bare/.git",
+              defaultBranch: null,
               worktrees: [
                 worktree({ path: "/projects/bare", branch: null, dirty: true, primary: true }),
               ],
@@ -186,6 +189,7 @@ describe("<WorktreesOverview>", () => {
               name: "site",
               root: "/projects/site",
               gitCommonDir: "/projects/site/.git",
+              defaultBranch: "main",
               worktrees: [],
             },
           ],
@@ -210,5 +214,136 @@ describe("<WorktreesOverview>", () => {
     expect(await screen.findByText(/couldn't refresh worktrees/i)).toBeDefined();
     expect(screen.getByText("roots unreadable")).toBeDefined();
     expect(screen.getByRole("button", { name: /kiri/i })).toBeDefined();
+  });
+
+  // A repo whose default branch differs from every checked-out branch, so the
+  // summary's default-branch tag is unambiguous.
+  const withDefaultBranch = (defaultBranch: string | null) => ({
+    roots: ["/projects"],
+    repos: [
+      {
+        name: "site",
+        root: "/projects/site",
+        gitCommonDir: "/projects/site/.git",
+        defaultBranch,
+        worktrees: [worktree({ path: "/projects/site", primary: true })],
+      },
+    ],
+  });
+
+  it("names the repo's default branch in its summary", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch("trunk"))));
+    renderOverview();
+    expect(await screen.findByText("trunk")).toBeDefined();
+  });
+
+  it("omits the default branch when the repo has none", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch(null))));
+    renderOverview();
+    await screen.findByRole("button", { name: /site/i });
+    expect(screen.queryByText("trunk")).toBeNull();
+  });
+
+  it("offers no create action while there are no repos to create in", async () => {
+    renderOverview();
+    await screen.findByText(/none are listed, so there is nothing to scan/i);
+    expect(screen.queryByRole("button", { name: /new worktree/i })).toBeNull();
+  });
+
+  it("creates a worktree and lets the reloaded listing show it", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    let created: unknown;
+    server.use(
+      http.post("*/api/worktrees/create", async ({ request }) => {
+        created = await request.json();
+        return HttpResponse.json({
+          status: "ok",
+          path: "/projects/kiri-swift-otter",
+          branch: "feat/thing",
+          branchSource: "new",
+          baseRef: "origin/main",
+          prepare: null,
+        });
+      }),
+    );
+    renderOverview();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.click(screen.getByRole("button", { name: /new worktree/i }));
+    await userEvent.clear(screen.getByRole("textbox", { name: /worktree name/i }));
+    await userEvent.type(screen.getByRole("textbox", { name: /worktree name/i }), "swift-otter");
+    await userEvent.click(screen.getByRole("button", { name: "create" }));
+
+    expect(await screen.findByText("/projects/kiri-swift-otter")).toBeDefined();
+    expect(created).toMatchObject({ repo: "kiri", branch: "swift-otter", name: "swift-otter" });
+
+    await userEvent.click(screen.getByRole("button", { name: "done" }));
+    expect(screen.queryByRole("button", { name: "done" })).toBeNull();
+  });
+
+  it("removes a worktree from its row", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    let removed: unknown;
+    server.use(
+      http.post("*/api/worktrees/remove", async ({ request }) => {
+        removed = await request.json();
+        return HttpResponse.json({
+          status: "ok",
+          path: "/projects/kiri-stale",
+          branch: "feat/stale",
+          deletedBranchSha: "9149b26",
+          pull: "skipped",
+          warnings: [],
+        });
+      }),
+    );
+    renderOverview();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    // The primary checkout is the repo itself, so only the linked worktrees
+    // offer a removal.
+    const removeButtons = screen.getAllByRole("button", { name: "remove" });
+    expect(removeButtons).toHaveLength(4);
+
+    await userEvent.click(removeButtons[2]);
+    await userEvent.click(screen.getAllByRole("button", { name: "remove" }).slice(-1)[0]);
+
+    expect(await screen.findByText(/removed the worktree/i)).toBeDefined();
+    expect(removed).toEqual({ path: "/projects/kiri-stale" });
+
+    await userEvent.click(screen.getByRole("button", { name: "done" }));
+    expect(screen.queryByRole("button", { name: "done" })).toBeNull();
+  });
+
+  it("offers no prune action when git holds nothing stale", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch("trunk"))));
+    renderOverview();
+    await screen.findByRole("button", { name: /site/i });
+    expect(screen.queryByRole("button", { name: /review and prune/i })).toBeNull();
+  });
+
+  it("announces stale entries and confirms what a prune would clear", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    let pruned: unknown;
+    server.use(
+      http.post("*/api/worktrees/prune", async ({ request }) => {
+        pruned = await request.json();
+        return HttpResponse.json({ repo: "kiri", pruned: ["/projects/kiri-old"] });
+      }),
+    );
+    renderOverview();
+    expect(await screen.findByText(/1 stale entry to clear/i)).toBeDefined();
+
+    await userEvent.click(screen.getByRole("button", { name: /review and prune/i }));
+    // The confirmation names the stale worktree, and nothing has run yet.
+    expect(await screen.findByText("/projects/kiri-old")).toBeDefined();
+    expect(pruned).toBeUndefined();
+
+    await userEvent.click(screen.getByRole("button", { name: "prune" }));
+    expect(await screen.findByText(/cleared 1 entry/i)).toBeDefined();
+    expect(pruned).toEqual({ repo: "kiri" });
+
+    await userEvent.click(screen.getByRole("button", { name: "done" }));
+    expect(screen.queryByRole("button", { name: "done" })).toBeNull();
   });
 });

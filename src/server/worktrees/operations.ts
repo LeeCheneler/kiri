@@ -123,10 +123,13 @@ const ORIGIN_HEAD_PREFIX = "refs/remotes/origin/";
 // convention git itself initialises repos with.
 const FALLBACK_DEFAULT_BRANCHES = ["main", "master"];
 
-// The repo's default branch: origin's HEAD when it is set locally, otherwise
-// whichever of main/master exists as a local branch. Never hits the network,
-// so a repo with neither has no discoverable default and yields null.
-const defaultBranch = (repo: string): string | null => {
+/**
+ * The repo's default branch: origin's HEAD when it is set locally, otherwise
+ * whichever of main/master exists as a local branch. Never hits the network, so
+ * a repo with neither has no discoverable default and yields null. `repo` is the
+ * repo's primary checkout, or any directory inside one of its worktrees.
+ */
+export const defaultBranch = (repo: string): string | null => {
   const originHead = git(repo, "symbolic-ref", "--quiet", `${ORIGIN_HEAD_PREFIX}HEAD`);
   if (originHead.ok) return originHead.stdout.trim().slice(ORIGIN_HEAD_PREFIX.length);
   return FALLBACK_DEFAULT_BRANCHES.find((name) => hasRef(repo, `refs/heads/${name}`)) ?? null;

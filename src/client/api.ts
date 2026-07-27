@@ -754,6 +754,8 @@ export interface RepoOverview {
   root: string;
   /** Absolute shared git directory — the repo's stable identity. */
   gitCommonDir: string;
+  /** The repo's default branch, or null when it has no discoverable one. */
+  defaultBranch: string | null;
   /** Primary checkout first, then linked worktrees ordered by path. */
   worktrees: WorktreeStatus[];
 }
@@ -777,6 +779,120 @@ export const fetchWorktrees = async (): Promise<WorktreesOverview> =>
  */
 export const refreshWorktrees = async (): Promise<WorktreesOverview> =>
   json<WorktreesOverview>(await apiFetch("/api/worktrees/refresh", { method: "POST" }));
+
+/** One action taken while preparing a fresh worktree — an env, install, or post-create step. */
+export interface PrepareStep {
+  name: string;
+  status: "ok" | "failed";
+  /** Tail of captured stdout, present only on a failed command with output. */
+  stdout?: string;
+  /** Tail of captured stderr, present only on a failed command with output. */
+  stderr?: string;
+  /** Failure reason, present only on a failed step. */
+  error?: string;
+}
+
+/** The prep pipeline's outcome: an overall status and a step per action, in execution order. */
+export interface PrepareReport {
+  status: "ok" | "failed";
+  steps: PrepareStep[];
+}
+
+/**
+ * Outcome of creating a worktree. `failed` with a `prepare` report means the
+ * worktree exists but its prep pipeline stopped partway; `path` names the
+ * directory either way.
+ */
+export interface CreateWorktreeResult {
+  status: "ok" | "failed";
+  /** Absolute path the worktree was created at. */
+  path: string;
+  branch: string;
+  /** How the branch was resolved: reused locally, tracked from origin, or created. */
+  branchSource: "local" | "remote" | "new" | null;
+  /** The base a brand-new branch was cut from; null when the branch already existed. */
+  baseRef: string | null;
+  /** The prep report; null when prep was skipped. */
+  prepare: PrepareReport | null;
+  /** Failure reason, present only when prep failed. */
+  error?: string;
+}
+
+/** Outcome of removing a worktree, including the non-fatal follow-up work. */
+export interface RemoveWorktreeResult {
+  status: "ok" | "failed";
+  /** Absolute path of the worktree that was removed. */
+  path: string;
+  /** The branch it was on; null when it was detached. */
+  branch: string | null;
+  /** Sha the deleted branch pointed at, for `git branch <name> <sha>` recovery. */
+  deletedBranchSha: string | null;
+  /** Outcome of the fast-forward pull of the primary checkout. */
+  pull: "ok" | "skipped" | "failed";
+  /** Non-fatal notes: a skipped or failed pull, a branch left in place. */
+  warnings: string[];
+}
+
+/** Outcome of pruning a repo's stale worktree admin entries. */
+export interface PruneWorktreesResult {
+  /** Directory name of the repo that was pruned. */
+  repo: string;
+  /** Absolute paths whose stale admin entries were cleared. */
+  pruned: string[];
+}
+
+/**
+ * Create a worktree for `repo` (its directory name or any checkout path) on
+ * `branch`, optionally under an explicit directory `name` and cut from `baseRef`
+ * when the branch is new. The repo's configured prep pipeline runs after it. The
+ * server also publishes `worktrees.changed`. Throws on non-2xx — including a
+ * create that produced no worktree; a create whose prep failed resolves with the
+ * report.
+ */
+export const createWorktree = async (body: {
+  repo: string;
+  branch: string;
+  name?: string;
+  baseRef?: string;
+}): Promise<CreateWorktreeResult> =>
+  json<CreateWorktreeResult>(
+    await apiFetch("/api/worktrees/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+
+/**
+ * Remove the linked worktree at `path` and tidy up after it. A worktree with
+ * uncommitted changes is refused unless `force`. The server also publishes
+ * `worktrees.changed`. Throws on non-2xx.
+ */
+export const removeWorktree = async (
+  path: string,
+  force?: boolean,
+): Promise<RemoveWorktreeResult> =>
+  json<RemoveWorktreeResult>(
+    await apiFetch("/api/worktrees/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, force }),
+    }),
+  );
+
+/**
+ * Clear `repo`'s stale worktree admin entries — the records git still holds for
+ * worktrees whose directories have gone. The server also publishes
+ * `worktrees.changed`. Throws on non-2xx.
+ */
+export const pruneWorktrees = async (repo: string): Promise<PruneWorktreesResult> =>
+  json<PruneWorktreesResult>(
+    await apiFetch("/api/worktrees/prune", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo }),
+    }),
+  );
 
 /** A persona available to attach to a session. */
 export interface Persona {
