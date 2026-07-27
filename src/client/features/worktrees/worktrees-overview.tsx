@@ -2,80 +2,114 @@ import { useState } from "react";
 import type { RepoOverview, WorktreeStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { Code } from "../../design-system/content/code.tsx";
+import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
-import { Meta } from "../../design-system/content/meta.tsx";
+import { Tag, type TagTone } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
-import { Card } from "../../design-system/surfaces/card.tsx";
 import { useRefreshWorktrees, useWorktrees } from "../../state/worktrees.ts";
 
 // Trailing directory name of an absolute path — what a worktree is known by in
 // conversation ("kiri-feat-search"), with the full path kept alongside it.
 const dirName = (path: string): string => path.split("/").filter(Boolean).pop() ?? path;
 
-// The worktree's position relative to its upstream, as short mono facts. A
-// branch with no upstream reports nothing, so a clean tracking branch reads as
-// silence rather than a row of zeroes.
-const trackingFacts = (worktree: WorktreeStatus): string[] => {
-  if (worktree.upstreamGone) return ["upstream gone"];
-  const facts: string[] = [];
-  if (worktree.ahead > 0) facts.push(`ahead ${worktree.ahead}`);
-  if (worktree.behind > 0) facts.push(`behind ${worktree.behind}`);
-  return facts;
+// The worktree's state as a rail of tags, ordered so the working tree leads and
+// the rarer flags trail. Working-tree state is always stated — clean is a fact
+// worth reading, not an absence. Tracking is reported only when it has
+// something to say: a branch level with its upstream, or with no upstream at
+// all, stays silent rather than showing a row of zeroes.
+const stateTags = (worktree: WorktreeStatus): { label: string; tone: TagTone }[] => {
+  const tags: { label: string; tone: TagTone }[] = [
+    worktree.dirty ? { label: "dirty", tone: "caution" } : { label: "clean", tone: "positive" },
+  ];
+  if (worktree.upstreamGone) tags.push({ label: "upstream gone", tone: "negative" });
+  if (worktree.ahead > 0) tags.push({ label: `ahead ${worktree.ahead}`, tone: "caution" });
+  if (worktree.behind > 0) tags.push({ label: `behind ${worktree.behind}`, tone: "caution" });
+  if (worktree.locked) tags.push({ label: "locked", tone: "neutral" });
+  if (worktree.prunable) tags.push({ label: "prunable", tone: "negative" });
+  return tags;
 };
 
-// One worktree: what it is called, where its branch sits, and the flags that
-// change what you would do with it.
+// One worktree: what it is called, where its branch sits, and the state rail
+// that says what you would do with it.
 function WorktreeRow({ worktree }: { worktree: WorktreeStatus }) {
-  const facts = [
-    ...trackingFacts(worktree),
-    ...(worktree.dirty ? ["dirty"] : []),
-    ...(worktree.locked ? ["locked"] : []),
-    ...(worktree.prunable ? ["prunable"] : []),
-  ];
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
       <div className="min-w-0">
-        <p className="font-mono text-ink text-sm">
+        <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
           {dirName(worktree.path)}
-          {worktree.primary ? (
-            <span className="ml-2 text-ink-muted text-xs uppercase tracking-widest">primary</span>
-          ) : null}
+          {worktree.primary ? <Tag tone="accent">primary</Tag> : null}
         </p>
-        <p className="mt-0.5 font-mono text-ink-muted text-xs">
+        <p className="mt-1 font-mono text-ink-muted text-xs">
           {worktree.detached ? "detached" : (worktree.branch ?? "no branch")}
         </p>
       </div>
-      <div className="shrink-0">
-        <Meta>
-          {facts.length === 0 ? (
-            <span>clean</span>
-          ) : (
-            facts.map((fact) => <span key={fact}>{fact}</span>)
-          )}
-        </Meta>
+      <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+        {stateTags(worktree).map((tag) => (
+          <Tag key={tag.label} tone={tag.tone}>
+            {tag.label}
+          </Tag>
+        ))}
       </div>
     </div>
   );
 }
 
-// One repo: its name and primary path above the checkouts that share its git
-// directory, primary first as the server orders them.
+// What a collapsed repo still has to say: how many checkouts it holds, and how
+// many of them are carrying something. Counts are only tagged when non-zero, so
+// a settled repo collapses to its name and size.
+const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => {
+  const count = (predicate: (worktree: WorktreeStatus) => boolean) =>
+    repo.worktrees.filter(predicate).length;
+  const total = repo.worktrees.length;
+  const dirty = count((worktree) => worktree.dirty);
+  const gone = count((worktree) => worktree.upstreamGone);
+  const prunable = count((worktree) => worktree.prunable);
+  return [
+    { label: `${total} ${total === 1 ? "worktree" : "worktrees"}`, tone: "neutral" as const },
+    ...(dirty > 0 ? [{ label: `${dirty} dirty`, tone: "caution" as const }] : []),
+    ...(gone > 0 ? [{ label: `${gone} upstream gone`, tone: "negative" as const }] : []),
+    ...(prunable > 0 ? [{ label: `${prunable} prunable`, tone: "negative" as const }] : []),
+  ];
+};
+
+// One repo: a collapsible card whose summary is its name and the state of the
+// checkouts inside, revealing its primary path and every worktree row — primary
+// first, as the server orders them. A repo holding something that wants a
+// decision starts expanded, so the work shows without a click.
 function RepoCard({ repo }: { repo: RepoOverview }) {
+  const wantsAttention = repo.worktrees.some(
+    (worktree) => worktree.dirty || worktree.upstreamGone || worktree.prunable,
+  );
   return (
-    <Card>
-      <h2 className="font-mono text-base text-ink">{repo.name}</h2>
-      <p className="mt-1 break-all font-mono text-ink-muted text-xs">{repo.root}</p>
-      <ul className="mt-5 space-y-4">
-        {repo.worktrees.map((worktree) => (
-          <li key={worktree.path}>
-            <WorktreeRow worktree={worktree} />
-          </li>
-        ))}
-      </ul>
-    </Card>
+    <div className="overflow-hidden rounded-sm border border-rule bg-canvas-2">
+      <Disclosure
+        defaultOpen={wantsAttention}
+        summary={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="font-mono text-ink text-sm">{repo.name}</span>
+            <span className="ml-auto flex flex-wrap gap-2">
+              {summaryTags(repo).map((tag) => (
+                <Tag key={tag.label} tone={tag.tone}>
+                  {tag.label}
+                </Tag>
+              ))}
+            </span>
+          </span>
+        }
+      >
+        <p className="break-all font-mono text-ink-muted text-xs">{repo.root}</p>
+        <ul className="mt-5 space-y-4">
+          {repo.worktrees.map((worktree) => (
+            <li key={worktree.path}>
+              <WorktreeRow worktree={worktree} />
+            </li>
+          ))}
+        </ul>
+      </Disclosure>
+    </div>
   );
 }
 

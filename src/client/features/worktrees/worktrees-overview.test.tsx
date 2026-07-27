@@ -93,7 +93,9 @@ describe("<WorktreesOverview>", () => {
     server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
     renderOverview();
 
-    expect(await screen.findByRole("heading", { name: "kiri" })).toBeDefined();
+    // A repo holding work starts expanded, so its rows are readable without a click.
+    const repo = await screen.findByRole("button", { name: /kiri/i });
+    expect(repo.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("/projects/kiri")).toBeDefined();
 
     // The primary checkout is marked as such and reads clean; the others carry
@@ -111,6 +113,42 @@ describe("<WorktreesOverview>", () => {
     expect(screen.getByText("prunable")).toBeDefined();
   });
 
+  it("summarises a collapsed repo and expands it to the worktree rows", async () => {
+    const settled = {
+      roots: ["/projects"],
+      repos: [
+        {
+          name: "site",
+          root: "/projects/site",
+          gitCommonDir: "/projects/site/.git",
+          worktrees: [worktree({ path: "/projects/site", primary: true })],
+        },
+      ],
+    };
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
+    renderOverview();
+
+    // Nothing wants a decision, so the repo collapses to its name and size.
+    const repo = await screen.findByRole("button", { name: /site/i });
+    expect(repo.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("1 worktree")).toBeDefined();
+    expect(screen.queryByText("/projects/site")).toBeNull();
+
+    await userEvent.click(repo);
+    expect(repo.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("/projects/site")).toBeDefined();
+  });
+
+  it("counts what a repo is carrying in its summary", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    renderOverview();
+
+    expect(await screen.findByText("5 worktrees")).toBeDefined();
+    expect(screen.getByText("1 dirty")).toBeDefined();
+    expect(screen.getByText("1 upstream gone")).toBeDefined();
+    expect(screen.getByText("1 prunable")).toBeDefined();
+  });
+
   it("labels a branchless, attached worktree rather than leaving it blank", async () => {
     server.use(
       http.get("*/api/worktrees", () =>
@@ -121,7 +159,9 @@ describe("<WorktreesOverview>", () => {
               name: "bare",
               root: "/projects/bare",
               gitCommonDir: "/projects/bare/.git",
-              worktrees: [worktree({ path: "/projects/bare", branch: null, primary: true })],
+              worktrees: [
+                worktree({ path: "/projects/bare", branch: null, dirty: true, primary: true }),
+              ],
             },
           ],
         }),
@@ -135,7 +175,7 @@ describe("<WorktreesOverview>", () => {
     server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
     server.use(http.post("*/api/worktrees/refresh", () => HttpResponse.json(payload)));
     renderOverview();
-    await screen.findByRole("heading", { name: "kiri" });
+    await screen.findByRole("button", { name: /kiri/i });
 
     server.use(
       http.get("*/api/worktrees", () =>
@@ -153,7 +193,7 @@ describe("<WorktreesOverview>", () => {
       ),
     );
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    expect(await screen.findByRole("heading", { name: "site" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: /site/i })).toBeDefined();
   });
 
   it("surfaces a failed refresh without dropping the listing", async () => {
@@ -164,11 +204,11 @@ describe("<WorktreesOverview>", () => {
       ),
     );
     renderOverview();
-    await screen.findByRole("heading", { name: "kiri" });
+    await screen.findByRole("button", { name: /kiri/i });
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByText(/couldn't refresh worktrees/i)).toBeDefined();
     expect(screen.getByText("roots unreadable")).toBeDefined();
-    expect(screen.getByRole("heading", { name: "kiri" })).toBeDefined();
+    expect(screen.getByRole("button", { name: /kiri/i })).toBeDefined();
   });
 });
