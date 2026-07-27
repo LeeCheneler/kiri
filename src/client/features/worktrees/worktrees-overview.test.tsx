@@ -220,6 +220,53 @@ describe("<WorktreesOverview>", () => {
     expect(screen.getByRole("button", { name: /kiri/i })).toBeDefined();
   });
 
+  it("leads with the repos holding worktrees, whatever order they arrive in", async () => {
+    server.use(
+      http.get("*/api/worktrees", () =>
+        HttpResponse.json({
+          roots: ["/projects"],
+          repos: [
+            {
+              name: "alpha",
+              root: "/projects/alpha",
+              gitCommonDir: "/projects/alpha/.git",
+              defaultBranch: "main",
+              worktrees: [worktree({ path: "/projects/alpha", primary: true })],
+            },
+            {
+              name: "zulu",
+              root: "/projects/zulu",
+              gitCommonDir: "/projects/zulu/.git",
+              defaultBranch: "main",
+              worktrees: [
+                worktree({ path: "/projects/zulu", primary: true }),
+                worktree({ path: "/projects/zulu-feat-thing", branch: "feat/thing" }),
+              ],
+            },
+            {
+              name: "bravo",
+              root: "/projects/bravo",
+              gitCommonDir: "/projects/bravo/.git",
+              defaultBranch: "main",
+              worktrees: [worktree({ path: "/projects/bravo", primary: true })],
+            },
+          ],
+        }),
+      ),
+    );
+    renderOverview();
+    await screen.findByRole("button", { name: /zulu/i });
+
+    // Order here is computed from the data, not fixed by the JSX: the repo that
+    // has a worktree checked out leads, and the quiet ones keep server order.
+    const names = screen
+      .getAllByRole("button", { expanded: false })
+      .map((repo) => repo.textContent ?? "");
+    expect(names[0]).toContain("zulu");
+    expect(names[1]).toContain("alpha");
+    expect(names[2]).toContain("bravo");
+  });
+
   it("narrows the listing to the worktrees matching the filter", async () => {
     server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
     renderOverview();

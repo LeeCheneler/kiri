@@ -166,6 +166,15 @@ const filterRepos = (repos: RepoOverview[], query: string): RepoOverview[] => {
     .filter((repo) => repo.worktrees.length > 0);
 };
 
+// Repos holding a linked worktree lead. Scanning a couple of dozen repos leaves
+// the handful actually being worked in scattered down a long alphabetical list;
+// hoisting them puts the work at the top without hiding anything. The server's
+// ordering holds within each group, so the quiet repos stay alphabetical.
+const activeFirst = (repos: RepoOverview[]): RepoOverview[] => {
+  const active = (repo: RepoOverview) => repo.worktrees.some((worktree) => !worktree.primary);
+  return [...repos.filter(active), ...repos.filter((repo) => !active(repo))];
+};
+
 // The scanned roots, listed so a "nothing found" result is obviously about
 // these folders and not about the repos themselves.
 function ScannedRoots({ roots }: { roots: string[] }) {
@@ -299,7 +308,7 @@ function Body({ query, filter }: { query: ReturnType<typeof useWorktrees>; filte
   }
 
   const filtering = filter.trim() !== "";
-  const matched = filterRepos(repos, filter);
+  const matched = activeFirst(filterRepos(repos, filter));
   if (matched.length === 0) {
     return <EmptyState>No worktrees match “{filter.trim()}”.</EmptyState>;
   }
