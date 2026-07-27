@@ -15,8 +15,8 @@ export type InstallMode = "auto" | "off";
 
 /**
  * Resolved prep options for a single worktree. Every field is optional and
- * omission is inert: no `env` leaves env files alone, no/`off` `install`
- * skips installs, no `postCreate` runs nothing. Config wiring resolves these
+ * omission is inert: no `env` leaves env files alone, no `postCreate` runs
+ * nothing, no/`off` `install` skips installs. Config wiring resolves these
  * from `kiri.yaml`; this module owns the shape it consumes.
  */
 export interface PrepareOptions {
@@ -39,7 +39,7 @@ export interface CommandResult {
  */
 export type CommandRunner = (command: string, cwd: string) => Promise<CommandResult>;
 
-/** One entry in the prep report — a single env, install, or post-create action. */
+/** One entry in the prep report — a single env, post-create, or install action. */
 export interface PrepareStep {
   name: string;
   status: "ok" | "failed";
@@ -217,11 +217,14 @@ export const defaultCommandRunner: CommandRunner = async (command, cwd) => {
 
 /**
  * Prepare a freshly-created worktree: share the primary checkout's git-ignored
- * env files (symlinked or copied), install dependencies for every lockfile in
- * the tree, then run the post-create commands. Runs fail-fast in that order —
- * the first failed step stops the pipeline — and returns a per-step report for
- * the UI and tools to render. Command execution goes through `run` so it can
- * be stubbed; it defaults to the host `bash -c` runner.
+ * env files (symlinked or copied), run the post-create commands, then install
+ * dependencies for every lockfile in the tree. Post-create runs before installs
+ * so it can make the worktree usable by the package managers — trusting a
+ * tool-version manager, say, when the install resolves its binary through one.
+ * Runs fail-fast in that order — the first failed step stops the pipeline — and
+ * returns a per-step report for the UI and tools to render. Command execution
+ * goes through `run` so it can be stubbed; it defaults to the host `bash -c`
+ * runner.
  */
 export async function prepareWorktree(
   primaryCheckoutPath: string,
@@ -237,6 +240,13 @@ export async function prepareWorktree(
     if (step.status === "failed") return { status: "failed", steps };
   }
 
+  for (const command of options.postCreate ?? []) {
+    const result = await run(command, worktreePath);
+    const step = commandStep(`postCreate: ${command}`, result);
+    steps.push(step);
+    if (step.status === "failed") return { status: "failed", steps };
+  }
+
   if (options.install === "auto") {
     for (const { pm, relDir } of detectInstalls(worktreePath)) {
       const result = await run(`${pm} install`, join(worktreePath, relDir));
@@ -244,13 +254,6 @@ export async function prepareWorktree(
       steps.push(step);
       if (step.status === "failed") return { status: "failed", steps };
     }
-  }
-
-  for (const command of options.postCreate ?? []) {
-    const result = await run(command, worktreePath);
-    const step = commandStep(`postCreate: ${command}`, result);
-    steps.push(step);
-    if (step.status === "failed") return { status: "failed", steps };
   }
 
   return { status: "ok", steps };
