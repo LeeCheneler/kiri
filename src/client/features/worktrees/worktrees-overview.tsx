@@ -41,67 +41,66 @@ const stateTags = (worktree: WorktreeStatus): { label: string; tone: TagTone }[]
   return tags;
 };
 
-// One worktree: what it is called, where its branch sits, the state rail that
-// says what you would do with it, and — for a linked worktree — the removal that
-// tidies it away. The rail and the action are kept apart, so a row of facts
-// never reads as a row of controls. The primary checkout carries no remove
-// action; it is the repo.
+// One worktree: what it is called, the state rail that says what you would do
+// with it, where its branch sits, and — for a linked worktree — the removal that
+// tidies it away. Name, rail, and action read as one line left to right, so a
+// remove never drifts away from the worktree it acts on; the action stays
+// low-weight because the confirmation behind it carries the warning. The primary
+// checkout carries no remove action; it is the repo.
 function WorktreeRow({ worktree, onRemove }: { worktree: WorktreeStatus; onRemove: () => void }) {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-      <div className="min-w-0">
-        <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
-          {dirName(worktree.path)}
-          {worktree.primary ? <Tag tone="accent">primary</Tag> : null}
-        </p>
-        <p className="mt-1 font-mono text-ink-muted text-xs">
-          {worktree.detached ? "detached" : (worktree.branch ?? "no branch")}
-        </p>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 sm:justify-end">
-        <div className="flex flex-wrap gap-2">
-          {stateTags(worktree).map((tag) => (
-            <Tag key={tag.label} tone={tag.tone}>
-              {tag.label}
-            </Tag>
-          ))}
-        </div>
+    <div className="min-w-0">
+      <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
+        {dirName(worktree.path)}
+        {worktree.primary ? <Tag tone="accent">primary</Tag> : null}
+        {stateTags(worktree).map((tag) => (
+          <Tag key={tag.label} tone={tag.tone}>
+            {tag.label}
+          </Tag>
+        ))}
         {worktree.primary ? null : (
-          <Button variant="negative" onClick={onRemove}>
+          <Button variant="dismissive" onClick={onRemove}>
             remove
           </Button>
         )}
-      </div>
+      </p>
+      <p className="mt-1 font-mono text-ink-muted text-xs">
+        {worktree.detached ? "detached" : (worktree.branch ?? "no branch")}
+      </p>
     </div>
   );
 }
 
-// What a collapsed repo still has to say: its default branch, how many checkouts
-// it holds, and how many of them are carrying something. Counts are only tagged
-// when non-zero, so a settled repo collapses to its name and size.
+// What a collapsed repo still has to say: how many worktrees it holds beyond its
+// primary checkout, and how many of them are carrying something. Every count is
+// tagged only when non-zero, so a repo that is nothing but its own checkout
+// collapses to its name.
 const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => {
   const count = (predicate: (worktree: WorktreeStatus) => boolean) =>
     repo.worktrees.filter(predicate).length;
-  const total = repo.worktrees.length;
+  const linked = count((worktree) => !worktree.primary);
   const dirty = count((worktree) => worktree.dirty);
   const gone = count((worktree) => worktree.upstreamGone);
   const prunable = count((worktree) => worktree.prunable);
   return [
-    ...(repo.defaultBranch === null
-      ? []
-      : [{ label: repo.defaultBranch, tone: "accent" as const }]),
-    { label: `${total} ${total === 1 ? "worktree" : "worktrees"}`, tone: "neutral" as const },
+    ...(linked > 0
+      ? [
+          {
+            label: `${linked} ${linked === 1 ? "worktree" : "worktrees"}`,
+            tone: "neutral" as const,
+          },
+        ]
+      : []),
     ...(dirty > 0 ? [{ label: `${dirty} dirty`, tone: "caution" as const }] : []),
     ...(gone > 0 ? [{ label: `${gone} upstream gone`, tone: "negative" as const }] : []),
     ...(prunable > 0 ? [{ label: `${prunable} prunable`, tone: "negative" as const }] : []),
   ];
 };
 
-// One repo: a collapsible card whose summary is its name, its default branch,
-// and the state of the checkouts inside, revealing its primary path and every
-// worktree row — primary first, as the server orders them. A repo holding
-// something that wants a decision starts expanded, so the work shows without a
-// click.
+// One repo: a collapsible card whose summary is its name and the state of the
+// checkouts inside, revealing its primary path and every worktree row — primary
+// first, as the server orders them. A repo holding something that wants a
+// decision starts expanded, so the work shows without a click.
 function RepoCard({ repo }: { repo: RepoOverview }) {
   const remove = useRemoveWorktree();
   const [removing, setRemoving] = useState<WorktreeStatus | null>(null);
@@ -164,12 +163,11 @@ function ScannedRoots({ roots }: { roots: string[] }) {
 
 /**
  * The Worktrees surface: every repo discovered under the configured roots, each
- * with its default branch, its primary checkout and linked worktrees, and their
- * live state — branch, dirty flag, upstream position, and the locked / prunable
- * flags. The whole lifecycle runs from here: creating a worktree, removing one,
- * and — when git is holding records for worktrees that have gone — clearing
- * those stale entries from the banner that announces them. Refreshing re-runs
- * discovery on the
+ * with its primary checkout and linked worktrees, and their live state — branch,
+ * dirty flag, upstream position, and the locked / prunable flags. The whole
+ * lifecycle runs from here: creating a worktree, removing one, and — when git is
+ * holding records for worktrees that have gone — clearing those stale entries
+ * from the banner that announces them. Refreshing re-runs discovery on the
  * server; the listing otherwise stays current through `useWorktreesLive`, so an
  * operation run from another open client lands here too.
  */

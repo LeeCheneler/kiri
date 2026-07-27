@@ -62,6 +62,21 @@ const payload = {
   ],
 };
 
+// A repo that is nothing but its own checkout: no linked worktrees, nothing
+// dirty, nothing stale.
+const settled = {
+  roots: ["/projects"],
+  repos: [
+    {
+      name: "site",
+      root: "/projects/site",
+      gitCommonDir: "/projects/site/.git",
+      defaultBranch: "main",
+      worktrees: [worktree({ path: "/projects/site", primary: true })],
+    },
+  ],
+};
+
 describe("<WorktreesOverview>", () => {
   it("shows a loading state while the overview is in flight", () => {
     server.use(http.get("*/api/worktrees", () => new Promise<Response>(() => {})));
@@ -115,25 +130,14 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("summarises a collapsed repo and expands it to the worktree rows", async () => {
-    const settled = {
-      roots: ["/projects"],
-      repos: [
-        {
-          name: "site",
-          root: "/projects/site",
-          gitCommonDir: "/projects/site/.git",
-          defaultBranch: "main",
-          worktrees: [worktree({ path: "/projects/site", primary: true })],
-        },
-      ],
-    };
     server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
     renderOverview();
 
-    // Nothing wants a decision, so the repo collapses to its name and size.
+    // Nothing wants a decision and there is nothing but the checkout itself, so
+    // the repo collapses to its bare name.
     const repo = await screen.findByRole("button", { name: /site/i });
     expect(repo.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByText("1 worktree")).toBeDefined();
+    expect(screen.queryByText(/^\d+ worktrees?$/)).toBeNull();
     expect(screen.queryByText("/projects/site")).toBeNull();
 
     await userEvent.click(repo);
@@ -145,7 +149,7 @@ describe("<WorktreesOverview>", () => {
     server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
     renderOverview();
 
-    expect(await screen.findByText("5 worktrees")).toBeDefined();
+    expect(await screen.findByText("4 worktrees")).toBeDefined();
     expect(screen.getByText("1 dirty")).toBeDefined();
     expect(screen.getByText("1 upstream gone")).toBeDefined();
     expect(screen.getByText("1 prunable")).toBeDefined();
@@ -214,34 +218,6 @@ describe("<WorktreesOverview>", () => {
     expect(await screen.findByText(/couldn't refresh worktrees/i)).toBeDefined();
     expect(screen.getByText("roots unreadable")).toBeDefined();
     expect(screen.getByRole("button", { name: /kiri/i })).toBeDefined();
-  });
-
-  // A repo whose default branch differs from every checked-out branch, so the
-  // summary's default-branch tag is unambiguous.
-  const withDefaultBranch = (defaultBranch: string | null) => ({
-    roots: ["/projects"],
-    repos: [
-      {
-        name: "site",
-        root: "/projects/site",
-        gitCommonDir: "/projects/site/.git",
-        defaultBranch,
-        worktrees: [worktree({ path: "/projects/site", primary: true })],
-      },
-    ],
-  });
-
-  it("names the repo's default branch in its summary", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch("trunk"))));
-    renderOverview();
-    expect(await screen.findByText("trunk")).toBeDefined();
-  });
-
-  it("omits the default branch when the repo has none", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch(null))));
-    renderOverview();
-    await screen.findByRole("button", { name: /site/i });
-    expect(screen.queryByText("trunk")).toBeNull();
   });
 
   it("offers no create action while there are no repos to create in", async () => {
@@ -316,7 +292,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("offers no prune action when git holds nothing stale", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch("trunk"))));
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
     renderOverview();
     await screen.findByRole("button", { name: /site/i });
     expect(screen.queryByRole("button", { name: /review and prune/i })).toBeNull();
