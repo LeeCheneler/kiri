@@ -20,6 +20,11 @@ export interface CreateWorktreeOptions {
   repoPath: string;
   /** Branch to check out: reused when it exists locally or on origin, otherwise created. */
   branch: string;
+  /**
+   * Directory suffix for the worktree, giving `<repo>-<name>`. Defaults to the
+   * branch with its slashes flattened.
+   */
+  name?: string;
   /** Base for a brand-new branch. Defaults to the repo's default branch on origin. */
   baseRef?: string;
   /** Skip the prep pipeline entirely, leaving the worktree bare. */
@@ -136,17 +141,14 @@ const defaultBaseRef = (repo: string): string | null => {
   return hasRef(repo, `refs/remotes/origin/${branch}`) ? `origin/${branch}` : branch;
 };
 
-// Ticket ids like JN-3554 make a short, stable directory suffix; branches
-// without one fall back to the branch name with its slashes flattened.
-const TICKET_ID = /[A-Z]+-\d+/;
-
-const worktreeSuffix = (branch: string): string =>
-  TICKET_ID.exec(branch)?.[0] ?? branch.replaceAll("/", "-");
+// The directory suffix when the caller names none: the branch with its slashes
+// flattened, so a nested branch still yields a single sibling directory.
+const slugifyBranch = (branch: string): string => branch.replaceAll("/", "-");
 
 /**
  * Create a worktree for `repoPath`'s repo as a sibling of its primary checkout,
- * named `<repo>-<id>` where `<id>` is a ticket id found in the branch, else the
- * branch with its slashes flattened. The branch is checked out when it exists
+ * named `<repo>-<name>`, where `name` defaults to the branch with its slashes
+ * flattened. The branch is checked out when it exists
  * locally, tracked when it exists on origin, and otherwise created from
  * `baseRef`. Refuses to create over an existing directory. Unless `skipPrepare`
  * is set the prep pipeline then runs with the repo's resolved policy (defaults
@@ -172,7 +174,8 @@ export async function createWorktree(
     };
   }
 
-  const path = join(dirname(primary), `${basename(primary)}-${worktreeSuffix(branch)}`);
+  const name = options.name ?? slugifyBranch(branch);
+  const path = join(dirname(primary), `${basename(primary)}-${name}`);
   const failed = (error: string): CreateWorktreeResult => ({
     status: "failed",
     path,

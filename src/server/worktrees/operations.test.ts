@@ -108,7 +108,7 @@ describe("worktree operations", () => {
       expect(result.branchSource).toBeNull();
     });
 
-    it("creates a sibling worktree named after the branch, cutting it from the local default", async () => {
+    it("falls back to the slugified branch, cutting a sibling from the local default", async () => {
       const repo = at("repo");
       initRepo(repo);
 
@@ -123,16 +123,17 @@ describe("worktree operations", () => {
       expect(result.prepare).toEqual({ status: "ok", steps: [] });
     });
 
-    it("names the directory after a ticket id in the branch", async () => {
+    it("names the directory after an explicit name when given one", async () => {
       const repo = at("repo");
       initRepo(repo);
 
       const result = await createWorktree(
-        { repoPath: repo, branch: "feat/JN-3554-add-thing" },
+        { repoPath: repo, branch: "feat/add-thing", name: "swift-otter" },
         neverRun,
       );
 
-      expect(result.path).toBe(at("repo-JN-3554"));
+      expect(result.path).toBe(at("repo-swift-otter"));
+      expect(existsSync(at("repo-swift-otter"))).toBe(true);
     });
 
     it("checks out a branch that already exists locally", async () => {
