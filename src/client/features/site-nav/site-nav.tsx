@@ -27,6 +27,7 @@ function RailContent({ location }: { location: string }) {
         items={[
           { label: "Activity", href: "/", active: location === "/" },
           { label: "Workflows", href: "/workflows", active: location.startsWith("/workflows") },
+          { label: "Worktrees", href: "/worktrees", active: location.startsWith("/worktrees") },
           { label: "Tools & MCP", href: "/mcp", active: location.startsWith("/mcp") },
         ]}
       />
@@ -46,8 +47,8 @@ function RailContent({ location }: { location: string }) {
 
 /**
  * Left-rail site navigation. At `lg` and up it is a full-height column: the
- * kiri wordmark sits at the top, the primary nav (Activity, Workflows) and the
- * new-session action below it, and the documentation nav and version footer
+ * kiri wordmark sits at the top, the primary nav and the new-session action
+ * below it, and the documentation nav and version footer
  * pinned to the bottom. Below `lg` the column collapses to a slim top bar — the
  * wordmark and a menu button — and the same rail content moves into a
  * left-anchored drawer the button opens; selecting a link, Escape, or a

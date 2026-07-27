@@ -51,6 +51,17 @@ describe("<SiteNav>", () => {
     await flushAsync();
   });
 
+  it("highlights Worktrees across the worktrees section", async () => {
+    renderNav("/worktrees");
+    expect(screen.getByRole("link", { name: /^worktrees$/i }).getAttribute("href")).toBe(
+      "/worktrees",
+    );
+    expect(screen.getByRole("link", { name: /^worktrees$/i }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    await flushAsync();
+  });
+
   it("highlights Tools & MCP across the mcp section", async () => {
     renderNav("/mcp");
     expect(screen.getByRole("link", { name: /^tools & mcp$/i }).getAttribute("href")).toBe("/mcp");
