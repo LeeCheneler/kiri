@@ -62,6 +62,21 @@ const payload = {
   ],
 };
 
+// A repo that is nothing but its own checkout: no linked worktrees, nothing
+// dirty, nothing stale.
+const settled = {
+  roots: ["/projects"],
+  repos: [
+    {
+      name: "site",
+      root: "/projects/site",
+      gitCommonDir: "/projects/site/.git",
+      defaultBranch: "main",
+      worktrees: [worktree({ path: "/projects/site", primary: true })],
+    },
+  ],
+};
+
 describe("<WorktreesOverview>", () => {
   it("shows a loading state while the overview is in flight", () => {
     server.use(http.get("*/api/worktrees", () => new Promise<Response>(() => {})));
@@ -115,25 +130,14 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("summarises a collapsed repo and expands it to the worktree rows", async () => {
-    const settled = {
-      roots: ["/projects"],
-      repos: [
-        {
-          name: "site",
-          root: "/projects/site",
-          gitCommonDir: "/projects/site/.git",
-          defaultBranch: "main",
-          worktrees: [worktree({ path: "/projects/site", primary: true })],
-        },
-      ],
-    };
     server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
     renderOverview();
 
-    // Nothing wants a decision, so the repo collapses to its name and size.
+    // Nothing wants a decision and there is nothing but the checkout itself, so
+    // the repo collapses to its bare name.
     const repo = await screen.findByRole("button", { name: /site/i });
     expect(repo.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByText("1 worktree")).toBeDefined();
+    expect(screen.queryByText(/^\d+ worktrees?$/)).toBeNull();
     expect(screen.queryByText("/projects/site")).toBeNull();
 
     await userEvent.click(repo);
@@ -145,7 +149,7 @@ describe("<WorktreesOverview>", () => {
     server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
     renderOverview();
 
-    expect(await screen.findByText("5 worktrees")).toBeDefined();
+    expect(await screen.findByText("4 worktrees")).toBeDefined();
     expect(screen.getByText("1 dirty")).toBeDefined();
     expect(screen.getByText("1 upstream gone")).toBeDefined();
     expect(screen.getByText("1 prunable")).toBeDefined();
@@ -216,32 +220,111 @@ describe("<WorktreesOverview>", () => {
     expect(screen.getByRole("button", { name: /kiri/i })).toBeDefined();
   });
 
-  // A repo whose default branch differs from every checked-out branch, so the
-  // summary's default-branch tag is unambiguous.
-  const withDefaultBranch = (defaultBranch: string | null) => ({
-    roots: ["/projects"],
-    repos: [
-      {
-        name: "site",
-        root: "/projects/site",
-        gitCommonDir: "/projects/site/.git",
-        defaultBranch,
-        worktrees: [worktree({ path: "/projects/site", primary: true })],
-      },
-    ],
+  it("leads with the repos holding worktrees, whatever order they arrive in", async () => {
+    server.use(
+      http.get("*/api/worktrees", () =>
+        HttpResponse.json({
+          roots: ["/projects"],
+          repos: [
+            {
+              name: "alpha",
+              root: "/projects/alpha",
+              gitCommonDir: "/projects/alpha/.git",
+              defaultBranch: "main",
+              worktrees: [worktree({ path: "/projects/alpha", primary: true })],
+            },
+            {
+              name: "zulu",
+              root: "/projects/zulu",
+              gitCommonDir: "/projects/zulu/.git",
+              defaultBranch: "main",
+              worktrees: [
+                worktree({ path: "/projects/zulu", primary: true }),
+                worktree({ path: "/projects/zulu-feat-thing", branch: "feat/thing" }),
+              ],
+            },
+            {
+              name: "bravo",
+              root: "/projects/bravo",
+              gitCommonDir: "/projects/bravo/.git",
+              defaultBranch: "main",
+              worktrees: [worktree({ path: "/projects/bravo", primary: true })],
+            },
+          ],
+        }),
+      ),
+    );
+    renderOverview();
+    await screen.findByRole("button", { name: /zulu/i });
+
+    // Order here is computed from the data, not fixed by the JSX: the repo that
+    // has a worktree checked out leads, and the quiet ones keep server order.
+    const names = screen
+      .getAllByRole("button", { expanded: false })
+      .map((repo) => repo.textContent ?? "");
+    expect(names[0]).toContain("zulu");
+    expect(names[1]).toContain("alpha");
+    expect(names[2]).toContain("bravo");
   });
 
-  it("names the repo's default branch in its summary", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch("trunk"))));
+  it("narrows the listing to the worktrees matching the filter", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
     renderOverview();
-    expect(await screen.findByText("trunk")).toBeDefined();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "search");
+    expect(screen.getByText("kiri-feat-search")).toBeDefined();
+    expect(screen.queryByText("kiri-detached")).toBeNull();
+    expect(screen.queryByText("kiri-old")).toBeNull();
   });
 
-  it("omits the default branch when the repo has none", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch(null))));
+  it("matches a worktree on its branch as well as its directory", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
     renderOverview();
-    await screen.findByRole("button", { name: /site/i });
-    expect(screen.queryByText("trunk")).toBeNull();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "feat/stale");
+    expect(screen.getByText("kiri-stale")).toBeDefined();
+    expect(screen.queryByText("kiri-feat-search")).toBeNull();
+  });
+
+  it("keeps every worktree of a repo the filter names by name", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    renderOverview();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "kiri");
+    expect(screen.getByText("kiri-feat-search")).toBeDefined();
+    expect(screen.getByText("kiri-detached")).toBeDefined();
+    expect(screen.getByText("kiri-old")).toBeDefined();
+  });
+
+  it("says so when the filter matches nothing", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    renderOverview();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "nothing-here");
+    expect(screen.getByText(/no worktrees match/i)).toBeDefined();
+  });
+
+  it("expands a repo the filter matched, so its rows are readable without a click", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
+    renderOverview();
+    // A settled repo starts collapsed, so a match would otherwise be hidden.
+    const repo = await screen.findByRole("button", { name: /site/i });
+    expect(repo.getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "site");
+    expect(screen.getByRole("button", { name: /site/i }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  });
+
+  it("offers no filter while there are no repos to filter", async () => {
+    renderOverview();
+    await screen.findByText(/none are listed, so there is nothing to scan/i);
+    expect(screen.queryByPlaceholderText(/filter worktrees/i)).toBeNull();
   });
 
   it("offers no create action while there are no repos to create in", async () => {
@@ -316,7 +399,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("offers no prune action when git holds nothing stale", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(withDefaultBranch("trunk"))));
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
     renderOverview();
     await screen.findByRole("button", { name: /site/i });
     expect(screen.queryByRole("button", { name: /review and prune/i })).toBeNull();
