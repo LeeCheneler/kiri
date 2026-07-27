@@ -23,6 +23,7 @@ import { worktreesRoutes } from "./routes/worktrees.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { type StreamRegistry, createToolPermissionStore } from "./sessions/index.ts";
 import type { Registry } from "./workflows/index.ts";
+import type { WorktreesConfig } from "./worktrees/schema.ts";
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
@@ -118,6 +119,13 @@ export interface AppDeps {
    * posture as the filesystem sandbox. Empty ⇒ `run_command` is withheld.
    */
   getShellDirectories?: () => readonly string[];
+  /**
+   * Live `worktrees:` config section for the session worktree tools. Defaults
+   * to reading the `worktrees:` section of `kiri.yaml` on each turn, the same
+   * posture as the filesystem sandbox. No roots ⇒ the worktree tools are
+   * withheld.
+   */
+  getWorktreesConfig?: () => WorktreesConfig | undefined;
 }
 
 // Upper bound on request body size. Invoke bodies are
@@ -252,6 +260,8 @@ export function createApp(deps: AppDeps): Hono {
           deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),
         getShellDirectories:
           deps.getShellDirectories ?? (() => loadKiriConfig(config, env).shellDirectories),
+        getWorktreesConfig:
+          deps.getWorktreesConfig ?? (() => loadKiriConfig(config, env).worktrees),
       }),
     );
   }
