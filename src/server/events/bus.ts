@@ -34,6 +34,7 @@ export type KiriEvent =
   | { type: "workflow.removed"; name: string }
   | { type: "tool.permission.updated"; tool: string }
   | { type: "persona.changed" }
+  | { type: "worktrees.changed" }
   | { type: "config.changed" };
 
 export type RunStatus = "running" | "ok" | "failed" | "cancelled";

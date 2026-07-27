@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { LlmProvider, ProviderType } from "../llm/schema.ts";
 import type { McpServer, McpServerEntry, McpServerUnresolved } from "../mcp/schema.ts";
+import type { WorktreesConfig } from "../worktrees/schema.ts";
 import { kiriConfigSchema } from "./schema.ts";
 import type { ConfigStore } from "./store.ts";
 
@@ -42,6 +43,12 @@ export interface KiriConfigLoadResult {
    * entirely — and on a failed load (fail closed).
    */
   shellDirectories: string[];
+  /**
+   * The validated `worktrees:` section, or undefined when the file or the
+   * section is absent — and on a failed load (fail closed), so no roots are
+   * scanned off a broken config.
+   */
+  worktrees?: WorktreesConfig;
   /** Set when a present file failed to load. An absent file is not a failure. */
   failure?: KiriConfigLoadFailure;
   /** Non-fatal note — e.g. both `kiri.yaml` and `kiri.yml` exist and the canonical one was used. */
@@ -167,7 +174,14 @@ function loadConfigFile(
   const shellDirectories = (result.data.shell?.working_directories ?? []).map((dir) =>
     resolve(config.cwd(), expandHome(dir)),
   );
-  return { providers, mcp, mcpUnresolved, allowedDirectories, shellDirectories };
+  return {
+    providers,
+    mcp,
+    mcpUnresolved,
+    allowedDirectories,
+    shellDirectories,
+    worktrees: result.data.worktrees,
+  };
 }
 
 /** Resolve declared MCP servers, excluding any whose declared env refs are unset. */
