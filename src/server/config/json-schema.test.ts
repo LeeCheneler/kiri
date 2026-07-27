@@ -60,6 +60,28 @@ describe("kiriConfigJsonSchema", () => {
     }
   });
 
+  it("publishes the worktrees section with roots, defaults, and repos", () => {
+    const schema = kiriConfigJsonSchema() as {
+      properties: {
+        worktrees: {
+          type?: string;
+          properties: {
+            roots?: { type?: string };
+            defaults?: { type?: string };
+            repos?: { type?: string };
+          };
+          required?: string[];
+        };
+      };
+    };
+    const worktrees = schema.properties.worktrees;
+    expect(worktrees.type).toBe("object");
+    expect(worktrees.properties.roots?.type).toBe("array");
+    expect(worktrees.properties.defaults?.type).toBe("object");
+    expect(worktrees.properties.repos?.type).toBe("object");
+    expect(worktrees.required).toEqual(["roots"]);
+  });
+
   it("publishes the mcp servers map as a union discriminated on type", () => {
     const schema = kiriConfigJsonSchema() as {
       properties: {
