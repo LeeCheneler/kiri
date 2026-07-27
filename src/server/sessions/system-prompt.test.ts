@@ -365,6 +365,27 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("includes worktree guidance only when the worktree tools are active", () => {
+    const withWorktrees = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["worktree_list", "worktree_create", "worktree_remove"],
+    });
+    expect(withWorktrees).toContain("You can work with the user's git worktrees");
+    expect(withWorktrees).toContain("Changing worktrees:");
+    expect(withWorktrees).toContain("never force a removal");
+
+    // Listing without the mutations (withheld by permission) keeps the
+    // capability line and drops the guidance for calls that can't be made.
+    const readOnly = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["worktree_list"] });
+    expect(readOnly).toContain("You can work with the user's git worktrees");
+    expect(readOnly).not.toContain("Changing worktrees:");
+
+    expect(buildSystemPrompt({ config, now: FIXED_NOW, tools: ["read_file"] })).not.toContain(
+      "You can work with the user's git worktrees",
+    );
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
@@ -517,6 +538,9 @@ describe("buildChildSessionPrompt", () => {
     expect(prompt).toContain("/workspace/notes");
     expect(prompt).toContain("You can run shell commands with run_command");
     expect(prompt).toContain("/workspace/project");
+    expect(buildChildSessionPrompt({ tools: ["worktree_list"], now: FIXED_NOW })).toContain(
+      "You can work with the user's git worktrees",
+    );
     // Neither section appears when its tools are absent.
     const bare = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
     expect(bare).not.toContain("You can work with the user's files");

@@ -90,10 +90,12 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
 | `delegate` | Always allow | Workers only hold tools already always-allowed. |
+| `worktree_list` | Always allow | Read-only, and declaring the roots is the authorisation. |
 | `run_workflow`, `rerun_workflow` | Ask | Execute your workflows. |
 | Workflow write / edit | Ask | Put runnable YAML in your repo. |
 | Filesystem writes / deletes | Ask | Change your files. |
 | `run_command` | Ask | Runs shell commands as you. |
+| Worktree create / remove / prune | Ask | Add and delete checkouts of your repos. |
 
 ## Running workflows
 
