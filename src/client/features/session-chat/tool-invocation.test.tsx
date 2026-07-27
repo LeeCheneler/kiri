@@ -52,11 +52,11 @@ describe("<ToolInvocation>", () => {
   it("omits the summary detail when the input has neither a query nor urls", () => {
     render(
       <ToolInvocation
-        part={part({ state: "output-available", input: { ticket: 1 }, output: {} })}
+        part={part({ state: "output-available", input: { widget: 1 }, output: {} })}
       />,
     );
     expect(screen.getByText("Create issue")).toBeDefined();
-    expect(screen.queryByText("ticket")).toBeNull();
+    expect(screen.queryByText("widget")).toBeNull();
   });
 
   it("renders a settled generated image below the block, with the prompt as detail", async () => {

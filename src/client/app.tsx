@@ -14,6 +14,7 @@ import { SessionArticlePage } from "./routes/session-article-page.tsx";
 import { SessionPage } from "./routes/session-page.tsx";
 import { WorkflowPage } from "./routes/workflow-page.tsx";
 import { WorkflowsPage } from "./routes/workflows-page.tsx";
+import { WorktreesPage } from "./routes/worktrees-page.tsx";
 import { LiveSync } from "./state/live-sync.tsx";
 import { createQueryClient } from "./state/query-client.ts";
 
@@ -41,6 +42,7 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
             <Route path="/" component={HomePage} />
             <Route path="/workflows" component={WorkflowsPage} />
             <Route path="/workflows/:name" component={WorkflowPage} />
+            <Route path="/worktrees" component={WorktreesPage} />
             <Route path="/mcp" component={McpPage} />
             <Route path="/sessions/:id/articles/:slug" component={SessionArticlePage} />
             <Route path="/sessions/:id" component={SessionPage} />

@@ -720,6 +720,64 @@ export const setToolPermission = async (
   );
 };
 
+/** Live state of a single worktree, from `GET /api/worktrees`. */
+export interface WorktreeStatus {
+  /** Absolute path of the worktree's root directory. */
+  path: string;
+  /** Short branch name, or null when detached or bare. */
+  branch: string | null;
+  /** Whether HEAD is detached (no branch). */
+  detached: boolean;
+  /** HEAD commit sha, or null for a bare repo with no checkout. */
+  head: string | null;
+  /** Whether the working tree has uncommitted changes. */
+  dirty: boolean;
+  /** Commits on the branch not on its upstream; 0 when there is no upstream. */
+  ahead: number;
+  /** Commits on the upstream not on the branch; 0 when there is no upstream. */
+  behind: number;
+  /** Whether the branch's configured upstream no longer exists. */
+  upstreamGone: boolean;
+  /** Whether the worktree is locked against pruning. */
+  locked: boolean;
+  /** Whether git considers the worktree prunable. */
+  prunable: boolean;
+  /** Whether this is the repo's primary checkout. */
+  primary: boolean;
+}
+
+/** A discovered repo with its primary checkout and every linked worktree. */
+export interface RepoOverview {
+  /** Directory name of the primary checkout. */
+  name: string;
+  /** Absolute path of the primary checkout. */
+  root: string;
+  /** Absolute shared git directory — the repo's stable identity. */
+  gitCommonDir: string;
+  /** Primary checkout first, then linked worktrees ordered by path. */
+  worktrees: WorktreeStatus[];
+}
+
+/** The whole worktree surface: the roots that were scanned and the repos found under them. */
+export interface WorktreesOverview {
+  /** Absolute roots scanned, in configured order. Empty when none are configured. */
+  roots: string[];
+  /** Repos found, ordered by name. */
+  repos: RepoOverview[];
+}
+
+/** Fetch the grouped worktree overview. Throws on non-2xx. */
+export const fetchWorktrees = async (): Promise<WorktreesOverview> =>
+  json<WorktreesOverview>(await apiFetch("/api/worktrees"));
+
+/**
+ * Re-run worktree discovery against the configured roots and return the fresh
+ * model. The server also publishes `worktrees.changed`, so every other open
+ * client converges on it. Throws on non-2xx.
+ */
+export const refreshWorktrees = async (): Promise<WorktreesOverview> =>
+  json<WorktreesOverview>(await apiFetch("/api/worktrees/refresh", { method: "POST" }));
+
 /** A persona available to attach to a session. */
 export interface Persona {
   /** The `personas/<id>.md` filename stem — what's stored on the session and sent to attach it. */
