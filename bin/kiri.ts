@@ -25,6 +25,8 @@ import { runOutputCommand } from "../src/server/runner/outputs.ts";
 import { runRecommendCommand } from "../src/server/runner/recommendations.ts";
 import { watchPersonas } from "../src/server/sessions/index.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
+import { resolveWorktreeRoots } from "../src/server/worktrees/config.ts";
+import { watchWorktreeRoots } from "../src/server/worktrees/roots-watcher.ts";
 
 // Replaced at build time via `bun build --define`; falls back to "dev" for local runs.
 declare const KIRI_VERSION: string;
@@ -209,6 +211,14 @@ const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
 // Personas are read fresh from disk per turn; the watcher exists so the
 // picker follows an edit without a reload.
 const personaWatcher = watchPersonas(config, { bus });
+// Worktrees are read from disk on demand; the watcher exists so a worktree
+// created or removed outside kiri shows up without a manual refresh. Attached
+// to the roots configured at boot — a root added to kiri.yaml later needs a
+// restart, the same as personas.
+const worktreeWatcher = watchWorktreeRoots(
+  resolveWorktreeRoots(kiriConfig.worktrees, config.cwd()),
+  { bus },
+);
 
 const app = createApp({
   db,
@@ -233,6 +243,7 @@ const shutdown = async () => {
   configWatcher.stop();
   watcher.stop();
   personaWatcher.stop();
+  worktreeWatcher.stop();
   server.stop();
   // Close MCP connections so spawned stdio subprocesses are terminated cleanly.
   await mcpRegistry.close();
