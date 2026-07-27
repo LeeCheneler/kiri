@@ -379,6 +379,23 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 # shell:
 #   working_directories:
 #     - .
+#
+# Manage git worktrees — extra checkouts of a repo, each on its own branch —
+# by declaring \`worktrees:\` with the folders your repos live in. Each root is
+# scanned one level deep. \`defaults.prepare\` says what a new worktree needs:
+# \`env\` symlinks or copies the primary checkout's git-ignored .env files
+# (omit it to leave them alone), \`postCreate\` commands then run in the new
+# worktree, and \`install: auto\` finally installs every lockfile it finds.
+# \`repos:\` overrides them per repo, keyed by the repo's directory name:
+#
+# worktrees:
+#   roots:
+#     - ~/projects
+#   defaults:
+#     prepare:
+#       env: symlink                   # symlink | copy | omit
+#       postCreate: ["mise trust"]     # run before the install below
+#       install: auto                  # auto | off
 `;
 
 /** Relative paths reported by `initRepo`. */

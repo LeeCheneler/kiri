@@ -65,6 +65,14 @@ in [Sessions](/docs/sessions). Three invariants hold throughout:
   `run_command` is never pre-authorised: the approval showing the verbatim
   command is the boundary, with the system prompt holding the model to safe,
   narrowly-scoped commands as a first line of defence in front of it.
+- **Worktree work is bounded by the declared roots.** The worktree tools
+  exist only when you declare `worktrees:` in `kiri.yaml`, and a session can
+  only name repos and worktrees found under those roots. Listing is
+  read-only; creating, removing, and pruning ask first. Creating runs the
+  repo's configured install and post-create commands as you — they're part
+  of the same reviewable file — and removing refuses a worktree with
+  uncommitted changes unless forced, never removes a primary checkout, and
+  reports the sha of the branch it deleted so it can be restored.
 - **Delegated workers can't exceed the chat.** A worker session runs
   unattended, so it only holds tools already set to Always allow — one that
   would ask first isn't offered to it at all — and a worker can't spawn
