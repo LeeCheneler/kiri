@@ -19,6 +19,7 @@ import { sessionsRoutes } from "./routes/sessions.ts";
 import { mountStaticRoutes } from "./routes/static.ts";
 import { systemRoutes } from "./routes/system.ts";
 import { workflowsRoutes } from "./routes/workflows.ts";
+import { worktreesRoutes } from "./routes/worktrees.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
 import { type StreamRegistry, createToolPermissionStore } from "./sessions/index.ts";
 import type { Registry } from "./workflows/index.ts";
@@ -227,6 +228,9 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/runs", runsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }));
   app.route("/api/activity", activityRoutes({ db, registry }));
   app.route("/api/search", searchRoutes({ db, registry }));
+  // Mounted unconditionally — with no roots configured it answers with an empty
+  // model, which is how the client learns there is nothing to scan.
+  app.route("/api/worktrees", worktreesRoutes({ config, env, bus }));
 
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.
