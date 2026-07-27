@@ -220,6 +220,66 @@ describe("<WorktreesOverview>", () => {
     expect(screen.getByRole("button", { name: /kiri/i })).toBeDefined();
   });
 
+  it("narrows the listing to the worktrees matching the filter", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    renderOverview();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "search");
+    expect(screen.getByText("kiri-feat-search")).toBeDefined();
+    expect(screen.queryByText("kiri-detached")).toBeNull();
+    expect(screen.queryByText("kiri-old")).toBeNull();
+  });
+
+  it("matches a worktree on its branch as well as its directory", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    renderOverview();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "feat/stale");
+    expect(screen.getByText("kiri-stale")).toBeDefined();
+    expect(screen.queryByText("kiri-feat-search")).toBeNull();
+  });
+
+  it("keeps every worktree of a repo the filter names by name", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    renderOverview();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "kiri");
+    expect(screen.getByText("kiri-feat-search")).toBeDefined();
+    expect(screen.getByText("kiri-detached")).toBeDefined();
+    expect(screen.getByText("kiri-old")).toBeDefined();
+  });
+
+  it("says so when the filter matches nothing", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    renderOverview();
+    await screen.findByRole("button", { name: /kiri/i });
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "nothing-here");
+    expect(screen.getByText(/no worktrees match/i)).toBeDefined();
+  });
+
+  it("expands a repo the filter matched, so its rows are readable without a click", async () => {
+    server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
+    renderOverview();
+    // A settled repo starts collapsed, so a match would otherwise be hidden.
+    const repo = await screen.findByRole("button", { name: /site/i });
+    expect(repo.getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.type(screen.getByPlaceholderText(/filter worktrees/i), "site");
+    expect(screen.getByRole("button", { name: /site/i }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  });
+
+  it("offers no filter while there are no repos to filter", async () => {
+    renderOverview();
+    await screen.findByText(/none are listed, so there is nothing to scan/i);
+    expect(screen.queryByPlaceholderText(/filter worktrees/i)).toBeNull();
+  });
+
   it("offers no create action while there are no repos to create in", async () => {
     renderOverview();
     await screen.findByText(/none are listed, so there is nothing to scan/i);

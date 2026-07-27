@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { RepoOverview, WorktreeStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
+import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Code } from "../../design-system/content/code.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
@@ -100,8 +101,10 @@ const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => 
 // One repo: a collapsible card whose summary is its name and the state of the
 // checkouts inside, revealing its primary path and every worktree row — primary
 // first, as the server orders them. A repo holding something that wants a
-// decision starts expanded, so the work shows without a click.
-function RepoCard({ repo }: { repo: RepoOverview }) {
+// decision starts expanded, so the work shows without a click, as does every
+// repo left standing by a filter — a search that hides its own results is no
+// search at all.
+function RepoCard({ repo, filtering }: { repo: RepoOverview; filtering: boolean }) {
   const remove = useRemoveWorktree();
   const [removing, setRemoving] = useState<WorktreeStatus | null>(null);
   const wantsAttention = repo.worktrees.some(
@@ -110,7 +113,7 @@ function RepoCard({ repo }: { repo: RepoOverview }) {
   return (
     <div className="overflow-hidden rounded-sm border border-rule bg-canvas-2">
       <Disclosure
-        defaultOpen={wantsAttention}
+        defaultOpen={wantsAttention || filtering}
         summary={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="font-mono text-ink text-sm">{repo.name}</span>
@@ -143,6 +146,25 @@ function RepoCard({ repo }: { repo: RepoOverview }) {
     </div>
   );
 }
+
+// Substring filter across repo name, worktree path, and branch (case-
+// insensitive). A repo matched by its own name keeps every worktree, so naming
+// a repo shows all of it; otherwise only the worktrees that match survive, and a
+// repo left holding none drops out. An empty query passes everything.
+const filterRepos = (repos: RepoOverview[], query: string): RepoOverview[] => {
+  const q = query.trim().toLowerCase();
+  if (q === "") return repos;
+  const matches = (worktree: WorktreeStatus) =>
+    worktree.path.toLowerCase().includes(q) ||
+    (worktree.branch?.toLowerCase().includes(q) ?? false);
+  return repos
+    .map((repo) =>
+      repo.name.toLowerCase().includes(q)
+        ? repo
+        : { ...repo, worktrees: repo.worktrees.filter(matches) },
+    )
+    .filter((repo) => repo.worktrees.length > 0);
+};
 
 // The scanned roots, listed so a "nothing found" result is obviously about
 // these folders and not about the repos themselves.
@@ -180,6 +202,7 @@ export function WorktreesOverview() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [pruning, setPruning] = useState(false);
+  const [filter, setFilter] = useState("");
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -229,8 +252,13 @@ export function WorktreesOverview() {
           <Button onClick={() => setPruning(true)}>Review and prune</Button>
         </div>
       ) : null}
+      {repos.length > 0 ? (
+        <div className="mt-6 max-w-sm">
+          <TextInput value={filter} onChange={setFilter} placeholder="Filter worktrees…" />
+        </div>
+      ) : null}
       <div className="mt-6">
-        <Body query={query} />
+        <Body query={query} filter={filter} />
       </div>
       {creating ? (
         <CreateWorktreeModal repos={repos} onCreate={create} onClose={() => setCreating(false)} />
@@ -242,7 +270,7 @@ export function WorktreesOverview() {
   );
 }
 
-function Body({ query }: { query: ReturnType<typeof useWorktrees> }) {
+function Body({ query, filter }: { query: ReturnType<typeof useWorktrees>; filter: string }) {
   if (query.isPending) return <LoadingState>Loading worktrees…</LoadingState>;
   if (query.isError) {
     return (
@@ -270,10 +298,19 @@ function Body({ query }: { query: ReturnType<typeof useWorktrees> }) {
     );
   }
 
+  const filtering = filter.trim() !== "";
+  const matched = filterRepos(repos, filter);
+  if (matched.length === 0) {
+    return <EmptyState>No worktrees match “{filter.trim()}”.</EmptyState>;
+  }
+
   return (
     <div className="space-y-4">
-      {repos.map((repo) => (
-        <RepoCard key={repo.gitCommonDir} repo={repo} />
+      {matched.map((repo) => (
+        // Keyed on whether a filter is running, not on the text, so entering and
+        // leaving the filter remounts the card onto its new `defaultOpen` while
+        // typing leaves the card — and anything the reader has opened — alone.
+        <RepoCard key={`${repo.gitCommonDir}:${filtering}`} repo={repo} filtering={filtering} />
       ))}
     </div>
   );
