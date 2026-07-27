@@ -11,12 +11,11 @@ describe("worktreesSchema", () => {
     expect(worktreesSchema.parse({ roots: [] }).roots).toEqual([]);
   });
 
-  it("parses full defaults with prepare and cleanup", () => {
+  it("parses full defaults with prepare", () => {
     const result = worktreesSchema.parse({
       roots: ["~/code"],
       defaults: {
         prepare: { env: "symlink", install: "auto", postCreate: ["mise trust"] },
-        cleanup: { mergedPr: "suggest", fetchIntervalMinutes: 15 },
       },
     });
     expect(result.defaults?.prepare).toEqual({
@@ -24,7 +23,6 @@ describe("worktreesSchema", () => {
       install: "auto",
       postCreate: ["mise trust"],
     });
-    expect(result.defaults?.cleanup).toEqual({ mergedPr: "suggest", fetchIntervalMinutes: 15 });
   });
 
   it("parses per-repo overrides keyed by directory name", () => {
@@ -63,12 +61,6 @@ describe("worktreesSchema", () => {
     ).toThrow();
   });
 
-  it("rejects an unknown cleanup key (strict)", () => {
-    expect(() =>
-      worktreesSchema.parse({ roots: [], defaults: { cleanup: { junk: true } } }),
-    ).toThrow();
-  });
-
   it("rejects an unknown override key (strict)", () => {
     expect(() => worktreesSchema.parse({ roots: [], defaults: { junk: true } })).toThrow();
   });
@@ -82,24 +74,6 @@ describe("worktreesSchema", () => {
   it("rejects an invalid install value", () => {
     expect(() =>
       worktreesSchema.parse({ roots: [], defaults: { prepare: { install: "sometimes" } } }),
-    ).toThrow();
-  });
-
-  it("rejects an invalid mergedPr value", () => {
-    expect(() =>
-      worktreesSchema.parse({ roots: [], defaults: { cleanup: { mergedPr: "maybe" } } }),
-    ).toThrow();
-  });
-
-  it("rejects a negative fetch interval", () => {
-    expect(() =>
-      worktreesSchema.parse({ roots: [], defaults: { cleanup: { fetchIntervalMinutes: -1 } } }),
-    ).toThrow();
-  });
-
-  it("rejects a non-integer fetch interval", () => {
-    expect(() =>
-      worktreesSchema.parse({ roots: [], defaults: { cleanup: { fetchIntervalMinutes: 1.5 } } }),
     ).toThrow();
   });
 

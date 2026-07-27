@@ -8,7 +8,6 @@ describe("resolveWorktreeConfig", () => {
   it("falls back to the baseline when there is no config", () => {
     expect(resolveWorktreeConfig(undefined, "kiri")).toEqual({
       prepare: { env: null, install: "auto", postCreate: [] },
-      cleanup: { mergedPr: "suggest", fetchIntervalMinutes: 0 },
     });
   });
 
@@ -17,12 +16,10 @@ describe("resolveWorktreeConfig", () => {
       roots: [],
       defaults: {
         prepare: { env: "symlink", install: "off", postCreate: ["a"] },
-        cleanup: { mergedPr: "auto", fetchIntervalMinutes: 30 },
       },
     };
     expect(resolveWorktreeConfig(worktrees, "kiri")).toEqual({
       prepare: { env: "symlink", install: "off", postCreate: ["a"] },
-      cleanup: { mergedPr: "auto", fetchIntervalMinutes: 30 },
     });
   });
 
@@ -31,7 +28,6 @@ describe("resolveWorktreeConfig", () => {
       roots: [],
       defaults: {
         prepare: { env: "symlink", install: "auto", postCreate: [] },
-        cleanup: { mergedPr: "suggest", fetchIntervalMinutes: 10 },
       },
       repos: { kiri: { prepare: { postCreate: ["mise trust"] } } },
     };
@@ -42,27 +38,15 @@ describe("resolveWorktreeConfig", () => {
       install: "auto",
       postCreate: ["mise trust"],
     });
-    expect(resolved.cleanup).toEqual({ mergedPr: "suggest", fetchIntervalMinutes: 10 });
   });
 
   it("resolves an unknown repo key to defaults alone", () => {
     const worktrees: WorktreesConfig = {
       roots: [],
-      defaults: { cleanup: { mergedPr: "off" } },
-      repos: { kiri: { cleanup: { mergedPr: "auto" } } },
-    };
-    expect(resolveWorktreeConfig(worktrees, "other").cleanup.mergedPr).toBe("off");
-  });
-
-  it("lets a repo override cleanup independently of prepare", () => {
-    const worktrees: WorktreesConfig = {
-      roots: [],
       defaults: { prepare: { install: "off" } },
-      repos: { kiri: { cleanup: { fetchIntervalMinutes: 5 } } },
+      repos: { kiri: { prepare: { install: "auto" } } },
     };
-    const resolved = resolveWorktreeConfig(worktrees, "kiri");
-    expect(resolved.prepare.install).toBe("off");
-    expect(resolved.cleanup.fetchIntervalMinutes).toBe(5);
+    expect(resolveWorktreeConfig(worktrees, "other").prepare.install).toBe("off");
   });
 });
 

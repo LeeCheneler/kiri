@@ -12,25 +12,15 @@ export interface ResolvedWorktreePrepare {
   postCreate: string[];
 }
 
-/** Fully-resolved cleanup policy — every field settled to a concrete value. */
-export interface ResolvedWorktreeCleanup {
-  /** What to do once a worktree's pull request has merged. */
-  mergedPr: "off" | "suggest" | "auto";
-  /** Remote-refresh interval in minutes; 0 means manual refresh only. */
-  fetchIntervalMinutes: number;
-}
-
 /** A repo's effective worktree policy after merging its overrides over defaults. */
 export interface ResolvedWorktreeConfig {
   prepare: ResolvedWorktreePrepare;
-  cleanup: ResolvedWorktreeCleanup;
 }
 
 // Baseline settings applied when neither `defaults` nor a repo override supplies
 // a value. `env` has no baseline — an unset env means "leave .env files alone".
 const BASELINE: ResolvedWorktreeConfig = {
   prepare: { env: null, install: "auto", postCreate: [] },
-  cleanup: { mergedPr: "suggest", fetchIntervalMinutes: 0 },
 };
 
 // Expand a leading `~` to the user's home directory. `~user` forms are not
@@ -45,8 +35,8 @@ const expandHome = (dir: string): string => {
  * Resolve the effective worktree policy for a repo by deep-merging its `repos`
  * override over `defaults` over the built-in baseline, field by field. `repoKey`
  * is the repo's directory name (the `repos:` map key); an unknown key resolves
- * to defaults alone. Returns fully-settled prepare/cleanup so operations and
- * cleanup never re-implement the merge.
+ * to defaults alone. Returns a fully-settled prepare policy so operations never
+ * re-implement the merge.
  */
 export function resolveWorktreeConfig(
   worktrees: WorktreesConfig | undefined,
@@ -60,13 +50,6 @@ export function resolveWorktreeConfig(
       install: repo?.prepare?.install ?? defaults?.prepare?.install ?? BASELINE.prepare.install,
       postCreate:
         repo?.prepare?.postCreate ?? defaults?.prepare?.postCreate ?? BASELINE.prepare.postCreate,
-    },
-    cleanup: {
-      mergedPr: repo?.cleanup?.mergedPr ?? defaults?.cleanup?.mergedPr ?? BASELINE.cleanup.mergedPr,
-      fetchIntervalMinutes:
-        repo?.cleanup?.fetchIntervalMinutes ??
-        defaults?.cleanup?.fetchIntervalMinutes ??
-        BASELINE.cleanup.fetchIntervalMinutes,
     },
   };
 }

@@ -177,7 +177,7 @@ describe("kiriConfigSchema", () => {
     const result = kiriConfigSchema.parse({
       worktrees: {
         roots: ["~/projects/personal"],
-        defaults: { prepare: { env: "symlink" }, cleanup: { mergedPr: "auto" } },
+        defaults: { prepare: { env: "symlink", install: "auto" } },
         repos: { kiri: { prepare: { postCreate: ["mise trust"] } } },
       },
     });
