@@ -780,7 +780,7 @@ export const fetchWorktrees = async (): Promise<WorktreesOverview> =>
 export const refreshWorktrees = async (): Promise<WorktreesOverview> =>
   json<WorktreesOverview>(await apiFetch("/api/worktrees/refresh", { method: "POST" }));
 
-/** One action taken while preparing a fresh worktree — an env, install, or post-create step. */
+/** One action taken while preparing a fresh worktree — an env, post-create, or install step. */
 export interface PrepareStep {
   name: string;
   status: "ok" | "failed";

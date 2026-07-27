@@ -129,7 +129,7 @@ export function worktreeTools(deps: WorktreeToolsDeps): ToolSet {
 
     worktree_create: tool({
       description:
-        "Create a git worktree for one of the user's repos: an isolated checkout of a branch, as a sibling directory of the repo's primary checkout, so work happens off the checkout the user is sitting in. Reach for it when a piece of work wants its own branch and directory. The branch is checked out when it already exists locally, tracked when it exists on origin, and otherwise created from base_ref. The repo's configured prep runs after create (seeding env files, installing dependencies, running its post-create commands) and its report comes back with the result — a failed prep leaves the worktree in place, so report what failed rather than recreating it.",
+        "Create a git worktree for one of the user's repos: an isolated checkout of a branch, as a sibling directory of the repo's primary checkout, so work happens off the checkout the user is sitting in. Reach for it when a piece of work wants its own branch and directory. The branch is checked out when it already exists locally, tracked when it exists on origin, and otherwise created from base_ref. The repo's configured prep runs after create (seeding env files, running its post-create commands, installing dependencies) and its report comes back with the result — a failed prep leaves the worktree in place, so report what failed rather than recreating it.",
       inputSchema: z.object({
         repo: z
           .string()
@@ -161,7 +161,7 @@ export function worktreeTools(deps: WorktreeToolsDeps): ToolSet {
           .boolean()
           .optional()
           .describe(
-            "Skip the prep pipeline, leaving the worktree bare — no env files, no install, no post-create commands. Defaults to false.",
+            "Skip the prep pipeline, leaving the worktree bare — no env files, no post-create commands, no install. Defaults to false.",
           ),
       }),
       execute: async ({ repo, branch, name, base_ref, skip_prepare }) => {

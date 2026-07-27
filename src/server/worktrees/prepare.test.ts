@@ -270,7 +270,7 @@ describe("prepareWorktree", () => {
       expect(report.steps).toEqual([]);
     });
 
-    it("stops at the first failed install and skips later installs and post-create", async () => {
+    it("stops at the first failed install and skips later installs", async () => {
       write(worktree, "package-lock.json", "{}");
       write(worktree, "later/yarn.lock", "");
 
@@ -279,15 +279,10 @@ describe("prepareWorktree", () => {
           ? { exitCode: 1, stdout: "boom", stderr: "" }
           : { exitCode: 0, stdout: "", stderr: "" },
       );
-      const report = await prepareWorktree(
-        primary,
-        worktree,
-        { install: "auto", postCreate: ["echo after"] },
-        run,
-      );
+      const report = await prepareWorktree(primary, worktree, { install: "auto" }, run);
 
       expect(report.status).toBe("failed");
-      // Only the failing install ran; yarn and post-create never dispatched.
+      // Only the failing install ran; the yarn install never dispatched.
       expect(calls).toEqual([{ command: "npm install", cwd: worktree }]);
       expect(report.steps).toHaveLength(1);
       expect(report.steps[0]).toMatchObject({
@@ -346,6 +341,26 @@ describe("prepareWorktree", () => {
       ]);
     });
 
+    it("stops the pipeline before installs when a command fails", async () => {
+      write(worktree, "bun.lock", "");
+
+      const { run, calls } = recordingRunner((command) =>
+        command === "mise trust"
+          ? { exitCode: 1, stdout: "", stderr: "untrusted" }
+          : { exitCode: 0, stdout: "", stderr: "" },
+      );
+      const report = await prepareWorktree(
+        primary,
+        worktree,
+        { install: "auto", postCreate: ["mise trust"] },
+        run,
+      );
+
+      expect(report.status).toBe("failed");
+      expect(calls).toEqual([{ command: "mise trust", cwd: worktree }]);
+      expect(report.steps.map((s) => s.name)).toEqual(["postCreate: mise trust"]);
+    });
+
     it("omits both stream tails on a failure that produced no output", async () => {
       const { run } = recordingRunner(() => ({ exitCode: 5, stdout: "", stderr: "" }));
       const report = await prepareWorktree(primary, worktree, { postCreate: ["boom"] }, run);
@@ -382,7 +397,7 @@ describe("prepareWorktree", () => {
   });
 
   describe("full pipeline ordering", () => {
-    it("runs env, then installs, then post-create in order", async () => {
+    it("runs env, then post-create, then installs in order", async () => {
       write(primary, ".gitignore", ".env\n");
       write(primary, ".env", "E=1\n");
       gitInit(primary);
@@ -399,10 +414,10 @@ describe("prepareWorktree", () => {
       expect(report.status).toBe("ok");
       expect(report.steps.map((s) => s.name)).toEqual([
         "env: copy",
-        "install: bun (.)",
         "postCreate: echo hi",
+        "install: bun (.)",
       ]);
-      expect(calls.map((c) => c.command)).toEqual(["bun install", "echo hi"]);
+      expect(calls.map((c) => c.command)).toEqual(["echo hi", "bun install"]);
     });
   });
 });
