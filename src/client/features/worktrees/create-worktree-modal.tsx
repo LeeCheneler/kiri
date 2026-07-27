@@ -150,7 +150,7 @@ export function CreateWorktreeModal({
           />
           <TextInput
             label="base ref"
-            description="Only used when the branch is new."
+            description="The commit a new branch starts from. Defaults to the repo's default branch on origin."
             placeholder={selected?.defaultBranch ?? "the repo's default branch"}
             value={baseRef}
             onChange={setBaseRef}
