@@ -14,6 +14,7 @@ import { Tag, type TagTone } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
+import { formatRelativeTime } from "../../formatters/format-time.ts";
 import {
   useChangeset,
   useFilePatch,
@@ -154,17 +155,27 @@ function FileList({
   );
 }
 
+// How old the diff on screen is, or nothing to say before there is one. The
+// time is when the query last resolved: no endpoint reports it, and none should
+// grow a clock so a readout can exist.
+const computedLabel = (query: ReturnType<typeof useChangeset>): string => {
+  if (query.isFetching) return "Computing…";
+  if (!query.isSuccess) return "";
+  return `Computed ${formatRelativeTime(new Date(query.dataUpdatedAt).toISOString())}`;
+};
+
 // The changed files and the diff of whichever one is being read.
-function Changeset({
+function ChangesetBody({
+  query,
   path,
   view,
   defaultBranch,
 }: {
+  query: ReturnType<typeof useChangeset>;
   path: string;
   view: ChangesetView;
   defaultBranch: string | null;
 }) {
-  const query = useChangeset(path, view);
   const [selected, setSelected] = useState<string | null>(null);
 
   if (query.isPending) return <LoadingState>Working out what changed…</LoadingState>;
@@ -217,6 +228,59 @@ function Changeset({
 }
 
 /**
+ * One view of one checkout: the control that chooses it, how old the diff on
+ * screen is beside the refresh that renews it, then the changed files and the
+ * diff of whichever is being read.
+ *
+ * The freshness line is the same bargain the repo page's scan status strikes,
+ * for a different reason: there the model trails the disk because the scan runs
+ * in the background, here because a diff is computed once per read and nothing
+ * signals when a file changes underneath it. The shapes are near enough to read
+ * as one system and the sources have nothing in common, so they are two small
+ * readouts rather than one shared component holding an "or" in the middle.
+ *
+ * The time comes from when the query last resolved — no endpoint reports it, and
+ * none should grow a clock for this — so it resets by itself when the view
+ * switches to a key of its own.
+ */
+function CheckoutChanges({
+  path,
+  view,
+  onViewChange,
+  defaultBranch,
+}: {
+  path: string;
+  view: ChangesetView;
+  onViewChange: (view: ChangesetView) => void;
+  defaultBranch: string | null;
+}) {
+  const query = useChangeset(path, view);
+  const refresh = useRefreshChangesets();
+
+  return (
+    <>
+      {/* The controls sit together at the left rather than being justified
+          apart: across a page this wide, an action pushed to the far edge
+          drifts away from what it acts on. */}
+      <div className="mt-8 flex flex-wrap items-end gap-6">
+        <SegmentedControl label="View" options={VIEWS} value={view} onChange={onViewChange} />
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-ink-muted text-xs" aria-live="polite">
+            {computedLabel(query)}
+          </p>
+          <Button onClick={refresh} pending={query.isFetching} pendingLabel="Refreshing…">
+            Refresh
+          </Button>
+        </div>
+      </div>
+      <div className="mt-8">
+        <ChangesetBody query={query} path={path} view={view} defaultBranch={defaultBranch} />
+      </div>
+    </>
+  );
+}
+
+/**
  * One checkout's changes, read-only: its working tree against its last commit,
  * or what its branch introduces over its merge-base with the repo's default
  * branch. Nothing on this page writes — there is no staging, committing,
@@ -234,13 +298,12 @@ function Changeset({
  * Diffs are computed per request and are not part of the overview snapshot, so
  * they are not invalidated alongside it: a working tree moves constantly, and
  * recomputing on every scan would be a great deal of git for a page nobody
- * asked to change. Recompute is offered instead, and switching view reads
- * afresh.
+ * asked to change. The page says how old the diff on screen is and offers the
+ * refresh that renews it instead, and switching view reads afresh.
  */
 export function ChangesDetail({ repo: name, checkout }: { repo: string; checkout: string }) {
   const query = useGitOverview();
   const [params, setParams] = useSearchParams();
-  const refresh = useRefreshChangesets();
 
   const view: ChangesetView = params.get("view") === "branch" ? "branch" : "uncommitted";
 
@@ -289,23 +352,15 @@ export function ChangesDetail({ repo: name, checkout }: { repo: string; checkout
         </p>
         <p className="mt-2 break-all font-mono text-ink-muted text-sm">{worktree.path}</p>
       </header>
-      {/* The control and the recompute sit together at the left rather than
-          being justified apart: across a page this wide, an action pushed to the
-          far edge drifts away from what it acts on. */}
-      <div className="mt-8 flex flex-wrap items-end gap-6">
-        <SegmentedControl
-          label="View"
-          options={VIEWS}
-          value={view}
-          onChange={(next) => setParams(next === "uncommitted" ? {} : { view: next })}
-        />
-        <Button onClick={refresh}>Recompute</Button>
-      </div>
-      {/* Keyed by view so switching starts from an unpicked list rather than
-          carrying one view's selection into another's files. */}
-      <div className="mt-8">
-        <Changeset key={view} path={worktree.path} view={view} defaultBranch={repo.defaultBranch} />
-      </div>
+      {/* Keyed by view so switching starts from an unpicked list, and from a
+          freshness of its own, rather than carrying one view's into another's. */}
+      <CheckoutChanges
+        key={view}
+        path={worktree.path}
+        view={view}
+        onViewChange={(next) => setParams(next === "uncommitted" ? {} : { view: next })}
+        defaultBranch={repo.defaultBranch}
+      />
     </section>
   );
 }

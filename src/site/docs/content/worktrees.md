@@ -183,8 +183,10 @@ directly.
 The page lists each changed file with its path, what happened to it, and how
 many lines moved. Picking one loads that file's patch and nothing else — a
 hundred-file changeset costs one read until you actually open something.
-Diffs are computed on request rather than kept in the background scan, so a
-stale one is refreshed by asking, not by polling.
+Diffs are computed on request rather than kept in the background scan, and
+nothing signals when a file changes underneath one. The page says how old the
+diff on screen is — `Computed 2 minutes ago`, beside a **Refresh** — so it's
+clear whether you need it, the same way the repo pages report their last scan.
 
 When there's nothing to show, the page says which of the reasons applies: the
 working tree is clean, the branch introduces nothing, the repo has no default

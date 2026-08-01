@@ -320,7 +320,7 @@ describe("<ChangesDetail>", () => {
     expect(await screen.findByText(sentence)).toBeDefined();
   });
 
-  it("recomputes on request rather than polling", async () => {
+  it("refreshes on request rather than polling", async () => {
     let reads = 0;
     serve({
       list: () => {
@@ -331,8 +331,28 @@ describe("<ChangesDetail>", () => {
     renderDetail();
 
     await waitFor(() => expect(reads).toBe(1));
-    await userEvent.click(screen.getByRole("button", { name: "Recompute" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(reads).toBe(2));
+  });
+
+  it("says how old the diff on screen is, so the refresh says whether it's wanted", async () => {
+    serve({ list: () => changeset({ files: [] }) });
+    renderDetail();
+    expect(await screen.findByText(/computed .* ago|computed now/i)).toBeDefined();
+  });
+
+  it("says the diff is being computed while a read is in flight", async () => {
+    serve();
+    server.use(http.get("*/api/git/changeset", () => new Promise<Response>(() => {})));
+    renderDetail();
+    expect(await screen.findByText(/computing…/i)).toBeDefined();
+  });
+
+  it("has no freshness to report when the read failed", async () => {
+    serve({ list: () => new HttpResponse(null, { status: 500 }) });
+    renderDetail();
+    await screen.findByText(/couldn't read what changed/i);
+    expect(screen.queryByText(/computed/i)).toBeNull();
   });
 
   it("surfaces a failure to read what changed", async () => {
