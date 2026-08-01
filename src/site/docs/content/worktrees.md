@@ -69,7 +69,14 @@ nothing runs while the app is closed.
 
 **Fetch** is `git fetch --prune`, per repo. One fetch covers every worktree of
 the repo, since they share an object store, and the prune is what turns the
-upstream of a branch deleted on the remote into `[gone]`. You can fetch one
+upstream of a branch deleted on the remote into `[gone]`. Each repo says when it last fetched, read from git's own `FETCH_HEAD` — so it
+counts a fetch you ran in a terminal too, and a repo that has never fetched
+says so rather than looking current. A fetch that worked reports nothing: what
+it moved shows up in the ahead and behind counts. A fetch that was refused or
+failed is always named, with its reason, because a repo that did not fetch
+looks exactly like one that did.
+
+You can fetch one
 repo from its own page, or every discovered repo at once from the list. A
 fetch-all is a single request — it runs several repos at a time and reports
 back when the whole set has settled, with a count of what came back and an

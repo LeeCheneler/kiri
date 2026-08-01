@@ -12,7 +12,7 @@ import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { useGitOverview } from "../../state/git.ts";
 import { FetchAllRepos } from "./fetch-all-repos.tsx";
-import { ScanStatus } from "./scan-status.tsx";
+import { RefreshGit, ScanFreshness } from "./scan-status.tsx";
 
 // The path a repo's own page lives at, keyed by its directory name.
 const repoHref = (repo: RepoOverview): string => `/git/${encodeURIComponent(repo.name)}`;
@@ -154,14 +154,19 @@ export function RepoList() {
     <section>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <Breadcrumb items={[]} current="Git" />
-        <ScanStatus overview={query.data} />
+        {/* One action area: the two actions sit together on the line the
+            freshness reads on, rather than one in the header and one adrift
+            below the filter. Refresh stays rightmost, the established anchor
+            across this surface. */}
+        <div className="flex flex-wrap items-start justify-end gap-3">
+          <ScanFreshness overview={query.data} />
+          {repos.length > 0 ? <FetchAllRepos /> : null}
+          <RefreshGit />
+        </div>
       </div>
       {repos.length > 0 ? (
-        <div className="mt-6 space-y-5">
-          <div className="max-w-sm">
-            <TextInput value={filter} onChange={setFilter} placeholder="Filter repos…" />
-          </div>
-          <FetchAllRepos />
+        <div className="mt-6 max-w-sm">
+          <TextInput value={filter} onChange={setFilter} placeholder="Filter repos…" />
         </div>
       ) : null}
       <div className="mt-6">

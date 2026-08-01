@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/setup/msw.ts";
@@ -18,35 +18,43 @@ const results = (...entries: Record<string, unknown>[]) =>
   http.post("*/api/git/fetch-all", () => HttpResponse.json({ results: entries }));
 
 describe("<FetchAllRepos>", () => {
-  it("counts what came back and lists only the repos with something to say", async () => {
+  it("names the repos that didn't succeed, with their reasons", async () => {
     server.use(
       results(
         { repo: "kiri", status: "updated", updates: ["   a..b  main -> origin/main"] },
         { repo: "quiet", status: "up-to-date", updates: [] },
         { repo: "offline", status: "failed", updates: [], error: "could not resolve host" },
+        { repo: "local-only", status: "refused", updates: [], reason: "the repo has no remote" },
       ),
     );
     renderFetchAll();
 
     await userEvent.click(screen.getByRole("button", { name: "Fetch all" }));
 
-    expect(await screen.findByText(/fetched 3 repos/i)).toBeDefined();
-    expect(screen.getByText(/1 updated, 1 already up to date, 1 failed/i)).toBeDefined();
-    expect(screen.getByText("kiri")).toBeDefined();
-    expect(screen.getByText("offline")).toBeDefined();
+    // A repo that didn't fetch looks identical in the list to one that did, so
+    // it has to say so rather than passing for "already up to date".
+    expect(await screen.findByText("offline")).toBeDefined();
     expect(screen.getByText(/could not resolve host/i)).toBeDefined();
-    // A repo with nothing to report is counted, not listed.
+    expect(screen.getByText("local-only")).toBeDefined();
+    expect(screen.getByText(/no remote/i)).toBeDefined();
+    // Repos that fetched are not reported at all: what moved is on the cards.
+    expect(screen.queryByText("kiri")).toBeNull();
     expect(screen.queryByText("quiet")).toBeNull();
   });
 
-  it("reports a fetch where nothing moved as a count alone", async () => {
-    server.use(results({ repo: "kiri", status: "up-to-date", updates: [] }));
+  it("reports nothing at all when every repo fetched", async () => {
+    server.use(
+      results(
+        { repo: "kiri", status: "updated", updates: ["   a..b  main -> origin/main"] },
+        { repo: "quiet", status: "up-to-date", updates: [] },
+      ),
+    );
     renderFetchAll();
 
     await userEvent.click(screen.getByRole("button", { name: "Fetch all" }));
 
-    expect(await screen.findByText(/fetched 1 repo/i)).toBeDefined();
-    expect(screen.getByText(/1 already up to date/i)).toBeDefined();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /fetching/i })).toBeNull());
+    expect(screen.queryByText(/fetched/i)).toBeNull();
     expect(screen.queryByText("kiri")).toBeNull();
   });
 
