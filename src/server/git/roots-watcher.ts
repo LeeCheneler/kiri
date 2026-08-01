@@ -61,7 +61,7 @@ export function watchWorktreeRoots(
     // was real.
     fsWatcher.on("error", (cause) => {
       console.error(
-        `worktrees: watcher error on ${root}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `git: watcher error on ${root}: ${cause instanceof Error ? cause.message : String(cause)}`,
       );
       schedule();
     });

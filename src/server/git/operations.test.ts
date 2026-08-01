@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktree, pruneWorktrees, removeWorktree } from "./operations.ts";
 import type { CommandResult, CommandRunner } from "./prepare.ts";
-import type { WorktreesConfig } from "./schema.ts";
+import type { GitConfig } from "./schema.ts";
 
 const git = (cwd: string, ...args: string[]): string => {
   const result = spawnSync("git", args, {
@@ -229,7 +229,7 @@ describe("worktree operations", () => {
       git(repo, "commit", "-qm", "ignore env");
       writeFileSync(join(repo, ".env"), "SECRET=1\n");
 
-      const config: WorktreesConfig = {
+      const config: GitConfig = {
         roots: [base],
         defaults: { prepare: { env: "copy", postCreate: ["echo default"] } },
         repos: { repo: { prepare: { env: "symlink", postCreate: ["echo repo"] } } },
@@ -246,7 +246,7 @@ describe("worktree operations", () => {
     it("skips prep entirely when asked", async () => {
       const repo = at("repo");
       initRepo(repo);
-      const config: WorktreesConfig = {
+      const config: GitConfig = {
         roots: [base],
         defaults: { prepare: { postCreate: ["echo hello"] } },
       };
@@ -263,7 +263,7 @@ describe("worktree operations", () => {
     it("reports a failed prep step and leaves the worktree in place", async () => {
       const repo = at("repo");
       initRepo(repo);
-      const config: WorktreesConfig = {
+      const config: GitConfig = {
         roots: [base],
         defaults: { prepare: { postCreate: ["boom"] } },
       };
@@ -350,7 +350,7 @@ describe("worktree operations", () => {
       git(repo, "add", ".gitignore");
       git(repo, "commit", "-qm", "ignore env");
       writeFileSync(join(repo, ".env"), "SECRET=1\n");
-      const config: WorktreesConfig = {
+      const config: GitConfig = {
         roots: [base],
         defaults: { prepare: { env: "symlink" } },
       };

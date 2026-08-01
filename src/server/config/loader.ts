@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { WorktreesConfig } from "../git/schema.ts";
+import type { GitConfig } from "../git/schema.ts";
 import type { LlmProvider, ProviderType } from "../llm/schema.ts";
 import type { McpServer, McpServerEntry, McpServerUnresolved } from "../mcp/schema.ts";
 import { kiriConfigSchema } from "./schema.ts";
@@ -44,11 +44,11 @@ export interface KiriConfigLoadResult {
    */
   shellDirectories: string[];
   /**
-   * The validated `worktrees:` section, or undefined when the file or the
+   * The validated `git:` section, or undefined when the file or the
    * section is absent — and on a failed load (fail closed), so no roots are
    * scanned off a broken config.
    */
-  worktrees?: WorktreesConfig;
+  git?: GitConfig;
   /** Set when a present file failed to load. An absent file is not a failure. */
   failure?: KiriConfigLoadFailure;
   /** Non-fatal note — e.g. both `kiri.yaml` and `kiri.yml` exist and the canonical one was used. */
@@ -180,7 +180,7 @@ function loadConfigFile(
     mcpUnresolved,
     allowedDirectories,
     shellDirectories,
-    worktrees: result.data.worktrees,
+    git: result.data.git,
   };
 }
 

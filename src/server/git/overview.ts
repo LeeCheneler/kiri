@@ -22,7 +22,7 @@ export interface RepoOverview {
 
 /** The whole worktree surface: the roots that were scanned and the repos found under them. */
 export interface WorktreesOverview {
-  /** Absolute roots scanned, in configured order. Empty when `worktrees:` declares none. */
+  /** Absolute roots scanned, in configured order. Empty when `git:` declares none. */
   roots: string[];
   /** Repos found, ordered by name. */
   repos: RepoOverview[];

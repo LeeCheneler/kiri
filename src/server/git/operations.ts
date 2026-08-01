@@ -9,7 +9,7 @@ import {
   defaultCommandRunner,
   prepareWorktree,
 } from "./prepare.ts";
-import type { WorktreesConfig } from "./schema.ts";
+import type { GitConfig } from "./schema.ts";
 
 /** How the branch a new worktree checks out was resolved. */
 export type BranchSource = "local" | "remote" | "new";
@@ -29,8 +29,8 @@ export interface CreateWorktreeOptions {
   baseRef?: string;
   /** Skip the prep pipeline entirely, leaving the worktree bare. */
   skipPrepare?: boolean;
-  /** The `worktrees:` config section, used to resolve the repo's prep policy. */
-  config?: WorktreesConfig;
+  /** The `git:` config section, used to resolve the repo's prep policy. */
+  config?: GitConfig;
 }
 
 /**

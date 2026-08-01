@@ -173,25 +173,25 @@ describe("kiriConfigSchema", () => {
     ).toThrow();
   });
 
-  it("parses a worktrees section with roots, defaults, and repos", () => {
+  it("parses a git section with roots, defaults, and repos", () => {
     const result = kiriConfigSchema.parse({
-      worktrees: {
+      git: {
         roots: ["~/projects/personal"],
         defaults: { prepare: { env: "symlink", install: "auto" } },
         repos: { kiri: { prepare: { postCreate: ["mise trust"] } } },
       },
     });
-    expect(result.worktrees?.roots).toEqual(["~/projects/personal"]);
-    expect(result.worktrees?.defaults?.prepare?.env).toBe("symlink");
-    expect(result.worktrees?.repos?.kiri).toEqual({ prepare: { postCreate: ["mise trust"] } });
+    expect(result.git?.roots).toEqual(["~/projects/personal"]);
+    expect(result.git?.defaults?.prepare?.env).toBe("symlink");
+    expect(result.git?.repos?.kiri).toEqual({ prepare: { postCreate: ["mise trust"] } });
   });
 
-  it("leaves worktrees undefined when the key is absent", () => {
-    expect(kiriConfigSchema.parse({}).worktrees).toBeUndefined();
+  it("leaves git undefined when the key is absent", () => {
+    expect(kiriConfigSchema.parse({}).git).toBeUndefined();
   });
 
-  it("rejects an unknown worktrees key (strict)", () => {
-    expect(() => kiriConfigSchema.parse({ worktrees: { roots: [], junk: true } })).toThrow();
+  it("rejects an unknown git key (strict)", () => {
+    expect(() => kiriConfigSchema.parse({ git: { roots: [], junk: true } })).toThrow();
   });
 
   it("rejects an unknown top-level key (strict)", () => {

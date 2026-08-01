@@ -30,11 +30,11 @@ const overridesSchema = z
   .strict();
 
 /**
- * Schema for the `worktrees:` section in `kiri.yaml`: the folders to scan for
+ * Schema for the `git:` section in `kiri.yaml`: the folders to scan for
  * git repos and worktrees, plus the prepare policy — as `defaults:` and per-repo
  * `repos:` overrides deep-merged over them.
  */
-export const worktreesSchema = z
+export const gitSchema = z
   .object({
     roots: z
       .array(z.string().min(1))
@@ -56,8 +56,8 @@ export const worktreesSchema = z
     "Worktree management: the folders to scan for repos and the prepare policy applied when creating their worktrees.",
   );
 
-/** The raw, validated `worktrees:` section. */
-export type WorktreesConfig = z.infer<typeof worktreesSchema>;
+/** The raw, validated `git:` section. */
+export type GitConfig = z.infer<typeof gitSchema>;
 
 /** A single validated `prepare:` block — `defaults.prepare` or a repo override. */
 export type WorktreePrepareConfig = z.infer<typeof prepareSchema>;

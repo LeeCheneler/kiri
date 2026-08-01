@@ -48,7 +48,7 @@ describe("worktrees routes", () => {
 
   // The workspace root doubles as the scanned root, so `repos:` live beside kiri.yaml.
   const configureRoots = (roots: string) =>
-    writeFileSync(join(env.cwd, "kiri.yaml"), `worktrees:\n  roots:\n${roots}`);
+    writeFileSync(join(env.cwd, "kiri.yaml"), `git:\n  roots:\n${roots}`);
 
   const buildApp = (bus?: ReturnType<typeof createEventBus>) =>
     createApp({ db: env.db, registry: env.registry, config: env.config, env: {}, bus });
@@ -156,7 +156,7 @@ describe("worktrees routes", () => {
       writeFileSync(
         join(env.cwd, "kiri.yaml"),
         [
-          "worktrees:",
+          "git:",
           "  roots:",
           "    - repos",
           "  repos:",
@@ -184,7 +184,7 @@ describe("worktrees routes", () => {
       writeFileSync(
         join(env.cwd, "kiri.yaml"),
         [
-          "worktrees:",
+          "git:",
           "  roots:",
           "    - repos",
           "  repos:",

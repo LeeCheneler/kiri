@@ -60,10 +60,10 @@ describe("kiriConfigJsonSchema", () => {
     }
   });
 
-  it("publishes the worktrees section with roots, defaults, and repos", () => {
+  it("publishes the git section with roots, defaults, and repos", () => {
     const schema = kiriConfigJsonSchema() as {
       properties: {
-        worktrees: {
+        git: {
           type?: string;
           properties: {
             roots?: { type?: string };
@@ -74,12 +74,12 @@ describe("kiriConfigJsonSchema", () => {
         };
       };
     };
-    const worktrees = schema.properties.worktrees;
-    expect(worktrees.type).toBe("object");
-    expect(worktrees.properties.roots?.type).toBe("array");
-    expect(worktrees.properties.defaults?.type).toBe("object");
-    expect(worktrees.properties.repos?.type).toBe("object");
-    expect(worktrees.required).toEqual(["roots"]);
+    const git = schema.properties.git;
+    expect(git.type).toBe("object");
+    expect(git.properties.roots?.type).toBe("array");
+    expect(git.properties.defaults?.type).toBe("object");
+    expect(git.properties.repos?.type).toBe("object");
+    expect(git.required).toEqual(["roots"]);
   });
 
   it("publishes the mcp servers map as a union discriminated on type", () => {

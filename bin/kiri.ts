@@ -215,10 +215,9 @@ const personaWatcher = watchPersonas(config, { bus });
 // created or removed outside kiri shows up without a manual refresh. Attached
 // to the roots configured at boot — a root added to kiri.yaml later needs a
 // restart, the same as personas.
-const worktreeWatcher = watchWorktreeRoots(
-  resolveWorktreeRoots(kiriConfig.worktrees, config.cwd()),
-  { bus },
-);
+const worktreeWatcher = watchWorktreeRoots(resolveWorktreeRoots(kiriConfig.git, config.cwd()), {
+  bus,
+});
 
 const app = createApp({
   db,

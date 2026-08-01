@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { WorktreesConfig } from "./schema.ts";
+import type { GitConfig } from "./schema.ts";
 
 /** Fully-resolved prepare policy — every field settled to a concrete value. */
 export interface ResolvedWorktreePrepare {
@@ -39,11 +39,11 @@ const expandHome = (dir: string): string => {
  * re-implement the merge.
  */
 export function resolveWorktreeConfig(
-  worktrees: WorktreesConfig | undefined,
+  git: GitConfig | undefined,
   repoKey: string,
 ): ResolvedWorktreeConfig {
-  const defaults = worktrees?.defaults;
-  const repo = worktrees?.repos?.[repoKey];
+  const defaults = git?.defaults;
+  const repo = git?.repos?.[repoKey];
   return {
     prepare: {
       env: repo?.prepare?.env ?? defaults?.prepare?.env ?? BASELINE.prepare.env,
@@ -57,11 +57,8 @@ export function resolveWorktreeConfig(
 /**
  * Resolve the configured `roots` to absolute directories to scan. A leading `~`
  * expands to the home directory and a relative entry resolves against `cwd` (the
- * workspace root). An absent `worktrees:` section yields no roots.
+ * workspace root). An absent `git:` section yields no roots.
  */
-export function resolveWorktreeRoots(
-  worktrees: WorktreesConfig | undefined,
-  cwd: string,
-): string[] {
-  return (worktrees?.roots ?? []).map((root) => resolve(cwd, expandHome(root)));
+export function resolveWorktreeRoots(git: GitConfig | undefined, cwd: string): string[] {
+  return (git?.roots ?? []).map((root) => resolve(cwd, expandHome(root)));
 }

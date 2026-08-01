@@ -10,7 +10,7 @@ Point kiri at the folders your repos live in:
 
 ```yaml
 # kiri.yaml
-worktrees:
+git:
   roots:
     - ~/projects/personal
   defaults:
@@ -27,7 +27,7 @@ worktrees:
           - ./scripts/bootstrap.sh
 ```
 
-Without a `worktrees:` section there's nothing to scan, so the feature stays
+Without a `git:` section there's nothing to scan, so the feature stays
 out of the way entirely.
 
 ## Roots and discovery
@@ -52,7 +52,7 @@ status`, and `git rev-list` against what's already on disk. Anything kiri does
 itself updates the view live, as does a worktree directory appearing or
 vanishing under a root. Work you do *inside* a repo — a commit, an edit —
 doesn't announce itself, so refresh to pick up dirty and ahead/behind state.
-Config is re-read as the view loads, so an edit to `worktrees:` applies without
+Config is re-read as the view loads, so an edit to `git:` applies without
 a restart.
 
 ## Preparing a new worktree

@@ -10,7 +10,7 @@ import { type RepoOverview, worktreesOverview } from "../git/overview.ts";
 import { onZodFail } from "./shared.ts";
 
 export interface WorktreesRoutesDeps {
-  /** Workspace config — the scanned roots are read from its `worktrees:` section. */
+  /** Workspace config — the scanned roots are read from its `git:` section. */
   config: ConfigStore;
   /** Environment the config load resolves against. */
   env: Record<string, string | undefined>;
@@ -38,7 +38,7 @@ const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
  * Build the Hono sub-app for `/api/worktrees`. `GET /` returns the grouped
  * model — the scanned roots plus each discovered repo with its default branch
  * and the live status of its primary checkout and linked worktrees — rebuilt
- * from disk per request, so it always reflects the current `worktrees:` roots.
+ * from disk per request, so it always reflects the current `git:` roots.
  * `POST /refresh` returns the same freshly-built model.
  *
  * The mutations mirror the operations core: `POST /create` adds a worktree and
@@ -56,10 +56,9 @@ const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
 export function worktreesRoutes(deps: WorktreesRoutesDeps): Hono {
   const app = new Hono();
 
-  const worktreesConfig = () => loadKiriConfig(deps.config, deps.env).worktrees;
+  const gitConfig = () => loadKiriConfig(deps.config, deps.env).git;
 
-  const overview = () =>
-    worktreesOverview(resolveWorktreeRoots(worktreesConfig(), deps.config.cwd()));
+  const overview = () => worktreesOverview(resolveWorktreeRoots(gitConfig(), deps.config.cwd()));
 
   const changed = () => deps.bus?.publish({ type: "worktrees.changed" });
 
@@ -97,7 +96,7 @@ export function worktreesRoutes(deps: WorktreesRoutesDeps): Hono {
         name: body.name,
         baseRef: body.baseRef,
         skipPrepare: body.skipPrepare,
-        config: worktreesConfig(),
+        config: gitConfig(),
       });
       // A prep failure still leaves a usable worktree on disk, so it comes back
       // as a result carrying the report; only a create that produced nothing is
