@@ -3,19 +3,18 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { loadKiriConfig } from "../config/loader.ts";
 import type { ConfigStore } from "../config/store.ts";
-import type { EventBus } from "../events/index.ts";
-import { resolveWorktreeRoots } from "../git/config.ts";
 import { createWorktree, pruneWorktrees, removeWorktree } from "../git/operations.ts";
-import { type RepoOverview, gitOverview } from "../git/overview.ts";
+import type { RepoOverview } from "../git/overview.ts";
+import type { GitSnapshotStore } from "../git/snapshot.ts";
 import { onZodFail } from "./shared.ts";
 
 export interface GitRoutesDeps {
-  /** Workspace config — the scanned roots are read from its `git:` section. */
+  /** The server-held overview. Reads serve it; mutations refresh it. */
+  snapshot: GitSnapshotStore;
+  /** Workspace config — the `git:` section drives a new worktree's prep pipeline. */
   config: ConfigStore;
   /** Environment the config load resolves against. */
   env: Record<string, string | undefined>;
-  /** When supplied, a refresh or a mutation publishes `git.changed` so live clients refetch. */
-  bus?: EventBus;
 }
 
 const createBodySchema = z
@@ -35,19 +34,21 @@ const removeBodySchema = z
 const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
 
 /**
- * Build the Hono sub-app for `/api/git`. `GET /` returns the grouped
- * model — the scanned roots plus each discovered repo with its default branch
- * and the live status of its primary checkout and linked worktrees — rebuilt
- * from disk per request, so it always reflects the current `git:` roots.
- * `POST /refresh` returns the same freshly-built model.
+ * Build the Hono sub-app for `/api/git`. `GET /` answers from the snapshot —
+ * the scanned roots plus each discovered repo with its default branch and the
+ * status of its primary checkout and linked worktrees, alongside when that was
+ * last scanned and whether a scan is running. It never touches the config, git,
+ * or the disk, so it returns whatever is known right now rather than waiting for
+ * a scan. `POST /refresh` forces one and answers with its result.
  *
  * The mutations mirror the operations core: `POST /create` adds a worktree and
  * runs the repo's prep pipeline, `POST /remove` deletes one and tidies up after
  * it, and `POST /prune` clears a repo's stale admin entries. Each addresses only
  * the repos and worktrees the configured roots reach, so a path outside them is
- * refused rather than driving git somewhere unexpected, and each publishes
- * `git.changed` on success so every open client converges. A create whose
- * prep pipeline failed still left a worktree on disk, so it answers 200 with the
+ * refused rather than driving git somewhere unexpected, and each refreshes the
+ * snapshot on success — which publishes `git.changed`, so every open client
+ * converges on a model that already includes the change. A create whose prep
+ * pipeline failed still left a worktree on disk, so it answers 200 with the
  * report rather than an error; a create that never made one answers 400.
  *
  * Mounted unconditionally: with no roots configured it answers with an empty
@@ -58,34 +59,33 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
 
   const gitConfig = () => loadKiriConfig(deps.config, deps.env).git;
 
-  const overview = () => gitOverview(resolveWorktreeRoots(gitConfig(), deps.config.cwd()));
-
-  const changed = () => deps.bus?.publish({ type: "git.changed" });
+  // Both guards below resolve against the snapshot rather than a targeted fresh
+  // read: a guard and the read that put the button on screen then agree, and a
+  // stale answer is safe in both directions. A worktree that has since gone
+  // fails in the operation itself, with git's own reason; one that has since
+  // appeared is refused until the refresh behind it lands, moments later.
+  const known = () => deps.snapshot.current();
 
   // The repo a request names, by directory name or by the absolute path of any
   // of its checkouts. Only repos the configured roots reach resolve.
-  const findRepo = async (repo: string): Promise<RepoOverview | undefined> =>
-    (await overview()).repos.find(
+  const findRepo = (repo: string): RepoOverview | undefined =>
+    known().repos.find(
       (candidate) =>
         candidate.name === repo ||
         candidate.root === repo ||
         candidate.worktrees.some((worktree) => worktree.path === repo),
     );
 
-  app.get("/", async (c) => c.json(await overview()));
+  app.get("/", (c) => c.json(deps.snapshot.current()));
 
-  app.post("/refresh", async (c) => {
-    const result = await overview();
-    changed();
-    return c.json(result);
-  });
+  app.post("/refresh", async (c) => c.json(await deps.snapshot.refresh()));
 
   app.post(
     "/create",
     zValidator("json", createBodySchema, onZodFail("invalid create request")),
     async (c) => {
       const body = c.req.valid("json");
-      const target = await findRepo(body.repo);
+      const target = findRepo(body.repo);
       if (target === undefined) {
         return c.json({ error: `no repo "${body.repo}" under the configured worktree roots` }, 404);
       }
@@ -104,7 +104,7 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
       if (result.status === "failed" && result.prepare === null) {
         return c.json({ error: result.error }, 400);
       }
-      changed();
+      await deps.snapshot.refresh();
       return c.json(result);
     },
   );
@@ -114,10 +114,10 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
     zValidator("json", removeBodySchema, onZodFail("invalid remove request")),
     async (c) => {
       const { path, force } = c.req.valid("json");
-      const known = (await overview()).repos.some((repo) =>
+      const linked = known().repos.some((repo) =>
         repo.worktrees.some((worktree) => worktree.path === path && !worktree.primary),
       );
-      if (!known) {
+      if (!linked) {
         return c.json(
           { error: `no linked worktree at "${path}" under the configured worktree roots` },
           404,
@@ -126,7 +126,7 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
 
       const result = await removeWorktree(path, force);
       if (result.status === "failed") return c.json({ error: result.error }, 400);
-      changed();
+      await deps.snapshot.refresh();
       return c.json(result);
     },
   );
@@ -136,14 +136,14 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
     zValidator("json", pruneBodySchema, onZodFail("invalid prune request")),
     async (c) => {
       const { repo } = c.req.valid("json");
-      const target = await findRepo(repo);
+      const target = findRepo(repo);
       if (target === undefined) {
         return c.json({ error: `no repo "${repo}" under the configured worktree roots` }, 404);
       }
       // `repo` resolved through the discovered repos, so the prune itself can only
       // succeed — its failure mode is a path that isn't a repo.
       const result = await pruneWorktrees(target.root);
-      changed();
+      await deps.snapshot.refresh();
       return c.json({ repo: target.name, pruned: result.pruned });
     },
   );
