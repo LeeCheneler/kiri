@@ -5,8 +5,9 @@ import { Tag } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useGitOverview } from "../../state/git.ts";
-import { RemoteSection } from "./remote-section.tsx";
-import { ScanStatus } from "./scan-status.tsx";
+import { ChangesLink } from "./changes-link.tsx";
+import { CheckoutPull } from "./checkout-pull.tsx";
+import { FetchRepo } from "./fetch-repo.tsx";
 import { branchLabel, stateTags } from "./worktree-state.ts";
 import { WorktreesSection } from "./worktrees-section.tsx";
 
@@ -26,7 +27,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 
 // The repo itself: where it lives, the branch a new one is cut from, and what
 // its primary checkout is sitting on and carrying — the state a reader needs
-// before deciding anything on the sections below.
+// before deciding anything below.
 function RepoHeader({ repo }: { repo: RepoOverview }) {
   const primary = repo.worktrees.find((worktree) => worktree.primary);
   return (
@@ -39,6 +40,9 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
       <div className="mt-6 flex flex-wrap gap-x-10 gap-y-5">
         <Fact label="Default branch">{repo.defaultBranch ?? "none"}</Fact>
         {primary ? (
+          // The primary checkout's own actions belong beside the primary
+          // checkout itself: it has no row in the Worktrees section, which
+          // lists only the linked ones.
           <Fact label="Primary checkout">
             {branchLabel(primary)}
             {stateTags(primary).map((tag) => (
@@ -46,6 +50,8 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
                 {tag.label}
               </Tag>
             ))}
+            <CheckoutPull worktree={primary} />
+            <ChangesLink repo={repo} worktree={primary} />
           </Fact>
         ) : null}
       </div>
@@ -54,9 +60,18 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
 }
 
 /**
- * A repo's own page: what the repo is, then a stack of sections managing it —
- * its standing with its remote and its worktrees, with room for the rest to
- * arrive alongside them.
+ * A repo's own page: what the repo is, then its worktrees, with room for more
+ * to arrive alongside them. Each checkout links through to its own changes.
+ *
+ * The two remote actions live where they belong rather than in a band of their
+ * own. Fetch is repo-level and always offered — worktrees share an object store,
+ * and ahead/behind cannot be known to be stale until a fetch has happened — so
+ * it sits on the breadcrumb line, saying when it last ran. The workspace rescan
+ * is not here: its scope is every root, so it belongs on the listing, and a
+ * staleness with no action beside it is noise. Pull is per checkout and appears
+ * on the checkout
+ * itself, only where a fast-forward would actually land, so a repo with nothing
+ * to pull says nothing rather than spending a section saying so.
  *
  * `name` is the repo's directory name, which is also the key its `kiri.yaml`
  * overrides are written under. Two roots can hold directories of the same name;
@@ -99,11 +114,14 @@ export function RepoDetail({ name }: { name: string }) {
     <section>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <Breadcrumb items={[GIT_CRUMB]} current={repo.name} />
-        <ScanStatus overview={query.data} />
+        {/* One action on the breadcrumb line, saying when it last ran. How stale
+            the scan is isn't here: the rescan that would fix it is
+            workspace-wide, so it lives on the listing whose scope matches, and a
+            staleness nobody on this page can act on is only noise. */}
+        <FetchRepo repo={repo} />
       </div>
       <RepoHeader repo={repo} />
-      <div className="mt-10 space-y-10">
-        <RemoteSection repo={repo} />
+      <div className="mt-10">
         <WorktreesSection repo={repo} />
       </div>
     </section>

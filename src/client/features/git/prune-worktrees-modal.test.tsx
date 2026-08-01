@@ -23,6 +23,7 @@ const repo = (name: string, worktrees: WorktreeStatus[]): RepoOverview => ({
   root: `/projects/${name}`,
   gitCommonDir: `/projects/${name}/.git`,
   defaultBranch: "main",
+  lastFetchedAt: null,
   worktrees,
 });
 

@@ -6,7 +6,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/setup/msw.ts";
 import type { GitOverview } from "../../api.ts";
 import { createQueryClient } from "../../state/query-client.ts";
-import { ScanStatus } from "./scan-status.tsx";
+import { RefreshGit, ScanFreshness } from "./scan-status.tsx";
 
 const overview = (over: Partial<GitOverview> = {}): GitOverview => ({
   roots: ["/projects"],
@@ -16,42 +16,46 @@ const overview = (over: Partial<GitOverview> = {}): GitOverview => ({
   ...over,
 });
 
-const renderStatus = (value: GitOverview | undefined) =>
+const renderFreshness = (value: GitOverview | undefined) =>
+  render(<ScanFreshness overview={value} />);
+
+const renderRefresh = () =>
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <ScanStatus overview={value} />
+      <RefreshGit />
     </QueryClientProvider>,
   );
 
-describe("<ScanStatus>", () => {
+describe("<ScanFreshness>", () => {
   it("says when the model on screen was last scanned", () => {
-    renderStatus(overview());
+    renderFreshness(overview());
     expect(screen.getByText(/scanned .* ago|scanned now/i)).toBeDefined();
   });
 
   it("says a scan is running rather than passing a stale model off as live", () => {
-    renderStatus(overview({ refreshing: true }));
+    renderFreshness(overview({ refreshing: true }));
     expect(screen.getByText(/scanning/i)).toBeDefined();
   });
 
   it("says a scan is running before one has ever completed", () => {
-    renderStatus(overview({ scannedAt: null }));
+    renderFreshness(overview({ scannedAt: null }));
     expect(screen.getByText(/scanning/i)).toBeDefined();
   });
 
-  it("offers the refresh alone until the first model arrives", () => {
-    renderStatus(undefined);
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeDefined();
-    expect(screen.queryByText(/scanned|scanning/i)).toBeNull();
+  it("has nothing to say until the first model arrives", () => {
+    const { container } = renderFreshness(undefined);
+    expect(container.firstChild).toBeNull();
   });
+});
 
+describe("<RefreshGit>", () => {
   it("reports a failed rescan with the server's reason", async () => {
     server.use(
       http.post("*/api/git/refresh", () =>
         HttpResponse.json({ error: "roots unreadable" }, { status: 500 }),
       ),
     );
-    renderStatus(overview());
+    renderRefresh();
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByText(/couldn't rescan the roots/i)).toBeDefined();
@@ -64,7 +68,7 @@ describe("<ScanStatus>", () => {
         HttpResponse.json({ error: "roots unreadable" }, { status: 500 }),
       ),
     );
-    renderStatus(overview());
+    renderRefresh();
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await screen.findByText(/couldn't rescan the roots/i);
 

@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { stat } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { SCAN_CONCURRENCY, mapConcurrent } from "./concurrency.ts";
 import { discoverRepos } from "./discovery.ts";
 import { defaultBranch } from "./operations.ts";
@@ -17,6 +18,12 @@ export interface RepoOverview {
    * base a brand-new branch is cut from when a create names none.
    */
   defaultBranch: string | null;
+  /**
+   * When the repo was last fetched, as an ISO timestamp, or null when it never
+   * has been. Read from git's own record rather than tracked by kiri, so it
+   * survives a restart and counts a fetch run in a terminal.
+   */
+  lastFetchedAt: string | null;
   /** Primary checkout first, then linked worktrees ordered by path. */
   worktrees: WorktreeStatus[];
 }
@@ -31,13 +38,25 @@ export interface GitOverview {
 
 const byPath = (a: WorktreeStatus, b: WorktreeStatus): number => a.path.localeCompare(b.path);
 
+// When the repo last fetched, from the file git rewrites on every fetch. One
+// stat rather than a git spawn, and absent until the first fetch has happened —
+// which is a fact worth reporting, not an error.
+const lastFetchedAt = async (gitCommonDir: string): Promise<string | null> => {
+  try {
+    return (await stat(join(gitCommonDir, "FETCH_HEAD"))).mtime.toISOString();
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Build the grouped repo model for `roots`: discover the repos reachable
  * from them and compute each worktree's live status. Ordered deterministically —
  * repos by name, worktrees with the primary first — so the rendered list is
- * stable across refreshes. Each repo also carries its default branch, the base a
- * brand-new branch is cut from. Read-only; runs git status commands but never
- * fetches or mutates.
+ * stable across refreshes. Each repo also carries its default branch — the base
+ * a brand-new branch is cut from — and when it was last fetched, stat'd from
+ * git's own `FETCH_HEAD` rather than tracked by kiri. Read-only; runs git status
+ * commands but never fetches or mutates.
  */
 export async function gitOverview(roots: readonly string[]): Promise<GitOverview> {
   const discovered = await discoverRepos(roots);
@@ -49,6 +68,9 @@ export async function gitOverview(roots: readonly string[]): Promise<GitOverview
   const branches = await mapConcurrent(discovered, SCAN_CONCURRENCY, (repo) =>
     defaultBranch(repo.root),
   );
+  const fetched = await mapConcurrent(discovered, SCAN_CONCURRENCY, (repo) =>
+    lastFetchedAt(repo.gitCommonDir),
+  );
 
   let offset = 0;
   const repos = discovered.map((repo, index) => {
@@ -59,6 +81,7 @@ export async function gitOverview(roots: readonly string[]): Promise<GitOverview
       root: repo.root,
       gitCommonDir: repo.gitCommonDir,
       defaultBranch: branches[index],
+      lastFetchedAt: fetched[index],
       worktrees: [...own.filter((w) => w.primary), ...own.filter((w) => !w.primary).sort(byPath)],
     };
   });

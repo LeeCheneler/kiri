@@ -86,6 +86,15 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /git/:repo/changes/:checkout to that checkout's changes", async () => {
+    // Stall the overview fetch so the page holds its loading state for the assertion.
+    server.use(http.get("*/api/git", () => new Promise<Response>(() => {})));
+    renderAt("/git/kiri/changes/kiri-feat-search");
+    expect(screen.getByText(/loading checkout/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
   it("routes /mcp to the MCP page", async () => {
     // Stall the tools fetch so the page holds its loading state for the assertion.
     server.use(http.get("*/api/mcp/tools", () => new Promise<Response>(() => {})));

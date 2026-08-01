@@ -28,6 +28,7 @@ const repo = (worktrees: WorktreeStatus[]): RepoOverview => ({
   root: "/projects/kiri",
   gitCommonDir: "/projects/kiri/.git",
   defaultBranch: "main",
+  lastFetchedAt: null,
   worktrees,
 });
 
@@ -67,6 +68,30 @@ describe("<WorktreesSection>", () => {
     expect(screen.getByText("locked")).toBeDefined();
     expect(screen.getByText("prunable")).toBeDefined();
     expect(screen.getAllByText("clean").length).toBeGreaterThan(0);
+  });
+
+  it("gives each linked worktree a way into its own changes", () => {
+    renderSection(
+      repo([
+        worktree({ primary: true }),
+        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search", dirty: true }),
+      ]),
+    );
+    expect(screen.getByRole("link", { name: /review changes/i }).getAttribute("href")).toBe(
+      "/git/kiri/changes/kiri-feat-search?view=uncommitted",
+    );
+  });
+
+  it("offers the pull inside the card of the worktree it would move", () => {
+    renderSection(
+      repo([
+        worktree({ primary: true }),
+        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search", behind: 2 }),
+        worktree({ path: "/projects/kiri-level", branch: "feat/level" }),
+      ]),
+    );
+    // One pull, for the one worktree a fast-forward would land on.
+    expect(screen.getAllByRole("button", { name: "Pull" })).toHaveLength(1);
   });
 
   it("leaves the primary checkout out of the list — it is the repo", () => {

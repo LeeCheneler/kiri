@@ -69,7 +69,14 @@ nothing runs while the app is closed.
 
 **Fetch** is `git fetch --prune`, per repo. One fetch covers every worktree of
 the repo, since they share an object store, and the prune is what turns the
-upstream of a branch deleted on the remote into `[gone]`. You can fetch one
+upstream of a branch deleted on the remote into `[gone]`. Each repo says when it last fetched, read from git's own `FETCH_HEAD` — so it
+counts a fetch you ran in a terminal too, and a repo that has never fetched
+says so rather than looking current. A fetch that worked reports nothing: what
+it moved shows up in the ahead and behind counts. A fetch that was refused or
+failed is always named, with its reason, because a repo that did not fetch
+looks exactly like one that did.
+
+You can fetch one
 repo from its own page, or every discovered repo at once from the list. A
 fetch-all is a single request — it runs several repos at a time and reports
 back when the whole set has settled, with a count of what came back and an
@@ -157,3 +164,44 @@ worktree is gone either way and the note tells you what to sort out by hand.
 worktrees whose directories are already gone (deleted outside kiri, say). It
 removes no directory and touches no branch, and only comes up when a repo
 actually has stale entries.
+
+## Reviewing changes
+
+Every checkout — the primary and each linked worktree — links through to a
+page of its own showing what it has changed, so a branch can be read file by
+file without leaving kiri. Where the link lands is decided from what the scan
+already knows: a checkout with uncommitted work opens on its working tree,
+anything else on what its branch introduces. A clean checkout sitting on the
+default branch has nothing either view could show, and says so instead of
+offering a link.
+
+There are two views and nothing between them:
+
+- **Uncommitted** — the working tree against the last commit, including
+  untracked files. Staged and unstaged are one view; the index isn't a concept
+  this exposes.
+- **Branch** — what the branch introduces over the commit it and the default
+  branch last had in common. Not what it differs from the branch tip by, and
+  not including uncommitted work.
+
+The chosen view lives in the URL, so a branch's changes can be linked to
+directly.
+
+The page lists each changed file with its path, what happened to it, and how
+many lines moved. Picking one loads that file's patch and nothing else — a
+hundred-file changeset costs one read until you actually open something.
+Diffs are computed on request rather than kept in the background scan, and
+nothing signals when a file changes underneath one. The page says how old the
+diff on screen is — `Computed 2 minutes ago`, beside a **Refresh** — so it's
+clear whether you need it, the same way the repo pages report their last scan.
+
+When there's nothing to show, the page says which of the reasons applies: the
+working tree is clean, the branch introduces nothing, the repo has no default
+branch to measure against, the checkout is on the default branch, it shares no
+history with the default branch, or it has no commits yet. Very large
+changesets stop at 500 files and very large patches are cut short, both
+stated rather than silently trimmed, and a binary file reports as binary
+rather than showing bytes.
+
+Nothing on this page changes the repository. There's no staging, committing,
+discarding, reverting, or editing from a diff — reviewing is all it does.

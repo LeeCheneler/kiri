@@ -62,6 +62,57 @@ describe("<Diff>", () => {
     expect(gone?.textContent).toContain("1");
   });
 
+  it("skips a git patch's preamble and numbers from its hunk header", () => {
+    render(
+      <Diff
+        patch={[
+          "diff --git a/src/greet.ts b/src/greet.ts",
+          "index 1a2b3c4..5d6e7f8 100644",
+          "--- a/src/greet.ts",
+          "+++ b/src/greet.ts",
+          "@@ -12,7 +12,7 @@ export function greet(name) {",
+          " const shout = false;",
+          "-  return 'Hello, ' + name;",
+          "+  return `Hello, ${name}!`;",
+          "",
+        ].join("\n")}
+      />,
+    );
+
+    // The preamble's ---/+++ lines would otherwise read as a removal and an
+    // addition; nothing from it reaches the rendered diff.
+    expect(screen.queryByText("a/src/greet.ts")).toBeNull();
+    expect(screen.queryByText("b/src/greet.ts")).toBeNull();
+    expect(kindOf("return 'Hello, ' + name;")).toBe("removed");
+    expect(kindOf("return `Hello, ${name}!`;")).toBe("added");
+
+    const context = screen.getByText("const shout = false;").closest("[data-diff-line]");
+    expect(context?.textContent).toContain("12");
+  });
+
+  it("accepts a hunk header carrying function context and omitted line counts", () => {
+    render(<Diff patch={"@@ -1 +1,2 @@ func main()\n-old\n+new\n+extra"} />);
+
+    expect(kindOf("@@ -1 +1,2 @@ func main()")).toBe("hunk");
+    expect(kindOf("old")).toBe("removed");
+    const extra = screen.getByText("extra").closest("[data-diff-line]");
+    expect(extra?.textContent).toContain("2");
+  });
+
+  it("keeps a preamble-only patch's binary notice rather than rendering nothing", () => {
+    render(
+      <Diff
+        patch={[
+          "diff --git a/logo.png b/logo.png",
+          "index 1a2b3c4..5d6e7f8 100644",
+          "Binary files a/logo.png and b/logo.png differ",
+          "",
+        ].join("\n")}
+      />,
+    );
+    expect(kindOf("Binary files a/logo.png and b/logo.png differ")).toBe("meta");
+  });
+
   it("renders nothing for an empty patch", () => {
     const { container } = render(<Diff patch="" />);
     expect(container.firstChild).toBeNull();

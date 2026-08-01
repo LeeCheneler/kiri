@@ -756,6 +756,12 @@ export interface RepoOverview {
   gitCommonDir: string;
   /** The repo's default branch, or null when it has no discoverable one. */
   defaultBranch: string | null;
+  /**
+   * When the repo was last fetched, as an ISO timestamp, or null when it never
+   * has been. Read from git's own record, so it counts a fetch run in a terminal
+   * and survives a restart.
+   */
+  lastFetchedAt: string | null;
   /** Primary checkout first, then linked worktrees ordered by path. */
   worktrees: WorktreeStatus[];
 }
