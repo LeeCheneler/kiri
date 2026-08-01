@@ -4,7 +4,7 @@ import { type FSWatcher, mkdirSync, mkdtempSync, rmSync, type watch, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
-import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
+import { type EventBus, createEventBus } from "../events/index.ts";
 import { watchWorktreeRoots } from "./roots-watcher.ts";
 
 // Drive changes through an injected fs.watch fake, the same approach as the
@@ -46,7 +46,7 @@ describe("watchWorktreeRoots", () => {
   let cwd: string;
   let config: ConfigStore;
   let roots: string[];
-  let events: KiriEvent[];
+  let signals: number;
   let origErr: typeof console.error;
   let errs: string[];
 
@@ -61,7 +61,7 @@ describe("watchWorktreeRoots", () => {
     roots = ["one", "two"].map((name) => join(cwd, name));
     for (const root of roots) mkdirSync(root);
     withRoots("one", "two");
-    events = [];
+    signals = 0;
     errs = [];
     origErr = console.error;
     console.error = (message: string) => errs.push(message);
@@ -72,45 +72,45 @@ describe("watchWorktreeRoots", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  const withBus = (): EventBus => {
-    const bus = createEventBus();
-    bus.subscribe((event) => events.push(event));
-    return bus;
+  const withBus = (): EventBus => createEventBus();
+
+  const onChanged = () => {
+    signals++;
   };
 
-  it("publishes git.changed when a root changes", async () => {
+  it("signals when a root changes", async () => {
     const { watchFn, trigger, attached } = createFakeWatcher();
-    const watcher = watchWorktreeRoots(config, {}, { bus: withBus(), watchFn, debounceMs: 1 });
+    const watcher = watchWorktreeRoots(config, {}, { onChanged, watchFn, debounceMs: 1 });
 
     expect(attached).toEqual(roots);
+    expect(watcher.roots()).toEqual(roots);
     trigger(1);
 
-    await waitFor(() => events.length === 1);
-    expect(events).toEqual([{ type: "git.changed" }]);
+    await waitFor(() => signals === 1);
     watcher.stop();
   });
 
-  it("collapses a burst across roots into one publish", async () => {
+  it("collapses a burst across roots into one signal", async () => {
     const { watchFn, trigger } = createFakeWatcher();
-    const watcher = watchWorktreeRoots(config, {}, { bus: withBus(), watchFn, debounceMs: 5 });
+    const watcher = watchWorktreeRoots(config, {}, { onChanged, watchFn, debounceMs: 5 });
 
     trigger(0);
     trigger(0);
     trigger(1);
 
-    await waitFor(() => events.length === 1);
+    await waitFor(() => signals === 1);
     await Bun.sleep(20);
-    expect(events).toHaveLength(1);
+    expect(signals).toBe(1);
     watcher.stop();
   });
 
   it("signals a change after a watcher error so the model reconciles", async () => {
     const { watchFn, emitters } = createFakeWatcher();
-    const watcher = watchWorktreeRoots(config, {}, { bus: withBus(), watchFn, debounceMs: 1 });
+    const watcher = watchWorktreeRoots(config, {}, { onChanged, watchFn, debounceMs: 1 });
 
     emitters[0].emit("error", new Error("inotify blew up"));
 
-    await waitFor(() => events.length === 1);
+    await waitFor(() => signals === 1);
     expect(errs[0]).toContain("inotify blew up");
     watcher.stop();
   });
@@ -118,7 +118,7 @@ describe("watchWorktreeRoots", () => {
   it("skips roots that do not exist", () => {
     withRoots("one", "missing");
     const { watchFn, attached } = createFakeWatcher();
-    const watcher = watchWorktreeRoots(config, {}, { bus: withBus(), watchFn });
+    const watcher = watchWorktreeRoots(config, {}, { onChanged, watchFn });
 
     expect(attached).toEqual([roots[0]]);
     watcher.stop();
@@ -127,27 +127,28 @@ describe("watchWorktreeRoots", () => {
   it("no-ops with no roots configured", async () => {
     rmSync(config.configFile());
     const { watchFn, attached } = createFakeWatcher();
-    const watcher = watchWorktreeRoots(config, {}, { bus: withBus(), watchFn, debounceMs: 1 });
+    const watcher = watchWorktreeRoots(config, {}, { onChanged, watchFn, debounceMs: 1 });
 
     await Bun.sleep(10);
     expect(attached).toEqual([]);
-    expect(events).toEqual([]);
+    expect(watcher.roots()).toEqual([]);
+    expect(signals).toBe(0);
     watcher.stop();
   });
 
-  it("stops cleanly, dropping a pending publish and closing every watcher", async () => {
+  it("stops cleanly, dropping a pending signal and closing every watcher", async () => {
     const { watchFn, trigger, closedCount } = createFakeWatcher();
-    const watcher = watchWorktreeRoots(config, {}, { bus: withBus(), watchFn, debounceMs: 20 });
+    const watcher = watchWorktreeRoots(config, {}, { onChanged, watchFn, debounceMs: 20 });
 
     trigger(0);
     watcher.stop();
 
     await Bun.sleep(40);
-    expect(events).toEqual([]);
+    expect(signals).toBe(0);
     expect(closedCount()).toBe(2);
   });
 
-  it("tolerates a missing bus", async () => {
+  it("tolerates a missing bus and no listener", async () => {
     const { watchFn, trigger } = createFakeWatcher();
     const watcher = watchWorktreeRoots(config, {}, { watchFn, debounceMs: 1 });
 
@@ -161,22 +162,23 @@ describe("watchWorktreeRoots", () => {
     it("re-arms over an added root and announces the new shape", () => {
       const bus = withBus();
       const { watchFn, attached, closedCount } = createFakeWatcher();
-      const watcher = watchWorktreeRoots(config, {}, { bus, watchFn, debounceMs: 1 });
+      const watcher = watchWorktreeRoots(config, {}, { bus, onChanged, watchFn, debounceMs: 1 });
 
       mkdirSync(join(cwd, "three"));
       withRoots("one", "two", "three");
       bus.publish({ type: "config.changed" });
 
       expect(attached).toEqual([...roots, ...roots, join(cwd, "three")]);
+      expect(watcher.roots()).toEqual([...roots, join(cwd, "three")]);
       expect(closedCount()).toBe(2);
-      expect(events).toEqual([{ type: "config.changed" }, { type: "git.changed" }]);
+      expect(signals).toBe(1);
       watcher.stop();
     });
 
     it("re-arms over a removed root", () => {
       const bus = withBus();
       const { watchFn, attached } = createFakeWatcher();
-      const watcher = watchWorktreeRoots(config, {}, { bus, watchFn, debounceMs: 1 });
+      const watcher = watchWorktreeRoots(config, {}, { bus, onChanged, watchFn, debounceMs: 1 });
 
       withRoots("one");
       bus.publish({ type: "config.changed" });
@@ -188,48 +190,50 @@ describe("watchWorktreeRoots", () => {
     it("clears the roots when the git section is deleted", () => {
       const bus = withBus();
       const { watchFn, attached, closedCount } = createFakeWatcher();
-      const watcher = watchWorktreeRoots(config, {}, { bus, watchFn, debounceMs: 1 });
+      const watcher = watchWorktreeRoots(config, {}, { bus, onChanged, watchFn, debounceMs: 1 });
 
       writeConfig("providers: {}\n");
       bus.publish({ type: "config.changed" });
 
       expect(attached).toEqual(roots);
+      expect(watcher.roots()).toEqual([]);
       expect(closedCount()).toBe(2);
-      expect(events).toEqual([{ type: "config.changed" }, { type: "git.changed" }]);
+      expect(signals).toBe(1);
       watcher.stop();
     });
 
     it("keeps the current roots when the config fails to load", () => {
       const bus = withBus();
       const { watchFn, attached, closedCount } = createFakeWatcher();
-      const watcher = watchWorktreeRoots(config, {}, { bus, watchFn, debounceMs: 1 });
+      const watcher = watchWorktreeRoots(config, {}, { bus, onChanged, watchFn, debounceMs: 1 });
 
       writeConfig("git:\n  roots: not-a-list\n");
       bus.publish({ type: "config.changed" });
 
       expect(attached).toEqual(roots);
+      expect(watcher.roots()).toEqual(roots);
       expect(closedCount()).toBe(0);
-      expect(events).toEqual([{ type: "config.changed" }]);
+      expect(signals).toBe(0);
       watcher.stop();
     });
 
     it("leaves the watchers alone when the roots are unchanged", () => {
       const bus = withBus();
       const { watchFn, attached, closedCount } = createFakeWatcher();
-      const watcher = watchWorktreeRoots(config, {}, { bus, watchFn, debounceMs: 1 });
+      const watcher = watchWorktreeRoots(config, {}, { bus, onChanged, watchFn, debounceMs: 1 });
 
       bus.publish({ type: "config.changed" });
 
       expect(attached).toEqual(roots);
       expect(closedCount()).toBe(0);
-      expect(events).toEqual([{ type: "config.changed" }]);
+      expect(signals).toBe(0);
       watcher.stop();
     });
 
     it("ignores unrelated events", () => {
       const bus = withBus();
       const { watchFn, attached } = createFakeWatcher();
-      const watcher = watchWorktreeRoots(config, {}, { bus, watchFn, debounceMs: 1 });
+      const watcher = watchWorktreeRoots(config, {}, { bus, onChanged, watchFn, debounceMs: 1 });
 
       withRoots("one");
       bus.publish({ type: "persona.changed" });
@@ -241,7 +245,7 @@ describe("watchWorktreeRoots", () => {
     it("stops re-resolving once stopped", () => {
       const bus = withBus();
       const { watchFn, attached } = createFakeWatcher();
-      const watcher = watchWorktreeRoots(config, {}, { bus, watchFn, debounceMs: 1 });
+      const watcher = watchWorktreeRoots(config, {}, { bus, onChanged, watchFn, debounceMs: 1 });
       watcher.stop();
 
       withRoots("one");

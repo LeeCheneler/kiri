@@ -8,18 +8,22 @@ export interface WatchWorktreeRootsOptions {
   debounceMs?: number;
   /** Injection hook for `fs.watch` so tests can drive watcher events deterministically. */
   watchFn?: typeof watch;
-  /** Optional event bus. When supplied, the watcher publishes git.changed on any change and re-resolves its roots on config.changed. */
+  /** Optional event bus. When supplied, the watcher re-resolves its roots on config.changed. */
   bus?: EventBus;
+  /** Called when the watched roots may have changed — debounced filesystem activity, or a re-resolved root set. */
+  onChanged?: () => void;
 }
 
 export interface WorktreeRootsWatcher {
+  /** The roots currently armed, in configured order. */
+  roots(): readonly string[];
   stop(): void;
 }
 
 // Creating a worktree touches many paths in a burst — the directory appears,
 // then env symlinks and an install churn inside it — and the burst is spread
 // over more than the milliseconds a single editor save takes. A longer window
-// than the config/persona watchers collapses the whole burst into one publish.
+// than the config/persona watchers collapses the whole burst into one signal.
 const DEFAULT_DEBOUNCE_MS = 300;
 
 const sameRoots = (a: readonly string[], b: readonly string[]): boolean =>
@@ -27,10 +31,14 @@ const sameRoots = (a: readonly string[], b: readonly string[]): boolean =>
 
 /**
  * Watch the configured worktree `roots` — one level deep, non-recursively — and
- * publish `git.changed` whenever a directory under one of them is added,
- * renamed, or removed, so a worktree created or deleted outside kiri shows up
- * without a manual refresh. The event carries no payload: the model is rebuilt
- * from disk per request, so a bare signal is enough.
+ * call `onChanged` whenever a directory under one of them is added, renamed, or
+ * removed, so a worktree created or deleted outside kiri shows up without a
+ * manual refresh. The signal carries no payload: it says only that something
+ * under a root moved, never what.
+ *
+ * It signals inward rather than announcing to clients: whatever holds the model
+ * decides when the change is worth telling anyone about, so a change is never
+ * announced before the model reflects it.
  *
  * Only the roots themselves are watched, not each repo's internals — a commit or
  * a working-tree edit inside a repo does not signal, and its dirty/ahead state
@@ -39,8 +47,8 @@ const sameRoots = (a: readonly string[], b: readonly string[]): boolean =>
  * The roots come from `config`'s `git:` section, re-read on every
  * `config.changed`, so adding or removing one in `kiri.yaml` takes effect
  * without a restart: when the set differs the current watchers are torn down,
- * new ones armed over the new set, and `git.changed` published so open pages
- * pick up the new shape. A config that is present but fails to load keeps the
+ * new ones armed over the new set, and `onChanged` called so the model picks up
+ * the new shape. A config that is present but fails to load keeps the
  * current roots — a syntax error mid-edit must not blank the view — whereas a
  * clean load with no `git:` section clears them, since removing the section is
  * deliberate.
@@ -56,6 +64,7 @@ export function watchWorktreeRoots(
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const watchFn = options.watchFn ?? watch;
   const bus = options.bus;
+  const onChanged = options.onChanged;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let watchers: FSWatcher[] = [];
@@ -65,7 +74,7 @@ export function watchWorktreeRoots(
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      bus?.publish({ type: "git.changed" });
+      onChanged?.();
     }, debounceMs);
   };
 
@@ -108,10 +117,11 @@ export function watchWorktreeRoots(
     if (next === null || sameRoots(roots, next)) return;
     disarm();
     arm(next);
-    bus.publish({ type: "git.changed" });
+    onChanged?.();
   });
 
   return {
+    roots: () => roots,
     stop() {
       if (timer !== null) clearTimeout(timer);
       unsubscribe?.();

@@ -1,9 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  type FSWatcher,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  type watch,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
-import type { GitOverview } from "../git/overview.ts";
+import { type GitSnapshot, createGitSnapshot } from "../git/snapshot.ts";
 import { createApp } from "../index.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
 
@@ -25,6 +33,14 @@ const initRepo = (dir: string) => {
   writeFileSync(join(dir, "file.txt"), "hello");
   git(dir, "add", ".");
   git(dir, "commit", "-q", "-m", "init");
+};
+
+const waitFor = async (predicate: () => boolean, timeoutMs = 1000): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("waitFor timed out");
+    await Bun.sleep(5);
+  }
 };
 
 describe("git routes", () => {
@@ -50,14 +66,38 @@ describe("git routes", () => {
   const configureRoots = (roots: string) =>
     writeFileSync(join(env.cwd, "kiri.yaml"), `git:\n  roots:\n${roots}`);
 
-  const buildApp = (bus?: ReturnType<typeof createEventBus>) =>
-    createApp({ db: env.db, registry: env.registry, config: env.config, env: {}, bus });
+  // The routes drive every refresh themselves here, so a stub fs.watch keeps a
+  // filesystem burst from racing a background scan into the middle of an
+  // assertion.
+  const stubWatch = (() =>
+    ({ close: () => {}, on: () => {} }) as unknown as FSWatcher) as unknown as typeof watch;
+
+  // The snapshot is scanned in the background, so a test waits for the first
+  // scan to land before reading or mutating through it — and starts from a clean
+  // event log, since that scan publishes too.
+  const buildApp = async (bus?: ReturnType<typeof createEventBus>) => {
+    const snapshot = createGitSnapshot(env.config, {}, { bus, watchFn: stubWatch });
+    await snapshot.refresh();
+    events.length = 0;
+    return createApp({
+      db: env.db,
+      registry: env.registry,
+      config: env.config,
+      env: {},
+      bus,
+      gitSnapshot: snapshot,
+    });
+  };
 
   describe("GET /api/git", () => {
     it("returns an empty model when no roots are configured", async () => {
-      const res = await buildApp().request("/api/git");
+      const res = await (await buildApp()).request("/api/git");
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ roots: [], repos: [] });
+      const body = (await res.json()) as GitSnapshot;
+      expect(body.roots).toEqual([]);
+      expect(body.repos).toEqual([]);
+      expect(body.refreshing).toBe(false);
+      expect(body.scannedAt).not.toBeNull();
     });
 
     it("returns the grouped model for the configured roots", async () => {
@@ -66,8 +106,8 @@ describe("git routes", () => {
       git(repo, "worktree", "add", "-q", join(env.cwd, "repos", "proj-feature"), "-b", "feature");
       configureRoots("    - repos\n");
 
-      const res = await buildApp().request("/api/git");
-      const body = (await res.json()) as GitOverview;
+      const res = await (await buildApp()).request("/api/git");
+      const body = (await res.json()) as GitSnapshot;
       expect(body.roots).toEqual([join(env.cwd, "repos")]);
       expect(body.repos).toHaveLength(1);
       expect(body.repos[0].name).toBe("proj");
@@ -76,12 +116,15 @@ describe("git routes", () => {
 
     it("reflects a config edit without a restart", async () => {
       initRepo(join(env.cwd, "repos", "proj"));
-      const app = buildApp();
-      expect(((await (await app.request("/api/git")).json()) as GitOverview).repos).toHaveLength(0);
+      const bus = withBus();
+      const app = await buildApp(bus);
+      expect(((await (await app.request("/api/git")).json()) as GitSnapshot).repos).toHaveLength(0);
 
       configureRoots("    - repos\n");
+      bus.publish({ type: "config.changed" });
+      await waitFor(() => events.some((event) => event.type === "git.changed"));
 
-      const body = (await (await app.request("/api/git")).json()) as GitOverview;
+      const body = (await (await app.request("/api/git")).json()) as GitSnapshot;
       expect(body.repos).toHaveLength(1);
     });
   });
@@ -91,28 +134,29 @@ describe("git routes", () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await buildApp(withBus()).request("/api/git/refresh", {
+      const res = await (await buildApp(withBus())).request("/api/git/refresh", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as GitOverview;
+      const body = (await res.json()) as GitSnapshot;
       expect(body.repos.map((r) => r.name)).toEqual(["proj"]);
+      expect(body.refreshing).toBe(false);
       expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("works without an event bus", async () => {
-      const res = await buildApp().request("/api/git/refresh", {
+      const res = await (await buildApp()).request("/api/git/refresh", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ roots: [], repos: [] });
+      expect(((await res.json()) as GitSnapshot).repos).toEqual([]);
     });
 
     it("rejects a request without the client header", async () => {
-      const res = await buildApp().request("/api/git/refresh", { method: "POST" });
+      const res = await (await buildApp()).request("/api/git/refresh", { method: "POST" });
       expect(res.status).toBe(403);
     });
   });
@@ -121,7 +165,7 @@ describe("git routes", () => {
   // has to be resolved before a path is compared with — or handed to — the API.
   const realJoin = (...parts: string[]) => join(realpathSync(env.cwd), ...parts);
 
-  const post = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
+  const post = (app: Awaited<ReturnType<typeof buildApp>>, path: string, body: unknown) =>
     app.request(path, {
       method: "POST",
       headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
@@ -133,7 +177,7 @@ describe("git routes", () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(withBus()), "/api/git/create", {
+      const res = await post(await buildApp(withBus()), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
         name: "swift-otter",
@@ -165,7 +209,7 @@ describe("git routes", () => {
         ].join("\n"),
       );
 
-      const res = await post(buildApp(), "/api/git/create", {
+      const res = await post(await buildApp(), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
       });
@@ -193,7 +237,7 @@ describe("git routes", () => {
         ].join("\n"),
       );
 
-      const res = await post(buildApp(withBus()), "/api/git/create", {
+      const res = await post(await buildApp(withBus()), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
       });
@@ -212,7 +256,7 @@ describe("git routes", () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(), "/api/git/create", {
+      const res = await post(await buildApp(), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
         skipPrepare: true,
@@ -225,7 +269,7 @@ describe("git routes", () => {
       configureRoots("    - repos\n");
       mkdirSync(join(env.cwd, "repos", "proj-taken"), { recursive: true });
 
-      const res = await post(buildApp(withBus()), "/api/git/create", {
+      const res = await post(await buildApp(withBus()), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
         name: "taken",
@@ -240,7 +284,7 @@ describe("git routes", () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(), "/api/git/create", {
+      const res = await post(await buildApp(), "/api/git/create", {
         repo: "elsewhere",
         branch: "feat/thing",
       });
@@ -249,7 +293,7 @@ describe("git routes", () => {
     });
 
     it("rejects a malformed body", async () => {
-      const res = await post(buildApp(), "/api/git/create", { repo: "proj" });
+      const res = await post(await buildApp(), "/api/git/create", { repo: "proj" });
       expect(res.status).toBe(400);
     });
   });
@@ -267,7 +311,7 @@ describe("git routes", () => {
     it("removes the worktree, reports the deleted branch's sha, and publishes", async () => {
       const { worktree } = repoWithWorktree();
 
-      const res = await post(buildApp(withBus()), "/api/git/remove", { path: worktree });
+      const res = await post(await buildApp(withBus()), "/api/git/remove", { path: worktree });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -282,12 +326,12 @@ describe("git routes", () => {
       const { worktree } = repoWithWorktree();
       writeFileSync(join(worktree, "scratch.txt"), "uncommitted");
 
-      const refused = await post(buildApp(), "/api/git/remove", { path: worktree });
+      const refused = await post(await buildApp(), "/api/git/remove", { path: worktree });
       expect(refused.status).toBe(400);
       expect((await refused.json()).error).toContain("uncommitted changes");
       expect(existsSync(worktree)).toBe(true);
 
-      const forced = await post(buildApp(), "/api/git/remove", {
+      const forced = await post(await buildApp(), "/api/git/remove", {
         path: worktree,
         force: true,
       });
@@ -297,19 +341,19 @@ describe("git routes", () => {
 
     it("answers 404 for a path outside the configured roots", async () => {
       repoWithWorktree();
-      const res = await post(buildApp(), "/api/git/remove", { path: "/elsewhere/proj-x" });
+      const res = await post(await buildApp(), "/api/git/remove", { path: "/elsewhere/proj-x" });
       expect(res.status).toBe(404);
     });
 
     it("answers 404 for the repo's primary checkout", async () => {
       const { repo } = repoWithWorktree();
-      const res = await post(buildApp(), "/api/git/remove", { path: repo });
+      const res = await post(await buildApp(), "/api/git/remove", { path: repo });
       expect(res.status).toBe(404);
       expect(existsSync(repo)).toBe(true);
     });
 
     it("rejects a malformed body", async () => {
-      const res = await post(buildApp(), "/api/git/remove", { path: "" });
+      const res = await post(await buildApp(), "/api/git/remove", { path: "" });
       expect(res.status).toBe(400);
     });
   });
@@ -324,7 +368,7 @@ describe("git routes", () => {
       rmSync(worktree, { recursive: true, force: true });
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(withBus()), "/api/git/prune", { repo: "proj" });
+      const res = await post(await buildApp(withBus()), "/api/git/prune", { repo: "proj" });
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ repo: "proj", pruned: [worktree] });
@@ -335,17 +379,17 @@ describe("git routes", () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(), "/api/git/prune", { repo: "proj" });
+      const res = await post(await buildApp(), "/api/git/prune", { repo: "proj" });
       expect((await res.json()).pruned).toEqual([]);
     });
 
     it("answers 404 for a repo outside the configured roots", async () => {
-      const res = await post(buildApp(), "/api/git/prune", { repo: "proj" });
+      const res = await post(await buildApp(), "/api/git/prune", { repo: "proj" });
       expect(res.status).toBe(404);
     });
 
     it("rejects a malformed body", async () => {
-      const res = await post(buildApp(), "/api/git/prune", { name: "proj" });
+      const res = await post(await buildApp(), "/api/git/prune", { name: "proj" });
       expect(res.status).toBe(400);
     });
   });
