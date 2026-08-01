@@ -31,9 +31,9 @@ const createMock = () => mock(async (_body: CreateBody) => created());
 
 const renderModal = (
   onCreate: (body: CreateBody) => Promise<CreateWorktreeResult>,
-  repos: RepoOverview[] = [repo()],
+  target: RepoOverview = repo(),
   onClose: () => void = noop,
-) => render(<CreateWorktreeModal repos={repos} onCreate={onCreate} onClose={onClose} />);
+) => render(<CreateWorktreeModal repo={target} onCreate={onCreate} onClose={onClose} />);
 
 const nameField = () => screen.getByRole("textbox", { name: /worktree name/i });
 const branchField = () => screen.getByRole("textbox", { name: /branch/i });
@@ -52,16 +52,13 @@ describe("<CreateWorktreeModal>", () => {
     expect((nameField() as HTMLInputElement).value).toBe("review-pass");
   });
 
-  it("hints the selected repo's default branch as the base ref", () => {
-    renderModal(
-      async () => created(),
-      [repo(), repo({ name: "site", gitCommonDir: "/projects/site/.git", defaultBranch: "trunk" })],
-    );
+  it("hints the repo's default branch as the base ref", () => {
+    renderModal(async () => created());
     expect(screen.getByPlaceholderText("main")).toBeDefined();
   });
 
   it("falls back to a description when the repo has no discoverable default branch", () => {
-    renderModal(async () => created(), [repo({ defaultBranch: null })]);
+    renderModal(async () => created(), repo({ defaultBranch: null }));
     expect(screen.getByPlaceholderText(/the repo's default branch/i)).toBeDefined();
   });
 
@@ -115,15 +112,11 @@ describe("<CreateWorktreeModal>", () => {
     ]);
   });
 
-  it("sends the chosen repo and base ref", async () => {
+  it("creates in the repo the page named, with the base ref given", async () => {
     const user = userEvent.setup();
     const onCreate = createMock();
-    renderModal(onCreate, [
-      repo(),
-      repo({ name: "site", gitCommonDir: "/projects/site/.git", defaultBranch: "trunk" }),
-    ]);
+    renderModal(onCreate, repo({ name: "site", gitCommonDir: "/projects/site/.git" }));
 
-    await user.selectOptions(screen.getByRole("combobox", { name: /repo/i }), "site");
     await user.type(screen.getByRole("textbox", { name: /base ref/i }), "trunk");
     await user.click(createButton());
 
@@ -207,7 +200,7 @@ describe("<CreateWorktreeModal>", () => {
   it("closes from cancel and from done", async () => {
     const user = userEvent.setup();
     const onClose = mock(noop);
-    renderModal(async () => created(), [repo()], onClose);
+    renderModal(async () => created(), repo(), onClose);
 
     await user.click(screen.getByRole("button", { name: "cancel" }));
     expect(onClose.mock.calls).toHaveLength(1);

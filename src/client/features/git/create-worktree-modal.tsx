@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { CreateWorktreeResult, RepoOverview } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
-import { Select } from "../../design-system/actions/select.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
@@ -48,14 +47,14 @@ function Result({ result, onClose }: { result: CreateWorktreeResult; onClose: ()
 }
 
 /**
- * Collects what a new worktree needs and creates it. The repo picker lists every
- * repo kiri found under the configured roots; the worktree name arrives
- * pre-filled with a suggestion, which names the directory `<repo>-<name>` and is
- * there to be overwritten. The branch follows that name until it is edited, so
- * the common case needs one field. The base ref only applies to a branch that
- * does not exist yet and falls back to the selected repo's default branch, shown
- * as the field's placeholder. The repo's configured setup always runs — what
- * `kiri.yaml` says a worktree needs is not a per-create decision.
+ * Collects what a new worktree needs and creates it in `repo`, which the page it
+ * opens from already names. The worktree name arrives pre-filled with a
+ * suggestion, which names the directory `<repo>-<name>` and is there to be
+ * overwritten. The branch follows that name until it is edited, so the common
+ * case needs one field. The base ref only applies to a branch that does not
+ * exist yet and falls back to the repo's default branch, shown as the field's
+ * placeholder. The repo's configured setup always runs — what `kiri.yaml` says a
+ * worktree needs is not a per-create decision.
  *
  * The dialog stays open through the create and swaps its form for the result:
  * where the worktree landed, how its branch was resolved, and the setup report —
@@ -65,11 +64,11 @@ function Result({ result, onClose }: { result: CreateWorktreeResult; onClose: ()
  * backdrop click route to `onClose`.
  */
 export function CreateWorktreeModal({
-  repos,
+  repo,
   onCreate,
   onClose,
 }: {
-  repos: RepoOverview[];
+  repo: RepoOverview;
   onCreate: (body: {
     repo: string;
     branch: string;
@@ -78,7 +77,6 @@ export function CreateWorktreeModal({
   }) => Promise<CreateWorktreeResult>;
   onClose: () => void;
 }) {
-  const [repo, setRepo] = useState(repos[0].name);
   // Seeded once per dialog: regenerating on every render would fight anyone
   // mid-edit, and regenerating per repo would silently discard their wording.
   const [name, setName] = useState(suggestWorktreeName);
@@ -91,7 +89,6 @@ export function CreateWorktreeModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [result, setResult] = useState<CreateWorktreeResult | null>(null);
 
-  const selected = repos.find((candidate) => candidate.name === repo);
   const branch = typedBranch ?? name;
   const ready = branch.trim() !== "" && name.trim() !== "";
 
@@ -102,7 +99,7 @@ export function CreateWorktreeModal({
     try {
       setResult(
         await onCreate({
-          repo,
+          repo: repo.name,
           branch: branch.trim(),
           name: name.trim(),
           baseRef: baseRef.trim() === "" ? undefined : baseRef.trim(),
@@ -127,16 +124,9 @@ export function CreateWorktreeModal({
           }}
           className="flex flex-col gap-5"
         >
-          <Select label="repo" required value={repo} onChange={setRepo}>
-            {repos.map((candidate) => (
-              <option key={candidate.gitCommonDir} value={candidate.name}>
-                {candidate.name}
-              </option>
-            ))}
-          </Select>
           <TextInput
             label="worktree name"
-            description={`Names the directory ${repo}-${name.trim() === "" ? "<name>" : name.trim()}.`}
+            description={`Names the directory ${repo.name}-${name.trim() === "" ? "<name>" : name.trim()}.`}
             required
             value={name}
             onChange={setName}
@@ -151,7 +141,7 @@ export function CreateWorktreeModal({
           <TextInput
             label="base ref"
             description="The commit a new branch starts from. Defaults to the repo's default branch on origin."
-            placeholder={selected?.defaultBranch ?? "the repo's default branch"}
+            placeholder={repo.defaultBranch ?? "the repo's default branch"}
             value={baseRef}
             onChange={setBaseRef}
           />
