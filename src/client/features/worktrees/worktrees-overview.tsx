@@ -311,8 +311,8 @@ function Body({ query, filter }: { query: ReturnType<typeof useWorktrees>; filte
   if (roots.length === 0) {
     return (
       <EmptyState>
-        kiri scans the folders listed under <Code>worktrees.roots</Code> in your{" "}
-        <Code>kiri.yaml</Code> for git repos. None are listed, so there is nothing to scan.
+        kiri scans the folders listed under <Code>git.roots</Code> in your <Code>kiri.yaml</Code>{" "}
+        for git repos. None are listed, so there is nothing to scan.
       </EmptyState>
     );
   }
