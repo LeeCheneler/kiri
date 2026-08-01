@@ -47,11 +47,8 @@ import {
   updateSessionModel,
   updateSessionPersona,
   workflowTools,
-  worktreeTools,
 } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
-import { resolveWorktreeRoots } from "../worktrees/config.ts";
-import type { WorktreesConfig } from "../worktrees/schema.ts";
 import { articleParamSchema, onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
@@ -104,12 +101,6 @@ export interface SessionsRoutesDeps {
    * run is what enables it.
    */
   getShellDirectories?: () => readonly string[];
-  /**
-   * Live `worktrees:` config section for the first-party worktree tools, read
-   * per turn so a config edit applies on the next one. Its `roots` are what
-   * those tools can reach — no roots (or omitted) withholds them entirely.
-   */
-  getWorktreesConfig?: () => WorktreesConfig | undefined;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -224,13 +215,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const shellWorkingDirectories = (): readonly string[] =>
     (deps.getShellDirectories?.() ?? []).filter((dir) => existsSync(dir));
 
-  // The `worktrees:` roots for a turn, on the same live-read, must-exist
-  // posture as the filesystem sandbox: nothing usable, no worktree tools.
-  const worktreesConfig = (): WorktreesConfig | undefined => deps.getWorktreesConfig?.();
-
-  const worktreeRoots = (): readonly string[] =>
-    resolveWorktreeRoots(worktreesConfig(), config.cwd()).filter((dir) => existsSync(dir));
-
   // One registry of in-flight turn streams for this surface: the turn endpoint
   // fills it, the resume endpoint reads it, so a client that reconnects mid-turn
   // rejoins the live response. A caller may inject one to share it.
@@ -275,9 +259,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
       ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
-      ...(worktreeRoots().length > 0
-        ? worktreeTools({ config, getWorktreesConfig: worktreesConfig, bus })
-        : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
     };
   };

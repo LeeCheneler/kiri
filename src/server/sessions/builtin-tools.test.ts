@@ -14,7 +14,6 @@ import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
 import { shellTools } from "./shell-tools.ts";
 import { workflowTools } from "./workflow-tools.ts";
-import { worktreeTools } from "./worktree-tools.ts";
 
 // The merged-set check only reads tool names; no client method ever runs.
 const stubClients: LlmClients = {
@@ -55,10 +54,6 @@ describe("BUILTIN_TOOLS", () => {
       ...filesystemTools(() => [dir]),
       ...shellTools(() => [dir]),
       ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
-      ...worktreeTools({
-        config: createConfigStore(dir),
-        getWorktreesConfig: () => undefined,
-      }),
       ...delegateTool({
         db,
         parentSessionId: "session-1",
