@@ -6,7 +6,7 @@ import type { ConfigStore } from "../config/store.ts";
 import type { EventBus } from "../events/index.ts";
 import { resolveWorktreeRoots } from "../git/config.ts";
 import { createWorktree, pruneWorktrees, removeWorktree } from "../git/operations.ts";
-import { type RepoOverview, worktreesOverview } from "../git/overview.ts";
+import { type RepoOverview, gitOverview } from "../git/overview.ts";
 import { onZodFail } from "./shared.ts";
 
 export interface GitRoutesDeps {
@@ -58,7 +58,7 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
 
   const gitConfig = () => loadKiriConfig(deps.config, deps.env).git;
 
-  const overview = () => worktreesOverview(resolveWorktreeRoots(gitConfig(), deps.config.cwd()));
+  const overview = () => gitOverview(resolveWorktreeRoots(gitConfig(), deps.config.cwd()));
 
   const changed = () => deps.bus?.publish({ type: "git.changed" });
 

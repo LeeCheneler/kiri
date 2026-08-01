@@ -760,25 +760,25 @@ export interface RepoOverview {
   worktrees: WorktreeStatus[];
 }
 
-/** The whole worktree surface: the roots that were scanned and the repos found under them. */
-export interface WorktreesOverview {
+/** The whole git surface: the roots that were scanned and the repos found under them. */
+export interface GitOverview {
   /** Absolute roots scanned, in configured order. Empty when none are configured. */
   roots: string[];
   /** Repos found, ordered by name. */
   repos: RepoOverview[];
 }
 
-/** Fetch the grouped worktree overview. Throws on non-2xx. */
-export const fetchWorktrees = async (): Promise<WorktreesOverview> =>
-  json<WorktreesOverview>(await apiFetch("/api/git"));
+/** Fetch the grouped repo overview. Throws on non-2xx. */
+export const fetchWorktrees = async (): Promise<GitOverview> =>
+  json<GitOverview>(await apiFetch("/api/git"));
 
 /**
- * Re-run worktree discovery against the configured roots and return the fresh
+ * Re-run repo discovery against the configured roots and return the fresh
  * model. The server also publishes `git.changed`, so every other open
  * client converges on it. Throws on non-2xx.
  */
-export const refreshWorktrees = async (): Promise<WorktreesOverview> =>
-  json<WorktreesOverview>(await apiFetch("/api/git/refresh", { method: "POST" }));
+export const refreshWorktrees = async (): Promise<GitOverview> =>
+  json<GitOverview>(await apiFetch("/api/git/refresh", { method: "POST" }));
 
 /** One action taken while preparing a fresh worktree — an env, post-create, or install step. */
 export interface PrepareStep {

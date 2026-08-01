@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
-import type { WorktreesOverview } from "../git/overview.ts";
+import type { GitOverview } from "../git/overview.ts";
 import { createApp } from "../index.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
 
@@ -67,7 +67,7 @@ describe("git routes", () => {
       configureRoots("    - repos\n");
 
       const res = await buildApp().request("/api/git");
-      const body = (await res.json()) as WorktreesOverview;
+      const body = (await res.json()) as GitOverview;
       expect(body.roots).toEqual([join(env.cwd, "repos")]);
       expect(body.repos).toHaveLength(1);
       expect(body.repos[0].name).toBe("proj");
@@ -77,13 +77,11 @@ describe("git routes", () => {
     it("reflects a config edit without a restart", async () => {
       initRepo(join(env.cwd, "repos", "proj"));
       const app = buildApp();
-      expect(
-        ((await (await app.request("/api/git")).json()) as WorktreesOverview).repos,
-      ).toHaveLength(0);
+      expect(((await (await app.request("/api/git")).json()) as GitOverview).repos).toHaveLength(0);
 
       configureRoots("    - repos\n");
 
-      const body = (await (await app.request("/api/git")).json()) as WorktreesOverview;
+      const body = (await (await app.request("/api/git")).json()) as GitOverview;
       expect(body.repos).toHaveLength(1);
     });
   });
@@ -99,7 +97,7 @@ describe("git routes", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as WorktreesOverview;
+      const body = (await res.json()) as GitOverview;
       expect(body.repos.map((r) => r.name)).toEqual(["proj"]);
       expect(events).toEqual([{ type: "git.changed" }]);
     });
