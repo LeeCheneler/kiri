@@ -7,6 +7,7 @@ import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { useCreateWorktree, usePruneWorktrees, useRemoveWorktree } from "../../state/git.ts";
 import { ChangesLink } from "./changes-link.tsx";
+import { CheckoutPull } from "./checkout-pull.tsx";
 import { CreateWorktreeModal } from "./create-worktree-modal.tsx";
 import { PruneWorktreesModal, entries, prunablePaths } from "./prune-worktrees-modal.tsx";
 import { RemoveWorktreeModal } from "./remove-worktree-modal.tsx";
@@ -54,7 +55,8 @@ function WorktreeRow({
             <ChangesLink repo={repo} worktree={worktree} />
           </p>
         </div>
-        <div className="shrink-0">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <CheckoutPull worktree={worktree} />
           <Button variant="negative" onClick={onRemove}>
             remove
           </Button>

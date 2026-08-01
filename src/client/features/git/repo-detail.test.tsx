@@ -142,10 +142,42 @@ describe("<RepoDetail>", () => {
     expect(link.getAttribute("href")).toBe("/git/kiri/changes/kiri?view=uncommitted");
   });
 
-  it("offers the refresh and says how old the model on screen is", async () => {
+  it("offers the repo's fetch whatever state its checkouts are in", async () => {
+    // A checkout can only be known to be behind once a fetch has happened, so
+    // the action is never gated on anything looking out of date.
     server.use(http.get("*/api/git", () => HttpResponse.json(payload([kiri()]))));
     renderDetail();
-    expect(await screen.findByRole("button", { name: "Refresh" })).toBeDefined();
-    expect(screen.getByText(/scanned .* ago|scanned now/i)).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Fetch" })).toBeDefined();
+  });
+
+  it("offers the pull on the primary checkout when a fast-forward would land", async () => {
+    server.use(
+      http.get("*/api/git", () =>
+        HttpResponse.json(payload([kiri({ worktrees: [worktree({ primary: true, behind: 2 })] })])),
+      ),
+    );
+    renderDetail();
+    expect(await screen.findByRole("button", { name: "Pull" })).toBeDefined();
+  });
+
+  it("says nothing about pulling when nothing could be pulled", async () => {
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload([kiri()]))));
+    renderDetail();
+    await screen.findByText("/projects/kiri");
+    expect(screen.queryByRole("button", { name: "Pull" })).toBeNull();
+    expect(screen.queryByText(/nothing is behind/i)).toBeNull();
+  });
+
+  it("says when the repo last fetched, and leaves the workspace rescan to the listing", async () => {
+    server.use(
+      http.get("*/api/git", () =>
+        HttpResponse.json(payload([kiri({ lastFetchedAt: new Date().toISOString() })])),
+      ),
+    );
+    renderDetail();
+    expect(await screen.findByText(/fetched .* ago|fetched now/i)).toBeDefined();
+    // The rescan is workspace-wide, so it belongs on the listing, not here.
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+    expect(screen.queryByText(/scanned/i)).toBeNull();
   });
 });

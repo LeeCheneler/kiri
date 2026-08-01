@@ -82,6 +82,18 @@ describe("<WorktreesSection>", () => {
     );
   });
 
+  it("offers the pull inside the card of the worktree it would move", () => {
+    renderSection(
+      repo([
+        worktree({ primary: true }),
+        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search", behind: 2 }),
+        worktree({ path: "/projects/kiri-level", branch: "feat/level" }),
+      ]),
+    );
+    // One pull, for the one worktree a fast-forward would land on.
+    expect(screen.getAllByRole("button", { name: "Pull" })).toHaveLength(1);
+  });
+
   it("leaves the primary checkout out of the list — it is the repo", () => {
     renderSection(stocked);
     // One remove action per linked worktree, and none for the primary.
