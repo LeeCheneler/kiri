@@ -108,7 +108,9 @@ describe("createGitSnapshot", () => {
     scan.block();
     const store = createGitSnapshot(config, {}, { bus: withBus(), watchFn, scan: scan.scan });
 
-    expect(store.current()).toEqual({ roots: [], repos: [], refreshing: true, scannedAt: null });
+    // The configured roots are carried before the first scan lands, so an
+    // unscanned snapshot is never mistaken for one with no roots configured.
+    expect(store.current()).toEqual({ roots, repos: [], refreshing: true, scannedAt: null });
     expect(gitChanged()).toBe(0);
 
     scan.release();

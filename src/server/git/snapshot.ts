@@ -110,6 +110,11 @@ export function createGitSnapshot(
     onChanged: refreshInBackground,
   });
 
+  // The watcher resolves its roots synchronously, so carry them before the first
+  // scan lands: an empty `roots` otherwise reads as "none are configured" when it
+  // only means "not scanned yet", and the page says so.
+  snapshot = { ...snapshot, roots: [...watcher.roots()] };
+
   refreshInBackground();
 
   return {
