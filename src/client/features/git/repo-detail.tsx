@@ -5,6 +5,7 @@ import { Tag } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useGitOverview } from "../../state/git.ts";
+import { RemoteSection } from "./remote-section.tsx";
 import { ScanStatus } from "./scan-status.tsx";
 import { branchLabel, stateTags } from "./worktree-state.ts";
 import { WorktreesSection } from "./worktrees-section.tsx";
@@ -54,7 +55,8 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
 
 /**
  * A repo's own page: what the repo is, then a stack of sections managing it —
- * currently its worktrees, with room for the rest to arrive alongside them.
+ * its standing with its remote and its worktrees, with room for the rest to
+ * arrive alongside them.
  *
  * `name` is the repo's directory name, which is also the key its `kiri.yaml`
  * overrides are written under. Two roots can hold directories of the same name;
@@ -101,6 +103,7 @@ export function RepoDetail({ name }: { name: string }) {
       </div>
       <RepoHeader repo={repo} />
       <div className="mt-10 space-y-10">
+        <RemoteSection repo={repo} />
         <WorktreesSection repo={repo} />
       </div>
     </section>

@@ -982,6 +982,79 @@ export const fetchFilePatch = async (
   if (previousPath !== undefined) query.set("previousPath", previousPath);
   return json<FilePatch>(await apiFetch(`/api/git/changeset/patch?${query}`));
 };
+/**
+ * How an update attempt ended. `refused` is kiri declining before running
+ * anything, with a reason; `failed` is git having run and said no.
+ */
+export type SyncStatus = "updated" | "up-to-date" | "refused" | "failed";
+
+/** Outcome of fetching one repo. */
+export interface FetchResult {
+  /** Directory name of the repo fetched. */
+  repo: string;
+  status: SyncStatus;
+  /** Git's own report of what moved, line by line. Empty unless updated. */
+  updates: string[];
+  /** Why kiri declined to fetch; present only on a refusal. */
+  reason?: string;
+  /** Git's message; present only on a failure. */
+  error?: string;
+}
+
+/** Outcome of fast-forwarding one checkout. */
+export interface PullResult {
+  /** Absolute path of the checkout. */
+  path: string;
+  /** The branch it is on; null when detached. */
+  branch: string | null;
+  status: SyncStatus;
+  /** Commits fast-forwarded onto the branch; 0 unless updated. */
+  commits: number;
+  /** Why the pull was refused; present only on a refusal. */
+  reason?: string;
+  /** Git's message; present only on a failure. */
+  error?: string;
+}
+
+/**
+ * Fetch `repo` (its directory name or any checkout path) with `git fetch
+ * --prune`, so its ahead/behind counts and gone upstreams are computed against
+ * current remote state. One fetch serves every worktree of the repo. The server
+ * refreshes its model and publishes `git.changed`. Throws on non-2xx — a repo
+ * with no remote, or a fetch git refused, resolves with the reason instead.
+ */
+export const fetchRepo = async (repo: string): Promise<FetchResult> =>
+  json<FetchResult>(
+    await apiFetch("/api/git/fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo }),
+    }),
+  );
+
+/**
+ * Fetch every discovered repo in one request, resolving with an outcome for each
+ * — one repo failing never stops the rest. The server bounds the concurrency and
+ * refreshes its model once when the whole set settles. Throws on non-2xx.
+ */
+export const fetchAllRepos = async (): Promise<FetchResult[]> =>
+  (await json<{ results: FetchResult[] }>(await apiFetch("/api/git/fetch-all", { method: "POST" })))
+    .results;
+
+/**
+ * Fast-forward the checkout at `path` with `git pull --ff-only`. A detached
+ * HEAD, a missing or gone upstream, a diverged branch, and a dirty working tree
+ * are each refused with a reason rather than escalated into a merge. Throws on
+ * non-2xx.
+ */
+export const pullCheckout = async (path: string): Promise<PullResult> =>
+  json<PullResult>(
+    await apiFetch("/api/git/pull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    }),
+  );
 
 /** A persona available to attach to a session. */
 export interface Persona {

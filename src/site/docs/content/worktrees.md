@@ -48,7 +48,8 @@ far ahead or behind its upstream it is, whether that upstream has gone, and
 whether git has it locked.
 
 Reading this is read-only and never fetches: it's `git worktree list`, `git
-status`, and `git rev-list` against what's already on disk. Kiri keeps the
+status`, and `git rev-list` against what's already on disk — fetching is
+something you ask for (see below). Kiri keeps the
 result in memory and rescans in the background, so the page appears at once
 rather than waiting on git — it tells you when it was last scanned, and a scan
 in progress says so. Anything kiri does itself updates the view live, as does a
@@ -56,6 +57,41 @@ worktree directory appearing or vanishing under a root, and an edit to `git:`
 in `kiri.yaml` re-resolves the roots and rescans without a restart. Work you do
 *inside* a repo — a commit, an edit — doesn't announce itself, so refresh to
 pick up dirty and ahead/behind state.
+
+## Fetching and pulling
+
+Because reading never fetches, how far ahead or behind a checkout is measured
+against remote-tracking refs that are only as current as the last time you
+fetched — a checkout can read as level while being twenty commits behind.
+Fetching is what makes that status honest, so it's an action you take rather
+than something kiri does on a timer: nothing runs in the background, and
+nothing runs while the app is closed.
+
+**Fetch** is `git fetch --prune`, per repo. One fetch covers every worktree of
+the repo, since they share an object store, and the prune is what turns the
+upstream of a branch deleted on the remote into `[gone]`. You can fetch one
+repo from its own page, or every discovered repo at once from the list. A
+fetch-all is a single request — it runs several repos at a time and reports
+back when the whole set has settled, with a count of what came back and an
+entry for each repo that had something to say. One repo being unreachable
+never stops the rest; it's reported alongside them.
+
+**Pull** is `git pull --ff-only`, per checkout, and never anything else. Only
+checkouts that actually have commits waiting are offered it, and a checkout
+that can't be fast-forwarded says why instead:
+
+- the working tree has **uncommitted changes** — commit or stash them first;
+- the branch has **no upstream**, or its upstream has **gone**;
+- the branch has **diverged** — it's ahead of its upstream as well as behind;
+- **HEAD is detached**, so there's no branch to move.
+
+Kiri won't merge, rebase, stash, or force anything to get past those. It
+reports what's in the way and stops; you resolve it in a terminal.
+
+Every fetch and pull reports the same four outcomes: **updated** (with what
+moved, in git's own words), **already up to date**, **refused** (with the
+reason), or **failed** (with git's message). A failed fetch — offline, or
+credentials git can't resolve — is a result, not a broken page.
 
 ## Preparing a new worktree
 
