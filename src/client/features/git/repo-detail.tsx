@@ -1,14 +1,10 @@
 import type { RepoOverview } from "../../api.ts";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
-import { Tag } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useGitOverview } from "../../state/git.ts";
-import { ChangesLink } from "./changes-link.tsx";
-import { CheckoutPull } from "./checkout-pull.tsx";
 import { FetchRepo } from "./fetch-repo.tsx";
-import { branchLabel, stateTags } from "./worktree-state.ts";
 import { WorktreesSection } from "./worktrees-section.tsx";
 
 const GIT_CRUMB = { label: "Git", href: "/git" };
@@ -25,11 +21,10 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-// The repo itself: where it lives, the branch a new one is cut from, and what
-// its primary checkout is sitting on and carrying — the state a reader needs
-// before deciding anything below.
+// The repo itself: what it is called, where it lives, and the branch a new
+// worktree is cut from. A readout and nothing else — every checkout, the primary
+// included, states itself and carries its own actions in the section below.
 function RepoHeader({ repo }: { repo: RepoOverview }) {
-  const primary = repo.worktrees.find((worktree) => worktree.primary);
   return (
     <header className="mt-6 border-rule border-b pb-8">
       <Eyebrow>Repo</Eyebrow>
@@ -39,39 +34,26 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
       <p className="mt-4 break-all font-mono text-ink-muted text-sm">{repo.root}</p>
       <div className="mt-6 flex flex-wrap gap-x-10 gap-y-5">
         <Fact label="Default branch">{repo.defaultBranch ?? "none"}</Fact>
-        {primary ? (
-          // The primary checkout's own actions belong beside the primary
-          // checkout itself: it has no row in the Worktrees section, which
-          // lists only the linked ones.
-          <Fact label="Primary checkout">
-            {branchLabel(primary)}
-            {stateTags(primary).map((tag) => (
-              <Tag key={tag.label} tone={tag.tone}>
-                {tag.label}
-              </Tag>
-            ))}
-            <CheckoutPull worktree={primary} />
-            <ChangesLink repo={repo} worktree={primary} />
-          </Fact>
-        ) : null}
       </div>
     </header>
   );
 }
 
 /**
- * A repo's own page: what the repo is, then its worktrees, with room for more
+ * A repo's own page: what the repo is, then its checkouts, with room for more
  * to arrive alongside them. Each checkout links through to its own changes.
  *
- * The two remote actions live where they belong rather than in a band of their
- * own. Fetch is repo-level and always offered — worktrees share an object store,
- * and ahead/behind cannot be known to be stale until a fetch has happened — so
- * it sits on the breadcrumb line, saying when it last ran. The workspace rescan
- * is not here: its scope is every root, so it belongs on the listing, and a
- * staleness with no action beside it is noise. Pull is per checkout and appears
- * on the checkout
- * itself, only where a fast-forward would actually land, so a repo with nothing
- * to pull says nothing rather than spending a section saying so.
+ * The header is a readout — name, path, default branch — and carries no
+ * controls: an action in a row of facts is an action away from the thing it acts
+ * on. The two remote actions live where they belong rather than in a band of
+ * their own. Fetch is repo-level and always offered — worktrees share an object
+ * store, and ahead/behind cannot be known to be stale until a fetch has happened
+ * — so it sits on the breadcrumb line, saying when it last ran. The workspace
+ * rescan is not here: its scope is every root, so it belongs on the listing, and
+ * a staleness with no action beside it is noise. Pull is per checkout and
+ * appears in that checkout's own card, only where a fast-forward would actually
+ * land, so a repo with nothing to pull says nothing rather than spending a
+ * section saying so.
  *
  * `name` is the repo's directory name, which is also the key its `kiri.yaml`
  * overrides are written under. Two roots can hold directories of the same name;

@@ -25,10 +25,9 @@ const pullable = (worktree: WorktreeStatus): boolean =>
  * be refused — which is most of the time — so a page with nothing to pull says
  * nothing rather than spending a band on it.
  *
- * Inline-level throughout, so it can sit in the run of facts on the repo header
- * as readily as in a worktree's card. Routine rather than destructive: it takes
- * the ordinary outlined button, leaving the solid negative treatment to the
- * removal it sits beside.
+ * Inline-level throughout, so it sits in a checkout's card without a layout of
+ * its own. Routine rather than destructive: it takes the ordinary outlined
+ * button, leaving the solid negative treatment to the removal it sits beside.
  *
  * The outcome outlives the action: a checkout that pulls successfully stops
  * being behind and the button goes, so what happened is stated where the button

@@ -14,12 +14,11 @@ import { RemoveWorktreeModal } from "./remove-worktree-modal.tsx";
 import { RepoSection } from "./repo-section.tsx";
 import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 
-// One linked worktree, in a card of its own: what it is called and the state
-// rail that says what you would do with it, its branch and the way into its
-// changes under that, and the removal that tidies it away held out to the right
-// of all three.
+// One checkout, in a card of its own: what it is called and the state rail that
+// says what you would do with it, its branch and the way into its changes under
+// that, and the actions it takes held out to the right of all three.
 //
-// The card is what ties the action to the worktree. Right-aligning alone works
+// The card is what ties the action to the checkout. Right-aligning alone works
 // at laptop width and fails at desktop width, where the buttons pull away into a
 // column of their own with an ocean of space between each one and the worktree
 // it acts on — on a destructive action that is a misclick waiting to happen. The
@@ -27,14 +26,19 @@ import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 // one worktree's box rather than floating in space shared with its neighbours.
 // The action itself takes the destructive variant, solid at rest rather than
 // lighting up on hover, so what it does is legible before it is touched.
-function WorktreeRow({
+//
+// The primary checkout takes the same card as every linked one, marked by a tag
+// and offered no removal: it is the repo, and git refuses to remove it. Giving
+// it the shape the others have is what puts its pull and its changes where a
+// reader already knows to look for them.
+function CheckoutRow({
   repo,
   worktree,
   onRemove,
 }: {
   repo: RepoOverview;
   worktree: WorktreeStatus;
-  onRemove: () => void;
+  onRemove?: () => void;
 }) {
   return (
     <Card>
@@ -42,6 +46,7 @@ function WorktreeRow({
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
             {dirName(worktree.path)}
+            {worktree.primary ? <Tag tone="accent">primary</Tag> : null}
             {stateTags(worktree).map((tag) => (
               <Tag key={tag.label} tone={tag.tone}>
                 {tag.label}
@@ -49,7 +54,7 @@ function WorktreeRow({
             ))}
           </p>
           <p className="mt-1 font-mono text-ink-muted text-xs">{branchLabel(worktree)}</p>
-          {/* The way into this worktree's changes sits with the worktree's own
+          {/* The way into this checkout's changes sits with the checkout's own
               identity, well clear of the destructive action on the far side. */}
           <p className="mt-2 font-mono text-xs">
             <ChangesLink repo={repo} worktree={worktree} />
@@ -57,9 +62,11 @@ function WorktreeRow({
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <CheckoutPull worktree={worktree} />
-          <Button variant="negative" onClick={onRemove}>
-            remove
-          </Button>
+          {onRemove === undefined ? null : (
+            <Button variant="negative" onClick={onRemove}>
+              remove
+            </Button>
+          )}
         </div>
       </div>
     </Card>
@@ -67,11 +74,12 @@ function WorktreeRow({
 }
 
 /**
- * A repo's linked worktrees and the whole lifecycle around them: creating one,
+ * A repo's checkouts and the whole lifecycle around its worktrees: creating one,
  * removing one, and — when git is holding records for worktrees whose
  * directories have gone — clearing those stale entries from the banner that
- * announces them. The primary checkout is not listed here; it is the repo, and
- * the page header already states where it is and what state it is in.
+ * announces them. The primary checkout leads the list, tagged as such and with
+ * no removal offered, so every checkout carries its state and its actions in the
+ * same shape rather than the repo's own being read somewhere else.
  *
  * Every operation runs through a confirming dialog and invalidates the shared
  * overview when it lands, so the section reflects the server's model rather than
@@ -86,6 +94,8 @@ export function WorktreesSection({ repo }: { repo: RepoOverview }) {
   const [removing, setRemoving] = useState<WorktreeStatus | null>(null);
 
   const linked = repo.worktrees.filter((worktree) => !worktree.primary);
+  // The primary leads, whatever order the scan reported the checkouts in.
+  const checkouts = [...repo.worktrees.filter((worktree) => worktree.primary), ...linked];
   // The prune action only exists when something is actually stale, so nobody has
   // to click a button to find out there was nothing to do.
   const stale = prunablePaths(repo).length;
@@ -110,21 +120,27 @@ export function WorktreesSection({ repo }: { repo: RepoOverview }) {
           <Button onClick={() => setPruning(true)}>Review and prune</Button>
         </div>
       ) : null}
+      {/* Tight enough that a stack of cards still reads as one list rather than
+          a series of unrelated panels. */}
+      <ul className="space-y-3">
+        {checkouts.map((worktree) => (
+          <li key={worktree.path}>
+            <CheckoutRow
+              repo={repo}
+              worktree={worktree}
+              onRemove={worktree.primary ? undefined : () => setRemoving(worktree)}
+            />
+          </li>
+        ))}
+      </ul>
       {linked.length === 0 ? (
-        <EmptyState>
-          This repo is just its own checkout. Create a worktree to start a piece of work beside it.
-        </EmptyState>
-      ) : (
-        // Tight enough that a stack of cards still reads as one list rather
-        // than a series of unrelated panels.
-        <ul className="space-y-3">
-          {linked.map((worktree) => (
-            <li key={worktree.path}>
-              <WorktreeRow repo={repo} worktree={worktree} onRemove={() => setRemoving(worktree)} />
-            </li>
-          ))}
-        </ul>
-      )}
+        <div className="mt-4">
+          <EmptyState>
+            This repo is just its own checkout. Create a worktree to start a piece of work beside
+            it.
+          </EmptyState>
+        </div>
+      ) : null}
       {creating ? (
         <CreateWorktreeModal repo={repo} onCreate={create} onClose={() => setCreating(false)} />
       ) : null}
