@@ -40,33 +40,33 @@ describe("gitOverview", () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it("echoes the scanned roots and finds nothing under an empty one", () => {
-    expect(gitOverview([root])).toEqual({ roots: [root], repos: [] });
+  it("echoes the scanned roots and finds nothing under an empty one", async () => {
+    expect(await gitOverview([root])).toEqual({ roots: [root], repos: [] });
   });
 
-  it("names a repo after its primary checkout's directory", () => {
+  it("names a repo after its primary checkout's directory", async () => {
     initRepo(join(root, "alpha"));
-    const { repos } = gitOverview([root]);
+    const { repos } = await gitOverview([root]);
     expect(repos).toHaveLength(1);
     expect(repos[0].name).toBe("alpha");
     expect(realpathSync(repos[0].root)).toBe(realpathSync(join(root, "alpha")));
     expect(repos[0].gitCommonDir).toContain(".git");
   });
 
-  it("orders repos by name", () => {
+  it("orders repos by name", async () => {
     initRepo(join(root, "zeta"));
     initRepo(join(root, "alpha"));
     initRepo(join(root, "mid"));
-    expect(gitOverview([root]).repos.map((r) => r.name)).toEqual(["alpha", "mid", "zeta"]);
+    expect((await gitOverview([root])).repos.map((r) => r.name)).toEqual(["alpha", "mid", "zeta"]);
   });
 
-  it("orders same-named repos from different roots by path", () => {
+  it("orders same-named repos from different roots by path", async () => {
     const other = join(base, "other");
     mkdirSync(other, { recursive: true });
     initRepo(join(other, "proj"));
     initRepo(join(root, "proj"));
 
-    const { repos } = gitOverview([root, other]);
+    const { repos } = await gitOverview([root, other]);
     expect(repos.map((r) => r.name)).toEqual(["proj", "proj"]);
     expect(repos.map((r) => realpathSync(r.root))).toEqual([
       realpathSync(join(other, "proj")),
@@ -74,25 +74,25 @@ describe("gitOverview", () => {
     ]);
   });
 
-  it("puts the primary checkout first and orders linked worktrees by path", () => {
+  it("puts the primary checkout first and orders linked worktrees by path", async () => {
     const repo = join(root, "proj");
     initRepo(repo);
     git(repo, "worktree", "add", "-q", join(root, "proj-b"), "-b", "b");
     git(repo, "worktree", "add", "-q", join(root, "proj-a"), "-b", "a");
 
-    const worktrees = gitOverview([root]).repos[0].worktrees;
+    const worktrees = (await gitOverview([root])).repos[0].worktrees;
     expect(worktrees).toHaveLength(3);
     expect(worktrees[0].primary).toBe(true);
     expect(worktrees.slice(1).map((w) => w.branch)).toEqual(["a", "b"]);
   });
 
-  it("carries each worktree's live status", () => {
+  it("carries each worktree's live status", async () => {
     const repo = join(root, "proj");
     initRepo(repo);
     git(repo, "worktree", "add", "-q", join(root, "proj-dirty"), "-b", "dirty");
     writeFileSync(join(root, "proj-dirty", "scratch.txt"), "uncommitted");
 
-    const worktrees = gitOverview([root]).repos[0].worktrees;
+    const worktrees = (await gitOverview([root])).repos[0].worktrees;
     expect(worktrees.find((w) => w.primary)?.dirty).toBe(false);
     const dirty = worktrees.find((w) => w.branch === "dirty");
     expect(dirty?.dirty).toBe(true);

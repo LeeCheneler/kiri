@@ -64,18 +64,18 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
 
   // The repo a request names, by directory name or by the absolute path of any
   // of its checkouts. Only repos the configured roots reach resolve.
-  const findRepo = (repo: string): RepoOverview | undefined =>
-    overview().repos.find(
+  const findRepo = async (repo: string): Promise<RepoOverview | undefined> =>
+    (await overview()).repos.find(
       (candidate) =>
         candidate.name === repo ||
         candidate.root === repo ||
         candidate.worktrees.some((worktree) => worktree.path === repo),
     );
 
-  app.get("/", (c) => c.json(overview()));
+  app.get("/", async (c) => c.json(await overview()));
 
-  app.post("/refresh", (c) => {
-    const result = overview();
+  app.post("/refresh", async (c) => {
+    const result = await overview();
     changed();
     return c.json(result);
   });
@@ -85,7 +85,7 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
     zValidator("json", createBodySchema, onZodFail("invalid create request")),
     async (c) => {
       const body = c.req.valid("json");
-      const target = findRepo(body.repo);
+      const target = await findRepo(body.repo);
       if (target === undefined) {
         return c.json({ error: `no repo "${body.repo}" under the configured worktree roots` }, 404);
       }
@@ -112,9 +112,9 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
   app.post(
     "/remove",
     zValidator("json", removeBodySchema, onZodFail("invalid remove request")),
-    (c) => {
+    async (c) => {
       const { path, force } = c.req.valid("json");
-      const known = overview().repos.some((repo) =>
+      const known = (await overview()).repos.some((repo) =>
         repo.worktrees.some((worktree) => worktree.path === path && !worktree.primary),
       );
       if (!known) {
@@ -124,7 +124,7 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
         );
       }
 
-      const result = removeWorktree(path, force);
+      const result = await removeWorktree(path, force);
       if (result.status === "failed") return c.json({ error: result.error }, 400);
       changed();
       return c.json(result);
@@ -134,15 +134,15 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
   app.post(
     "/prune",
     zValidator("json", pruneBodySchema, onZodFail("invalid prune request")),
-    (c) => {
+    async (c) => {
       const { repo } = c.req.valid("json");
-      const target = findRepo(repo);
+      const target = await findRepo(repo);
       if (target === undefined) {
         return c.json({ error: `no repo "${repo}" under the configured worktree roots` }, 404);
       }
       // `repo` resolved through the discovered repos, so the prune itself can only
       // succeed — its failure mode is a path that isn't a repo.
-      const result = pruneWorktrees(target.root);
+      const result = await pruneWorktrees(target.root);
       changed();
       return c.json({ repo: target.name, pruned: result.pruned });
     },

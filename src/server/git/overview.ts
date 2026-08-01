@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { SCAN_CONCURRENCY, mapConcurrent } from "./concurrency.ts";
 import { discoverRepos } from "./discovery.ts";
 import { defaultBranch } from "./operations.ts";
 import { type WorktreeStatus, worktreeStatus } from "./status.ts";
@@ -38,18 +39,27 @@ const byPath = (a: WorktreeStatus, b: WorktreeStatus): number => a.path.localeCo
  * brand-new branch is cut from. Read-only; runs git status commands but never
  * fetches or mutates.
  */
-export function gitOverview(roots: readonly string[]): GitOverview {
-  const repos = discoverRepos(roots).map((repo) => {
-    const statuses = repo.worktrees.map(worktreeStatus);
+export async function gitOverview(roots: readonly string[]): Promise<GitOverview> {
+  const discovered = await discoverRepos(roots);
+
+  // Every worktree in the workspace is one flat unit of work, so a single repo
+  // with many worktrees parallelises as well as many single-worktree repos.
+  const entries = discovered.flatMap((repo) => repo.worktrees);
+  const statuses = await mapConcurrent(entries, SCAN_CONCURRENCY, worktreeStatus);
+  const branches = await mapConcurrent(discovered, SCAN_CONCURRENCY, (repo) =>
+    defaultBranch(repo.root),
+  );
+
+  let offset = 0;
+  const repos = discovered.map((repo, index) => {
+    const own = statuses.slice(offset, offset + repo.worktrees.length);
+    offset += repo.worktrees.length;
     return {
       name: basename(repo.root),
       root: repo.root,
       gitCommonDir: repo.gitCommonDir,
-      defaultBranch: defaultBranch(repo.root),
-      worktrees: [
-        ...statuses.filter((w) => w.primary),
-        ...statuses.filter((w) => !w.primary).sort(byPath),
-      ],
+      defaultBranch: branches[index],
+      worktrees: [...own.filter((w) => w.primary), ...own.filter((w) => !w.primary).sort(byPath)],
     };
   });
   repos.sort((a, b) => a.name.localeCompare(b.name) || a.root.localeCompare(b.root));

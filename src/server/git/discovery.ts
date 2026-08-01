@@ -1,6 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { SCAN_CONCURRENCY, mapConcurrent } from "./concurrency.ts";
+import { runGit } from "./run.ts";
 
 /**
  * One worktree parsed from `git worktree list --porcelain`: the primary
@@ -112,23 +113,17 @@ function parseWorktreePorcelain(stdout: string): WorktreeEntry[] {
 
 // Absolute shared git directory for `dir`, or null when `dir` is not inside a
 // git working tree — this also doubles as the "is this a git repo?" test.
-const gitCommonDir = (dir: string): string | null => {
-  const result = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    cwd: dir,
-    encoding: "utf8",
-  });
-  if (result.status !== 0) return null;
+const gitCommonDir = async (dir: string): Promise<string | null> => {
+  const result = await runGit(dir, "rev-parse", "--path-format=absolute", "--git-common-dir");
+  if (!result.ok) return null;
   const out = result.stdout.trim();
   return out.length > 0 ? out : null;
 };
 
 // The primary plus linked worktrees for the repo containing `dir`. Called only
 // after `gitCommonDir(dir)` confirmed a git repo, so the command succeeds.
-const listWorktrees = (dir: string): WorktreeEntry[] => {
-  const result = spawnSync("git", ["worktree", "list", "--porcelain"], {
-    cwd: dir,
-    encoding: "utf8",
-  });
+const listWorktrees = async (dir: string): Promise<WorktreeEntry[]> => {
+  const result = await runGit(dir, "worktree", "list", "--porcelain");
   return parseWorktreePorcelain(result.stdout);
 };
 
@@ -150,23 +145,31 @@ const childDirs = (dir: string): string[] => {
  * children are scanned (no recursion). Each candidate's repo is grouped by its
  * shared git directory, so a repo reachable from several roots or via a linked
  * worktree is returned once, carrying its primary checkout and every linked
- * worktree. Never fetches or mutates.
+ * worktree. Candidates are probed concurrently, in bounded batches; the result
+ * stays in root-then-candidate order. Never fetches or mutates.
  */
-export function discoverRepos(roots: readonly string[]): DiscoveredRepo[] {
-  const byCommonDir = new Map<string, DiscoveredRepo>();
-  for (const root of roots) {
-    const candidates = gitCommonDir(root) === null ? childDirs(root) : [root];
-    for (const dir of candidates) {
-      const commonDir = gitCommonDir(dir);
-      if (commonDir === null) continue;
-      if (byCommonDir.has(commonDir)) continue;
-      const worktrees = listWorktrees(dir);
-      byCommonDir.set(commonDir, {
-        root: worktrees[0].path,
-        gitCommonDir: commonDir,
-        worktrees,
-      });
-    }
-  }
-  return [...byCommonDir.values()];
+export async function discoverRepos(roots: readonly string[]): Promise<DiscoveredRepo[]> {
+  const rootRepos = await mapConcurrent(roots, SCAN_CONCURRENCY, gitCommonDir);
+  const candidates = roots.flatMap((root, index) =>
+    rootRepos[index] === null ? childDirs(root) : [root],
+  );
+  const commonDirs = await mapConcurrent(candidates, SCAN_CONCURRENCY, gitCommonDir);
+
+  // First candidate wins per shared git dir; which one it is doesn't matter,
+  // since `git worktree list` reports the same repo from any of its worktrees.
+  const byCommonDir = new Map<string, string>();
+  candidates.forEach((dir, index) => {
+    const commonDir = commonDirs[index];
+    if (commonDir !== null && !byCommonDir.has(commonDir)) byCommonDir.set(commonDir, dir);
+  });
+
+  const repos = [...byCommonDir];
+  const worktreeLists = await mapConcurrent(repos, SCAN_CONCURRENCY, ([, dir]) =>
+    listWorktrees(dir),
+  );
+  return repos.map(([commonDir], index) => ({
+    root: worktreeLists[index][0].path,
+    gitCommonDir: commonDir,
+    worktrees: worktreeLists[index],
+  }));
 }

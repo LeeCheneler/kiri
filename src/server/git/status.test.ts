@@ -59,24 +59,24 @@ describe("worktreeStatus", () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it("reports a clean repo with no upstream", () => {
+  it("reports a clean repo with no upstream", async () => {
     const repo = join(base, "repo");
     initRepo(repo);
-    const status = worktreeStatus(entryFor(repo));
+    const status = await worktreeStatus(entryFor(repo));
     expect(status.dirty).toBe(false);
     expect(status.ahead).toBe(0);
     expect(status.behind).toBe(0);
     expect(status.upstreamGone).toBe(false);
   });
 
-  it("flags a dirty working tree", () => {
+  it("flags a dirty working tree", async () => {
     const repo = join(base, "repo");
     initRepo(repo);
     writeFileSync(join(repo, "init"), "edited");
-    expect(worktreeStatus(entryFor(repo)).dirty).toBe(true);
+    expect((await worktreeStatus(entryFor(repo))).dirty).toBe(true);
   });
 
-  it("counts ahead and behind against an upstream without swapping them", () => {
+  it("counts ahead and behind against an upstream without swapping them", async () => {
     const origin = join(base, "origin");
     const local = join(base, "local");
     initRepo(origin);
@@ -87,13 +87,13 @@ describe("worktreeStatus", () => {
     commit(origin, "origin-3");
     git(local, "fetch", "-q");
 
-    const status = worktreeStatus(entryFor(local));
+    const status = await worktreeStatus(entryFor(local));
     expect(status.ahead).toBe(1);
     expect(status.behind).toBe(2);
     expect(status.upstreamGone).toBe(false);
   });
 
-  it("flags an upstream that no longer exists as gone", () => {
+  it("flags an upstream that no longer exists as gone", async () => {
     const origin = join(base, "origin");
     const local = join(base, "local");
     initRepo(origin);
@@ -101,17 +101,17 @@ describe("worktreeStatus", () => {
     setUser(local);
     git(local, "update-ref", "-d", "refs/remotes/origin/main");
 
-    const status = worktreeStatus(entryFor(local));
+    const status = await worktreeStatus(entryFor(local));
     expect(status.upstreamGone).toBe(true);
     expect(status.ahead).toBe(0);
     expect(status.behind).toBe(0);
   });
 
-  it("treats a detached worktree as having no branch or upstream", () => {
+  it("treats a detached worktree as having no branch or upstream", async () => {
     const repo = join(base, "repo");
     initRepo(repo);
     const head = git(repo, "rev-parse", "HEAD").trim();
-    const status = worktreeStatus(
+    const status = await worktreeStatus(
       entryFor(repo, { branch: null, detached: true, head, primary: false }),
     );
     expect(status.branch).toBeNull();
@@ -120,10 +120,12 @@ describe("worktreeStatus", () => {
     expect(status.upstreamGone).toBe(false);
   });
 
-  it("carries the structural flags from the discovered entry", () => {
+  it("carries the structural flags from the discovered entry", async () => {
     const repo = join(base, "repo");
     initRepo(repo);
-    const status = worktreeStatus(entryFor(repo, { locked: true, prunable: true, primary: false }));
+    const status = await worktreeStatus(
+      entryFor(repo, { locked: true, prunable: true, primary: false }),
+    );
     expect(status.locked).toBe(true);
     expect(status.prunable).toBe(true);
     expect(status.primary).toBe(false);
