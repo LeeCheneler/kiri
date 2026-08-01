@@ -68,10 +68,10 @@ describe("<App>", () => {
     await flushAsync();
   });
 
-  it("routes /worktrees to the worktrees page", async () => {
+  it("routes /git to the git page", async () => {
     // Stall the overview fetch so the page holds its loading state for the assertion.
     server.use(http.get("*/api/git", () => new Promise<Response>(() => {})));
-    renderAt("/worktrees");
+    renderAt("/git");
     expect(screen.getByText(/loading worktrees/i)).toBeDefined();
     expect(screen.queryByText(/page not found/i)).toBeNull();
     await flushAsync();

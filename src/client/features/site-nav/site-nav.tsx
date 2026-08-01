@@ -27,7 +27,7 @@ function RailContent({ location }: { location: string }) {
         items={[
           { label: "Activity", href: "/", active: location === "/" },
           { label: "Workflows", href: "/workflows", active: location.startsWith("/workflows") },
-          { label: "Worktrees", href: "/worktrees", active: location.startsWith("/worktrees") },
+          { label: "Git", href: "/git", active: location.startsWith("/git") },
           { label: "Tools & MCP", href: "/mcp", active: location.startsWith("/mcp") },
         ]}
       />

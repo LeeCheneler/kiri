@@ -6,8 +6,8 @@ import { http, HttpResponse } from "msw";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
+import { useGitLive, useGitOverview, useRefreshGit } from "./git.ts";
 import { createQueryClient } from "./query-client.ts";
-import { useRefreshWorktrees, useWorktrees, useWorktreesLive } from "./worktrees.ts";
 
 const overview = (names: string[]) => ({
   roots: ["/projects"],
@@ -22,9 +22,9 @@ const overview = (names: string[]) => ({
 });
 
 const Probe = () => {
-  useWorktreesLive();
-  const refresh = useRefreshWorktrees();
-  const repos = useWorktrees().data?.repos ?? [];
+  useGitLive();
+  const refresh = useRefreshGit();
+  const repos = useGitOverview().data?.repos ?? [];
   return (
     <>
       <p>repos:{repos.length}</p>

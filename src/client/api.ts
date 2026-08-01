@@ -777,7 +777,7 @@ export interface GitOverview {
  * returns what it last scanned rather than waiting for a fresh read of the
  * disk — `scannedAt` says how old that is. Throws on non-2xx.
  */
-export const fetchWorktrees = async (): Promise<GitOverview> =>
+export const fetchGitOverview = async (): Promise<GitOverview> =>
   json<GitOverview>(await apiFetch("/api/git"));
 
 /**
@@ -786,7 +786,7 @@ export const fetchWorktrees = async (): Promise<GitOverview> =>
  * terminal. The server also publishes `git.changed`, so every other open client
  * converges on it. Throws on non-2xx.
  */
-export const refreshWorktrees = async (): Promise<GitOverview> =>
+export const refreshGitOverview = async (): Promise<GitOverview> =>
   json<GitOverview>(await apiFetch("/api/git/refresh", { method: "POST" }));
 
 /** One action taken while preparing a fresh worktree — an env, post-create, or install step. */

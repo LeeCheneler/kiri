@@ -13,11 +13,11 @@ import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import {
   useCreateWorktree,
+  useGitOverview,
   usePruneWorktrees,
-  useRefreshWorktrees,
+  useRefreshGit,
   useRemoveWorktree,
-  useWorktrees,
-} from "../../state/worktrees.ts";
+} from "../../state/git.ts";
 import { CreateWorktreeModal } from "./create-worktree-modal.tsx";
 import { PruneWorktreesModal, pruneTargets } from "./prune-worktrees-modal.tsx";
 import { RemoveWorktreeModal } from "./remove-worktree-modal.tsx";
@@ -216,12 +216,12 @@ function ScanFreshness({ overview }: { overview: GitOverview }) {
  * from the banner that announces them. The server holds the model in memory and
  * rescans in the background, so the listing appears at once and says how old it
  * is; refreshing forces a rescan, and it otherwise stays current through
- * `useWorktreesLive`, so an operation run from another open client lands here
+ * `useGitLive`, so an operation run from another open client lands here
  * too.
  */
 export function WorktreesOverview() {
-  const query = useWorktrees();
-  const refresh = useRefreshWorktrees();
+  const query = useGitOverview();
+  const refresh = useRefreshGit();
   const create = useCreateWorktree();
   const prune = usePruneWorktrees();
   const [refreshing, setRefreshing] = useState(false);
@@ -297,7 +297,7 @@ export function WorktreesOverview() {
   );
 }
 
-function Body({ query, filter }: { query: ReturnType<typeof useWorktrees>; filter: string }) {
+function Body({ query, filter }: { query: ReturnType<typeof useGitOverview>; filter: string }) {
   if (query.isPending) return <LoadingState>Loading worktrees…</LoadingState>;
   if (query.isError) {
     return (
