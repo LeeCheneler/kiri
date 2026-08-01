@@ -37,19 +37,19 @@ describe("discoverRepos", () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it("returns nothing for a root that has no repos", () => {
+  it("returns nothing for a root that has no repos", async () => {
     mkdirSync(join(base, "root", "plain"), { recursive: true });
-    expect(discoverRepos([join(base, "root")])).toEqual([]);
+    expect(await discoverRepos([join(base, "root")])).toEqual([]);
   });
 
-  it("returns nothing for a non-existent root", () => {
-    expect(discoverRepos([join(base, "missing")])).toEqual([]);
+  it("returns nothing for a non-existent root", async () => {
+    expect(await discoverRepos([join(base, "missing")])).toEqual([]);
   });
 
-  it("includes a root that is itself a git repo", () => {
+  it("includes a root that is itself a git repo", async () => {
     const repo = join(base, "repo");
     initRepo(repo);
-    const repos = discoverRepos([repo]);
+    const repos = await discoverRepos([repo]);
     expect(repos).toHaveLength(1);
     expect(realpathSync(repos[0].root)).toBe(realpathSync(repo));
     expect(repos[0].worktrees).toHaveLength(1);
@@ -57,30 +57,30 @@ describe("discoverRepos", () => {
     expect(repos[0].worktrees[0].branch).toBe("main");
   });
 
-  it("scans immediate children only, skipping non-repos and files", () => {
+  it("scans immediate children only, skipping non-repos and files", async () => {
     const root = join(base, "root");
     initRepo(join(root, "alpha"));
     initRepo(join(root, "beta"));
     mkdirSync(join(root, "notarepo"), { recursive: true });
     writeFileSync(join(root, "loose.txt"), "x");
-    const repos = discoverRepos([root]);
+    const repos = await discoverRepos([root]);
     expect(repos).toHaveLength(2);
   });
 
-  it("does not recurse into grandchildren", () => {
+  it("does not recurse into grandchildren", async () => {
     const root = join(base, "root");
     // The repo is nested one level below an immediate child, so it is out of reach.
     mkdirSync(join(root, "group"), { recursive: true });
     initRepo(join(root, "group", "nested"));
-    expect(discoverRepos([root])).toEqual([]);
+    expect(await discoverRepos([root])).toEqual([]);
   });
 
-  it("parses linked worktrees with their branches and marks only the primary", () => {
+  it("parses linked worktrees with their branches and marks only the primary", async () => {
     const repo = join(base, "repo");
     initRepo(repo);
     git(repo, "worktree", "add", "-q", join(base, "wt-feature"), "-b", "feature");
     git(repo, "worktree", "add", "-q", "--detach", join(base, "wt-detached"), "HEAD");
-    const repos = discoverRepos([repo]);
+    const repos = await discoverRepos([repo]);
     expect(repos).toHaveLength(1);
 
     const worktrees = repos[0].worktrees;
@@ -95,11 +95,11 @@ describe("discoverRepos", () => {
     expect(detached?.head).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  it("surfaces a bare repo as a bare primary worktree", () => {
+  it("surfaces a bare repo as a bare primary worktree", async () => {
     const bare = join(base, "bare.git");
     mkdirSync(bare, { recursive: true });
     git(bare, "init", "-q", "--bare", "-b", "main");
-    const repos = discoverRepos([bare]);
+    const repos = await discoverRepos([bare]);
     expect(repos).toHaveLength(1);
     const primary = repos[0].worktrees[0];
     expect(primary.bare).toBe(true);
@@ -107,14 +107,14 @@ describe("discoverRepos", () => {
     expect(primary.head).toBeNull();
   });
 
-  it("reports locked worktrees, with and without a reason", () => {
+  it("reports locked worktrees, with and without a reason", async () => {
     const repo = join(base, "repo");
     initRepo(repo);
     git(repo, "worktree", "add", "-q", join(base, "wt-a"), "-b", "a");
     git(repo, "worktree", "add", "-q", join(base, "wt-b"), "-b", "b");
     git(repo, "worktree", "lock", "--reason", "busy", join(base, "wt-a"));
     git(repo, "worktree", "lock", join(base, "wt-b"));
-    const worktrees = discoverRepos([repo])[0].worktrees;
+    const worktrees = (await discoverRepos([repo]))[0].worktrees;
 
     const a = worktrees.find((w) => w.branch === "a");
     expect(a?.locked).toBe(true);
@@ -125,18 +125,18 @@ describe("discoverRepos", () => {
     expect(b?.lockedReason).toBeNull();
   });
 
-  it("reports a prunable worktree whose directory was removed", () => {
+  it("reports a prunable worktree whose directory was removed", async () => {
     const repo = join(base, "repo");
     initRepo(repo);
     const wt = join(base, "wt-gone");
     git(repo, "worktree", "add", "-q", wt, "-b", "gone");
     rmSync(wt, { recursive: true, force: true });
-    const worktrees = discoverRepos([repo])[0].worktrees;
+    const worktrees = (await discoverRepos([repo]))[0].worktrees;
     const gone = worktrees.find((w) => w.branch === "gone");
     expect(gone?.prunable).toBe(true);
   });
 
-  it("dedupes a repo reached both as a primary and via a linked worktree in another root", () => {
+  it("dedupes a repo reached both as a primary and via a linked worktree in another root", async () => {
     const rootA = join(base, "a");
     const rootB = join(base, "b");
     mkdirSync(rootA, { recursive: true });
@@ -145,17 +145,17 @@ describe("discoverRepos", () => {
     initRepo(primary);
     git(primary, "worktree", "add", "-q", join(rootB, "proj-feature"), "-b", "feature");
 
-    const repos = discoverRepos([rootA, rootB]);
+    const repos = await discoverRepos([rootA, rootB]);
     expect(repos).toHaveLength(1);
     expect(repos[0].worktrees).toHaveLength(2);
     expect(realpathSync(repos[0].root)).toBe(realpathSync(primary));
   });
 
-  it("keeps distinct repos separate and records the shared git dir", () => {
+  it("keeps distinct repos separate and records the shared git dir", async () => {
     const root = join(base, "root");
     initRepo(join(root, "one"));
     initRepo(join(root, "two"));
-    const repos = discoverRepos([root]);
+    const repos = await discoverRepos([root]);
     const commonDirs = new Set(repos.map((r) => r.gitCommonDir));
     expect(commonDirs.size).toBe(2);
   });

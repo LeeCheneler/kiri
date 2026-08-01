@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { resolveWorktreeConfig } from "./config.ts";
@@ -9,6 +8,7 @@ import {
   defaultCommandRunner,
   prepareWorktree,
 } from "./prepare.ts";
+import { type GitResult, runGit } from "./run.ts";
 import type { GitConfig } from "./schema.ts";
 
 /** How the branch a new worktree checks out was resolved. */
@@ -81,41 +81,25 @@ export interface PruneWorktreesResult {
   error?: string;
 }
 
-interface GitResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-}
-
-// A git invocation in `cwd`. A missing directory or a failed command both come
-// back as `ok: false` — every call site decides whether that is fatal.
-const git = (cwd: string, ...args: string[]): GitResult => {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  return {
-    ok: result.status === 0,
-    stdout: result.stdout ?? "",
-    stderr: (result.stderr ?? "").trim(),
-  };
-};
-
 // The primary checkout of the repo containing `dir` — where the real `.git`
 // lives, resolvable from any of its worktrees — or null when `dir` is not
 // inside a git working tree.
-const primaryCheckout = (dir: string): string | null => {
-  const result = git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir");
+const primaryCheckout = async (dir: string): Promise<string | null> => {
+  const result = await runGit(dir, "rev-parse", "--path-format=absolute", "--git-common-dir");
   if (!result.ok) return null;
   const commonDir = result.stdout.trim();
   return commonDir === "" ? null : dirname(commonDir);
 };
 
-const hasRef = (repo: string, ref: string): boolean =>
-  git(repo, "show-ref", "--verify", "--quiet", ref).ok;
+const hasRef = async (repo: string, ref: string): Promise<boolean> =>
+  (await runGit(repo, "show-ref", "--verify", "--quiet", ref)).ok;
 
-const hasOrigin = (repo: string): boolean => git(repo, "remote", "get-url", "origin").ok;
+const hasOrigin = async (repo: string): Promise<boolean> =>
+  (await runGit(repo, "remote", "get-url", "origin")).ok;
 
 // The branch HEAD points at, or null when detached.
-const currentBranch = (repo: string): string | null =>
-  git(repo, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.trim() || null;
+const currentBranch = async (repo: string): Promise<string | null> =>
+  (await runGit(repo, "symbolic-ref", "--quiet", "--short", "HEAD")).stdout.trim() || null;
 
 const ORIGIN_HEAD_PREFIX = "refs/remotes/origin/";
 
@@ -129,19 +113,22 @@ const FALLBACK_DEFAULT_BRANCHES = ["main", "master"];
  * a repo with neither has no discoverable default and yields null. `repo` is the
  * repo's primary checkout, or any directory inside one of its worktrees.
  */
-export const defaultBranch = (repo: string): string | null => {
-  const originHead = git(repo, "symbolic-ref", "--quiet", `${ORIGIN_HEAD_PREFIX}HEAD`);
+export const defaultBranch = async (repo: string): Promise<string | null> => {
+  const originHead = await runGit(repo, "symbolic-ref", "--quiet", `${ORIGIN_HEAD_PREFIX}HEAD`);
   if (originHead.ok) return originHead.stdout.trim().slice(ORIGIN_HEAD_PREFIX.length);
-  return FALLBACK_DEFAULT_BRANCHES.find((name) => hasRef(repo, `refs/heads/${name}`)) ?? null;
+  for (const name of FALLBACK_DEFAULT_BRANCHES) {
+    if (await hasRef(repo, `refs/heads/${name}`)) return name;
+  }
+  return null;
 };
 
 // The base a brand-new branch is cut from when the caller names none: the
 // default branch on origin, or the local default branch when origin has no
 // copy of it.
-const defaultBaseRef = (repo: string): string | null => {
-  const branch = defaultBranch(repo);
+const defaultBaseRef = async (repo: string): Promise<string | null> => {
+  const branch = await defaultBranch(repo);
   if (branch === null) return null;
-  return hasRef(repo, `refs/remotes/origin/${branch}`) ? `origin/${branch}` : branch;
+  return (await hasRef(repo, `refs/remotes/origin/${branch}`)) ? `origin/${branch}` : branch;
 };
 
 // The directory suffix when the caller names none: the branch with its slashes
@@ -164,7 +151,7 @@ export async function createWorktree(
 ): Promise<CreateWorktreeResult> {
   const { repoPath, branch, skipPrepare = false, config } = options;
 
-  const primary = primaryCheckout(repoPath);
+  const primary = await primaryCheckout(repoPath);
   if (primary === null) {
     return {
       status: "failed",
@@ -193,26 +180,35 @@ export async function createWorktree(
 
   // Refresh refs so origin's branches and default are current. A failed fetch
   // is not fatal — branch resolution falls back to the refs already on disk.
-  if (hasOrigin(primary)) git(primary, "fetch", "origin", "--quiet");
+  if (await hasOrigin(primary)) await runGit(primary, "fetch", "origin", "--quiet");
 
   let branchSource: BranchSource;
   let baseRef: string | null = null;
   let added: GitResult;
-  if (hasRef(primary, `refs/heads/${branch}`)) {
+  if (await hasRef(primary, `refs/heads/${branch}`)) {
     branchSource = "local";
-    added = git(primary, "worktree", "add", path, branch);
-  } else if (hasRef(primary, `refs/remotes/origin/${branch}`)) {
+    added = await runGit(primary, "worktree", "add", path, branch);
+  } else if (await hasRef(primary, `refs/remotes/origin/${branch}`)) {
     branchSource = "remote";
-    added = git(primary, "worktree", "add", "--track", "-b", branch, path, `origin/${branch}`);
+    added = await runGit(
+      primary,
+      "worktree",
+      "add",
+      "--track",
+      "-b",
+      branch,
+      path,
+      `origin/${branch}`,
+    );
   } else {
-    baseRef = options.baseRef ?? defaultBaseRef(primary);
+    baseRef = options.baseRef ?? (await defaultBaseRef(primary));
     if (baseRef === null) {
       return failed(
         "could not work out a base ref: origin has no HEAD and there is no local main or master branch",
       );
     }
     branchSource = "new";
-    added = git(primary, "worktree", "add", "-b", branch, path, baseRef);
+    added = await runGit(primary, "worktree", "add", "-b", branch, path, baseRef);
   }
   if (!added.ok) return failed(added.stderr);
 
@@ -260,8 +256,11 @@ export async function createWorktree(
  * never followed, so the primary's env files are untouched. A failed pull or
  * branch deletion warns rather than fails the removal.
  */
-export function removeWorktree(worktreePath: string, force = false): RemoveWorktreeResult {
-  const primary = primaryCheckout(worktreePath);
+export async function removeWorktree(
+  worktreePath: string,
+  force = false,
+): Promise<RemoveWorktreeResult> {
+  const primary = await primaryCheckout(worktreePath);
   const failed = (path: string, error: string): RemoveWorktreeResult => ({
     status: "failed",
     path,
@@ -273,27 +272,28 @@ export function removeWorktree(worktreePath: string, force = false): RemoveWorkt
   });
   if (primary === null) return failed(worktreePath, `'${worktreePath}' is not a git worktree`);
 
-  const path = git(worktreePath, "rev-parse", "--show-toplevel").stdout.trim();
+  const path = (await runGit(worktreePath, "rev-parse", "--show-toplevel")).stdout.trim();
   if (path === primary) {
     return failed(path, `'${path}' is the primary checkout, not a linked worktree`);
   }
 
-  const status = git(path, "status", "--porcelain").stdout.trim();
+  const status = (await runGit(path, "status", "--porcelain")).stdout.trim();
   if (!force && status !== "") {
     return failed(path, `'${path}' has uncommitted changes; re-run with force to remove it anyway`);
   }
 
-  const branch = currentBranch(path);
-  const branchSha = branch === null ? null : git(primary, "rev-parse", branch).stdout.trim();
+  const branch = await currentBranch(path);
+  const branchSha =
+    branch === null ? null : (await runGit(primary, "rev-parse", branch)).stdout.trim();
 
   const removeArgs = force ? ["worktree", "remove", "--force", path] : ["worktree", "remove", path];
-  const removed = git(primary, ...removeArgs);
+  const removed = await runGit(primary, ...removeArgs);
   if (!removed.ok) return failed(path, removed.stderr);
-  git(primary, "worktree", "prune");
+  await runGit(primary, "worktree", "prune");
 
   const warnings: string[] = [];
-  const defaultName = defaultBranch(primary);
-  const current = currentBranch(primary);
+  const defaultName = await defaultBranch(primary);
+  const current = await currentBranch(primary);
 
   let pull: PullOutcome = "skipped";
   if (defaultName === null) {
@@ -302,13 +302,13 @@ export function removeWorktree(worktreePath: string, force = false): RemoveWorkt
     warnings.push(
       `the primary checkout is on '${current ?? "a detached HEAD"}', not '${defaultName}' — skipped the pull`,
     );
-  } else if (!hasOrigin(primary)) {
+  } else if (!(await hasOrigin(primary))) {
     warnings.push("no origin remote — skipped the pull");
   } else {
     // --no-rebase overrides a global pull.rebase=true, which refuses to pull
     // whenever the checkout has unstaged changes; --ff-only still means this
     // can only fast-forward, never merge.
-    const pulled = git(primary, "pull", "--ff-only", "--no-rebase");
+    const pulled = await runGit(primary, "pull", "--ff-only", "--no-rebase");
     pull = pulled.ok ? "ok" : "failed";
     if (!pulled.ok) warnings.push(`pull failed — sort it out in ${primary}: ${pulled.stderr}`);
   }
@@ -318,7 +318,7 @@ export function removeWorktree(worktreePath: string, force = false): RemoveWorkt
     if (branch === defaultName) {
       warnings.push(`'${branch}' is the default branch — left it in place`);
     } else {
-      const deleted = git(primary, "branch", "-D", branch);
+      const deleted = await runGit(primary, "branch", "-D", branch);
       if (deleted.ok) deletedBranchSha = branchSha;
       else warnings.push(`could not delete branch '${branch}': ${deleted.stderr}`);
     }
@@ -332,17 +332,17 @@ export function removeWorktree(worktreePath: string, force = false): RemoveWorkt
  * still holds for worktrees whose directories have gone — reporting the paths
  * that were pruned.
  */
-export function pruneWorktrees(repoPath: string): PruneWorktreesResult {
-  const primary = primaryCheckout(repoPath);
+export async function pruneWorktrees(repoPath: string): Promise<PruneWorktreesResult> {
+  const primary = await primaryCheckout(repoPath);
   if (primary === null) {
     return { status: "failed", pruned: [], error: `'${repoPath}' is not a git repository` };
   }
 
   // Read the prunable set first: git reports what it pruned only on stderr,
   // and exits successfully either way.
-  const [repo] = discoverRepos([primary]);
+  const [repo] = await discoverRepos([primary]);
   const prunable = repo.worktrees.filter((worktree) => worktree.prunable).map(({ path }) => path);
 
-  git(primary, "worktree", "prune");
+  await runGit(primary, "worktree", "prune");
   return { status: "ok", pruned: prunable };
 }

@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
 import type { WorktreeEntry } from "./discovery.ts";
+import { runGit } from "./run.ts";
 
 /**
  * Live status of a single worktree: its structural facts from discovery plus
@@ -33,18 +33,15 @@ export interface WorktreeStatus {
 
 // Whether the worktree at `path` has uncommitted changes. A bare or missing
 // checkout reports clean.
-const isDirty = (path: string): boolean => {
-  const result = spawnSync("git", ["status", "--porcelain"], { cwd: path, encoding: "utf8" });
-  return result.status === 0 && result.stdout.length > 0;
+const isDirty = async (path: string): Promise<boolean> => {
+  const result = await runGit(path, "status", "--porcelain");
+  return result.ok && result.stdout.length > 0;
 };
 
 // Commits the branch is ahead/behind its upstream. Called only when the branch
 // has a live upstream, so `@{upstream}` resolves and the output is "<behind>\t<ahead>".
-const aheadBehind = (path: string): { ahead: number; behind: number } => {
-  const result = spawnSync("git", ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], {
-    cwd: path,
-    encoding: "utf8",
-  });
+const aheadBehind = async (path: string): Promise<{ ahead: number; behind: number }> => {
+  const result = await runGit(path, "rev-list", "--left-right", "--count", "@{upstream}...HEAD");
   const [behind = 0, ahead = 0] = result.stdout.trim().split(/\s+/).map(Number);
   return { ahead, behind };
 };
@@ -52,20 +49,21 @@ const aheadBehind = (path: string): { ahead: number; behind: number } => {
 // Upstream tracking state for `entry`. A detached/bare worktree or a branch
 // with no upstream has none; a deleted upstream reads `[gone]`; otherwise
 // ahead/behind are counted.
-const trackingState = (
+const trackingState = async (
   entry: WorktreeEntry,
-): { ahead: number; behind: number; upstreamGone: boolean } => {
+): Promise<{ ahead: number; behind: number; upstreamGone: boolean }> => {
   if (entry.branch === null) return { ahead: 0, behind: 0, upstreamGone: false };
 
-  const result = spawnSync(
-    "git",
-    ["for-each-ref", "--format=%(upstream:track)", `refs/heads/${entry.branch}`],
-    { cwd: entry.path, encoding: "utf8" },
+  const result = await runGit(
+    entry.path,
+    "for-each-ref",
+    "--format=%(upstream:track)",
+    `refs/heads/${entry.branch}`,
   );
-  const track = result.status === 0 ? result.stdout.trim() : "";
+  const track = result.ok ? result.stdout.trim() : "";
   if (track === "[gone]") return { ahead: 0, behind: 0, upstreamGone: true };
   if (track === "") return { ahead: 0, behind: 0, upstreamGone: false };
-  return { ...aheadBehind(entry.path), upstreamGone: false };
+  return { ...(await aheadBehind(entry.path)), upstreamGone: false };
 };
 
 /**
@@ -74,14 +72,15 @@ const trackingState = (
  * locked, prunable, primary) from discovery. Read-only — runs `git status`,
  * `git for-each-ref`, and `git rev-list`, never a fetch.
  */
-export function worktreeStatus(entry: WorktreeEntry): WorktreeStatus {
-  const { ahead, behind, upstreamGone } = trackingState(entry);
+export async function worktreeStatus(entry: WorktreeEntry): Promise<WorktreeStatus> {
+  const { ahead, behind, upstreamGone } = await trackingState(entry);
+  const dirty = await isDirty(entry.path);
   return {
     path: entry.path,
     branch: entry.branch,
     detached: entry.detached,
     head: entry.head,
-    dirty: isDirty(entry.path),
+    dirty,
     ahead,
     behind,
     upstreamGone,

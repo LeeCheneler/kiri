@@ -288,52 +288,52 @@ describe("worktree operations", () => {
       return { repo, worktree };
     };
 
-    it("fails when the path is not a git worktree", () => {
+    it("fails when the path is not a git worktree", async () => {
       const plain = at("plain");
       mkdirSync(plain);
 
-      const result = removeWorktree(plain);
+      const result = await removeWorktree(plain);
 
       expect(result.status).toBe("failed");
       expect(result.error).toContain("not a git worktree");
     });
 
-    it("refuses to remove the primary checkout", () => {
+    it("refuses to remove the primary checkout", async () => {
       const { repo } = withWorktree();
 
-      const result = removeWorktree(repo);
+      const result = await removeWorktree(repo);
 
       expect(result.status).toBe("failed");
       expect(result.error).toContain("primary checkout");
       expect(existsSync(repo)).toBe(true);
     });
 
-    it("refuses a worktree with uncommitted changes", () => {
+    it("refuses a worktree with uncommitted changes", async () => {
       const { worktree } = withWorktree();
       writeFileSync(join(worktree, "file.txt"), "changed");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.status).toBe("failed");
       expect(result.error).toContain("uncommitted changes");
       expect(existsSync(worktree)).toBe(true);
     });
 
-    it("removes a dirty worktree when forced", () => {
+    it("removes a dirty worktree when forced", async () => {
       const { worktree } = withWorktree();
       writeFileSync(join(worktree, "file.txt"), "changed");
 
-      const result = removeWorktree(worktree, true);
+      const result = await removeWorktree(worktree, true);
 
       expect(result.status).toBe("ok");
       expect(existsSync(worktree)).toBe(false);
     });
 
-    it("removes the worktree, prunes it and deletes its branch, reporting the sha", () => {
+    it("removes the worktree, prunes it and deletes its branch, reporting the sha", async () => {
       const { repo, worktree } = withWorktree();
       const sha = git(repo, "rev-parse", "feature").trim();
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.status).toBe("ok");
       expect(result.branch).toBe("feature");
@@ -356,14 +356,14 @@ describe("worktree operations", () => {
       };
       const created = await createWorktree({ repoPath: repo, branch: "feature", config }, neverRun);
 
-      const result = removeWorktree(created.path);
+      const result = await removeWorktree(created.path);
 
       expect(result.status).toBe("ok");
       expect(existsSync(created.path)).toBe(false);
       expect(readFileSync(join(repo, ".env"), "utf8")).toBe("SECRET=1\n");
     });
 
-    it("removes a worktree carrying git-ignored files without forcing", () => {
+    it("removes a worktree carrying git-ignored files without forcing", async () => {
       const { repo, worktree } = withWorktree();
       writeFileSync(join(repo, ".gitignore"), "node_modules\n");
       git(repo, "add", ".gitignore");
@@ -372,33 +372,33 @@ describe("worktree operations", () => {
       mkdirSync(join(worktree, "node_modules"));
       writeFileSync(join(worktree, "node_modules", "dep.js"), "x");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.status).toBe("ok");
       expect(existsSync(worktree)).toBe(false);
     });
 
-    it("deletes no branch when the worktree is detached", () => {
+    it("deletes no branch when the worktree is detached", async () => {
       const repo = at("repo");
       initRepo(repo);
       const worktree = at("repo-detached");
       git(repo, "worktree", "add", "-q", "--detach", worktree, "HEAD");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.status).toBe("ok");
       expect(result.branch).toBeNull();
       expect(result.deletedBranchSha).toBeNull();
     });
 
-    it("never deletes the default branch", () => {
+    it("never deletes the default branch", async () => {
       const repo = at("repo");
       initRepo(repo);
       git(repo, "checkout", "-q", "-b", "other");
       const worktree = at("repo-main");
       git(repo, "worktree", "add", "-q", worktree, "main");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.status).toBe("ok");
       expect(result.deletedBranchSha).toBeNull();
@@ -406,12 +406,12 @@ describe("worktree operations", () => {
       expect(git(repo, "branch", "--list", "main").trim()).toContain("main");
     });
 
-    it("warns when the branch cannot be deleted", () => {
+    it("warns when the branch cannot be deleted", async () => {
       const { repo, worktree } = withWorktree();
       // A second worktree on the same branch keeps git from deleting it.
       git(repo, "worktree", "add", "-q", "--force", at("repo-feature-two"), "feature");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.status).toBe("ok");
       expect(result.deletedBranchSha).toBeNull();
@@ -421,18 +421,18 @@ describe("worktree operations", () => {
       expect(git(repo, "branch", "--list", "feature").trim()).toContain("feature");
     });
 
-    it("fails with git's error when the worktree cannot be removed", () => {
+    it("fails with git's error when the worktree cannot be removed", async () => {
       const { repo, worktree } = withWorktree();
       git(repo, "worktree", "lock", worktree);
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.status).toBe("failed");
       expect(result.error).toContain("locked");
       expect(existsSync(worktree)).toBe(true);
     });
 
-    it("fast-forwards the primary checkout afterwards", () => {
+    it("fast-forwards the primary checkout afterwards", async () => {
       const repo = initRepoWithOrigin();
       const other = cloneOfOrigin(repo, "other");
       commit(other, "from elsewhere");
@@ -440,14 +440,14 @@ describe("worktree operations", () => {
       const worktree = at("repo-feature");
       git(repo, "worktree", "add", "-q", worktree, "-b", "feature");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.pull).toBe("ok");
       expect(result.warnings).toEqual([]);
       expect(readFileSync(join(repo, "file.txt"), "utf8")).toBe("from elsewhere");
     });
 
-    it("warns rather than fails when the pull cannot fast-forward", () => {
+    it("warns rather than fails when the pull cannot fast-forward", async () => {
       const repo = initRepoWithOrigin();
       const other = cloneOfOrigin(repo, "other");
       commit(other, "from elsewhere");
@@ -456,7 +456,7 @@ describe("worktree operations", () => {
       const worktree = at("repo-feature");
       git(repo, "worktree", "add", "-q", worktree, "-b", "feature");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.status).toBe("ok");
       expect(result.pull).toBe("failed");
@@ -464,46 +464,46 @@ describe("worktree operations", () => {
       expect(result.deletedBranchSha).not.toBeNull();
     });
 
-    it("skips the pull when the primary checkout is on another branch", () => {
+    it("skips the pull when the primary checkout is on another branch", async () => {
       const repo = initRepoWithOrigin();
       const worktree = at("repo-feature");
       git(repo, "worktree", "add", "-q", worktree, "-b", "feature");
       git(repo, "checkout", "-q", "-b", "sidetrack");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.pull).toBe("skipped");
       expect(result.warnings).toEqual([expect.stringContaining("is on 'sidetrack'")]);
     });
 
-    it("skips the pull when the primary checkout is detached", () => {
+    it("skips the pull when the primary checkout is detached", async () => {
       const repo = initRepoWithOrigin();
       const worktree = at("repo-feature");
       git(repo, "worktree", "add", "-q", worktree, "-b", "feature");
       git(repo, "checkout", "-q", "--detach");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.pull).toBe("skipped");
       expect(result.warnings).toEqual([expect.stringContaining("a detached HEAD")]);
     });
 
-    it("skips the pull when there is no origin remote", () => {
+    it("skips the pull when there is no origin remote", async () => {
       const { worktree } = withWorktree();
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.pull).toBe("skipped");
       expect(result.warnings).toEqual([expect.stringContaining("no origin remote")]);
     });
 
-    it("skips the pull when the default branch cannot be worked out", () => {
+    it("skips the pull when the default branch cannot be worked out", async () => {
       const repo = at("repo");
       initRepo(repo, "trunk");
       const worktree = at("repo-feature");
       git(repo, "worktree", "add", "-q", worktree, "-b", "feature");
 
-      const result = removeWorktree(worktree);
+      const result = await removeWorktree(worktree);
 
       expect(result.pull).toBe("skipped");
       expect(result.warnings).toEqual([expect.stringContaining("default branch")]);
@@ -512,32 +512,32 @@ describe("worktree operations", () => {
   });
 
   describe("pruneWorktrees", () => {
-    it("fails when the path is not a git repository", () => {
+    it("fails when the path is not a git repository", async () => {
       const plain = at("plain");
       mkdirSync(plain);
 
-      const result = pruneWorktrees(plain);
+      const result = await pruneWorktrees(plain);
 
       expect(result.status).toBe("failed");
       expect(result.error).toContain("not a git repository");
     });
 
-    it("reports nothing when there is nothing stale", () => {
+    it("reports nothing when there is nothing stale", async () => {
       const repo = at("repo");
       initRepo(repo);
       git(repo, "worktree", "add", "-q", at("repo-feature"), "-b", "feature");
 
-      expect(pruneWorktrees(repo)).toEqual({ status: "ok", pruned: [] });
+      expect(await pruneWorktrees(repo)).toEqual({ status: "ok", pruned: [] });
     });
 
-    it("prunes stale admin entries and reports their paths", () => {
+    it("prunes stale admin entries and reports their paths", async () => {
       const repo = at("repo");
       initRepo(repo);
       const worktree = at("repo-feature");
       git(repo, "worktree", "add", "-q", worktree, "-b", "feature");
       rmSync(worktree, { recursive: true, force: true });
 
-      const result = pruneWorktrees(repo);
+      const result = await pruneWorktrees(repo);
 
       expect(result).toEqual({ status: "ok", pruned: [worktree] });
       expect(git(repo, "worktree", "list")).not.toContain(worktree);

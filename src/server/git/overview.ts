@@ -38,20 +38,23 @@ const byPath = (a: WorktreeStatus, b: WorktreeStatus): number => a.path.localeCo
  * brand-new branch is cut from. Read-only; runs git status commands but never
  * fetches or mutates.
  */
-export function gitOverview(roots: readonly string[]): GitOverview {
-  const repos = discoverRepos(roots).map((repo) => {
-    const statuses = repo.worktrees.map(worktreeStatus);
-    return {
+export async function gitOverview(roots: readonly string[]): Promise<GitOverview> {
+  const discovered = await discoverRepos(roots);
+  const repos: RepoOverview[] = [];
+  for (const repo of discovered) {
+    const statuses: WorktreeStatus[] = [];
+    for (const worktree of repo.worktrees) statuses.push(await worktreeStatus(worktree));
+    repos.push({
       name: basename(repo.root),
       root: repo.root,
       gitCommonDir: repo.gitCommonDir,
-      defaultBranch: defaultBranch(repo.root),
+      defaultBranch: await defaultBranch(repo.root),
       worktrees: [
         ...statuses.filter((w) => w.primary),
         ...statuses.filter((w) => !w.primary).sort(byPath),
       ],
-    };
-  });
+    });
+  }
   repos.sort((a, b) => a.name.localeCompare(b.name) || a.root.localeCompare(b.root));
   return { roots: [...roots], repos };
 }

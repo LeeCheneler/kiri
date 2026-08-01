@@ -1,6 +1,6 @@
-import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { runGit } from "./run.ts";
 
 /**
  * One worktree parsed from `git worktree list --porcelain`: the primary
@@ -112,23 +112,17 @@ function parseWorktreePorcelain(stdout: string): WorktreeEntry[] {
 
 // Absolute shared git directory for `dir`, or null when `dir` is not inside a
 // git working tree — this also doubles as the "is this a git repo?" test.
-const gitCommonDir = (dir: string): string | null => {
-  const result = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    cwd: dir,
-    encoding: "utf8",
-  });
-  if (result.status !== 0) return null;
+const gitCommonDir = async (dir: string): Promise<string | null> => {
+  const result = await runGit(dir, "rev-parse", "--path-format=absolute", "--git-common-dir");
+  if (!result.ok) return null;
   const out = result.stdout.trim();
   return out.length > 0 ? out : null;
 };
 
 // The primary plus linked worktrees for the repo containing `dir`. Called only
 // after `gitCommonDir(dir)` confirmed a git repo, so the command succeeds.
-const listWorktrees = (dir: string): WorktreeEntry[] => {
-  const result = spawnSync("git", ["worktree", "list", "--porcelain"], {
-    cwd: dir,
-    encoding: "utf8",
-  });
+const listWorktrees = async (dir: string): Promise<WorktreeEntry[]> => {
+  const result = await runGit(dir, "worktree", "list", "--porcelain");
   return parseWorktreePorcelain(result.stdout);
 };
 
@@ -152,15 +146,15 @@ const childDirs = (dir: string): string[] => {
  * worktree is returned once, carrying its primary checkout and every linked
  * worktree. Never fetches or mutates.
  */
-export function discoverRepos(roots: readonly string[]): DiscoveredRepo[] {
+export async function discoverRepos(roots: readonly string[]): Promise<DiscoveredRepo[]> {
   const byCommonDir = new Map<string, DiscoveredRepo>();
   for (const root of roots) {
-    const candidates = gitCommonDir(root) === null ? childDirs(root) : [root];
+    const candidates = (await gitCommonDir(root)) === null ? childDirs(root) : [root];
     for (const dir of candidates) {
-      const commonDir = gitCommonDir(dir);
+      const commonDir = await gitCommonDir(dir);
       if (commonDir === null) continue;
       if (byCommonDir.has(commonDir)) continue;
-      const worktrees = listWorktrees(dir);
+      const worktrees = await listWorktrees(dir);
       byCommonDir.set(commonDir, {
         root: worktrees[0].path,
         gitCommonDir: commonDir,
