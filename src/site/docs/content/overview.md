@@ -47,8 +47,9 @@ themselves.
 
 Alongside them, kiri manages the **git worktrees** your work happens in:
 point it at the folders your repos live in and it finds every worktree you
-have, creates new ones with env files and dependencies already in place, and
-tears them down safely — from the app, or by asking a session.
+have, creates new ones with env files and dependencies already in place, keeps
+them up to date with a fetch and fast-forward pulls, and tears them down
+safely.
 
 ## Why kiri
 
@@ -71,5 +72,5 @@ tears them down safely — from the app, or by asking a session.
 - [Writing workflows](/docs/workflows) — the golden path, step by step.
 - [Sessions](/docs/sessions) — chat, personas, MCP tools, running and
   authoring workflows, and articles.
-- [Worktrees](/docs/worktrees) — roots, the prep pipeline, and safe
-  create/remove/prune.
+- [Worktrees](/docs/worktrees) — roots, the prep pipeline, fetching and
+  fast-forward pulls, and safe create/remove/prune.
