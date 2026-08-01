@@ -13,7 +13,6 @@ import { loadKiriConfig } from "../src/server/config/loader.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { watchKiriConfig } from "../src/server/config/watcher.ts";
 import { createEventBus } from "../src/server/events/index.ts";
-import { resolveWorktreeRoots } from "../src/server/git/config.ts";
 import { watchWorktreeRoots } from "../src/server/git/roots-watcher.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
@@ -212,12 +211,10 @@ const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
 // picker follows an edit without a reload.
 const personaWatcher = watchPersonas(config, { bus });
 // Worktrees are read from disk on demand; the watcher exists so a worktree
-// created or removed outside kiri shows up without a manual refresh. Attached
-// to the roots configured at boot — a root added to kiri.yaml later needs a
-// restart, the same as personas.
-const worktreeWatcher = watchWorktreeRoots(resolveWorktreeRoots(kiriConfig.git, config.cwd()), {
-  bus,
-});
+// created or removed outside kiri shows up without a manual refresh. It follows
+// the `git:` roots across kiri.yaml edits by listening for config.changed on
+// the bus, so it must be created after the config watcher that publishes it.
+const worktreeWatcher = watchWorktreeRoots(config, process.env, { bus });
 
 const app = createApp({
   db,
