@@ -774,7 +774,7 @@ export const fetchWorktrees = async (): Promise<WorktreesOverview> =>
 
 /**
  * Re-run worktree discovery against the configured roots and return the fresh
- * model. The server also publishes `worktrees.changed`, so every other open
+ * model. The server also publishes `git.changed`, so every other open
  * client converges on it. Throws on non-2xx.
  */
 export const refreshWorktrees = async (): Promise<WorktreesOverview> =>
@@ -845,7 +845,7 @@ export interface PruneWorktreesResult {
  * Create a worktree for `repo` (its directory name or any checkout path) on
  * `branch`, optionally under an explicit directory `name` and cut from `baseRef`
  * when the branch is new. The repo's configured prep pipeline runs after it. The
- * server also publishes `worktrees.changed`. Throws on non-2xx — including a
+ * server also publishes `git.changed`. Throws on non-2xx — including a
  * create that produced no worktree; a create whose prep failed resolves with the
  * report.
  */
@@ -866,7 +866,7 @@ export const createWorktree = async (body: {
 /**
  * Remove the linked worktree at `path` and tidy up after it. A worktree with
  * uncommitted changes is refused unless `force`. The server also publishes
- * `worktrees.changed`. Throws on non-2xx.
+ * `git.changed`. Throws on non-2xx.
  */
 export const removeWorktree = async (
   path: string,
@@ -883,7 +883,7 @@ export const removeWorktree = async (
 /**
  * Clear `repo`'s stale worktree admin entries — the records git still holds for
  * worktrees whose directories have gone. The server also publishes
- * `worktrees.changed`. Throws on non-2xx.
+ * `git.changed`. Throws on non-2xx.
  */
 export const pruneWorktrees = async (repo: string): Promise<PruneWorktreesResult> =>
   json<PruneWorktreesResult>(

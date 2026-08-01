@@ -30,7 +30,7 @@ export function useWorktrees(): UseQueryResult<WorktreesOverview> {
 export function useWorktreesLive(): void {
   const queryClient = useQueryClient();
   useLiveSync({
-    on: ["worktrees.changed"],
+    on: ["git.changed"],
     refetch: () => {
       void queryClient.invalidateQueries({ queryKey: worktreesKey });
     },

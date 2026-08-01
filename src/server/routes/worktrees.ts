@@ -14,7 +14,7 @@ export interface WorktreesRoutesDeps {
   config: ConfigStore;
   /** Environment the config load resolves against. */
   env: Record<string, string | undefined>;
-  /** When supplied, a refresh or a mutation publishes `worktrees.changed` so live clients refetch. */
+  /** When supplied, a refresh or a mutation publishes `git.changed` so live clients refetch. */
   bus?: EventBus;
 }
 
@@ -46,7 +46,7 @@ const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
  * it, and `POST /prune` clears a repo's stale admin entries. Each addresses only
  * the repos and worktrees the configured roots reach, so a path outside them is
  * refused rather than driving git somewhere unexpected, and each publishes
- * `worktrees.changed` on success so every open client converges. A create whose
+ * `git.changed` on success so every open client converges. A create whose
  * prep pipeline failed still left a worktree on disk, so it answers 200 with the
  * report rather than an error; a create that never made one answers 400.
  *
@@ -60,7 +60,7 @@ export function worktreesRoutes(deps: WorktreesRoutesDeps): Hono {
 
   const overview = () => worktreesOverview(resolveWorktreeRoots(gitConfig(), deps.config.cwd()));
 
-  const changed = () => deps.bus?.publish({ type: "worktrees.changed" });
+  const changed = () => deps.bus?.publish({ type: "git.changed" });
 
   // The repo a request names, by directory name or by the absolute path of any
   // of its checkouts. Only repos the configured roots reach resolve.

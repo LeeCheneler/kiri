@@ -89,7 +89,7 @@ describe("worktrees routes", () => {
   });
 
   describe("POST /api/worktrees/refresh", () => {
-    it("returns the freshly-built model and publishes worktrees.changed", async () => {
+    it("returns the freshly-built model and publishes git.changed", async () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
@@ -101,7 +101,7 @@ describe("worktrees routes", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as WorktreesOverview;
       expect(body.repos.map((r) => r.name)).toEqual(["proj"]);
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("works without an event bus", async () => {
@@ -148,7 +148,7 @@ describe("worktrees routes", () => {
       expect(body.baseRef).toBe("main");
       expect(body.path).toBe(realJoin("repos", "proj-swift-otter"));
       expect(existsSync(body.path)).toBe(true);
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("runs the repo's prep pipeline and carries its report", async () => {
@@ -207,7 +207,7 @@ describe("worktrees routes", () => {
       expect(body.prepare.steps[0].stdout).toContain("halfway");
       expect(existsSync(body.path)).toBe(true);
       // The worktree is on disk, so the listing has to catch up either way.
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("skips prep when asked", async () => {
@@ -277,7 +277,7 @@ describe("worktrees routes", () => {
       expect(body.branch).toBe("feature");
       expect(body.deletedBranchSha).toMatch(/^[0-9a-f]{40}$/);
       expect(existsSync(worktree)).toBe(false);
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("refuses a dirty worktree and removes it once forced", async () => {
@@ -330,7 +330,7 @@ describe("worktrees routes", () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ repo: "proj", pruned: [worktree] });
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("reports nothing pruned for a tidy repo", async () => {

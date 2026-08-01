@@ -53,7 +53,7 @@ describe("worktrees state", () => {
 
     server.use(http.get("*/api/worktrees", () => HttpResponse.json(overview(["kiri", "site"]))));
     act(() => {
-      sources[0]?.emit({ type: "worktrees.changed" });
+      sources[0]?.emit({ type: "git.changed" });
     });
     expect(await screen.findByText("repos:2")).toBeDefined();
   });
