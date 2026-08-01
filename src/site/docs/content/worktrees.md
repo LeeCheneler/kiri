@@ -48,12 +48,14 @@ far ahead or behind its upstream it is, whether that upstream has gone, and
 whether git has it locked.
 
 Reading this is read-only and never fetches: it's `git worktree list`, `git
-status`, and `git rev-list` against what's already on disk. Anything kiri does
-itself updates the view live, as does a worktree directory appearing or
-vanishing under a root. Work you do *inside* a repo — a commit, an edit —
-doesn't announce itself, so refresh to pick up dirty and ahead/behind state.
-Config is re-read as the view loads, so an edit to `git:` applies without
-a restart.
+status`, and `git rev-list` against what's already on disk. Kiri keeps the
+result in memory and rescans in the background, so the page appears at once
+rather than waiting on git — it tells you when it was last scanned, and a scan
+in progress says so. Anything kiri does itself updates the view live, as does a
+worktree directory appearing or vanishing under a root, and an edit to `git:`
+in `kiri.yaml` re-resolves the roots and rescans without a restart. Work you do
+*inside* a repo — a commit, an edit — doesn't announce itself, so refresh to
+pick up dirty and ahead/behind state.
 
 ## Preparing a new worktree
 
