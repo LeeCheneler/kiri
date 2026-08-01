@@ -32,51 +32,36 @@ const pruneMock = (pruned: string[]) =>
   mock(async (repoName: string): Promise<PruneWorktreesResult> => ({ repo: repoName, pruned }));
 
 const renderModal = (
-  repos: RepoOverview[],
+  target: RepoOverview,
   onPrune: (repo: string) => Promise<PruneWorktreesResult> = pruneMock([]),
   onClose: () => void = noop,
-) => render(<PruneWorktreesModal repos={repos} onPrune={onPrune} onClose={onClose} />);
+) => render(<PruneWorktreesModal repo={target} onPrune={onPrune} onClose={onClose} />);
 
 describe("<PruneWorktreesModal>", () => {
-  it("lists exactly what would be cleared, grouped by repo", () => {
-    renderModal([
-      repo("kiri", [worktree("/projects/kiri-old", true), worktree("/projects/kiri", false)]),
-      repo("settled", [worktree("/projects/settled", false)]),
-      repo("site", [worktree("/projects/site-gone", true)]),
-    ]);
+  it("lists exactly what would be cleared, leaving out what is still on disk", () => {
+    renderModal(
+      repo("kiri", [worktree("/projects/kiri-old", true), worktree("/projects/kiri-live", false)]),
+    );
 
     expect(screen.getByText("/projects/kiri-old")).toBeDefined();
-    expect(screen.getByText("/projects/site-gone")).toBeDefined();
-    // A repo with nothing stale is left out of the confirmation entirely.
-    expect(screen.queryByText("settled")).toBeNull();
+    expect(screen.queryByText("/projects/kiri-live")).toBeNull();
   });
 
-  it("prunes every repo holding stale entries and reports the total", async () => {
+  it("prunes the repo it was opened for and reports what it cleared", async () => {
     const user = userEvent.setup();
-    const onPrune = mock(
-      async (repoName: string): Promise<PruneWorktreesResult> => ({
-        repo: repoName,
-        pruned: [`/projects/${repoName}-gone`],
-      }),
-    );
-    renderModal(
-      [
-        repo("kiri", [worktree("/projects/kiri-gone", true)]),
-        repo("site", [worktree("/projects/site-gone", true)]),
-      ],
-      onPrune,
-    );
+    const onPrune = pruneMock(["/projects/kiri-gone", "/projects/kiri-older"]);
+    renderModal(repo("kiri", [worktree("/projects/kiri-gone", true)]), onPrune);
 
     await user.click(screen.getByRole("button", { name: "prune" }));
 
     expect(await screen.findByText(/cleared 2 entries/i)).toBeDefined();
-    expect(onPrune.mock.calls).toEqual([["kiri"], ["site"]]);
+    expect(onPrune.mock.calls).toEqual([["kiri"]]);
   });
 
   it("counts a single cleared entry in the singular", async () => {
     const user = userEvent.setup();
     renderModal(
-      [repo("kiri", [worktree("/projects/kiri-gone", true)])],
+      repo("kiri", [worktree("/projects/kiri-gone", true)]),
       pruneMock(["/projects/kiri-gone"]),
     );
 
@@ -86,7 +71,7 @@ describe("<PruneWorktreesModal>", () => {
 
   it("keeps the confirmation and states the reason when a prune fails", async () => {
     const user = userEvent.setup();
-    renderModal([repo("kiri", [worktree("/projects/kiri-gone", true)])], async () => {
+    renderModal(repo("kiri", [worktree("/projects/kiri-gone", true)]), async () => {
       throw new Error("not a git repository");
     });
 
@@ -97,7 +82,7 @@ describe("<PruneWorktreesModal>", () => {
 
   it("falls back to a plain message when the failure carries none", async () => {
     const user = userEvent.setup();
-    renderModal([repo("kiri", [worktree("/projects/kiri-gone", true)])], async () => {
+    renderModal(repo("kiri", [worktree("/projects/kiri-gone", true)]), async () => {
       throw "nope";
     });
 
@@ -108,7 +93,7 @@ describe("<PruneWorktreesModal>", () => {
   it("closes from cancel and from done", async () => {
     const user = userEvent.setup();
     const onClose = mock(noop);
-    renderModal([repo("kiri", [worktree("/projects/kiri-gone", true)])], pruneMock([]), onClose);
+    renderModal(repo("kiri", [worktree("/projects/kiri-gone", true)]), pruneMock([]), onClose);
 
     await user.click(screen.getByRole("button", { name: "cancel" }));
     expect(onClose.mock.calls).toHaveLength(1);

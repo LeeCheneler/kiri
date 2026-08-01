@@ -6,6 +6,8 @@ import { ScrollReset } from "./features/page-shell/scroll-reset.tsx";
 import { SearchProvider } from "./features/search/search-provider.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
 import { DesignSystemPage } from "./routes/design-system-page.tsx";
+import { GitPage } from "./routes/git-page.tsx";
+import { GitRepoPage } from "./routes/git-repo-page.tsx";
 import { HomePage } from "./routes/home-page.tsx";
 import { McpPage } from "./routes/mcp-page.tsx";
 import { NotFoundPage } from "./routes/not-found-page.tsx";
@@ -14,7 +16,6 @@ import { SessionArticlePage } from "./routes/session-article-page.tsx";
 import { SessionPage } from "./routes/session-page.tsx";
 import { WorkflowPage } from "./routes/workflow-page.tsx";
 import { WorkflowsPage } from "./routes/workflows-page.tsx";
-import { WorktreesPage } from "./routes/worktrees-page.tsx";
 import { LiveSync } from "./state/live-sync.tsx";
 import { createQueryClient } from "./state/query-client.ts";
 
@@ -42,7 +43,8 @@ export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFact
             <Route path="/" component={HomePage} />
             <Route path="/workflows" component={WorkflowsPage} />
             <Route path="/workflows/:name" component={WorkflowPage} />
-            <Route path="/worktrees" component={WorktreesPage} />
+            <Route path="/git" component={GitPage} />
+            <Route path="/git/:repo" component={GitRepoPage} />
             <Route path="/mcp" component={McpPage} />
             <Route path="/sessions/:id/articles/:slug" component={SessionArticlePage} />
             <Route path="/sessions/:id" component={SessionPage} />

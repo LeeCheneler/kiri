@@ -1,11 +1,11 @@
 import { useActivityFeedLive } from "./activity.ts";
 import { useRunArticlesLive, useSessionArticlesLive } from "./articles.ts";
 import { useConfigHealthLive } from "./config.ts";
+import { useGitLive } from "./git.ts";
 import { useMcpServersLive, useMcpToolsLive } from "./mcp.ts";
 import { useRunFeedsLive, useRunWindowsLive, useRunsLive } from "./runs.ts";
 import { usePersonasLive, useSessionsLive } from "./sessions.ts";
 import { useWorkflowsLive } from "./workflows.ts";
-import { useWorktreesLive } from "./worktrees.ts";
 
 /**
  * Bridges the live event bus to the query cache: mounts each resource's
@@ -26,6 +26,6 @@ export function LiveSync(): null {
   useConfigHealthLive();
   useMcpServersLive();
   useMcpToolsLive();
-  useWorktreesLive();
+  useGitLive();
   return null;
 }

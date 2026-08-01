@@ -51,14 +51,10 @@ describe("<SiteNav>", () => {
     await flushAsync();
   });
 
-  it("highlights Worktrees across the worktrees section", async () => {
-    renderNav("/worktrees");
-    expect(screen.getByRole("link", { name: /^worktrees$/i }).getAttribute("href")).toBe(
-      "/worktrees",
-    );
-    expect(screen.getByRole("link", { name: /^worktrees$/i }).getAttribute("aria-current")).toBe(
-      "page",
-    );
+  it("highlights Git across the git section", async () => {
+    renderNav("/git/kiri");
+    expect(screen.getByRole("link", { name: /^git$/i }).getAttribute("href")).toBe("/git");
+    expect(screen.getByRole("link", { name: /^git$/i }).getAttribute("aria-current")).toBe("page");
     await flushAsync();
   });
 

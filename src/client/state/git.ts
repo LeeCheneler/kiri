@@ -5,34 +5,34 @@ import {
   type PruneWorktreesResult,
   type RemoveWorktreeResult,
   createWorktree,
-  fetchWorktrees,
+  fetchGitOverview,
   pruneWorktrees,
-  refreshWorktrees,
+  refreshGitOverview,
   removeWorktree,
 } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
 
-const worktreesKey = ["worktrees"] as const;
+const gitKey = ["git"] as const;
 
 /**
- * Read the grouped worktree overview. Fetched on first use and served from
- * cache thereafter; kept current by `useWorktreesLive`.
+ * Read the grouped git overview — every repo with its checkouts. Fetched on
+ * first use and served from cache thereafter; kept current by `useGitLive`.
  */
-export function useWorktrees(): UseQueryResult<GitOverview> {
-  return useQuery({ queryKey: worktreesKey, queryFn: fetchWorktrees });
+export function useGitOverview(): UseQueryResult<GitOverview> {
+  return useQuery({ queryKey: gitKey, queryFn: fetchGitOverview });
 }
 
 /**
- * Refetch the worktree overview whenever the server reports discovery has
+ * Refetch the git overview whenever the server reports discovery has
  * changed, and on event-stream reconnect. Mount once near the root via
  * `<LiveSync>`.
  */
-export function useWorktreesLive(): void {
+export function useGitLive(): void {
   const queryClient = useQueryClient();
   useLiveSync({
     on: ["git.changed"],
     refetch: () => {
-      void queryClient.invalidateQueries({ queryKey: worktreesKey });
+      void queryClient.invalidateQueries({ queryKey: gitKey });
     },
   });
 }
@@ -42,11 +42,11 @@ export function useWorktreesLive(): void {
  * overview so the page reflects the server's truth. Rejects on a failed
  * refresh so the caller can surface it.
  */
-export function useRefreshWorktrees(): () => Promise<void> {
+export function useRefreshGit(): () => Promise<void> {
   const queryClient = useQueryClient();
   return async () => {
-    await refreshWorktrees();
-    void queryClient.invalidateQueries({ queryKey: worktreesKey });
+    await refreshGitOverview();
+    void queryClient.invalidateQueries({ queryKey: gitKey });
   };
 }
 
@@ -65,7 +65,7 @@ export function useCreateWorktree(): (body: {
   const queryClient = useQueryClient();
   return async (body) => {
     const result = await createWorktree(body);
-    void queryClient.invalidateQueries({ queryKey: worktreesKey });
+    void queryClient.invalidateQueries({ queryKey: gitKey });
     return result;
   };
 }
@@ -83,7 +83,7 @@ export function useRemoveWorktree(): (
   const queryClient = useQueryClient();
   return async (path, force) => {
     const result = await removeWorktree(path, force);
-    void queryClient.invalidateQueries({ queryKey: worktreesKey });
+    void queryClient.invalidateQueries({ queryKey: gitKey });
     return result;
   };
 }
@@ -96,7 +96,7 @@ export function usePruneWorktrees(): (repo: string) => Promise<PruneWorktreesRes
   const queryClient = useQueryClient();
   return async (repo) => {
     const result = await pruneWorktrees(repo);
-    void queryClient.invalidateQueries({ queryKey: worktreesKey });
+    void queryClient.invalidateQueries({ queryKey: gitKey });
     return result;
   };
 }
