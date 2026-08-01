@@ -35,6 +35,7 @@ const kiri = (overrides: Record<string, unknown> = {}) => ({
   root: "/projects/kiri",
   gitCommonDir: "/projects/kiri/.git",
   defaultBranch: "main",
+  lastFetchedAt: null,
   worktrees: [worktree({ primary: true, dirty: true, ahead: 3 })],
   ...overrides,
 });

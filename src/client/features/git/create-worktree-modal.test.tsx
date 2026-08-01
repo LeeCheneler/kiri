@@ -9,6 +9,7 @@ const repo = (overrides: Partial<RepoOverview> = {}): RepoOverview => ({
   root: "/projects/kiri",
   gitCommonDir: "/projects/kiri/.git",
   defaultBranch: "main",
+  lastFetchedAt: null,
   worktrees: [],
   ...overrides,
 });

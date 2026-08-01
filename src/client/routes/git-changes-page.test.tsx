@@ -18,6 +18,7 @@ const overview = (name: string, checkout: string) => ({
       root: `/projects/${name}`,
       gitCommonDir: `/projects/${name}/.git`,
       defaultBranch: "main",
+      lastFetchedAt: null,
       worktrees: [
         {
           path: `/projects/${checkout}`,

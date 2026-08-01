@@ -29,6 +29,7 @@ const repo = (worktrees: unknown[]): RepoOverview =>
     root: "/projects/kiri",
     gitCommonDir: "/projects/kiri/.git",
     defaultBranch: "main",
+    lastFetchedAt: null,
     worktrees,
   }) as RepoOverview;
 

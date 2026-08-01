@@ -44,6 +44,22 @@ describe("gitOverview", () => {
     expect(await gitOverview([root])).toEqual({ roots: [root], repos: [] });
   });
 
+  it("reports a repo that has never fetched as never fetched, not as just now", async () => {
+    initRepo(join(root, "alpha"));
+    const { repos } = await gitOverview([root]);
+    expect(repos[0].lastFetchedAt).toBeNull();
+  });
+
+  it("reads when a repo last fetched from git's own record, not from kiri", async () => {
+    const dir = join(root, "alpha");
+    initRepo(dir);
+    // git writes FETCH_HEAD on every fetch, so its mtime is the record — and it
+    // counts a fetch run in a terminal, which nothing kiri tracks would.
+    writeFileSync(join(dir, ".git", "FETCH_HEAD"), "");
+    const { repos } = await gitOverview([root]);
+    expect(repos[0].lastFetchedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
   it("names a repo after its primary checkout's directory", async () => {
     initRepo(join(root, "alpha"));
     const { repos } = await gitOverview([root]);
