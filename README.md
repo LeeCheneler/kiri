@@ -42,7 +42,7 @@ articles:
 
 Both land in a single activity feed — searchable as you type (⌘K from anywhere) across articles, session transcripts, run summaries, and workflow names.
 
-Kiri also manages the **git worktrees** the work happens in. Declare `worktrees:` in `kiri.yaml` with the folders your repos live in and kiri discovers every repo under them with its primary checkout and linked worktrees, creates new ones as siblings of the primary — sharing or copying its git-ignored env files, running your configured post-create commands, then installing every lockfile it finds — and removes them safely, refusing a worktree with uncommitted changes unless forced and reporting the sha of the branch it deleted. Sessions get the same operations as approval-gated tools, bounded by the roots you declared.
+Kiri also manages the **git worktrees** the work happens in. Declare `worktrees:` in `kiri.yaml` with the folders your repos live in and kiri discovers every repo under them with its primary checkout and linked worktrees, creates new ones as siblings of the primary — sharing or copying its git-ignored env files, running your configured post-create commands, then installing every lockfile it finds — and removes them safely, refusing a worktree with uncommitted changes unless forced and reporting the sha of the branch it deleted.
 
 ## Install
 

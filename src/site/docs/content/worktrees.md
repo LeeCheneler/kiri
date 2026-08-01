@@ -27,8 +27,8 @@ worktrees:
           - ./scripts/bootstrap.sh
 ```
 
-Without a `worktrees:` section there's nothing to scan, so the feature — and
-the worktree tools sessions can use — stays out of the way entirely.
+Without a `worktrees:` section there's nothing to scan, so the feature stays
+out of the way entirely.
 
 ## Roots and discovery
 
@@ -119,21 +119,3 @@ worktree is gone either way and the note tells you what to sort out by hand.
 worktrees whose directories are already gone (deleted outside kiri, say). It
 removes no directory and touches no branch, and only comes up when a repo
 actually has stale entries.
-
-## From a session
-
-With `worktrees:` configured, sessions can do all of this for you: list what's
-there, create a worktree for a branch and prepare it, remove one, and prune a
-repo's stale entries. Ask in chat — "make me a worktree for the auth refactor"
-— and the assistant creates it, runs the repo's prep, and tells you what
-happened.
-
-- Declaring the roots is what turns the tools on. With no `worktrees:` section
-  they aren't offered at all, and every call is bounded by the configured
-  roots: the assistant can only name repos and worktrees the listing reports.
-- Listing is read-only and pre-allowed; creating, removing, and pruning ask
-  first, previewing what's about to happen. See the defaults table in
-  [Sessions](/docs/sessions).
-- A removal is refused outright when the worktree has uncommitted changes or
-  commits it hasn't pushed, and the assistant is told what would be lost so it
-  checks with you before forcing.
