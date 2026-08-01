@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { RepoOverview, WorktreeStatus } from "../../api.ts";
+import type { GitOverview, RepoOverview, WorktreeStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Code } from "../../design-system/content/code.tsx";
@@ -10,6 +10,7 @@ import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Tag, type TagTone } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
+import { formatRelativeTime } from "../../formatters/format-time.ts";
 import {
   useCreateWorktree,
   usePruneWorktrees,
@@ -192,15 +193,31 @@ function ScannedRoots({ roots }: { roots: string[] }) {
   );
 }
 
+// How old the listing is, next to the action that renews it. The server scans
+// in the background and answers reads from what it last found, so what is on
+// screen can trail the disk; saying when it was read is more honest than
+// letting it pass for live.
+function ScanFreshness({ overview }: { overview: GitOverview }) {
+  return (
+    <p className="text-ink-muted text-xs" aria-live="polite">
+      {overview.refreshing || !overview.scannedAt
+        ? "Scanning…"
+        : `Scanned ${formatRelativeTime(overview.scannedAt)}`}
+    </p>
+  );
+}
+
 /**
  * The Worktrees surface: every repo discovered under the configured roots, each
  * with its primary checkout and linked worktrees, and their live state — branch,
  * dirty flag, upstream position, and the locked / prunable flags. The whole
  * lifecycle runs from here: creating a worktree, removing one, and — when git is
  * holding records for worktrees that have gone — clearing those stale entries
- * from the banner that announces them. Refreshing re-runs discovery on the
- * server; the listing otherwise stays current through `useWorktreesLive`, so an
- * operation run from another open client lands here too.
+ * from the banner that announces them. The server holds the model in memory and
+ * rescans in the background, so the listing appears at once and says how old it
+ * is; refreshing forces a rescan, and it otherwise stays current through
+ * `useWorktreesLive`, so an operation run from another open client lands here
+ * too.
  */
 export function WorktreesOverview() {
   const query = useWorktrees();
@@ -233,6 +250,7 @@ export function WorktreesOverview() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Breadcrumb items={[]} current="Worktrees" />
         <div className="flex flex-wrap items-center gap-3">
+          {query.data ? <ScanFreshness overview={query.data} /> : null}
           <Button onClick={onRefresh} pending={refreshing} pendingLabel="Refreshing…">
             Refresh
           </Button>

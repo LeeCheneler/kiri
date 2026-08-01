@@ -766,16 +766,25 @@ export interface GitOverview {
   roots: string[];
   /** Repos found, ordered by name. */
   repos: RepoOverview[];
+  /** Whether a scan is running. The repos alongside it are the last completed scan's. */
+  refreshing: boolean;
+  /** ISO time the last scan completed, or null before the first one has. */
+  scannedAt: string | null;
 }
 
-/** Fetch the grouped repo overview. Throws on non-2xx. */
+/**
+ * Fetch the grouped repo overview. The server answers from memory, so this
+ * returns what it last scanned rather than waiting for a fresh read of the
+ * disk — `scannedAt` says how old that is. Throws on non-2xx.
+ */
 export const fetchWorktrees = async (): Promise<GitOverview> =>
   json<GitOverview>(await apiFetch("/api/git"));
 
 /**
- * Re-run repo discovery against the configured roots and return the fresh
- * model. The server also publishes `git.changed`, so every other open
- * client converges on it. Throws on non-2xx.
+ * Force a rescan of the configured roots and return the model it produced —
+ * the escape hatch for changes no watcher can see, such as a commit made in a
+ * terminal. The server also publishes `git.changed`, so every other open client
+ * converges on it. Throws on non-2xx.
  */
 export const refreshWorktrees = async (): Promise<GitOverview> =>
   json<GitOverview>(await apiFetch("/api/git/refresh", { method: "POST" }));

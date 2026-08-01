@@ -34,6 +34,8 @@ const worktree = (overrides: Record<string, unknown>) => ({
 // that is both locked and prunable.
 const payload = {
   roots: ["/projects"],
+  refreshing: false,
+  scannedAt: new Date().toISOString(),
   repos: [
     {
       name: "kiri",
@@ -66,6 +68,8 @@ const payload = {
 // dirty, nothing stale.
 const settled = {
   roots: ["/projects"],
+  refreshing: false,
+  scannedAt: new Date().toISOString(),
   repos: [
     {
       name: "site",
@@ -96,8 +100,29 @@ describe("<WorktreesOverview>", () => {
     expect(await screen.findByText(/none are listed, so there is nothing to scan/i)).toBeDefined();
   });
 
+  it("says when the listing was last scanned", async () => {
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
+    renderOverview();
+    expect(await screen.findByText(/scanned .* ago|scanned now/i)).toBeDefined();
+  });
+
+  it("says a scan is running rather than passing a stale listing off as live", async () => {
+    server.use(http.get("*/api/git", () => HttpResponse.json({ ...payload, refreshing: true })));
+    renderOverview();
+    expect(await screen.findByText(/scanning/i)).toBeDefined();
+  });
+
   it("lists the scanned roots when they hold no repos", async () => {
-    server.use(http.get("*/api/git", () => HttpResponse.json({ roots: ["/projects"], repos: [] })));
+    server.use(
+      http.get("*/api/git", () =>
+        HttpResponse.json({
+          roots: ["/projects"],
+          repos: [],
+          refreshing: false,
+          scannedAt: new Date().toISOString(),
+        }),
+      ),
+    );
     renderOverview();
     expect(await screen.findByText(/no git repos were found/i)).toBeDefined();
     expect(screen.getByText("/projects")).toBeDefined();

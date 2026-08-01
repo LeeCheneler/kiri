@@ -11,6 +11,8 @@ import { useRefreshWorktrees, useWorktrees, useWorktreesLive } from "./worktrees
 
 const overview = (names: string[]) => ({
   roots: ["/projects"],
+  refreshing: false,
+  scannedAt: "2026-01-01T00:00:00.000Z",
   repos: names.map((name) => ({
     name,
     root: `/projects/${name}`,
