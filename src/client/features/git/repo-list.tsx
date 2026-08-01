@@ -9,6 +9,7 @@ import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Tag, type TagTone } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
+import { Card } from "../../design-system/surfaces/card.tsx";
 import { useGitOverview } from "../../state/git.ts";
 import { ScanStatus } from "./scan-status.tsx";
 
@@ -55,7 +56,7 @@ const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => 
 // of everything inside it that is unfinished.
 function RepoCard({ repo }: { repo: RepoOverview }) {
   return (
-    <div className="rounded-sm border border-rule bg-canvas-2 p-5">
+    <Card>
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
         <span className="min-w-0 text-2xl">
           <HeadlineLink href={repoHref(repo)}>{repo.name}</HeadlineLink>
@@ -72,7 +73,7 @@ function RepoCard({ repo }: { repo: RepoOverview }) {
       <p className="mt-1 font-mono text-ink-muted text-xs">
         {repo.defaultBranch === null ? "no default branch" : `default branch ${repo.defaultBranch}`}
       </p>
-    </div>
+    </Card>
   );
 }
 

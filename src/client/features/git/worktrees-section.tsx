@@ -4,6 +4,7 @@ import { Button } from "../../design-system/actions/button.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Tag } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
+import { Card } from "../../design-system/surfaces/card.tsx";
 import { useCreateWorktree, usePruneWorktrees, useRemoveWorktree } from "../../state/git.ts";
 import { CreateWorktreeModal } from "./create-worktree-modal.tsx";
 import { PruneWorktreesModal, entries, prunablePaths } from "./prune-worktrees-modal.tsx";
@@ -11,33 +12,40 @@ import { RemoveWorktreeModal } from "./remove-worktree-modal.tsx";
 import { RepoSection } from "./repo-section.tsx";
 import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 
-// One linked worktree: what it is called and the state rail that says what you
-// would do with it, its branch under that, and the removal that tidies it away
-// held out to the right of both. The action sits clear of the tag rail rather
-// than trailing it — tags are non-interactive by definition, and an action at
-// the end of a run of them reads as one more label. It takes the destructive
-// variant, solid at rest rather than lighting up on hover, so what it does is
-// legible before it is touched.
+// One linked worktree, in a card of its own: what it is called and the state
+// rail that says what you would do with it, its branch under that, and the
+// removal that tidies it away held out to the right of both.
+//
+// The card is what ties the action to the worktree. Right-aligning alone works
+// at laptop width and fails at desktop width, where the buttons pull away into a
+// column of their own with an ocean of space between each one and the worktree
+// it acts on — on a destructive action that is a misclick waiting to happen. The
+// card's border draws the row's extent, so the remove is unambiguously inside
+// one worktree's box rather than floating in space shared with its neighbours.
+// The action itself takes the destructive variant, solid at rest rather than
+// lighting up on hover, so what it does is legible before it is touched.
 function WorktreeRow({ worktree, onRemove }: { worktree: WorktreeStatus; onRemove: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <div className="min-w-0">
-        <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
-          {dirName(worktree.path)}
-          {stateTags(worktree).map((tag) => (
-            <Tag key={tag.label} tone={tag.tone}>
-              {tag.label}
-            </Tag>
-          ))}
-        </p>
-        <p className="mt-1 font-mono text-ink-muted text-xs">{branchLabel(worktree)}</p>
+    <Card>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
+            {dirName(worktree.path)}
+            {stateTags(worktree).map((tag) => (
+              <Tag key={tag.label} tone={tag.tone}>
+                {tag.label}
+              </Tag>
+            ))}
+          </p>
+          <p className="mt-1 font-mono text-ink-muted text-xs">{branchLabel(worktree)}</p>
+        </div>
+        <div className="shrink-0">
+          <Button variant="negative" onClick={onRemove}>
+            remove
+          </Button>
+        </div>
       </div>
-      <div className="shrink-0">
-        <Button variant="negative" onClick={onRemove}>
-          remove
-        </Button>
-      </div>
-    </div>
+    </Card>
   );
 }
 
@@ -75,7 +83,10 @@ export function WorktreesSection({ repo }: { repo: RepoOverview }) {
       }
     >
       {stale > 0 ? (
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+        // The action hugs the notice it belongs to rather than being pushed to
+        // the far edge, for the same reason the rows are carded: across a wide
+        // container a justified action drifts away from what it acts on.
+        <div className="mb-5 flex flex-wrap items-center gap-4">
           <Notice tone="warning" title={`${entries(stale)} to clear`}>
             Git still holds records for worktrees whose directories have gone.
           </Notice>
@@ -87,7 +98,9 @@ export function WorktreesSection({ repo }: { repo: RepoOverview }) {
           This repo is just its own checkout. Create a worktree to start a piece of work beside it.
         </EmptyState>
       ) : (
-        <ul className="space-y-4">
+        // Tight enough that a stack of cards still reads as one list rather
+        // than a series of unrelated panels.
+        <ul className="space-y-3">
           {linked.map((worktree) => (
             <li key={worktree.path}>
               <WorktreeRow worktree={worktree} onRemove={() => setRemoving(worktree)} />
