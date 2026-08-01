@@ -5,7 +5,7 @@ export interface WatchWorktreeRootsOptions {
   debounceMs?: number;
   /** Injection hook for `fs.watch` so tests can drive watcher events deterministically. */
   watchFn?: typeof watch;
-  /** Optional event bus. When supplied, the watcher publishes worktrees.changed on any change. */
+  /** Optional event bus. When supplied, the watcher publishes git.changed on any change. */
   bus?: EventBus;
 }
 
@@ -21,7 +21,7 @@ const DEFAULT_DEBOUNCE_MS = 300;
 
 /**
  * Watch the configured worktree `roots` — one level deep, non-recursively — and
- * publish `worktrees.changed` whenever a directory under one of them is added,
+ * publish `git.changed` whenever a directory under one of them is added,
  * renamed, or removed, so a worktree created or deleted outside kiri shows up
  * without a manual refresh. The event carries no payload: the model is rebuilt
  * from disk per request, so a bare signal is enough.
@@ -47,7 +47,7 @@ export function watchWorktreeRoots(
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      bus?.publish({ type: "worktrees.changed" });
+      bus?.publish({ type: "git.changed" });
     }, debounceMs);
   };
 
@@ -61,7 +61,7 @@ export function watchWorktreeRoots(
     // was real.
     fsWatcher.on("error", (cause) => {
       console.error(
-        `worktrees: watcher error on ${root}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `git: watcher error on ${root}: ${cause instanceof Error ? cause.message : String(cause)}`,
       );
       schedule();
     });

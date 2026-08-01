@@ -13,6 +13,8 @@ import { loadKiriConfig } from "../src/server/config/loader.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { watchKiriConfig } from "../src/server/config/watcher.ts";
 import { createEventBus } from "../src/server/events/index.ts";
+import { resolveWorktreeRoots } from "../src/server/git/config.ts";
+import { watchWorktreeRoots } from "../src/server/git/roots-watcher.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
@@ -25,8 +27,6 @@ import { runOutputCommand } from "../src/server/runner/outputs.ts";
 import { runRecommendCommand } from "../src/server/runner/recommendations.ts";
 import { watchPersonas } from "../src/server/sessions/index.ts";
 import { createRegistry, loadWorkflows, watchWorkflows } from "../src/server/workflows/index.ts";
-import { resolveWorktreeRoots } from "../src/server/worktrees/config.ts";
-import { watchWorktreeRoots } from "../src/server/worktrees/roots-watcher.ts";
 
 // Replaced at build time via `bun build --define`; falls back to "dev" for local runs.
 declare const KIRI_VERSION: string;
@@ -215,10 +215,9 @@ const personaWatcher = watchPersonas(config, { bus });
 // created or removed outside kiri shows up without a manual refresh. Attached
 // to the roots configured at boot — a root added to kiri.yaml later needs a
 // restart, the same as personas.
-const worktreeWatcher = watchWorktreeRoots(
-  resolveWorktreeRoots(kiriConfig.worktrees, config.cwd()),
-  { bus },
-);
+const worktreeWatcher = watchWorktreeRoots(resolveWorktreeRoots(kiriConfig.git, config.cwd()), {
+  bus,
+});
 
 const app = createApp({
   db,

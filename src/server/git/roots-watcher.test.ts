@@ -69,7 +69,7 @@ describe("watchWorktreeRoots", () => {
     return bus;
   };
 
-  it("publishes worktrees.changed when a root changes", async () => {
+  it("publishes git.changed when a root changes", async () => {
     const { watchFn, trigger, attached } = createFakeWatcher();
     const watcher = watchWorktreeRoots(roots, { bus: withBus(), watchFn, debounceMs: 1 });
 
@@ -77,7 +77,7 @@ describe("watchWorktreeRoots", () => {
     trigger(1);
 
     await waitFor(() => events.length === 1);
-    expect(events).toEqual([{ type: "worktrees.changed" }]);
+    expect(events).toEqual([{ type: "git.changed" }]);
     watcher.stop();
   });
 

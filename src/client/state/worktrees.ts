@@ -1,9 +1,9 @@
 import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type CreateWorktreeResult,
+  type GitOverview,
   type PruneWorktreesResult,
   type RemoveWorktreeResult,
-  type WorktreesOverview,
   createWorktree,
   fetchWorktrees,
   pruneWorktrees,
@@ -18,7 +18,7 @@ const worktreesKey = ["worktrees"] as const;
  * Read the grouped worktree overview. Fetched on first use and served from
  * cache thereafter; kept current by `useWorktreesLive`.
  */
-export function useWorktrees(): UseQueryResult<WorktreesOverview> {
+export function useWorktrees(): UseQueryResult<GitOverview> {
   return useQuery({ queryKey: worktreesKey, queryFn: fetchWorktrees });
 }
 
@@ -30,7 +30,7 @@ export function useWorktrees(): UseQueryResult<WorktreesOverview> {
 export function useWorktreesLive(): void {
   const queryClient = useQueryClient();
   useLiveSync({
-    on: ["worktrees.changed"],
+    on: ["git.changed"],
     refetch: () => {
       void queryClient.invalidateQueries({ queryKey: worktreesKey });
     },

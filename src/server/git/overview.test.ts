@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { worktreesOverview } from "./overview.ts";
+import { gitOverview } from "./overview.ts";
 
 const git = (cwd: string, ...args: string[]) => {
   const r = spawnSync("git", args, {
@@ -26,7 +26,7 @@ const initRepo = (dir: string) => {
   git(dir, "commit", "-q", "-m", "init");
 };
 
-describe("worktreesOverview", () => {
+describe("gitOverview", () => {
   let base: string;
   let root: string;
 
@@ -41,12 +41,12 @@ describe("worktreesOverview", () => {
   });
 
   it("echoes the scanned roots and finds nothing under an empty one", () => {
-    expect(worktreesOverview([root])).toEqual({ roots: [root], repos: [] });
+    expect(gitOverview([root])).toEqual({ roots: [root], repos: [] });
   });
 
   it("names a repo after its primary checkout's directory", () => {
     initRepo(join(root, "alpha"));
-    const { repos } = worktreesOverview([root]);
+    const { repos } = gitOverview([root]);
     expect(repos).toHaveLength(1);
     expect(repos[0].name).toBe("alpha");
     expect(realpathSync(repos[0].root)).toBe(realpathSync(join(root, "alpha")));
@@ -57,7 +57,7 @@ describe("worktreesOverview", () => {
     initRepo(join(root, "zeta"));
     initRepo(join(root, "alpha"));
     initRepo(join(root, "mid"));
-    expect(worktreesOverview([root]).repos.map((r) => r.name)).toEqual(["alpha", "mid", "zeta"]);
+    expect(gitOverview([root]).repos.map((r) => r.name)).toEqual(["alpha", "mid", "zeta"]);
   });
 
   it("orders same-named repos from different roots by path", () => {
@@ -66,7 +66,7 @@ describe("worktreesOverview", () => {
     initRepo(join(other, "proj"));
     initRepo(join(root, "proj"));
 
-    const { repos } = worktreesOverview([root, other]);
+    const { repos } = gitOverview([root, other]);
     expect(repos.map((r) => r.name)).toEqual(["proj", "proj"]);
     expect(repos.map((r) => realpathSync(r.root))).toEqual([
       realpathSync(join(other, "proj")),
@@ -80,7 +80,7 @@ describe("worktreesOverview", () => {
     git(repo, "worktree", "add", "-q", join(root, "proj-b"), "-b", "b");
     git(repo, "worktree", "add", "-q", join(root, "proj-a"), "-b", "a");
 
-    const worktrees = worktreesOverview([root]).repos[0].worktrees;
+    const worktrees = gitOverview([root]).repos[0].worktrees;
     expect(worktrees).toHaveLength(3);
     expect(worktrees[0].primary).toBe(true);
     expect(worktrees.slice(1).map((w) => w.branch)).toEqual(["a", "b"]);
@@ -92,7 +92,7 @@ describe("worktreesOverview", () => {
     git(repo, "worktree", "add", "-q", join(root, "proj-dirty"), "-b", "dirty");
     writeFileSync(join(root, "proj-dirty", "scratch.txt"), "uncommitted");
 
-    const worktrees = worktreesOverview([root]).repos[0].worktrees;
+    const worktrees = gitOverview([root]).repos[0].worktrees;
     expect(worktrees.find((w) => w.primary)?.dirty).toBe(false);
     const dirty = worktrees.find((w) => w.branch === "dirty");
     expect(dirty?.dirty).toBe(true);

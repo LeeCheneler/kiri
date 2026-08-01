@@ -720,7 +720,7 @@ export const setToolPermission = async (
   );
 };
 
-/** Live state of a single worktree, from `GET /api/worktrees`. */
+/** Live state of a single worktree, from `GET /api/git`. */
 export interface WorktreeStatus {
   /** Absolute path of the worktree's root directory. */
   path: string;
@@ -760,25 +760,25 @@ export interface RepoOverview {
   worktrees: WorktreeStatus[];
 }
 
-/** The whole worktree surface: the roots that were scanned and the repos found under them. */
-export interface WorktreesOverview {
+/** The whole git surface: the roots that were scanned and the repos found under them. */
+export interface GitOverview {
   /** Absolute roots scanned, in configured order. Empty when none are configured. */
   roots: string[];
   /** Repos found, ordered by name. */
   repos: RepoOverview[];
 }
 
-/** Fetch the grouped worktree overview. Throws on non-2xx. */
-export const fetchWorktrees = async (): Promise<WorktreesOverview> =>
-  json<WorktreesOverview>(await apiFetch("/api/worktrees"));
+/** Fetch the grouped repo overview. Throws on non-2xx. */
+export const fetchWorktrees = async (): Promise<GitOverview> =>
+  json<GitOverview>(await apiFetch("/api/git"));
 
 /**
- * Re-run worktree discovery against the configured roots and return the fresh
- * model. The server also publishes `worktrees.changed`, so every other open
+ * Re-run repo discovery against the configured roots and return the fresh
+ * model. The server also publishes `git.changed`, so every other open
  * client converges on it. Throws on non-2xx.
  */
-export const refreshWorktrees = async (): Promise<WorktreesOverview> =>
-  json<WorktreesOverview>(await apiFetch("/api/worktrees/refresh", { method: "POST" }));
+export const refreshWorktrees = async (): Promise<GitOverview> =>
+  json<GitOverview>(await apiFetch("/api/git/refresh", { method: "POST" }));
 
 /** One action taken while preparing a fresh worktree — an env, post-create, or install step. */
 export interface PrepareStep {
@@ -845,7 +845,7 @@ export interface PruneWorktreesResult {
  * Create a worktree for `repo` (its directory name or any checkout path) on
  * `branch`, optionally under an explicit directory `name` and cut from `baseRef`
  * when the branch is new. The repo's configured prep pipeline runs after it. The
- * server also publishes `worktrees.changed`. Throws on non-2xx — including a
+ * server also publishes `git.changed`. Throws on non-2xx — including a
  * create that produced no worktree; a create whose prep failed resolves with the
  * report.
  */
@@ -856,7 +856,7 @@ export const createWorktree = async (body: {
   baseRef?: string;
 }): Promise<CreateWorktreeResult> =>
   json<CreateWorktreeResult>(
-    await apiFetch("/api/worktrees/create", {
+    await apiFetch("/api/git/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -866,14 +866,14 @@ export const createWorktree = async (body: {
 /**
  * Remove the linked worktree at `path` and tidy up after it. A worktree with
  * uncommitted changes is refused unless `force`. The server also publishes
- * `worktrees.changed`. Throws on non-2xx.
+ * `git.changed`. Throws on non-2xx.
  */
 export const removeWorktree = async (
   path: string,
   force?: boolean,
 ): Promise<RemoveWorktreeResult> =>
   json<RemoveWorktreeResult>(
-    await apiFetch("/api/worktrees/remove", {
+    await apiFetch("/api/git/remove", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, force }),
@@ -883,11 +883,11 @@ export const removeWorktree = async (
 /**
  * Clear `repo`'s stale worktree admin entries — the records git still holds for
  * worktrees whose directories have gone. The server also publishes
- * `worktrees.changed`. Throws on non-2xx.
+ * `git.changed`. Throws on non-2xx.
  */
 export const pruneWorktrees = async (repo: string): Promise<PruneWorktreesResult> =>
   json<PruneWorktreesResult>(
-    await apiFetch("/api/worktrees/prune", {
+    await apiFetch("/api/git/prune", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ repo }),

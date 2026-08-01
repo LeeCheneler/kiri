@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
+import type { GitOverview } from "../git/overview.ts";
 import { createApp } from "../index.ts";
-import type { WorktreesOverview } from "../worktrees/overview.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 const git = (cwd: string, ...args: string[]) => {
@@ -27,7 +27,7 @@ const initRepo = (dir: string) => {
   git(dir, "commit", "-q", "-m", "init");
 };
 
-describe("worktrees routes", () => {
+describe("git routes", () => {
   let env: TestEnv;
   let events: KiriEvent[];
 
@@ -48,14 +48,14 @@ describe("worktrees routes", () => {
 
   // The workspace root doubles as the scanned root, so `repos:` live beside kiri.yaml.
   const configureRoots = (roots: string) =>
-    writeFileSync(join(env.cwd, "kiri.yaml"), `worktrees:\n  roots:\n${roots}`);
+    writeFileSync(join(env.cwd, "kiri.yaml"), `git:\n  roots:\n${roots}`);
 
   const buildApp = (bus?: ReturnType<typeof createEventBus>) =>
     createApp({ db: env.db, registry: env.registry, config: env.config, env: {}, bus });
 
-  describe("GET /api/worktrees", () => {
+  describe("GET /api/git", () => {
     it("returns an empty model when no roots are configured", async () => {
-      const res = await buildApp().request("/api/worktrees");
+      const res = await buildApp().request("/api/git");
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ roots: [], repos: [] });
     });
@@ -66,8 +66,8 @@ describe("worktrees routes", () => {
       git(repo, "worktree", "add", "-q", join(env.cwd, "repos", "proj-feature"), "-b", "feature");
       configureRoots("    - repos\n");
 
-      const res = await buildApp().request("/api/worktrees");
-      const body = (await res.json()) as WorktreesOverview;
+      const res = await buildApp().request("/api/git");
+      const body = (await res.json()) as GitOverview;
       expect(body.roots).toEqual([join(env.cwd, "repos")]);
       expect(body.repos).toHaveLength(1);
       expect(body.repos[0].name).toBe("proj");
@@ -77,35 +77,33 @@ describe("worktrees routes", () => {
     it("reflects a config edit without a restart", async () => {
       initRepo(join(env.cwd, "repos", "proj"));
       const app = buildApp();
-      expect(
-        ((await (await app.request("/api/worktrees")).json()) as WorktreesOverview).repos,
-      ).toHaveLength(0);
+      expect(((await (await app.request("/api/git")).json()) as GitOverview).repos).toHaveLength(0);
 
       configureRoots("    - repos\n");
 
-      const body = (await (await app.request("/api/worktrees")).json()) as WorktreesOverview;
+      const body = (await (await app.request("/api/git")).json()) as GitOverview;
       expect(body.repos).toHaveLength(1);
     });
   });
 
-  describe("POST /api/worktrees/refresh", () => {
-    it("returns the freshly-built model and publishes worktrees.changed", async () => {
+  describe("POST /api/git/refresh", () => {
+    it("returns the freshly-built model and publishes git.changed", async () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await buildApp(withBus()).request("/api/worktrees/refresh", {
+      const res = await buildApp(withBus()).request("/api/git/refresh", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as WorktreesOverview;
+      const body = (await res.json()) as GitOverview;
       expect(body.repos.map((r) => r.name)).toEqual(["proj"]);
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("works without an event bus", async () => {
-      const res = await buildApp().request("/api/worktrees/refresh", {
+      const res = await buildApp().request("/api/git/refresh", {
         method: "POST",
         headers: CLIENT_HEADERS,
       });
@@ -114,7 +112,7 @@ describe("worktrees routes", () => {
     });
 
     it("rejects a request without the client header", async () => {
-      const res = await buildApp().request("/api/worktrees/refresh", { method: "POST" });
+      const res = await buildApp().request("/api/git/refresh", { method: "POST" });
       expect(res.status).toBe(403);
     });
   });
@@ -130,12 +128,12 @@ describe("worktrees routes", () => {
       body: JSON.stringify(body),
     });
 
-  describe("POST /api/worktrees/create", () => {
+  describe("POST /api/git/create", () => {
     it("creates a worktree, reports how the branch resolved, and publishes the change", async () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(withBus()), "/api/worktrees/create", {
+      const res = await post(buildApp(withBus()), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
         name: "swift-otter",
@@ -148,7 +146,7 @@ describe("worktrees routes", () => {
       expect(body.baseRef).toBe("main");
       expect(body.path).toBe(realJoin("repos", "proj-swift-otter"));
       expect(existsSync(body.path)).toBe(true);
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("runs the repo's prep pipeline and carries its report", async () => {
@@ -156,7 +154,7 @@ describe("worktrees routes", () => {
       writeFileSync(
         join(env.cwd, "kiri.yaml"),
         [
-          "worktrees:",
+          "git:",
           "  roots:",
           "    - repos",
           "  repos:",
@@ -167,7 +165,7 @@ describe("worktrees routes", () => {
         ].join("\n"),
       );
 
-      const res = await post(buildApp(), "/api/worktrees/create", {
+      const res = await post(buildApp(), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
       });
@@ -184,7 +182,7 @@ describe("worktrees routes", () => {
       writeFileSync(
         join(env.cwd, "kiri.yaml"),
         [
-          "worktrees:",
+          "git:",
           "  roots:",
           "    - repos",
           "  repos:",
@@ -195,7 +193,7 @@ describe("worktrees routes", () => {
         ].join("\n"),
       );
 
-      const res = await post(buildApp(withBus()), "/api/worktrees/create", {
+      const res = await post(buildApp(withBus()), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
       });
@@ -207,14 +205,14 @@ describe("worktrees routes", () => {
       expect(body.prepare.steps[0].stdout).toContain("halfway");
       expect(existsSync(body.path)).toBe(true);
       // The worktree is on disk, so the listing has to catch up either way.
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("skips prep when asked", async () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(), "/api/worktrees/create", {
+      const res = await post(buildApp(), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
         skipPrepare: true,
@@ -227,7 +225,7 @@ describe("worktrees routes", () => {
       configureRoots("    - repos\n");
       mkdirSync(join(env.cwd, "repos", "proj-taken"), { recursive: true });
 
-      const res = await post(buildApp(withBus()), "/api/worktrees/create", {
+      const res = await post(buildApp(withBus()), "/api/git/create", {
         repo: "proj",
         branch: "feat/thing",
         name: "taken",
@@ -242,7 +240,7 @@ describe("worktrees routes", () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(), "/api/worktrees/create", {
+      const res = await post(buildApp(), "/api/git/create", {
         repo: "elsewhere",
         branch: "feat/thing",
       });
@@ -251,12 +249,12 @@ describe("worktrees routes", () => {
     });
 
     it("rejects a malformed body", async () => {
-      const res = await post(buildApp(), "/api/worktrees/create", { repo: "proj" });
+      const res = await post(buildApp(), "/api/git/create", { repo: "proj" });
       expect(res.status).toBe(400);
     });
   });
 
-  describe("POST /api/worktrees/remove", () => {
+  describe("POST /api/git/remove", () => {
     // A repo with one linked worktree on its own branch, ready to be removed.
     const repoWithWorktree = () => {
       const repo = join(env.cwd, "repos", "proj");
@@ -269,7 +267,7 @@ describe("worktrees routes", () => {
     it("removes the worktree, reports the deleted branch's sha, and publishes", async () => {
       const { worktree } = repoWithWorktree();
 
-      const res = await post(buildApp(withBus()), "/api/worktrees/remove", { path: worktree });
+      const res = await post(buildApp(withBus()), "/api/git/remove", { path: worktree });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -277,19 +275,19 @@ describe("worktrees routes", () => {
       expect(body.branch).toBe("feature");
       expect(body.deletedBranchSha).toMatch(/^[0-9a-f]{40}$/);
       expect(existsSync(worktree)).toBe(false);
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("refuses a dirty worktree and removes it once forced", async () => {
       const { worktree } = repoWithWorktree();
       writeFileSync(join(worktree, "scratch.txt"), "uncommitted");
 
-      const refused = await post(buildApp(), "/api/worktrees/remove", { path: worktree });
+      const refused = await post(buildApp(), "/api/git/remove", { path: worktree });
       expect(refused.status).toBe(400);
       expect((await refused.json()).error).toContain("uncommitted changes");
       expect(existsSync(worktree)).toBe(true);
 
-      const forced = await post(buildApp(), "/api/worktrees/remove", {
+      const forced = await post(buildApp(), "/api/git/remove", {
         path: worktree,
         force: true,
       });
@@ -299,24 +297,24 @@ describe("worktrees routes", () => {
 
     it("answers 404 for a path outside the configured roots", async () => {
       repoWithWorktree();
-      const res = await post(buildApp(), "/api/worktrees/remove", { path: "/elsewhere/proj-x" });
+      const res = await post(buildApp(), "/api/git/remove", { path: "/elsewhere/proj-x" });
       expect(res.status).toBe(404);
     });
 
     it("answers 404 for the repo's primary checkout", async () => {
       const { repo } = repoWithWorktree();
-      const res = await post(buildApp(), "/api/worktrees/remove", { path: repo });
+      const res = await post(buildApp(), "/api/git/remove", { path: repo });
       expect(res.status).toBe(404);
       expect(existsSync(repo)).toBe(true);
     });
 
     it("rejects a malformed body", async () => {
-      const res = await post(buildApp(), "/api/worktrees/remove", { path: "" });
+      const res = await post(buildApp(), "/api/git/remove", { path: "" });
       expect(res.status).toBe(400);
     });
   });
 
-  describe("POST /api/worktrees/prune", () => {
+  describe("POST /api/git/prune", () => {
     it("clears the stale admin entries and publishes the change", async () => {
       const repo = join(env.cwd, "repos", "proj");
       initRepo(repo);
@@ -326,28 +324,28 @@ describe("worktrees routes", () => {
       rmSync(worktree, { recursive: true, force: true });
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(withBus()), "/api/worktrees/prune", { repo: "proj" });
+      const res = await post(buildApp(withBus()), "/api/git/prune", { repo: "proj" });
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ repo: "proj", pruned: [worktree] });
-      expect(events).toEqual([{ type: "worktrees.changed" }]);
+      expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("reports nothing pruned for a tidy repo", async () => {
       initRepo(join(env.cwd, "repos", "proj"));
       configureRoots("    - repos\n");
 
-      const res = await post(buildApp(), "/api/worktrees/prune", { repo: "proj" });
+      const res = await post(buildApp(), "/api/git/prune", { repo: "proj" });
       expect((await res.json()).pruned).toEqual([]);
     });
 
     it("answers 404 for a repo outside the configured roots", async () => {
-      const res = await post(buildApp(), "/api/worktrees/prune", { repo: "proj" });
+      const res = await post(buildApp(), "/api/git/prune", { repo: "proj" });
       expect(res.status).toBe(404);
     });
 
     it("rejects a malformed body", async () => {
-      const res = await post(buildApp(), "/api/worktrees/prune", { name: "proj" });
+      const res = await post(buildApp(), "/api/git/prune", { name: "proj" });
       expect(res.status).toBe(400);
     });
   });

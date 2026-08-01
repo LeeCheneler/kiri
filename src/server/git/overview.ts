@@ -20,9 +20,9 @@ export interface RepoOverview {
   worktrees: WorktreeStatus[];
 }
 
-/** The whole worktree surface: the roots that were scanned and the repos found under them. */
-export interface WorktreesOverview {
-  /** Absolute roots scanned, in configured order. Empty when `worktrees:` declares none. */
+/** The whole git surface: the roots that were scanned and the repos found under them. */
+export interface GitOverview {
+  /** Absolute roots scanned, in configured order. Empty when `git:` declares none. */
   roots: string[];
   /** Repos found, ordered by name. */
   repos: RepoOverview[];
@@ -31,14 +31,14 @@ export interface WorktreesOverview {
 const byPath = (a: WorktreeStatus, b: WorktreeStatus): number => a.path.localeCompare(b.path);
 
 /**
- * Build the grouped worktree model for `roots`: discover the repos reachable
+ * Build the grouped repo model for `roots`: discover the repos reachable
  * from them and compute each worktree's live status. Ordered deterministically —
  * repos by name, worktrees with the primary first — so the rendered list is
  * stable across refreshes. Each repo also carries its default branch, the base a
  * brand-new branch is cut from. Read-only; runs git status commands but never
  * fetches or mutates.
  */
-export function worktreesOverview(roots: readonly string[]): WorktreesOverview {
+export function gitOverview(roots: readonly string[]): GitOverview {
   const repos = discoverRepos(roots).map((repo) => {
     const statuses = repo.worktrees.map(worktreeStatus);
     return {

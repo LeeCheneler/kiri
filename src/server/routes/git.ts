@@ -4,17 +4,17 @@ import { z } from "zod";
 import { loadKiriConfig } from "../config/loader.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { EventBus } from "../events/index.ts";
-import { resolveWorktreeRoots } from "../worktrees/config.ts";
-import { createWorktree, pruneWorktrees, removeWorktree } from "../worktrees/operations.ts";
-import { type RepoOverview, worktreesOverview } from "../worktrees/overview.ts";
+import { resolveWorktreeRoots } from "../git/config.ts";
+import { createWorktree, pruneWorktrees, removeWorktree } from "../git/operations.ts";
+import { type RepoOverview, gitOverview } from "../git/overview.ts";
 import { onZodFail } from "./shared.ts";
 
-export interface WorktreesRoutesDeps {
-  /** Workspace config — the scanned roots are read from its `worktrees:` section. */
+export interface GitRoutesDeps {
+  /** Workspace config — the scanned roots are read from its `git:` section. */
   config: ConfigStore;
   /** Environment the config load resolves against. */
   env: Record<string, string | undefined>;
-  /** When supplied, a refresh or a mutation publishes `worktrees.changed` so live clients refetch. */
+  /** When supplied, a refresh or a mutation publishes `git.changed` so live clients refetch. */
   bus?: EventBus;
 }
 
@@ -35,10 +35,10 @@ const removeBodySchema = z
 const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
 
 /**
- * Build the Hono sub-app for `/api/worktrees`. `GET /` returns the grouped
+ * Build the Hono sub-app for `/api/git`. `GET /` returns the grouped
  * model — the scanned roots plus each discovered repo with its default branch
  * and the live status of its primary checkout and linked worktrees — rebuilt
- * from disk per request, so it always reflects the current `worktrees:` roots.
+ * from disk per request, so it always reflects the current `git:` roots.
  * `POST /refresh` returns the same freshly-built model.
  *
  * The mutations mirror the operations core: `POST /create` adds a worktree and
@@ -46,22 +46,21 @@ const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
  * it, and `POST /prune` clears a repo's stale admin entries. Each addresses only
  * the repos and worktrees the configured roots reach, so a path outside them is
  * refused rather than driving git somewhere unexpected, and each publishes
- * `worktrees.changed` on success so every open client converges. A create whose
+ * `git.changed` on success so every open client converges. A create whose
  * prep pipeline failed still left a worktree on disk, so it answers 200 with the
  * report rather than an error; a create that never made one answers 400.
  *
  * Mounted unconditionally: with no roots configured it answers with an empty
  * model, which is how the client learns there is nothing to scan.
  */
-export function worktreesRoutes(deps: WorktreesRoutesDeps): Hono {
+export function gitRoutes(deps: GitRoutesDeps): Hono {
   const app = new Hono();
 
-  const worktreesConfig = () => loadKiriConfig(deps.config, deps.env).worktrees;
+  const gitConfig = () => loadKiriConfig(deps.config, deps.env).git;
 
-  const overview = () =>
-    worktreesOverview(resolveWorktreeRoots(worktreesConfig(), deps.config.cwd()));
+  const overview = () => gitOverview(resolveWorktreeRoots(gitConfig(), deps.config.cwd()));
 
-  const changed = () => deps.bus?.publish({ type: "worktrees.changed" });
+  const changed = () => deps.bus?.publish({ type: "git.changed" });
 
   // The repo a request names, by directory name or by the absolute path of any
   // of its checkouts. Only repos the configured roots reach resolve.
@@ -97,7 +96,7 @@ export function worktreesRoutes(deps: WorktreesRoutesDeps): Hono {
         name: body.name,
         baseRef: body.baseRef,
         skipPrepare: body.skipPrepare,
-        config: worktreesConfig(),
+        config: gitConfig(),
       });
       // A prep failure still leaves a usable worktree on disk, so it comes back
       // as a result carrying the report; only a create that produced nothing is

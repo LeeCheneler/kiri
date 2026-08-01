@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveWorktreeConfig, resolveWorktreeRoots } from "./config.ts";
-import type { WorktreesConfig } from "./schema.ts";
+import type { GitConfig } from "./schema.ts";
 
 describe("resolveWorktreeConfig", () => {
   it("falls back to the baseline when there is no config", () => {
@@ -12,26 +12,26 @@ describe("resolveWorktreeConfig", () => {
   });
 
   it("applies defaults over the baseline", () => {
-    const worktrees: WorktreesConfig = {
+    const git: GitConfig = {
       roots: [],
       defaults: {
         prepare: { env: "symlink", install: "off", postCreate: ["a"] },
       },
     };
-    expect(resolveWorktreeConfig(worktrees, "kiri")).toEqual({
+    expect(resolveWorktreeConfig(git, "kiri")).toEqual({
       prepare: { env: "symlink", install: "off", postCreate: ["a"] },
     });
   });
 
   it("deep-merges a repo override field-by-field over defaults", () => {
-    const worktrees: WorktreesConfig = {
+    const git: GitConfig = {
       roots: [],
       defaults: {
         prepare: { env: "symlink", install: "auto", postCreate: [] },
       },
       repos: { kiri: { prepare: { postCreate: ["mise trust"] } } },
     };
-    const resolved = resolveWorktreeConfig(worktrees, "kiri");
+    const resolved = resolveWorktreeConfig(git, "kiri");
     // Overridden field wins; unspecified sibling fields keep the default.
     expect(resolved.prepare).toEqual({
       env: "symlink",
@@ -41,12 +41,12 @@ describe("resolveWorktreeConfig", () => {
   });
 
   it("resolves an unknown repo key to defaults alone", () => {
-    const worktrees: WorktreesConfig = {
+    const git: GitConfig = {
       roots: [],
       defaults: { prepare: { install: "off" } },
       repos: { kiri: { prepare: { install: "auto" } } },
     };
-    expect(resolveWorktreeConfig(worktrees, "other").prepare.install).toBe("off");
+    expect(resolveWorktreeConfig(git, "other").prepare.install).toBe("off");
   });
 });
 
