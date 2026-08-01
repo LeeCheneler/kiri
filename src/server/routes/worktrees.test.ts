@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type KiriEvent, createEventBus } from "../events/index.ts";
+import type { WorktreesOverview } from "../git/overview.ts";
 import { createApp } from "../index.ts";
-import type { WorktreesOverview } from "../worktrees/overview.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 const git = (cwd: string, ...args: string[]) => {

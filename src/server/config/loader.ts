@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { WorktreesConfig } from "../git/schema.ts";
 import type { LlmProvider, ProviderType } from "../llm/schema.ts";
 import type { McpServer, McpServerEntry, McpServerUnresolved } from "../mcp/schema.ts";
-import type { WorktreesConfig } from "../worktrees/schema.ts";
 import { kiriConfigSchema } from "./schema.ts";
 import type { ConfigStore } from "./store.ts";
 

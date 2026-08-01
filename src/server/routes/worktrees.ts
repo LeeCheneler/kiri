@@ -4,9 +4,9 @@ import { z } from "zod";
 import { loadKiriConfig } from "../config/loader.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { EventBus } from "../events/index.ts";
-import { resolveWorktreeRoots } from "../worktrees/config.ts";
-import { createWorktree, pruneWorktrees, removeWorktree } from "../worktrees/operations.ts";
-import { type RepoOverview, worktreesOverview } from "../worktrees/overview.ts";
+import { resolveWorktreeRoots } from "../git/config.ts";
+import { createWorktree, pruneWorktrees, removeWorktree } from "../git/operations.ts";
+import { type RepoOverview, worktreesOverview } from "../git/overview.ts";
 import { onZodFail } from "./shared.ts";
 
 export interface WorktreesRoutesDeps {

@@ -1,7 +1,7 @@
 import { z } from "zod";
+import { worktreesSchema } from "../git/schema.ts";
 import { providersSchema } from "../llm/schema.ts";
 import { mcpServersSchema } from "../mcp/schema.ts";
-import { worktreesSchema } from "../worktrees/schema.ts";
 
 const filesystemSchema = z
   .object({
