@@ -8,7 +8,7 @@ export interface ResolvedWorktreePrepare {
   env: "symlink" | "copy" | null;
   /** Whether to install dependencies after create. */
   install: "auto" | "off";
-  /** Commands to run in the new worktree after create and install. */
+  /** Commands to run in the new worktree, after env files are seeded and before installs. */
   postCreate: string[];
 }
 

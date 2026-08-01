@@ -18,7 +18,7 @@ const prepareSchema = z
       .array(z.string().min(1))
       .optional()
       .describe(
-        "Commands run in the new worktree after create and install, in order. Defaults to none.",
+        "Commands run in the new worktree, in order, after its env files are seeded and before dependencies are installed. Defaults to none.",
       ),
   })
   .strict();
