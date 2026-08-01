@@ -1,8 +1,10 @@
+import { isAbsolute } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
 import { loadKiriConfig } from "../config/loader.ts";
 import type { ConfigStore } from "../config/store.ts";
+import { changeset, filePatch } from "../git/changeset.ts";
 import { createWorktree, pruneWorktrees, removeWorktree } from "../git/operations.ts";
 import type { RepoOverview } from "../git/overview.ts";
 import type { GitSnapshotStore } from "../git/snapshot.ts";
@@ -33,6 +35,19 @@ const removeBodySchema = z
 
 const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
 
+const changesetQuerySchema = z
+  .object({ path: z.string().min(1), view: z.enum(["uncommitted", "branch"]) })
+  .strict();
+
+const patchQuerySchema = changesetQuerySchema
+  .extend({ file: z.string().min(1), previousPath: z.string().min(1).optional() })
+  .strict();
+
+// A file is addressed relative to its checkout, so an absolute path or one
+// climbing out of it is refused rather than handed to git as a pathspec.
+const insideCheckout = (file: string): boolean =>
+  !isAbsolute(file) && !file.split("/").includes("..");
+
 /**
  * Build the Hono sub-app for `/api/git`. `GET /` answers from the snapshot —
  * the scanned roots plus each discovered repo with its default branch and the
@@ -40,6 +55,13 @@ const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
  * last scanned and whether a scan is running. It never touches the config, git,
  * or the disk, so it returns whatever is known right now rather than waiting for
  * a scan. `POST /refresh` forces one and answers with its result.
+ *
+ * The changeset reads are the exception to answering from memory: `GET
+ * /changeset` and `GET /changeset/patch` run git per request, because holding
+ * every checkout's diffs would cost far more than it saves. One answers with a
+ * checkout's changed files in the requested view, the other with a single file's
+ * patch — served as git wrote it — so opening a changeset never means loading
+ * every diff in it.
  *
  * The mutations mirror the operations core: `POST /create` adds a worktree and
  * runs the repo's prep pipeline, `POST /remove` deletes one and tidies up after
@@ -76,9 +98,51 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
         candidate.worktrees.some((worktree) => worktree.path === repo),
     );
 
+  // The repo a checkout belongs to, so a changeset resolves the default branch
+  // it is reviewed against without a second read of the disk.
+  const findCheckout = (path: string): RepoOverview | undefined =>
+    known().repos.find((repo) => repo.worktrees.some((worktree) => worktree.path === path));
+
   app.get("/", (c) => c.json(deps.snapshot.current()));
 
   app.post("/refresh", async (c) => c.json(await deps.snapshot.refresh()));
+
+  app.get(
+    "/changeset",
+    zValidator("query", changesetQuerySchema, onZodFail("invalid changeset request")),
+    async (c) => {
+      const { path, view } = c.req.valid("query");
+      const repo = findCheckout(path);
+      if (repo === undefined) {
+        return c.json(
+          { error: `no checkout at "${path}" under the configured worktree roots` },
+          404,
+        );
+      }
+      return c.json(await changeset({ path, view, defaultBranch: repo.defaultBranch }));
+    },
+  );
+
+  app.get(
+    "/changeset/patch",
+    zValidator("query", patchQuerySchema, onZodFail("invalid patch request")),
+    async (c) => {
+      const { path, view, file, previousPath } = c.req.valid("query");
+      const repo = findCheckout(path);
+      if (repo === undefined) {
+        return c.json(
+          { error: `no checkout at "${path}" under the configured worktree roots` },
+          404,
+        );
+      }
+      if (!insideCheckout(file) || (previousPath !== undefined && !insideCheckout(previousPath))) {
+        return c.json({ error: "file must be a path inside the checkout" }, 400);
+      }
+      return c.json(
+        await filePatch({ path, view, file, previousPath, defaultBranch: repo.defaultBranch }),
+      );
+    },
+  );
 
   app.post(
     "/create",

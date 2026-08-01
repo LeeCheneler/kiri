@@ -903,6 +903,86 @@ export const pruneWorktrees = async (repo: string): Promise<PruneWorktreesResult
     }),
   );
 
+/** Which view of a checkout a changeset describes. */
+export type ChangesetView = "uncommitted" | "branch";
+
+/** What happened to a file. A type change reads as a modification. */
+export type ChangeKind = "added" | "modified" | "deleted" | "renamed";
+
+/** Why a view has nothing to show beyond "nothing changed". */
+export type ChangesetEmptyReason =
+  | "no-default-branch"
+  | "on-default-branch"
+  | "no-merge-base"
+  | "no-commits";
+
+/** One changed file in a view. Counts are 0 for a binary file, which has no lines. */
+export interface ChangesetFile {
+  /** Path relative to the checkout root. */
+  path: string;
+  /** The path it moved from, for a rename; null otherwise. */
+  previousPath: string | null;
+  kind: ChangeKind;
+  insertions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+/** One view of a checkout: what changed, and how the view was resolved. */
+export interface Changeset {
+  view: ChangesetView;
+  /** Changed files ordered by path, capped by the server. */
+  files: ChangesetFile[];
+  /** How many changed files were found, which exceeds `files.length` when truncated. */
+  totalFiles: number;
+  /** Whether the server's file cap dropped files from `files`. */
+  truncated: boolean;
+  /** The commit the branch view diffed against; null for the uncommitted view. */
+  mergeBase: string | null;
+  /** Why the view is empty when the reason isn't simply "nothing changed"; null otherwise. */
+  emptyReason: ChangesetEmptyReason | null;
+}
+
+/** One file's unified patch, exactly as git wrote it. */
+export interface FilePatch {
+  path: string;
+  /** git's unified diff, unmodified. Empty when the file has no diff in this view. */
+  patch: string;
+  /** Whether the patch hit the server's size cap and carries its truncation marker. */
+  truncated: boolean;
+}
+
+/**
+ * Fetch what changed in the checkout at `path`: `uncommitted` is the working
+ * tree against HEAD including untracked files, `branch` is what the branch
+ * introduces over its merge-base with the repo's default branch. Computed per
+ * request rather than served from the scan. Throws on non-2xx — 404 for a
+ * checkout the configured roots don't reach.
+ */
+export const fetchChangeset = async (path: string, view: ChangesetView): Promise<Changeset> =>
+  json<Changeset>(
+    await apiFetch(
+      `/api/git/changeset?path=${encodeURIComponent(path)}&view=${encodeURIComponent(view)}`,
+    ),
+  );
+
+/**
+ * Fetch one file's patch in the same view, separately from the file list so
+ * opening a changeset never loads every diff in it. `previousPath` pairs the two
+ * sides of a rename into one patch. Throws on non-2xx — 400 for a file path that
+ * isn't inside the checkout.
+ */
+export const fetchFilePatch = async (
+  path: string,
+  view: ChangesetView,
+  file: string,
+  previousPath?: string,
+): Promise<FilePatch> => {
+  const query = new URLSearchParams({ path, view, file });
+  if (previousPath !== undefined) query.set("previousPath", previousPath);
+  return json<FilePatch>(await apiFetch(`/api/git/changeset/patch?${query}`));
+};
+
 /** A persona available to attach to a session. */
 export interface Persona {
   /** The `personas/<id>.md` filename stem — what's stored on the session and sent to attach it. */

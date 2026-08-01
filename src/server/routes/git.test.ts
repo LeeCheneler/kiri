@@ -393,4 +393,111 @@ describe("git routes", () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe("GET /api/git/changeset", () => {
+    // A configured repo whose primary checkout is on a branch off main, with one
+    // committed change and one uncommitted one.
+    const repoWithChanges = () => {
+      const repo = join(env.cwd, "repos", "proj");
+      initRepo(repo);
+      git(repo, "checkout", "-q", "-b", "feature");
+      writeFileSync(join(repo, "file.txt"), "committed\n");
+      git(repo, "commit", "-qam", "feature work");
+      writeFileSync(join(repo, "loose.txt"), "uncommitted\n");
+      configureRoots("    - repos\n");
+      return realJoin("repos", "proj");
+    };
+
+    it("reports the uncommitted view of a checkout", async () => {
+      const path = repoWithChanges();
+      const app = await buildApp();
+
+      const res = await app.request(
+        `/api/git/changeset?path=${encodeURIComponent(path)}&view=uncommitted`,
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.view).toBe("uncommitted");
+      expect(body.files.map((file: { path: string }) => file.path)).toEqual(["loose.txt"]);
+    });
+
+    it("reports the branch view against the repo's default branch", async () => {
+      const path = repoWithChanges();
+      const app = await buildApp();
+
+      const res = await app.request(
+        `/api/git/changeset?path=${encodeURIComponent(path)}&view=branch`,
+      );
+
+      const body = await res.json();
+      expect(body.files.map((file: { path: string }) => file.path)).toEqual(["file.txt"]);
+      expect(body.mergeBase).not.toBeNull();
+    });
+
+    it("answers 404 for a checkout outside the configured roots", async () => {
+      const res = await (await buildApp()).request("/api/git/changeset?path=/nowhere&view=branch");
+      expect(res.status).toBe(404);
+    });
+
+    it("rejects an unknown view", async () => {
+      const res = await (await buildApp()).request("/api/git/changeset?path=/x&view=staged");
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("GET /api/git/changeset/patch", () => {
+    const patchUrl = (query: Record<string, string>) =>
+      `/api/git/changeset/patch?${new URLSearchParams(query)}`;
+
+    it("serves one file's patch as git wrote it", async () => {
+      const repo = join(env.cwd, "repos", "proj");
+      initRepo(repo);
+      writeFileSync(join(repo, "file.txt"), "hello there");
+      configureRoots("    - repos\n");
+
+      const res = await (await buildApp()).request(
+        patchUrl({ path: realJoin("repos", "proj"), view: "uncommitted", file: "file.txt" }),
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.path).toBe("file.txt");
+      expect(body.truncated).toBe(false);
+      expect(body.patch).toContain("diff --git a/file.txt b/file.txt");
+    });
+
+    it("refuses a file path that climbs out of the checkout", async () => {
+      initRepo(join(env.cwd, "repos", "proj"));
+      configureRoots("    - repos\n");
+
+      const app = await buildApp();
+      const path = realJoin("repos", "proj");
+      const climbing = await app.request(
+        patchUrl({ path, view: "uncommitted", file: "../secrets.txt" }),
+      );
+      const absolute = await app.request(
+        patchUrl({ path, view: "uncommitted", file: "/etc/hosts" }),
+      );
+      const renamedFrom = await app.request(
+        patchUrl({ path, view: "uncommitted", file: "file.txt", previousPath: "../old.txt" }),
+      );
+
+      expect([climbing.status, absolute.status, renamedFrom.status]).toEqual([400, 400, 400]);
+    });
+
+    it("answers 404 for a checkout outside the configured roots", async () => {
+      const res = await (await buildApp()).request(
+        patchUrl({ path: "/nowhere", view: "uncommitted", file: "file.txt" }),
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("rejects a request with no file", async () => {
+      const res = await (await buildApp()).request(
+        patchUrl({ path: "/nowhere", view: "uncommitted" }),
+      );
+      expect(res.status).toBe(400);
+    });
+  });
 });
