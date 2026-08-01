@@ -1,12 +1,17 @@
 import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type CreateWorktreeResult,
+  type FetchResult,
   type GitOverview,
   type PruneWorktreesResult,
+  type PullResult,
   type RemoveWorktreeResult,
   createWorktree,
+  fetchAllRepos,
   fetchGitOverview,
+  fetchRepo,
   pruneWorktrees,
+  pullCheckout,
   refreshGitOverview,
   removeWorktree,
 } from "../api.ts";
@@ -96,6 +101,48 @@ export function usePruneWorktrees(): (repo: string) => Promise<PruneWorktreesRes
   const queryClient = useQueryClient();
   return async (repo) => {
     const result = await pruneWorktrees(repo);
+    void queryClient.invalidateQueries({ queryKey: gitKey });
+    return result;
+  };
+}
+
+/**
+ * Fetch one repo's remote state, then invalidate the cached overview so the
+ * ahead/behind counts on screen are computed against what the fetch brought in.
+ * Resolves with the outcome — including a refusal or a failure, which are
+ * results rather than errors; rejects only when the request itself failed.
+ */
+export function useFetchRepo(): (repo: string) => Promise<FetchResult> {
+  const queryClient = useQueryClient();
+  return async (repo) => {
+    const result = await fetchRepo(repo);
+    void queryClient.invalidateQueries({ queryKey: gitKey });
+    return result;
+  };
+}
+
+/**
+ * Fetch every discovered repo in one request, then invalidate the cached
+ * overview. Resolves with an outcome per repo, whatever mixture of updated,
+ * refused, and failed they came back as.
+ */
+export function useFetchAllRepos(): () => Promise<FetchResult[]> {
+  const queryClient = useQueryClient();
+  return async () => {
+    const results = await fetchAllRepos();
+    void queryClient.invalidateQueries({ queryKey: gitKey });
+    return results;
+  };
+}
+
+/**
+ * Fast-forward one checkout, then invalidate the cached overview. Resolves with
+ * the outcome, including the reason a pull was refused.
+ */
+export function usePullCheckout(): (path: string) => Promise<PullResult> {
+  const queryClient = useQueryClient();
+  return async (path) => {
+    const result = await pullCheckout(path);
     void queryClient.invalidateQueries({ queryKey: gitKey });
     return result;
   };

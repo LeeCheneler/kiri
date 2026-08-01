@@ -11,6 +11,7 @@ import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { useGitOverview } from "../../state/git.ts";
+import { FetchAllRepos } from "./fetch-all-repos.tsx";
 import { ScanStatus } from "./scan-status.tsx";
 
 // The path a repo's own page lives at, keyed by its directory name.
@@ -135,7 +136,9 @@ function ScannedRoots({ roots }: { roots: string[] }) {
  * roots, each summarised down to what is unfinished inside it and linking
  * through to its own page, where its worktrees are managed. Repos wanting a
  * decision lead the list, and the filter reaches into them — a repo is matched
- * by its name, or by the path or branch of anything checked out inside it.
+ * by its name, or by the path or branch of anything checked out inside it. The
+ * ahead and behind counts are only as current as each repo's last fetch, so the
+ * list carries the fetch that makes them honest across every repo at once.
  *
  * The server holds the model in memory and rescans in the background, so the
  * listing appears at once and says how old it is; refreshing forces a rescan,
@@ -154,8 +157,11 @@ export function RepoList() {
         <ScanStatus overview={query.data} />
       </div>
       {repos.length > 0 ? (
-        <div className="mt-6 max-w-sm">
-          <TextInput value={filter} onChange={setFilter} placeholder="Filter repos…" />
+        <div className="mt-6 space-y-5">
+          <div className="max-w-sm">
+            <TextInput value={filter} onChange={setFilter} placeholder="Filter repos…" />
+          </div>
+          <FetchAllRepos />
         </div>
       ) : null}
       <div className="mt-6">
