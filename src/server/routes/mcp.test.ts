@@ -160,10 +160,6 @@ describe("mcp routes", () => {
           { name: "delete_directory", description: expect.any(String), permission: "ask" },
           { name: "run_command", description: expect.any(String), permission: "ask" },
           { name: "delegate", description: expect.any(String), permission: "allow" },
-          { name: "worktree_list", description: expect.any(String), permission: "allow" },
-          { name: "worktree_create", description: expect.any(String), permission: "ask" },
-          { name: "worktree_remove", description: expect.any(String), permission: "ask" },
-          { name: "worktree_prune", description: expect.any(String), permission: "ask" },
         ],
       });
     });

@@ -1176,48 +1176,6 @@ describe("sessions routes", () => {
       expect(systemText).not.toContain("You can run shell commands");
     });
 
-    it("offers the worktree tools with their guidance only when kiri.yaml declares roots", async () => {
-      let toolNames: string[] = [];
-      let systemText = "";
-      const model = new MockLanguageModelV3({
-        doStream: async (options) => {
-          toolNames = (options.tools ?? []).map((t) => t.name);
-          const system = options.prompt.find((m) => m.role === "system");
-          systemText = typeof system?.content === "string" ? system.content : "";
-          return {
-            stream: convertArrayToReadableStream([
-              { type: "text-start", id: "t1" },
-              { type: "text-delta", id: "t1", delta: "hi" },
-              { type: "text-end", id: "t1" },
-              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
-            ]),
-          };
-        },
-      }) as unknown as LlmModel;
-
-      const { bus, waitForSettled } = createSessionWaiter();
-      const app = makeApp(fakeClients({ model }), { bus });
-      createSession(env.db, MODEL, { id: "s1" });
-
-      // No `worktrees:` section: declaring roots is what enables the
-      // capability, so neither the tools nor their guidance appear.
-      const first = waitForSettled("s1");
-      await (await postMessage(app, "s1", "what worktrees do I have")).text();
-      await first;
-      expect(toolNames).not.toContain("worktree_list");
-      expect(systemText).not.toContain("You can work with the user's git worktrees");
-
-      writeFileSync(join(env.cwd, "kiri.yaml"), "worktrees:\n  roots: [.]\n");
-      const second = waitForSettled("s1");
-      await (await postMessage(app, "s1", "and now?")).text();
-      await second;
-
-      // Read live per turn, so the edit applies without a restart.
-      expect(toolNames).toContain("worktree_list");
-      expect(toolNames).toContain("worktree_create");
-      expect(systemText).toContain("You can work with the user's git worktrees");
-    });
-
     it("pauses run_command for approval by default, then runs it when approved", async () => {
       writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
       const input = JSON.stringify({ command: "echo hi" });

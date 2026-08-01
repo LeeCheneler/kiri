@@ -23,12 +23,11 @@ export interface BuiltinTool {
  * `kiri.yaml` — declaring it is the authorisation), while tools that execute
  * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
  * (the workflow and filesystem write tools), run model-authored commands
- * (`run_command`), or change the user's git worktrees (`worktree_create`,
- * `worktree_remove`, `worktree_prune`) ask first. `delegate` runs without prompting because its
+ * (`run_command`) ask first. `delegate` runs without prompting because its
  * worker holds only standing-allow tools — delegation never widens what runs
  * unprompted. A tool whose capability isn't configured (the filesystem tools
  * with no declared sandbox, `run_command` with no declared working
- * directories, the worktree tools with no declared roots) is withheld from the model regardless of its permission, as is
+ * directories) is withheld from the model regardless of its permission, as is
  * `delegate` from a child session — a worker can't spawn workers.
  */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
@@ -156,25 +155,5 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "delegate",
     description: "Delegate a self-contained task to an isolated worker session that reports back.",
     defaultPermission: "allow",
-  },
-  {
-    name: "worktree_list",
-    description: "List the git worktrees found under the configured worktree roots.",
-    defaultPermission: "allow",
-  },
-  {
-    name: "worktree_create",
-    description: "Create a git worktree for one of the reachable repos and prepare it.",
-    defaultPermission: "ask",
-  },
-  {
-    name: "worktree_remove",
-    description: "Remove a linked git worktree and tidy up the branch it was on.",
-    defaultPermission: "ask",
-  },
-  {
-    name: "worktree_prune",
-    description: "Prune a repo's stale worktree admin entries.",
-    defaultPermission: "ask",
   },
 ];

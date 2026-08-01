@@ -151,31 +151,6 @@ function buildFilesystemGuidance(
   ].join("\n");
 }
 
-// Cross-cutting guidance for the first-party worktree tools — what a worktree
-// is for and the care a mutation warrants, neither of which a single tool
-// description carries. Keyed off worktree_list, the tool every other worktree
-// call is addressed from, so the layer appears exactly when the capability is
-// offered; the mutation bullets ride only when a mutating tool is actually
-// active, since standing permissions may withhold them.
-function buildWorktreeGuidance(tools: string[]): string | null {
-  if (!tools.includes("worktree_list")) return null;
-  const mutates = ["worktree_create", "worktree_remove", "worktree_prune"].some((name) =>
-    tools.includes(name),
-  );
-  const lines = [
-    "You can work with the user's git worktrees: additional checkouts of a repo, each on its own branch in its own sibling directory, so a piece of work runs without disturbing the checkout the user is sitting in. worktree_list reports the repos kiri can reach and, for each, its primary checkout and linked worktrees with their live state — call it first, since every other worktree call takes a repo name or worktree path exactly as it reports them.",
-  ];
-  if (mutates) {
-    lines.push(
-      "Changing worktrees:",
-      "- Create a worktree when new work wants its own branch and directory — starting a feature or fix, or running something long that would otherwise tie up the user's checkout. Working straight in an existing checkout stays fine for a quick look or a question.",
-      "- A worktree's directory is disposable but its unpushed work is not: never force a removal to get past uncommitted changes or unpushed commits — say what would be lost and let the user decide.",
-      "- Report a create by its path and branch, and a failed prep step as a result to relay rather than something to fix by recreating the worktree — it already exists.",
-    );
-  }
-  return lines.join("\n");
-}
-
 // Cross-cutting guidance for the first-party shell tool — the judgement no
 // tool description can carry: the safety bar a proposed command must clear.
 // The user reviews each call, but the model must never lean on that review as
@@ -310,7 +285,6 @@ function buildCorePrompt(
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, allowedDirectories),
     buildShellGuidance(tools, shellDirectories),
-    buildWorktreeGuidance(tools),
   ];
   return sections.filter((section): section is string => section !== null).join("\n\n");
 }
@@ -361,7 +335,6 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, opts.allowedDirectories ?? []),
     buildShellGuidance(tools, opts.shellDirectories ?? []),
-    buildWorktreeGuidance(tools),
   ];
   return sections.filter((section): section is string => section !== null).join("\n\n");
 }
