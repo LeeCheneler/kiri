@@ -47,11 +47,11 @@ const renderProbe = () => {
 
 describe("worktrees state", () => {
   it("refetches the overview when discovery changes", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(overview(["kiri"]))));
+    server.use(http.get("*/api/git", () => HttpResponse.json(overview(["kiri"]))));
     const { sources } = renderProbe();
     expect(await screen.findByText("repos:1")).toBeDefined();
 
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(overview(["kiri", "site"]))));
+    server.use(http.get("*/api/git", () => HttpResponse.json(overview(["kiri", "site"]))));
     act(() => {
       sources[0]?.emit({ type: "git.changed" });
     });
@@ -59,10 +59,10 @@ describe("worktrees state", () => {
   });
 
   it("re-runs discovery and reloads the overview on refresh", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(overview(["kiri"]))));
+    server.use(http.get("*/api/git", () => HttpResponse.json(overview(["kiri"]))));
     let refreshed = false;
     server.use(
-      http.post("*/api/worktrees/refresh", () => {
+      http.post("*/api/git/refresh", () => {
         refreshed = true;
         return HttpResponse.json(overview(["kiri", "site"]));
       }),
@@ -70,15 +70,15 @@ describe("worktrees state", () => {
     renderProbe();
     expect(await screen.findByText("repos:1")).toBeDefined();
 
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(overview(["kiri", "site"]))));
+    server.use(http.get("*/api/git", () => HttpResponse.json(overview(["kiri", "site"]))));
     await userEvent.click(screen.getByRole("button", { name: "refresh" }));
     expect(refreshed).toBe(true);
     expect(await screen.findByText("repos:2")).toBeDefined();
   });
 
   it("rejects when the refresh fails, leaving the cached overview in place", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(overview(["kiri"]))));
-    server.use(http.post("*/api/worktrees/refresh", () => new HttpResponse(null, { status: 500 })));
+    server.use(http.get("*/api/git", () => HttpResponse.json(overview(["kiri"]))));
+    server.use(http.post("*/api/git/refresh", () => new HttpResponse(null, { status: 500 })));
     renderProbe();
     expect(await screen.findByText("repos:1")).toBeDefined();
 

@@ -720,7 +720,7 @@ export const setToolPermission = async (
   );
 };
 
-/** Live state of a single worktree, from `GET /api/worktrees`. */
+/** Live state of a single worktree, from `GET /api/git`. */
 export interface WorktreeStatus {
   /** Absolute path of the worktree's root directory. */
   path: string;
@@ -770,7 +770,7 @@ export interface WorktreesOverview {
 
 /** Fetch the grouped worktree overview. Throws on non-2xx. */
 export const fetchWorktrees = async (): Promise<WorktreesOverview> =>
-  json<WorktreesOverview>(await apiFetch("/api/worktrees"));
+  json<WorktreesOverview>(await apiFetch("/api/git"));
 
 /**
  * Re-run worktree discovery against the configured roots and return the fresh
@@ -778,7 +778,7 @@ export const fetchWorktrees = async (): Promise<WorktreesOverview> =>
  * client converges on it. Throws on non-2xx.
  */
 export const refreshWorktrees = async (): Promise<WorktreesOverview> =>
-  json<WorktreesOverview>(await apiFetch("/api/worktrees/refresh", { method: "POST" }));
+  json<WorktreesOverview>(await apiFetch("/api/git/refresh", { method: "POST" }));
 
 /** One action taken while preparing a fresh worktree — an env, post-create, or install step. */
 export interface PrepareStep {
@@ -856,7 +856,7 @@ export const createWorktree = async (body: {
   baseRef?: string;
 }): Promise<CreateWorktreeResult> =>
   json<CreateWorktreeResult>(
-    await apiFetch("/api/worktrees/create", {
+    await apiFetch("/api/git/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -873,7 +873,7 @@ export const removeWorktree = async (
   force?: boolean,
 ): Promise<RemoveWorktreeResult> =>
   json<RemoveWorktreeResult>(
-    await apiFetch("/api/worktrees/remove", {
+    await apiFetch("/api/git/remove", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, force }),
@@ -887,7 +887,7 @@ export const removeWorktree = async (
  */
 export const pruneWorktrees = async (repo: string): Promise<PruneWorktreesResult> =>
   json<PruneWorktreesResult>(
-    await apiFetch("/api/worktrees/prune", {
+    await apiFetch("/api/git/prune", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ repo }),

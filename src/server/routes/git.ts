@@ -9,7 +9,7 @@ import { createWorktree, pruneWorktrees, removeWorktree } from "../git/operation
 import { type RepoOverview, worktreesOverview } from "../git/overview.ts";
 import { onZodFail } from "./shared.ts";
 
-export interface WorktreesRoutesDeps {
+export interface GitRoutesDeps {
   /** Workspace config — the scanned roots are read from its `git:` section. */
   config: ConfigStore;
   /** Environment the config load resolves against. */
@@ -35,7 +35,7 @@ const removeBodySchema = z
 const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
 
 /**
- * Build the Hono sub-app for `/api/worktrees`. `GET /` returns the grouped
+ * Build the Hono sub-app for `/api/git`. `GET /` returns the grouped
  * model — the scanned roots plus each discovered repo with its default branch
  * and the live status of its primary checkout and linked worktrees — rebuilt
  * from disk per request, so it always reflects the current `git:` roots.
@@ -53,7 +53,7 @@ const pruneBodySchema = z.object({ repo: z.string().min(1) }).strict();
  * Mounted unconditionally: with no roots configured it answers with an empty
  * model, which is how the client learns there is nothing to scan.
  */
-export function worktreesRoutes(deps: WorktreesRoutesDeps): Hono {
+export function gitRoutes(deps: GitRoutesDeps): Hono {
   const app = new Hono();
 
   const gitConfig = () => loadKiriConfig(deps.config, deps.env).git;

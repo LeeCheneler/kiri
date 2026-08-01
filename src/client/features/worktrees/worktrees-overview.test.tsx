@@ -79,13 +79,13 @@ const settled = {
 
 describe("<WorktreesOverview>", () => {
   it("shows a loading state while the overview is in flight", () => {
-    server.use(http.get("*/api/worktrees", () => new Promise<Response>(() => {})));
+    server.use(http.get("*/api/git", () => new Promise<Response>(() => {})));
     renderOverview();
     expect(screen.getByText(/loading worktrees/i)).toBeDefined();
   });
 
   it("shows an error notice when the overview fails to load", async () => {
-    server.use(http.get("*/api/worktrees", () => new HttpResponse(null, { status: 500 })));
+    server.use(http.get("*/api/git", () => new HttpResponse(null, { status: 500 })));
     renderOverview();
     expect(await screen.findByText(/couldn't load worktrees/i)).toBeDefined();
   });
@@ -97,16 +97,14 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("lists the scanned roots when they hold no repos", async () => {
-    server.use(
-      http.get("*/api/worktrees", () => HttpResponse.json({ roots: ["/projects"], repos: [] })),
-    );
+    server.use(http.get("*/api/git", () => HttpResponse.json({ roots: ["/projects"], repos: [] })));
     renderOverview();
     expect(await screen.findByText(/no git repos were found/i)).toBeDefined();
     expect(screen.getByText("/projects")).toBeDefined();
   });
 
   it("groups worktrees under their repo with each one's state", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     renderOverview();
 
     // A repo holding work starts expanded, so its rows are readable without a click.
@@ -130,7 +128,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("summarises a collapsed repo and expands it to the worktree rows", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(settled)));
     renderOverview();
 
     // Nothing wants a decision and there is nothing but the checkout itself, so
@@ -146,7 +144,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("counts what a repo is carrying in its summary", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     renderOverview();
 
     expect(await screen.findByText("4 worktrees")).toBeDefined();
@@ -157,7 +155,7 @@ describe("<WorktreesOverview>", () => {
 
   it("labels a branchless, attached worktree rather than leaving it blank", async () => {
     server.use(
-      http.get("*/api/worktrees", () =>
+      http.get("*/api/git", () =>
         HttpResponse.json({
           roots: ["/projects"],
           repos: [
@@ -179,13 +177,13 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("re-runs discovery and reloads the listing on refresh", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
-    server.use(http.post("*/api/worktrees/refresh", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
+    server.use(http.post("*/api/git/refresh", () => HttpResponse.json(payload)));
     renderOverview();
     await screen.findByRole("button", { name: /kiri/i });
 
     server.use(
-      http.get("*/api/worktrees", () =>
+      http.get("*/api/git", () =>
         HttpResponse.json({
           roots: ["/projects"],
           repos: [
@@ -205,9 +203,9 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("surfaces a failed refresh without dropping the listing", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     server.use(
-      http.post("*/api/worktrees/refresh", () =>
+      http.post("*/api/git/refresh", () =>
         HttpResponse.json({ error: "roots unreadable" }, { status: 500 }),
       ),
     );
@@ -222,7 +220,7 @@ describe("<WorktreesOverview>", () => {
 
   it("leads with the repos holding worktrees, whatever order they arrive in", async () => {
     server.use(
-      http.get("*/api/worktrees", () =>
+      http.get("*/api/git", () =>
         HttpResponse.json({
           roots: ["/projects"],
           repos: [
@@ -268,7 +266,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("narrows the listing to the worktrees matching the filter", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     renderOverview();
     await screen.findByRole("button", { name: /kiri/i });
 
@@ -279,7 +277,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("matches a worktree on its branch as well as its directory", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     renderOverview();
     await screen.findByRole("button", { name: /kiri/i });
 
@@ -289,7 +287,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("keeps every worktree of a repo the filter names by name", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     renderOverview();
     await screen.findByRole("button", { name: /kiri/i });
 
@@ -300,7 +298,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("says so when the filter matches nothing", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     renderOverview();
     await screen.findByRole("button", { name: /kiri/i });
 
@@ -309,7 +307,7 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("expands a repo the filter matched, so its rows are readable without a click", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(settled)));
     renderOverview();
     // A settled repo starts collapsed, so a match would otherwise be hidden.
     const repo = await screen.findByRole("button", { name: /site/i });
@@ -334,10 +332,10 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("creates a worktree and lets the reloaded listing show it", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     let created: unknown;
     server.use(
-      http.post("*/api/worktrees/create", async ({ request }) => {
+      http.post("*/api/git/create", async ({ request }) => {
         created = await request.json();
         return HttpResponse.json({
           status: "ok",
@@ -365,10 +363,10 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("removes a worktree from its row", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     let removed: unknown;
     server.use(
-      http.post("*/api/worktrees/remove", async ({ request }) => {
+      http.post("*/api/git/remove", async ({ request }) => {
         removed = await request.json();
         return HttpResponse.json({
           status: "ok",
@@ -399,17 +397,17 @@ describe("<WorktreesOverview>", () => {
   });
 
   it("offers no prune action when git holds nothing stale", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(settled)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(settled)));
     renderOverview();
     await screen.findByRole("button", { name: /site/i });
     expect(screen.queryByRole("button", { name: /review and prune/i })).toBeNull();
   });
 
   it("announces stale entries and confirms what a prune would clear", async () => {
-    server.use(http.get("*/api/worktrees", () => HttpResponse.json(payload)));
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload)));
     let pruned: unknown;
     server.use(
-      http.post("*/api/worktrees/prune", async ({ request }) => {
+      http.post("*/api/git/prune", async ({ request }) => {
         pruned = await request.json();
         return HttpResponse.json({ repo: "kiri", pruned: ["/projects/kiri-old"] });
       }),
