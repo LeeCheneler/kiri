@@ -1,13 +1,18 @@
 import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  type Changeset,
+  type ChangesetView,
   type CreateWorktreeResult,
   type FetchResult,
+  type FilePatch,
   type GitOverview,
   type PruneWorktreesResult,
   type PullResult,
   type RemoveWorktreeResult,
   createWorktree,
   fetchAllRepos,
+  fetchChangeset,
+  fetchFilePatch,
   fetchGitOverview,
   fetchRepo,
   pruneWorktrees,
@@ -18,6 +23,12 @@ import {
 import { useLiveSync } from "../events/live.tsx";
 
 const gitKey = ["git"] as const;
+
+// Diffs are computed per request rather than read from the overview snapshot,
+// so they cache under a root of their own. Keeping them out of `gitKey` means an
+// operation invalidating the overview — a fetch, a pull, a worktree change —
+// doesn't drag every diff on screen into a recompute behind it.
+const changesetKey = ["git-changeset"] as const;
 
 /**
  * Read the grouped git overview — every repo with its checkouts. Fetched on
@@ -132,6 +143,48 @@ export function useFetchAllRepos(): () => Promise<FetchResult[]> {
     const results = await fetchAllRepos();
     void queryClient.invalidateQueries({ queryKey: gitKey });
     return results;
+  };
+}
+
+/**
+ * Read what changed in one checkout, in one view. Computed by the server per
+ * request, then cached until the changeset refresh clears it — nothing polls a
+ * diff.
+ */
+export function useChangeset(path: string, view: ChangesetView): UseQueryResult<Changeset> {
+  return useQuery({
+    queryKey: [...changesetKey, "files", path, view],
+    queryFn: () => fetchChangeset(path, view),
+  });
+}
+
+/**
+ * Read one file's patch in the same view, cached under its own key so a
+ * changeset only ever loads the diffs actually opened. `previousPath` pairs the
+ * two sides of a rename into one patch.
+ */
+export function useFilePatch(
+  path: string,
+  view: ChangesetView,
+  file: string,
+  previousPath: string | null,
+): UseQueryResult<FilePatch> {
+  return useQuery({
+    queryKey: [...changesetKey, "patch", path, view, file, previousPath],
+    queryFn: () => fetchFilePatch(path, view, file, previousPath ?? undefined),
+  });
+}
+
+/**
+ * A trigger that drops every cached changeset and patch, so the next read
+ * recomputes them. The working tree moves under kiri without announcing itself,
+ * and recomputing a diff is expensive enough that it stays an explicit ask
+ * rather than something a scan sets off.
+ */
+export function useRefreshChangesets(): () => void {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: changesetKey });
   };
 }
 

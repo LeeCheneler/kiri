@@ -6,6 +6,7 @@ import { Tag } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { useCreateWorktree, usePruneWorktrees, useRemoveWorktree } from "../../state/git.ts";
+import { ChangesLink } from "./changes-link.tsx";
 import { CreateWorktreeModal } from "./create-worktree-modal.tsx";
 import { PruneWorktreesModal, entries, prunablePaths } from "./prune-worktrees-modal.tsx";
 import { RemoveWorktreeModal } from "./remove-worktree-modal.tsx";
@@ -13,8 +14,9 @@ import { RepoSection } from "./repo-section.tsx";
 import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 
 // One linked worktree, in a card of its own: what it is called and the state
-// rail that says what you would do with it, its branch under that, and the
-// removal that tidies it away held out to the right of both.
+// rail that says what you would do with it, its branch and the way into its
+// changes under that, and the removal that tidies it away held out to the right
+// of all three.
 //
 // The card is what ties the action to the worktree. Right-aligning alone works
 // at laptop width and fails at desktop width, where the buttons pull away into a
@@ -24,7 +26,15 @@ import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 // one worktree's box rather than floating in space shared with its neighbours.
 // The action itself takes the destructive variant, solid at rest rather than
 // lighting up on hover, so what it does is legible before it is touched.
-function WorktreeRow({ worktree, onRemove }: { worktree: WorktreeStatus; onRemove: () => void }) {
+function WorktreeRow({
+  repo,
+  worktree,
+  onRemove,
+}: {
+  repo: RepoOverview;
+  worktree: WorktreeStatus;
+  onRemove: () => void;
+}) {
   return (
     <Card>
       <div className="flex items-center justify-between gap-4">
@@ -38,6 +48,11 @@ function WorktreeRow({ worktree, onRemove }: { worktree: WorktreeStatus; onRemov
             ))}
           </p>
           <p className="mt-1 font-mono text-ink-muted text-xs">{branchLabel(worktree)}</p>
+          {/* The way into this worktree's changes sits with the worktree's own
+              identity, well clear of the destructive action on the far side. */}
+          <p className="mt-2 font-mono text-xs">
+            <ChangesLink repo={repo} worktree={worktree} />
+          </p>
         </div>
         <div className="shrink-0">
           <Button variant="negative" onClick={onRemove}>
@@ -103,7 +118,7 @@ export function WorktreesSection({ repo }: { repo: RepoOverview }) {
         <ul className="space-y-3">
           {linked.map((worktree) => (
             <li key={worktree.path}>
-              <WorktreeRow worktree={worktree} onRemove={() => setRemoving(worktree)} />
+              <WorktreeRow repo={repo} worktree={worktree} onRemove={() => setRemoving(worktree)} />
             </li>
           ))}
         </ul>

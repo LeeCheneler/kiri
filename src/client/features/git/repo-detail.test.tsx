@@ -134,6 +134,13 @@ describe("<RepoDetail>", () => {
     expect(section.textContent).toContain("kiri-feat-search");
   });
 
+  it("gives the primary checkout a way into its own changes", async () => {
+    server.use(http.get("*/api/git", () => HttpResponse.json(payload([kiri()]))));
+    renderDetail();
+    const link = await screen.findByRole("link", { name: /review changes/i });
+    expect(link.getAttribute("href")).toBe("/git/kiri/changes/kiri?view=uncommitted");
+  });
+
   it("offers the refresh and says how old the model on screen is", async () => {
     server.use(http.get("*/api/git", () => HttpResponse.json(payload([kiri()]))));
     renderDetail();

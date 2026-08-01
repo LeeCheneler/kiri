@@ -69,6 +69,18 @@ describe("<WorktreesSection>", () => {
     expect(screen.getAllByText("clean").length).toBeGreaterThan(0);
   });
 
+  it("gives each linked worktree a way into its own changes", () => {
+    renderSection(
+      repo([
+        worktree({ primary: true }),
+        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search", dirty: true }),
+      ]),
+    );
+    expect(screen.getByRole("link", { name: /review changes/i }).getAttribute("href")).toBe(
+      "/git/kiri/changes/kiri-feat-search?view=uncommitted",
+    );
+  });
+
   it("leaves the primary checkout out of the list — it is the repo", () => {
     renderSection(stocked);
     // One remove action per linked worktree, and none for the primary.

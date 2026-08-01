@@ -5,6 +5,7 @@ import { Tag } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useGitOverview } from "../../state/git.ts";
+import { ChangesLink } from "./changes-link.tsx";
 import { RemoteSection } from "./remote-section.tsx";
 import { ScanStatus } from "./scan-status.tsx";
 import { branchLabel, stateTags } from "./worktree-state.ts";
@@ -39,6 +40,9 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
       <div className="mt-6 flex flex-wrap gap-x-10 gap-y-5">
         <Fact label="Default branch">{repo.defaultBranch ?? "none"}</Fact>
         {primary ? (
+          // The way into the primary checkout's changes belongs beside the
+          // primary checkout itself; it has no row in the Worktrees section,
+          // which lists only the linked ones.
           <Fact label="Primary checkout">
             {branchLabel(primary)}
             {stateTags(primary).map((tag) => (
@@ -46,6 +50,7 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
                 {tag.label}
               </Tag>
             ))}
+            <ChangesLink repo={repo} worktree={primary} />
           </Fact>
         ) : null}
       </div>
@@ -56,7 +61,7 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
 /**
  * A repo's own page: what the repo is, then a stack of sections managing it —
  * its standing with its remote and its worktrees, with room for the rest to
- * arrive alongside them.
+ * arrive alongside them. Each checkout links through to its own changes.
  *
  * `name` is the repo's directory name, which is also the key its `kiri.yaml`
  * overrides are written under. Two roots can hold directories of the same name;

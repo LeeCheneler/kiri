@@ -1,4 +1,4 @@
-import type { WorktreeStatus } from "../../api.ts";
+import type { ChangesetView, WorktreeStatus } from "../../api.ts";
 import type { TagTone } from "../../design-system/content/tag.tsx";
 
 /**
@@ -6,6 +6,31 @@ import type { TagTone } from "../../design-system/content/tag.tsx";
  * conversation ("kiri-feat-search"), with the full path kept alongside it.
  */
 export const dirName = (path: string): string => path.split("/").filter(Boolean).pop() ?? path;
+
+/**
+ * Where a checkout's changes are read: its repo, then its own directory name.
+ * The primary checkout's directory is the repo's, so it addresses itself
+ * without an id scheme of its own.
+ */
+export const changesHref = (repo: string, path: string, view: ChangesetView): string =>
+  `/git/${encodeURIComponent(repo)}/changes/${encodeURIComponent(dirName(path))}?view=${view}`;
+
+/**
+ * Which view of a checkout is worth landing on, decided from the scan alone: a
+ * dirty checkout leads with its working tree, anything else with what its branch
+ * introduces. Null when the scan already proves both views are empty — a clean
+ * checkout sitting on the default branch has nothing either could show — so a
+ * link to it can be withheld rather than leading somewhere empty.
+ */
+export const changesView = (
+  worktree: WorktreeStatus,
+  defaultBranch: string | null,
+): ChangesetView | null => {
+  if (worktree.dirty) return "uncommitted";
+  if (defaultBranch !== null && !worktree.detached && worktree.branch === defaultBranch)
+    return null;
+  return "branch";
+};
 
 /** What a checkout is sitting on, phrased for a reader rather than left blank. */
 export const branchLabel = (worktree: WorktreeStatus): string =>
