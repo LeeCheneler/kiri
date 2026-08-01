@@ -765,14 +765,16 @@ export function DesignSystemContent() {
               <p className="mt-3">
                 A file change as a unified diff: hunk headers as faint separators feeding old/new
                 line numbers into the gutter, additions in the ok tone, removals in the failed tone.
-                Pass the hunk-only patches the filesystem write tools produce, or build a
-                header-less pseudo-diff from two whole strings with <Code>patchFromStrings</Code>{" "}
-                when only the before/after sides are known — a one-sided pseudo (a whole file
-                arriving or going) numbers from 1, a mixed one drops the number gutters entirely.{" "}
-                <Code>truncated</Code> appends a note that the server cut the diff short.
+                Pass a whole patch straight from <Code>git diff</Code> — the per-file preamble is
+                skipped, keeping any notice it carries — or the hunk-only patches the filesystem
+                write tools produce, or build a header-less pseudo-diff from two whole strings with{" "}
+                <Code>patchFromStrings</Code> when only the before/after sides are known: a
+                one-sided pseudo (a whole file arriving or going) numbers from 1, a mixed one drops
+                the number gutters entirely. <Code>truncated</Code> appends a note that the server
+                cut the diff short.
               </p>
             </Prose>
-            <div className="mt-5">
+            <div className="mt-5 space-y-5">
               <Card>
                 <Diff
                   patch={[
@@ -781,6 +783,22 @@ export function DesignSystemContent() {
                     '-  return "Hello, " + name;',
                     "+  return `Hello, ${name}!`;",
                     " }",
+                  ].join("\n")}
+                />
+              </Card>
+              <Card>
+                <Diff
+                  patch={[
+                    "diff --git a/src/greet.ts b/src/greet.ts",
+                    "index 3f9a1c2..8b4d5e6 100644",
+                    "--- a/src/greet.ts",
+                    "+++ b/src/greet.ts",
+                    "@@ -12,6 +12,6 @@ export function greet(name) {",
+                    "   const trimmed = name.trim();",
+                    '-  return "Hello, " + trimmed;',
+                    "+  return `Hello, ${trimmed}!`;",
+                    " }",
+                    "",
                   ].join("\n")}
                 />
               </Card>
