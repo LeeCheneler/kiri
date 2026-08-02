@@ -25,26 +25,28 @@ const pullable = (worktree: WorktreeStatus): boolean =>
  * be refused — which is most of the time — so a page with nothing to pull says
  * nothing rather than spending a band on it.
  *
- * Inline-level throughout, so it can sit in the run of facts on the repo header
- * as readily as in a worktree's card. Routine rather than destructive: it takes
- * the ordinary outlined button, leaving the solid negative treatment to the
- * removal it sits beside.
+ * Inline-level throughout, so it sits in a checkout's card without a layout of
+ * its own. Routine rather than destructive: it takes the ordinary outlined
+ * button, leaving the solid negative treatment to the removal it sits beside.
  *
- * The outcome outlives the action: a checkout that pulls successfully stops
- * being behind and the button goes, so what happened is stated where the button
- * was rather than disappearing with it.
+ * A pull that works says nothing: the button shows it working, then the checkout
+ * is no longer behind and the action goes with it. What actually moved is on the
+ * checkout's own state rail. Only a pull that did not happen reports itself —
+ * a refusal with its reason, or git's own message.
  */
 export function CheckoutPull({ worktree }: { worktree: WorktreeStatus }) {
   const pull = usePullCheckout();
   const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<PullResult | null>(null);
+  const [failure, setFailure] = useState<PullResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const onPull = () => {
     setPending(true);
     setErrorMessage(null);
     pull(worktree.path)
-      .then(setResult)
+      .then((result) =>
+        setFailure(result.status === "refused" || result.status === "failed" ? result : null),
+      )
       .catch((error: unknown) =>
         setErrorMessage(error instanceof Error ? error.message : "Try again."),
       )
@@ -52,9 +54,8 @@ export function CheckoutPull({ worktree }: { worktree: WorktreeStatus }) {
   };
 
   const offered = pullable(worktree);
-  if (!offered && result === null && errorMessage === null) return null;
+  if (!offered && failure === null && errorMessage === null) return null;
 
-  const detail = result === null ? null : (result.reason ?? result.error);
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       {offered ? (
@@ -62,23 +63,16 @@ export function CheckoutPull({ worktree }: { worktree: WorktreeStatus }) {
           Pull
         </Button>
       ) : null}
-      {result === null ? null : (
+      {failure === null ? null : (
         <span className="inline-flex flex-wrap items-center gap-2">
-          <SyncTag status={result.status} />
-          {result.status === "updated" ? (
-            <span className="font-mono text-ink-muted text-xs">
-              fast-forwarded {result.commits} {result.commits === 1 ? "commit" : "commits"}
-            </span>
-          ) : null}
-          {detail === undefined || detail === null ? null : (
-            <span
-              className={`whitespace-pre-wrap break-words font-mono text-xs ${
-                result.error === undefined ? "text-ink-muted" : "text-status-failed"
-              }`}
-            >
-              {detail}
-            </span>
-          )}
+          <SyncTag status={failure.status} />
+          <span
+            className={`whitespace-pre-wrap break-words font-mono text-xs ${
+              failure.error === undefined ? "text-ink-muted" : "text-status-failed"
+            }`}
+          >
+            {failure.reason ?? failure.error}
+          </span>
         </span>
       )}
       {errorMessage === null ? null : (

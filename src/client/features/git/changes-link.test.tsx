@@ -57,7 +57,6 @@ describe("<ChangesLink>", () => {
   it("withholds the link when the scan already proves both views are empty", () => {
     renderLink(worktree({ path: "/projects/kiri", branch: "main", primary: true }));
     expect(screen.queryByRole("link")).toBeNull();
-    expect(screen.getByText(/nothing to review/i)).toBeDefined();
   });
 
   it("still links a detached checkout, which has a merge-base worth reading", () => {

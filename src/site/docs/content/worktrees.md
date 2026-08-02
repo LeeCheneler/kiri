@@ -172,8 +172,8 @@ page of its own showing what it has changed, so a branch can be read file by
 file without leaving kiri. Where the link lands is decided from what the scan
 already knows: a checkout with uncommitted work opens on its working tree,
 anything else on what its branch introduces. A clean checkout sitting on the
-default branch has nothing either view could show, and says so instead of
-offering a link.
+default branch has nothing either view could show, so it offers no link at
+all.
 
 There are two views and nothing between them:
 

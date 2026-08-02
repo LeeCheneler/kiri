@@ -94,10 +94,28 @@ describe("<WorktreesSection>", () => {
     expect(screen.getAllByRole("button", { name: "Pull" })).toHaveLength(1);
   });
 
-  it("leaves the primary checkout out of the list — it is the repo", () => {
+  it("lists the primary checkout, marked as such and with no removal offered", () => {
     renderSection(stocked);
+    expect(screen.getByText("primary")).toBeDefined();
     // One remove action per linked worktree, and none for the primary.
     expect(screen.getAllByRole("button", { name: "remove" })).toHaveLength(4);
+  });
+
+  it("gives the primary checkout the same way into its changes as any other", () => {
+    renderSection(repo([worktree({ primary: true, dirty: true })]));
+    expect(screen.getByRole("link", { name: /review changes/i }).getAttribute("href")).toBe(
+      "/git/kiri/changes/kiri?view=uncommitted",
+    );
+  });
+
+  it("offers the pull on the primary checkout too", () => {
+    renderSection(repo([worktree({ primary: true, behind: 2 })]));
+    expect(screen.getByRole("button", { name: "Pull" })).toBeDefined();
+  });
+
+  it("names a detached checkout rather than leaving it blank", () => {
+    renderSection(repo([worktree({ primary: true, branch: null, detached: true })]));
+    expect(screen.getByText("detached")).toBeDefined();
   });
 
   it("labels a branchless, attached worktree rather than leaving it blank", () => {
