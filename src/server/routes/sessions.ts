@@ -340,10 +340,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     const builtin: ToolSet = {
       ...builtinToolsFor(sessionId),
       // A worker can't spawn workers: delegate is offered only to a session
-      // with no parent.
+      // with no parent. Text tiers, when configured, make the worker's model
+      // a required tier choice, read live so a kiri.yaml edit applies on the
+      // next turn.
       ...(getSession(db, sessionId)?.parentSessionId
         ? {}
-        : delegateTool({ db, parentSessionId: sessionId, childTurnDeps, bus, cancelRegistry })),
+        : delegateTool({
+            db,
+            parentSessionId: sessionId,
+            childTurnDeps,
+            bus,
+            cancelRegistry,
+            textTiers: deps.getModelTiers?.().text,
+          })),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
       const builtinTool = builtin[name];
@@ -633,6 +642,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         Object.keys(tools),
         sandboxDirectories(),
         shellWorkingDirectories(),
+        deps.getModelTiers?.().text !== undefined,
       );
       const turnDeps = {
         db,

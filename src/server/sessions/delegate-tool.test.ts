@@ -116,17 +116,17 @@ describe("delegate tool", () => {
   const invoke = (
     deps: DelegateToolDeps,
     task: string,
-    opts: { toolCallId?: string; abortSignal?: AbortSignal } = {},
+    opts: { toolCallId?: string; abortSignal?: AbortSignal; model?: string } = {},
   ): Promise<string> => {
     const set = delegateTool(deps);
     const delegate = set[DELEGATE_TOOL_NAME] as {
       execute: (
-        input: { task: string },
+        input: { task: string; model?: string },
         options: { toolCallId: string; messages: []; abortSignal?: AbortSignal },
       ) => Promise<string>;
     };
     return delegate.execute(
-      { task },
+      { task, model: opts.model },
       { toolCallId: opts.toolCallId ?? "call_1", messages: [], abortSignal: opts.abortSignal },
     );
   };
@@ -152,6 +152,40 @@ describe("delegate tool", () => {
     const rows = getSessionMessages(db, child?.id ?? "");
     expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
     expect(events).toContainEqual({ type: "session.started", id: child?.id ?? "" });
+  });
+
+  it("spawns the worker on the named tier's model when text tiers are configured", async () => {
+    const capture: { childId?: string } = {};
+    const deps: DelegateToolDeps = {
+      ...depsFor(reportingModel("Done."), capture),
+      textTiers: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+    };
+
+    const report = await invoke(deps, "Quick lookup", { model: "tanto" });
+
+    expect(report).toBe("Done.");
+    // The tier resolved to its configured model at spawn — the child stores
+    // that id rather than the parent's model.
+    expect(capture.childId && getSession(db, capture.childId)?.model).toBe("a:small");
+  });
+
+  it("requires the model tier exactly when text tiers are configured", () => {
+    const withTiers = delegateTool({
+      ...depsFor(reportingModel("")),
+      textTiers: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+    })[DELEGATE_TOOL_NAME] as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } };
+    expect(withTiers.inputSchema.safeParse({ task: "t" }).success).toBe(false);
+    expect(withTiers.inputSchema.safeParse({ task: "t", model: "katana" }).success).toBe(true);
+    expect(withTiers.inputSchema.safeParse({ task: "t", model: "wakizashi" }).success).toBe(false);
+
+    const withoutTiers = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
+      inputSchema: { safeParse: (v: unknown) => { success: boolean; data?: unknown } };
+    };
+    const bare = withoutTiers.inputSchema.safeParse({ task: "t" });
+    expect(bare.success).toBe(true);
+    // Unconfigured, the prop doesn't exist at all — a stray value is dropped.
+    const stray = withoutTiers.inputSchema.safeParse({ task: "t", model: "katana" });
+    expect(stray.data).toEqual({ task: "t" });
   });
 
   it("re-attaches to the child a repeated call already created", async () => {

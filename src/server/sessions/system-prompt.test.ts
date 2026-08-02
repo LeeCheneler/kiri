@@ -445,6 +445,22 @@ describe("delegate guidance", () => {
     expect(withoutDelegate).not.toContain("Delegation is the rule for research");
     expect(withoutDelegate).not.toContain("Route before you run");
   });
+
+  it("adds the tier right-sizing rule only when text tiers are configured", () => {
+    const withTiers = buildSystemPrompt({
+      config,
+      tools: ["delegate"],
+      tiersConfigured: true,
+      now: FIXED_NOW,
+    });
+    expect(withTiers).toContain("Right-size the worker");
+    expect(withTiers).toContain("`tanto` for quick mechanical legwork");
+    expect(withTiers).toContain("`katana` as the default working blade");
+    expect(withTiers).toContain("`odachi` for deep synthesis and the hardest problems");
+    // Unconfigured, the tool has no model prop, so the steer must not name one.
+    const withoutTiers = buildSystemPrompt({ config, tools: ["delegate"], now: FIXED_NOW });
+    expect(withoutTiers).not.toContain("Right-size the worker");
+  });
 });
 
 describe("buildChildSessionPrompt", () => {

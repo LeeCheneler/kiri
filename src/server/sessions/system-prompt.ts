@@ -180,13 +180,19 @@ function buildShellGuidance(tools: string[], workingDirectories: readonly string
 // call, even by a small model. A returned report closes the task rather than
 // seeding a re-run (the leak delegation exists to prevent). Keyed off the
 // tool's name, so a session not offered it — or a child session, which never
-// is — gets no delegation steer.
-function buildDelegateGuidance(tools: string[]): string | null {
+// is — gets no delegation steer. With text tiers configured the tool takes a
+// required `model` tier, so the steer adds the right-sizing rule.
+function buildDelegateGuidance(tools: string[], tiersConfigured: boolean): string | null {
   if (!tools.includes("delegate")) return null;
   return [
     "You can delegate: the `delegate` tool hands a self-contained task to a worker session — the same model as you, holding the tools the user always allows — that does the legwork in its own context and returns only a written report, so this conversation holds the findings rather than the working. The user watches the worker live in the transcript, so delegating hides nothing.",
     'Delegation is the rule for research, not an option to weigh. A comparison ("how does X compare to Y"), a roundup or comprehensive breakdown, a "what\'s the latest on X", any request answered by gathering from more than one place: these go to `delegate` as your first tool call for the request. Running their searches, fetches, and reads in this conversation is a mistake, however efficient each call looks. The only research to run inline is a single specific lookup — one search or one read whose result you use directly.',
     "Delegating well:",
+    ...(tiersConfigured
+      ? [
+          "- Right-size the worker with the required `model` tier: `tanto` for quick mechanical legwork, `katana` as the default working blade, `odachi` for deep synthesis and the hardest problems. When in doubt, `katana`.",
+        ]
+      : []),
     '- Catch yourself at the plan: the moment your next step is "let me research / search / look into", that step is the delegate task — write it as the brief instead of making its first call yourself. Mid-way counts too: needing a second call on the same question means you are past the line — stop and delegate the remainder.',
     "- Write the task as a complete, self-contained brief: the worker cannot see this conversation, so state the goal, the specifics to find or produce, and the shape of report you want back.",
     "- Independent strands are separate tasks: delegate each in its own call — several can run in the same step — rather than bundling unrelated questions into one brief.",
@@ -257,6 +263,7 @@ function buildCorePrompt(
   host: HostEnvironment,
   allowedDirectories: readonly string[],
   shellDirectories: readonly string[],
+  tiersConfigured: boolean,
 ): string {
   const today = now.toISOString().slice(0, 10);
   const intro = [
@@ -273,7 +280,7 @@ function buildCorePrompt(
     intro,
     buildResponseGuidance(),
     buildToolGuidance(tools),
-    buildDelegateGuidance(tools),
+    buildDelegateGuidance(tools, tiersConfigured),
     buildChartGuidance(),
     buildDiagramGuidance(),
     buildArticleGuidance(tools),
@@ -358,6 +365,8 @@ export interface BuildSystemPromptOptions {
   allowedDirectories?: readonly string[];
   /** The shell tool's working directories, enumerated in its guidance alongside the command-safety rules. */
   shellDirectories?: readonly string[];
+  /** Whether text model tiers are configured — the delegate steer then covers the required tier choice. */
+  tiersConfigured?: boolean;
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
   /** Host injection for tests; defaults to the running process's machine. */
@@ -379,6 +388,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.host ?? detectHostEnvironment(),
       opts.allowedDirectories ?? [],
       opts.shellDirectories ?? [],
+      opts.tiersConfigured ?? false,
     ),
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
@@ -399,9 +409,16 @@ export function createSystemPromptBuilder(
   tools: string[] = [],
   allowedDirectories: readonly string[] = [],
   shellDirectories: readonly string[] = [],
+  tiersConfigured = false,
 ): (session: Session) => string {
   return (session: Session) =>
     session.parentSessionId !== null
       ? buildChildSessionPrompt({ tools, allowedDirectories, shellDirectories })
-      : buildSystemPrompt({ config, tools, allowedDirectories, shellDirectories });
+      : buildSystemPrompt({
+          config,
+          tools,
+          allowedDirectories,
+          shellDirectories,
+          tiersConfigured,
+        });
 }
