@@ -116,6 +116,57 @@ describe("<NewSessionButton>", () => {
     await waitFor(() => expect(sentModel).toBe("openai:gpt"));
   });
 
+  it("starts on the tanto tiers, not the most recent model, when tiers are configured", async () => {
+    let sent: { model?: string; imageModel?: string } = {};
+    server.use(
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          ...models("openai:gpt"),
+          tiers: {
+            text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+            image: { tanto: "b:small", katana: "b:mid", odachi: "b:big" },
+          },
+        }),
+      ),
+      http.get("*/api/sessions", () =>
+        HttpResponse.json(sessionsPage(session("s1", "anthropic:claude"))),
+      ),
+      http.post("*/api/sessions", async ({ request }) => {
+        sent = (await request.json()) as { model: string; imageModel?: string };
+        return HttpResponse.json({ session: session("new-4", sent.model ?? "") }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderButton();
+
+    await user.click(await enabledButton());
+
+    await waitFor(() => expect(sent).toEqual({ model: "a:small", imageModel: "b:small" }));
+  });
+
+  it("starts with no image model when only text tiers are configured", async () => {
+    let sent: { model?: string; imageModel?: string } = {};
+    server.use(
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          ...models("openai:gpt"),
+          tiers: { text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" } },
+        }),
+      ),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.post("*/api/sessions", async ({ request }) => {
+        sent = (await request.json()) as { model: string; imageModel?: string };
+        return HttpResponse.json({ session: session("new-5", sent.model ?? "") }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderButton();
+
+    await user.click(await enabledButton());
+
+    await waitFor(() => expect(sent).toEqual({ model: "a:small" }));
+  });
+
   it("re-enables and stays put when the create fails", async () => {
     server.use(
       http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),

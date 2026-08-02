@@ -1,4 +1,6 @@
-import { Combobox } from "../../design-system/actions/combobox.tsx";
+import { humaniseSlug } from "../../../shared/humanise-slug.ts";
+import type { ModelTiers } from "../../api.ts";
+import { Combobox, type ComboboxItem } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
@@ -13,6 +15,19 @@ const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
 // The image-model picker entry that means "image generation off". Model ids
 // are always `provider:model`, so a real model can never collide with it.
 const IMAGE_MODEL_NONE = "None";
+
+// A modality's configured tiers as picker entries — each the tier's model id
+// under a "tier — id" label, smallest blade first.
+const tierItems = (tiers: ModelTiers): ComboboxItem[] =>
+  (["tanto", "katana", "odachi"] as const).map((tier) => ({
+    value: tiers[tier],
+    label: `${tier} — ${tiers[tier]}`,
+  }));
+
+// Pin a modality's tiers as the leading picker group, ahead of the full
+// listing; without tiers the flat listing stands alone.
+const withTiers = (tiers: ModelTiers | undefined, options: (string | ComboboxItem)[]) =>
+  tiers ? [{ label: "Tiers", options: tierItems(tiers) }, { options }] : options;
 
 /**
  * The session chat right rail: the session's model (with whether it accepts
@@ -39,8 +54,11 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   // resolved its model and the change applies next.
   const modelIds = models.filter((model) => model.output === "text").map((model) => model.id);
   const withCurrent = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
-  const modelOptions = [...withCurrent].sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  // Configured tiers lead the picker as a pinned group; the full listing
+  // follows unchanged.
+  const modelOptions = withTiers(
+    modelsData?.tiers?.text,
+    [...withCurrent].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
   );
   const turnInFlight = session.status === "running";
 
@@ -58,12 +76,12 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
     session.imageModel && !imageModelIds.includes(session.imageModel)
       ? [session.imageModel, ...imageModelIds]
       : imageModelIds;
-  const imageModelOptions = [
+  const imageModelOptions = withTiers(modelsData?.tiers?.image, [
     IMAGE_MODEL_NONE,
     ...[...withCurrentImageModel].sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     ),
-  ];
+  ]);
   const showImageModel = withCurrentImageModel.length > 0;
 
   return (

@@ -99,6 +99,68 @@ describe("<SessionAside>", () => {
     ]);
   });
 
+  it("pins the configured text tiers ahead of the full model listing", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openai:gpt", provider: "openai", output: "text" },
+          ],
+          failures: [],
+          tiers: {
+            text: { tanto: "openai:gpt", katana: "anthropic:claude", odachi: "anthropic:claude" },
+          },
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /^model/i }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "tanto — openai:gpt",
+      "katana — anthropic:claude",
+      "odachi — anthropic:claude",
+      "anthropic:claude",
+      "openai:gpt",
+    ]);
+  });
+
+  it("pins the configured image tiers ahead of the image model listing", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ imageModel: "openai:gpt-image" })),
+      ),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openai:gpt-image", provider: "openai", output: "image" },
+          ],
+          failures: [],
+          tiers: {
+            image: {
+              tanto: "openai:gpt-image",
+              katana: "openai:gpt-image",
+              odachi: "openai:gpt-image",
+            },
+          },
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /image model/i }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "tanto — openai:gpt-image",
+      "katana — openai:gpt-image",
+      "odachi — openai:gpt-image",
+      "None",
+      "openai:gpt-image",
+    ]);
+  });
+
   it("offers only text-output models in the model picker", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),

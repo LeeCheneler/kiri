@@ -606,10 +606,24 @@ export interface ModelsFailure {
   reason: string;
 }
 
-/** Available models across configured providers, plus any per-provider failures. */
+/** One modality's configured model tiers, each a `provider:model` id. */
+export interface ModelTiers {
+  tanto: string;
+  katana: string;
+  odachi: string;
+}
+
+/** The configured tiers per modality; a modality without tiers is absent. */
+export interface ModelTiersConfig {
+  text?: ModelTiers;
+  image?: ModelTiers;
+}
+
+/** Available models across configured providers, plus any per-provider failures and the configured tiers. */
 export interface ModelsResult {
   models: ModelInfo[];
   failures: ModelsFailure[];
+  tiers?: ModelTiersConfig;
 }
 
 /** Fetch the models every configured provider offers. Throws on non-2xx. */
@@ -906,15 +920,19 @@ export const fetchSessionChildren = async (id: string): Promise<Session[]> =>
 
 /**
  * Create a session against `model` (a `provider:model` id), returning the new
- * row — navigate to it to start chatting. Throws `ApiError` on non-2xx, notably
- * 400 when the model can't be resolved against the provider registry.
+ * row — navigate to it to start chatting. Pass `imageModel` to start with image
+ * generation on. Throws `ApiError` on non-2xx, notably 400 when a model can't
+ * be resolved against the provider registry.
  */
-export const createSession = async (model: string): Promise<{ session: Session }> =>
+export const createSession = async (
+  model: string,
+  imageModel?: string,
+): Promise<{ session: Session }> =>
   json<{ session: Session }>(
     await apiFetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model }),
+      body: JSON.stringify(imageModel === undefined ? { model } : { model, imageModel }),
     }),
   );
 
