@@ -192,6 +192,50 @@ describe("<RepoList>", () => {
     expect(names).toEqual(["/git/zulu", "/git/bravo", "/git/alpha"]);
   });
 
+  it("counts the worktrees whose branch no longer merges into the default branch", async () => {
+    server.use(
+      http.get("*/api/git", () =>
+        HttpResponse.json(
+          payload([
+            repo("kiri", [
+              worktree({ primary: true }),
+              worktree({ path: "/projects/kiri-one", conflicts: ["src/api.ts"] }),
+              worktree({ path: "/projects/kiri-two", conflicts: [] }),
+            ]),
+          ]),
+        ),
+      ),
+    );
+    renderList();
+
+    expect(await screen.findByText("1 conflicting")).toBeDefined();
+  });
+
+  it("hoists a repo holding a conflicting worktree to the front of the list", async () => {
+    server.use(
+      http.get("*/api/git", () =>
+        HttpResponse.json(
+          payload([
+            repo("alpha", [worktree({ path: "/projects/alpha", primary: true })]),
+            repo("bravo", [
+              worktree({ path: "/projects/bravo", primary: true }),
+              worktree({ path: "/projects/bravo-feat", branch: "feat/thing" }),
+            ]),
+            repo("zulu", [
+              worktree({ path: "/projects/zulu", primary: true }),
+              worktree({ path: "/projects/zulu-feat", conflicts: ["src/api.ts"] }),
+            ]),
+          ]),
+        ),
+      ),
+    );
+    renderList();
+    await screen.findByRole("link", { name: /zulu/i });
+
+    const names = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
+    expect(names).toEqual(["/git/zulu", "/git/bravo", "/git/alpha"]);
+  });
+
   it("narrows the listing to the repos matching the filter", async () => {
     server.use(
       http.get("*/api/git", () =>

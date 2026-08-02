@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { SCAN_CONCURRENCY, mapConcurrent } from "./concurrency.ts";
+import { withConflicts } from "./conflicts.ts";
 import { discoverRepos } from "./discovery.ts";
 import { defaultBranch } from "./operations.ts";
 import { type WorktreeStatus, worktreeStatus } from "./status.ts";
@@ -57,6 +58,12 @@ const lastFetchedAt = async (gitCommonDir: string): Promise<string | null> => {
  * a brand-new branch is cut from — and when it was last fetched, stat'd from
  * git's own `FETCH_HEAD` rather than tracked by kiri. Read-only; runs git status
  * commands but never fetches or mutates.
+ *
+ * Each linked worktree is also merged into its repo's remote default branch in
+ * the object store, so a branch that has stopped merging cleanly is carried by
+ * the scan rather than discovered on a rebase. That is a genuine three-way merge
+ * and the most expensive thing here, which is why it is confined to the linked
+ * worktrees and runs in its own bounded pass at the end.
  */
 export async function gitOverview(roots: readonly string[]): Promise<GitOverview> {
   const discovered = await discoverRepos(roots);
@@ -86,5 +93,5 @@ export async function gitOverview(roots: readonly string[]): Promise<GitOverview
     };
   });
   repos.sort((a, b) => a.name.localeCompare(b.name) || a.root.localeCompare(b.root));
-  return { roots: [...roots], repos };
+  return { roots: [...roots], repos: await withConflicts(repos) };
 }

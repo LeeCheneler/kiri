@@ -483,6 +483,27 @@ describe("git routes", () => {
     });
   });
 
+  describe("conflicts with the default branch", () => {
+    it("carries what the scan found onto the worktree it is about", async () => {
+      const { origin, clone } = repoWithRemote();
+      const worktree = realJoin("repos", "clone-feature");
+      git(clone, "worktree", "add", "-q", worktree, "-b", "feature");
+      git(worktree, "config", "user.email", "test@example.com");
+      git(worktree, "config", "user.name", "Test");
+      commitTo(worktree, "the branch's own take");
+      git(origin, "config", "receive.denyCurrentBranch", "ignore");
+      commitTo(origin, "what everyone else has");
+      git(clone, "fetch", "-q", "origin");
+
+      const body = (await (await (await buildApp()).request("/api/git")).json()) as GitSnapshot;
+
+      const reported = body.repos
+        .flatMap((repo) => repo.worktrees)
+        .find((candidate) => candidate.path === worktree);
+      expect(reported?.conflicts).toEqual(["file.txt"]);
+    });
+  });
+
   describe("GET /api/git/changeset/patch", () => {
     const patchUrl = (query: Record<string, string>) =>
       `/api/git/changeset/patch?${new URLSearchParams(query)}`;

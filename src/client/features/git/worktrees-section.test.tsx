@@ -70,6 +70,50 @@ describe("<WorktreesSection>", () => {
     expect(screen.getAllByText("clean").length).toBeGreaterThan(0);
   });
 
+  // A repo with one linked worktree carrying the scan's conflict answer.
+  const withConflicts = (conflicts?: string[]) =>
+    renderSection(
+      repo([
+        worktree({ primary: true }),
+        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search", conflicts }),
+      ]),
+    );
+
+  it("flags a worktree whose branch no longer merges into the default branch", () => {
+    withConflicts(["src/api.ts", "docs/notes.md"]);
+
+    const card = screen
+      .getAllByRole("listitem")
+      .find((item) => within(item).queryByText("kiri-feat-search") !== null) as HTMLElement;
+    expect(within(card).getByText("conflicts main")).toBeDefined();
+    expect(within(card).getByText(/src\/api\.ts, docs\/notes\.md/)).toBeDefined();
+  });
+
+  it("says the answer is only as fresh as the last update", () => {
+    withConflicts(["src/api.ts"]);
+
+    expect(screen.getByText(/as of the last update/i)).toBeDefined();
+  });
+
+  it("names the first few conflicting files and counts the rest", () => {
+    withConflicts(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"]);
+
+    expect(screen.getByText(/a\.ts, b\.ts, c\.ts and 2 more/)).toBeDefined();
+  });
+
+  it("says nothing at all about a branch that still merges cleanly", () => {
+    withConflicts([]);
+
+    expect(screen.queryByText("conflicts main")).toBeNull();
+    expect(screen.queryByText(/as of the last update/i)).toBeNull();
+  });
+
+  it("says nothing about a worktree the scan had no answer for", () => {
+    withConflicts(undefined);
+
+    expect(screen.queryByText("conflicts main")).toBeNull();
+  });
+
   it("gives each linked worktree a way into its own changes", () => {
     renderSection(
       repo([

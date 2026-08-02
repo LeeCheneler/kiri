@@ -37,20 +37,67 @@ export const branchLabel = (worktree: WorktreeStatus): string =>
   worktree.detached ? "detached" : (worktree.branch ?? "no branch");
 
 /**
+ * Whether a worktree's branch is known to have stopped merging into the repo's
+ * default branch. No answer is not the same as a clean one — the scan leaves a
+ * worktree unmarked when it had no question to ask or git could not merge it —
+ * so this reads as "reported as conflicting", never as "reported as fine".
+ */
+export const conflicting = (worktree: WorktreeStatus): boolean =>
+  (worktree.conflicts?.length ?? 0) > 0;
+
+/**
  * A worktree's state as a rail of tags, ordered so the working tree leads and
  * the rarer flags trail. Working-tree state is always stated — clean is a fact
  * worth reading, not an absence. Tracking is reported only when it has something
  * to say: a branch level with its upstream, or with no upstream at all, stays
  * silent rather than showing a row of zeroes.
+ *
+ * A branch that no longer merges into `defaultBranch` is called out second, just
+ * behind the working tree: it is the most actionable thing the rail can say, and
+ * the one nothing else on the page hints at. A branch that merges cleanly, and
+ * one the scan had no answer for, both say nothing — silence here is the absence
+ * of a problem, not a claim there is none.
  */
-export const stateTags = (worktree: WorktreeStatus): { label: string; tone: TagTone }[] => {
+export const stateTags = (
+  worktree: WorktreeStatus,
+  defaultBranch: string | null,
+): { label: string; tone: TagTone }[] => {
   const tags: { label: string; tone: TagTone }[] = [
     worktree.dirty ? { label: "dirty", tone: "caution" } : { label: "clean", tone: "positive" },
   ];
+  if (conflicting(worktree) && defaultBranch !== null) {
+    tags.push({ label: `conflicts ${defaultBranch}`, tone: "negative" });
+  }
   if (worktree.upstreamGone) tags.push({ label: "upstream gone", tone: "negative" });
   if (worktree.ahead > 0) tags.push({ label: `ahead ${worktree.ahead}`, tone: "caution" });
   if (worktree.behind > 0) tags.push({ label: `behind ${worktree.behind}`, tone: "caution" });
   if (worktree.locked) tags.push({ label: "locked", tone: "neutral" });
   if (worktree.prunable) tags.push({ label: "prunable", tone: "negative" });
   return tags;
+};
+
+// How many conflicting files are named before the rest become a count. A wide
+// conflict can run to hundreds — enough to see the shape of it, then a number.
+const NAMED_CONFLICTS = 3;
+
+/**
+ * What a conflicting branch has to say beyond the tag: the ref it no longer
+ * merges into, that this was true as of the repo's last update rather than now,
+ * and which files it would fight over. Null when the branch has nothing to
+ * report — it merges cleanly, or the scan had no answer for it.
+ *
+ * The scan merges into the default branch on origin and nothing else fetches, so
+ * the answer describes that ref as it stood at the last update. Saying so is the
+ * point: an unqualified "conflicts" would claim a freshness it does not have.
+ */
+export const conflictSummary = (
+  defaultBranch: string | null,
+  files: string[] | undefined,
+): string | null => {
+  if (defaultBranch === null || files === undefined || files.length === 0) return null;
+  const named =
+    files.length <= NAMED_CONFLICTS
+      ? files.join(", ")
+      : `${files.slice(0, NAMED_CONFLICTS).join(", ")} and ${files.length - NAMED_CONFLICTS} more`;
+  return `Would not merge into origin/${defaultBranch} as of the last update — conflicts in ${named}.`;
 };

@@ -1,4 +1,5 @@
 import { SCAN_CONCURRENCY, mapConcurrent } from "./concurrency.ts";
+import { conflictingPaths, namePaths } from "./merge-tree.ts";
 import type { RepoOverview } from "./overview.ts";
 import { runGit } from "./run.ts";
 
@@ -82,40 +83,6 @@ export async function fetchRepo(repo: FetchTarget): Promise<FetchResult> {
   return { repo: repo.name, status: updates.length === 0 ? "up-to-date" : "updated", updates };
 }
 
-/** How many conflicting paths a refusal names before it summarises the rest. */
-const NAMED_CONFLICTS = 5;
-
-// `<mode> <object> <stage>\t<path>` — the conflicted-file entries git lists
-// under the merged tree. The informational messages that follow take no such
-// shape, so matching the line is enough to tell the two blocks apart.
-const CONFLICT_ENTRY = /^\d{6} [0-9a-f]+ [123]\t(.+)$/;
-
-/**
- * The paths reconciling `HEAD` with its upstream would conflict in: an empty
- * array when it would merge cleanly, and null when git could not answer —
- * no merge base, or a git too old for `merge-tree --write-tree`.
- *
- * Nothing is written or checked out; the merge happens entirely in the object
- * store. It reads `@{upstream}` as it stands right now, so it is only as
- * truthful as the last fetch.
- */
-const conflictingPaths = async (path: string): Promise<string[] | null> => {
-  const merged = await runGit(path, "merge-tree", "--write-tree", "@{upstream}", "HEAD");
-  if (merged.ok) return [];
-  const paths = merged.stdout
-    .split("\n")
-    .map((line) => CONFLICT_ENTRY.exec(line)?.[1])
-    .filter((file): file is string => file !== undefined);
-  return paths.length === 0 ? null : [...new Set(paths)];
-};
-
-// A conflicted merge stages one entry per side, and a wide conflict can run to
-// hundreds of files — enough of them to see the shape of it, then a count.
-const namePaths = (paths: string[]): string =>
-  paths.length <= NAMED_CONFLICTS
-    ? paths.join(", ")
-    : `${paths.slice(0, NAMED_CONFLICTS).join(", ")} and ${paths.length - NAMED_CONFLICTS} more`;
-
 // What a divergence has to say beyond the counts. Reconciling it is the user's
 // to do either way; whether it will fight back is the part they cannot see
 // without trying it.
@@ -170,7 +137,7 @@ export async function fastForwardPull(path: string): Promise<PullResult> {
   if (ahead > 0 && behind > 0) {
     return refused(
       `'${branch}' has diverged from ${upstream} — ${ahead} ahead, ${behind} behind${divergence(
-        await conflictingPaths(path),
+        await conflictingPaths(path, "@{upstream}", "HEAD"),
       )}. Merge or rebase it yourself.`,
     );
   }

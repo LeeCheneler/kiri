@@ -744,6 +744,13 @@ export interface WorktreeStatus {
   prunable: boolean;
   /** Whether this is the repo's primary checkout. */
   primary: boolean;
+  /**
+   * Files merging this branch into the repo's remote default branch would
+   * conflict in — empty when it merges cleanly. Absent when the scan had no
+   * answer: the primary checkout, the default branch itself, a detached HEAD, or
+   * a merge git could not compute. Absent never means clean.
+   */
+  conflicts?: string[];
 }
 
 /** A discovered repo with its primary checkout and every linked worktree. */
