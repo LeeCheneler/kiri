@@ -426,7 +426,9 @@ export function ChangesDetail({ repo: name, checkout }: { repo: string; checkout
         </h2>
         <p className="mt-4 flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
           {branchLabel(worktree)}
-          {stateTags(worktree).map((tag) => (
+          {/* Whatever the conflict check last found for this checkout, which
+              the overview carries; this page never runs the merge itself. */}
+          {stateTags(worktree, repo.defaultBranch, worktree.conflicts).map((tag) => (
             <Tag key={tag.label} tone={tag.tone}>
               {tag.label}
             </Tag>

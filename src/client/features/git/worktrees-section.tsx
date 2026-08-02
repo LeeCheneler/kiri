@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PullResult, RepoOverview, WorktreeStatus } from "../../api.ts";
+import type { PullResult, RepoConflicts, RepoOverview, WorktreeStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Tag } from "../../design-system/content/tag.tsx";
@@ -12,7 +12,7 @@ import { PruneWorktreesModal, entries, prunablePaths } from "./prune-worktrees-m
 import { RemoveWorktreeModal } from "./remove-worktree-modal.tsx";
 import { RepoSection } from "./repo-section.tsx";
 import { SyncFailure } from "./sync-outcome.tsx";
-import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
+import { branchLabel, conflictSummary, dirName, stateTags } from "./worktree-state.ts";
 
 // One checkout, in a card of its own: what it is called and the state rail that
 // says what you would do with it, its branch and the way into its changes under
@@ -36,18 +36,31 @@ import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 // `failure` is the last update's reason for leaving this checkout where it was.
 // It renders with the checkout's own identity rather than in the action cluster:
 // a refusal is a sentence, and a sentence in a column of buttons pulls the
-// buttons around.
+// buttons around — and so does the conflict summary below it, for the same
+// reason.
+//
+// The state rail belongs on the row it describes: it is a readout, not an
+// action, so keeping it with the checkout's name is what makes it readable at
+// any width. The rule about a justified action drifting from what it acts on is
+// about the remove button on the far side, not about status.
 function CheckoutRow({
   repo,
   worktree,
+  base,
+  files,
   failure,
   onRemove,
 }: {
   repo: RepoOverview;
   worktree: WorktreeStatus;
+  /** The ref this checkout's branch was merged into; null when there was none. */
+  base: string | null;
+  /** Files that merge would conflict in; undefined when there is no answer. */
+  files?: string[];
   failure?: PullResult;
   onRemove?: () => void;
 }) {
+  const summary = conflictSummary(base, files);
   return (
     <Card>
       <div className="flex items-center justify-between gap-4">
@@ -55,13 +68,18 @@ function CheckoutRow({
           <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
             {dirName(worktree.path)}
             {worktree.primary ? <Tag tone="accent">primary</Tag> : null}
-            {stateTags(worktree).map((tag) => (
+            {stateTags(worktree, repo.defaultBranch, files).map((tag) => (
               <Tag key={tag.label} tone={tag.tone}>
                 {tag.label}
               </Tag>
             ))}
           </p>
           <p className="mt-1 font-mono text-ink-muted text-xs">{branchLabel(worktree)}</p>
+          {/* Which files a conflict is in, with the checkout it is about — the
+              tag says there is one, this says what it would cost to sort out. */}
+          {summary === null ? null : (
+            <p className="mt-1 font-mono text-status-failed text-xs">{summary}</p>
+          )}
           {/* The way into this checkout's changes sits with the checkout's own
               identity, well clear of the destructive action on the far side. */}
           <p className="mt-2 font-mono text-xs">
@@ -99,9 +117,12 @@ function CheckoutRow({
  */
 export function WorktreesSection({
   repo,
+  conflicts,
   failures = [],
 }: {
   repo: RepoOverview;
+  /** Whether each linked worktree's branch still merges into the default branch. */
+  conflicts?: RepoConflicts;
   /** What the last update could not do, per checkout. */
   failures?: PullResult[];
 }) {
@@ -147,6 +168,8 @@ export function WorktreesSection({
             <CheckoutRow
               repo={repo}
               worktree={worktree}
+              base={conflicts?.base ?? null}
+              files={conflicts?.worktrees.find((entry) => entry.path === worktree.path)?.files}
               failure={failures.find((failure) => failure.path === worktree.path)}
               onRemove={worktree.primary ? undefined : () => setRemoving(worktree)}
             />

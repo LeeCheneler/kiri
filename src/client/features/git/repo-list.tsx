@@ -23,9 +23,17 @@ import {
 // The path a repo's own page lives at, keyed by its directory name.
 const repoHref = (repo: RepoOverview): string => `/git/${encodeURIComponent(repo.name)}`;
 
+// Whether a worktree's branch is known to have stopped merging into the repo's
+// default branch. Absent means the check has no answer for it, not that it
+// merges — the summary stays quiet either way, but never claims the all-clear.
+const conflicting = (worktree: WorktreeStatus): boolean => (worktree.conflicts?.length ?? 0) > 0;
+
 // Whether a repo is carrying something a person would want to act on.
 const wantsAttention = (repo: RepoOverview): boolean =>
-  repo.worktrees.some((worktree) => worktree.dirty || worktree.upstreamGone || worktree.prunable);
+  repo.worktrees.some(
+    (worktree) =>
+      worktree.dirty || worktree.upstreamGone || worktree.prunable || conflicting(worktree),
+  );
 
 const total = (repo: RepoOverview, of: (worktree: WorktreeStatus) => number): number =>
   repo.worktrees.reduce((sum, worktree) => sum + of(worktree), 0);
@@ -36,6 +44,10 @@ const total = (repo: RepoOverview, of: (worktree: WorktreeStatus) => number): nu
 // a worktree's own row; the rest are counts of the checkouts concerned. A repo
 // carrying nothing at all says "clean" rather than going silent — an absence of
 // tags reads as missing data, not as a settled repo.
+//
+// Conflicts with the default branch are reported the same way, but only once the
+// server has an answer to give: the check is a real merge per worktree and runs
+// on a repo's own page, never in the scan behind this listing.
 const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => {
   const count = (predicate: (worktree: WorktreeStatus) => boolean) =>
     total(repo, (worktree) => (predicate(worktree) ? 1 : 0));
@@ -45,11 +57,13 @@ const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => 
   const behind = total(repo, (worktree) => worktree.behind);
   const gone = count((worktree) => worktree.upstreamGone);
   const prunable = count((worktree) => worktree.prunable);
+  const conflicts = count(conflicting);
   const tags: { label: string; tone: TagTone }[] = [];
   if (linked > 0) {
     tags.push({ label: `${linked} ${linked === 1 ? "worktree" : "worktrees"}`, tone: "neutral" });
   }
   if (dirty > 0) tags.push({ label: `${dirty} dirty`, tone: "caution" });
+  if (conflicts > 0) tags.push({ label: `${conflicts} conflicting`, tone: "negative" });
   if (ahead > 0) tags.push({ label: `ahead ${ahead}`, tone: "caution" });
   if (behind > 0) tags.push({ label: `behind ${behind}`, tone: "caution" });
   if (gone > 0) tags.push({ label: `${gone} upstream gone`, tone: "negative" });

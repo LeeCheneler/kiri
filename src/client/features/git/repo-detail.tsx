@@ -4,7 +4,7 @@ import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
-import { useGitOverview, useUpdateRepo } from "../../state/git.ts";
+import { useGitOverview, useRepoConflicts, useUpdateRepo } from "../../state/git.ts";
 import { SyncFailure } from "./sync-outcome.tsx";
 import { UpdateAction, useUpdate } from "./update.tsx";
 import { WorktreesSection } from "./worktrees-section.tsx";
@@ -85,6 +85,11 @@ export function RepoDetail({ name }: { name: string }) {
   const query = useGitOverview();
   const updateRepo = useUpdateRepo();
   const update = useUpdate(async () => [await updateRepo(name)]);
+  // Asked for this repo alone, and only from here: a merge per worktree is far
+  // too heavy for the workspace scan, and this is the page whose scope is one
+  // repo. What it finds reaches the listing through the server, which remembers
+  // it — so the listing reports a conflict without ever running the merge.
+  const conflicts = useRepoConflicts(name);
 
   if (query.isPending) return <LoadingState>Loading repo…</LoadingState>;
   if (query.isError) {
@@ -131,7 +136,11 @@ export function RepoDetail({ name }: { name: string }) {
       </div>
       <RepoHeader repo={repo} />
       <div className="mt-10">
-        <WorktreesSection repo={repo} failures={failure?.checkouts ?? []} />
+        <WorktreesSection
+          repo={repo}
+          conflicts={conflicts.data}
+          failures={failure?.checkouts ?? []}
+        />
       </div>
     </section>
   );

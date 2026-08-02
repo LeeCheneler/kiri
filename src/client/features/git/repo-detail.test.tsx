@@ -136,6 +136,38 @@ describe("<RepoDetail>", () => {
     expect(section.textContent).toContain("kiri-feat-search");
   });
 
+  it("asks whether this repo's branches still merge, and flags the ones that don't", async () => {
+    server.use(
+      http.get("*/api/git", () =>
+        HttpResponse.json(
+          payload([
+            kiri({
+              worktrees: [
+                worktree({ primary: true }),
+                worktree({ path: "/projects/kiri-feat-search", branch: "feat/search" }),
+              ],
+            }),
+          ]),
+        ),
+      ),
+      http.get("*/api/git/conflicts", ({ request }) =>
+        HttpResponse.json(
+          new URL(request.url).searchParams.get("repo") === "kiri"
+            ? {
+                repo: "kiri",
+                base: "origin/main",
+                worktrees: [{ path: "/projects/kiri-feat-search", files: ["src/api.ts"] }],
+              }
+            : { repo: "", base: null, worktrees: [] },
+        ),
+      ),
+    );
+    renderDetail();
+
+    expect(await screen.findByText("conflicts main")).toBeDefined();
+    expect(screen.getByText(/would not merge into origin\/main/i)).toBeDefined();
+  });
+
   it("offers the repo's update whatever state its checkouts are in", async () => {
     // A checkout can only be known to be behind once a fetch has happened, so
     // the action is never gated on anything looking out of date.

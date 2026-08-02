@@ -744,6 +744,13 @@ export interface WorktreeStatus {
   prunable: boolean;
   /** Whether this is the repo's primary checkout. */
   primary: boolean;
+  /**
+   * Files merging this branch into the repo's remote default branch would
+   * conflict in — empty when it merges cleanly. Absent when the conflict check
+   * has no answer for this worktree: it never runs as part of the scan, so it is
+   * only here once a repo has been checked and while that answer still holds.
+   */
+  conflicts?: string[];
 }
 
 /** A discovered repo with its primary checkout and every linked worktree. */
@@ -785,6 +792,41 @@ export interface GitOverview {
  */
 export const fetchGitOverview = async (): Promise<GitOverview> =>
   json<GitOverview>(await apiFetch("/api/git"));
+
+/** Whether one linked worktree's branch still merges into the default branch. */
+export interface WorktreeConflicts {
+  /** Absolute path of the worktree the answer is about. */
+  path: string;
+  /** Files the merge would conflict in. Empty when the branch merges cleanly. */
+  files: string[];
+}
+
+/** What a repo's linked worktrees would do if merged into its default branch. */
+export interface RepoConflicts {
+  /** Directory name of the repo checked. */
+  repo: string;
+  /**
+   * The ref every branch was merged into — `origin/<default>`. Null when there
+   * was nothing to merge into, in which case no answers come back.
+   */
+  base: string | null;
+  /**
+   * One entry per linked worktree that could be answered for. A worktree that is
+   * the default branch, is detached, or whose merge git could not compute is
+   * absent rather than reported as clean.
+   */
+  worktrees: WorktreeConflicts[];
+}
+
+/**
+ * Ask whether each of `repo`'s linked worktree branches still merges into the
+ * remote default branch. The server runs a real three-way merge per worktree,
+ * so this is a computed read rather than one served from the overview snapshot —
+ * and the answer is only as current as the repo's last update, since nothing
+ * here fetches. Throws on non-2xx.
+ */
+export const fetchRepoConflicts = async (repo: string): Promise<RepoConflicts> =>
+  json<RepoConflicts>(await apiFetch(`/api/git/conflicts?repo=${encodeURIComponent(repo)}`));
 
 /** One action taken while preparing a fresh worktree — an env, post-create, or install step. */
 export interface PrepareStep {

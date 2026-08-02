@@ -4,7 +4,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/setup/msw.ts";
-import type { PullResult, RepoOverview, WorktreeStatus } from "../../api.ts";
+import type { PullResult, RepoConflicts, RepoOverview, WorktreeStatus } from "../../api.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { WorktreesSection } from "./worktrees-section.tsx";
 
@@ -32,10 +32,14 @@ const repo = (worktrees: WorktreeStatus[]): RepoOverview => ({
   worktrees,
 });
 
-const renderSection = (value: RepoOverview, failures: PullResult[] = []) =>
+const renderSection = (
+  value: RepoOverview,
+  failures: PullResult[] = [],
+  conflicts?: RepoConflicts,
+) =>
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <WorktreesSection repo={value} failures={failures} />
+      <WorktreesSection repo={value} failures={failures} conflicts={conflicts} />
     </QueryClientProvider>,
   );
 
@@ -68,6 +72,63 @@ describe("<WorktreesSection>", () => {
     expect(screen.getByText("locked")).toBeDefined();
     expect(screen.getByText("prunable")).toBeDefined();
     expect(screen.getAllByText("clean").length).toBeGreaterThan(0);
+  });
+
+  // A repo with one linked worktree, plus the conflict answer for it.
+  const withConflicts = (files: string[]) =>
+    renderSection(
+      repo([
+        worktree({ primary: true }),
+        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search" }),
+      ]),
+      [],
+      {
+        repo: "kiri",
+        base: "origin/main",
+        worktrees: [{ path: "/projects/kiri-feat-search", files }],
+      },
+    );
+
+  it("flags a worktree whose branch no longer merges into the default branch", () => {
+    withConflicts(["src/api.ts", "docs/notes.md"]);
+
+    const card = screen
+      .getAllByRole("listitem")
+      .find((item) => within(item).queryByText("kiri-feat-search") !== null) as HTMLElement;
+    expect(within(card).getByText("conflicts main")).toBeDefined();
+    expect(within(card).getByText(/src\/api\.ts, docs\/notes\.md/)).toBeDefined();
+  });
+
+  it("says the answer is only as fresh as the last update", () => {
+    withConflicts(["src/api.ts"]);
+
+    expect(screen.getByText(/as of the last update/i)).toBeDefined();
+  });
+
+  it("names the first few conflicting files and counts the rest", () => {
+    withConflicts(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"]);
+
+    expect(screen.getByText(/a\.ts, b\.ts, c\.ts and 2 more/)).toBeDefined();
+  });
+
+  it("says nothing at all about a branch that still merges cleanly", () => {
+    withConflicts([]);
+
+    expect(screen.queryByText("conflicts main")).toBeNull();
+    expect(screen.queryByText(/as of the last update/i)).toBeNull();
+  });
+
+  it("says nothing about a worktree the check had no answer for", () => {
+    renderSection(
+      repo([
+        worktree({ primary: true }),
+        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search" }),
+      ]),
+      [],
+      { repo: "kiri", base: "origin/main", worktrees: [] },
+    );
+
+    expect(screen.queryByText("conflicts main")).toBeNull();
   });
 
   it("gives each linked worktree a way into its own changes", () => {

@@ -42,15 +42,54 @@ export const branchLabel = (worktree: WorktreeStatus): string =>
  * worth reading, not an absence. Tracking is reported only when it has something
  * to say: a branch level with its upstream, or with no upstream at all, stays
  * silent rather than showing a row of zeroes.
+ *
+ * A branch that no longer merges into `defaultBranch` is called out second, just
+ * behind the working tree: it is the most actionable thing the rail can say, and
+ * the one nothing else on the page hints at. A branch that merges cleanly, and
+ * one the check has no answer for, both say nothing — silence here is the
+ * absence of a problem, not a claim there is none.
  */
-export const stateTags = (worktree: WorktreeStatus): { label: string; tone: TagTone }[] => {
+export const stateTags = (
+  worktree: WorktreeStatus,
+  defaultBranch: string | null,
+  conflicts?: string[],
+): { label: string; tone: TagTone }[] => {
   const tags: { label: string; tone: TagTone }[] = [
     worktree.dirty ? { label: "dirty", tone: "caution" } : { label: "clean", tone: "positive" },
   ];
+  if (conflicts !== undefined && conflicts.length > 0 && defaultBranch !== null) {
+    tags.push({ label: `conflicts ${defaultBranch}`, tone: "negative" });
+  }
   if (worktree.upstreamGone) tags.push({ label: "upstream gone", tone: "negative" });
   if (worktree.ahead > 0) tags.push({ label: `ahead ${worktree.ahead}`, tone: "caution" });
   if (worktree.behind > 0) tags.push({ label: `behind ${worktree.behind}`, tone: "caution" });
   if (worktree.locked) tags.push({ label: "locked", tone: "neutral" });
   if (worktree.prunable) tags.push({ label: "prunable", tone: "negative" });
   return tags;
+};
+
+// How many conflicting files are named before the rest become a count. A wide
+// conflict can run to hundreds — enough to see the shape of it, then a number.
+const NAMED_CONFLICTS = 3;
+
+/**
+ * What a conflicting branch has to say beyond the tag: the ref it no longer
+ * merges into, that this was true as of the repo's last update rather than now,
+ * and which files it would fight over. Null when the branch has nothing to
+ * report — it merges cleanly, or the check had no answer for it.
+ *
+ * Nothing here fetches, so `base` is the remote default branch as it stood at
+ * the last update. Saying so is the point: an unqualified "conflicts" would
+ * claim a freshness the answer does not have.
+ */
+export const conflictSummary = (
+  base: string | null,
+  files: string[] | undefined,
+): string | null => {
+  if (base === null || files === undefined || files.length === 0) return null;
+  const named =
+    files.length <= NAMED_CONFLICTS
+      ? files.join(", ")
+      : `${files.slice(0, NAMED_CONFLICTS).join(", ")} and ${files.length - NAMED_CONFLICTS} more`;
+  return `Would not merge into ${base} as of the last update — conflicts in ${named}.`;
 };
