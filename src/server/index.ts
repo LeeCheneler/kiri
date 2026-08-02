@@ -7,13 +7,11 @@ import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
-import { type GitSnapshotStore, createGitSnapshot } from "./git/snapshot.ts";
 import type { LlmClients } from "./llm/index.ts";
 import type { McpCredentialStore } from "./mcp/oauth-store.ts";
 import type { McpRegistry } from "./mcp/registry.ts";
 import { activityRoutes } from "./routes/activity.ts";
 import { configRoutes } from "./routes/config.ts";
-import { gitRoutes } from "./routes/git.ts";
 import { type McpAuth, mcpRoutes } from "./routes/mcp.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { searchRoutes } from "./routes/search.ts";
@@ -61,12 +59,6 @@ export interface AppDeps {
    * the session surface owns; supplied mainly for tests.
    */
   streamRegistry?: StreamRegistry;
-  /**
-   * The server-held git overview the git surface reads from. Defaults to a
-   * fresh one over this config, which starts its own roots watcher; a long-lived
-   * process passes its own so it can stop it on shutdown.
-   */
-  gitSnapshot?: GitSnapshotStore;
   /**
    * Completion client forwarded to the runner so `llm:` steps can execute.
    * Without it, llm steps fail cleanly with a not-configured error.
@@ -235,16 +227,6 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/runs", runsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }));
   app.route("/api/activity", activityRoutes({ db, registry }));
   app.route("/api/search", searchRoutes({ db, registry }));
-  // Mounted unconditionally — with no roots configured it answers with an empty
-  // model, which is how the client learns there is nothing to scan.
-  app.route(
-    "/api/git",
-    gitRoutes({
-      snapshot: deps.gitSnapshot ?? createGitSnapshot(config, env, { bus }),
-      config,
-      env,
-    }),
-  );
 
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.

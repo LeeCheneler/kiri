@@ -22,7 +22,7 @@ export interface BuiltinTool {
  * filesystem read tools (reads confined to the sandbox the user declared in
  * `kiri.yaml` — declaring it is the authorisation), while tools that execute
  * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
- * (the workflow and filesystem write tools), run model-authored commands
+ * (the workflow and filesystem write tools), or run model-authored commands
  * (`run_command`) ask first. `delegate` runs without prompting because its
  * worker holds only standing-allow tools — delegation never widens what runs
  * unprompted. A tool whose capability isn't configured (the filesystem tools

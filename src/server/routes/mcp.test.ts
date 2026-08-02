@@ -194,9 +194,7 @@ describe("mcp routes", () => {
       });
 
       expect(res.status).toBe(204);
-      expect(events.filter((e) => e.type === "tool.permission.updated")).toEqual([
-        { type: "tool.permission.updated", tool: "linear__search" },
-      ]);
+      expect(events).toEqual([{ type: "tool.permission.updated", tool: "linear__search" }]);
     });
 
     it("rejects an unknown permission value", async () => {

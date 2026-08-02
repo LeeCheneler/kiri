@@ -7,8 +7,6 @@ import {
   cancelRun,
   deleteRun,
   deleteSession,
-  fetchChangeset,
-  fetchFilePatch,
   fetchRun,
   fetchRunsPage,
   fetchWorkflows,
@@ -444,39 +442,5 @@ describe("api client", () => {
       expect((err as ApiError).status).toBe(409);
       expect((err as ApiError).message).toBe('recommendation "rec-1" has already been actioned');
     }
-  });
-
-  it("asks for a checkout's changeset in the requested view", async () => {
-    const seen: { path: string | null; view: string | null }[] = [];
-    server.use(
-      http.get("*/api/git/changeset", ({ request }) => {
-        const url = new URL(request.url);
-        seen.push({ path: url.searchParams.get("path"), view: url.searchParams.get("view") });
-        return HttpResponse.json({ view: "branch", files: [] });
-      }),
-    );
-
-    const result = await fetchChangeset("/repos/proj", "branch");
-
-    expect(seen).toEqual([{ path: "/repos/proj", view: "branch" }]);
-    expect(result.files).toEqual([]);
-  });
-
-  it("asks for one file's patch, pairing a rename's two sides", async () => {
-    const seen: Record<string, string>[] = [];
-    server.use(
-      http.get("*/api/git/changeset/patch", ({ request }) => {
-        seen.push(Object.fromEntries(new URL(request.url).searchParams));
-        return HttpResponse.json({ path: "new.txt", patch: "diff --git", truncated: false });
-      }),
-    );
-
-    await fetchFilePatch("/repos/proj", "uncommitted", "new.txt");
-    await fetchFilePatch("/repos/proj", "uncommitted", "new.txt", "old.txt");
-
-    expect(seen).toEqual([
-      { path: "/repos/proj", view: "uncommitted", file: "new.txt" },
-      { path: "/repos/proj", view: "uncommitted", file: "new.txt", previousPath: "old.txt" },
-    ]);
   });
 });

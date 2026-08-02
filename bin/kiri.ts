@@ -13,7 +13,6 @@ import { loadKiriConfig } from "../src/server/config/loader.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { watchKiriConfig } from "../src/server/config/watcher.ts";
 import { createEventBus } from "../src/server/events/index.ts";
-import { createGitSnapshot } from "../src/server/git/snapshot.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
 import { startServer } from "../src/server/listen.ts";
@@ -210,11 +209,6 @@ const configWatcher = watchKiriConfig(config, llmRegistry, process.env, {
 // Personas are read fresh from disk per turn; the watcher exists so the
 // picker follows an edit without a reload.
 const personaWatcher = watchPersonas(config, { bus });
-// The git overview is held in memory and scanned in the background, so a page
-// load never waits on git. It watches the `git:` roots for its own refreshes and
-// follows them across kiri.yaml edits by listening for config.changed on the
-// bus, so it must be created after the config watcher that publishes it.
-const gitSnapshot = createGitSnapshot(config, process.env, { bus });
 
 const app = createApp({
   db,
@@ -229,7 +223,6 @@ const app = createApp({
   version: VERSION,
   env: process.env,
   getProviderNames,
-  gitSnapshot,
 });
 const server = startServer({ app, port: 4242 });
 console.log("Visit https://local.kiri.build");
@@ -240,7 +233,6 @@ const shutdown = async () => {
   configWatcher.stop();
   watcher.stop();
   personaWatcher.stop();
-  gitSnapshot.stop();
   server.stop();
   // Close MCP connections so spawned stdio subprocesses are terminated cleanly.
   await mcpRegistry.close();

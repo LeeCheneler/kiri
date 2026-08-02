@@ -45,12 +45,6 @@ Both land in the same activity feed, and everything they produce is
 searchable — articles, session transcripts, run summaries, and the workflows
 themselves.
 
-Alongside them, kiri manages the **git worktrees** your work happens in:
-point it at the folders your repos live in and it finds every worktree you
-have, creates new ones with env files and dependencies already in place, keeps
-them up to date with a fetch and fast-forward pulls, and tears them down
-safely.
-
 ## Why kiri
 
 - **A report, not a log.** Runs produce articles — markdown with inline charts
@@ -72,5 +66,3 @@ safely.
 - [Writing workflows](/docs/workflows) — the golden path, step by step.
 - [Sessions](/docs/sessions) — chat, personas, MCP tools, running and
   authoring workflows, and articles.
-- [Worktrees](/docs/worktrees) — roots, the prep pipeline, fetching and
-  fast-forward pulls, and safe create/remove/prune.
