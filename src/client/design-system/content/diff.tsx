@@ -1,15 +1,4 @@
-// Either side's line count is omitted when the range is a single line, and git
-// appends the enclosing function's text after the closing `@@`, so neither the
-// counts nor the end of the line can be anchored on.
-const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
-
-// The header a real git patch opens each file with, and the metadata lines that
-// follow it up to the first hunk. `---` and `+++` would otherwise parse as a
-// removal and an addition, and the rest restates the file name the caller
-// already knows.
-const FILE_HEADER = "diff --git ";
-const PREAMBLE_LINE =
-  /^(diff --git |index |old mode |new mode |new file mode |deleted file mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to |--- |\+\+\+ )/;
+const HUNK_HEADER = /^@@ -(\d+),(\d+) \+(\d+),(\d+) @@$/;
 
 type DiffRowKind = "hunk" | "added" | "removed" | "context" | "meta";
 
@@ -20,46 +9,25 @@ interface DiffRow {
   text: string;
 }
 
-// A line-per-row split that drops the phantom empty line a trailing newline
-// would otherwise produce.
-const toLines = (content: string): string[] => {
-  if (content === "") return [];
-  const lines = content.split("\n");
-  if (lines.at(-1) === "") lines.pop();
-  return lines;
-};
-
-// Parse a unified diff into renderable rows, numbering lines from each hunk
-// header. Accepts a whole git patch — whose per-file preamble is skipped, bar
-// any notice it carries such as "Binary files … differ" — and a bare hunk body
-// with no preamble at all. A patch without headers (a pseudo-diff built by
-// patchFromStrings) that is purely additions or purely removals — a whole file
-// arriving or going — is numbered from 1; a mixed one has no line positions to
-// know, so its rows carry no numbers.
+// Parse a unified diff body — hunk headers and prefixed lines, no file-name
+// preamble — into renderable rows, numbering lines from each hunk header. A
+// patch without headers (a pseudo-diff built by patchFromStrings) that is
+// purely additions or purely removals — a whole file arriving or going — is
+// numbered from 1; a mixed one has no line positions to know, so its rows
+// carry no numbers.
 function parsePatch(patch: string): DiffRow[] {
   if (patch === "") return [];
   const rows: DiffRow[] = [];
   let sawHunk = false;
-  // Only a patch that opens with git's file header has a preamble to skip; a
-  // bare hunk body or a pseudo-diff starts straight into content, and skipping
-  // anything there would drop a real line.
-  const gitPatch = patch.startsWith(FILE_HEADER);
-  let inPreamble = gitPatch;
   let oldNo: number | undefined;
   let newNo: number | undefined;
-  for (const line of toLines(patch)) {
+  for (const line of patch.split("\n")) {
     const hunk = line.match(HUNK_HEADER);
     if (hunk) {
       sawHunk = true;
-      inPreamble = false;
       oldNo = Number(hunk[1]);
-      newNo = Number(hunk[2]);
+      newNo = Number(hunk[3]);
       rows.push({ kind: "hunk", text: line });
-      continue;
-    }
-    if (gitPatch && line.startsWith(FILE_HEADER)) inPreamble = true;
-    if (inPreamble) {
-      if (!PREAMBLE_LINE.test(line)) rows.push({ kind: "meta", text: line });
       continue;
     }
     const text = line.slice(1);
@@ -115,12 +83,12 @@ export interface DiffProps {
 /**
  * Unified-diff panel — a bordered mono block rendering a file change line by
  * line: hunk headers as faint separators carrying old/new line numbers into
- * the gutter, additions in the ok tone, removals in the failed tone. Accepts a
- * whole git patch — its per-file preamble is skipped, keeping any notice it
- * carries — as well as hunk-only patches and the header-less pseudo-diffs of
- * `patchFromStrings`, where a purely one-sided pseudo (a whole file arriving or
- * going) is numbered from 1 and a mixed one carries no numbers. Only gutters
- * with numbers to show take up space. Renders nothing for an empty patch.
+ * the gutter, additions in the ok tone, removals in the failed tone. Accepts
+ * the hunk-only patches the filesystem write tools produce and the
+ * header-less pseudo-diffs of `patchFromStrings` — a purely one-sided pseudo
+ * (a whole file arriving or going) is numbered from 1, a mixed one carries no
+ * numbers, and only gutters with numbers to show take up space. Renders
+ * nothing for an empty patch.
  */
 export function Diff({ patch, truncated }: DiffProps) {
   const rows = parsePatch(patch);
@@ -169,6 +137,15 @@ export function Diff({ patch, truncated }: DiffProps) {
     </div>
   );
 }
+
+// A line-per-row split that drops the phantom empty line a trailing newline
+// would otherwise produce.
+const toLines = (content: string): string[] => {
+  if (content === "") return [];
+  const lines = content.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+};
 
 /**
  * Build a header-less pseudo-diff from whole before/after strings: every

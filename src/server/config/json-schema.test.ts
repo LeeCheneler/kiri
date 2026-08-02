@@ -60,28 +60,6 @@ describe("kiriConfigJsonSchema", () => {
     }
   });
 
-  it("publishes the git section with roots, defaults, and repos", () => {
-    const schema = kiriConfigJsonSchema() as {
-      properties: {
-        git: {
-          type?: string;
-          properties: {
-            roots?: { type?: string };
-            defaults?: { type?: string };
-            repos?: { type?: string };
-          };
-          required?: string[];
-        };
-      };
-    };
-    const git = schema.properties.git;
-    expect(git.type).toBe("object");
-    expect(git.properties.roots?.type).toBe("array");
-    expect(git.properties.defaults?.type).toBe("object");
-    expect(git.properties.repos?.type).toBe("object");
-    expect(git.required).toEqual(["roots"]);
-  });
-
   it("publishes the mcp servers map as a union discriminated on type", () => {
     const schema = kiriConfigJsonSchema() as {
       properties: {

@@ -51,13 +51,6 @@ describe("<SiteNav>", () => {
     await flushAsync();
   });
 
-  it("highlights Git across the git section", async () => {
-    renderNav("/git/kiri");
-    expect(screen.getByRole("link", { name: /^git$/i }).getAttribute("href")).toBe("/git");
-    expect(screen.getByRole("link", { name: /^git$/i }).getAttribute("aria-current")).toBe("page");
-    await flushAsync();
-  });
-
   it("highlights Tools & MCP across the mcp section", async () => {
     renderNav("/mcp");
     expect(screen.getByRole("link", { name: /^tools & mcp$/i }).getAttribute("href")).toBe("/mcp");

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { gitSchema } from "../git/schema.ts";
 import { providersSchema } from "../llm/schema.ts";
 import { mcpServersSchema } from "../mcp/schema.ts";
 
@@ -32,8 +31,8 @@ const shellSchema = z
 /**
  * Zod schema for the workspace's `kiri.yaml` — kiri's structured configuration
  * file: the LLM `providers:` map, the `mcp:` servers map, the `filesystem:`
- * sandbox, the `shell:` working directories, and the `git:` management
- * section. Strict, so an unknown top-level key is a validation error.
+ * sandbox, and the `shell:` working directories. Strict, so an unknown
+ * top-level key is a validation error.
  */
 export const kiriConfigSchema = z
   .object({
@@ -41,7 +40,6 @@ export const kiriConfigSchema = z
     mcp: mcpServersSchema.optional(),
     filesystem: filesystemSchema.optional(),
     shell: shellSchema.optional(),
-    git: gitSchema.optional(),
   })
   .strict();
 

@@ -25,7 +25,6 @@ import { Quote } from "../design-system/content/quote.tsx";
 import { Rule } from "../design-system/content/rule.tsx";
 import { Stat, StatList } from "../design-system/content/stat.tsx";
 import { Table } from "../design-system/content/table.tsx";
-import { Tag } from "../design-system/content/tag.tsx";
 import { Notice } from "../design-system/feedback/notice.tsx";
 import { StatusBlock } from "../design-system/feedback/status-block.tsx";
 import { Status, type StatusKind } from "../design-system/feedback/status.tsx";
@@ -765,16 +764,14 @@ export function DesignSystemContent() {
               <p className="mt-3">
                 A file change as a unified diff: hunk headers as faint separators feeding old/new
                 line numbers into the gutter, additions in the ok tone, removals in the failed tone.
-                Pass a whole patch straight from <Code>git diff</Code> — the per-file preamble is
-                skipped, keeping any notice it carries — or the hunk-only patches the filesystem
-                write tools produce, or build a header-less pseudo-diff from two whole strings with{" "}
-                <Code>patchFromStrings</Code> when only the before/after sides are known: a
-                one-sided pseudo (a whole file arriving or going) numbers from 1, a mixed one drops
-                the number gutters entirely. <Code>truncated</Code> appends a note that the server
-                cut the diff short.
+                Pass the hunk-only patches the filesystem write tools produce, or build a
+                header-less pseudo-diff from two whole strings with <Code>patchFromStrings</Code>{" "}
+                when only the before/after sides are known — a one-sided pseudo (a whole file
+                arriving or going) numbers from 1, a mixed one drops the number gutters entirely.{" "}
+                <Code>truncated</Code> appends a note that the server cut the diff short.
               </p>
             </Prose>
-            <div className="mt-5 space-y-5">
+            <div className="mt-5">
               <Card>
                 <Diff
                   patch={[
@@ -783,22 +780,6 @@ export function DesignSystemContent() {
                     '-  return "Hello, " + name;',
                     "+  return `Hello, ${name}!`;",
                     " }",
-                  ].join("\n")}
-                />
-              </Card>
-              <Card>
-                <Diff
-                  patch={[
-                    "diff --git a/src/greet.ts b/src/greet.ts",
-                    "index 3f9a1c2..8b4d5e6 100644",
-                    "--- a/src/greet.ts",
-                    "+++ b/src/greet.ts",
-                    "@@ -12,6 +12,6 @@ export function greet(name) {",
-                    "   const trimmed = name.trim();",
-                    '-  return "Hello, " + trimmed;',
-                    "+  return `Hello, ${trimmed}!`;",
-                    " }",
-                    "",
                   ].join("\n")}
                 />
               </Card>
@@ -982,43 +963,6 @@ export function DesignSystemContent() {
                   <span>1.2s</span>
                   <span>a1b2c3d</span>
                 </Meta>
-              </Card>
-            </div>
-          </article>
-
-          <article>
-            <h4 className="font-mono text-base text-ink">Tag</h4>
-            <p className="mt-1 font-mono text-xs text-ink-faint">
-              <span className="text-ink-muted">Tag</span> · design-system/content/tag.tsx
-            </p>
-            <Prose>
-              <p className="mt-3">
-                A compact toned state label — one fact about the thing beside it, in a vocabulary
-                the caller owns. Pass <Code>tone</Code> — <Code>neutral</Code> for a plain fact,{" "}
-                <Code>positive</Code> for a settled good state, <Code>caution</Code> for something
-                with work in it, <Code>negative</Code> for something broken or discardable, and{" "}
-                <Code>accent</Code> for a structural marker rather than a state — and the label as
-                children. The tone is reflected as <Code>data-tone</Code> for containers and tests
-                to anchor on. Built to sit several-in-a-row as a scannable rail (a worktree's{" "}
-                <Code>dirty</Code> / <Code>ahead 2</Code> / <Code>locked</Code>), where the tone
-                does the reading and the word confirms it — so keep labels to a word or two and lay
-                a group out in a <Code>flex flex-wrap</Code> with your own gap.
-              </p>
-              <p className="mt-3">
-                Distinct from Status, which speaks the fixed run/session status vocabulary, and from
-                ToggleChip, which is an interactive control.
-              </p>
-            </Prose>
-            <div className="mt-5">
-              <Card>
-                <div className="flex flex-wrap gap-2">
-                  <Tag tone="positive">clean</Tag>
-                  <Tag tone="caution">dirty</Tag>
-                  <Tag tone="caution">ahead 2</Tag>
-                  <Tag tone="negative">upstream gone</Tag>
-                  <Tag>locked</Tag>
-                  <Tag tone="accent">primary</Tag>
-                </div>
               </Card>
             </div>
           </article>
