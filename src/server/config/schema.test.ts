@@ -173,6 +173,58 @@ describe("kiriConfigSchema", () => {
     ).toThrow();
   });
 
+  it("parses a models section with text and image tiers", () => {
+    const result = kiriConfigSchema.parse({
+      models: {
+        text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+        image: { tanto: "b:small", katana: "b:mid", odachi: "b:big" },
+      },
+    });
+    expect(result.models?.text).toEqual({ tanto: "a:small", katana: "a:mid", odachi: "a:big" });
+    expect(result.models?.image).toEqual({ tanto: "b:small", katana: "b:mid", odachi: "b:big" });
+  });
+
+  it("parses a models section with only one modality", () => {
+    const result = kiriConfigSchema.parse({
+      models: { text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" } },
+    });
+    expect(result.models?.image).toBeUndefined();
+  });
+
+  it("leaves models undefined when the key is absent", () => {
+    expect(kiriConfigSchema.parse({}).models).toBeUndefined();
+  });
+
+  it("requires all three tiers on a present modality block", () => {
+    const result = kiriConfigSchema.safeParse({
+      models: { text: { tanto: "a:small", katana: "a:mid" } },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].path).toEqual(["models", "text", "odachi"]);
+  });
+
+  it("rejects an empty tier reference", () => {
+    expect(() =>
+      kiriConfigSchema.parse({ models: { text: { tanto: "", katana: "a:mid", odachi: "a:big" } } }),
+    ).toThrow();
+  });
+
+  it("rejects an unknown tier name (strict)", () => {
+    expect(() =>
+      kiriConfigSchema.parse({
+        models: { text: { tanto: "a:s", katana: "a:m", odachi: "a:b", wakizashi: "a:x" } },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an unknown modality (strict)", () => {
+    expect(() =>
+      kiriConfigSchema.parse({
+        models: { audio: { tanto: "a:s", katana: "a:m", odachi: "a:b" } },
+      }),
+    ).toThrow();
+  });
+
   it("rejects an unknown top-level key (strict)", () => {
     expect(() => kiriConfigSchema.parse({ providers: {}, junk: true })).toThrow();
   });
