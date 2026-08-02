@@ -37,7 +37,7 @@ test("a settled turn reports the context fill in the rail", async ({ page }) => 
   // The right rail carries the session marginalia; scope to it so the figure
   // is unambiguous.
   const rail = page.getByRole("complementary").filter({ hasText: "Context" });
-  await expect(page.getByLabel(/^model/i)).toHaveValue("fake:echo");
+  await expect(page.getByLabel(/^model/i)).toHaveValue("echo");
   // Context fill is the last settled turn's footprint — the stub reports 20.
   await expect(rail.getByText(/20 tokens/i)).toBeVisible();
 });

@@ -421,4 +421,34 @@ mcp:
     expect(result.failure).toBeDefined();
     expect(result.shellDirectories).toEqual([]);
   });
+
+  it("leaves the model tiers empty when the file or models section is absent", () => {
+    expect(loadKiriConfig(config, {}).modelTiers).toEqual({});
+    write(cwd, "providers: {}\n");
+    expect(loadKiriConfig(config, {}).modelTiers).toEqual({});
+  });
+
+  it("passes configured model tiers through verbatim (resolved at use, not load)", () => {
+    write(
+      cwd,
+      `models:
+  text:
+    tanto: a:small
+    katana: a:mid
+    odachi: a:big
+`,
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect(result.modelTiers).toEqual({
+      text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+    });
+  });
+
+  it("empties the model tiers on a failed load (fail closed)", () => {
+    write(cwd, "models:\n  text: { tanto: a:s, katana: a:m, odachi: a:b }\njunk: true\n");
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeDefined();
+    expect(result.modelTiers).toEqual({});
+  });
 });

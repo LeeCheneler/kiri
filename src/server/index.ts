@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { loadKiriConfig } from "./config/loader.ts";
+import type { ModelTiersConfig } from "./config/schema.ts";
 import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
@@ -117,6 +118,12 @@ export interface AppDeps {
    * posture as the filesystem sandbox. Empty ⇒ `run_command` is withheld.
    */
   getShellDirectories?: () => readonly string[];
+  /**
+   * Live model tiers for the session surface. Defaults to reading the
+   * `models:` section from `kiri.yaml` on each use, the same fresh-from-disk
+   * posture as the sandboxes. Empty ⇒ no tiers are configured.
+   */
+  getModelTiers?: () => ModelTiersConfig;
 }
 
 // Upper bound on request body size. Invoke bodies are
@@ -248,6 +255,7 @@ export function createApp(deps: AppDeps): Hono {
           deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),
         getShellDirectories:
           deps.getShellDirectories ?? (() => loadKiriConfig(config, env).shellDirectories),
+        getModelTiers: deps.getModelTiers ?? (() => loadKiriConfig(config, env).modelTiers),
       }),
     );
   }

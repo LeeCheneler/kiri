@@ -1,4 +1,9 @@
-import { Combobox } from "../../design-system/actions/combobox.tsx";
+import type { ModelTiers } from "../../api.ts";
+import {
+  Combobox,
+  type ComboboxGroup,
+  type ComboboxItem,
+} from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
@@ -13,6 +18,41 @@ const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
 // The image-model picker entry that means "image generation off". Model ids
 // are always `provider:model`, so a real model can never collide with it.
 const IMAGE_MODEL_NONE = "None";
+
+// A modality's configured tiers as the picker's pinned "kiri" group — the
+// tier name alone as the label, its configured model id as the committed
+// value, smallest tier first. Absent tiers pin nothing.
+const tierGroup = (tiers: ModelTiers | undefined): ComboboxGroup[] =>
+  tiers
+    ? [
+        {
+          label: "kiri",
+          options: (["tanto", "katana", "odachi"] as const).map((tier) => ({
+            value: tiers[tier],
+            label: tier,
+          })),
+        },
+      ]
+    : [];
+
+// The model listing as one picker group per provider, providers and models
+// sorted. The group heading names the provider, so each option's label drops
+// the `provider:` prefix; committed values stay the full ids.
+const providerGroups = (ids: readonly string[]): ComboboxGroup[] => {
+  const byProvider = new Map<string, ComboboxItem[]>();
+  const sorted = [...ids].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  for (const id of sorted) {
+    const split = id.indexOf(":");
+    const provider = split === -1 ? id : id.slice(0, split);
+    const item = { value: id, label: split === -1 ? id : id.slice(split + 1) };
+    const items = byProvider.get(provider);
+    if (items) items.push(item);
+    else byProvider.set(provider, [item]);
+  }
+  // Ids were sorted up front, so each provider's items are already in order
+  // and the providers surface in first-appearance (sorted) order.
+  return [...byProvider.entries()].map(([provider, options]) => ({ label: provider, options }));
+};
 
 /**
  * The session chat right rail: the session's model (with whether it accepts
@@ -39,9 +79,9 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   // resolved its model and the change applies next.
   const modelIds = models.filter((model) => model.output === "text").map((model) => model.id);
   const withCurrent = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
-  const modelOptions = [...withCurrent].sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: "base" }),
-  );
+  // Configured tiers lead the picker as the pinned "kiri" group; the full
+  // listing follows, one group per provider.
+  const modelOptions = [...tierGroup(modelsData?.tiers?.text), ...providerGroups(withCurrent)];
   const turnInFlight = session.status === "running";
 
   // Whether the selected model accepts image input, when its provider's
@@ -59,10 +99,9 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
       ? [session.imageModel, ...imageModelIds]
       : imageModelIds;
   const imageModelOptions = [
-    IMAGE_MODEL_NONE,
-    ...[...withCurrentImageModel].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
-    ),
+    ...tierGroup(modelsData?.tiers?.image),
+    { options: [IMAGE_MODEL_NONE] },
+    ...providerGroups(withCurrentImageModel),
   ];
   const showImageModel = withCurrentImageModel.length > 0;
 

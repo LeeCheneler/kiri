@@ -11,6 +11,7 @@ import { and, asc, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import type { ModelTiersConfig } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions as sessionsTable } from "../db/schema.ts";
@@ -99,6 +100,13 @@ export interface SessionsRoutesDeps {
    * run is what enables it.
    */
   getShellDirectories?: () => readonly string[];
+  /**
+   * Live model tiers from `kiri.yaml`'s `models:` section, read per use so a
+   * config edit applies at once. Rides the model listing (so the pickers can
+   * pin the tiers) and sizes delegated workers. Empty (or omitted) means no
+   * tiers are configured and every tier surface stays as it was.
+   */
+  getModelTiers?: () => ModelTiersConfig;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -108,7 +116,11 @@ const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
-const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
+// `imageModel` starts the session with image generation on — the tanto
+// default when image tiers are configured; otherwise it's simply not sent.
+const createSessionBodySchema = z
+  .object({ model: z.string().min(1), imageModel: z.string().min(1).optional() })
+  .strict();
 
 // Any field may be set independently: the aside swaps the models and the pin
 // control flips `pinned`, all through this one endpoint. Omitting a field
@@ -328,10 +340,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     const builtin: ToolSet = {
       ...builtinToolsFor(sessionId),
       // A worker can't spawn workers: delegate is offered only to a session
-      // with no parent.
+      // with no parent. Text tiers, when configured, make the worker's model
+      // a required tier choice, read live so a kiri.yaml edit applies on the
+      // next turn.
       ...(getSession(db, sessionId)?.parentSessionId
         ? {}
-        : delegateTool({ db, parentSessionId: sessionId, childTurnDeps, bus, cancelRegistry })),
+        : delegateTool({
+            db,
+            parentSessionId: sessionId,
+            childTurnDeps,
+            bus,
+            cancelRegistry,
+            textTiers: deps.getModelTiers?.().text,
+          })),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
       const builtinTool = builtin[name];
@@ -342,21 +363,27 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     return tools;
   };
 
-  app.get("/models", async (c) => c.json(await llmClients.listModels()));
+  // The listing carries the configured model tiers alongside the models, so
+  // the pickers can pin them and new sessions can start on tanto. Read live,
+  // so a kiri.yaml edit is reflected on the next fetch.
+  app.get("/models", async (c) =>
+    c.json({ ...(await llmClients.listModels()), tiers: deps.getModelTiers?.() ?? {} }),
+  );
 
   app.post(
     "/sessions",
     zValidator("json", createSessionBodySchema, onZodFail("invalid session")),
     (c) => {
-      const { model } = c.req.valid("json");
-      // Validate the model resolves now, at create time, so a bad id fails the
+      const { model, imageModel } = c.req.valid("json");
+      // Validate the models resolve now, at create time, so a bad id fails the
       // create with the resolver's own message rather than a later turn.
       try {
         llmClients.resolveModel(model);
+        if (imageModel !== undefined) llmClients.resolveModel(imageModel);
       } catch (cause) {
         return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
       }
-      const session = createSession(db, model);
+      const session = createSession(db, model, imageModel === undefined ? {} : { imageModel });
       bus?.publish({ type: "session.started", id: session.id });
       return c.json({ session }, 201);
     },
@@ -615,6 +642,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         Object.keys(tools),
         sandboxDirectories(),
         shellWorkingDirectories(),
+        deps.getModelTiers?.().text !== undefined,
       );
       const turnDeps = {
         db,

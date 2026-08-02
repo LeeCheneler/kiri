@@ -40,7 +40,9 @@ describe("<SessionAside>", () => {
     renderAside(<SessionAside id="s1" now={new Date("2026-05-09T12:00:30.000Z")} />);
 
     const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
-    expect(combobox.value).toBe("anthropic:claude");
+    // The provider group heading names the provider, so the option label —
+    // and the closed input — carry the bare model name.
+    expect(combobox.value).toBe("claude");
   });
 
   it("changes the session's model when another is picked", async () => {
@@ -65,15 +67,16 @@ describe("<SessionAside>", () => {
 
     const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
     await userEvent.click(combobox);
-    await userEvent.click(screen.getByRole("option", { name: "openai:gpt" }));
+    await userEvent.click(screen.getByRole("option", { name: "gpt" }));
 
+    // The label drops the provider prefix; the committed value keeps the full id.
     await waitFor(() => expect(patched.model).toBe("openai:gpt"));
     // The picker reflects the choice from the PATCH response, without a refetch —
     // the mocked GET still returns the old model, so a stale combobox would fail here.
-    await waitFor(() => expect(combobox.value).toBe("openai:gpt"));
+    await waitFor(() => expect(combobox.value).toBe("gpt"));
   });
 
-  it("lists the models alphabetically", async () => {
+  it("groups the models by provider, sorted, with bare model-name labels", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(sessionDetail({ model: "openai:gpt" })),
@@ -93,9 +96,81 @@ describe("<SessionAside>", () => {
 
     await userEvent.click(await screen.findByRole("combobox", { name: /model/i }));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "anthropic:claude",
-      "google:gemini",
-      "openai:gpt",
+      "claude",
+      "gemini",
+      "gpt",
+    ]);
+    // Each provider heads its own group under its configured name.
+    for (const provider of ["anthropic", "google", "openai"]) {
+      expect(screen.getByText(provider)).toBeDefined();
+    }
+  });
+
+  it("pins the configured text tiers ahead of the full model listing", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openai:gpt", provider: "openai", output: "text" },
+          ],
+          failures: [],
+          tiers: {
+            text: { tanto: "openai:gpt", katana: "anthropic:claude", odachi: "anthropic:claude" },
+          },
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /^model/i }));
+    // Tier entries carry the tier name alone; the listing follows grouped by
+    // provider with bare model-name labels.
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "tanto",
+      "katana",
+      "odachi",
+      "claude",
+      "gpt",
+    ]);
+    // The pinned tiers group is headed "kiri"; the providers head their own.
+    for (const heading of ["kiri", "anthropic", "openai"]) {
+      expect(screen.getByText(heading)).toBeDefined();
+    }
+  });
+
+  it("pins the configured image tiers ahead of the image model listing", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ imageModel: "openai:gpt-image" })),
+      ),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text" },
+            { id: "openai:gpt-image", provider: "openai", output: "image" },
+          ],
+          failures: [],
+          tiers: {
+            image: {
+              tanto: "openai:gpt-image",
+              katana: "openai:gpt-image",
+              odachi: "openai:gpt-image",
+            },
+          },
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: /image model/i }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "tanto",
+      "katana",
+      "odachi",
+      "None",
+      "gpt-image",
     ]);
   });
 
@@ -115,9 +190,7 @@ describe("<SessionAside>", () => {
     renderAside(<SessionAside id="s1" />);
 
     await userEvent.click(await screen.findByRole("combobox", { name: /^model/i }));
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "anthropic:claude",
-    ]);
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["claude"]);
   });
 
   it("notes that the selected model accepts image input", async () => {
@@ -190,8 +263,8 @@ describe("<SessionAside>", () => {
     await userEvent.click(await screen.findByRole("combobox", { name: /image model/i }));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
       "None",
-      "openai:gpt-image-1",
-      "openrouter:google/gemini-image",
+      "gpt-image-1",
+      "google/gemini-image",
     ]);
   });
 
@@ -234,10 +307,11 @@ describe("<SessionAside>", () => {
       name: /image model/i,
     })) as HTMLInputElement;
     await userEvent.click(combobox);
-    await userEvent.click(screen.getByRole("option", { name: "openrouter:google/gemini-image" }));
+    await userEvent.click(screen.getByRole("option", { name: "google/gemini-image" }));
 
+    // Bare label, full committed id — same contract as the text picker.
     await waitFor(() => expect(patched.imageModel).toBe("openrouter:google/gemini-image"));
-    await waitFor(() => expect(combobox.value).toBe("openrouter:google/gemini-image"));
+    await waitFor(() => expect(combobox.value).toBe("google/gemini-image"));
   });
 
   it("turns image generation off when None is picked", async () => {
@@ -264,7 +338,7 @@ describe("<SessionAside>", () => {
     const combobox = (await screen.findByRole("combobox", {
       name: /image model/i,
     })) as HTMLInputElement;
-    expect(combobox.value).toBe("openrouter:google/gemini-image");
+    expect(combobox.value).toBe("google/gemini-image");
     await userEvent.click(combobox);
     await userEvent.click(screen.getByRole("option", { name: "None" }));
 
@@ -283,7 +357,7 @@ describe("<SessionAside>", () => {
     const combobox = (await screen.findByRole("combobox", {
       name: /image model/i,
     })) as HTMLInputElement;
-    expect(combobox.value).toBe("openrouter:delisted-image");
+    expect(combobox.value).toBe("delisted-image");
   });
 
   it("surfaces a provider whose model listing failed", async () => {

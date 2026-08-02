@@ -72,6 +72,44 @@ providers:
 Everything that takes a `model:` — pipeline steps, articles, summarisers,
 sessions — accepts `local:<model-id>` the same as a hosted provider.
 
+## Model tiers
+
+Optionally name three tiers of model per modality — text and image — under
+`models:`, and model choice becomes a deliberate size decision. The names are
+the three Japanese blades, smallest to largest:
+
+- **tantō** — smallest, fastest, cheapest: mechanical, fully-specified work
+  with no judgement calls.
+- **katana** — the everyday default for ordinary work.
+- **ōdachi** — largest and deepest: work whose outcome hinges on reasoning
+  depth.
+
+```yaml
+models:
+  text:
+    tanto: anthropic:claude-haiku-4-5
+    katana: anthropic:claude-sonnet-4-5
+    odachi: anthropic:claude-opus-4-5
+  image:
+    tanto: openai:gpt-image-1-mini
+    katana: openai:gpt-image-1
+    odachi: openai:gpt-image-1
+```
+
+Each modality block is optional, but a present block defines all three tiers.
+Tier values are ordinary `provider:model` references, resolved when a tier is
+used — a session records the model its tier pointed at at the time, so
+re-pointing a tier later changes future work without rewriting what past
+sessions ran on.
+
+With tiers configured, the session model pickers pin the three tiers ahead of
+the full listing, every new session starts on tanto for each configured
+modality, and the assistant sizes each worker it delegates to by naming a
+tier — tantō for mechanical legwork, katana by default, ōdachi where the
+result depends on reasoning depth.
+Without a `models:` section, nothing changes: pickers list models as usual and
+new sessions default to the most recent session's model.
+
 ## Hot reload and health
 
 Edits to `kiri.yaml` apply live: kiri swaps the registry on a valid change and

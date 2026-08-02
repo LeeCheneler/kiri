@@ -15,7 +15,7 @@ test("swapping the model mid-chat changes which model the next turn runs against
   // fails — where echo would have replied — proving the swap took effect for the
   // turns that follow it.
   await useModel(page, "fake:boom");
-  await expect(page.getByLabel(/^model/i)).toHaveValue("fake:boom");
+  await expect(page.getByLabel(/^model/i)).toHaveValue("boom");
 
   await sendMessage(page, "after the swap");
   await expect(page.locator('[data-status="failed"]')).toBeVisible({ timeout: 10_000 });
