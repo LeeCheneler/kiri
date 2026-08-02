@@ -6,6 +6,7 @@ import { type Tool, type ToolSet, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import type { ModelTiersConfig } from "../config/schema.ts";
 import { articles } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
@@ -155,6 +156,7 @@ describe("sessions routes", () => {
       cancelRegistry?: CancelRegistry;
       mcpRegistry?: McpRegistry;
       streamRegistry?: StreamRegistry;
+      getModelTiers?: () => ModelTiersConfig;
     } = {},
   ) =>
     createApp({
@@ -202,7 +204,20 @@ describe("sessions routes", () => {
       expect(await res.json()).toEqual({
         models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
         failures: [],
+        tiers: {},
       });
+    });
+
+    it("carries the configured model tiers alongside the listing", async () => {
+      const tiers = {
+        text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+      };
+      const app = makeApp(fakeClients(), { getModelTiers: () => tiers });
+
+      const res = await app.request("/api/models");
+
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { tiers: ModelTiersConfig }).tiers).toEqual(tiers);
     });
   });
 
@@ -225,6 +240,41 @@ describe("sessions routes", () => {
       expect(body.session.status).toBe("idle");
       expect(getSession(env.db, body.session.id)?.model).toBe(MODEL);
       expect(events).toContainEqual({ type: "session.started", id: body.session.id });
+    });
+
+    it("creates a session with an image model when the body carries one", async () => {
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: MODEL, imageModel: "openai:gpt-image" }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { session: { id: string; imageModel: string | null } };
+      expect(body.session.imageModel).toBe("openai:gpt-image");
+      expect(getSession(env.db, body.session.id)?.imageModel).toBe("openai:gpt-image");
+    });
+
+    it("rejects an image model that does not resolve, creating nothing", async () => {
+      const clients = fakeClients();
+      clients.resolveModel = (id: string) => {
+        if (id === "ghost:image") throw new Error('unknown llm provider "ghost"');
+        return new MockLanguageModelV3({}) as unknown as LlmModel;
+      };
+      const app = makeApp(clients);
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: MODEL, imageModel: "ghost:image" }),
+      });
+
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'unknown llm provider "ghost"',
+      });
     });
 
     it("rejects a model that does not resolve", async () => {
