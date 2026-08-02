@@ -39,6 +39,19 @@ export interface PullResult {
 /** The repo identity a fetch needs: what to call it and where it lives. */
 export type FetchTarget = Pick<RepoOverview, "name" | "root">;
 
+/** A repo and every checkout of it an update brings along. */
+export type UpdateTarget = Pick<RepoOverview, "name" | "root" | "worktrees">;
+
+/** Outcome of updating one repo: its fetch, then each of its checkouts. */
+export interface UpdateResult {
+  /** Directory name of the repo updated. */
+  repo: string;
+  /** How the repo's fetch went. */
+  fetch: FetchResult;
+  /** One outcome per checkout, in the repo's own order. Empty when the fetch never landed. */
+  checkouts: PullResult[];
+}
+
 /**
  * Fetch one repo with `git fetch --prune`, run in its primary checkout: one
  * fetch serves every worktree of the repo, since they share an object store,
@@ -78,6 +91,50 @@ export async function fetchRepo(repo: FetchTarget): Promise<FetchResult> {
 export const fetchRepos = async (repos: readonly FetchTarget[]): Promise<FetchResult[]> =>
   mapConcurrent(repos, SCAN_CONCURRENCY, fetchRepo);
 
+/** How many conflicting paths a refusal names before it summarises the rest. */
+const NAMED_CONFLICTS = 5;
+
+// `<mode> <object> <stage>\t<path>` — the conflicted-file entries git lists
+// under the merged tree. The informational messages that follow take no such
+// shape, so matching the line is enough to tell the two blocks apart.
+const CONFLICT_ENTRY = /^\d{6} [0-9a-f]+ [123]\t(.+)$/;
+
+/**
+ * The paths reconciling `HEAD` with its upstream would conflict in: an empty
+ * array when it would merge cleanly, and null when git could not answer —
+ * no merge base, or a git too old for `merge-tree --write-tree`.
+ *
+ * Nothing is written or checked out; the merge happens entirely in the object
+ * store. It reads `@{upstream}` as it stands right now, so it is only as
+ * truthful as the last fetch.
+ */
+const conflictingPaths = async (path: string): Promise<string[] | null> => {
+  const merged = await runGit(path, "merge-tree", "--write-tree", "@{upstream}", "HEAD");
+  if (merged.ok) return [];
+  const paths = merged.stdout
+    .split("\n")
+    .map((line) => CONFLICT_ENTRY.exec(line)?.[1])
+    .filter((file): file is string => file !== undefined);
+  return paths.length === 0 ? null : [...new Set(paths)];
+};
+
+// A conflicted merge stages one entry per side, and a wide conflict can run to
+// hundreds of files — enough of them to see the shape of it, then a count.
+const namePaths = (paths: string[]): string =>
+  paths.length <= NAMED_CONFLICTS
+    ? paths.join(", ")
+    : `${paths.slice(0, NAMED_CONFLICTS).join(", ")} and ${paths.length - NAMED_CONFLICTS} more`;
+
+// What a divergence has to say beyond the counts. Reconciling it is the user's
+// to do either way; whether it will fight back is the part they cannot see
+// without trying it.
+const divergence = (conflicts: string[] | null): string => {
+  if (conflicts === null) return "";
+  return conflicts.length === 0
+    ? ", and reconciling it would not conflict"
+    : `, and reconciling it would conflict in ${namePaths(conflicts)}`;
+};
+
 /**
  * Fast-forward the checkout at `path` with `git pull --ff-only`, and nothing
  * else: it either moves the branch straight along its upstream or it does not
@@ -86,6 +143,11 @@ export const fetchRepos = async (repos: readonly FetchTarget[]): Promise<FetchRe
  * every one of those needing a decision kiri will not make for you. A branch
  * level with its upstream, or merely ahead of it, is already up to date and
  * nothing runs.
+ *
+ * A divergence also says whether reconciling it would conflict, and where. That
+ * costs an extra merge, so it is computed only once a branch is known to have
+ * diverged — rare enough to be free in the ordinary case, and never paid by the
+ * read path.
  */
 export async function fastForwardPull(path: string): Promise<PullResult> {
   const branch =
@@ -116,7 +178,9 @@ export async function fastForwardPull(path: string): Promise<PullResult> {
   const [behind = 0, ahead = 0] = counts.stdout.trim().split(/\s+/).map(Number);
   if (ahead > 0 && behind > 0) {
     return refused(
-      `'${branch}' has diverged from ${upstream} — ${ahead} ahead, ${behind} behind. Merge or rebase it yourself.`,
+      `'${branch}' has diverged from ${upstream} — ${ahead} ahead, ${behind} behind${divergence(
+        await conflictingPaths(path),
+      )}. Merge or rebase it yourself.`,
     );
   }
   if (behind === 0) return { path, branch, status: "up-to-date", commits: 0 };
@@ -132,3 +196,38 @@ export async function fastForwardPull(path: string): Promise<PullResult> {
   if (!pulled.ok) return { path, branch, status: "failed", commits: 0, error: pulled.stderr };
   return { path, branch, status: "updated", commits: behind };
 }
+
+/**
+ * Bring one repo current: fetch it once, then fast-forward every checkout of it
+ * that can take one. The primary checkout is included — updating a repo can
+ * move the branch a worktree was cut from, which is the point.
+ *
+ * A fetch that never landed stops there: without current remote-tracking refs
+ * there is nothing for a fast-forward to move toward, and a repo that is offline
+ * would only fail again once per checkout. Everything past the fetch is reported
+ * per checkout, and a checkout that cannot be fast-forwarded is left exactly as
+ * it was, with its reason.
+ *
+ * Checkouts run one at a time: they share one object store, and a repo's fetch
+ * has already done the slow part.
+ */
+export async function updateRepo(repo: UpdateTarget): Promise<UpdateResult> {
+  const fetched = await fetchRepo(repo);
+  if (fetched.status === "refused" || fetched.status === "failed") {
+    return { repo: repo.name, fetch: fetched, checkouts: [] };
+  }
+
+  const checkouts: PullResult[] = [];
+  for (const worktree of repo.worktrees) {
+    checkouts.push(await fastForwardPull(worktree.path));
+  }
+  return { repo: repo.name, fetch: fetched, checkouts };
+}
+
+/**
+ * Update every repo in `repos`, under the same bound the scan runs under. One
+ * repo failing never stops the rest — every repo comes back with its own
+ * outcome, in input order.
+ */
+export const updateRepos = async (repos: readonly UpdateTarget[]): Promise<UpdateResult[]> =>
+  mapConcurrent(repos, SCAN_CONCURRENCY, updateRepo);
