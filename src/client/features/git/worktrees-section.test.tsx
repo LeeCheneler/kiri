@@ -4,7 +4,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/setup/msw.ts";
-import type { PullResult, RepoConflicts, RepoOverview, WorktreeStatus } from "../../api.ts";
+import type { PullResult, RepoOverview, WorktreeStatus } from "../../api.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { WorktreesSection } from "./worktrees-section.tsx";
 
@@ -32,14 +32,10 @@ const repo = (worktrees: WorktreeStatus[]): RepoOverview => ({
   worktrees,
 });
 
-const renderSection = (
-  value: RepoOverview,
-  failures: PullResult[] = [],
-  conflicts?: RepoConflicts,
-) =>
+const renderSection = (value: RepoOverview, failures: PullResult[] = []) =>
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <WorktreesSection repo={value} failures={failures} conflicts={conflicts} />
+      <WorktreesSection repo={value} failures={failures} />
     </QueryClientProvider>,
   );
 
@@ -74,19 +70,13 @@ describe("<WorktreesSection>", () => {
     expect(screen.getAllByText("clean").length).toBeGreaterThan(0);
   });
 
-  // A repo with one linked worktree, plus the conflict answer for it.
-  const withConflicts = (files: string[]) =>
+  // A repo with one linked worktree carrying the scan's conflict answer.
+  const withConflicts = (conflicts?: string[]) =>
     renderSection(
       repo([
         worktree({ primary: true }),
-        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search" }),
+        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search", conflicts }),
       ]),
-      [],
-      {
-        repo: "kiri",
-        base: "origin/main",
-        worktrees: [{ path: "/projects/kiri-feat-search", files }],
-      },
     );
 
   it("flags a worktree whose branch no longer merges into the default branch", () => {
@@ -118,15 +108,8 @@ describe("<WorktreesSection>", () => {
     expect(screen.queryByText(/as of the last update/i)).toBeNull();
   });
 
-  it("says nothing about a worktree the check had no answer for", () => {
-    renderSection(
-      repo([
-        worktree({ primary: true }),
-        worktree({ path: "/projects/kiri-feat-search", branch: "feat/search" }),
-      ]),
-      [],
-      { repo: "kiri", base: "origin/main", worktrees: [] },
-    );
+  it("says nothing about a worktree the scan had no answer for", () => {
+    withConflicts(undefined);
 
     expect(screen.queryByText("conflicts main")).toBeNull();
   });

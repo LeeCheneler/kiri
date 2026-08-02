@@ -3,9 +3,8 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConflictCache, repoConflicts } from "./conflicts.ts";
-import { gitOverview } from "./overview.ts";
-import type { RepoOverview } from "./overview.ts";
+import { withConflicts } from "./conflicts.ts";
+import { type RepoOverview, gitOverview } from "./overview.ts";
 
 const git = (cwd: string, ...args: string[]): string => {
   const result = spawnSync("git", args, {
@@ -76,17 +75,30 @@ describe("checking whether a worktree still merges into the default branch", () 
     git(clone, "fetch", "-q", "origin");
   };
 
-  const overview = async (): Promise<RepoOverview> => (await gitOverview([root])).repos[0];
+  // The repo as the scan sees it, with the conflict answers already on it.
+  const scanned = async (): Promise<RepoOverview> => (await gitOverview([root])).repos[0];
+
+  // The repo as it stood before the conflict pass, so a test can re-run that
+  // pass against a repo whose default branch it has altered.
+  const unanswered = async (): Promise<RepoOverview> => {
+    const repo = await scanned();
+    return {
+      ...repo,
+      worktrees: repo.worktrees.map(({ conflicts, ...worktree }) => worktree),
+    };
+  };
+
+  // What the scan concluded about one worktree: its files, or undefined when it
+  // had no answer to give.
+  const answerFor = async (path: string): Promise<string[] | undefined> =>
+    (await scanned()).worktrees.find((worktree) => worktree.path === path)?.conflicts;
 
   it("names the files a branch would conflict in", async () => {
     const path = addWorktree("project-feature", "feature");
     commitInto(path, { "a.txt": "branch\n", "b.txt": "branch\n" }, "branch edit");
     moveOrigin({ "a.txt": "origin\n", "b.txt": "origin\n" });
 
-    const result = await repoConflicts(await overview());
-
-    expect(result.base).toBe("origin/main");
-    expect(result.worktrees).toEqual([{ path, files: ["a.txt", "b.txt"] }]);
+    expect(await answerFor(path)).toEqual(["a.txt", "b.txt"]);
   });
 
   it("reports a branch that still merges cleanly as conflicting in nothing", async () => {
@@ -94,129 +106,60 @@ describe("checking whether a worktree still merges into the default branch", () 
     commitInto(path, { "a.txt": "branch\n" }, "branch edit");
     moveOrigin({ "b.txt": "origin\n" });
 
-    const result = await repoConflicts(await overview());
-
-    expect(result.worktrees).toEqual([{ path, files: [] }]);
+    expect(await answerFor(path)).toEqual([]);
   });
 
   it("says nothing about the primary checkout", async () => {
-    const result = await repoConflicts(await overview());
-
-    expect(result.worktrees).toEqual([]);
+    expect(await answerFor(clone)).toBeUndefined();
   });
 
   it("says nothing about a worktree sitting on the default branch", async () => {
-    git(clone, "worktree", "add", "-q", join(root, "project-main"), "main");
+    const path = join(root, "project-main");
+    git(clone, "worktree", "add", "-q", path, "main");
 
-    const result = await repoConflicts(await overview());
-
-    expect(result.worktrees).toEqual([]);
+    expect(await answerFor(path)).toBeUndefined();
   });
 
   it("says nothing about a detached worktree", async () => {
     const path = join(root, "project-detached");
     git(clone, "worktree", "add", "-q", "--detach", path, "main");
 
-    const result = await repoConflicts(await overview());
-
-    expect(result.worktrees).toEqual([]);
+    expect(await answerFor(path)).toBeUndefined();
   });
 
-  it("says nothing at all when origin has no copy of the default branch", async () => {
-    addWorktree("project-feature", "feature");
-    const repo = await overview();
+  it("says nothing when origin has no copy of the default branch", async () => {
+    const path = addWorktree("project-feature", "feature");
+    const repo = await unanswered();
 
-    const result = await repoConflicts({ ...repo, defaultBranch: "no-such-branch" });
+    const [reported] = await withConflicts([{ ...repo, defaultBranch: "no-such-branch" }]);
 
-    expect(result.base).toBeNull();
-    expect(result.worktrees).toEqual([]);
+    expect(reported.worktrees.find((w) => w.path === path)?.conflicts).toBeUndefined();
   });
 
-  it("says nothing at all when the repo has no discoverable default branch", async () => {
-    addWorktree("project-feature", "feature");
-    const repo = await overview();
+  it("says nothing when the repo has no discoverable default branch", async () => {
+    const path = addWorktree("project-feature", "feature");
+    const repo = await unanswered();
 
-    const result = await repoConflicts({ ...repo, defaultBranch: null });
+    const [reported] = await withConflicts([{ ...repo, defaultBranch: null }]);
 
-    expect(result.base).toBeNull();
-    expect(result.worktrees).toEqual([]);
+    expect(reported.worktrees.find((w) => w.path === path)?.conflicts).toBeUndefined();
   });
 
-  it("omits a worktree whose merge git cannot compute rather than calling it clean", async () => {
+  it("leaves a worktree whose merge git cannot compute unmarked rather than clean", async () => {
     // An unrelated history has no merge base, so the merge has no answer.
     const path = addWorktree("project-feature", "feature");
     git(path, "checkout", "-q", "--orphan", "feature-orphan");
     git(path, "commit", "-q", "-m", "unrelated", "--allow-empty");
 
-    const result = await repoConflicts(await overview());
-
-    expect(result.worktrees).toEqual([]);
+    expect(await answerFor(path)).toBeUndefined();
   });
 
-  describe("remembering what the check found", () => {
-    it("attaches a remembered answer to the worktree it is about", async () => {
-      const path = addWorktree("project-feature", "feature");
-      commitInto(path, { "a.txt": "branch\n" }, "branch edit");
-      moveOrigin({ "a.txt": "origin\n" });
-      const repo = await overview();
-      const cache = createConflictCache();
+  it("leaves every worktree unmarked when no repo has anything to merge into", async () => {
+    addWorktree("project-feature", "feature");
+    const repo = await unanswered();
 
-      cache.record(repo, await repoConflicts(repo));
-      const attached = cache.attach({ roots: [root], repos: [repo] });
+    const [reported] = await withConflicts([{ ...repo, defaultBranch: null }]);
 
-      const worktree = attached.repos[0].worktrees.find((w) => w.path === path);
-      expect(worktree?.conflicts).toEqual(["a.txt"]);
-    });
-
-    it("says nothing about a repo the check has never run for", async () => {
-      const path = addWorktree("project-feature", "feature");
-      const repo = await overview();
-      const cache = createConflictCache();
-
-      const attached = cache.attach({ roots: [root], repos: [repo] });
-
-      expect(attached.repos[0].worktrees.find((w) => w.path === path)?.conflicts).toBeUndefined();
-    });
-
-    it("drops an answer once the worktree's branch has moved", async () => {
-      const path = addWorktree("project-feature", "feature");
-      commitInto(path, { "a.txt": "branch\n" }, "branch edit");
-      moveOrigin({ "a.txt": "origin\n" });
-      const repo = await overview();
-      const cache = createConflictCache();
-      cache.record(repo, await repoConflicts(repo));
-
-      commitInto(path, { "a.txt": "branch again\n" }, "another branch edit");
-      const attached = cache.attach({ roots: [root], repos: [await overview()] });
-
-      expect(attached.repos[0].worktrees.find((w) => w.path === path)?.conflicts).toBeUndefined();
-    });
-
-    it("drops an answer once the repo has fetched again", async () => {
-      const path = addWorktree("project-feature", "feature");
-      commitInto(path, { "a.txt": "branch\n" }, "branch edit");
-      moveOrigin({ "a.txt": "origin\n" });
-      const repo = await overview();
-      const cache = createConflictCache();
-      cache.record(repo, await repoConflicts(repo));
-
-      const attached = cache.attach({
-        roots: [root],
-        repos: [{ ...repo, lastFetchedAt: new Date(Date.now() + 60_000).toISOString() }],
-      });
-
-      expect(attached.repos[0].worktrees.find((w) => w.path === path)?.conflicts).toBeUndefined();
-    });
-
-    it("leaves a worktree the check had no answer for unmarked", async () => {
-      addWorktree("project-feature", "feature");
-      const repo = await overview();
-      const cache = createConflictCache();
-
-      cache.record(repo, { repo: repo.name, base: "origin/main", worktrees: [] });
-      const attached = cache.attach({ roots: [root], repos: [repo] });
-
-      expect(attached.repos[0].worktrees.every((w) => w.conflicts === undefined)).toBe(true);
-    });
+    expect(reported.worktrees.every((w) => w.conflicts === undefined)).toBe(true);
   });
 });

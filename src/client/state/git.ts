@@ -8,13 +8,11 @@ import {
   type GitOverview,
   type PruneWorktreesResult,
   type RemoveWorktreeResult,
-  type RepoConflicts,
   type UpdateResult,
   createWorktree,
   fetchChangeset,
   fetchFilePatch,
   fetchGitOverview,
-  fetchRepoConflicts,
   pruneWorktrees,
   removeWorktree,
   updateAllRepos,
@@ -30,13 +28,6 @@ const gitKey = ["git"] as const;
 // operation invalidating the overview — an update, a worktree change —
 // doesn't drag every diff on screen into a recompute behind it.
 const changesetKey = ["git-changeset"] as const;
-
-// The conflict check is a real merge per worktree, computed per request for the
-// one repo being looked at. It caches under a root of its own for the same
-// reason diffs do: a scan completing is not a reason to re-merge every branch on
-// screen. What *is* a reason is an update, which moves both sides of the merge —
-// so the update mutations clear it explicitly.
-const conflictsKey = ["git-conflicts"] as const;
 
 /**
  * Read the grouped git overview — every repo with its checkouts. Fetched on
@@ -124,7 +115,6 @@ export function useUpdateRepo(): (repo: string) => Promise<UpdateResult> {
   return async (repo) => {
     const result = await updateRepo(repo);
     void queryClient.invalidateQueries({ queryKey: gitKey });
-    void queryClient.invalidateQueries({ queryKey: conflictsKey });
     return result;
   };
 }
@@ -139,25 +129,8 @@ export function useUpdateAllRepos(): () => Promise<UpdateResult[]> {
   return async () => {
     const results = await updateAllRepos();
     void queryClient.invalidateQueries({ queryKey: gitKey });
-    void queryClient.invalidateQueries({ queryKey: conflictsKey });
     return results;
   };
-}
-
-/**
- * Ask whether each of a repo's linked worktree branches still merges into the
- * remote default branch. Computed by the server per request — a real merge per
- * worktree — so it is asked for the one repo on screen and cached until an
- * update moves one side of the merge or the other.
- *
- * The answer is only as current as the repo's last update: nothing here fetches,
- * so it describes the remote default branch as it stood then.
- */
-export function useRepoConflicts(repo: string): UseQueryResult<RepoConflicts> {
-  return useQuery({
-    queryKey: [...conflictsKey, repo],
-    queryFn: () => fetchRepoConflicts(repo),
-  });
 }
 
 /**

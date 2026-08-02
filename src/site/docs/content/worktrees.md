@@ -106,17 +106,18 @@ page.
 
 Merging one pull request can quietly make a sibling worktree unmergeable, and
 nothing about ahead/behind hints at it — you find out when a rebase blows up.
-A repo's own page answers the question directly: each linked worktree's branch
-is merged into the remote default branch (`origin/main`, or whatever yours is)
-entirely in git's object store, and one that no longer merges cleanly is tagged
-`conflicts main` and names the files it would fight over.
+The scan answers the question for you: each linked worktree's branch is merged
+into the remote default branch (`origin/main`, or whatever yours is) entirely
+in git's object store, and one that no longer merges cleanly is tagged
+`conflicts main` on its card and names the files it would fight over. The repo
+list counts the same thing, so a repo holding a conflicted worktree is pulled
+to the front of the list.
 
-This is a real three-way merge per worktree, far heavier than reading a status,
-so it runs for the one repo you're looking at rather than across every repo in
-the workspace. What it finds is remembered, so the repo list can show a
-`conflicting` count and pull that repo to the front of the list without
-re-running the merge — and the answer is dropped, rather than shown stale, once
-the branch moves or the repo fetches again.
+This is a real three-way merge, and the most expensive thing the scan does, so
+it is confined to **linked worktrees** — never the primary checkout, which is
+where the default branch already lives — and only to those with a branch of
+their own. A workspace of quiet repos pays close to nothing for it, because a
+repo with no linked worktree is never asked.
 
 Nothing is fetched to answer it, so it describes the default branch **as of the
 repo's last update**, which is what the wording on the page says. Update the

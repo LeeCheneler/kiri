@@ -483,10 +483,8 @@ describe("git routes", () => {
     });
   });
 
-  describe("GET /api/git/conflicts", () => {
-    // The clone's worktree and its origin both edit the same file, so the
-    // branch no longer merges into the default branch on origin.
-    const divergedWorktree = () => {
+  describe("conflicts with the default branch", () => {
+    it("carries what the scan found onto the worktree it is about", async () => {
       const { origin, clone } = repoWithRemote();
       const worktree = realJoin("repos", "clone-feature");
       git(clone, "worktree", "add", "-q", worktree, "-b", "feature");
@@ -496,44 +494,13 @@ describe("git routes", () => {
       git(origin, "config", "receive.denyCurrentBranch", "ignore");
       commitTo(origin, "what everyone else has");
       git(clone, "fetch", "-q", "origin");
-      return { clone, worktree };
-    };
 
-    it("names the files a worktree's branch would conflict in", async () => {
-      const { worktree } = divergedWorktree();
+      const body = (await (await (await buildApp()).request("/api/git")).json()) as GitSnapshot;
 
-      const res = await (await buildApp()).request("/api/git/conflicts?repo=clone");
-
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.base).toBe("origin/main");
-      expect(body.worktrees).toEqual([{ path: worktree, files: ["file.txt"] }]);
-    });
-
-    it("carries what it found onto the model the listing reads", async () => {
-      const { worktree } = divergedWorktree();
-      const app = await buildApp();
-
-      const before = (await (await app.request("/api/git")).json()) as GitSnapshot;
-      await app.request("/api/git/conflicts?repo=clone");
-      const after = (await (await app.request("/api/git")).json()) as GitSnapshot;
-
-      const conflicts = (snapshot: GitSnapshot) =>
-        snapshot.repos
-          .flatMap((repo) => repo.worktrees)
-          .find((candidate) => candidate.path === worktree)?.conflicts;
-      expect(conflicts(before)).toBeUndefined();
-      expect(conflicts(after)).toEqual(["file.txt"]);
-    });
-
-    it("answers 404 for a repo outside the configured roots", async () => {
-      const res = await (await buildApp()).request("/api/git/conflicts?repo=nowhere");
-      expect(res.status).toBe(404);
-    });
-
-    it("rejects a malformed request", async () => {
-      const res = await (await buildApp()).request("/api/git/conflicts");
-      expect(res.status).toBe(400);
+      const reported = body.repos
+        .flatMap((repo) => repo.worktrees)
+        .find((candidate) => candidate.path === worktree);
+      expect(reported?.conflicts).toEqual(["file.txt"]);
     });
   });
 

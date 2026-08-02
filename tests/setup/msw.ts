@@ -17,8 +17,6 @@ const defaultHandlers = [
   http.get("*/api/git", () =>
     HttpResponse.json({ roots: [], repos: [], refreshing: false, scannedAt: SCANNED_AT }),
   ),
-  // The conflict check runs per repo page; default to "nothing to report".
-  http.get("*/api/git/conflicts", () => HttpResponse.json({ repo: "", base: null, worktrees: [] })),
   http.get("*/api/sessions", () => HttpResponse.json({ sessions: [], nextCursor: null })),
   // `useChat`'s resume polls this on mount; default to "no live turn to rejoin".
   http.get("*/api/sessions/:id/stream", () => new HttpResponse(null, { status: 204 })),

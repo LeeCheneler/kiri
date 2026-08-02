@@ -136,7 +136,7 @@ describe("<RepoDetail>", () => {
     expect(section.textContent).toContain("kiri-feat-search");
   });
 
-  it("asks whether this repo's branches still merge, and flags the ones that don't", async () => {
+  it("flags a checkout whose branch no longer merges into the default branch", async () => {
     server.use(
       http.get("*/api/git", () =>
         HttpResponse.json(
@@ -144,21 +144,14 @@ describe("<RepoDetail>", () => {
             kiri({
               worktrees: [
                 worktree({ primary: true }),
-                worktree({ path: "/projects/kiri-feat-search", branch: "feat/search" }),
+                worktree({
+                  path: "/projects/kiri-feat-search",
+                  branch: "feat/search",
+                  conflicts: ["src/api.ts"],
+                }),
               ],
             }),
           ]),
-        ),
-      ),
-      http.get("*/api/git/conflicts", ({ request }) =>
-        HttpResponse.json(
-          new URL(request.url).searchParams.get("repo") === "kiri"
-            ? {
-                repo: "kiri",
-                base: "origin/main",
-                worktrees: [{ path: "/projects/kiri-feat-search", files: ["src/api.ts"] }],
-              }
-            : { repo: "", base: null, worktrees: [] },
         ),
       ),
     );

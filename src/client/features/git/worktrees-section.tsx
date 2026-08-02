@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PullResult, RepoConflicts, RepoOverview, WorktreeStatus } from "../../api.ts";
+import type { PullResult, RepoOverview, WorktreeStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Tag } from "../../design-system/content/tag.tsx";
@@ -46,21 +46,15 @@ import { branchLabel, conflictSummary, dirName, stateTags } from "./worktree-sta
 function CheckoutRow({
   repo,
   worktree,
-  base,
-  files,
   failure,
   onRemove,
 }: {
   repo: RepoOverview;
   worktree: WorktreeStatus;
-  /** The ref this checkout's branch was merged into; null when there was none. */
-  base: string | null;
-  /** Files that merge would conflict in; undefined when there is no answer. */
-  files?: string[];
   failure?: PullResult;
   onRemove?: () => void;
 }) {
-  const summary = conflictSummary(base, files);
+  const summary = conflictSummary(repo.defaultBranch, worktree.conflicts);
   return (
     <Card>
       <div className="flex items-center justify-between gap-4">
@@ -68,7 +62,7 @@ function CheckoutRow({
           <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
             {dirName(worktree.path)}
             {worktree.primary ? <Tag tone="accent">primary</Tag> : null}
-            {stateTags(worktree, repo.defaultBranch, files).map((tag) => (
+            {stateTags(worktree, repo.defaultBranch).map((tag) => (
               <Tag key={tag.label} tone={tag.tone}>
                 {tag.label}
               </Tag>
@@ -117,12 +111,9 @@ function CheckoutRow({
  */
 export function WorktreesSection({
   repo,
-  conflicts,
   failures = [],
 }: {
   repo: RepoOverview;
-  /** Whether each linked worktree's branch still merges into the default branch. */
-  conflicts?: RepoConflicts;
   /** What the last update could not do, per checkout. */
   failures?: PullResult[];
 }) {
@@ -168,8 +159,6 @@ export function WorktreesSection({
             <CheckoutRow
               repo={repo}
               worktree={worktree}
-              base={conflicts?.base ?? null}
-              files={conflicts?.worktrees.find((entry) => entry.path === worktree.path)?.files}
               failure={failures.find((failure) => failure.path === worktree.path)}
               onRemove={worktree.primary ? undefined : () => setRemoving(worktree)}
             />

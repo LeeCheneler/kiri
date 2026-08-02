@@ -19,14 +19,10 @@ import {
   type UpdateReport,
   useUpdate,
 } from "./update.tsx";
+import { conflicting } from "./worktree-state.ts";
 
 // The path a repo's own page lives at, keyed by its directory name.
 const repoHref = (repo: RepoOverview): string => `/git/${encodeURIComponent(repo.name)}`;
-
-// Whether a worktree's branch is known to have stopped merging into the repo's
-// default branch. Absent means the check has no answer for it, not that it
-// merges — the summary stays quiet either way, but never claims the all-clear.
-const conflicting = (worktree: WorktreeStatus): boolean => (worktree.conflicts?.length ?? 0) > 0;
 
 // Whether a repo is carrying something a person would want to act on.
 const wantsAttention = (repo: RepoOverview): boolean =>
@@ -45,9 +41,9 @@ const total = (repo: RepoOverview, of: (worktree: WorktreeStatus) => number): nu
 // carrying nothing at all says "clean" rather than going silent — an absence of
 // tags reads as missing data, not as a settled repo.
 //
-// Conflicts with the default branch are reported the same way, but only once the
-// server has an answer to give: the check is a real merge per worktree and runs
-// on a repo's own page, never in the scan behind this listing.
+// A checkout no longer merging into the default branch is counted the same way.
+// A worktree the scan had no answer for is not counted as clean — it is simply
+// not counted, so the absence of the tag never reads as an all-clear.
 const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => {
   const count = (predicate: (worktree: WorktreeStatus) => boolean) =>
     total(repo, (worktree) => (predicate(worktree) ? 1 : 0));
