@@ -75,11 +75,14 @@ sessions — accepts `local:<model-id>` the same as a hosted provider.
 ## Model tiers
 
 Optionally name three tiers of model per modality — text and image — under
-`models:`, and model choice becomes a deliberate size decision:
+`models:`, and model choice becomes a deliberate size decision. The names are
+the three Japanese blades, smallest to largest:
 
-- **tantō** — the short blade: small, quick, and cheap, for mechanical legwork.
-- **katana** — the working blade: the balanced default for everyday work.
-- **ōdachi** — the great blade: the deepest model, for the hardest problems.
+- **tantō** — smallest, fastest, cheapest: mechanical, fully-specified work
+  with no judgement calls.
+- **katana** — the everyday default for ordinary work.
+- **ōdachi** — largest and deepest: work whose outcome hinges on reasoning
+  depth.
 
 ```yaml
 models:
@@ -102,7 +105,8 @@ sessions ran on.
 With tiers configured, the session model pickers pin the three tiers ahead of
 the full listing, every new session starts on tanto for each configured
 modality, and the assistant sizes each worker it delegates to by naming a
-tier — tanto for legwork, katana by default, ōdachi for deep synthesis.
+tier — tantō for mechanical legwork, katana by default, ōdachi where the
+result depends on reasoning depth.
 Without a `models:` section, nothing changes: pickers list models as usual and
 new sessions default to the most recent session's model.
 

@@ -35,13 +35,13 @@ const modelRef = z.string().min(1);
 const modelTiersSchema = z
   .object({
     tanto: modelRef.describe(
-      "The small blade: the quick, cheap model for mechanical legwork. A `provider:model` reference.",
+      "The smallest, fastest tier: mechanical, fully-specified work. A `provider:model` reference.",
     ),
     katana: modelRef.describe(
-      "The working blade: the balanced default model for everyday work. A `provider:model` reference.",
+      "The mid tier and everyday default for ordinary work. A `provider:model` reference.",
     ),
     odachi: modelRef.describe(
-      "The great blade: the deepest, most capable model for the hardest problems. A `provider:model` reference.",
+      "The largest tier, for work whose outcome hinges on reasoning depth. A `provider:model` reference.",
     ),
   })
   .strict();
@@ -69,7 +69,7 @@ export interface ModelTiersConfig {
   image?: ModelTiers;
 }
 
-/** The three tier names, smallest blade first. */
+/** The three tier names, smallest first. */
 export const MODEL_TIER_NAMES = ["tanto", "katana", "odachi"] as const;
 
 /** A tier name — one of `tanto`, `katana`, `odachi`. */

@@ -137,7 +137,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
           model: z
             .enum(MODEL_TIER_NAMES)
             .describe(
-              "The size of model the worker runs: tanto for quick mechanical legwork, katana as the default working blade, odachi for deep synthesis and the hardest problems.",
+              "Which model runs the worker. tanto — smallest and fastest: mechanical, fully-specified tasks with no judgement calls (fetch and extract, reformat, enumerate, apply a stated pattern). katana — the default for ordinary research and multi-step tool work. odachi — largest and slowest: only for tasks whose result depends on reasoning depth (ambiguity, conflicting sources, subtle correctness). Undersizing forces a rerun; oversizing wastes time and cost for identical output.",
             ),
         }),
         execute: ({ task, model }, ctx) => run(task, textTiers[model], ctx),

@@ -21,7 +21,7 @@ const IMAGE_MODEL_NONE = "None";
 
 // A modality's configured tiers as the picker's pinned "kiri" group — the
 // tier name alone as the label, its configured model id as the committed
-// value, smallest blade first. Absent tiers pin nothing.
+// value, smallest tier first. Absent tiers pin nothing.
 const tierGroup = (tiers: ModelTiers | undefined): ComboboxGroup[] =>
   tiers
     ? [

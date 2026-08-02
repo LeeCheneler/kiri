@@ -453,13 +453,18 @@ describe("delegate guidance", () => {
       tiersConfigured: true,
       now: FIXED_NOW,
     });
-    expect(withTiers).toContain("Right-size the worker");
-    expect(withTiers).toContain("`tanto` for quick mechanical legwork");
-    expect(withTiers).toContain("`katana` as the default working blade");
-    expect(withTiers).toContain("`odachi` for deep synthesis and the hardest problems");
+    // The steer must demand per-task sizing and give each tier an operational
+    // trigger, plus name both failure modes — undersizing and oversizing.
+    expect(withTiers).toContain("Size each worker's model to its task");
+    expect(withTiers).toContain("never one size for the whole batch");
+    expect(withTiers).toContain("`tanto` runs mechanical, fully-specified legwork");
+    expect(withTiers).toContain("`katana` is the default for ordinary research and tool work");
+    expect(withTiers).toContain("`odachi` is reserved for tasks whose outcome hinges on reasoning");
+    expect(withTiers).toContain("escalate the one strand that needs it, not the batch");
+    expect(withTiers).toContain("costs a rerun");
     // Unconfigured, the tool has no model prop, so the steer must not name one.
     const withoutTiers = buildSystemPrompt({ config, tools: ["delegate"], now: FIXED_NOW });
-    expect(withoutTiers).not.toContain("Right-size the worker");
+    expect(withoutTiers).not.toContain("Size each worker's model to its task");
   });
 });
 

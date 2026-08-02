@@ -190,7 +190,7 @@ function buildDelegateGuidance(tools: string[], tiersConfigured: boolean): strin
     "Delegating well:",
     ...(tiersConfigured
       ? [
-          "- Right-size the worker with the required `model` tier: `tanto` for quick mechanical legwork, `katana` as the default working blade, `odachi` for deep synthesis and the hardest problems. When in doubt, `katana`.",
+          "- Size each worker's model to its task with the required `model` prop, task by task — never one size for the whole batch. `tanto` runs mechanical, fully-specified legwork where the brief leaves no judgement calls. `katana` is the default for ordinary research and tool work — most delegations belong here. `odachi` is reserved for tasks whose outcome hinges on reasoning depth: genuine ambiguity, conflicting sources, subtle correctness. A fan-out of independent strands usually runs `tanto` or `katana`; escalate the one strand that needs it, not the batch. Both sizing failures are real: an undersized worker returns a shallow or wrong report that costs a rerun; an oversized worker burns time and money for the same output.",
         ]
       : []),
     '- Catch yourself at the plan: the moment your next step is "let me research / search / look into", that step is the delegate task — write it as the brief instead of making its first call yourself. Mid-way counts too: needing a second call on the same question means you are past the line — stop and delegate the remainder.',
