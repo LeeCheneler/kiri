@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { Field } from "./field.tsx";
 
 const LISTBOX_CLASS =
@@ -13,6 +13,34 @@ export interface ComboboxItem {
   label: string;
 }
 
+/** A group of options, set off from its neighbours by a divider and an optional heading. */
+export interface ComboboxGroup {
+  /** Heading rendered above the group's options; omit for a bare, divider-only group. */
+  label?: string;
+  options: readonly (string | ComboboxItem)[];
+}
+
+// Normalise an options entry to {value,label}: a bare string is its own label
+// and value.
+const toItems = (options: readonly (string | ComboboxItem)[]): ComboboxItem[] =>
+  options.map((option) => (typeof option === "string" ? { value: option, label: option } : option));
+
+// The two `options` shapes never mix, so the first entry settles which one
+// this is; an empty list normalises to no groups either way.
+const toGroups = (
+  options: readonly (string | ComboboxItem)[] | readonly ComboboxGroup[],
+): { label?: string; items: ComboboxItem[] }[] => {
+  const first = options[0];
+  if (first === undefined) return [];
+  if (typeof first === "object" && "options" in first) {
+    return (options as readonly ComboboxGroup[]).map((group) => ({
+      label: group.label,
+      items: toItems(group.options),
+    }));
+  }
+  return [{ items: toItems(options as readonly (string | ComboboxItem)[]) }];
+};
+
 /**
  * Searchable single-select — a combobox over a long list of values. The input
  * filters the options as you type (case-insensitive substring); ↑/↓ move the
@@ -21,7 +49,10 @@ export interface ComboboxItem {
  * `onChange`, which receives the chosen option's value; `options` is the full
  * set of selectable entries — a bare `string` (its own label and value) or a
  * `{ value, label }` pair when the display label differs from the committed
- * value. Pass a `label` to render the field
+ * value. To section the list, pass `{ label?, options }` groups instead: each
+ * group is set off by a divider (and its heading, when given), a filter that
+ * empties a group hides it, and keyboard movement walks the flattened list.
+ * Pass a `label` to render the field
  * lockup (label, optional `description` help line, `required` marker), wired for
  * assistive tech through the ARIA combobox/listbox roles; omit it for the bare
  * control. Reach for it over `Select` when the list is long enough that scanning
@@ -42,7 +73,7 @@ export function Combobox({
 }: {
   value: string;
   onChange: (value: string) => void;
-  options: readonly (string | ComboboxItem)[];
+  options: readonly (string | ComboboxItem)[] | readonly ComboboxGroup[];
   id?: string;
   name?: string;
   label?: string;
@@ -60,19 +91,32 @@ export function Combobox({
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Normalise to {value,label}: a bare string is its own label and value.
-  const items: ComboboxItem[] = options.map((option) =>
-    typeof option === "string" ? { value: option, label: option } : option,
-  );
+  const groups = toGroups(options);
+  const items: ComboboxItem[] = groups.flatMap((group) => group.items);
   // The committed value's label for the closed input; falls back to the raw
   // value when it isn't among the options (e.g. a pinned but now-absent entry).
   const selectedLabel = items.find((item) => item.value === value)?.label ?? value;
 
-  // Open, the input shows the live filter and the list narrows to matches;
-  // closed, it shows the committed value and the full set stands by.
-  const filtered = open
-    ? items.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()))
-    : items;
+  // Open, the input shows the live filter and the list narrows to matches —
+  // a group the filter empties disappears, heading and all; closed, it shows
+  // the committed value and the full set stands by.
+  const matches = (item: ComboboxItem) =>
+    item.label.toLowerCase().includes(query.trim().toLowerCase());
+  const filteredGroups = open
+    ? groups
+        .map((group) => ({ ...group, items: group.items.filter(matches) }))
+        .filter((group) => group.items.length > 0)
+    : groups;
+  // Keyboard movement and Enter work on the flattened list; rendering walks
+  // the groups with a running offset so option ids line up with it.
+  const filtered = filteredGroups.flatMap((group) => group.items);
+  // Each group's start position in the flattened list, for rendering.
+  const groupStarts: number[] = [];
+  let flatCount = 0;
+  for (const group of filteredGroups) {
+    groupStarts.push(flatCount);
+    flatCount += group.items.length;
+  }
   // Filtering can shrink the list past the highlight; clamp it so the active
   // option and Enter always agree on a real row.
   const active = Math.min(activeIndex, Math.max(0, filtered.length - 1));
@@ -170,15 +214,37 @@ export function Combobox({
               No matches
             </li>
           ) : (
-            filtered.map((item, index) => (
-              <ComboboxOption
-                key={item.value}
-                id={`${listboxId}-option-${index}`}
-                label={item.label}
-                selected={item.value === value}
-                active={index === active}
-                onSelect={() => commit(item)}
-              />
+            filteredGroups.map((group, groupIndex) => (
+              // Groups are positional, so the index is the identity; option
+              // keys are flat positions, since the same value may legitimately
+              // appear in more than one group.
+              // biome-ignore lint/suspicious/noArrayIndexKey: see above
+              <Fragment key={groupIndex}>
+                {groupIndex > 0 ? (
+                  <li role="presentation" className="my-1 border-rule border-t" />
+                ) : null}
+                {group.label !== undefined ? (
+                  <li
+                    role="presentation"
+                    className="px-3 pt-2 pb-1 font-mono text-ink-faint text-xs uppercase tracking-widest"
+                  >
+                    {group.label}
+                  </li>
+                ) : null}
+                {group.items.map((item, itemIndex) => {
+                  const index = groupStarts[groupIndex] + itemIndex;
+                  return (
+                    <ComboboxOption
+                      key={index}
+                      id={`${listboxId}-option-${index}`}
+                      label={item.label}
+                      selected={item.value === value}
+                      active={index === active}
+                      onSelect={() => commit(item)}
+                    />
+                  );
+                })}
+              </Fragment>
             ))
           )}
         </ul>

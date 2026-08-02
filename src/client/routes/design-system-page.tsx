@@ -183,6 +183,39 @@ function ComboboxDemo() {
   );
 }
 
+// Interactive specimen for the Combobox's option groups — a pinned shortlist
+// leading the full listing, each group set off by a divider and heading.
+function ComboboxGroupsDemo() {
+  const [model, setModel] = useState("anthropic:claude-haiku");
+  return (
+    <Combobox
+      label="Model"
+      description="A pinned group leads; the full listing follows the divider."
+      options={[
+        {
+          label: "Tiers",
+          options: [
+            { value: "anthropic:claude-haiku", label: "tanto — anthropic:claude-haiku" },
+            { value: "anthropic:claude-sonnet", label: "katana — anthropic:claude-sonnet" },
+            { value: "anthropic:claude-opus", label: "odachi — anthropic:claude-opus" },
+          ],
+        },
+        {
+          options: [
+            "anthropic:claude-haiku",
+            "anthropic:claude-opus",
+            "anthropic:claude-sonnet",
+            "google:gemini-flash",
+            "openai:gpt-4o",
+          ],
+        },
+      ]}
+      value={model}
+      onChange={setModel}
+    />
+  );
+}
+
 // Interactive specimen for the Checkbox — a small set of independently
 // toggleable options, including a disabled one, each owning its checked state.
 function CheckboxDemo() {
@@ -1328,10 +1361,20 @@ export function DesignSystemContent() {
                 for it over <Code>Select</Code> once the list is long enough that scanning a native
                 dropdown is painful.
               </p>
+              <p>
+                To section the list, pass <Code>{"{ label?, options }"}</Code> groups instead of a
+                flat set: each group after the first opens with a divider, a <Code>label</Code>{" "}
+                renders as a small heading above its options, and a filter that empties a group
+                hides it entirely. Use it to pin a shortlist — recommended entries, recents — ahead
+                of the full listing without the call site faking it with prefix entries.
+              </p>
             </Prose>
-            <div className="mt-5">
+            <div className="mt-5 space-y-4">
               <Card>
                 <ComboboxDemo />
+              </Card>
+              <Card>
+                <ComboboxGroupsDemo />
               </Card>
             </div>
           </article>

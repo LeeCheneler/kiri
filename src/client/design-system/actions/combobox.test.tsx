@@ -202,4 +202,52 @@ describe("<Combobox>", () => {
       expect(onChange.mock.calls).toEqual([["granny-smith"]]);
     });
   });
+
+  describe("with grouped options", () => {
+    const GROUPS = [
+      { label: "Pinned", options: [{ value: "beta", label: "pinned — beta" }] },
+      { options: ["alpha", "beta", "gamma"] },
+    ];
+
+    it("lists every group's options and heads a labelled group", async () => {
+      const user = userEvent.setup();
+      render(<Combobox label="Fruit" options={GROUPS} value="alpha" onChange={() => {}} />);
+      await user.click(screen.getByRole("combobox", { name: "Fruit" }));
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "pinned — beta",
+        "alpha",
+        "beta",
+        "gamma",
+      ]);
+      expect(screen.getByText("Pinned")).toBeDefined();
+    });
+
+    it("walks the flattened list across groups and commits the chosen value", async () => {
+      const user = userEvent.setup();
+      const onChange = mock((_value: string) => {});
+      render(<Combobox label="Fruit" options={GROUPS} value="beta" onChange={onChange} />);
+      await user.click(screen.getByRole("combobox", { name: "Fruit" }));
+      // "beta" appears in both groups; the pinned entry (first match) opens
+      // highlighted, and one step down lands on the second group's first option.
+      await user.keyboard("{ArrowDown}{Enter}");
+      expect(onChange.mock.calls).toEqual([["alpha"]]);
+    });
+
+    it("hides a group the filter empties, heading and all", async () => {
+      const user = userEvent.setup();
+      render(<Combobox label="Fruit" options={GROUPS} value="alpha" onChange={() => {}} />);
+      const input = screen.getByRole("combobox", { name: "Fruit" });
+      await user.click(input);
+      await user.type(input, "gam");
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["gamma"]);
+      expect(screen.queryByText("Pinned")).toBeNull();
+    });
+
+    it("shows the first matching option's label for the committed value while closed", () => {
+      render(<Combobox label="Fruit" options={GROUPS} value="beta" onChange={() => {}} />);
+      expect((screen.getByRole("combobox", { name: "Fruit" }) as HTMLInputElement).value).toBe(
+        "pinned — beta",
+      );
+    });
+  });
 });
