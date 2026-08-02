@@ -12,7 +12,6 @@ const base: SessionListEntry = {
   status: "idle",
   model: "local:google/gemma-4-26b-a4b-qat",
   imageModel: null,
-  persona: null,
   pinned: false,
   parentSessionId: null,
   parentToolCallId: null,
@@ -65,16 +64,6 @@ describe("<SessionRow>", () => {
     renderRow();
     expect(screen.getByText("gemma-4-26b-a4b-qat")).toBeDefined();
     expect(screen.queryByText(/local:google/)).toBeNull();
-  });
-
-  it("shows the attached persona in the byline", () => {
-    renderRow({ persona: "red-team" });
-    expect(screen.getByText("red-team")).toBeDefined();
-  });
-
-  it("omits the persona entry when none is attached", () => {
-    renderRow();
-    expect(screen.queryByText("red-team")).toBeNull();
   });
 
   it("lists the session's articles as links, read by heading with name fallback", () => {

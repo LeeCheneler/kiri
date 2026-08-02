@@ -25,9 +25,8 @@ const shortModel = (model: string): string => {
 /**
  * One session in an activity feed, differentiated from run rows as a
  * conversation rather than an artifact record. An accent `session` kind marker
- * leads the mono byline — kind, status, model, the attached persona when one
- * is set, and relative start — so a session declares itself before the shared
- * status vocabulary takes over. Below, the session's first user message is set
+ * leads the mono byline — kind, status, model, and relative start — so a
+ * session declares itself before the shared status vocabulary takes over. Below, the session's first user message is set
  * as quoted speech: italic display face between accent quotation marks (the
  * "human voice" only sessions carry — run rows' headlines stay upright), the
  * whole line linking through to the chat. Before a message is sent the short
@@ -43,7 +42,6 @@ export function SessionRow({ session, now }: { session: SessionListEntry; now?: 
         <span className="text-accent uppercase">session</span>
         <Status status={status} />
         <span>{shortModel(session.model)}</span>
-        {session.persona ? <span>{session.persona}</span> : null}
         <span>{formatRelativeTime(session.startedAt, now)}</span>
       </Meta>
       {/* Same 16px scale as run rows' content so neither kind outweighs the

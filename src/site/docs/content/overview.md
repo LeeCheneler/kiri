@@ -50,7 +50,7 @@ themselves.
 - **A report, not a log.** Runs produce articles — markdown with inline charts
   and diagrams — plus a one-line summary on the feed. A run can even recommend
   one-click follow-ups.
-- **Files in your repo.** Every workflow, persona, and config value is a file
+- **Files in your repo.** Every workflow, prompt, and config value is a file
   you can diff, commit, and review. Edits apply live, no restart.
 - **Your machine, your keys.** Bring Anthropic, OpenAI, or any OpenAI-compatible
   server (LM Studio, Ollama, vLLM). Steps run as you, against your real tools.
@@ -64,5 +64,5 @@ themselves.
 - [Recipes](/docs/recipes) — release notes, one-click PR reviews, a daily
   briefing.
 - [Writing workflows](/docs/workflows) — the golden path, step by step.
-- [Sessions](/docs/sessions) — chat, personas, MCP tools, running and
+- [Sessions](/docs/sessions) — chat, standing instructions, MCP tools, running and
   authoring workflows, and articles.

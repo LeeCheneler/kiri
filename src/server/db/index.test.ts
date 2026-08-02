@@ -983,9 +983,8 @@ describe("db", () => {
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
     );
     // Seed the migration ledger through 0013 so the session migrations
-    // (0014 creating the tables, 0015 dropping the agent columns, 0016 adding
-    // the persona column, 0017 dropping the running-token columns) are the ones
-    // outstanding. 0018 renames run_steps.is_publish, 0019 rebuilds articles,
+    // (0014 creating the tables, then the later column adds and drops through
+    // 0026) are the ones outstanding. 0018 renames run_steps.is_publish, 0019 rebuilds articles,
     // and 0022's backfill reads runs, so the fixture carries a minimal shape
     // of each; the other run-side tables stay irrelevant.
     sqlite.run(`CREATE TABLE run_steps (
@@ -1049,7 +1048,6 @@ describe("db", () => {
         "model",
         "parent_session_id",
         "parent_tool_call_id",
-        "persona",
         "pinned",
         "started_at",
         "status",
@@ -1286,7 +1284,7 @@ describe("db", () => {
         sessionId: "sess-fts",
         index: 2,
         role: "system",
-        parts: [{ type: "text", text: "persona overlay" }],
+        parts: [{ type: "text", text: "instruction overlay" }],
         createdAt: new Date(),
       })
       .run();
@@ -1467,7 +1465,7 @@ describe("db", () => {
       workflow_name TEXT NOT NULL,
       summary TEXT
     )`);
-    sqlite.run("CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL)");
+    sqlite.run("CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, persona TEXT)");
     sqlite.run(`CREATE TABLE articles (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,

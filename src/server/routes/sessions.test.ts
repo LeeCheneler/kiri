@@ -188,13 +188,6 @@ describe("sessions routes", () => {
       body: JSON.stringify({ message: { role: "user", parts: [{ type: "text", text }] } }),
     });
 
-  // Write a persona file into the test workspace so the persona routes accept it.
-  const writePersona = (name: string, body: string) => {
-    const dir = join(env.cwd, "personas");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `${name}.md`), body);
-  };
-
   describe("GET /api/models", () => {
     it("returns the aggregated model listing", async () => {
       const app = makeApp(
@@ -246,31 +239,6 @@ describe("sessions routes", () => {
       expect(res.status).toBe(400);
       expect((await res.json()) as { error: string }).toEqual({
         error: 'unknown llm provider "ghost"',
-      });
-    });
-  });
-
-  describe("GET /api/personas", () => {
-    it("returns an empty list when the workspace defines none", async () => {
-      const app = makeApp(fakeClients());
-      const res = await app.request("/api/personas");
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ personas: [] });
-    });
-
-    it("lists the workspace's personas with humanised names", async () => {
-      writePersona("reviewer", "r");
-      writePersona("financial-advisor", "f");
-      const app = makeApp(fakeClients());
-
-      const res = await app.request("/api/personas");
-
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({
-        personas: [
-          { id: "financial-advisor", name: "Financial Advisor" },
-          { id: "reviewer", name: "Reviewer" },
-        ],
       });
     });
   });
@@ -709,45 +677,6 @@ describe("sessions routes", () => {
         error: 'unknown llm provider "ghost"',
       });
       expect(getSession(env.db, "s1")?.imageModel).toBeNull();
-    });
-
-    it("attaches a workspace persona and publishes session.updated", async () => {
-      const events: KiriEvent[] = [];
-      const bus = createEventBus();
-      bus.subscribe((e) => events.push(e));
-      const app = makeApp(fakeClients(), { bus });
-      writePersona("code-reviewer", "You are a meticulous code reviewer.");
-      createSession(env.db, MODEL, { id: "s1" });
-
-      const res = await patchBody(app, "s1", { persona: "code-reviewer" });
-
-      expect(res.status).toBe(200);
-      expect(getSession(env.db, "s1")?.persona).toBe("code-reviewer");
-      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
-    });
-
-    it("detaches the persona when passed null", async () => {
-      writePersona("code-reviewer", "rev");
-      const app = makeApp(fakeClients());
-      createSession(env.db, MODEL, { id: "s1" });
-
-      await patchBody(app, "s1", { persona: "code-reviewer" });
-      expect(getSession(env.db, "s1")?.persona).toBe("code-reviewer");
-
-      const res = await patchBody(app, "s1", { persona: null });
-      expect(res.status).toBe(200);
-      expect(getSession(env.db, "s1")?.persona).toBeNull();
-    });
-
-    it("rejects an unknown persona and leaves it unchanged", async () => {
-      const app = makeApp(fakeClients());
-      createSession(env.db, MODEL, { id: "s1" });
-
-      const res = await patchBody(app, "s1", { persona: "ghost" });
-
-      expect(res.status).toBe(400);
-      expect((await res.json()) as { error: string }).toEqual({ error: 'unknown persona "ghost"' });
-      expect(getSession(env.db, "s1")?.persona).toBeNull();
     });
 
     it("pins and unpins the session and publishes session.updated", async () => {

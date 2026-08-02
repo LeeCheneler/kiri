@@ -1,19 +1,14 @@
-import { humaniseSlug } from "../../../shared/humanise-slug.ts";
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
-import { useModels, usePersonas, useSession, useUpdateSession } from "../../state/sessions.ts";
+import { useModels, useSession, useUpdateSession } from "../../state/sessions.ts";
 import { contextWindowForModel, currentContextTokens } from "./context-usage.ts";
 
 // Each rail section carries its own vertical rhythm; the divide-y draws the
 // hairline between adjacent ones, the first/last reset keeps the edges flush.
 const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
-
-// The picker entry that means "no persona". A persona file literally named
-// "None" would collide with it — an acceptable edge for a personal tool.
-const PERSONA_NONE = "None";
 
 // The image-model picker entry that means "image generation off". Model ids
 // are always `provider:model`, so a real model can never collide with it.
@@ -29,11 +24,10 @@ const IMAGE_MODEL_NONE = "None";
  */
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
-  const { setModel, setImageModel, setPersona } = useUpdateSession(id);
+  const { setModel, setImageModel } = useUpdateSession(id);
   const modelsData = useModels().data;
   const models = modelsData?.models ?? [];
   const modelFailures = modelsData?.failures ?? [];
-  const personas = usePersonas().data ?? [];
   if (!detail) return null;
   const { session } = detail;
   const contextTokens = currentContextTokens(detail.messages);
@@ -71,21 +65,6 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
     ),
   ];
   const showImageModel = withCurrentImageModel.length > 0;
-
-  // Persona, same pattern as model: pin the attached one into the list even if
-  // the workspace no longer defines it, so the control can show and clear it —
-  // humanising its id for the label since the server no longer lists it. `None`
-  // leads the list as the detach option. The picker hides entirely when there
-  // are no personas to choose and none is attached.
-  const personaItems =
-    session.persona && !personas.some((p) => p.id === session.persona)
-      ? [{ id: session.persona, name: humaniseSlug(session.persona) }, ...personas]
-      : personas;
-  const personaOptions = [
-    { value: PERSONA_NONE, label: "None" },
-    ...personaItems.map((p) => ({ value: p.id, label: p.name })),
-  ];
-  const showPersona = personaItems.length > 0;
 
   return (
     <div className="divide-y divide-rule">
@@ -127,17 +106,6 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
             value={session.imageModel ?? IMAGE_MODEL_NONE}
             disabled={turnInFlight}
             onChange={(value) => void setImageModel(value === IMAGE_MODEL_NONE ? null : value)}
-          />
-        </section>
-      ) : null}
-      {showPersona ? (
-        <section className={SECTION_CLASS}>
-          <Combobox
-            label="Persona"
-            options={personaOptions}
-            value={session.persona ?? PERSONA_NONE}
-            disabled={turnInFlight}
-            onChange={(value) => void setPersona(value === PERSONA_NONE ? null : value)}
           />
         </section>
       ) : null}

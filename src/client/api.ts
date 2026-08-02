@@ -720,22 +720,6 @@ export const setToolPermission = async (
   );
 };
 
-/** A persona available to attach to a session. */
-export interface Persona {
-  /** The `personas/<id>.md` filename stem — what's stored on the session and sent to attach it. */
-  id: string;
-  /** Humanised display label derived from the id (`financial-advisor` → `Financial Advisor`). */
-  name: string;
-}
-
-/**
- * Fetch the personas available to attach at session creation — one `{ id, name }`
- * per `personas/<id>.md` in the workspace. Empty when none are defined. Throws
- * on non-2xx.
- */
-export const fetchPersonas = async (): Promise<Persona[]> =>
-  (await json<{ personas: Persona[] }>(await apiFetch("/api/personas"))).personas;
-
 /** Session lifecycle status. `idle` is the resting state between turns. */
 export type SessionStatus = "running" | "idle" | "failed" | "cancelled";
 
@@ -747,8 +731,6 @@ export interface Session {
   model: string;
   /** `provider:model` id the session generates images with, or null when image generation is off. */
   imageModel: string | null;
-  /** Name of the persona attached at creation (`personas/<name>.md`), or null for none. */
-  persona: string | null;
   /** Whether the user has pinned the session onto the feed's Pinned tab. */
   pinned: boolean;
   /** The parent session this one was spawned from, or null for a top-level session. */
@@ -925,8 +907,7 @@ export const fetchSessionChildren = async (id: string): Promise<Session[]> =>
 /**
  * Create a session against `model` (a `provider:model` id), returning the new
  * row — navigate to it to start chatting. Throws `ApiError` on non-2xx, notably
- * 400 when the model can't be resolved against the provider registry. A persona
- * is attached afterwards from the session itself, not at creation.
+ * 400 when the model can't be resolved against the provider registry.
  */
 export const createSession = async (model: string): Promise<{ session: Session }> =>
   json<{ session: Session }>(
@@ -968,24 +949,6 @@ export const patchSessionImageModel = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ imageModel }),
-    }),
-  );
-
-/**
- * Attach a persona to a session (`personas/<name>.md`), or pass `null` to
- * detach. The system prompt is composed per turn, so the change takes effect
- * from the next turn. Throws `ApiError` on non-2xx — 404 for an unknown
- * session, 400 when the persona isn't one the workspace defines.
- */
-export const patchSessionPersona = async (
-  id: string,
-  persona: string | null,
-): Promise<{ session: Session }> =>
-  json<{ session: Session }>(
-    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ persona }),
     }),
   );
 

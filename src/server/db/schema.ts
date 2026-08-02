@@ -181,9 +181,8 @@ export const recommendations = sqliteTable(
 
 /**
  * One row per agentic conversation — the session pillar's instance, mirroring
- * `runs`. A session runs against a chosen `model` and optionally an attached
- * `persona`; the rest of the agent layer (allowed tools, generation params)
- * is not modelled here yet.
+ * `runs`. A session runs against a chosen `model`; the rest of the agent
+ * layer (allowed tools, generation params) is not modelled here yet.
  */
 export const sessions = sqliteTable(
   "sessions",
@@ -206,14 +205,6 @@ export const sessions = sqliteTable(
      * to the next generation.
      */
     imageModel: text("image_model"),
-    /**
-     * Name of the persona (`personas/<name>.md`) attached when the session was
-     * created, or null for none. A selection reference like `model` — not a
-     * snapshot of the persona's text, which is read fresh from disk each turn so
-     * git stays the source of truth. A persona renamed or removed after the fact
-     * degrades to no overlay on the next turn.
-     */
-    persona: text("persona"),
     /**
      * Whether the user has pinned the session. A display flag only — pinned
      * sessions surface on the feed's Pinned tab; execution is unaffected.

@@ -38,14 +38,12 @@ import {
   getSessionMessages,
   getSessionPreviews,
   imageTools,
-  listPersonas,
   resumeTurn,
   runTurn,
   setSessionPinned,
   shellTools,
   updateSessionImageModel,
   updateSessionModel,
-  updateSessionPersona,
   workflowTools,
 } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
@@ -53,7 +51,7 @@ import { articleParamSchema, onZodFail } from "./shared.ts";
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
-  /** Workspace config; the session system prompt reads `kiri.md` (and personas) against it. */
+  /** Workspace config; the session system prompt reads `kiri.md` against it. */
   config: ConfigStore;
   /** Workflow registry backing the first-party workflow tools — read live, so a definition change is reflected on the next turn. */
   registry: Registry;
@@ -112,14 +110,13 @@ const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string
 
 const createSessionBodySchema = z.object({ model: z.string().min(1) }).strict();
 
-// Any field may be set independently: the aside swaps the model and the
-// persona, and the pin control flips `pinned`, all through this one endpoint.
-// `persona: null` detaches; omitting a field leaves it unchanged.
+// Any field may be set independently: the aside swaps the models and the pin
+// control flips `pinned`, all through this one endpoint. Omitting a field
+// leaves it unchanged.
 const patchSessionBodySchema = z
   .object({
     model: z.string().min(1).optional(),
     imageModel: z.string().min(1).nullable().optional(),
-    persona: z.string().min(1).nullable().optional(),
     pinned: z.boolean().optional(),
   })
   .strict();
@@ -347,11 +344,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   app.get("/models", async (c) => c.json(await llmClients.listModels()));
 
-  // The personas available to attach at session creation — one `{ id, name }`
-  // per `personas/<id>.md` in the workspace, the `name` humanised for display.
-  // Empty when none are defined.
-  app.get("/personas", (c) => c.json({ personas: listPersonas(config) }));
-
   app.post(
     "/sessions",
     zValidator("json", createSessionBodySchema, onZodFail("invalid session")),
@@ -557,7 +549,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model, imageModel, persona, pinned } = c.req.valid("json");
+      const { model, imageModel, pinned } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Validate the model resolves now, mirroring create, so a bad id fails the
@@ -581,18 +573,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         }
         updateSessionImageModel(db, id, imageModel);
       }
-      // A named persona must be one the workspace defines; `null` detaches.
-      if (persona !== undefined) {
-        if (persona !== null && !listPersonas(config).some((p) => p.id === persona)) {
-          return c.json({ error: `unknown persona "${persona}"` }, 400);
-        }
-        updateSessionPersona(db, id, persona);
-      }
       if (pinned !== undefined) setSessionPinned(db, id, pinned);
       const updated = getSession(db, id) as typeof session;
-      // The turn endpoint resolves the model and composes the persona per turn,
-      // so either change applies from the next turn. Announce it like any other
-      // session change so the feed and the open chat refresh; status is unchanged.
+      // The turn endpoint resolves the model per turn, so a change applies
+      // from the next turn. Announce it like any other session change so the
+      // feed and the open chat refresh; status is unchanged.
       bus?.publish({ type: "session.updated", id, status: updated.status as SessionStatus });
       return c.json({ session: updated });
     },

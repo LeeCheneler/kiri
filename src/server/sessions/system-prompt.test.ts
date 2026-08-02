@@ -6,22 +6,12 @@ import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import type { Session } from "./store.ts";
 import {
   INSTRUCTIONS_FILENAME,
-  PERSONAS_DIRNAME,
   buildChildSessionPrompt,
   buildSystemPrompt,
   createSystemPromptBuilder,
-  listPersonas,
-  loadPersona,
 } from "./system-prompt.ts";
 
 const FIXED_NOW = new Date("2026-06-17T10:00:00.000Z");
-
-// Write a persona file `personas/<name>.md` under `dir`, creating the dir.
-function writePersona(dir: string, name: string, body: string): void {
-  const personasDir = join(dir, PERSONAS_DIRNAME);
-  mkdirSync(personasDir, { recursive: true });
-  writeFileSync(join(personasDir, `${name}.md`), body);
-}
 
 describe("buildSystemPrompt", () => {
   let dir: string;
@@ -406,35 +396,13 @@ describe("buildSystemPrompt", () => {
     expect(withWhitespace).toBe(withoutFile);
   });
 
-  it("appends the attached persona after kiri.md", () => {
-    writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.");
-    writePersona(dir, "code-reviewer", "You are a meticulous code reviewer.");
-
-    const prompt = buildSystemPrompt({ config, persona: "code-reviewer", now: FIXED_NOW });
-
-    expect(prompt).toContain("running inside kiri");
-    expect(prompt).toContain("Always answer in British English.");
-    expect(prompt).toContain("You are a meticulous code reviewer.");
-    // Composition order: core → kiri.md → persona.
-    expect(prompt.indexOf("running inside kiri")).toBeLessThan(
-      prompt.indexOf("Always answer in British English."),
-    );
-    expect(prompt.indexOf("Always answer in British English.")).toBeLessThan(
-      prompt.indexOf("You are a meticulous code reviewer."),
-    );
-  });
-
-  it("overlays a persona even when kiri.md is absent", () => {
-    writePersona(dir, "poet", "You speak only in verse.");
-    const prompt = buildSystemPrompt({ config, persona: "poet", now: FIXED_NOW });
-    expect(prompt).toContain("running inside kiri");
-    expect(prompt).toContain("You speak only in verse.");
-  });
-
-  it("ignores a persona that does not exist", () => {
-    const withMissing = buildSystemPrompt({ config, persona: "ghost", now: FIXED_NOW });
-    const withNone = buildSystemPrompt({ config, now: FIXED_NOW });
-    expect(withMissing).toBe(withNone);
+  it("ignores a personas directory left over in the workspace", () => {
+    // A workspace may still carry persona overlay files from before kiri read
+    // them; they are the user's files and must simply have no effect.
+    mkdirSync(join(dir, "personas"), { recursive: true });
+    writeFileSync(join(dir, "personas", "poet.md"), "You speak only in verse.");
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).not.toContain("You speak only in verse.");
   });
 });
 
@@ -537,10 +505,10 @@ describe("createSystemPromptBuilder", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // A minimal session stand-in: the builder reads only `parentSessionId` and
-  // `persona` — a non-null parent marks a child session.
+  // A minimal session stand-in: the builder reads only `parentSessionId` —
+  // a non-null parent marks a child session.
   const sessionWith = (parentSessionId: string | null): Session =>
-    ({ parentSessionId, persona: null }) as unknown as Session;
+    ({ parentSessionId }) as unknown as Session;
 
   it("composes the layered chat prompt for a top-level session", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
@@ -555,60 +523,5 @@ describe("createSystemPromptBuilder", () => {
     expect(prompt).toContain("focused assistant");
     expect(prompt).toContain("You have tools available");
     expect(prompt).not.toContain("Be terse.");
-  });
-});
-
-describe("listPersonas", () => {
-  let dir: string;
-  let config: ConfigStore;
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "kiri-personas-"));
-    config = createConfigStore(dir);
-  });
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("returns an empty list when there is no personas directory", () => {
-    expect(listPersonas(config)).toEqual([]);
-  });
-
-  it("lists the markdown personas, sorted, with humanised names, ignoring non-markdown files", () => {
-    writePersona(dir, "reviewer", "r");
-    writePersona(dir, "architect", "a");
-    writePersona(dir, "financial-advisor", "f");
-    writeFileSync(join(dir, PERSONAS_DIRNAME, "notes.txt"), "ignored");
-    expect(listPersonas(config)).toEqual([
-      { id: "architect", name: "Architect" },
-      { id: "financial-advisor", name: "Financial Advisor" },
-      { id: "reviewer", name: "Reviewer" },
-    ]);
-  });
-});
-
-describe("loadPersona", () => {
-  let dir: string;
-  let config: ConfigStore;
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "kiri-personas-"));
-    config = createConfigStore(dir);
-  });
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("reads a persona's trimmed instructions", () => {
-    writePersona(dir, "reviewer", "  Review carefully.\n");
-    expect(loadPersona(config, "reviewer")).toBe("Review carefully.");
-  });
-
-  it("refuses a name that escapes the personas directory", () => {
-    writeFileSync(join(dir, "secret.md"), "should never be read");
-    // `../secret` would resolve outside personas/ — the guard returns null.
-    expect(loadPersona(config, "../secret")).toBeNull();
   });
 });

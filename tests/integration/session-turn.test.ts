@@ -24,7 +24,6 @@ import {
   imageTools,
   runTurn,
   updateSessionImageModel,
-  updateSessionPersona,
 } from "../../src/server/sessions/index.ts";
 import { FAKE_IMAGE_B64, type FakeOpenAi, startFakeOpenAi } from "../support/fake-openai.ts";
 
@@ -170,11 +169,9 @@ describe("session turn streaming", () => {
     }
   });
 
-  it("composes the layered system prompt — core, kiri.md, persona — and sends it to the model", async () => {
+  it("composes the layered system prompt — core then kiri.md — and sends it to the model", async () => {
     writeFileSync(join(cwd, "kiri.md"), "Always answer in British English.");
-    mkdirSync(join(cwd, "personas"), { recursive: true });
-    writeFileSync(join(cwd, "personas", "pirate.md"), "Talk like a pirate.");
-    const session = updateSessionPersona(db, createSession(db, "fake:echo").id, "pirate");
+    const session = createSession(db, "fake:echo");
 
     const { done } = await runTurn(
       { db, llmClients, buildSystemPrompt: createSystemPromptBuilder(createConfigStore(cwd)) },
@@ -185,15 +182,11 @@ describe("session turn streaming", () => {
     const sent = fake.requests[fake.requests.length - 1];
     const system = sent?.messages?.find((m) => m.role === "system");
     const systemText = typeof system?.content === "string" ? system.content : "";
-    // All three layers reached the model, in order: core → kiri.md → persona.
+    // Both layers reached the model, in order: core → kiri.md.
     expect(systemText).toContain("running inside kiri");
     expect(systemText).toContain("Always answer in British English.");
-    expect(systemText).toContain("Talk like a pirate.");
     expect(systemText.indexOf("running inside kiri")).toBeLessThan(
       systemText.indexOf("Always answer in British English."),
-    );
-    expect(systemText.indexOf("Always answer in British English.")).toBeLessThan(
-      systemText.indexOf("Talk like a pirate."),
     );
     // The turn still completed normally with the system prompt in place.
     expect(getSession(db, session.id)?.status).toBe("idle");

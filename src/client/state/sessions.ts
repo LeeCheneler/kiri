@@ -7,21 +7,18 @@ import {
 } from "@tanstack/react-query";
 import {
   type ModelsResult,
-  type Persona,
   type Session,
   type SessionDetail,
   type SessionListEntry,
   fetchModels,
-  fetchPersonas,
   fetchSession,
   fetchSessionChildren,
   fetchSessionsPage,
   patchSessionImageModel,
   patchSessionModel,
-  patchSessionPersona,
   patchSessionPinned,
 } from "../api.ts";
-import { useLiveEvent, useLiveReconnect, useLiveSync } from "../events/live.tsx";
+import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 
 const sessionKey = (id: string) => ["session", id] as const;
 // Keyed by the parent under its own subtree, not under `sessionKey`: a child's
@@ -30,7 +27,6 @@ const sessionKey = (id: string) => ["session", id] as const;
 const sessionChildrenKey = (id: string) => ["session-children", id] as const;
 const sessionsFeedKey = ["sessions", "feed"] as const;
 const modelsKey = ["models"] as const;
-const personasKey = ["personas"] as const;
 
 /** Page size for the session feed; mirrors the server's default. */
 const FEED_PAGE_SIZE = 25;
@@ -43,30 +39,6 @@ const FEED_PAGE_SIZE = 25;
  */
 export function useModels(): UseQueryResult<ModelsResult> {
   return useQuery({ queryKey: modelsKey, queryFn: fetchModels });
-}
-
-/**
- * Read the personas available to attach at session creation. Fetched on first
- * use and served from cache thereafter; kept current by `usePersonasLive` as
- * `personas/*.md` files come and go.
- */
-export function usePersonas(): UseQueryResult<Persona[]> {
-  return useQuery({ queryKey: personasKey, queryFn: fetchPersonas });
-}
-
-/**
- * Invalidate the persona list whenever the file watcher reports a persona
- * added, changed, or removed — and on event-stream reconnect, recovering any
- * change missed while disconnected. Mount once near the root via `<LiveSync>`.
- */
-export function usePersonasLive(): void {
-  const queryClient = useQueryClient();
-  useLiveSync({
-    on: ["persona.changed"],
-    refetch: () => {
-      void queryClient.invalidateQueries({ queryKey: personasKey });
-    },
-  });
 }
 
 /**
@@ -88,7 +60,7 @@ export function useSessionChildren(id: string): UseQueryResult<Session[]> {
 }
 
 /**
- * Change a session's model, image model, persona, or pinned flag and write the
+ * Change a session's model, image model, or pinned flag and write the
  * server's updated row straight into the cached detail, so the control
  * reflects the choice at once. A user-initiated change shouldn't wait on the
  * `session.updated` echo to land before showing — the PATCH already returns
@@ -97,7 +69,6 @@ export function useSessionChildren(id: string): UseQueryResult<Session[]> {
 export function useUpdateSession(id: string): {
   setModel: (model: string) => Promise<void>;
   setImageModel: (imageModel: string | null) => Promise<void>;
-  setPersona: (persona: string | null) => Promise<void>;
   setPinned: (pinned: boolean) => Promise<void>;
 } {
   const queryClient = useQueryClient();
@@ -110,7 +81,6 @@ export function useUpdateSession(id: string): {
     setModel: async (model) => apply((await patchSessionModel(id, model)).session),
     setImageModel: async (imageModel) =>
       apply((await patchSessionImageModel(id, imageModel)).session),
-    setPersona: async (persona) => apply((await patchSessionPersona(id, persona)).session),
     setPinned: async (pinned) => apply((await patchSessionPinned(id, pinned)).session),
   };
 }

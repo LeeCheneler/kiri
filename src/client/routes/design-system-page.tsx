@@ -1789,8 +1789,8 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <div className="space-y-4">
-                  <Notice tone="informational" title="No personas defined">
-                    Add a <Code>personas/&lt;name&gt;.md</Code> file to offer session overlays.
+                  <Notice tone="informational" title="No workflows defined">
+                    Add a <Code>workflows/&lt;name&gt;.yaml</Code> file to define one.
                   </Notice>
                   <Notice tone="warning" title="No LLM providers configured">
                     Declare a provider in kiri.yaml to enable sessions and llm: steps.

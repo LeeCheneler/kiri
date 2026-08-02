@@ -20,13 +20,7 @@ export {
   setSessionStatus,
   updateSessionImageModel,
   updateSessionModel,
-  updateSessionPersona,
 } from "./store.ts";
-export {
-  type PersonaWatcher,
-  type WatchPersonasOptions,
-  watchPersonas,
-} from "./personas-watcher.ts";
 export { type ShellToolsOptions, shellTools } from "./shell-tools.ts";
 export {
   type StreamRegistry,
@@ -35,13 +29,9 @@ export {
 } from "./stream-registry.ts";
 export {
   INSTRUCTIONS_FILENAME,
-  PERSONAS_DIRNAME,
   type BuildSystemPromptOptions,
-  type Persona,
   buildSystemPrompt,
   createSystemPromptBuilder,
-  listPersonas,
-  loadPersona,
 } from "./system-prompt.ts";
 export {
   type ToolPermission,

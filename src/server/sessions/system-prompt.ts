@@ -1,15 +1,10 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { resolve, sep } from "node:path";
-import { humaniseSlug } from "../../shared/humanise-slug.ts";
+import { existsSync, readFileSync } from "node:fs";
 import type { ConfigStore } from "../config/store.ts";
 import { type HostEnvironment, describeHost, detectHostEnvironment } from "./host-environment.ts";
 import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
 export const INSTRUCTIONS_FILENAME = "kiri.md";
-
-/** Workspace directory holding optional persona overlays — one markdown file per persona. */
-export const PERSONAS_DIRNAME = "personas";
 
 // How kiri's markdown renderer turns a fenced `chart` block into a chart. The
 // chat transcript renders assistant replies through the same renderer the
@@ -238,8 +233,8 @@ function buildToolGuidance(tools: string[]): string | null {
 // over-structure) and the honesty bar (own the limits of what you know, never
 // fabricate — including chart data, and verify a factual point before
 // correcting the user rather than contradicting from stale memory). Universal
-// assistant quality that holds regardless of any `kiri.md` or persona, so it
-// lives in the immutable core rather than being left to the user to supply.
+// assistant quality that holds regardless of any `kiri.md`, so it lives in
+// the immutable core rather than being left to the user to supply.
 function buildResponseGuidance(): string {
   return [
     "How to respond:",
@@ -255,7 +250,7 @@ function buildResponseGuidance(): string {
 // the rendering capabilities (markdown, charts, diagrams) of the surface its
 // replies land in, and guidance on the available tools. Built per turn rather
 // than kept as a constant because it states the live date and the active tool
-// set. Not user-editable — `kiri.md` and personas customise on top of it.
+// set. Not user-editable — `kiri.md` customises on top of it.
 function buildCorePrompt(
   now: Date,
   tools: string[],
@@ -307,8 +302,8 @@ export interface BuildChildSessionPromptOptions {
  * a single, self-contained task by a parent session it cannot see. Its reply
  * is the whole result the parent receives, so it leans on synthesising a tight
  * answer rather than dumping raw results. Built per turn because it states the
- * live date and the active tool set; `kiri.md` and personas deliberately do
- * not apply — the worker runs on this brief alone.
+ * live date and the active tool set; `kiri.md` deliberately does not apply —
+ * the worker runs on this brief alone.
  */
 export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {}): string {
   const today = (opts.now ?? new Date()).toISOString().slice(0, 10);
@@ -354,51 +349,9 @@ function readInstructions(path: string): string | null {
   }
 }
 
-/**
- * A persona available to attach to a session: its `id` — the `personas/<id>.md`
- * filename stem, used to load and attach it — and a humanised `name` for
- * display.
- */
-export interface Persona {
-  id: string;
-  name: string;
-}
-
-/**
- * List the personas available in the workspace — one per `personas/<id>.md`
- * file, sorted by id, each carrying a humanised display `name` derived from its
- * id (`financial-advisor` → `Financial Advisor`). An absent `personas/`
- * directory yields an empty list (first-class: a workspace need not define any).
- */
-export function listPersonas(config: ConfigStore): Persona[] {
-  const dir = config.personasDir();
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => entry.name.slice(0, -".md".length))
-    .sort()
-    .map((id) => ({ id, name: humaniseSlug(id) }));
-}
-
-/**
- * Read a persona's instructions by name, or null when it's absent or empty.
- * The resolved path is confined to the `personas/` directory, so a crafted name
- * (`../secrets`, an absolute path) resolves to null rather than escaping it —
- * defence in depth on top of the create-time check that the name is one of
- * `listPersonas`.
- */
-export function loadPersona(config: ConfigStore, name: string): string | null {
-  const dir = resolve(config.personasDir());
-  const path = resolve(dir, `${name}.md`);
-  if (!path.startsWith(dir + sep)) return null;
-  return readInstructions(path);
-}
-
 export interface BuildSystemPromptOptions {
-  /** Workspace config; `kiri.md` and `personas/` resolve against it. */
+  /** Workspace config; `kiri.md` resolves against it. */
   config: ConfigStore;
-  /** Name of the persona to overlay after `kiri.md`, or null/undefined for none. */
-  persona?: string | null;
   /** Names of the tools active this session; drives the core layer's tool-use guidance. */
   tools?: string[];
   /** The filesystem tools' sandbox, enumerated in their guidance so the model knows the reachable roots up front. */
@@ -413,8 +366,7 @@ export interface BuildSystemPromptOptions {
 
 /**
  * Compose a session's system prompt: the immutable kiri core layer, then the
- * workspace's `kiri.md` standing instructions when present, then the attached
- * persona's instructions when one is named and found. Always returns a
+ * workspace's `kiri.md` standing instructions when present. Always returns a
  * non-empty string — the core layer is always included. Every layer is read
  * fresh from disk each turn so edits take effect on the next turn, with git as
  * the source of truth and nothing snapshotted onto the session.
@@ -431,10 +383,6 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
   if (instructions !== null) sections.push(instructions);
-  if (opts.persona) {
-    const persona = loadPersona(opts.config, opts.persona);
-    if (persona !== null) sections.push(persona);
-  }
   return sections.join("\n\n");
 }
 
@@ -442,10 +390,9 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
  * Build the per-turn system-prompt resolver for a workspace. The returned
  * function composes the prompt for a session, choosing by its lineage: a
  * top-level session gets the layered prompt — core (with tool-use guidance for
- * the active `tools`), `kiri.md`, then the session's attached persona — while
- * a child session (one with a parent) gets the focused worker prompt with no
- * user layers. Handed to `runTurn`, so a turn streams with its system prompt
- * in place.
+ * the active `tools`), then `kiri.md` — while a child session (one with a
+ * parent) gets the focused worker prompt with no user layers. Handed to
+ * `runTurn`, so a turn streams with its system prompt in place.
  */
 export function createSystemPromptBuilder(
   config: ConfigStore,
@@ -456,11 +403,5 @@ export function createSystemPromptBuilder(
   return (session: Session) =>
     session.parentSessionId !== null
       ? buildChildSessionPrompt({ tools, allowedDirectories, shellDirectories })
-      : buildSystemPrompt({
-          config,
-          persona: session.persona,
-          tools,
-          allowedDirectories,
-          shellDirectories,
-        });
+      : buildSystemPrompt({ config, tools, allowedDirectories, shellDirectories });
 }

@@ -39,10 +39,10 @@ export interface RunTurnDeps {
    */
   streamRegistry?: StreamRegistry;
   /**
-   * Composes the turn's system prompt from the session (its attached persona)
-   * and the workspace's instruction files. Omit for a plain chat with no system
-   * prompt — the previous behaviour, kept for tests and any caller that wants a
-   * bare conversation.
+   * Composes the turn's system prompt from the session and the workspace's
+   * instruction files. Omit for a plain chat with no system prompt — the
+   * previous behaviour, kept for tests and any caller that wants a bare
+   * conversation.
    */
   buildSystemPrompt?: (session: Session) => string | undefined;
   /**
@@ -270,9 +270,9 @@ async function streamCore(
   );
   const modelMessages = await convertToModelMessages(modelHistory);
 
-  // Compose the turn's system prompt — the kiri core layer, the workspace's
-  // `kiri.md`, and any persona attached to the session — read fresh from disk
-  // each turn. Undefined when no builder is wired (a bare chat with no system
+  // Compose the turn's system prompt — the kiri core layer and the
+  // workspace's `kiri.md` — read fresh from disk each turn. Undefined when no
+  // builder is wired (a bare chat with no system
   // prompt), which leaves `streamText` to send the messages alone.
   const system = buildSystemPrompt?.(session);
   // With tools, the turn runs as a multi-step loop (call a tool, feed the
