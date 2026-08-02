@@ -29,6 +29,13 @@ export interface WorktreeStatus {
   prunable: boolean;
   /** Whether this is the repo's primary checkout. */
   primary: boolean;
+  /**
+   * Files merging this branch into the repo's remote default branch would
+   * conflict in — empty when it merges cleanly. Absent unless the conflict
+   * check has an answer for this worktree: it is a genuine three-way merge, far
+   * heavier than the commands here, so it is never run by the scan.
+   */
+  conflicts?: string[];
 }
 
 // Whether the worktree at `path` has uncommitted changes. A bare or missing

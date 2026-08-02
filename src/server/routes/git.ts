@@ -5,6 +5,7 @@ import { z } from "zod";
 import { loadKiriConfig } from "../config/loader.ts";
 import type { ConfigStore } from "../config/store.ts";
 import { changeset, filePatch } from "../git/changeset.ts";
+import { createConflictCache, repoConflicts } from "../git/conflicts.ts";
 import { createWorktree, pruneWorktrees, removeWorktree } from "../git/operations.ts";
 import type { RepoOverview } from "../git/overview.ts";
 import type { GitSnapshotStore } from "../git/snapshot.ts";
@@ -51,6 +52,8 @@ const insideCheckout = (file: string): boolean =>
 
 const updateBodySchema = z.object({ repo: z.string().min(1) }).strict();
 
+const conflictsQuerySchema = z.object({ repo: z.string().min(1) }).strict();
+
 /**
  * Build the Hono sub-app for `/api/git`. `GET /` answers from the snapshot —
  * the scanned roots plus each discovered repo with its default branch and the
@@ -59,6 +62,15 @@ const updateBodySchema = z.object({ repo: z.string().min(1) }).strict();
  * or the disk, so it returns whatever is known right now rather than waiting for
  * a scan — the model it holds is renewed by the watcher, by a config change, and
  * by every mutation below.
+ *
+ * `GET /conflicts` is the other computed read: it merges each of one repo's
+ * linked worktree branches into `origin/<default>` in the object store and
+ * reports where that would conflict. A genuine three-way merge is far heavier
+ * than the scan's status commands, so it is paid for one repo at a time, by the
+ * page looking at that repo, rather than folded into the workspace scan. What it
+ * finds is remembered and attached to the worktrees `GET /` answers with — valid
+ * only while the worktree's HEAD and the repo's last fetch are where they were —
+ * so the listing can report a conflicted worktree without running a merge.
  *
  * The changeset reads are the exception to answering from memory: `GET
  * /changeset` and `GET /changeset/patch` run git per request, because holding
@@ -115,7 +127,28 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
   const findCheckout = (path: string): RepoOverview | undefined =>
     known().repos.find((repo) => repo.worktrees.some((worktree) => worktree.path === path));
 
-  app.get("/", (c) => c.json(deps.snapshot.current()));
+  // Answers the conflict check has already produced ride along on the snapshot,
+  // so the listing can report a conflicted worktree without a merge of its own.
+  const conflicts = createConflictCache();
+
+  app.get("/", (c) => c.json(conflicts.attach(deps.snapshot.current())));
+
+  app.get(
+    "/conflicts",
+    zValidator("query", conflictsQuerySchema, onZodFail("invalid conflicts request")),
+    async (c) => {
+      const target = findRepo(c.req.valid("query").repo);
+      if (target === undefined) {
+        return c.json(
+          { error: `no repo "${c.req.valid("query").repo}" under the configured worktree roots` },
+          404,
+        );
+      }
+      const result = await repoConflicts(target);
+      conflicts.record(target, result);
+      return c.json(result);
+    },
+  );
 
   app.get(
     "/changeset",
