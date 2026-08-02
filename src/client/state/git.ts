@@ -4,22 +4,19 @@ import {
   type Changeset,
   type ChangesetView,
   type CreateWorktreeResult,
-  type FetchResult,
   type FilePatch,
   type GitOverview,
   type PruneWorktreesResult,
-  type PullResult,
   type RemoveWorktreeResult,
+  type UpdateResult,
   createWorktree,
-  fetchAllRepos,
   fetchChangeset,
   fetchFilePatch,
   fetchGitOverview,
-  fetchRepo,
   pruneWorktrees,
-  pullCheckout,
-  refreshGitOverview,
   removeWorktree,
+  updateAllRepos,
+  updateRepo,
 } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
 import { type Limiter, createLimiter } from "./limit-concurrency.ts";
@@ -28,7 +25,7 @@ const gitKey = ["git"] as const;
 
 // Diffs are computed per request rather than read from the overview snapshot,
 // so they cache under a root of their own. Keeping them out of `gitKey` means an
-// operation invalidating the overview — a fetch, a pull, a worktree change —
+// operation invalidating the overview — an update, a worktree change —
 // doesn't drag every diff on screen into a recompute behind it.
 const changesetKey = ["git-changeset"] as const;
 
@@ -53,19 +50,6 @@ export function useGitLive(): void {
       void queryClient.invalidateQueries({ queryKey: gitKey });
     },
   });
-}
-
-/**
- * A trigger that re-runs discovery on the server, then invalidates the cached
- * overview so the page reflects the server's truth. Rejects on a failed
- * refresh so the caller can surface it.
- */
-export function useRefreshGit(): () => Promise<void> {
-  const queryClient = useQueryClient();
-  return async () => {
-    await refreshGitOverview();
-    void queryClient.invalidateQueries({ queryKey: gitKey });
-  };
 }
 
 /**
@@ -120,29 +104,30 @@ export function usePruneWorktrees(): (repo: string) => Promise<PruneWorktreesRes
 }
 
 /**
- * Fetch one repo's remote state, then invalidate the cached overview so the
- * ahead/behind counts on screen are computed against what the fetch brought in.
- * Resolves with the outcome — including a refusal or a failure, which are
- * results rather than errors; rejects only when the request itself failed.
+ * Bring one repo up to date — fetch it, then fast-forward every checkout of it
+ * that can take one — and invalidate the cached overview, so the ahead/behind
+ * counts on screen are computed against what the update brought in. Resolves
+ * with the outcome, including a refusal or a failure, which are results rather
+ * than errors; rejects only when the request itself failed.
  */
-export function useFetchRepo(): (repo: string) => Promise<FetchResult> {
+export function useUpdateRepo(): (repo: string) => Promise<UpdateResult> {
   const queryClient = useQueryClient();
   return async (repo) => {
-    const result = await fetchRepo(repo);
+    const result = await updateRepo(repo);
     void queryClient.invalidateQueries({ queryKey: gitKey });
     return result;
   };
 }
 
 /**
- * Fetch every discovered repo in one request, then invalidate the cached
+ * Update every discovered repo in one request, then invalidate the cached
  * overview. Resolves with an outcome per repo, whatever mixture of updated,
  * refused, and failed they came back as.
  */
-export function useFetchAllRepos(): () => Promise<FetchResult[]> {
+export function useUpdateAllRepos(): () => Promise<UpdateResult[]> {
   const queryClient = useQueryClient();
   return async () => {
-    const results = await fetchAllRepos();
+    const results = await updateAllRepos();
     void queryClient.invalidateQueries({ queryKey: gitKey });
     return results;
   };
@@ -210,18 +195,5 @@ export function useRefreshChangesets(): () => void {
   const queryClient = useQueryClient();
   return () => {
     void queryClient.invalidateQueries({ queryKey: changesetKey });
-  };
-}
-
-/**
- * Fast-forward one checkout, then invalidate the cached overview. Resolves with
- * the outcome, including the reason a pull was refused.
- */
-export function usePullCheckout(): (path: string) => Promise<PullResult> {
-  const queryClient = useQueryClient();
-  return async (path) => {
-    const result = await pullCheckout(path);
-    void queryClient.invalidateQueries({ queryKey: gitKey });
-    return result;
   };
 }

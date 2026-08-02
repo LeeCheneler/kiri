@@ -82,15 +82,6 @@ export async function fetchRepo(repo: FetchTarget): Promise<FetchResult> {
   return { repo: repo.name, status: updates.length === 0 ? "up-to-date" : "updated", updates };
 }
 
-/**
- * Fetch every repo in `repos`, with the same bound the scan runs under so a
- * workspace of dozens does not open dozens of connections at once. One repo
- * failing never stops the rest — every repo comes back with its own outcome, in
- * input order.
- */
-export const fetchRepos = async (repos: readonly FetchTarget[]): Promise<FetchResult[]> =>
-  mapConcurrent(repos, SCAN_CONCURRENCY, fetchRepo);
-
 /** How many conflicting paths a refusal names before it summarises the rest. */
 const NAMED_CONFLICTS = 5;
 

@@ -129,38 +129,6 @@ describe("git routes", () => {
     });
   });
 
-  describe("POST /api/git/refresh", () => {
-    it("returns the freshly-built model and publishes git.changed", async () => {
-      initRepo(join(env.cwd, "repos", "proj"));
-      configureRoots("    - repos\n");
-
-      const res = await (await buildApp(withBus())).request("/api/git/refresh", {
-        method: "POST",
-        headers: CLIENT_HEADERS,
-      });
-
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as GitSnapshot;
-      expect(body.repos.map((r) => r.name)).toEqual(["proj"]);
-      expect(body.refreshing).toBe(false);
-      expect(events).toEqual([{ type: "git.changed" }]);
-    });
-
-    it("works without an event bus", async () => {
-      const res = await (await buildApp()).request("/api/git/refresh", {
-        method: "POST",
-        headers: CLIENT_HEADERS,
-      });
-      expect(res.status).toBe(200);
-      expect(((await res.json()) as GitSnapshot).repos).toEqual([]);
-    });
-
-    it("rejects a request without the client header", async () => {
-      const res = await (await buildApp()).request("/api/git/refresh", { method: "POST" });
-      expect(res.status).toBe(403);
-    });
-  });
-
   // git records and reports canonical paths, so the temp dir's symlinked prefix
   // has to be resolved before a path is compared with — or handed to — the API.
   const realJoin = (...parts: string[]) => join(realpathSync(env.cwd), ...parts);
@@ -463,38 +431,54 @@ describe("git routes", () => {
     git(dir, "commit", "-qam", body);
   };
 
-  describe("POST /api/git/fetch", () => {
-    it("fetches the repo and publishes the refreshed model", async () => {
-      const { origin } = repoWithRemote();
+  describe("POST /api/git/update", () => {
+    it("fetches the repo, fast-forwards its checkouts, and publishes the model", async () => {
+      const { origin, clone } = repoWithRemote();
       commitTo(origin, "second");
 
-      const res = await post(await buildApp(withBus()), "/api/git/fetch", { repo: "clone" });
+      const res = await post(await buildApp(withBus()), "/api/git/update", { repo: "clone" });
 
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.repo).toBe("clone");
-      expect(body.status).toBe("updated");
+      expect(body.fetch.status).toBe("updated");
+      expect(body.checkouts).toEqual([
+        { path: clone, branch: "main", status: "updated", commits: 1 },
+      ]);
       expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("answers 200 with the reason when the repo has no remote", async () => {
       repoWithRemote();
 
-      const res = await post(await buildApp(), "/api/git/fetch", { repo: "proj" });
+      const res = await post(await buildApp(), "/api/git/update", { repo: "proj" });
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.status).toBe("refused");
-      expect(body.reason).toContain("no remote");
+      expect(body.fetch.status).toBe("refused");
+      expect(body.fetch.reason).toContain("no remote");
+    });
+
+    it("answers 200 with the reason a checkout could not be brought current", async () => {
+      const { origin, clone } = repoWithRemote();
+      commitTo(origin, "second");
+      writeFileSync(join(clone, "scratch.txt"), "wip");
+
+      const res = await post(await buildApp(), "/api/git/update", { repo: "clone" });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.checkouts[0].status).toBe("refused");
+      expect(body.checkouts[0].reason).toContain("uncommitted changes");
     });
 
     it("answers 404 for a repo outside the configured roots", async () => {
-      const res = await post(await buildApp(), "/api/git/fetch", { repo: "elsewhere" });
+      const res = await post(await buildApp(), "/api/git/update", { repo: "elsewhere" });
       expect(res.status).toBe(404);
     });
 
     it("rejects a malformed body", async () => {
-      const res = await post(await buildApp(), "/api/git/fetch", {});
+      const res = await post(await buildApp(), "/api/git/update", {});
       expect(res.status).toBe(400);
     });
   });
@@ -554,76 +538,34 @@ describe("git routes", () => {
     });
   });
 
-  describe("POST /api/git/fetch-all", () => {
-    it("returns an outcome per repo and refreshes once when it settles", async () => {
-      const { origin } = repoWithRemote();
+  describe("POST /api/git/update-all", () => {
+    it("returns an outcome per repo and refreshes once when the set settles", async () => {
+      const { origin, clone } = repoWithRemote();
       commitTo(origin, "second");
 
-      const res = await post(await buildApp(withBus()), "/api/git/fetch-all", {});
+      const res = await post(await buildApp(withBus()), "/api/git/update-all", {});
 
       expect(res.status).toBe(200);
       const { results } = await res.json();
-      expect(results.map((r: { repo: string; status: string }) => [r.repo, r.status])).toEqual([
+      expect(
+        results.map((r: { repo: string; fetch: { status: string } }) => [r.repo, r.fetch.status]),
+      ).toEqual([
         ["clone", "updated"],
         ["proj", "refused"],
       ]);
+      expect(git(clone, "rev-parse", "HEAD")).toBe(git(origin, "rev-parse", "HEAD"));
       expect(events).toEqual([{ type: "git.changed" }]);
     });
 
     it("returns nothing to report when no repos are discovered", async () => {
-      const res = await post(await buildApp(), "/api/git/fetch-all", {});
+      const res = await post(await buildApp(), "/api/git/update-all", {});
       expect(res.status).toBe(200);
       expect((await res.json()).results).toEqual([]);
     });
 
     it("rejects a request without the client header", async () => {
-      const res = await (await buildApp()).request("/api/git/fetch-all", { method: "POST" });
+      const res = await (await buildApp()).request("/api/git/update-all", { method: "POST" });
       expect(res.status).toBe(403);
-    });
-  });
-
-  describe("POST /api/git/pull", () => {
-    it("fast-forwards a checkout that is behind and publishes the change", async () => {
-      const { origin, clone } = repoWithRemote();
-      commitTo(origin, "second");
-      const app = await buildApp(withBus());
-      await post(app, "/api/git/fetch", { repo: "clone" });
-      events.length = 0;
-
-      const res = await post(app, "/api/git/pull", { path: clone });
-
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.status).toBe("updated");
-      expect(body.commits).toBe(1);
-      expect(body.branch).toBe("main");
-      expect(events).toEqual([{ type: "git.changed" }]);
-    });
-
-    it("answers 200 with the reason for a refusal, without rescanning", async () => {
-      const { origin, clone } = repoWithRemote();
-      commitTo(origin, "second");
-      const app = await buildApp(withBus());
-      await post(app, "/api/git/fetch", { repo: "clone" });
-      writeFileSync(join(clone, "scratch.txt"), "wip");
-      events.length = 0;
-
-      const res = await post(app, "/api/git/pull", { path: clone });
-
-      expect(res.status).toBe(200);
-      expect((await res.json()).reason).toContain("uncommitted changes");
-      expect(events).toEqual([]);
-    });
-
-    it("answers 404 for a checkout outside the configured roots", async () => {
-      repoWithRemote();
-      const res = await post(await buildApp(), "/api/git/pull", { path: "/elsewhere/proj" });
-      expect(res.status).toBe(404);
-    });
-
-    it("rejects a malformed body", async () => {
-      const res = await post(await buildApp(), "/api/git/pull", { path: "" });
-      expect(res.status).toBe(400);
     });
   });
 });

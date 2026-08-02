@@ -3,8 +3,10 @@ import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
-import { useGitOverview } from "../../state/git.ts";
-import { FetchRepo } from "./fetch-repo.tsx";
+import { formatRelativeTime } from "../../formatters/format-time.ts";
+import { useGitOverview, useUpdateRepo } from "../../state/git.ts";
+import { SyncFailure } from "./sync-outcome.tsx";
+import { UpdateAction, useUpdate } from "./update.tsx";
 import { WorktreesSection } from "./worktrees-section.tsx";
 
 const GIT_CRUMB = { label: "Git", href: "/git" };
@@ -18,6 +20,17 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
         {children}
       </p>
     </div>
+  );
+}
+
+// When the repo last heard from its remote, read from git's own record — so it
+// counts a fetch run in a terminal too, and a repo that has never fetched says
+// so rather than being rounded to just now.
+function LastUpdated({ at }: { at: string | null }) {
+  return (
+    <p className="text-ink-muted text-xs" aria-live="polite">
+      {at === null ? "Never updated" : `Updated ${formatRelativeTime(at)}`}
+    </p>
   );
 }
 
@@ -45,15 +58,17 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
  *
  * The header is a readout — name, path, default branch — and carries no
  * controls: an action in a row of facts is an action away from the thing it acts
- * on. The two remote actions live where they belong rather than in a band of
- * their own. Fetch is repo-level and always offered — worktrees share an object
- * store, and ahead/behind cannot be known to be stale until a fetch has happened
- * — so it sits on the breadcrumb line, saying when it last ran. The workspace
- * rescan is not here: its scope is every root, so it belongs on the listing, and
- * a staleness with no action beside it is noise. Pull is per checkout and
- * appears in that checkout's own card, only where a fast-forward would actually
- * land, so a repo with nothing to pull says nothing rather than spending a
- * section saying so.
+ * on. The one remote action lives on the breadcrumb line, with when the repo
+ * last heard from its remote beside it: update fetches the repo and
+ * fast-forwards every checkout of it that can take one, and is always offered,
+ * since ahead/behind cannot be known to be stale until a fetch has happened.
+ * There is nothing beside it: an update rescans as part of settling, so a
+ * separate rescan would be a second button meaning almost the same.
+ *
+ * An update that worked says nothing — the checkouts it moved stop being behind.
+ * A fetch that never landed reports beside the action, since it is the repo's
+ * own; a checkout that could not be fast-forwarded reports in that checkout's
+ * card, with its reason.
  *
  * `name` is the repo's directory name, which is also the key its `kiri.yaml`
  * overrides are written under. Two roots can hold directories of the same name;
@@ -68,6 +83,8 @@ function RepoHeader({ repo }: { repo: RepoOverview }) {
  */
 export function RepoDetail({ name }: { name: string }) {
   const query = useGitOverview();
+  const updateRepo = useUpdateRepo();
+  const update = useUpdate(async () => [await updateRepo(name)]);
 
   if (query.isPending) return <LoadingState>Loading repo…</LoadingState>;
   if (query.isError) {
@@ -92,19 +109,29 @@ export function RepoDetail({ name }: { name: string }) {
     );
   }
 
+  const failure = update.report.get(repo.name);
+
   return (
     <section>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <Breadcrumb items={[GIT_CRUMB]} current={repo.name} />
-        {/* One action on the breadcrumb line, saying when it last ran. How stale
-            the scan is isn't here: the rescan that would fix it is
-            workspace-wide, so it lives on the listing whose scope matches, and a
-            staleness nobody on this page can act on is only noise. */}
-        <FetchRepo repo={repo} />
+        {/* One action on the breadcrumb line, saying when the repo last heard
+            from its remote. How stale the scan is isn't here: it is a fact about
+            the whole workspace, and the listing whose scope matches states it. */}
+        <div className="flex flex-col items-end gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <LastUpdated at={repo.lastFetchedAt} />
+            <UpdateAction label="Update" update={update} />
+          </div>
+          {/* A fetch that never landed is the repo's own, so it reports beside
+              the action; what its checkouts could not do reports on each of
+              them, in the section below. */}
+          {failure?.fetch ? <SyncFailure result={failure.fetch} /> : null}
+        </div>
       </div>
       <RepoHeader repo={repo} />
       <div className="mt-10">
-        <WorktreesSection repo={repo} />
+        <WorktreesSection repo={repo} failures={failure?.checkouts ?? []} />
       </div>
     </section>
   );

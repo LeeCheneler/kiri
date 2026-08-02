@@ -8,7 +8,7 @@ import { changeset, filePatch } from "../git/changeset.ts";
 import { createWorktree, pruneWorktrees, removeWorktree } from "../git/operations.ts";
 import type { RepoOverview } from "../git/overview.ts";
 import type { GitSnapshotStore } from "../git/snapshot.ts";
-import { fastForwardPull, fetchRepo, fetchRepos } from "../git/sync.ts";
+import { updateRepo, updateRepos } from "../git/sync.ts";
 import { onZodFail } from "./shared.ts";
 
 export interface GitRoutesDeps {
@@ -49,9 +49,7 @@ const patchQuerySchema = changesetQuerySchema
 const insideCheckout = (file: string): boolean =>
   !isAbsolute(file) && !file.split("/").includes("..");
 
-const fetchBodySchema = z.object({ repo: z.string().min(1) }).strict();
-
-const pullBodySchema = z.object({ path: z.string().min(1) }).strict();
+const updateBodySchema = z.object({ repo: z.string().min(1) }).strict();
 
 /**
  * Build the Hono sub-app for `/api/git`. `GET /` answers from the snapshot —
@@ -59,7 +57,8 @@ const pullBodySchema = z.object({ path: z.string().min(1) }).strict();
  * status of its primary checkout and linked worktrees, alongside when that was
  * last scanned and whether a scan is running. It never touches the config, git,
  * or the disk, so it returns whatever is known right now rather than waiting for
- * a scan. `POST /refresh` forces one and answers with its result.
+ * a scan — the model it holds is renewed by the watcher, by a config change, and
+ * by every mutation below.
  *
  * The changeset reads are the exception to answering from memory: `GET
  * /changeset` and `GET /changeset/patch` run git per request, because holding
@@ -78,12 +77,13 @@ const pullBodySchema = z.object({ path: z.string().min(1) }).strict();
  * pipeline failed still left a worktree on disk, so it answers 200 with the
  * report rather than an error; a create that never made one answers 400.
  *
- * `POST /fetch`, `POST /fetch-all`, and `POST /pull` bring repos up to date.
- * Fetch-all is one request rather than a job: every discovered repo is fetched
- * with the same bound the scan runs under and the whole set of outcomes comes
- * back together, so one repo failing never takes down the rest. An outcome is
- * never an error — a refusal and a failed fetch both answer 200 carrying their
- * reason, since the request itself succeeded in finding out.
+ * `POST /update` and `POST /update-all` bring repos up to date: each fetches a
+ * repo and fast-forwards every checkout of it that can take one. Update-all is
+ * one request rather than a job — every discovered repo updated with the same
+ * bound the scan runs under, the whole set of outcomes back together, and one
+ * snapshot refresh when it settles, so one repo failing never takes down the
+ * rest. An outcome is never an error: a refusal and a failed fetch both answer
+ * 200 carrying their reason, since the request itself succeeded in finding out.
  *
  * Mounted unconditionally: with no roots configured it answers with an empty
  * model, which is how the client learns there is nothing to scan.
@@ -116,8 +116,6 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
     known().repos.find((repo) => repo.worktrees.some((worktree) => worktree.path === path));
 
   app.get("/", (c) => c.json(deps.snapshot.current()));
-
-  app.post("/refresh", async (c) => c.json(await deps.snapshot.refresh()));
 
   app.get(
     "/changeset",
@@ -225,48 +223,25 @@ export function gitRoutes(deps: GitRoutesDeps): Hono {
   );
 
   app.post(
-    "/fetch",
-    zValidator("json", fetchBodySchema, onZodFail("invalid fetch request")),
+    "/update",
+    zValidator("json", updateBodySchema, onZodFail("invalid update request")),
     async (c) => {
       const { repo } = c.req.valid("json");
       const target = findRepo(repo);
       if (target === undefined) {
         return c.json({ error: `no repo "${repo}" under the configured worktree roots` }, 404);
       }
-      const result = await fetchRepo(target);
+      const result = await updateRepo(target);
       await deps.snapshot.refresh();
       return c.json(result);
     },
   );
 
-  app.post("/fetch-all", async (c) => {
-    const results = await fetchRepos(known().repos);
+  app.post("/update-all", async (c) => {
+    const results = await updateRepos(known().repos);
     await deps.snapshot.refresh();
     return c.json({ results });
   });
-
-  app.post(
-    "/pull",
-    zValidator("json", pullBodySchema, onZodFail("invalid pull request")),
-    async (c) => {
-      const { path } = c.req.valid("json");
-      const checkout = known().repos.some((repo) =>
-        repo.worktrees.some((worktree) => worktree.path === path),
-      );
-      if (!checkout) {
-        return c.json(
-          { error: `no checkout at "${path}" under the configured worktree roots` },
-          404,
-        );
-      }
-
-      const result = await fastForwardPull(path);
-      // A refusal ran no git at all, so there is nothing for a rescan to pick
-      // up. Everything else did — a failed pull still fetched first.
-      if (result.status !== "refused") await deps.snapshot.refresh();
-      return c.json(result);
-    },
-  );
 
   return app;
 }

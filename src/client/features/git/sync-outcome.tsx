@@ -1,8 +1,9 @@
-import type { FetchResult, SyncStatus } from "../../api.ts";
+import type { SyncStatus } from "../../api.ts";
 import { Tag, type TagTone } from "../../design-system/content/tag.tsx";
 
-// One vocabulary for both fetch and pull, so "refused" means the same thing
-// wherever it is read: kiri declined and will say why, rather than git failing.
+// One vocabulary for a repo's fetch and a checkout's fast-forward alike, so
+// "refused" means the same thing wherever it is read: kiri declined and will say
+// why, rather than git failing.
 const STATUS_LABEL: Record<SyncStatus, string> = {
   updated: "updated",
   "up-to-date": "up to date",
@@ -17,47 +18,37 @@ const STATUS_TONE: Record<SyncStatus, TagTone> = {
   failed: "negative",
 };
 
-/** The status of one fetch or pull, as its shared tag. */
+/** The status of one fetch or fast-forward, as its shared tag. */
 export function SyncTag({ status }: { status: SyncStatus }) {
   return <Tag tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Tag>;
 }
 
-// Whatever the outcome has to say for itself: why kiri refused, what git said
-// when it failed, or what a fetch actually moved.
-function Detail({ result }: { result: FetchResult }) {
-  const detail = result.reason ?? result.error;
-  if (detail === undefined) return null;
-  return (
-    <p
-      className={`mt-1 whitespace-pre-wrap break-words font-mono text-xs ${
-        result.error === undefined ? "text-ink-muted" : "text-status-failed"
-      }`}
-    >
-      {detail}
-    </p>
-  );
+/** An outcome that did not happen: how it went, and what it had to say for itself. */
+export interface SyncOutcome {
+  status: SyncStatus;
+  /** Why kiri declined; present only on a refusal. */
+  reason?: string;
+  /** Git's message; present only on a failure. */
+  error?: string;
 }
 
 /**
- * The fetches that did not succeed, one repo per entry: the repo's name, how it
- * went, and the reason it was refused or git's message when it failed. Fetches
- * that worked report as a count instead — a workspace of dozens is unreadable
- * enumerated, and the answer worth reading is which repos could not be reached.
- * Used for a single repo's fetch and for a fetch-all's spread, so both read the
- * same way.
+ * One outcome that did not happen, inline: its status, and either kiri's reason
+ * for declining or git's own message. Sits inside the card of whatever it
+ * concerns — a repo on the listing, a checkout on a repo's page — so a reason is
+ * never read apart from the thing it is about.
  */
-export function FetchReport({ results }: { results: FetchResult[] }) {
+export function SyncFailure({ result }: { result: SyncOutcome }) {
   return (
-    <ul className="space-y-3">
-      {results.map((result) => (
-        <li key={result.repo}>
-          <p className="flex flex-wrap items-center gap-2 font-mono text-ink text-sm">
-            {result.repo}
-            <SyncTag status={result.status} />
-          </p>
-          <Detail result={result} />
-        </li>
-      ))}
-    </ul>
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <SyncTag status={result.status} />
+      <span
+        className={`whitespace-pre-wrap break-words font-mono text-xs ${
+          result.error === undefined ? "text-ink-muted" : "text-status-failed"
+        }`}
+      >
+        {result.reason ?? result.error}
+      </span>
+    </span>
   );
 }
