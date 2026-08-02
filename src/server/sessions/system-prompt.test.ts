@@ -458,8 +458,12 @@ describe("delegate guidance", () => {
     expect(withTiers).toContain("Size each worker's model to its task");
     expect(withTiers).toContain("never one size for the whole batch");
     expect(withTiers).toContain("`tanto` runs mechanical, fully-specified legwork");
-    expect(withTiers).toContain("`katana` is the default for ordinary research and tool work");
+    // The triggers must speak to coding work as much as research.
+    expect(withTiers).toContain(
+      "`katana` is the default for ordinary work: research strands, routine coding against a clear spec",
+    );
     expect(withTiers).toContain("`odachi` is reserved for tasks whose outcome hinges on reasoning");
+    expect(withTiers).toContain("subtle code correctness, debugging from symptoms");
     expect(withTiers).toContain("escalate the one strand that needs it, not the batch");
     expect(withTiers).toContain("costs a rerun");
     // Unconfigured, the tool has no model prop, so the steer must not name one.
