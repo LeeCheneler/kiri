@@ -102,6 +102,34 @@ that failed to fetch looks exactly like one that had nothing to fetch. A failed
 update — offline, or credentials git can't resolve — is a result, not a broken
 page.
 
+## Whether a branch still merges
+
+Merging one pull request can quietly make a sibling worktree unmergeable, and
+nothing about ahead/behind hints at it — you find out when a rebase blows up.
+A repo's own page answers the question directly: each linked worktree's branch
+is merged into the remote default branch (`origin/main`, or whatever yours is)
+entirely in git's object store, and one that no longer merges cleanly is tagged
+`conflicts main` and names the files it would fight over.
+
+This is a real three-way merge per worktree, far heavier than reading a status,
+so it runs for the one repo you're looking at rather than across every repo in
+the workspace. What it finds is remembered, so the repo list can show a
+`conflicting` count and pull that repo to the front of the list without
+re-running the merge — and the answer is dropped, rather than shown stale, once
+the branch moves or the repo fetches again.
+
+Nothing is fetched to answer it, so it describes the default branch **as of the
+repo's last update**, which is what the wording on the page says. Update the
+repo to ask against what everyone else has now.
+
+Some checkouts have no question to answer, and those stay silent rather than
+being reported as fine: the primary checkout, a worktree sitting on the default
+branch itself, a detached HEAD, and any branch git can't compute a merge for —
+unrelated histories, or no `origin/<default>` on disk yet.
+
+Kiri only reports it. Resolving, merging, and rebasing stay in your terminal,
+and there's no conflict viewer here.
+
 ## Preparing a new worktree
 
 Creating a worktree takes a **name** and a **branch**. The worktree lands
