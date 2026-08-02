@@ -1,6 +1,6 @@
 # Kiri — Workflow Authoring Reference
 
-Drop this file into a kiri workspace (or copy it into the workspace's `CLAUDE.md`) so an AI assistant has full context on how to write workflows, bundles, prompts, and `articles:` / `summarize:` blocks — and how to shape agentic sessions with `kiri.md` and personas — without hunting around for the schema.
+Drop this file into a kiri workspace (or copy it into the workspace's `CLAUDE.md`) so an AI assistant has full context on how to write workflows, bundles, prompts, and `articles:` / `summarize:` blocks — and how to shape agentic sessions with `kiri.md` — without hunting around for the schema.
 
 Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a linear sequence of steps: any step that declares an `id` can have its output referenced by name from later steps, articles, and the summariser — declared env refs are how data moves. Workflows are YAML, bundles are bash scripts on disk, prompts are plain text templates.
 
@@ -775,30 +775,20 @@ The JSON Schemas under `.kiri/` are generated from the Zod schemas and refreshed
 
 ---
 
-## Agentic sessions: `kiri.md` & personas
+## Agentic sessions: `kiri.md`
 
-Sessions are kiri's second pillar — a multi-turn chat with a model, separate from workflows. You don't author a session the way you author a workflow; instead two optional workspace files shape every session's **system prompt**, which kiri composes fresh on each turn from three layers, in order:
+Sessions are kiri's second pillar — a multi-turn chat with a model, separate from workflows. You don't author a session the way you author a workflow; instead one optional workspace file shapes every session's **system prompt**, which kiri composes fresh on each turn from two layers, in order:
 
-**core (kiri) → `kiri.md` → persona**
+**core (kiri) → `kiri.md`**
 
 - **`kiri.md`** — a single markdown file at the workspace root, applied to *every* session. Its body is your standing instructions: the session equivalent of a global "how I want you to behave." Optional — with no `kiri.md`, sessions run on kiri's core layer alone. Only kiri sessions read `kiri.md` — it's separate from any `CLAUDE.md`/`AGENTS.md` you keep for AI tools that edit the workspace, so that authoring guidance stays out of your sessions.
-- **`personas/<name>.md`** — optional role overlays. Each file is one persona; the filename minus `.md` is its name. A persona is **attached per session** from the chat's right-hand aside (a combobox under the model picker) and is injected *after* `kiri.md`. Use one to put a session into a specific role — a code reviewer, a release-notes writer, a particular voice.
 
 Authoring notes:
 
-- Both are **plain markdown — no frontmatter, no schema.** The whole file body is the instruction text. Just write prose.
+- It is **plain markdown — no frontmatter, no schema.** The whole file body is the instruction text. Just write prose.
 - The **kiri core layer is not user-editable.** It already tells the model the environment it runs in, that replies render as GitHub-flavoured markdown, and how to draw inline charts (fence a code block as `chart` with a Vega-Lite spec) and mermaid diagrams (fence a block as `mermaid`) — the same renderer as workflow articles; see *Charts in articles* and *Mermaid diagrams in articles*. Build on top of it rather than repeating it.
 - Every layer is **read fresh from disk each turn**, so an edit takes effect on the next turn — git is the source of truth, nothing is snapshotted.
-- The persona is **swappable mid-conversation** from the aside (applies from the next turn), alongside the model. There is no persona at creation: a session starts with none, and you attach one when you want it. The leading **None** option detaches.
-- Persona names come from filenames — keep them tidy and kebab-case (`code-reviewer.md`, `release-notes.md`).
 - Sessions can **author workflows** through built-in tools (create/edit/replace whole YAML files, validated before every write). When authoring an `llm:` step a session won't invent a `provider:model` — it follows `kiri.md`, copies an existing workflow, or asks. **Recommended:** name your preferred models in `kiri.md` (e.g. "for workflow llm steps, prefer `anthropic:claude-haiku-4-5`") so sessions pick them automatically.
-
-Example `personas/code-reviewer.md`:
-
-```
-You are a meticulous senior code reviewer. Read diffs closely, flag correctness
-bugs first, then design and clarity. Cite file:line. Be direct; skip the praise.
-```
 
 ### Session tools — MCP servers (`mcp:` in `kiri.yaml`)
 
@@ -845,5 +835,5 @@ If kiri's repo is the workspace and behaviour is unclear, these are the source-o
 - **LLM providers (schema, loader, provider clients):** `src/server/llm/`
 - **`kiri.yaml` config (providers + MCP; schema, loader, health):** `src/server/config/`
 - **MCP servers (connect, tool namespacing, OAuth):** `src/server/mcp/`
-- **Session system prompt (core layer, `kiri.md`, personas):** `src/server/sessions/system-prompt.ts`
+- **Session system prompt (core layer, `kiri.md`):** `src/server/sessions/system-prompt.ts`
 - **Architecture & roadmap:** `docs/design-notes.md`

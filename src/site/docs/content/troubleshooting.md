@@ -63,14 +63,14 @@ a specific subfolder rather than a huge tree, say).
 
 ## Edits aren't taking effect
 
-Most files are read fresh from disk — workflow edits, `kiri.yaml`, `kiri.md`, and
-personas all apply without a restart (a `kiri.yaml` edit re-validates workflows
+Most files are read fresh from disk — workflow edits, `kiri.yaml`, and `kiri.md`
+all apply without a restart (a `kiri.yaml` edit re-validates workflows
 live, keeping the last-known-good config on an invalid edit). If a change isn't
 landing:
 
 - Check the boot report / health banner for a parse error — an invalid
   `kiri.yaml` keeps the previous config.
-- A persona or `kiri.md` change applies on the **next turn**, not retroactively.
+- A `kiri.md` change applies on the **next turn**, not retroactively.
 - Confirm you're editing files in the active workspace (the launch dir, or
   `KIRI_CONFIG_DIR` if set).
 

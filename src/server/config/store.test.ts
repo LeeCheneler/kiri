@@ -20,10 +20,6 @@ describe("createConfigStore", () => {
     expect(config.bundleRunPath("daily")).toBe(join(root, "bundles", "daily", "run.sh"));
   });
 
-  it("derives the personas directory", () => {
-    expect(config.personasDir()).toBe(join(root, "personas"));
-  });
-
   it("derives the data directory and per-run scratch dirs", () => {
     expect(config.dataDir()).toBe(join(root, ".kiri"));
     expect(config.runDir("run-123")).toBe(join(root, ".kiri", "runs", "run-123"));

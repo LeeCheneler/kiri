@@ -12,10 +12,10 @@ reopening the session rejoins it live.
 
 ## Shaping behaviour
 
-Kiri composes each turn's system prompt from three layers, in order:
+Kiri composes each turn's system prompt from two layers, in order:
 
 ```
-core (kiri)  →  kiri.md  →  persona
+core (kiri)  →  kiri.md
 ```
 
 Every layer is read fresh from disk each turn, so an edit applies on the next
@@ -29,12 +29,10 @@ turn — git stays the source of truth.
   every session: your standing "how I want you to behave." It's read only by
   kiri sessions — separate from any `CLAUDE.md`/`AGENTS.md` you keep for
   coding agents.
-- **Personas** — optional role overlays, one file per persona under
-  `personas/<name>.md`, attached per session and swappable mid-conversation.
 
 ```
-You are a meticulous senior code reviewer. Read diffs closely, flag
-correctness bugs first, then design and clarity. Cite file:line. Be direct.
+Answer in British English. Be direct, lead with the answer, and cite
+file:line when you reference code.
 ```
 
 ## Tools from MCP servers

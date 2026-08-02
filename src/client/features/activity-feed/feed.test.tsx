@@ -36,7 +36,6 @@ const baseSession: SessionListEntry = {
   status: "idle",
   model: "anthropic:claude",
   imageModel: null,
-  persona: null,
   pinned: false,
   parentSessionId: null,
   parentToolCallId: null,

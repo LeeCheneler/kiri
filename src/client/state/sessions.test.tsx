@@ -8,14 +8,7 @@ import { server } from "../../../tests/setup/msw.ts";
 import { cancelSession, createSession, fetchSessionsPage } from "../api.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { createQueryClient } from "./query-client.ts";
-import {
-  useModels,
-  usePersonas,
-  usePersonasLive,
-  useSession,
-  useSessionsFeed,
-  useSessionsLive,
-} from "./sessions.ts";
+import { useModels, useSession, useSessionsFeed, useSessionsLive } from "./sessions.ts";
 
 const sessionRow = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
@@ -60,12 +53,6 @@ const PinnedFeedProbe = () => {
   useSessionsLive();
   const { data } = useSessionsFeed({ pinned: true });
   return <p>{data ? data.map((s) => s.id).join(",") || "empty" : "loading"}</p>;
-};
-
-const PersonasProbe = () => {
-  usePersonasLive();
-  const { data } = usePersonas();
-  return <p>{data ? data.map((persona) => persona.id).join(",") || "empty" : "loading"}</p>;
 };
 
 // Serve a session whose model encodes the fetch count, so a refetch is
@@ -222,40 +209,6 @@ describe("sessions state", () => {
     // The pinned feed keys under ["sessions", "feed"], so the subtree
     // invalidation a session.updated triggers reaches it too.
     act(() => sources[0]?.emit({ type: "session.updated", id: "s1", status: "idle" }));
-    await screen.findByText("p-2");
-  });
-
-  it("refetches the personas when a persona file changes", async () => {
-    let calls = 0;
-    server.use(
-      http.get("*/api/personas", () => {
-        calls++;
-        return HttpResponse.json({ personas: [{ id: `p-${calls}`, name: "P" }] });
-      }),
-    );
-    const { sources } = renderProbe(<PersonasProbe />);
-    await screen.findByText("p-1");
-
-    act(() => sources[0]?.emit({ type: "persona.changed" }));
-    await screen.findByText("p-2");
-  });
-
-  it("recovers the personas on event-stream reconnect", async () => {
-    let calls = 0;
-    server.use(
-      http.get("*/api/personas", () => {
-        calls++;
-        return HttpResponse.json({ personas: [{ id: `p-${calls}`, name: "P" }] });
-      }),
-    );
-    const { sources } = renderProbe(<PersonasProbe />);
-    await screen.findByText("p-1");
-
-    // First open is the initial connect (silent); the second is a reconnect.
-    act(() => sources[0]?.triggerOpen());
-    expect(calls).toBe(1);
-
-    act(() => sources[0]?.triggerOpen());
     await screen.findByText("p-2");
   });
 

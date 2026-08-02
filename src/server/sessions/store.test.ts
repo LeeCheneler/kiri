@@ -19,7 +19,6 @@ import {
   setSessionStatus,
   updateMessage,
   updateSessionImageModel,
-  updateSessionPersona,
 } from "./store.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -45,7 +44,6 @@ describe("sessions store", () => {
     expect(session.id).toBe("s1");
     expect(session.status).toBe("idle");
     expect(session.model).toBe(MODEL);
-    expect(session.persona).toBeNull();
     expect(session.pinned).toBe(false);
     expect(session.finishedAt).toBeNull();
     expect(session.parentSessionId).toBeNull();
@@ -101,17 +99,6 @@ describe("sessions store", () => {
 
     expect(updateSessionImageModel(db, "s1", null).imageModel).toBeNull();
     expect(getSession(db, "s1")?.imageModel).toBeNull();
-  });
-
-  it("attaches and detaches a persona", () => {
-    createSession(db, MODEL, { id: "s1" });
-    expect(getSession(db, "s1")?.persona).toBeNull();
-
-    expect(updateSessionPersona(db, "s1", "code-reviewer").persona).toBe("code-reviewer");
-    expect(getSession(db, "s1")?.persona).toBe("code-reviewer");
-
-    expect(updateSessionPersona(db, "s1", null).persona).toBeNull();
-    expect(getSession(db, "s1")?.persona).toBeNull();
   });
 
   it("appends messages at incrementing indices in order", () => {
