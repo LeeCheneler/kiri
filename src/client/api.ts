@@ -973,10 +973,10 @@ export const fetchChangeset = async (path: string, view: ChangesetView): Promise
   );
 
 /**
- * Fetch one file's patch in the same view, separately from the file list so
- * opening a changeset never loads every diff in it. `previousPath` pairs the two
- * sides of a rename into one patch. Throws on non-2xx — 400 for a file path that
- * isn't inside the checkout.
+ * Fetch one file's patch in the same view, a request per file so a reader can
+ * pace how much of a changeset it computes. `previousPath` pairs the two sides
+ * of a rename into one patch. Throws on non-2xx — 400 for a file path that isn't
+ * inside the checkout.
  */
 export const fetchFilePatch = async (
   path: string,
