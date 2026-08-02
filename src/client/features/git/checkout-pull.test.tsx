@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/setup/msw.ts";
@@ -54,21 +54,14 @@ describe("<CheckoutPull>", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("reports how far a successful pull moved the checkout", async () => {
+  it("says nothing about a pull that worked", async () => {
     answers({ path: "/projects/kiri-feat-search", status: "updated", commits: 2, updates: [] });
     renderPull(worktree());
 
     await userEvent.click(pullButton());
-    expect(await screen.findByText("updated")).toBeDefined();
-    expect(screen.getByText(/fast-forwarded 2 commits/i)).toBeDefined();
-  });
-
-  it("says a single commit in the singular", async () => {
-    answers({ path: "/projects/kiri-feat-search", status: "updated", commits: 1, updates: [] });
-    renderPull(worktree());
-
-    await userEvent.click(pullButton());
-    expect(await screen.findByText(/fast-forwarded 1 commit$/i)).toBeDefined();
+    await waitFor(() => expect(pullButton().hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByText("updated")).toBeNull();
+    expect(screen.queryByText(/fast-forwarded/i)).toBeNull();
   });
 
   it("names the reason kiri refused rather than reporting a bare status", async () => {
@@ -98,12 +91,13 @@ describe("<CheckoutPull>", () => {
     expect(await screen.findByText(/could not read from remote/i)).toBeDefined();
   });
 
-  it("reports an up-to-date pull without a detail it doesn't have", async () => {
+  it("says nothing about a pull that found nothing to do", async () => {
     answers({ path: "/projects/kiri-feat-search", status: "up-to-date", commits: 0 });
     renderPull(worktree());
 
     await userEvent.click(pullButton());
-    expect(await screen.findByText("up to date")).toBeDefined();
+    await waitFor(() => expect(pullButton().hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByText("up to date")).toBeNull();
   });
 
   it("surfaces a request the server turned away", async () => {
