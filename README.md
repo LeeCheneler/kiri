@@ -42,7 +42,7 @@ articles:
 
 Both land in a single activity feed — searchable as you type (⌘K from anywhere) across articles, session transcripts, run summaries, and workflow names.
 
-Kiri also manages the **git worktrees** the work happens in. Declare `git:` in `kiri.yaml` with the folders your repos live in and kiri discovers every repo under them with its primary checkout and linked worktrees, creates new ones as siblings of the primary — sharing or copying its git-ignored env files, running your configured post-create commands, then installing every lockfile it finds — and removes them safely, refusing a worktree with uncommitted changes unless forced and reporting the sha of the branch it deleted. It also brings repos up to date on demand: `git fetch --prune` for one repo or every discovered repo at once, and fast-forward-only pulls of the checkouts that can take one, with a stated reason wherever one can't.
+Kiri also manages the **git worktrees** the work happens in. Declare `git:` in `kiri.yaml` with the folders your repos live in and kiri discovers every repo under them with its primary checkout and linked worktrees, creates new ones as siblings of the primary — sharing or copying its git-ignored env files, running your configured post-create commands, then installing every lockfile it finds — and removes them safely, refusing a worktree with uncommitted changes unless forced and reporting the sha of the branch it deleted. It also brings repos up to date on demand — one action, for one repo or every discovered repo at once: `git fetch --prune`, then a fast-forward-only pull of every checkout of it that can take one, with a stated reason wherever one can't.
 
 ## Install
 

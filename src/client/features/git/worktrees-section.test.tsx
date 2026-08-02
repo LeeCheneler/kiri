@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/setup/msw.ts";
-import type { RepoOverview, WorktreeStatus } from "../../api.ts";
+import type { PullResult, RepoOverview, WorktreeStatus } from "../../api.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { WorktreesSection } from "./worktrees-section.tsx";
 
@@ -32,10 +32,10 @@ const repo = (worktrees: WorktreeStatus[]): RepoOverview => ({
   worktrees,
 });
 
-const renderSection = (value: RepoOverview) =>
+const renderSection = (value: RepoOverview, failures: PullResult[] = []) =>
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <WorktreesSection repo={value} />
+      <WorktreesSection repo={value} failures={failures} />
     </QueryClientProvider>,
   );
 
@@ -82,16 +82,29 @@ describe("<WorktreesSection>", () => {
     );
   });
 
-  it("offers the pull inside the card of the worktree it would move", () => {
+  it("reports an update refusal inside the card of the checkout it concerns", () => {
     renderSection(
       repo([
         worktree({ primary: true }),
         worktree({ path: "/projects/kiri-feat-search", branch: "feat/search", behind: 2 }),
-        worktree({ path: "/projects/kiri-level", branch: "feat/level" }),
       ]),
+      [
+        {
+          path: "/projects/kiri-feat-search",
+          branch: "feat/search",
+          status: "refused",
+          commits: 0,
+          reason: "the working tree has uncommitted changes",
+        },
+      ],
     );
-    // One pull, for the one worktree a fast-forward would land on.
-    expect(screen.getAllByRole("button", { name: "Pull" })).toHaveLength(1);
+
+    const card = screen
+      .getAllByRole("listitem")
+      .find((item) => within(item).queryByText("kiri-feat-search") !== null);
+    expect(within(card as HTMLElement).getByText(/uncommitted changes/i)).toBeDefined();
+    // The checkouts the update brought current say nothing at all.
+    expect(screen.getAllByText(/uncommitted changes/i)).toHaveLength(1);
   });
 
   it("lists the primary checkout, marked as such and with no removal offered", () => {
@@ -108,9 +121,17 @@ describe("<WorktreesSection>", () => {
     );
   });
 
-  it("offers the pull on the primary checkout too", () => {
-    renderSection(repo([worktree({ primary: true, behind: 2 })]));
-    expect(screen.getByRole("button", { name: "Pull" })).toBeDefined();
+  it("reports an update refusal on the primary checkout too", () => {
+    renderSection(repo([worktree({ primary: true, behind: 2 })]), [
+      {
+        path: "/projects/kiri",
+        branch: "main",
+        status: "failed",
+        commits: 0,
+        error: "could not resolve host",
+      },
+    ]);
+    expect(screen.getByText(/could not resolve host/i)).toBeDefined();
   });
 
   it("names a detached checkout rather than leaving it blank", () => {

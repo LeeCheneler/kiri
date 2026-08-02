@@ -10,9 +10,15 @@ import { Tag, type TagTone } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
-import { useGitOverview } from "../../state/git.ts";
-import { FetchAllRepos } from "./fetch-all-repos.tsx";
-import { RefreshGit, ScanFreshness } from "./scan-status.tsx";
+import { useGitOverview, useUpdateAllRepos } from "../../state/git.ts";
+import { ScanFreshness } from "./scan-status.tsx";
+import {
+  type RepoUpdateFailure,
+  RepoUpdateReport,
+  UpdateAction,
+  type UpdateReport,
+  useUpdate,
+} from "./update.tsx";
 
 // The path a repo's own page lives at, keyed by its directory name.
 const repoHref = (repo: RepoOverview): string => `/git/${encodeURIComponent(repo.name)}`;
@@ -55,7 +61,7 @@ const summaryTags = (repo: RepoOverview): { label: string; tone: TagTone }[] => 
 // One repo, as much of it as reads at a glance: its name as the way into its own
 // page, where it lives on disk, the branch a new one is cut from, and the rail
 // of everything inside it that is unfinished.
-function RepoCard({ repo }: { repo: RepoOverview }) {
+function RepoCard({ repo, failure }: { repo: RepoOverview; failure?: RepoUpdateFailure }) {
   return (
     <Card>
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
@@ -74,6 +80,9 @@ function RepoCard({ repo }: { repo: RepoOverview }) {
       <p className="mt-1 font-mono text-ink-muted text-xs">
         {repo.defaultBranch === null ? "no default branch" : `default branch ${repo.defaultBranch}`}
       </p>
+      {/* Whatever the last update could not do to this repo, inside the repo's
+          own card — a reason belongs to the thing it is about. */}
+      <RepoUpdateReport failure={failure} />
     </Card>
   );
 }
@@ -137,16 +146,22 @@ function ScannedRoots({ roots }: { roots: string[] }) {
  * through to its own page, where its worktrees are managed. Repos wanting a
  * decision lead the list, and the filter reaches into them — a repo is matched
  * by its name, or by the path or branch of anything checked out inside it. The
- * ahead and behind counts are only as current as each repo's last fetch, so the
- * list carries the fetch that makes them honest across every repo at once.
+ * ahead and behind counts are only as current as each repo's last update, so the
+ * list carries the update that brings every repo — and every checkout inside
+ * them — current in one action.
+ *
+ * An update that worked says nothing: the repos it moved simply stop being
+ * behind. A repo it could not reach, or a checkout of one it could not
+ * fast-forward, is named with its reason inside that repo's own card.
  *
  * The server holds the model in memory and rescans in the background, so the
- * listing appears at once and says how old it is; refreshing forces a rescan,
- * and it otherwise stays current through `useGitLive`, so an operation run from
- * another open client lands here too.
+ * listing appears at once and says how old it is. Updating rescans as part of
+ * settling, and the page otherwise stays current through `useGitLive`, so an
+ * operation run from another open client lands here too.
  */
 export function RepoList() {
   const query = useGitOverview();
+  const update = useUpdate(useUpdateAllRepos());
   const [filter, setFilter] = useState("");
   const repos = query.data?.repos ?? [];
 
@@ -154,14 +169,10 @@ export function RepoList() {
     <section>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <Breadcrumb items={[]} current="Git" />
-        {/* One action area: the two actions sit together on the line the
-            freshness reads on, rather than one in the header and one adrift
-            below the filter. Refresh stays rightmost, the established anchor
-            across this surface. */}
+        {/* The page's one action, on the line its freshness reads on. */}
         <div className="flex flex-wrap items-start justify-end gap-3">
           <ScanFreshness overview={query.data} />
-          {repos.length > 0 ? <FetchAllRepos /> : null}
-          <RefreshGit />
+          {repos.length > 0 ? <UpdateAction label="Update all" update={update} /> : null}
         </div>
       </div>
       {repos.length > 0 ? (
@@ -170,13 +181,21 @@ export function RepoList() {
         </div>
       ) : null}
       <div className="mt-6">
-        <Body query={query} filter={filter} />
+        <Body query={query} filter={filter} report={update.report} />
       </div>
     </section>
   );
 }
 
-function Body({ query, filter }: { query: ReturnType<typeof useGitOverview>; filter: string }) {
+function Body({
+  query,
+  filter,
+  report,
+}: {
+  query: ReturnType<typeof useGitOverview>;
+  filter: string;
+  report: UpdateReport;
+}) {
   if (query.isPending) return <LoadingState>Loading repos…</LoadingState>;
   if (query.isError) {
     return (
@@ -209,11 +228,15 @@ function Body({ query, filter }: { query: ReturnType<typeof useGitOverview>; fil
     return <EmptyState>No repos match “{filter.trim()}”.</EmptyState>;
   }
 
+  // A list of repos, marked up as one, so each card is an item a reader can
+  // step through rather than a run of unrelated panels.
   return (
-    <div className="space-y-4">
+    <ul className="space-y-4">
       {matched.map((repo) => (
-        <RepoCard key={repo.gitCommonDir} repo={repo} />
+        <li key={repo.gitCommonDir}>
+          <RepoCard repo={repo} failure={report.get(repo.name)} />
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

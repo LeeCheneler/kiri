@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { RepoOverview, WorktreeStatus } from "../../api.ts";
+import type { PullResult, RepoOverview, WorktreeStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Tag } from "../../design-system/content/tag.tsx";
@@ -7,11 +7,11 @@ import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { useCreateWorktree, usePruneWorktrees, useRemoveWorktree } from "../../state/git.ts";
 import { ChangesLink } from "./changes-link.tsx";
-import { CheckoutPull } from "./checkout-pull.tsx";
 import { CreateWorktreeModal } from "./create-worktree-modal.tsx";
 import { PruneWorktreesModal, entries, prunablePaths } from "./prune-worktrees-modal.tsx";
 import { RemoveWorktreeModal } from "./remove-worktree-modal.tsx";
 import { RepoSection } from "./repo-section.tsx";
+import { SyncFailure } from "./sync-outcome.tsx";
 import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 
 // One checkout, in a card of its own: what it is called and the state rail that
@@ -29,15 +29,23 @@ import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 //
 // The primary checkout takes the same card as every linked one, marked by a tag
 // and offered no removal: it is the repo, and git refuses to remove it. Giving
-// it the shape the others have is what puts its pull and its changes where a
-// reader already knows to look for them.
+// it the shape the others have is what puts its state and its changes where a
+// reader already knows to look for them — and it is updated with the rest, since
+// moving the branch a worktree was cut from is the point of updating a repo.
+//
+// `failure` is the last update's reason for leaving this checkout where it was.
+// It renders with the checkout's own identity rather than in the action cluster:
+// a refusal is a sentence, and a sentence in a column of buttons pulls the
+// buttons around.
 function CheckoutRow({
   repo,
   worktree,
+  failure,
   onRemove,
 }: {
   repo: RepoOverview;
   worktree: WorktreeStatus;
+  failure?: PullResult;
   onRemove?: () => void;
 }) {
   return (
@@ -59,9 +67,13 @@ function CheckoutRow({
           <p className="mt-2 font-mono text-xs">
             <ChangesLink repo={repo} worktree={worktree} />
           </p>
+          {failure === undefined ? null : (
+            <p className="mt-2">
+              <SyncFailure result={failure} />
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <CheckoutPull worktree={worktree} />
           {onRemove === undefined ? null : (
             <Button variant="negative" onClick={onRemove}>
               remove
@@ -85,7 +97,14 @@ function CheckoutRow({
  * overview when it lands, so the section reflects the server's model rather than
  * an optimistic guess at it.
  */
-export function WorktreesSection({ repo }: { repo: RepoOverview }) {
+export function WorktreesSection({
+  repo,
+  failures = [],
+}: {
+  repo: RepoOverview;
+  /** What the last update could not do, per checkout. */
+  failures?: PullResult[];
+}) {
   const create = useCreateWorktree();
   const remove = useRemoveWorktree();
   const prune = usePruneWorktrees();
@@ -128,6 +147,7 @@ export function WorktreesSection({ repo }: { repo: RepoOverview }) {
             <CheckoutRow
               repo={repo}
               worktree={worktree}
+              failure={failures.find((failure) => failure.path === worktree.path)}
               onRemove={worktree.primary ? undefined : () => setRemoving(worktree)}
             />
           </li>

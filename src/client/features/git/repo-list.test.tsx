@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
@@ -239,9 +239,11 @@ describe("<RepoList>", () => {
     expect(screen.queryByPlaceholderText(/filter repos/i)).toBeNull();
   });
 
-  it("reloads the listing on an explicit refresh", async () => {
-    server.use(http.get("*/api/git", () => HttpResponse.json(busy)));
-    server.use(http.post("*/api/git/refresh", () => HttpResponse.json(busy)));
+  it("reloads the listing once an update settles — nothing else renews it", async () => {
+    server.use(
+      http.get("*/api/git", () => HttpResponse.json(busy)),
+      http.post("*/api/git/update-all", () => HttpResponse.json({ results: [] })),
+    );
     renderList();
     await screen.findByRole("link", { name: /kiri/i });
 
@@ -250,7 +252,105 @@ describe("<RepoList>", () => {
         HttpResponse.json(payload([repo("site", [worktree({ path: "/projects/site" })])])),
       ),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await userEvent.click(screen.getByRole("button", { name: "Update all" }));
     expect(await screen.findByRole("link", { name: /site/i })).toBeDefined();
+  });
+
+  describe("update all", () => {
+    const two = payload([
+      repo("kiri", [worktree({ primary: true })]),
+      repo("site", [worktree({ path: "/projects/site", primary: true })]),
+    ]);
+
+    const answers = (results: unknown[]) => {
+      server.use(
+        http.get("*/api/git", () => HttpResponse.json(two)),
+        http.post("*/api/git/update-all", () => HttpResponse.json({ results })),
+      );
+    };
+
+    const clickUpdateAll = async () => {
+      renderList();
+      await userEvent.click(await screen.findByRole("button", { name: "Update all" }));
+    };
+
+    const landed = (name: string) => ({
+      repo: name,
+      fetch: { repo: name, status: "updated", updates: ["main -> origin/main"] },
+      checkouts: [
+        { path: `/projects/${name}`, branch: "main", status: "updated" as const, commits: 1 },
+      ],
+    });
+
+    it("offers no update while there are no repos to update", async () => {
+      renderList();
+      await screen.findByText(/none are listed, so there is nothing to scan/i);
+      expect(screen.queryByRole("button", { name: "Update all" })).toBeNull();
+    });
+
+    it("reports nothing at all when every repo came current", async () => {
+      answers([landed("kiri"), landed("site")]);
+      await clickUpdateAll();
+
+      await waitFor(() => expect(screen.queryByRole("button", { name: /updating/i })).toBeNull());
+      expect(screen.queryByText("updated")).toBeNull();
+      expect(screen.queryByText(/main -> origin\/main/)).toBeNull();
+    });
+
+    it("names a repo it could not reach, in that repo's own card", async () => {
+      answers([
+        landed("kiri"),
+        {
+          repo: "site",
+          fetch: {
+            repo: "site",
+            status: "failed",
+            updates: [],
+            error: "could not resolve host",
+          },
+          checkouts: [],
+        },
+      ]);
+      await clickUpdateAll();
+
+      await screen.findByText(/could not resolve host/i);
+      const card = screen
+        .getAllByRole("listitem")
+        .find((item) => within(item).queryByRole("link", { name: /site/i }) !== null);
+      expect(within(card as HTMLElement).getByText(/could not resolve host/i)).toBeDefined();
+    });
+
+    it("names a checkout it could not bring current, under the repo holding it", async () => {
+      answers([
+        {
+          repo: "kiri",
+          fetch: { repo: "kiri", status: "updated", updates: ["main -> origin/main"] },
+          checkouts: [
+            {
+              path: "/projects/kiri-feat-search",
+              branch: "feat/search",
+              status: "refused",
+              commits: 0,
+              reason: "'feat/search' has diverged from origin/feat/search",
+            },
+          ],
+        },
+        landed("site"),
+      ]);
+      await clickUpdateAll();
+
+      expect(await screen.findByText(/has diverged/i)).toBeDefined();
+      expect(screen.getByText("kiri-feat-search")).toBeDefined();
+    });
+
+    it("surfaces a request that never reached the server", async () => {
+      server.use(
+        http.get("*/api/git", () => HttpResponse.json(two)),
+        http.post("*/api/git/update-all", () => new HttpResponse(null, { status: 500 })),
+      );
+      await clickUpdateAll();
+
+      expect(await screen.findByText(/couldn't update/i)).toBeDefined();
+    });
   });
 });

@@ -1,12 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { useGitLive, useGitOverview, useRefreshGit } from "./git.ts";
+import { useGitLive, useGitOverview } from "./git.ts";
 import { createQueryClient } from "./query-client.ts";
 
 const overview = (names: string[]) => ({
@@ -23,16 +22,8 @@ const overview = (names: string[]) => ({
 
 const Probe = () => {
   useGitLive();
-  const refresh = useRefreshGit();
   const repos = useGitOverview().data?.repos ?? [];
-  return (
-    <>
-      <p>repos:{repos.length}</p>
-      <button type="button" onClick={() => void refresh().catch(() => {})}>
-        refresh
-      </button>
-    </>
-  );
+  return <p>repos:{repos.length}</p>;
 };
 
 const renderProbe = () => {
@@ -58,33 +49,5 @@ describe("worktrees state", () => {
       sources[0]?.emit({ type: "git.changed" });
     });
     expect(await screen.findByText("repos:2")).toBeDefined();
-  });
-
-  it("re-runs discovery and reloads the overview on refresh", async () => {
-    server.use(http.get("*/api/git", () => HttpResponse.json(overview(["kiri"]))));
-    let refreshed = false;
-    server.use(
-      http.post("*/api/git/refresh", () => {
-        refreshed = true;
-        return HttpResponse.json(overview(["kiri", "site"]));
-      }),
-    );
-    renderProbe();
-    expect(await screen.findByText("repos:1")).toBeDefined();
-
-    server.use(http.get("*/api/git", () => HttpResponse.json(overview(["kiri", "site"]))));
-    await userEvent.click(screen.getByRole("button", { name: "refresh" }));
-    expect(refreshed).toBe(true);
-    expect(await screen.findByText("repos:2")).toBeDefined();
-  });
-
-  it("rejects when the refresh fails, leaving the cached overview in place", async () => {
-    server.use(http.get("*/api/git", () => HttpResponse.json(overview(["kiri"]))));
-    server.use(http.post("*/api/git/refresh", () => new HttpResponse(null, { status: 500 })));
-    renderProbe();
-    expect(await screen.findByText("repos:1")).toBeDefined();
-
-    await userEvent.click(screen.getByRole("button", { name: "refresh" }));
-    expect(screen.getByText("repos:1")).toBeDefined();
   });
 });
