@@ -345,6 +345,22 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #     type: openai-compatible          # LM Studio, Ollama, vLLM, …
 #     base_url: http://localhost:1234/v1
 #
+# Name three model tiers per modality under \`models:\` — tanto (small and
+# quick), katana (the balanced default), odachi (the deepest) — and the
+# session pickers pin them, new sessions start on tanto, and the assistant
+# right-sizes the workers it delegates to. Each block is optional, but a
+# present block defines all three tiers:
+#
+# models:
+#   text:
+#     tanto: anthropic:claude-haiku-4-5
+#     katana: anthropic:claude-sonnet-4-5
+#     odachi: anthropic:claude-opus-4-5
+#   image:
+#     tanto: openai:gpt-image-1-mini
+#     katana: openai:gpt-image-1
+#     odachi: openai:gpt-image-1
+#
 # Give agentic chat sessions tools from MCP servers, under \`mcp:\`. A remote
 # \`http\` server signs in with OAuth (\`auth: oauth\` — kiri runs the browser
 # flow and stores the tokens) or a static header (an \`{ env: <NAME> }\` ref);
