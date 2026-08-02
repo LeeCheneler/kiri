@@ -190,25 +190,26 @@ function ComboboxGroupsDemo() {
   return (
     <Combobox
       label="Model"
-      description="A pinned group leads; the full listing follows the divider."
+      description="A pinned group leads; the listing follows, one group per provider."
       options={[
         {
-          label: "Tiers",
+          label: "kiri",
           options: [
-            { value: "anthropic:claude-haiku", label: "tanto — anthropic:claude-haiku" },
-            { value: "anthropic:claude-sonnet", label: "katana — anthropic:claude-sonnet" },
-            { value: "anthropic:claude-opus", label: "odachi — anthropic:claude-opus" },
+            { value: "anthropic:claude-haiku", label: "tanto" },
+            { value: "anthropic:claude-sonnet", label: "katana" },
+            { value: "anthropic:claude-opus", label: "odachi" },
           ],
         },
         {
+          label: "anthropic",
           options: [
-            "anthropic:claude-haiku",
-            "anthropic:claude-opus",
-            "anthropic:claude-sonnet",
-            "google:gemini-flash",
-            "openai:gpt-4o",
+            { value: "anthropic:claude-haiku", label: "claude-haiku" },
+            { value: "anthropic:claude-opus", label: "claude-opus" },
+            { value: "anthropic:claude-sonnet", label: "claude-sonnet" },
           ],
         },
+        { label: "google", options: [{ value: "google:gemini-flash", label: "gemini-flash" }] },
+        { label: "openai", options: [{ value: "openai:gpt-4o", label: "gpt-4o" }] },
       ]}
       value={model}
       onChange={setModel}

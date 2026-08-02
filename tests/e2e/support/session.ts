@@ -19,15 +19,19 @@ export const startSession = async (page: Page): Promise<string> => {
  * await. Drives the searchable combobox: open it, type to filter, pick the match.
  */
 export const useModel = async (page: Page, model: string): Promise<void> => {
+  // The picker groups models by provider and labels each with the bare model
+  // name — the group heading carries the provider — so drive it by the name
+  // after the `provider:` prefix while `model` stays the full id.
+  const bareName = model.slice(model.indexOf(":") + 1);
   // Anchored: /model/i would also match the sibling "Image model" picker.
   const combobox = page.getByLabel(/^model/i);
-  if ((await combobox.inputValue()) === model) return;
+  if ((await combobox.inputValue()) === bareName) return;
   const persisted = page.waitForResponse(
     (res) => res.request().method() === "PATCH" && res.url().includes("/api/sessions/"),
   );
   await combobox.click();
-  await combobox.fill(model);
-  await page.getByRole("option", { name: model, exact: true }).click();
+  await combobox.fill(bareName);
+  await page.getByRole("option", { name: bareName, exact: true }).click();
   await persisted;
 };
 
