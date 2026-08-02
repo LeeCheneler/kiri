@@ -7,8 +7,9 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../../tests/setup/msw.ts";
 import type { Changeset, ChangesetFile } from "../../api.ts";
+import { PATCH_CONCURRENCY } from "../../state/git.ts";
 import { createQueryClient } from "../../state/query-client.ts";
-import { ChangesDetail } from "./changes-detail.tsx";
+import { AUTO_OPEN_FILES, ChangesDetail } from "./changes-detail.tsx";
 
 const worktree = (overrides: Record<string, unknown> = {}) => ({
   path: "/projects/kiri",
@@ -67,6 +68,13 @@ const changeset = (overrides: Partial<Changeset> = {}): Changeset => ({
 
 const PATCH = ["@@ -1,2 +1,2 @@ export function app()", "-was here", "+is here"].join("\n");
 
+// A patch naming the file it belongs to, so a page of them can be told apart.
+const patchFor = (name: string) =>
+  ["@@ -1,2 +1,2 @@", `-${name} was here`, `+${name} is here`].join("\n");
+
+const manyFiles = (count: number): ChangesetFile[] =>
+  Array.from({ length: count }, (_, index) => file({ path: `src/file-${index}.ts` }));
+
 type PatchResult = { path: string; patch: string; truncated: boolean };
 
 // Serve the overview plus both changeset endpoints, each overridable.
@@ -74,7 +82,7 @@ const serve = (
   options: {
     repos?: unknown[];
     list?: (query: URLSearchParams) => Changeset | Response;
-    patch?: (query: URLSearchParams) => PatchResult | Response;
+    patch?: (query: URLSearchParams) => PatchResult | Response | Promise<PatchResult | Response>;
   } = {},
 ) => {
   server.use(
@@ -84,9 +92,9 @@ const serve = (
       const result = options.list?.(query) ?? changeset();
       return result instanceof Response ? result : HttpResponse.json(result);
     }),
-    http.get("*/api/git/changeset/patch", ({ request }) => {
+    http.get("*/api/git/changeset/patch", async ({ request }) => {
       const query = new URL(request.url).searchParams;
-      const result = options.patch?.(query) ?? {
+      const result = (await options.patch?.(query)) ?? {
         path: query.get("file") ?? "",
         patch: PATCH,
         truncated: false,
@@ -145,13 +153,49 @@ describe("<ChangesDetail>", () => {
     expect(screen.getByText("/projects/kiri-feat-search")).toBeDefined();
   });
 
-  it("lists what changed with its kind and line counts", async () => {
+  it("heads each file with its kind and line counts", async () => {
     serve();
     renderDetail();
 
-    expect(await screen.findByText("src/app.ts")).toBeDefined();
+    expect(await screen.findByRole("button", { name: /src\/app\.ts/ })).toBeDefined();
     expect(screen.getByText("modified")).toBeDefined();
-    expect(screen.getByText("+4 −2")).toBeDefined();
+    expect(screen.getByText("+4")).toBeDefined();
+    expect(screen.getByText("−2")).toBeDefined();
+  });
+
+  it("leaves out the side of the count a file has nothing on", async () => {
+    serve({
+      list: () => changeset({ files: [file({ path: "src/new.ts", kind: "added", deletions: 0 })] }),
+    });
+    renderDetail();
+
+    expect(await screen.findByText("+4")).toBeDefined();
+    expect(screen.queryByText("−0")).toBeNull();
+  });
+
+  it("says a file moved no lines rather than counting zero of each", async () => {
+    serve({
+      list: () => changeset({ files: [file({ insertions: 0, deletions: 0 })] }),
+    });
+    renderDetail();
+    expect(await screen.findByText(/no line changes/i)).toBeDefined();
+  });
+
+  it("folds a file away and back without its heading losing what changed", async () => {
+    serve();
+    renderDetail();
+
+    expect(await screen.findByText("is here")).toBeDefined();
+    const heading = screen.getByRole("button", { name: /src\/app\.ts/ });
+
+    await userEvent.click(heading);
+    expect(screen.queryByText("is here")).toBeNull();
+    expect(screen.getByText("modified")).toBeDefined();
+    expect(screen.getByText("+4")).toBeDefined();
+    expect(screen.getByText("−2")).toBeDefined();
+
+    await userEvent.click(heading);
+    expect(await screen.findByText("is here")).toBeDefined();
   });
 
   it("reads the checkout the route names rather than the repo's primary", async () => {
@@ -166,48 +210,94 @@ describe("<ChangesDetail>", () => {
     await waitFor(() => expect(paths).toEqual(["/projects/kiri-feat-search"]));
   });
 
-  it("loads a file's patch only once that file is picked", async () => {
-    const asked: string[] = [];
+  it("renders every file's diff without anything being picked", async () => {
     serve({
+      list: () =>
+        changeset({
+          files: [file({ path: "src/one.ts" }), file({ path: "src/two.ts" })],
+          totalFiles: 2,
+        }),
       patch: (query) => {
         const name = query.get("file") ?? "";
-        asked.push(name);
-        return { path: name, patch: PATCH, truncated: false };
+        return { path: name, patch: patchFor(name), truncated: false };
       },
     });
     renderDetail();
 
-    expect(await screen.findByText(/pick a file/i)).toBeDefined();
-    expect(asked).toEqual([]);
-
-    await userEvent.click(screen.getByRole("button", { name: /src\/app\.ts/ }));
-    expect(await screen.findByText("is here")).toBeDefined();
-    expect(asked).toEqual(["src/app.ts"]);
-    expect(screen.getByText("was here")).toBeDefined();
+    expect(await screen.findByText("src/one.ts is here")).toBeDefined();
+    expect(await screen.findByText("src/two.ts is here")).toBeDefined();
+    expect(screen.getByText("src/one.ts was here")).toBeDefined();
   });
 
-  it("shows a loading state while a file's diff is being computed", async () => {
-    serve();
-    server.use(http.get("*/api/git/changeset/patch", () => new Promise<Response>(() => {})));
+  it("reads patches a few at a time rather than all at once", async () => {
+    const files = manyFiles(PATCH_CONCURRENCY * 3);
+    let inFlight = 0;
+    let peak = 0;
+    const held: (() => void)[] = [];
+    serve({
+      list: () => changeset({ files, totalFiles: files.length }),
+      patch: async (query) => {
+        const name = query.get("file") ?? "";
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise<void>((resolve) => held.push(resolve));
+        inFlight -= 1;
+        return { path: name, patch: patchFor(name), truncated: false };
+      },
+    });
     renderDetail();
 
-    await userEvent.click(await screen.findByRole("button", { name: /src\/app\.ts/ }));
-    expect(await screen.findByText(/computing this file's diff/i)).toBeDefined();
+    // The first batch fills every slot and nothing beyond it starts while they
+    // are held open.
+    await waitFor(() => expect(held.length).toBe(PATCH_CONCURRENCY));
+    expect(peak).toBe(PATCH_CONCURRENCY);
+
+    while (held.length > 0) {
+      held.pop()?.();
+      await waitFor(() => expect(inFlight).toBeLessThanOrEqual(PATCH_CONCURRENCY));
+    }
+
+    const last = files.at(-1)?.path ?? "";
+    expect(await screen.findByText(`${last} is here`)).toBeDefined();
+    expect(peak).toBe(PATCH_CONCURRENCY);
   });
 
-  it("surfaces a failure to compute a file's diff", async () => {
+  it("shows each file's diff as it arrives rather than waiting for the last", async () => {
+    let release: (() => void) | null = null;
+    serve({
+      list: () =>
+        changeset({
+          files: [file({ path: "src/fast.ts" }), file({ path: "src/slow.ts" })],
+          totalFiles: 2,
+        }),
+      patch: async (query) => {
+        const name = query.get("file") ?? "";
+        if (name === "src/slow.ts") {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return { path: name, patch: patchFor(name), truncated: false };
+      },
+    });
+    renderDetail();
+
+    expect(await screen.findByText("src/fast.ts is here")).toBeDefined();
+    expect(screen.getByText(/computing this file's diff/i)).toBeDefined();
+
+    (release as (() => void) | null)?.();
+    expect(await screen.findByText("src/slow.ts is here")).toBeDefined();
+  });
+
+  it("surfaces a failure to compute a file's diff beside that file", async () => {
     serve({ patch: () => new HttpResponse(null, { status: 500 }) });
     renderDetail();
-
-    await userEvent.click(await screen.findByRole("button", { name: /src\/app\.ts/ }));
     expect(await screen.findByText(/couldn't load this file's diff/i)).toBeDefined();
   });
 
   it("says so when a file has no diff in this view rather than showing an empty panel", async () => {
     serve({ patch: (query) => ({ path: query.get("file") ?? "", patch: "", truncated: false }) });
     renderDetail();
-
-    await userEvent.click(await screen.findByRole("button", { name: /src\/app\.ts/ }));
     expect(await screen.findByText(/no diff for this file/i)).toBeDefined();
   });
 
@@ -221,18 +311,30 @@ describe("<ChangesDetail>", () => {
     });
     renderDetail();
 
-    await userEvent.click(await screen.findByRole("button", { name: /src\/app\.ts/ }));
     expect(await screen.findByText("… diff truncated")).toBeDefined();
     expect(screen.queryByText("... patch truncated")).toBeNull();
+
+    // A cut-short patch is a fact about the file, so the heading keeps saying it
+    // once the diff is folded away.
+    await userEvent.click(screen.getByRole("button", { name: /src\/app\.ts/ }));
+    expect(screen.getByText("truncated")).toBeDefined();
   });
 
-  it("offers no diff for a binary file and says why", async () => {
-    serve({ list: () => changeset({ files: [file({ path: "logo.png", binary: true })] }) });
+  it("asks for no patch for a binary file and says why in its place", async () => {
+    const asked: string[] = [];
+    serve({
+      list: () => changeset({ files: [file({ path: "logo.png", binary: true })] }),
+      patch: (query) => {
+        const name = query.get("file") ?? "";
+        asked.push(name);
+        return { path: name, patch: PATCH, truncated: false };
+      },
+    });
     renderDetail();
 
-    await userEvent.click(await screen.findByRole("button", { name: /logo\.png/ }));
     expect(await screen.findByText(/no lines to diff/i)).toBeDefined();
     expect(screen.getByText("binary")).toBeDefined();
+    expect(asked).toEqual([]);
   });
 
   it("names the path a renamed file moved from", async () => {
@@ -244,6 +346,30 @@ describe("<ChangesDetail>", () => {
     });
     renderDetail();
     expect(await screen.findByText(/from src\/old\.ts/)).toBeDefined();
+  });
+
+  it("starts a large changeset's tail folded, and reads each of those on opening", async () => {
+    const files = manyFiles(AUTO_OPEN_FILES + 2);
+    const asked = new Set<string>();
+    serve({
+      list: () => changeset({ files, totalFiles: files.length }),
+      patch: (query) => {
+        const name = query.get("file") ?? "";
+        asked.add(name);
+        return { path: name, patch: patchFor(name), truncated: false };
+      },
+    });
+    renderDetail();
+
+    const first = files[0]?.path ?? "";
+    const last = files.at(-1)?.path ?? "";
+    expect(await screen.findByText(`${first} is here`)).toBeDefined();
+    await waitFor(() => expect(asked.size).toBe(AUTO_OPEN_FILES));
+    expect(asked.has(last)).toBe(false);
+    expect(screen.getByText(new RegExp(`opens the first ${AUTO_OPEN_FILES} diffs`))).toBeDefined();
+
+    await userEvent.click(screen.getByRole("button", { name: new RegExp(last) }));
+    expect(await screen.findByText(`${last} is here`)).toBeDefined();
   });
 
   it("says the list was capped and how much was left out", async () => {
@@ -285,7 +411,7 @@ describe("<ChangesDetail>", () => {
     });
     const location = renderDetail({ checkout: "kiri-feat-search" });
 
-    expect(await screen.findByText("src/app.ts")).toBeDefined();
+    expect(await screen.findByRole("button", { name: /src\/app\.ts/ })).toBeDefined();
     await userEvent.click(screen.getByRole("radio", { name: "Branch" }));
 
     expect(await screen.findByText(/introduces nothing over main/i)).toBeDefined();

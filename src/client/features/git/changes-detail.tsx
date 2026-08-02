@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "wouter";
 import type { ChangeKind, ChangesetEmptyReason, ChangesetFile, ChangesetView } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
@@ -7,20 +7,22 @@ import {
   type SegmentedOption,
 } from "../../design-system/actions/segmented-control.tsx";
 import { Diff } from "../../design-system/content/diff.tsx";
+import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Tag, type TagTone } from "../../design-system/content/tag.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
-import { Card } from "../../design-system/surfaces/card.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import {
   useChangeset,
   useFilePatch,
   useGitOverview,
+  usePatchLimiter,
   useRefreshChangesets,
 } from "../../state/git.ts";
+import type { Limiter } from "../../state/limit-concurrency.ts";
 import { branchLabel, dirName, stateTags } from "./worktree-state.ts";
 
 const GIT_CRUMB = { label: "Git", href: "/git" };
@@ -36,6 +38,17 @@ const KIND_TONES: Record<ChangeKind, TagTone> = {
   deleted: "negative",
   renamed: "accent",
 };
+
+/**
+ * How many files open with their diff showing. Reading a changeset is scrolling
+ * through its diffs, so files start expanded — but the server caps a changeset
+ * at 500 files of up to 200 KB of patch each, which is more markup than a
+ * browser renders comfortably and more git than anyone asked for in one go.
+ * Past this many, the rest start collapsed: every file still says what happened
+ * to it, and its diff is one click — and one request — away. Fifty covers the
+ * changesets people actually read end to end.
+ */
+export const AUTO_OPEN_FILES = 50;
 
 // The server reports why a view is empty as a code and leaves the wording here,
 // so each reads as something a person can act on rather than a symbol.
@@ -67,21 +80,81 @@ const withoutTruncationMarker = (patch: string): string => {
   return lines.join("\n");
 };
 
-// One file's diff, fetched when the file is picked and never before — the
-// component only mounts once something is selected, so a changeset of a hundred
-// files costs one request until one of them is actually read.
-function FilePatchPanel({
+// How much moved, in the diff's own colour language: additions in the ok tone,
+// deletions in the failed tone. A side with nothing on it is left out rather
+// than shown as a coloured zero, and a file that moved no lines at all — a mode
+// change, an empty file arriving — says so in words instead of "+0 −0".
+function LineCounts({ file }: { file: ChangesetFile }) {
+  if (file.insertions === 0 && file.deletions === 0) {
+    return <span className="font-mono text-ink-muted text-xs">no line changes</span>;
+  }
+  return (
+    <span className="flex items-center gap-2 font-mono text-xs">
+      {file.insertions > 0 ? <span className="text-status-ok">+{file.insertions}</span> : null}
+      {file.deletions > 0 ? <span className="text-status-failed">−{file.deletions}</span> : null}
+    </span>
+  );
+}
+
+// What a file's heading says whether or not its diff is showing: the path, what
+// happened to it, how much moved, and the facts that belong to the file rather
+// than to its diff — that it is binary, or that its patch was cut short. Folded
+// shut, a changeset still reads as a summary of everything that changed.
+//
+// One line, read from both ends: the path at the left, what became of it at the
+// right, just inboard of the disclosure's own caret. These are a readout rather
+// than controls, and the card they sit in bounds them, so the distance between
+// the two ends relates them instead of orphaning either. The path takes the
+// space that is left and wraps within it rather than shouldering the rest off
+// the row — long paths are the ordinary case here.
+function FileSummary({ file, truncated }: { file: ChangesetFile; truncated: boolean }) {
+  return (
+    <span className="flex w-full min-w-0 items-center gap-3">
+      <span className="min-w-0 flex-1 break-all font-mono text-ink text-sm">{file.path}</span>
+      <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        {file.previousPath === null ? null : (
+          <span className="font-mono text-ink-muted text-xs">from {file.previousPath}</span>
+        )}
+        <Tag tone={KIND_TONES[file.kind]}>{file.kind}</Tag>
+        {file.binary ? <Tag>binary</Tag> : <LineCounts file={file} />}
+        {truncated ? <Tag tone="caution">truncated</Tag> : null}
+      </span>
+    </span>
+  );
+}
+
+// One file's patch, read while this is mounted — which is while the file is
+// open, since a folded panel isn't rendered at all. The placeholder holds a
+// diff's worth of height so the page doesn't lurch as patches land in whatever
+// order they come back. Truncation is a fact about the file, so it is reported
+// up to the heading that keeps saying it once the diff is folded away.
+function FileDiff({
   path,
   view,
   file,
+  limit,
+  onTruncated,
 }: {
   path: string;
   view: ChangesetView;
   file: ChangesetFile;
+  limit: Limiter;
+  onTruncated: (truncated: boolean) => void;
 }) {
-  const query = useFilePatch(path, view, file.path, file.previousPath);
+  const query = useFilePatch(path, view, file.path, file.previousPath, limit);
+  const truncated = query.data?.truncated === true;
 
-  if (query.isPending) return <LoadingState>Computing this file's diff…</LoadingState>;
+  useEffect(() => {
+    onTruncated(truncated);
+  }, [truncated, onTruncated]);
+
+  if (query.isPending) {
+    return (
+      <div className="flex min-h-24 items-center border border-rule bg-paper px-4">
+        <LoadingState>Computing this file's diff…</LoadingState>
+      </div>
+    );
+  }
   if (query.isError) {
     return (
       <Notice tone="negative" announce="polite" title="Couldn't load this file's diff">
@@ -94,64 +167,83 @@ function FilePatchPanel({
   }
   return (
     <Diff
-      patch={query.data.truncated ? withoutTruncationMarker(query.data.patch) : query.data.patch}
-      truncated={query.data.truncated}
+      patch={truncated ? withoutTruncationMarker(query.data.patch) : query.data.patch}
+      truncated={truncated}
     />
   );
 }
 
-// A file's line in the list: what it is, what happened to it, and how much
-// moved.
-function FileSummary({ file }: { file: ChangesetFile }) {
+// One file in the sequence: a heading that always says what happened to it, and
+// its diff beneath, foldable so a file that has been read can be put away
+// without losing the shape of the changeset around it.
+function FileSection({
+  path,
+  view,
+  file,
+  limit,
+  defaultOpen,
+}: {
+  path: string;
+  view: ChangesetView;
+  file: ChangesetFile;
+  limit: Limiter;
+  defaultOpen: boolean;
+}) {
+  const [truncated, setTruncated] = useState(false);
   return (
-    <>
-      <span className="block break-all font-mono text-ink text-sm">{file.path}</span>
-      <span className="mt-1 flex flex-wrap items-center gap-2">
-        <Tag tone={KIND_TONES[file.kind]}>{file.kind}</Tag>
+    <div className="overflow-hidden rounded-sm border border-rule bg-canvas-2">
+      <Disclosure
+        summary={<FileSummary file={file} truncated={truncated} />}
+        defaultOpen={defaultOpen}
+      >
         {file.binary ? (
-          <Tag>binary</Tag>
+          <EmptyState>A binary file — it has no lines to diff.</EmptyState>
         ) : (
-          <span className="font-mono text-ink-muted text-xs">
-            +{file.insertions} −{file.deletions}
-          </span>
+          <FileDiff path={path} view={view} file={file} limit={limit} onTruncated={setTruncated} />
         )}
-        {file.previousPath === null ? null : (
-          <span className="font-mono text-ink-muted text-xs">from {file.previousPath}</span>
-        )}
-      </span>
-    </>
+      </Disclosure>
+    </div>
   );
 }
 
-// The changed files beside the one being read. The list keeps its own column so
-// moving between files never scrolls the page, and each row is the whole width
-// of that column, so the thing you click stays attached to the file it opens.
-function FileList({
+// Every changed file, one after another, each with its own diff beneath it, so
+// the whole changeset reads top to bottom by scrolling.
+//
+// That means the page wants a patch per file, and each is a request the server
+// computes with git — so they share one queue that admits a few at a time, and
+// every file fills in the moment its own patch lands rather than the page
+// waiting for the last. Past {@link AUTO_OPEN_FILES} the tail starts folded, and
+// a folded panel is not rendered, so those files cost nothing until opened.
+// Binary files ask for nothing either: there is no diff to compute.
+function ChangedFiles({
+  path,
+  view,
   files,
-  selected,
-  onSelect,
 }: {
+  path: string;
+  view: ChangesetView;
   files: ChangesetFile[];
-  selected: string | null;
-  onSelect: (path: string) => void;
 }) {
+  const limit = usePatchLimiter();
   return (
-    <Card>
-      <ul className="-mx-2 max-h-[70dvh] divide-y divide-rule overflow-y-auto">
-        {files.map((file) => (
-          <li key={file.path}>
-            <button
-              type="button"
-              onClick={() => onSelect(file.path)}
-              aria-current={file.path === selected ? "true" : undefined}
-              className="block w-full cursor-pointer px-2 py-3 text-left outline-none transition-colors duration-150 hover:bg-paper focus-visible:bg-paper focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 aria-[current]:bg-paper"
-            >
-              <FileSummary file={file} />
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Card>
+    <div className="space-y-4">
+      {files.length > AUTO_OPEN_FILES ? (
+        <p className="text-ink-muted text-xs">
+          A changeset this size opens the first {AUTO_OPEN_FILES} diffs — the rest read on the file
+          they belong to, and open one at a time.
+        </p>
+      ) : null}
+      {files.map((file, index) => (
+        <FileSection
+          key={file.path}
+          path={path}
+          view={view}
+          file={file}
+          limit={limit}
+          defaultOpen={index < AUTO_OPEN_FILES}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -164,7 +256,7 @@ const computedLabel = (query: ReturnType<typeof useChangeset>): string => {
   return `Computed ${formatRelativeTime(new Date(query.dataUpdatedAt).toISOString())}`;
 };
 
-// The changed files and the diff of whichever one is being read.
+// The changeset itself, once there is one to render.
 function ChangesetBody({
   query,
   path,
@@ -176,8 +268,6 @@ function ChangesetBody({
   view: ChangesetView;
   defaultBranch: string | null;
 }) {
-  const [selected, setSelected] = useState<string | null>(null);
-
   if (query.isPending) return <LoadingState>Working out what changed…</LoadingState>;
   if (query.isError) {
     return (
@@ -191,46 +281,34 @@ function ChangesetBody({
   if (emptyReason !== null) return <EmptyState>{EMPTY_REASONS[emptyReason]}</EmptyState>;
   if (files.length === 0) return <EmptyState>{nothingChanged(view, defaultBranch)}</EmptyState>;
 
-  const file = files.find((candidate) => candidate.path === selected) ?? null;
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {truncated ? (
         <Notice
           tone="warning"
           announce="polite"
           title={`Showing ${files.length} of ${totalFiles} changed files`}
         >
-          A changeset this size is past what anyone reads file by file, so the list stops here.
+          A changeset this size is past what anyone reads in one sitting, so the page stops here.
         </Notice>
       ) : null}
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
-        <div className="lg:sticky lg:top-8">
-          <FileList files={files} selected={selected} onSelect={setSelected} />
-        </div>
-        <div className="min-w-0">
-          {file === null ? (
-            <EmptyState>Pick a file to read what changed in it.</EmptyState>
-          ) : (
-            <div className="space-y-3">
-              <p className="break-all font-mono text-ink text-sm">{file.path}</p>
-              {file.binary ? (
-                <EmptyState>A binary file — it has no lines to diff.</EmptyState>
-              ) : (
-                <FilePatchPanel path={path} view={view} file={file} />
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+      <ChangedFiles path={path} view={view} files={files} />
     </div>
   );
 }
 
 /**
  * One view of one checkout: the control that chooses it, how old the diff on
- * screen is beside the refresh that renews it, then the changed files and the
- * diff of whichever is being read.
+ * screen is beside the refresh that renews it, then every changed file with its
+ * diff beneath it.
+ *
+ * The two controls are not one cluster, so they don't read as one: choosing a
+ * view changes what is being looked at, while refresh recomputes what it is
+ * being looked at through. The view sits at the left of the row, the refresh at
+ * the right of it with the freshness immediately to its left, as everywhere else
+ * on this surface. Both act on the page rather than on a row of it, so the row
+ * spans the page's full measure and the refresh lands on the same right edge as
+ * the rule above it and the diffs below.
  *
  * The freshness line is the same bargain the repo page's scan status strikes,
  * for a different reason: there the model trails the disk because the scan runs
@@ -259,12 +337,9 @@ function CheckoutChanges({
 
   return (
     <>
-      {/* The controls sit together at the left rather than being justified
-          apart: across a page this wide, an action pushed to the far edge
-          drifts away from what it acts on. */}
-      <div className="mt-8 flex flex-wrap items-end gap-6">
+      <div className="mt-8 flex flex-wrap items-end justify-between gap-6">
         <SegmentedControl label="View" options={VIEWS} value={view} onChange={onViewChange} />
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <p className="text-ink-muted text-xs" aria-live="polite">
             {computedLabel(query)}
           </p>
@@ -285,6 +360,13 @@ function CheckoutChanges({
  * or what its branch introduces over its merge-base with the repo's default
  * branch. Nothing on this page writes — there is no staging, committing,
  * discarding, or editing from a diff.
+ *
+ * The whole changeset is on the page at once, file after file, the way a pull
+ * request reads — nothing to pick, nothing to open. Each file folds away once it
+ * has been read, and its heading keeps saying what happened to it either way.
+ * That costs a patch per file, so they share a queue that reads a few at a time
+ * and each file fills in as its own arrives; past what a browser renders
+ * comfortably the tail starts folded and reads on demand.
  *
  * `repo` and `checkout` are directory names, matching how `/git/:repo` already
  * addresses a repo; the primary checkout's directory is the repo's own, so it
@@ -352,7 +434,7 @@ export function ChangesDetail({ repo: name, checkout }: { repo: string; checkout
         </p>
         <p className="mt-2 break-all font-mono text-ink-muted text-sm">{worktree.path}</p>
       </header>
-      {/* Keyed by view so switching starts from an unpicked list, and from a
+      {/* Keyed by view so switching starts from a fresh set of diffs, and from a
           freshness of its own, rather than carrying one view's into another's. */}
       <CheckoutChanges
         key={view}

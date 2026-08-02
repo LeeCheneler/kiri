@@ -187,9 +187,15 @@ There are two views and nothing between them:
 The chosen view lives in the URL, so a branch's changes can be linked to
 directly.
 
-The page lists each changed file with its path, what happened to it, and how
-many lines moved. Picking one loads that file's patch and nothing else — a
-hundred-file changeset costs one read until you actually open something.
+Every changed file's diff is on the page at once, one after another, so the
+whole changeset reads top to bottom by scrolling. Each file is headed by its
+path on one side and what happened to it on the other — the change kind, how
+many lines moved, whether it's binary or its patch was cut short — and folds
+away once you've read it, keeping that heading either way. Patches are read a
+few at a time and each file fills in as its own arrives; in a changeset past
+fifty files the rest start folded, so the page still lists everything that
+changed and each of those diffs loads when you open it.
+
 Diffs are computed on request rather than kept in the background scan, and
 nothing signals when a file changes underneath one. The page says how old the
 diff on screen is — `Computed 2 minutes ago`, beside a **Refresh** — so it's

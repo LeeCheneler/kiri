@@ -15,7 +15,7 @@ const decodeName = (raw: string): string => {
 /**
  * One checkout's changes, under the repo it belongs to. Both params are
  * directory names — the repo's, then the checkout's — composed into the page
- * shell at full width, since a file list beside a unified patch needs the room.
+ * shell at full width, since a page of unified patches needs the room.
  */
 export function GitChangesPage({ params }: { params: { repo: string; checkout: string } }) {
   return (

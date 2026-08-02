@@ -1,4 +1,5 @@
-import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type UseQueryResult, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import {
   type Changeset,
   type ChangesetView,
@@ -21,6 +22,7 @@ import {
   removeWorktree,
 } from "../api.ts";
 import { useLiveSync } from "../events/live.tsx";
+import { type Limiter, createLimiter } from "./limit-concurrency.ts";
 
 const gitKey = ["git"] as const;
 
@@ -159,19 +161,42 @@ export function useChangeset(path: string, view: ChangesetView): UseQueryResult<
 }
 
 /**
- * Read one file's patch in the same view, cached under its own key so a
- * changeset only ever loads the diffs actually opened. `previousPath` pairs the
- * two sides of a rename into one patch.
+ * How many file patches are read at once. Each one is a git process on the
+ * server, and browsers cap connections to a host at around six anyway — a higher
+ * number would only queue in the browser while handing the server the whole
+ * changeset to compute simultaneously.
+ */
+export const PATCH_CONCURRENCY = 4;
+
+/**
+ * Read a patch per file, in the same view, each cached under its own key. Reads
+ * run {@link PATCH_CONCURRENCY} at a time in the order given, so a changeset of
+ * hundreds of files arrives steadily from the top rather than as one burst.
+ * `previousPath` pairs the two sides of a rename into one patch.
+ *
+ * The queue belongs to the mounted caller, so leaving the page abandons whatever
+ * it had not started rather than making the next page wait behind it.
+ */
+export function usePatchLimiter(): Limiter {
+  return useMemo(() => createLimiter(PATCH_CONCURRENCY), []);
+}
+
+/**
+ * Read one file's patch in the given view, cached under its own key, waiting its
+ * turn at `limit`. `previousPath` pairs the two sides of a rename into one
+ * patch. The read starts when the hook mounts, so a caller that mounts it only
+ * for the diffs on screen pays only for those.
  */
 export function useFilePatch(
   path: string,
   view: ChangesetView,
   file: string,
   previousPath: string | null,
+  limit: Limiter,
 ): UseQueryResult<FilePatch> {
   return useQuery({
     queryKey: [...changesetKey, "patch", path, view, file, previousPath],
-    queryFn: () => fetchFilePatch(path, view, file, previousPath ?? undefined),
+    queryFn: () => limit(() => fetchFilePatch(path, view, file, previousPath ?? undefined)),
   });
 }
 
