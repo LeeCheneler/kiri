@@ -740,7 +740,7 @@ export const setToolPermission = async (
 export type SessionStatus = "running" | "idle" | "failed" | "cancelled";
 
 /** How hard a session's model reasons, lowest to highest. */
-export type SessionEffort = "low" | "medium" | "high" | "max";
+export type SessionEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /** A session row as returned by the sessions API. */
 export interface Session {

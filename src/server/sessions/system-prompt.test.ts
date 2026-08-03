@@ -95,6 +95,10 @@ describe("buildSystemPrompt", () => {
     expect(high).toContain("This session's effort level is set to high");
     expect(high).toContain("Work deliberately");
 
+    const xhigh = buildSystemPrompt({ config, effort: "xhigh", now: FIXED_NOW });
+    expect(xhigh).toContain("This session's effort level is set to xhigh");
+    expect(xhigh).toContain("Prioritise result quality over time and cost");
+
     const max = buildSystemPrompt({ config, effort: "max", now: FIXED_NOW });
     expect(max).toContain("This session's effort level is set to max");
     expect(max).toContain("Be exhaustively thorough");
@@ -504,7 +508,8 @@ describe("delegate guidance", () => {
       });
       expect(prompt).toContain("State each worker's effort with the required `effort` prop");
       expect(prompt).toContain("`medium` is the everyday default for ordinary research and coding");
-      expect(prompt).toContain("`max` only where the outcome hinges on it");
+      expect(prompt).toContain("`xhigh` is for the hardest work");
+      expect(prompt).toContain("`max` is the absolute ceiling");
       expect(prompt).toContain(
         "escalate the one strand that needs deep synthesis rather than the batch",
       );

@@ -211,7 +211,7 @@ export const sessions = sqliteTable(
      * support. Applied per turn like `model`, so a change takes effect from
      * the next turn.
      */
-    effort: text("effort", { enum: ["low", "medium", "high", "max"] })
+    effort: text("effort", { enum: ["low", "medium", "high", "xhigh", "max"] })
       .notNull()
       .default("medium"),
     /**

@@ -84,9 +84,10 @@ export interface LlmClients {
   /**
    * The provider options that run a `provider:model` id at `effort`, or
    * undefined for a model without reasoning support (per the same cached
-   * listings as `contextWindowFor`) — reasoning parameters are only ever sent
-   * where the listing says the model takes them, never blind. Throws for an
-   * id that doesn't resolve, matching `resolveModel`.
+   * listings as `contextWindowFor`) or whose generation takes no effort
+   * parameter — reasoning parameters are only ever sent where the model
+   * takes them, never blind. Throws for an id that doesn't resolve, matching
+   * `resolveModel`.
    */
   reasoningOptionsFor(id: string, effort: Effort): Promise<EffortProviderOptions | undefined>;
 }
@@ -131,7 +132,8 @@ export function createLlmClients(
     async reasoningOptionsFor(id, effort) {
       const { models } = await cachedListing();
       if (models.find((model) => model.id === id)?.reasoning !== true) return undefined;
-      return effortProviderOptions(resolveProvider(registry, id).provider, effort);
+      const { provider, modelId } = resolveProvider(registry, id);
+      return effortProviderOptions(provider, modelId, effort);
     },
     resolveModel(id) {
       const { provider, modelId } = resolveProvider(registry, id);

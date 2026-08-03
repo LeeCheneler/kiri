@@ -28,6 +28,7 @@ const EFFORT_OPTIONS: readonly SegmentedOption<SessionEffort>[] = [
   { value: "low", label: "low" },
   { value: "medium", label: "medium" },
   { value: "high", label: "high" },
+  { value: "xhigh", label: "xhigh" },
   { value: "max", label: "max" },
 ];
 

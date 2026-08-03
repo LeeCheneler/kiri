@@ -70,7 +70,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
   const effortField = z
     .enum(EFFORT_LEVELS)
     .describe(
-      "How hard the worker's model reasons on this task. low — mechanical, fully-specified work where the steps are already known. medium — the everyday default for ordinary research and coding. high — work whose answer benefits from deliberate reasoning. max — only when the outcome hinges on reasoning depth. Independent of which model runs the worker; ignored by models without reasoning support.",
+      "How hard the worker's model reasons on this task. low — mechanical, fully-specified work where the steps are already known. medium — the everyday default for ordinary research and coding. high — work whose answer benefits from deliberate reasoning. xhigh — the hardest work, where result quality outweighs time and cost. max — the absolute ceiling, on providers that distinguish one from xhigh. Independent of which model runs the worker; ignored by models without reasoning support.",
     );
   const run = async (
     task: string,

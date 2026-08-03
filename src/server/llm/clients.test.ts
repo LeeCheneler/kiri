@@ -164,29 +164,70 @@ describe("llm clients", () => {
     expect(result.failures).toEqual([]);
   });
 
-  it("maps effort to anthropic thinking budgets via reasoningOptionsFor", async () => {
+  it("maps effort to anthropic's effort parameter on a modern claude model", async () => {
     server.use(
       http.get("https://api.anthropic.com/v1/models", () =>
-        HttpResponse.json({ data: [{ id: "claude-haiku-4-5" }] }),
+        HttpResponse.json({ data: [{ id: "claude-opus-4-8" }] }),
       ),
     );
     const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
 
-    expect(await clients.reasoningOptionsFor("anthropic:claude-haiku-4-5", "low")).toEqual({
-      anthropic: { thinking: { type: "enabled", budgetTokens: 2048 } },
+    // The full ladder passes through untouched — no thinking config is set,
+    // so the model keeps its own default reasoning behaviour.
+    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
+      expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-8", effort)).toEqual({
+        anthropic: { effort },
+      });
+    }
+  });
+
+  it("clamps anthropic effort to what each claude generation accepts", async () => {
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "claude-opus-4-6" },
+            { id: "claude-opus-4-5" },
+            { id: "claude-sonnet-4-5" },
+            { id: "claude-3-7-sonnet-latest" },
+            { id: "claude-fable-5" },
+          ],
+        }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    // The 4.6 generation has no xhigh (clamped to high) but does take max.
+    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-6", "xhigh")).toEqual({
+      anthropic: { effort: "high" },
     });
-    expect(await clients.reasoningOptionsFor("anthropic:claude-haiku-4-5", "medium")).toEqual({
-      anthropic: { thinking: { type: "enabled", budgetTokens: 8192 } },
+    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-6", "max")).toEqual({
+      anthropic: { effort: "max" },
     });
-    expect(await clients.reasoningOptionsFor("anthropic:claude-haiku-4-5", "high")).toEqual({
-      anthropic: { thinking: { type: "enabled", budgetTokens: 16384 } },
+    // Opus 4.5 takes low/medium/high only.
+    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-5", "xhigh")).toEqual({
+      anthropic: { effort: "high" },
     });
-    expect(await clients.reasoningOptionsFor("anthropic:claude-haiku-4-5", "max")).toEqual({
-      anthropic: { thinking: { type: "enabled", budgetTokens: 32768 } },
+    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-5", "max")).toEqual({
+      anthropic: { effort: "high" },
+    });
+    expect(await clients.reasoningOptionsFor("anthropic:claude-opus-4-5", "medium")).toEqual({
+      anthropic: { effort: "medium" },
+    });
+    // Pre-effort thinking generations get no parameters at all.
+    expect(
+      await clients.reasoningOptionsFor("anthropic:claude-sonnet-4-5", "high"),
+    ).toBeUndefined();
+    expect(
+      await clients.reasoningOptionsFor("anthropic:claude-3-7-sonnet-latest", "max"),
+    ).toBeUndefined();
+    // An id outside the recognised family-version shape is treated as modern.
+    expect(await clients.reasoningOptionsFor("anthropic:claude-fable-5", "xhigh")).toEqual({
+      anthropic: { effort: "xhigh" },
     });
   });
 
-  it("maps effort to an openai reasoning_effort, capping max at high", async () => {
+  it("maps effort to an openai reasoning_effort, sending max as xhigh", async () => {
     server.use(
       http.get("https://api.openai.com/v1/models", () =>
         HttpResponse.json({ data: [{ id: "gpt-5.2" }] }),
@@ -197,8 +238,14 @@ describe("llm clients", () => {
     expect(await clients.reasoningOptionsFor("openai:gpt-5.2", "low")).toEqual({
       openai: { reasoningEffort: "low" },
     });
+    // xhigh passes through as requested — a model that rejects it surfaces a
+    // provider error like any other, never a silent clamp.
+    expect(await clients.reasoningOptionsFor("openai:gpt-5.2", "xhigh")).toEqual({
+      openai: { reasoningEffort: "xhigh" },
+    });
+    // The openai-style enum has no max, so kiri's max sends its top.
     expect(await clients.reasoningOptionsFor("openai:gpt-5.2", "max")).toEqual({
-      openai: { reasoningEffort: "high" },
+      openai: { reasoningEffort: "xhigh" },
     });
   });
 

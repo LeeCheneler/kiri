@@ -121,13 +121,17 @@ describe("delegate tool", () => {
       toolCallId?: string;
       abortSignal?: AbortSignal;
       model?: string;
-      effort?: "low" | "medium" | "high" | "max";
+      effort?: "low" | "medium" | "high" | "xhigh" | "max";
     } = {},
   ): Promise<string> => {
     const set = delegateTool(deps);
     const delegate = set[DELEGATE_TOOL_NAME] as {
       execute: (
-        input: { task: string; model?: string; effort: "low" | "medium" | "high" | "max" },
+        input: {
+          task: string;
+          model?: string;
+          effort: "low" | "medium" | "high" | "xhigh" | "max";
+        },
         options: { toolCallId: string; messages: []; abortSignal?: AbortSignal },
       ) => Promise<string>;
     };
