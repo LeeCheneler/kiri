@@ -17,18 +17,25 @@ const taskOf = (part: ToolPart): string => {
   return typeof input?.task === "string" ? input.task : "";
 };
 
+// The short name the model gave the delegation; empty on calls spawned before
+// the title prop existed, where the row falls back to the task brief.
+const titleOf = (part: ToolPart): string => {
+  const input = part.input as { title?: unknown } | undefined;
+  return typeof input?.title === "string" ? input.title : "";
+};
+
 // A child session's lifecycle in the shared status vocabulary: still working,
 // settled fine, or terminal.
 const childStatus = (status: SessionStatus): StatusKind =>
   status === "running" ? "working" : status === "idle" ? "ok" : status;
 
-// The collapsed/expanded header row: the label, the task it's running, and its
+// The collapsed/expanded header row: the label, the delegation's title, and its
 // status — the always-visible summary, mirroring a tool call's collapsed row.
-function ChildSessionSummary({ task, status }: { task: string; status: StatusKind }) {
+function ChildSessionSummary({ title, status }: { title: string; status: StatusKind }) {
   return (
     <span className="flex items-baseline gap-3 font-mono text-xs">
       <span className="shrink-0 uppercase tracking-widest text-ink-muted">Delegate</span>
-      {task ? <span className="min-w-0 truncate text-ink">{task}</span> : null}
+      {title ? <span className="min-w-0 truncate text-ink">{title}</span> : null}
       <span className="ml-auto shrink-0">
         <Status status={status} />
       </span>
@@ -36,8 +43,8 @@ function ChildSessionSummary({ task, status }: { task: string; status: StatusKin
   );
 }
 
-// The worker's transcript: its assistant turns only — the task is already the
-// box's summary line — with prose as markdown and inner tool calls as the
+// The worker's transcript: its assistant turns only — the task brief renders
+// above the transcript — with prose as markdown and inner tool calls as the
 // usual collapsible blocks. Untrusted content renders exactly as it would in
 // the child's own page.
 function ChildTranscript({ detail }: { detail: SessionDetail }) {
@@ -99,11 +106,13 @@ function ChildSessionBody({ childId }: { childId: string }) {
 
 /**
  * A delegate tool call rendered as its embedded child session: collapsed to
- * the task and the child's live status like any tool block, expanding to the
- * worker's transcript — its prose and inner tool calls — with a link to the
- * child's own page and a cancel control while it runs. Until the child row
- * exists (it is created moments after the call starts) the box renders just
- * its summary from the call itself, upgrading once the lookup finds the child.
+ * the delegation's title and the child's live status like any tool block,
+ * expanding to the task brief and the worker's transcript — its prose and
+ * inner tool calls — with a link to the child's own page and a cancel control
+ * while it runs. Until the child row exists (it is created moments after the
+ * call starts) the box renders just its summary from the call itself,
+ * upgrading once the lookup finds the child. A call from before titles
+ * existed has none, so the summary falls back to the task brief.
  */
 export function ChildSession({
   part,
@@ -113,6 +122,7 @@ export function ChildSession({
   parentSessionId: string;
 }) {
   const task = taskOf(part);
+  const title = titleOf(part);
   const children = useSessionChildren(parentSessionId);
   const child: Session | undefined = children.data?.find(
     (candidate) => candidate.parentToolCallId === part.toolCallId,
@@ -121,15 +131,21 @@ export function ChildSession({
     return (
       <div className="border border-rule" data-tool="delegate">
         <div className="px-4 py-3">
-          <ChildSessionSummary task={task} status={toolStatus(part)} />
+          <ChildSessionSummary title={title || task} status={toolStatus(part)} />
         </div>
       </div>
     );
   }
   return (
     <div className="border border-rule" data-tool="delegate">
-      <Disclosure summary={<ChildSessionSummary task={task} status={childStatus(child.status)} />}>
-        <ChildSessionBody childId={child.id} />
+      <Disclosure
+        summary={<ChildSessionSummary title={title || task} status={childStatus(child.status)} />}
+      >
+        <div className="space-y-3">
+          {/* Untitled legacy calls already lead with the task, so repeating it here would double up. */}
+          {title && task ? <p className="font-mono text-ink-muted text-xs">{task}</p> : null}
+          <ChildSessionBody childId={child.id} />
+        </div>
       </Disclosure>
     </div>
   );

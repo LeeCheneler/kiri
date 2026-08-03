@@ -17,7 +17,7 @@ const delegatePart = (overrides: Record<string, unknown> = {}): ToolPart =>
     type: "tool-delegate",
     toolCallId: "c1",
     state: "input-available",
-    input: { task: "Research pelicans" },
+    input: { title: "Pelican census", task: "Research pelicans" },
     ...overrides,
   }) as ToolPart;
 
@@ -69,14 +69,23 @@ const renderBox = (part = delegatePart()) => {
 };
 
 describe("<ChildSession>", () => {
-  it("renders just the task and status until the child row exists", async () => {
+  it("renders just the title and status until the child row exists", async () => {
     withChildren([]);
     renderBox();
 
-    expect(await screen.findByText("Research pelicans")).toBeDefined();
+    expect(await screen.findByText("Pelican census")).toBeDefined();
     expect(screen.getByText(/working/i)).toBeDefined();
+    // The brief belongs to the expanded view, not the collapsed row.
+    expect(screen.queryByText("Research pelicans")).toBeNull();
     // No child yet means nothing to expand into.
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("falls back to the task brief when the call has no title", async () => {
+    withChildren([]);
+    renderBox(delegatePart({ input: { task: "Research pelicans" } }));
+
+    expect(await screen.findByText("Research pelicans")).toBeDefined();
   });
 
   it("shows the child's live status once the lookup finds it", async () => {
@@ -84,7 +93,7 @@ describe("<ChildSession>", () => {
     renderBox();
 
     expect(await screen.findByRole("button", { name: /delegate/i })).toBeDefined();
-    expect(screen.getByText("Research pelicans")).toBeDefined();
+    expect(screen.getByText("Pelican census")).toBeDefined();
     expect(screen.getByText(/working/i)).toBeDefined();
   });
 
@@ -108,9 +117,11 @@ describe("<ChildSession>", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: /delegate/i }));
 
-    // The worker's inner tool call and report render like any transcript;
-    // the settled child reads ok, and there is nothing left to cancel.
+    // The worker's inner tool call and report render like any transcript,
+    // led by the task brief the collapsed row no longer shows; the settled
+    // child reads ok, and there is nothing left to cancel.
     expect(await screen.findByText("Pelicans are thriving.")).toBeDefined();
+    expect(screen.getByText("Research pelicans")).toBeDefined();
     expect(screen.getByText("pelican population")).toBeDefined();
     expect(screen.getAllByText(/^ok$/i).length).toBeGreaterThan(0);
     const link = screen.getByRole("link", { name: "Open session" });
@@ -152,10 +163,10 @@ describe("<ChildSession>", () => {
       </QueryClientProvider>,
     );
 
-    // The box (not the plain block): its summary carries the task and the
+    // The box (not the plain block): its summary carries the title and the
     // child's live status from the lookup.
     expect(await screen.findByRole("button", { name: /delegate/i })).toBeDefined();
-    expect(screen.getByText("Research pelicans")).toBeDefined();
+    expect(screen.getByText("Pelican census")).toBeDefined();
     expect(screen.getByText(/working/i)).toBeDefined();
   });
 

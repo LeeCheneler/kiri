@@ -495,6 +495,30 @@ describe("delegate guidance", () => {
     expect(withoutTiers).not.toContain("Size each worker's model to its task");
   });
 
+  it("carries the titling rule whenever delegate is offered", () => {
+    // The title prop is required with or without tiers, so its steer rides the
+    // delegation guidance unconditionally — and it must demand a specific
+    // label, not a sentence or a generic filler name.
+    for (const tiersConfigured of [true, false]) {
+      const prompt = buildSystemPrompt({
+        config,
+        tools: ["delegate"],
+        tiersConfigured,
+        now: FIXED_NOW,
+      });
+      expect(prompt).toContain("Name each delegation with the required `title` prop");
+      expect(prompt).toContain("a label, not a sentence");
+      expect(prompt).toContain("make each title specific to its task");
+    }
+    // No delegate, no delegation steer — including the titling rule.
+    const withoutDelegate = buildSystemPrompt({
+      config,
+      tools: ["tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withoutDelegate).not.toContain("Name each delegation");
+  });
+
   it("carries the effort right-sizing rule whenever delegate is offered", () => {
     // The effort prop is required with or without tiers, so its steer rides
     // the delegation guidance unconditionally — per task, independent of the
