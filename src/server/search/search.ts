@@ -1,6 +1,6 @@
 import { inArray } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
-import { articles } from "../db/schema.ts";
+import { articles, sessions } from "../db/schema.ts";
 import { getSessionPreviews } from "../sessions/store.ts";
 import type { Registry } from "../workflows/index.ts";
 
@@ -25,9 +25,11 @@ export interface ArticleHit {
 
 export interface SessionHit {
   id: string;
+  /** The session's title, or null when untitled — results lead with it when set. */
+  title: string | null;
   /** The session's feed label (first user message); empty when it has none. */
   preview: string;
-  /** Snippet of the best-ranked matching message. */
+  /** Snippet of the best-ranked matching message; empty when the hit matched the title alone. */
   snippet: SnippetSegment[];
 }
 
@@ -128,9 +130,9 @@ interface FtsRow {
 const SCAN_LIMIT = 100;
 
 /**
- * Search articles, sessions, and run summaries via the `search_fts` index
- * (bm25-ranked, title weighted over body) and workflow definitions via the
- * in-memory registry (substring match). At most `limit` index-backed hits
+ * Search articles, sessions (their titles and messages), and run summaries
+ * via the `search_fts` index (bm25-ranked, title weighted over body) and
+ * workflow definitions via the in-memory registry (substring match). At most `limit` index-backed hits
  * are returned across the three entity types combined; a session appears
  * once however many of its messages match. A query with no tokens returns
  * empty results.
@@ -174,7 +176,12 @@ export function search(deps: SearchDeps, rawQuery: string, limit = 20): SearchRe
       taken += 1;
     } else if (!seenSessions.has(row.entity_id)) {
       seenSessions.add(row.entity_id);
-      results.sessions.push({ id: row.entity_id, preview: "", snippet: parseSnippet(row.snip) });
+      results.sessions.push({
+        id: row.entity_id,
+        title: null,
+        preview: "",
+        snippet: parseSnippet(row.snip),
+      });
       taken += 1;
     }
   }
@@ -199,12 +206,21 @@ export function search(deps: SearchDeps, rawQuery: string, limit = 20): SearchRe
     }
   }
 
-  const previews = getSessionPreviews(
-    db,
-    results.sessions.map((hit) => hit.id),
-  );
-  for (const hit of results.sessions) {
-    hit.preview = previews.get(hit.id) ?? "";
+  if (results.sessions.length > 0) {
+    const hitIds = results.sessions.map((hit) => hit.id);
+    const previews = getSessionPreviews(db, hitIds);
+    const titles = new Map(
+      db
+        .select({ id: sessions.id, title: sessions.title })
+        .from(sessions)
+        .where(inArray(sessions.id, hitIds))
+        .all()
+        .map((row) => [row.id, row.title]),
+    );
+    for (const hit of results.sessions) {
+      hit.title = titles.get(hit.id) ?? null;
+      hit.preview = previews.get(hit.id) ?? "";
+    }
   }
 
   return results;

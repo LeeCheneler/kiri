@@ -1052,6 +1052,7 @@ describe("db", () => {
         "pinned",
         "started_at",
         "status",
+        "title",
       ].sort(),
     );
 
@@ -1390,6 +1391,96 @@ describe("db", () => {
 
     db.delete(messages).where(eq(messages.id, "msg-upd")).run();
     expect(searchRows(db, "session")).toHaveLength(0);
+  });
+
+  it("indexes a session's title only while it has one", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-title", status: "idle", model: "m", startedAt: new Date() })
+      .run();
+    expect(searchRows(db, "session")).toHaveLength(0);
+
+    db.update(sessions)
+      .set({ title: "Pelican migration notes" })
+      .where(eq(sessions.id, "sess-title"))
+      .run();
+    expect(searchRows(db, "session")).toEqual([
+      {
+        title: "Pelican migration notes",
+        body: "",
+        entity_type: "session",
+        entity_id: "sess-title",
+        source_id: "sess-title",
+      },
+    ]);
+
+    // A retitle replaces the entry rather than accumulating a second.
+    db.update(sessions)
+      .set({ title: "Heron field guide" })
+      .where(eq(sessions.id, "sess-title"))
+      .run();
+    const retitled = searchRows(db, "session");
+    expect(retitled).toHaveLength(1);
+    expect(retitled[0]?.title).toBe("Heron field guide");
+
+    // Clearing the title drops the entry; deleting the session drops it too.
+    db.update(sessions).set({ title: null }).where(eq(sessions.id, "sess-title")).run();
+    expect(searchRows(db, "session")).toHaveLength(0);
+
+    db.update(sessions).set({ title: "Back again" }).where(eq(sessions.id, "sess-title")).run();
+    db.delete(sessions).where(eq(sessions.id, "sess-title")).run();
+    expect(searchRows(db, "session")).toHaveLength(0);
+  });
+
+  it("never indexes a child session's title", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-parent", status: "idle", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(sessions)
+      .values({
+        id: "sess-worker",
+        status: "idle",
+        model: "m",
+        startedAt: new Date(),
+        parentSessionId: "sess-parent",
+        parentToolCallId: "call_1",
+      })
+      .run();
+    db.update(sessions)
+      .set({ title: "Delegated pelican research" })
+      .where(eq(sessions.id, "sess-worker"))
+      .run();
+
+    expect(searchRows(db, "session")).toHaveLength(0);
+  });
+
+  it("leaves a session's message entries in place when its title changes", () => {
+    migrate(db);
+
+    db.insert(sessions)
+      .values({ id: "sess-mixed", status: "idle", model: "m", startedAt: new Date() })
+      .run();
+    db.insert(messages)
+      .values({
+        id: "msg-mixed",
+        sessionId: "sess-mixed",
+        index: 0,
+        role: "user",
+        parts: [{ type: "text", text: "find the pelican report" }],
+        createdAt: new Date(),
+      })
+      .run();
+    db.update(sessions).set({ title: "Pelican report" }).where(eq(sessions.id, "sess-mixed")).run();
+
+    // Title and message entries coexist: the title write must not sweep the
+    // message rows (they carry message ids as source_id, the title its own id).
+    expect(searchRows(db, "session").map((r) => r.source_id)).toEqual(["msg-mixed", "sess-mixed"]);
+
+    db.update(sessions).set({ title: null }).where(eq(sessions.id, "sess-mixed")).run();
+    expect(searchRows(db, "session").map((r) => r.source_id)).toEqual(["msg-mixed"]);
   });
 
   it("indexes a run only while it has a summary", () => {

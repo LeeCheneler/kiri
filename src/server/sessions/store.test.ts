@@ -20,6 +20,7 @@ import {
   updateMessage,
   updateSessionEffort,
   updateSessionImageModel,
+  updateSessionTitle,
 } from "./store.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -96,6 +97,19 @@ describe("sessions store", () => {
     // A different tool call, or a different parent, has no child.
     expect(findChildByToolCall(db, "parent", "call_2")).toBeUndefined();
     expect(findChildByToolCall(db, "other", "call_1")).toBeUndefined();
+  });
+
+  it("sets and clears the title", () => {
+    createSession(db, MODEL, { id: "s1" });
+    expect(getSession(db, "s1")?.title).toBeNull();
+
+    expect(updateSessionTitle(db, "s1", "Postgres upgrade plan").title).toBe(
+      "Postgres upgrade plan",
+    );
+    expect(getSession(db, "s1")?.title).toBe("Postgres upgrade plan");
+
+    expect(updateSessionTitle(db, "s1", null).title).toBeNull();
+    expect(getSession(db, "s1")?.title).toBeNull();
   });
 
   it("pins and unpins a session", () => {
