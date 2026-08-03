@@ -1,9 +1,13 @@
-import type { ModelTiers } from "../../api.ts";
+import type { ModelTiers, SessionEffort } from "../../api.ts";
 import {
   Combobox,
   type ComboboxGroup,
   type ComboboxItem,
 } from "../../design-system/actions/combobox.tsx";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "../../design-system/actions/segmented-control.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
@@ -18,6 +22,16 @@ const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
 // The image-model picker entry that means "image generation off". Model ids
 // are always `provider:model`, so a real model can never collide with it.
 const IMAGE_MODEL_NONE = "None";
+
+// The effort control's segments, lowest first.
+const EFFORT_OPTIONS: readonly SegmentedOption<SessionEffort>[] = [
+  { value: "low", label: "low" },
+  // "med" keeps the segment widths even; the stored value stays "medium".
+  { value: "medium", label: "med" },
+  { value: "high", label: "high" },
+  { value: "xhigh", label: "xhigh" },
+  { value: "max", label: "max" },
+];
 
 // A modality's configured tiers as the picker's pinned "kiri" group — the
 // tier name alone as the label, its configured model id as the committed
@@ -64,7 +78,7 @@ const providerGroups = (ids: readonly string[]): ComboboxGroup[] => {
  */
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
-  const { setModel, setImageModel } = useUpdateSession(id);
+  const { setModel, setImageModel, setEffort } = useUpdateSession(id);
   const modelsQuery = useModels();
   const modelsData = modelsQuery.data;
   // While the listing is still in flight there is nothing to label the
@@ -142,6 +156,20 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
             <Meta>{imageInput ? "Accepts image input" : "Text input only"}</Meta>
           </div>
         ) : null}
+        {/* Effort always applies — the system prompt calibrates the
+            assistant's thoroughness to it on every model, and the turn adds
+            provider reasoning parameters where the model supports them — so
+            the control always shows. Like a model swap, a change applies
+            from the next turn. */}
+        <div className="mt-4">
+          <SegmentedControl
+            label="Effort"
+            options={EFFORT_OPTIONS}
+            value={session.effort}
+            disabled={turnInFlight}
+            onChange={(effort) => void setEffort(effort)}
+          />
+        </div>
         {/* A provider whose listing failed leaves a gap in the picker; name it
             and why, so a missing model reads as a config issue, not an absence. */}
         {modelFailures.length > 0 ? (

@@ -26,6 +26,7 @@ const child = (status: Session["status"]): Session => ({
   status,
   model: "anthropic:claude",
   imageModel: null,
+  effort: "medium" as const,
   pinned: false,
   parentSessionId: "parent-1",
   parentToolCallId: "c1",

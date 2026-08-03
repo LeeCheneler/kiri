@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ConfigStore } from "../config/store.ts";
+import type { Effort } from "../llm/index.ts";
 import { type HostEnvironment, describeHost, detectHostEnvironment } from "./host-environment.ts";
 import type { Session } from "./store.ts";
 
@@ -180,8 +181,9 @@ function buildShellGuidance(tools: string[], workingDirectories: readonly string
 // call, even by a small model. A returned report closes the task rather than
 // seeding a re-run (the leak delegation exists to prevent). Keyed off the
 // tool's name, so a session not offered it — or a child session, which never
-// is — gets no delegation steer. With text tiers configured the tool takes a
-// required `model` tier, so the steer adds the right-sizing rule.
+// is — gets no delegation steer. The tool takes a required `effort` — and,
+// with text tiers configured, a required `model` tier — so the steer carries
+// a right-sizing rule per lever.
 function buildDelegateGuidance(tools: string[], tiersConfigured: boolean): string | null {
   if (!tools.includes("delegate")) return null;
   return [
@@ -193,6 +195,7 @@ function buildDelegateGuidance(tools: string[], tiersConfigured: boolean): strin
           "- Size each worker's model to its task with the required `model` prop, task by task — never one size for the whole batch. `tanto` runs mechanical, fully-specified legwork — lookups, extraction, reformatting, applying a stated edit, running commands and reporting output. `katana` is the default for ordinary work: research strands, routine coding against a clear spec, multi-step tool use — most delegations belong here. `odachi` is reserved for tasks whose outcome hinges on reasoning depth: genuine ambiguity, conflicting sources, subtle code correctness, debugging from symptoms, cross-cutting design. A fan-out of independent strands usually runs `tanto` or `katana`; escalate the one strand that needs it, not the batch. Both sizing failures are real: an undersized worker returns a shallow or wrong report that costs a rerun; an oversized worker burns time and money for the same output.",
         ]
       : []),
+    "- State each worker's effort with the required `effort` prop, task by task — the second sizing lever, independent of which model runs the worker (which model works versus how hard it reasons). `low` runs mechanical, fully-specified legwork whose steps are already known. `medium` is the everyday default for ordinary research and coding strands. `high` is for work whose answer benefits from deliberate reasoning. `xhigh` is for the hardest work, where result quality outweighs time and cost. `max` is the absolute ceiling, on providers that distinguish one from xhigh. A fan-out of simple parallel strands runs low; escalate the one strand that needs deep synthesis rather than the batch.",
     '- Catch yourself at the plan: the moment your next step is "let me research / search / look into", that step is the delegate task — write it as the brief instead of making its first call yourself. Mid-way counts too: needing a second call on the same question means you are past the line — stop and delegate the remainder.',
     "- Write the task as a complete, self-contained brief: the worker cannot see this conversation, so state the goal, the specifics to find or produce, and the shape of report you want back.",
     "- Independent strands are separate tasks: delegate each in its own call — several can run in the same step — rather than bundling unrelated questions into one brief.",
@@ -251,6 +254,24 @@ function buildResponseGuidance(): string {
   ].join("\n");
 }
 
+// The session's effort level, stated with a calibration expectation so the
+// model spends deliberation in proportion to what the user chose. The level
+// also maps to provider reasoning parameters where the model supports them;
+// the stated expectation applies either way, so the calibration holds even on
+// a model that takes no reasoning parameters.
+function buildEffortGuidance(effort: Effort): string {
+  const calibration: Record<Effort, string> = {
+    low: "Be brisk and direct: take the most direct route to a correct answer, and don't explore alternatives the request didn't ask for.",
+    medium:
+      "Apply ordinary care: think each request through, without belabouring work that is already clear.",
+    high: "Work deliberately: reason the problem through before answering, check intermediate steps, and weigh alternatives where the answer genuinely depends on them.",
+    xhigh:
+      "Prioritise result quality over time and cost: reason each step through fully, verify intermediate conclusions, and prefer the careful route over the quick one wherever they differ.",
+    max: "Be exhaustively thorough: depth has been chosen over everything else here, so reason every step through fully and verify conclusions before presenting them.",
+  };
+  return `This session's effort level is set to ${effort} — a deliberate trade of depth against speed and cost that applies to research and coding work alike. ${calibration[effort]}`;
+}
+
 // The kiri-authored core layer: the model's identity, the environment the
 // session runs in, how to respond (communication style and the honesty bar),
 // the rendering capabilities (markdown, charts, diagrams) of the surface its
@@ -264,6 +285,7 @@ function buildCorePrompt(
   allowedDirectories: readonly string[],
   shellDirectories: readonly string[],
   tiersConfigured: boolean,
+  effort: Effort,
 ): string {
   const today = now.toISOString().slice(0, 10);
   const intro = [
@@ -279,6 +301,7 @@ function buildCorePrompt(
   const sections = [
     intro,
     buildResponseGuidance(),
+    buildEffortGuidance(effort),
     buildToolGuidance(tools),
     buildDelegateGuidance(tools, tiersConfigured),
     buildChartGuidance(),
@@ -298,6 +321,8 @@ export interface BuildChildSessionPromptOptions {
   allowedDirectories?: readonly string[];
   /** The shell tool's working directories, enumerated in its guidance when it is active. */
   shellDirectories?: readonly string[];
+  /** The worker's effort level, stated with its calibration expectation; defaults to `medium`. */
+  effort?: Effort;
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
   /** Host injection for tests; defaults to the running process's machine. */
@@ -332,6 +357,7 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
   const sections = [
     intro,
     reporting,
+    buildEffortGuidance(opts.effort ?? "medium"),
     buildToolGuidance(tools),
     buildArticleGuidance(tools),
     buildWorkflowGuidance(tools),
@@ -367,6 +393,8 @@ export interface BuildSystemPromptOptions {
   shellDirectories?: readonly string[];
   /** Whether text model tiers are configured — the delegate steer then covers the required tier choice. */
   tiersConfigured?: boolean;
+  /** The session's effort level, stated with its calibration expectation; defaults to `medium`. */
+  effort?: Effort;
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
   /** Host injection for tests; defaults to the running process's machine. */
@@ -389,6 +417,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.allowedDirectories ?? [],
       opts.shellDirectories ?? [],
       opts.tiersConfigured ?? false,
+      opts.effort ?? "medium",
     ),
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
@@ -413,12 +442,18 @@ export function createSystemPromptBuilder(
 ): (session: Session) => string {
   return (session: Session) =>
     session.parentSessionId !== null
-      ? buildChildSessionPrompt({ tools, allowedDirectories, shellDirectories })
+      ? buildChildSessionPrompt({
+          tools,
+          allowedDirectories,
+          shellDirectories,
+          effort: session.effort,
+        })
       : buildSystemPrompt({
           config,
           tools,
           allowedDirectories,
           shellDirectories,
           tiersConfigured,
+          effort: session.effort,
         });
 }

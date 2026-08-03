@@ -13,6 +13,7 @@ const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknow
     id: "s1",
     status: "idle",
     model: "anthropic:claude",
+    effort: "medium",
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
@@ -391,6 +392,48 @@ describe("<SessionAside>", () => {
 
     const combobox = await loadedCombobox(/image model/i);
     expect(combobox.value).toBe("delisted-image");
+  });
+
+  it("always offers the effort control at the session's stored level", async () => {
+    // No model listing needed: effort calibrates the assistant on every
+    // model, so the control never depends on what the listing reports.
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () => HttpResponse.json({ models: [], failures: [] })),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    expect(await screen.findByRole("radiogroup", { name: /effort/i })).toBeDefined();
+    // The session's stored level is the selected segment.
+    // The medium segment's visible label is "med"; the committed value stays "medium".
+    expect((screen.getByRole("radio", { name: "med" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("changes the session's effort when a level is picked", async () => {
+    let patched: { effort?: string } = {};
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+          failures: [],
+        }),
+      ),
+      http.patch("*/api/sessions/:id", async ({ request }) => {
+        patched = (await request.json()) as { effort?: string };
+        return HttpResponse.json(sessionDetail({ effort: "high" }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("radio", { name: "high" }));
+
+    await waitFor(() => expect(patched.effort).toBe("high"));
+    // The control reflects the choice from the PATCH response, without a
+    // refetch — the mocked GET still returns medium.
+    await waitFor(() =>
+      expect((screen.getByRole("radio", { name: "high" }) as HTMLInputElement).checked).toBe(true),
+    );
   });
 
   it("surfaces a provider whose model listing failed", async () => {

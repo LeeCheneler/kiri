@@ -235,6 +235,7 @@ describe("workflows routes", () => {
           generateText: async () => ({ text: "hi back", usage: {} }),
           listModels: async () => ({ models: [], failures: [] }),
           contextWindowFor: async () => undefined,
+          reasoningOptionsFor: async () => undefined,
         },
       });
       const res = await app.request("/api/workflows/llm-flow/runs", {

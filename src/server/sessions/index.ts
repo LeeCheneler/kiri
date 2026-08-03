@@ -18,6 +18,7 @@ export {
   getSessionPreviews,
   setSessionPinned,
   setSessionStatus,
+  updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
 } from "./store.ts";

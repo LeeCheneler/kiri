@@ -23,6 +23,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
   contextWindowFor: async () => undefined,
+  reasoningOptionsFor: async () => undefined,
 });
 
 const usage = (input: number, output: number) => ({
@@ -116,17 +117,26 @@ describe("delegate tool", () => {
   const invoke = (
     deps: DelegateToolDeps,
     task: string,
-    opts: { toolCallId?: string; abortSignal?: AbortSignal; model?: string } = {},
+    opts: {
+      toolCallId?: string;
+      abortSignal?: AbortSignal;
+      model?: string;
+      effort?: "low" | "medium" | "high" | "xhigh" | "max";
+    } = {},
   ): Promise<string> => {
     const set = delegateTool(deps);
     const delegate = set[DELEGATE_TOOL_NAME] as {
       execute: (
-        input: { task: string; model?: string },
+        input: {
+          task: string;
+          model?: string;
+          effort: "low" | "medium" | "high" | "xhigh" | "max";
+        },
         options: { toolCallId: string; messages: []; abortSignal?: AbortSignal },
       ) => Promise<string>;
     };
     return delegate.execute(
-      { task, model: opts.model },
+      { task, model: opts.model, effort: opts.effort ?? "medium" },
       { toolCallId: opts.toolCallId ?? "call_1", messages: [], abortSignal: opts.abortSignal },
     );
   };
@@ -174,18 +184,48 @@ describe("delegate tool", () => {
       ...depsFor(reportingModel("")),
       textTiers: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
     })[DELEGATE_TOOL_NAME] as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } };
-    expect(withTiers.inputSchema.safeParse({ task: "t" }).success).toBe(false);
-    expect(withTiers.inputSchema.safeParse({ task: "t", model: "katana" }).success).toBe(true);
-    expect(withTiers.inputSchema.safeParse({ task: "t", model: "wakizashi" }).success).toBe(false);
+    expect(withTiers.inputSchema.safeParse({ task: "t", effort: "medium" }).success).toBe(false);
+    expect(
+      withTiers.inputSchema.safeParse({ task: "t", model: "katana", effort: "medium" }).success,
+    ).toBe(true);
+    expect(
+      withTiers.inputSchema.safeParse({ task: "t", model: "wakizashi", effort: "medium" }).success,
+    ).toBe(false);
 
     const withoutTiers = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
       inputSchema: { safeParse: (v: unknown) => { success: boolean; data?: unknown } };
     };
-    const bare = withoutTiers.inputSchema.safeParse({ task: "t" });
+    const bare = withoutTiers.inputSchema.safeParse({ task: "t", effort: "medium" });
     expect(bare.success).toBe(true);
     // Unconfigured, the prop doesn't exist at all — a stray value is dropped.
-    const stray = withoutTiers.inputSchema.safeParse({ task: "t", model: "katana" });
-    expect(stray.data).toEqual({ task: "t" });
+    const stray = withoutTiers.inputSchema.safeParse({ task: "t", model: "katana", effort: "low" });
+    expect(stray.data).toEqual({ task: "t", effort: "low" });
+  });
+
+  it("requires the effort level with or without tiers configured", () => {
+    const withTiers = delegateTool({
+      ...depsFor(reportingModel("")),
+      textTiers: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+    })[DELEGATE_TOOL_NAME] as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } };
+    expect(withTiers.inputSchema.safeParse({ task: "t", model: "katana" }).success).toBe(false);
+    expect(
+      withTiers.inputSchema.safeParse({ task: "t", model: "katana", effort: "max" }).success,
+    ).toBe(true);
+
+    const withoutTiers = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
+      inputSchema: { safeParse: (v: unknown) => { success: boolean } };
+    };
+    expect(withoutTiers.inputSchema.safeParse({ task: "t" }).success).toBe(false);
+    expect(withoutTiers.inputSchema.safeParse({ task: "t", effort: "banana" }).success).toBe(false);
+    expect(withoutTiers.inputSchema.safeParse({ task: "t", effort: "high" }).success).toBe(true);
+  });
+
+  it("stores the stated effort on the child session", async () => {
+    const capture: { childId?: string } = {};
+
+    await invoke(depsFor(reportingModel("Done."), capture), "Deep dive", { effort: "high" });
+
+    expect(capture.childId && getSession(db, capture.childId)?.effort).toBe("high");
   });
 
   it("re-attaches to the child a repeated call already created", async () => {

@@ -275,6 +275,11 @@ async function streamCore(
   // builder is wired (a bare chat with no system
   // prompt), which leaves `streamText` to send the messages alone.
   const system = buildSystemPrompt?.(session);
+  // The session's effort as this turn's provider reasoning parameters —
+  // undefined for a model without reasoning support, which leaves the call
+  // without provider options rather than sending parameters blind. Resolved
+  // per turn like the model, so a mid-session change applies next turn.
+  const providerOptions = await llmClients.reasoningOptionsFor(session.model, session.effort);
   // With tools, the turn runs as a multi-step loop (call a tool, feed the
   // result back, continue) capped at MAX_TURN_STEPS. An empty set leaves the
   // call tool-less, a single-step plain chat — byte-identical to before.
@@ -284,6 +289,7 @@ async function streamCore(
     model,
     system,
     messages: modelMessages,
+    ...(providerOptions !== undefined ? { providerOptions } : {}),
     ...(hasTools ? { tools, stopWhen: stepCountIs(MAX_TURN_STEPS) } : {}),
     abortSignal: controller.signal,
     onError: ({ error }) => {

@@ -44,6 +44,7 @@ describe("runLlmStep", () => {
       },
       listModels: async () => ({ models: [], failures: [] }),
       contextWindowFor: async () => undefined,
+      reasoningOptionsFor: async () => undefined,
     };
   };
 
@@ -123,6 +124,7 @@ describe("runLlmStep", () => {
       },
       listModels: async () => ({ models: [], failures: [] }),
       contextWindowFor: async () => undefined,
+      reasoningOptionsFor: async () => undefined,
     };
 
     const envelope = await runLlmStep({
@@ -149,6 +151,7 @@ describe("runLlmStep", () => {
       generateText: () => Promise.reject("socket hang up"),
       listModels: async () => ({ models: [], failures: [] }),
       contextWindowFor: async () => undefined,
+      reasoningOptionsFor: async () => undefined,
     };
 
     const envelope = await runLlmStep({
@@ -177,6 +180,7 @@ describe("runLlmStep", () => {
         }),
       listModels: async () => ({ models: [], failures: [] }),
       contextWindowFor: async () => undefined,
+      reasoningOptionsFor: async () => undefined,
     };
 
     let handle: ChildHandle | undefined;

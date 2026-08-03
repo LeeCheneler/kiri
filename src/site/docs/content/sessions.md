@@ -35,6 +35,33 @@ Answer in British English. Be direct, lead with the answer, and cite
 file:line when you reference code.
 ```
 
+## Effort
+
+Every session carries an **effort level** — `low`, `medium` (the default),
+`high`, `xhigh`, or `max` — setting how hard the assistant works. It acts
+through two layers. The system prompt always states the level with a
+matching expectation — brisk and direct at `low`, deliberate and exhaustive
+at the top — so the assistant calibrates its thoroughness on any model.
+Where kiri recognises native reasoning support, each turn additionally sets
+the provider's own effort parameter: Anthropic's effort setting for Claude
+models, `reasoning_effort` for OpenAI and OpenAI-compatible endpoints. Like
+a model swap, a change applies from the next turn.
+
+The ladder matches Anthropic's exactly, so `max` is distinct from `xhigh`
+only on an `anthropic` provider. OpenAI-style endpoints top out at `xhigh` —
+kiri sends `reasoning_effort` with `max` sent as `xhigh`, and the host
+applies it when the model supports it (other levels pass through as
+requested). Older Claude generations accept fewer levels, and kiri
+clamps to what each takes: the 4.6 family has no `xhigh` (it sends `high`),
+Opus 4.5 takes `low`/`medium`/`high` only, and earlier thinking models
+(Claude 3.7, Sonnet 4.5, Haiku 4.5) predate the parameter entirely — for
+those, effort acts through the prompt alone.
+
+Model and effort are orthogonal levers: the model (or
+[tier](/docs/llm-providers)) picks *which* model thinks; effort sets *how
+hard* it thinks. Size them independently — a large model can answer briskly
+at `low`, and a small one can take its time at `high`.
+
 ## Tools from MCP servers
 
 Beyond the built-in tools (below), a session's tools come from **MCP
@@ -224,6 +251,9 @@ intermediate results, and your context window stays lean.
   each worker it spawns by naming a tier — tantō for mechanical legwork,
   katana as the default, ōdachi where the result depends on reasoning depth.
   Without tiers, workers run the same model as the conversation.
+- Every delegation also states the worker's own effort level (above) — low
+  for cheap parallel legwork, high for deep synthesis — independent of which
+  model runs it, and the worker keeps that level for its whole run.
 
 Delegation is on by default; set `delegate` to **Ask** or **Off** like any
 other tool.

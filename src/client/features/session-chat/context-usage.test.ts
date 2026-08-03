@@ -25,7 +25,12 @@ describe("currentContextTokens", () => {
 
 describe("contextWindowForModel", () => {
   const models: ModelInfo[] = [
-    { id: "anthropic:claude", provider: "anthropic", contextWindow: 200000, output: "text" },
+    {
+      id: "anthropic:claude",
+      provider: "anthropic",
+      contextWindow: 200000,
+      output: "text",
+    },
     { id: "local:custom", provider: "local", output: "text" },
   ];
 

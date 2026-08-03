@@ -51,7 +51,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text" },
+      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text", reasoning: true },
     ]);
     expect(result.failures).toEqual([]);
     expect(headers?.get("x-api-key")).toBe("sk-test");
@@ -70,7 +70,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "openai:gpt-4o-mini", provider: "openai", output: "text" },
+      { id: "openai:gpt-4o-mini", provider: "openai", output: "text", reasoning: false },
     ]);
     expect(headers?.get("authorization")).toBe("Bearer sk-test");
   });
@@ -86,7 +86,9 @@ describe("listLlmModels", () => {
 
     const result = await listLlmModels(registryWith(local), {});
 
-    expect(result.models).toEqual([{ id: "local:some-model", provider: "local", output: "text" }]);
+    expect(result.models).toEqual([
+      { id: "local:some-model", provider: "local", output: "text", reasoning: false },
+    ]);
     expect(headers?.get("authorization")).toBeNull();
   });
 
@@ -96,7 +98,9 @@ describe("listLlmModels", () => {
 
     const result = await listLlmModels(registryWith(trailing), {});
 
-    expect(result.models).toEqual([{ id: "local:m1", provider: "local", output: "text" }]);
+    expect(result.models).toEqual([
+      { id: "local:m1", provider: "local", output: "text", reasoning: false },
+    ]);
   });
 
   it("aggregates and flattens models across every configured provider", async () => {
@@ -110,9 +114,9 @@ describe("listLlmModels", () => {
     });
 
     expect(result.models).toEqual([
-      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text" },
-      { id: "local:a", provider: "local", output: "text" },
-      { id: "local:b", provider: "local", output: "text" },
+      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text", reasoning: true },
+      { id: "local:a", provider: "local", output: "text", reasoning: false },
+      { id: "local:b", provider: "local", output: "text", reasoning: false },
     ]);
     expect(result.failures).toEqual([]);
   });
@@ -128,7 +132,9 @@ describe("listLlmModels", () => {
 
     const result = await listLlmModels(registryWith(openai, local), { OPENAI_API_KEY: "sk-test" });
 
-    expect(result.models).toEqual([{ id: "local:ok", provider: "local", output: "text" }]);
+    expect(result.models).toEqual([
+      { id: "local:ok", provider: "local", output: "text", reasoning: false },
+    ]);
     expect(result.failures).toEqual([{ provider: "openai", reason: "500 Internal Server Error" }]);
   });
 
@@ -137,7 +143,9 @@ describe("listLlmModels", () => {
 
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
-    expect(result.models).toEqual([{ id: "openai:gpt-4o", provider: "openai", output: "text" }]);
+    expect(result.models).toEqual([
+      { id: "openai:gpt-4o", provider: "openai", output: "text", reasoning: false },
+    ]);
   });
 
   it("treats a response with no data array as zero models", async () => {
@@ -185,6 +193,7 @@ describe("listLlmModels", () => {
         contextWindow: 1000000,
         outputLimit: 128000,
         output: "text",
+        reasoning: true,
       },
     ]);
   });
@@ -213,6 +222,7 @@ describe("listLlmModels", () => {
         contextWindow: 64000,
         outputLimit: 8192,
         output: "text",
+        reasoning: true,
       },
     ]);
   });
@@ -227,7 +237,13 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:qwen", provider: "local", contextWindow: 32768, output: "text" },
+      {
+        id: "local:qwen",
+        provider: "local",
+        contextWindow: 32768,
+        output: "text",
+        reasoning: false,
+      },
     ]);
   });
 
@@ -253,6 +269,7 @@ describe("listLlmModels", () => {
         provider: "local",
         contextWindow: 131072,
         output: "text",
+        reasoning: false,
       },
     ]);
   });
@@ -266,7 +283,9 @@ describe("listLlmModels", () => {
 
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
-    expect(result.models).toEqual([{ id: "openai:gpt-x", provider: "openai", output: "text" }]);
+    expect(result.models).toEqual([
+      { id: "openai:gpt-x", provider: "openai", output: "text", reasoning: false },
+    ]);
   });
 
   it("classifies models as image-output from their reported modalities", async () => {
@@ -297,8 +316,15 @@ describe("listLlmModels", () => {
         provider: "local",
         contextWindow: 32768,
         output: "image",
+        reasoning: false,
       },
-      { id: "local:google/gemini", provider: "local", contextWindow: 32768, output: "text" },
+      {
+        id: "local:google/gemini",
+        provider: "local",
+        contextWindow: 32768,
+        output: "text",
+        reasoning: false,
+      },
     ]);
   });
 
@@ -324,7 +350,13 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:google/gemma", provider: "local", contextWindow: 8192, output: "text" },
+      {
+        id: "local:google/gemma",
+        provider: "local",
+        contextWindow: 8192,
+        output: "text",
+        reasoning: false,
+      },
     ]);
   });
 
@@ -348,9 +380,15 @@ describe("listLlmModels", () => {
     expect(result.models).toEqual([
       // The arrow's left-hand side answers image input: chatty takes
       // text+image, painter takes text only.
-      { id: "local:chatty", provider: "local", output: "text", imageInput: true },
-      { id: "local:painter", provider: "local", output: "image", imageInput: false },
-      { id: "local:mystery", provider: "local", output: "text" },
+      { id: "local:chatty", provider: "local", output: "text", imageInput: true, reasoning: false },
+      {
+        id: "local:painter",
+        provider: "local",
+        output: "image",
+        imageInput: false,
+        reasoning: false,
+      },
+      { id: "local:mystery", provider: "local", output: "text", reasoning: false },
     ]);
   });
 
@@ -374,12 +412,18 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:flux", provider: "local", output: "image" },
-      { id: "local:glm", provider: "local", output: "text" },
+      { id: "local:flux", provider: "local", output: "image", reasoning: false },
+      { id: "local:glm", provider: "local", output: "text", reasoning: false },
       // The "vlm" tag marks a vision chat model; a plain "chat" tag says
       // nothing about input, so glm stays unknown rather than false.
-      { id: "local:qwen-vl", provider: "local", output: "text", imageInput: true },
-      { id: "local:thinker", provider: "local", output: "text" },
+      {
+        id: "local:qwen-vl",
+        provider: "local",
+        output: "text",
+        imageInput: true,
+        reasoning: false,
+      },
+      { id: "local:thinker", provider: "local", output: "text", reasoning: false },
     ]);
   });
 
@@ -401,9 +445,9 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:painter", provider: "local", output: "image" },
-      { id: "local:chatty", provider: "local", output: "text" },
-      { id: "local:claude-haiku-4-5", provider: "local", output: "text" },
+      { id: "local:painter", provider: "local", output: "image", reasoning: false },
+      { id: "local:chatty", provider: "local", output: "text", reasoning: false },
+      { id: "local:claude-haiku-4-5", provider: "local", output: "text", reasoning: true },
     ]);
   });
 
@@ -422,7 +466,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:mistral-large", provider: "local", output: "text" },
+      { id: "local:mistral-large", provider: "local", output: "text", reasoning: false },
     ]);
   });
 
@@ -449,9 +493,21 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:google/gemini", provider: "local", output: "text", imageInput: true },
-      { id: "local:deepseek/deepseek-chat", provider: "local", output: "text", imageInput: false },
-      { id: "local:mystery", provider: "local", output: "text" },
+      {
+        id: "local:google/gemini",
+        provider: "local",
+        output: "text",
+        imageInput: true,
+        reasoning: false,
+      },
+      {
+        id: "local:deepseek/deepseek-chat",
+        provider: "local",
+        output: "text",
+        imageInput: false,
+        reasoning: false,
+      },
+      { id: "local:mystery", provider: "local", output: "text", reasoning: false },
     ]);
   });
 
@@ -472,14 +528,21 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "anthropic:claude-opus-4-8", provider: "anthropic", output: "text", imageInput: true },
+      {
+        id: "anthropic:claude-opus-4-8",
+        provider: "anthropic",
+        output: "text",
+        imageInput: true,
+        reasoning: true,
+      },
       {
         id: "anthropic:claude-text-only",
         provider: "anthropic",
         output: "text",
         imageInput: false,
+        reasoning: true,
       },
-      { id: "anthropic:claude-bare", provider: "anthropic", output: "text" },
+      { id: "anthropic:claude-bare", provider: "anthropic", output: "text", reasoning: true },
     ]);
   });
 
@@ -498,8 +561,20 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:pixtral-large", provider: "local", output: "text", imageInput: true },
-      { id: "local:mistral-large", provider: "local", output: "text", imageInput: false },
+      {
+        id: "local:pixtral-large",
+        provider: "local",
+        output: "text",
+        imageInput: true,
+        reasoning: false,
+      },
+      {
+        id: "local:mistral-large",
+        provider: "local",
+        output: "text",
+        imageInput: false,
+        reasoning: false,
+      },
     ]);
   });
 
@@ -519,8 +594,14 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:llama-vision", provider: "local", output: "text", imageInput: true },
-      { id: "local:llama-chat", provider: "local", output: "text" },
+      {
+        id: "local:llama-vision",
+        provider: "local",
+        output: "text",
+        imageInput: true,
+        reasoning: false,
+      },
+      { id: "local:llama-chat", provider: "local", output: "text", reasoning: false },
     ]);
   });
 
@@ -542,7 +623,13 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:openrouter/auto", provider: "local", contextWindow: 2000000, output: "text" },
+      {
+        id: "local:openrouter/auto",
+        provider: "local",
+        contextWindow: 2000000,
+        output: "text",
+        reasoning: false,
+      },
     ]);
   });
 
@@ -568,11 +655,122 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "openai:gpt-image-1", provider: "openai", output: "image" },
-      { id: "openai:dall-e-3", provider: "openai", output: "image" },
-      { id: "openai:imagen-4.0-generate-001", provider: "openai", output: "image" },
-      { id: "openai:grok-2-image", provider: "openai", output: "image" },
-      { id: "openai:gpt-4o", provider: "openai", output: "text" },
+      { id: "openai:gpt-image-1", provider: "openai", output: "image", reasoning: false },
+      { id: "openai:dall-e-3", provider: "openai", output: "image", reasoning: false },
+      {
+        id: "openai:imagen-4.0-generate-001",
+        provider: "openai",
+        output: "image",
+        reasoning: false,
+      },
+      { id: "openai:grok-2-image", provider: "openai", output: "image", reasoning: false },
+      { id: "openai:gpt-4o", provider: "openai", output: "text", reasoning: false },
+    ]);
+  });
+
+  it("classifies reasoning support from a supported_parameters listing, either way", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({
+          data: [
+            { id: "deep-model", supported_parameters: ["temperature", "reasoning"] },
+            { id: "effort-model", supported_parameters: ["reasoning_effort"] },
+            { id: "include-model", supported_parameters: ["include_reasoning"] },
+            // The array is authoritative: an id that *looks* reasoning-shaped
+            // is still a no when the endpoint doesn't take the parameters.
+            { id: "qwq-static", supported_parameters: ["temperature"] },
+          ],
+        }),
+      ),
+    );
+
+    const result = await listLlmModels(registryWith(local), {});
+
+    expect(result.models).toEqual([
+      { id: "local:deep-model", provider: "local", output: "text", reasoning: true },
+      { id: "local:effort-model", provider: "local", output: "text", reasoning: true },
+      { id: "local:include-model", provider: "local", output: "text", reasoning: true },
+      { id: "local:qwq-static", provider: "local", output: "text", reasoning: false },
+    ]);
+  });
+
+  it("classifies reasoning support by id family on bare listings", async () => {
+    server.use(
+      modelList("https://api.openai.com/v1/models", [
+        "o3",
+        "o4-mini",
+        "gpt-5",
+        "gpt-5.2-mini",
+        "deepseek-r1-distill",
+        "qwq-32b",
+        "magistral-small",
+        "qwen3-thinking",
+        // Exclusions: the early o1 variants and the gpt-5 chat models take
+        // no reasoning parameters.
+        "o1-mini",
+        "o1-preview",
+        "gpt-5-chat-latest",
+      ]),
+    );
+
+    const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+
+    expect(result.models).toEqual([
+      { id: "openai:o3", provider: "openai", output: "text", reasoning: true },
+      { id: "openai:o4-mini", provider: "openai", output: "text", reasoning: true },
+      { id: "openai:gpt-5", provider: "openai", output: "text", reasoning: true },
+      { id: "openai:gpt-5.2-mini", provider: "openai", output: "text", reasoning: true },
+      { id: "openai:deepseek-r1-distill", provider: "openai", output: "text", reasoning: true },
+      { id: "openai:qwq-32b", provider: "openai", output: "text", reasoning: true },
+      { id: "openai:magistral-small", provider: "openai", output: "text", reasoning: true },
+      { id: "openai:qwen3-thinking", provider: "openai", output: "text", reasoning: true },
+      { id: "openai:o1-mini", provider: "openai", output: "text", reasoning: false },
+      { id: "openai:o1-preview", provider: "openai", output: "text", reasoning: false },
+      { id: "openai:gpt-5-chat-latest", provider: "openai", output: "text", reasoning: false },
+    ]);
+  });
+
+  it("classifies claude ids as reasoning-capable except the pre-thinking families", async () => {
+    server.use(
+      modelList("https://api.anthropic.com/v1/models", [
+        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4-5",
+        "claude-3-5-sonnet-latest",
+        "claude-3-haiku-20240307",
+        "claude-2.1",
+        "claude-instant-1.2",
+      ]),
+    );
+
+    const result = await listLlmModels(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(result.models).toEqual([
+      {
+        id: "anthropic:claude-3-7-sonnet-latest",
+        provider: "anthropic",
+        output: "text",
+        reasoning: true,
+      },
+      { id: "anthropic:claude-sonnet-4-5", provider: "anthropic", output: "text", reasoning: true },
+      {
+        id: "anthropic:claude-3-5-sonnet-latest",
+        provider: "anthropic",
+        output: "text",
+        reasoning: false,
+      },
+      {
+        id: "anthropic:claude-3-haiku-20240307",
+        provider: "anthropic",
+        output: "text",
+        reasoning: false,
+      },
+      { id: "anthropic:claude-2.1", provider: "anthropic", output: "text", reasoning: false },
+      {
+        id: "anthropic:claude-instant-1.2",
+        provider: "anthropic",
+        output: "text",
+        reasoning: false,
+      },
     ]);
   });
 
@@ -586,7 +784,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
 
     expect(result.models).toEqual([
-      { id: "openai:gpt-image-1", provider: "openai", output: "image" },
+      { id: "openai:gpt-image-1", provider: "openai", output: "image", reasoning: false },
     ]);
   });
 
@@ -610,7 +808,13 @@ describe("listLlmModels", () => {
 
     // Prefers the loaded (served) length over the model's maximum.
     expect(result.models).toEqual([
-      { id: "local:google/gemma", provider: "local", contextWindow: 8192, output: "text" },
+      {
+        id: "local:google/gemma",
+        provider: "local",
+        contextWindow: 8192,
+        output: "text",
+        reasoning: false,
+      },
     ]);
   });
 
@@ -627,7 +831,13 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:google/gemma", provider: "local", contextWindow: 262144, output: "text" },
+      {
+        id: "local:google/gemma",
+        provider: "local",
+        contextWindow: 262144,
+        output: "text",
+        reasoning: false,
+      },
     ]);
   });
 
@@ -646,7 +856,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:m", provider: "local", contextWindow: 200000, output: "text" },
+      { id: "local:m", provider: "local", contextWindow: 200000, output: "text", reasoning: false },
     ]);
     expect(nativeProbed).toBe(false);
   });
@@ -662,7 +872,7 @@ describe("listLlmModels", () => {
     const result = await listLlmModels(registryWith(local), {});
 
     expect(result.models).toEqual([
-      { id: "local:google/gemma", provider: "local", output: "text" },
+      { id: "local:google/gemma", provider: "local", output: "text", reasoning: false },
     ]);
   });
 });

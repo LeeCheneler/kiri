@@ -3,6 +3,7 @@ import { z } from "zod";
 import { MODEL_TIER_NAMES, type ModelTiers } from "../config/schema.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
+import { EFFORT_LEVELS, type Effort } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { createSession, findChildByToolCall, getSession, getSessionMessages } from "./store.ts";
 import { type RunTurnDeps, runTurn } from "./turn.ts";
@@ -52,8 +53,8 @@ function extractReport(db: KiriDb, childSessionId: string): string | null {
  * parent's context holds the findings rather than the working. The child is
  * created idempotently against the spawning tool call, runs the parent's
  * model — or, when text tiers are configured, the model of a required tier
- * the caller names, resolved at spawn — and a parent-turn cancel cascades
- * into it. A failed or cancelled child resolves to a note rather than hanging
+ * the caller names, resolved at spawn — at a required effort level the call
+ * states, and a parent-turn cancel cascades into it. A failed or cancelled child resolves to a note rather than hanging
  * or throwing, so the parent model can always carry on.
  */
 export function delegateTool(deps: DelegateToolDeps): ToolSet {
@@ -66,9 +67,15 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     .describe(
       "The complete brief for the worker: the goal, every detail it needs (it cannot see this conversation), and the shape of the report you want back.",
     );
+  const effortField = z
+    .enum(EFFORT_LEVELS)
+    .describe(
+      "How hard the worker's model reasons on this task. low — mechanical, fully-specified work where the steps are already known. medium — the everyday default for ordinary research and coding. high — work whose answer benefits from deliberate reasoning. xhigh — the hardest work, where result quality outweighs time and cost. max — the absolute ceiling, on providers that distinguish one from xhigh. Independent of which model runs the worker; ignored by models without reasoning support.",
+    );
   const run = async (
     task: string,
     childModel: string | undefined,
+    effort: Effort,
     { toolCallId, abortSignal }: { toolCallId: string; abortSignal?: AbortSignal },
   ) => {
     const parent = getSession(db, parentSessionId);
@@ -83,6 +90,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     let child = existing;
     if (!child) {
       child = createSession(db, childModel ?? parent.model, {
+        effort,
         parentSessionId,
         parentToolCallId: toolCallId,
       });
@@ -139,16 +147,17 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
             .describe(
               "Which model runs the worker. tanto — smallest and fastest: mechanical, fully-specified tasks with no judgement calls (fetch and extract, reformat, enumerate, apply a stated edit or pattern, run a command and report output). katana — the default for ordinary work: research strands, routine coding against a clear spec, multi-step tool use. odachi — largest and slowest: only for tasks whose result depends on reasoning depth (genuine ambiguity, conflicting sources, subtle code correctness, debugging from symptoms, cross-cutting design). Undersizing forces a rerun; oversizing wastes time and cost for identical output.",
             ),
+          effort: effortField,
         }),
-        execute: ({ task, model }, ctx) => run(task, textTiers[model], ctx),
+        execute: ({ task, model, effort }, ctx) => run(task, textTiers[model], effort, ctx),
       }),
     };
   }
   return {
     [DELEGATE_TOOL_NAME]: tool({
       description,
-      inputSchema: z.object({ task: taskField }),
-      execute: ({ task }, ctx) => run(task, undefined, ctx),
+      inputSchema: z.object({ task: taskField, effort: effortField }),
+      execute: ({ task, effort }, ctx) => run(task, undefined, effort, ctx),
     }),
   };
 }

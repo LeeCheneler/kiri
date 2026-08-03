@@ -12,6 +12,7 @@ const base: SessionListEntry = {
   status: "idle",
   model: "local:google/gemma-4-26b-a4b-qat",
   imageModel: null,
+  effort: "medium" as const,
   pinned: false,
   parentSessionId: null,
   parentToolCallId: null,

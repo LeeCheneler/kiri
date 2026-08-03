@@ -20,9 +20,10 @@ export interface NewMessage {
 /**
  * Insert a new session against `model` (a `provider:model` id), starting it
  * `idle`. Pass `imageModel` to start with image generation on; it stays
- * swappable via `updateSessionImageModel`. Pass `parentSessionId` (with the
- * spawning `parentToolCallId`) to create a child session; omit them for a
- * top-level one. Returns the persisted row.
+ * swappable via `updateSessionImageModel`. Pass `effort` to start at a level
+ * other than the `medium` default. Pass `parentSessionId` (with the spawning
+ * `parentToolCallId`) to create a child session; omit them for a top-level
+ * one. Returns the persisted row.
  */
 export function createSession(
   db: KiriDb,
@@ -31,6 +32,7 @@ export function createSession(
     id?: string;
     startedAt?: Date;
     imageModel?: string;
+    effort?: Session["effort"];
     parentSessionId?: string;
     parentToolCallId?: string;
   } = {},
@@ -42,6 +44,7 @@ export function createSession(
       status: "idle",
       model,
       imageModel: opts.imageModel ?? null,
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       startedAt: opts.startedAt ?? new Date(),
       parentSessionId: opts.parentSessionId ?? null,
       parentToolCallId: opts.parentToolCallId ?? null,
@@ -97,6 +100,16 @@ export function getSessionChildren(db: KiriDb, parentSessionId: string): Session
  */
 export function updateSessionModel(db: KiriDb, id: string, model: string): Session {
   db.update(sessions).set({ model }).where(eq(sessions.id, id)).run();
+  return getSession(db, id) as Session;
+}
+
+/**
+ * Set the effort level the session's turns run at. Applied when a turn maps
+ * it to provider reasoning parameters, so the change takes effect from the
+ * next turn. Returns the updated row.
+ */
+export function updateSessionEffort(db: KiriDb, id: string, effort: Session["effort"]): Session {
+  db.update(sessions).set({ effort }).where(eq(sessions.id, id)).run();
   return getSession(db, id) as Session;
 }
 

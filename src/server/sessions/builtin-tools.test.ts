@@ -26,6 +26,7 @@ const stubClients: LlmClients = {
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
   contextWindowFor: async () => undefined,
+  reasoningOptionsFor: async () => undefined,
 };
 
 describe("BUILTIN_TOOLS", () => {

@@ -28,6 +28,15 @@ export interface LlmModelInfo {
   output: LlmModelOutput;
   /** Whether the model accepts image input, when the provider's listing reports it. */
   imageInput?: boolean;
+  /**
+   * Whether the model supports reasoning parameters (an effort or
+   * reasoning-effort setting). Heuristic: read from the listing's supported
+   * parameters when reported, otherwise from well-known id families — and
+   * false when neither says yes, so nothing is ever sent blind. Server-side
+   * only — it drives the turn's send-or-omit decision and is stripped from
+   * the models endpoint's response.
+   */
+  reasoning: boolean;
 }
 
 /** A provider whose model listing failed. Never fatal — collected, not thrown. */
@@ -81,6 +90,25 @@ const NON_TEXT_TYPES = new Set([
   "video",
 ]);
 
+// Reasoning-capable id families for listings that carry no parameter
+// metadata, matched as delimited id segments like the image families:
+// OpenAI's o-series and gpt-5 generation, and models whose id names reasoning
+// outright (deepseek-r1, qwen's qwq, mistral's magistral, "-thinking"
+// variants). Anthropic ids are handled separately below.
+const REASONING_ID =
+  /(^|[-_/.])(o[134]|gpt-5(?:\.\d+)?|qwq|magistral|r1|deepseek-reasoner|thinking|reasoning)(?=[-_/.]|$)/i;
+
+// Id families that look reasoning-shaped but reject reasoning parameters:
+// the early o1 variants, and the non-reasoning gpt-5 chat models.
+const NON_REASONING_ID = /(^|[-_/.])(o1-(mini|preview)|gpt-5(?:\.\d+)?-chat)(?=[-_/.]|$)/i;
+
+// Anthropic ids: extended thinking arrived with claude-3-7, so every claude
+// model except the known earlier families (claude-2, instant, the 3 and 3.5
+// generations) classifies as reasoning-capable — including future ones.
+const CLAUDE_ID = /(^|[-_/.])claude(?=[-_/.]|$)/i;
+const CLAUDE_NON_THINKING =
+  /(^|[-_/.])claude[-.](instant|[12]|3[-.](5|haiku|opus|sonnet))(?=[-_/.]|$)/i;
+
 // The arrow form ("text+image->text") predates the modality arrays in
 // OpenRouter-shaped listings; the left-hand side lists inputs, the right outputs.
 function parseModalityArrow(
@@ -108,6 +136,7 @@ interface ModalitySignals {
     vision?: boolean;
     image_input?: { supported?: boolean };
   };
+  supported_parameters?: string[];
 }
 
 // Classify a listing entry by what it produces. Providers expose modality in
@@ -175,6 +204,25 @@ function classifyImageInput(entry: ModalitySignals): boolean | undefined {
   return undefined;
 }
 
+// Classify whether a listing entry supports reasoning parameters. An
+// OpenRouter-shaped `supported_parameters` array is authoritative either way:
+// it enumerates exactly what the endpoint accepts, so an entry that carries
+// one without a reasoning parameter is a definite no. Bare listings (OpenAI,
+// Anthropic) fall back to well-known id families, exclusions first — and a
+// model with no signal at all classifies as false, never a guess, so effort
+// parameters are only ever sent where the model is known to take them.
+function classifyReasoning(entry: ModalitySignals): boolean {
+  const params = entry.supported_parameters;
+  if (params !== undefined) {
+    return ["reasoning", "reasoning_effort", "include_reasoning"].some((param) =>
+      params.includes(param),
+    );
+  }
+  if (NON_REASONING_ID.test(entry.id)) return false;
+  if (CLAUDE_ID.test(entry.id)) return !CLAUDE_NON_THINKING.test(entry.id);
+  return REASONING_ID.test(entry.id);
+}
+
 // One entry from a provider's `GET /models` listing, normalised to an id, the
 // limits it reports under whichever field names the provider uses, whether it
 // generates images, and whether it accepts image input when the listing says.
@@ -206,6 +254,7 @@ const listingEntrySchema = z
       })
       .optional()
       .catch(undefined),
+    supported_parameters: z.array(z.string()).optional().catch(undefined),
     top_provider: z
       .object({ context_length: tokenLimit, max_completion_tokens: tokenLimit })
       .optional()
@@ -230,6 +279,7 @@ const listingEntrySchema = z
     id: entry.id,
     output: classifyOutput(entry),
     imageInput: classifyImageInput(entry),
+    reasoning: classifyReasoning(entry),
     limits: {
       contextWindow:
         entry.top_provider?.context_length ??
@@ -298,7 +348,10 @@ type ProviderModel = z.infer<typeof listingEntrySchema>;
  * producing neither (audio, video) are left off the list entirely. Whether a
  * model accepts image input is read from the listing's input modalities or
  * capability flags when present; a listing that says nothing (OpenAI) leaves
- * `imageInput` undefined — unknown, not false.
+ * `imageInput` undefined — unknown, not false. Whether a model supports
+ * reasoning parameters is read from the listing's supported parameters
+ * (OpenRouter) or well-known id families (OpenAI, Anthropic), defaulting to
+ * false when neither says yes.
  */
 export async function listLlmModels(
   registry: LlmProviderRegistry,
@@ -323,6 +376,7 @@ export async function listLlmModels(
         ...entry.limits,
         output: entry.output,
         imageInput: entry.imageInput,
+        reasoning: entry.reasoning,
       });
     }
   }

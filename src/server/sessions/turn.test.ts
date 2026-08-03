@@ -41,6 +41,7 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
   contextWindowFor: async () => undefined,
+  reasoningOptionsFor: async () => undefined,
 });
 
 // Capturing event bus: records every published event, never delivers.
@@ -184,6 +185,76 @@ describe("runTurn", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("passes the session's effort as provider options when the model supports reasoning", async () => {
+    const capture: { providerOptions?: unknown } = {};
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        capture.providerOptions = options.providerOptions;
+        return {
+          stream: convertArrayToReadableStream<LanguageModelV3StreamPart>([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "ok" },
+            { type: "text-end", id: "t1" },
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(2, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const askedFor: { id?: string; effort?: string } = {};
+    const llmClients: LlmClients = {
+      ...clientsFor(model),
+      reasoningOptionsFor: async (id, effort) => {
+        askedFor.id = id;
+        askedFor.effort = effort;
+        return { anthropic: { thinking: { type: "enabled", budgetTokens: 16384 } } };
+      },
+    };
+    const session = createSession(db, MODEL, { id: "s1", effort: "high" });
+
+    const { response, done } = await runTurn(
+      { db, llmClients },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    // The mapping is asked for this session's model at its stored effort, and
+    // what it returns rides the model call unchanged.
+    expect(askedFor).toEqual({ id: MODEL, effort: "high" });
+    expect(capture.providerOptions).toEqual({
+      anthropic: { thinking: { type: "enabled", budgetTokens: 16384 } },
+    });
+  });
+
+  it("sends no provider options when the model has no reasoning support", async () => {
+    const capture: { providerOptions?: unknown } = {};
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        capture.providerOptions = options.providerOptions;
+        return {
+          stream: convertArrayToReadableStream<LanguageModelV3StreamPart>([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "ok" },
+            { type: "text-end", id: "t1" },
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(2, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1", effort: "high" });
+
+    // clientsFor's reasoningOptionsFor resolves undefined — a model the
+    // listing doesn't mark reasoning-capable gets no parameters at all.
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(model) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    expect(capture.providerOptions).toBeUndefined();
+  });
+
   it("persists the user and assistant messages and the context footprint on a completed turn", async () => {
     const model = streamingModel([
       { type: "text-start", id: "t1" },
@@ -262,6 +333,7 @@ describe("runTurn", () => {
     const llmClients: LlmClients = {
       ...clientsFor(capturingModel(capture)),
       contextWindowFor: async () => 1000,
+      reasoningOptionsFor: async () => undefined,
     };
 
     const { response, done } = await runTurn(
@@ -410,6 +482,7 @@ describe("runTurn", () => {
       generateText: async () => ({ text: "", usage: {} }),
       listModels: async () => ({ models: [], failures: [] }),
       contextWindowFor: async () => undefined,
+      reasoningOptionsFor: async () => undefined,
     };
     const session = createSession(db, MODEL, { id: "s1" });
 
