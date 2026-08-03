@@ -53,21 +53,23 @@ export const toolStatus = (part: ToolPart): StatusKind =>
 
 // A short input detail for the collapsed summary, when the call carries an
 // obvious one — a string `query`, a `path` (the filesystem tools), a `command`
-// (run_command), a `prompt` (generate_image), or a list of `urls`; nothing
-// otherwise.
+// (run_command), a `prompt` (generate_image), a `name` (use_skill), or a list
+// of `urls`; nothing otherwise.
 const summaryDetail = (input: unknown): string | null => {
   if (input === null || typeof input !== "object") return null;
-  const { query, path, command, prompt, urls } = input as {
+  const { query, path, command, prompt, name, urls } = input as {
     query?: unknown;
     path?: unknown;
     command?: unknown;
     prompt?: unknown;
+    name?: unknown;
     urls?: unknown;
   };
   if (typeof query === "string") return query;
   if (typeof path === "string") return path;
   if (typeof command === "string") return command;
   if (typeof prompt === "string") return prompt;
+  if (typeof name === "string") return name;
   if (Array.isArray(urls)) {
     const list = urls.filter((url): url is string => typeof url === "string").join(", ");
     return list === "" ? null : list;

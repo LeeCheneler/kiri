@@ -49,6 +49,20 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText("https://a.test, https://b.test")).toBeDefined();
   });
 
+  it("shows a name in the collapsed summary", () => {
+    render(
+      <ToolInvocation
+        part={part({
+          type: "tool-use_skill",
+          state: "output-available",
+          input: { name: "workflow-authoring" },
+          output: {},
+        })}
+      />,
+    );
+    expect(screen.getByText("workflow-authoring")).toBeDefined();
+  });
+
   it("omits the summary detail when the input has neither a query nor urls", () => {
     render(
       <ToolInvocation
