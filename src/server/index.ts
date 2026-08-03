@@ -226,7 +226,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api", systemRoutes({ version }));
   // Mounted unconditionally — it reports *why* the workspace may have no
   // providers, so it must answer even when the session surface is absent.
-  app.route("/api/config", configRoutes({ config, env }));
+  app.route("/api/config", configRoutes({ config, env, llmClients }));
   app.route(
     "/api/workflows",
     workflowsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }),
