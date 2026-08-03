@@ -29,10 +29,12 @@ export interface LlmModelInfo {
   /** Whether the model accepts image input, when the provider's listing reports it. */
   imageInput?: boolean;
   /**
-   * Whether the model supports reasoning parameters (thinking budgets or a
+   * Whether the model supports reasoning parameters (an effort or
    * reasoning-effort setting). Heuristic: read from the listing's supported
    * parameters when reported, otherwise from well-known id families — and
-   * false when neither says yes, so nothing is ever sent blind.
+   * false when neither says yes, so nothing is ever sent blind. Server-side
+   * only — it drives the turn's send-or-omit decision and is stripped from
+   * the models endpoint's response.
    */
   reasoning: boolean;
 }

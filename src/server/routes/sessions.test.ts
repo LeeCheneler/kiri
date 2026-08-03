@@ -205,10 +205,10 @@ describe("sessions routes", () => {
       const res = await app.request("/api/models");
 
       expect(res.status).toBe(200);
+      // The reasoning flag is server-side send-or-omit state, stripped from
+      // the response — the client surface doesn't carry it.
       expect(await res.json()).toEqual({
-        models: [
-          { id: "anthropic:claude", provider: "anthropic", output: "text", reasoning: false },
-        ],
+        models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
         failures: [],
         tiers: {},
       });

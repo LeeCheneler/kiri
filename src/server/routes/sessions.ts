@@ -367,10 +367,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   // The listing carries the configured model tiers alongside the models, so
   // the pickers can pin them and new sessions can start on tanto. Read live,
-  // so a kiri.yaml edit is reflected on the next fetch.
-  app.get("/models", async (c) =>
-    c.json({ ...(await llmClients.listModels()), tiers: deps.getModelTiers?.() ?? {} }),
-  );
+  // so a kiri.yaml edit is reflected on the next fetch. The reasoning flag
+  // stays server-side: it drives whether a turn sends provider reasoning
+  // parameters, and nothing client-side consumes it.
+  app.get("/models", async (c) => {
+    const { models, failures } = await llmClients.listModels();
+    return c.json({
+      models: models.map(({ reasoning: _reasoning, ...model }) => model),
+      failures,
+      tiers: deps.getModelTiers?.() ?? {},
+    });
+  });
 
   app.post(
     "/sessions",

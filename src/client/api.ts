@@ -598,8 +598,6 @@ export interface ModelInfo {
   output: "text" | "image";
   /** Whether the model accepts image input; absent when the provider's listing doesn't say. */
   imageInput?: boolean;
-  /** Whether the model supports reasoning parameters, so effort means something for it. */
-  reasoning: boolean;
 }
 
 /** A provider whose model listing failed, surfaced so the picker can explain a gap. */

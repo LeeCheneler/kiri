@@ -30,9 +30,8 @@ describe("contextWindowForModel", () => {
       provider: "anthropic",
       contextWindow: 200000,
       output: "text",
-      reasoning: false,
     },
-    { id: "local:custom", provider: "local", output: "text", reasoning: false },
+    { id: "local:custom", provider: "local", output: "text" },
   ];
 
   it("returns the matching model's context window", () => {

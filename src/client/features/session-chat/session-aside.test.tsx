@@ -405,7 +405,8 @@ describe("<SessionAside>", () => {
 
     expect(await screen.findByRole("radiogroup", { name: /effort/i })).toBeDefined();
     // The session's stored level is the selected segment.
-    expect((screen.getByRole("radio", { name: "medium" }) as HTMLInputElement).checked).toBe(true);
+    // The medium segment's visible label is "med"; the committed value stays "medium".
+    expect((screen.getByRole("radio", { name: "med" }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("changes the session's effort when a level is picked", async () => {
@@ -414,9 +415,7 @@ describe("<SessionAside>", () => {
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
       http.get("*/api/models", () =>
         HttpResponse.json({
-          models: [
-            { id: "anthropic:claude", provider: "anthropic", output: "text", reasoning: true },
-          ],
+          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
           failures: [],
         }),
       ),

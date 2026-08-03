@@ -26,7 +26,8 @@ const IMAGE_MODEL_NONE = "None";
 // The effort control's segments, lowest first.
 const EFFORT_OPTIONS: readonly SegmentedOption<SessionEffort>[] = [
   { value: "low", label: "low" },
-  { value: "medium", label: "medium" },
+  // "med" keeps the segment widths even; the stored value stays "medium".
+  { value: "medium", label: "med" },
   { value: "high", label: "high" },
   { value: "xhigh", label: "xhigh" },
   { value: "max", label: "max" },
