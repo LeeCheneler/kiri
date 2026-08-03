@@ -32,54 +32,94 @@ const shellSchema = z
 // like any session model id.
 const modelRef = z.string().min(1);
 
-const modelTiersSchema = z
-  .object({
-    tanto: modelRef.describe(
-      "The smallest, fastest tier: mechanical, fully-specified work. A `provider:model` reference.",
-    ),
-    katana: modelRef.describe(
-      "The mid tier and everyday default for ordinary work. A `provider:model` reference.",
-    ),
-    odachi: modelRef.describe(
-      "The largest tier, for work whose outcome hinges on reasoning depth. A `provider:model` reference.",
-    ),
-  })
-  .strict();
+const shortcutsRecord = z.record(
+  z.string().min(1).describe("The shortcut's display name — free-form, shown in the pickers."),
+  modelRef.describe("A `provider:model` reference."),
+);
 
-const modelsSchema = z
+const modelShortcutsSchema = z
   .object({
-    text: modelTiersSchema
+    text: shortcutsRecord
       .optional()
-      .describe("The three text (chat) model tiers. Declaring the block defines all three."),
-    image: modelTiersSchema
+      .describe(
+        "Named text (chat) model shortcuts. The first entry is the default model for new sessions.",
+      ),
+    image: shortcutsRecord
       .optional()
-      .describe("The three image-generation model tiers. Declaring the block defines all three."),
+      .describe(
+        "Named image-generation model shortcuts. The first entry is the default image model for new sessions.",
+      ),
   })
   .strict()
   .describe(
-    "Named model tiers — tanto, katana, odachi — per modality. Each block is optional, but a present block defines all three tiers. Tier references resolve at use, so re-pointing a tier changes future work without rewriting what past sessions ran on.",
+    "Named model shortcuts per modality — free-form names mapping to `provider:model` references, pinned to the top of the session pickers in config order. Picking one selects its model; nothing is stored by name, so re-pointing a shortcut changes future picks without rewriting what past sessions ran on.",
   );
 
-/** One modality's three configured tiers, each a `provider:model` reference. */
-export type ModelTiers = z.infer<typeof modelTiersSchema>;
+const modelDelegatesSchema = z
+  .object({
+    quick: modelRef
+      .optional()
+      .describe(
+        "The worker model for mechanical, fully-specified tasks. A `provider:model` reference.",
+      ),
+    daily: modelRef
+      .optional()
+      .describe("The worker model for ordinary work — the default. A `provider:model` reference."),
+    deep: modelRef
+      .optional()
+      .describe(
+        "The worker model for tasks whose outcome hinges on reasoning depth. A `provider:model` reference.",
+      ),
+  })
+  .strict()
+  .describe(
+    "The models delegated worker sessions run, by role — quick, daily, deep. Any subset may be configured; the assistant sizes each delegated task to a configured role. With none configured, workers inherit the delegating session's model.",
+  );
 
-/** The configured model tiers per modality; a modality without tiers is absent. */
-export interface ModelTiersConfig {
-  text?: ModelTiers;
-  image?: ModelTiers;
+const modelsSchema = z
+  .object({
+    shortcuts: modelShortcutsSchema.optional(),
+    delegates: modelDelegatesSchema.optional(),
+  })
+  .strict()
+  .describe(
+    "Model configuration: `shortcuts` pin your named favourites to the top of the session pickers, `delegates` size the workers the assistant delegates to. All references resolve at use.",
+  );
+
+/** One modality's named shortcuts, `name → provider:model`, in config order. */
+export type ModelShortcuts = Record<string, string>;
+
+/** The configured shortcuts per modality; a modality without shortcuts is absent. */
+export interface ModelShortcutsConfig {
+  text?: ModelShortcuts;
+  image?: ModelShortcuts;
 }
 
-/** The three tier names, smallest first. */
-export const MODEL_TIER_NAMES = ["tanto", "katana", "odachi"] as const;
+/** The delegate role names, lightest task shape first. */
+export const DELEGATE_ROLES = ["quick", "daily", "deep"] as const;
 
-/** A tier name — one of `tanto`, `katana`, `odachi`. */
-export type ModelTierName = (typeof MODEL_TIER_NAMES)[number];
+/** A delegate role — one of `quick`, `daily`, `deep`. */
+export type DelegateRole = (typeof DELEGATE_ROLES)[number];
+
+/** The configured delegate models by role; an unconfigured role is absent. */
+export type ModelDelegates = Partial<Record<DelegateRole, string>>;
+
+/** The resolved `models:` section — maps always present, empty when unconfigured. */
+export interface ModelsConfig {
+  shortcuts: ModelShortcutsConfig;
+  delegates: ModelDelegates;
+}
+
+/** The delegate roles that have a model configured, lightest first. */
+export function configuredDelegateRoles(delegates: ModelDelegates | undefined): DelegateRole[] {
+  return DELEGATE_ROLES.filter((role) => delegates?.[role] !== undefined);
+}
 
 /**
  * Zod schema for the workspace's `kiri.yaml` — kiri's structured configuration
- * file: the LLM `providers:` map, the `models:` tiers, the `mcp:` servers map,
- * the `filesystem:` sandbox, and the `shell:` working directories. Strict, so
- * an unknown top-level key is a validation error.
+ * file: the LLM `providers:` map, the `models:` shortcuts and delegates, the
+ * `mcp:` servers map, the `filesystem:` sandbox, and the `shell:` working
+ * directories. Strict, so an unknown top-level key is a validation error.
  */
 export const kiriConfigSchema = z
   .object({

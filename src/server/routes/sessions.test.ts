@@ -6,7 +6,7 @@ import { type Tool, type ToolSet, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import type { ModelTiersConfig } from "../config/schema.ts";
+import type { ModelShortcutsConfig, ModelsConfig } from "../config/schema.ts";
 import { articles } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
@@ -160,7 +160,7 @@ describe("sessions routes", () => {
       cancelRegistry?: CancelRegistry;
       mcpRegistry?: McpRegistry;
       streamRegistry?: StreamRegistry;
-      getModelTiers?: () => ModelTiersConfig;
+      getModelsConfig?: () => ModelsConfig;
     } = {},
   ) =>
     createApp({
@@ -210,20 +210,24 @@ describe("sessions routes", () => {
       expect(await res.json()).toEqual({
         models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
         failures: [],
-        tiers: {},
+        shortcuts: {},
       });
     });
 
-    it("carries the configured model tiers alongside the listing", async () => {
-      const tiers = {
-        text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+    it("carries the configured model shortcuts alongside the listing", async () => {
+      const shortcuts = {
+        text: { sonnet: "a:mid", haiku: "a:small" },
       };
-      const app = makeApp(fakeClients(), { getModelTiers: () => tiers });
+      const app = makeApp(fakeClients(), {
+        getModelsConfig: () => ({ shortcuts, delegates: {} }),
+      });
 
       const res = await app.request("/api/models");
 
       expect(res.status).toBe(200);
-      expect(((await res.json()) as { tiers: ModelTiersConfig }).tiers).toEqual(tiers);
+      expect(((await res.json()) as { shortcuts: ModelShortcutsConfig }).shortcuts).toEqual(
+        shortcuts,
+      );
     });
   });
 

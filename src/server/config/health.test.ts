@@ -14,7 +14,7 @@ const result = (overrides: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadRe
   providers: new Map(),
   mcp: new Map(),
   mcpUnresolved: [],
-  modelTiers: {},
+  models: { shortcuts: {}, delegates: {} },
   allowedDirectories: [],
   shellDirectories: [],
   ...overrides,

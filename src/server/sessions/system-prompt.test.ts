@@ -501,40 +501,52 @@ describe("delegate guidance", () => {
     expect(withoutDelegate).not.toContain("Route before you run");
   });
 
-  it("adds the tier right-sizing rule only when text tiers are configured", () => {
-    const withTiers = buildSystemPrompt({
+  it("adds the model right-sizing rule only when delegate roles are configured", () => {
+    const withRoles = buildSystemPrompt({
       config,
       tools: ["delegate"],
-      tiersConfigured: true,
+      delegateRoles: ["quick", "daily", "deep"],
       now: FIXED_NOW,
     });
-    // The steer must demand per-task sizing and give each tier an operational
+    // The steer must demand per-task sizing and give each role an operational
     // trigger, plus name both failure modes — undersizing and oversizing.
-    expect(withTiers).toContain("Size each worker's model to its task");
-    expect(withTiers).toContain("never one size for the whole batch");
-    expect(withTiers).toContain("`tanto` runs mechanical, fully-specified legwork");
+    expect(withRoles).toContain("Size each worker's model to its task");
+    expect(withRoles).toContain("never one size for the whole batch");
+    expect(withRoles).toContain("`quick` runs mechanical, fully-specified legwork");
     // The triggers must speak to coding work as much as research.
-    expect(withTiers).toContain(
-      "`katana` is the default for ordinary work: research strands, routine coding against a clear spec",
+    expect(withRoles).toContain(
+      "`daily` is the default for ordinary work: research strands, routine coding against a clear spec",
     );
-    expect(withTiers).toContain("`odachi` is reserved for tasks whose outcome hinges on reasoning");
-    expect(withTiers).toContain("subtle code correctness, debugging from symptoms");
-    expect(withTiers).toContain("escalate the one strand that needs it, not the batch");
-    expect(withTiers).toContain("costs a rerun");
+    expect(withRoles).toContain("`deep` is reserved for tasks whose outcome hinges on reasoning");
+    expect(withRoles).toContain("subtle code correctness, debugging from symptoms");
+    expect(withRoles).toContain("Escalate the one strand that needs it, not the batch");
+    expect(withRoles).toContain("costs a rerun");
     // Unconfigured, the tool has no model prop, so the steer must not name one.
-    const withoutTiers = buildSystemPrompt({ config, tools: ["delegate"], now: FIXED_NOW });
-    expect(withoutTiers).not.toContain("Size each worker's model to its task");
+    const withoutRoles = buildSystemPrompt({ config, tools: ["delegate"], now: FIXED_NOW });
+    expect(withoutRoles).not.toContain("Size each worker's model to its task");
+  });
+
+  it("names only the configured roles in the right-sizing rule", () => {
+    const partial = buildSystemPrompt({
+      config,
+      tools: ["delegate"],
+      delegateRoles: ["daily"],
+      now: FIXED_NOW,
+    });
+    expect(partial).toContain("`daily` is the default for ordinary work");
+    expect(partial).not.toContain("`quick`");
+    expect(partial).not.toContain("`deep`");
   });
 
   it("carries the titling rule whenever delegate is offered", () => {
-    // The title prop is required with or without tiers, so its steer rides the
-    // delegation guidance unconditionally — and it must demand a specific
-    // label, not a sentence or a generic filler name.
-    for (const tiersConfigured of [true, false]) {
+    // The title prop is required with or without delegate roles, so its steer
+    // rides the delegation guidance unconditionally — and it must demand a
+    // specific label, not a sentence or a generic filler name.
+    for (const delegateRoles of [["daily"] as const, []]) {
       const prompt = buildSystemPrompt({
         config,
         tools: ["delegate"],
-        tiersConfigured,
+        delegateRoles,
         now: FIXED_NOW,
       });
       expect(prompt).toContain("Name each delegation with the required `title` prop");
@@ -551,14 +563,15 @@ describe("delegate guidance", () => {
   });
 
   it("carries the effort right-sizing rule whenever delegate is offered", () => {
-    // The effort prop is required with or without tiers, so its steer rides
-    // the delegation guidance unconditionally — per task, independent of the
-    // model choice, and speaking to coding work as much as research.
-    for (const tiersConfigured of [true, false]) {
+    // The effort prop is required with or without delegate roles, so its
+    // steer rides the delegation guidance unconditionally — per task,
+    // independent of the model choice, and speaking to coding work as much
+    // as research.
+    for (const delegateRoles of [["daily"] as const, []]) {
       const prompt = buildSystemPrompt({
         config,
         tools: ["delegate"],
-        tiersConfigured,
+        delegateRoles,
         now: FIXED_NOW,
       });
       expect(prompt).toContain("State each worker's effort with the required `effort` prop");
@@ -736,9 +749,14 @@ describe("createSystemPromptBuilder", () => {
   });
 
   it("hands the skill catalogue to parent and child prompts alike", () => {
-    const builder = createSystemPromptBuilder(config, ["use_skill"], [], [], false, [
-      { name: "release-notes", description: "Draft release notes." },
-    ]);
+    const builder = createSystemPromptBuilder(
+      config,
+      ["use_skill"],
+      [],
+      [],
+      [],
+      [{ name: "release-notes", description: "Draft release notes." }],
+    );
     expect(builder(sessionWith(null))).toContain("- release-notes: Draft release notes.");
     expect(builder(sessionWith("parent"))).toContain("- release-notes: Draft release notes.");
   });

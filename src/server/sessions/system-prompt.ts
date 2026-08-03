@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import type { DelegateRole } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { Effort } from "../llm/index.ts";
 import { type HostEnvironment, describeHost, detectHostEnvironment } from "./host-environment.ts";
@@ -190,6 +191,16 @@ function buildShellGuidance(tools: string[], workingDirectories: readonly string
   ].join("\n");
 }
 
+// The sizing guidance per delegate role, composed into the delegate steer for
+// whichever roles are configured.
+const DELEGATE_ROLE_GUIDANCE: Record<DelegateRole, string> = {
+  quick:
+    "`quick` runs mechanical, fully-specified legwork — lookups, extraction, reformatting, applying a stated edit, running commands and reporting output.",
+  daily:
+    "`daily` is the default for ordinary work: research strands, routine coding against a clear spec, multi-step tool use — most delegations belong here.",
+  deep: "`deep` is reserved for tasks whose outcome hinges on reasoning depth: genuine ambiguity, conflicting sources, subtle code correctness, debugging from symptoms, cross-cutting design.",
+};
+
 // Cross-cutting guidance for the first-party delegate tool — the judgement no
 // tool description can carry alone. The trigger is phrased on request shapes
 // (a comparison, a roundup, a latest-news check) rather than a call-count
@@ -200,17 +211,20 @@ function buildShellGuidance(tools: string[], workingDirectories: readonly string
 // seeding a re-run (the leak delegation exists to prevent). Keyed off the
 // tool's name, so a session not offered it — or a child session, which never
 // is — gets no delegation steer. The tool takes a required `effort` — and,
-// with text tiers configured, a required `model` tier — so the steer carries
-// a right-sizing rule per lever.
-function buildDelegateGuidance(tools: string[], tiersConfigured: boolean): string | null {
+// with delegate models configured, a required `model` role — so the steer
+// carries a right-sizing rule per lever.
+function buildDelegateGuidance(
+  tools: string[],
+  delegateRoles: readonly DelegateRole[],
+): string | null {
   if (!tools.includes("delegate")) return null;
   return [
     "You can delegate: the `delegate` tool hands a self-contained task to a worker session — the same model as you, holding the tools the user always allows — that does the legwork in its own context and returns only a written report, so this conversation holds the findings rather than the working. The user watches the worker live in the transcript, so delegating hides nothing.",
     'Delegation is the rule for research, not an option to weigh. A comparison ("how does X compare to Y"), a roundup or comprehensive breakdown, a "what\'s the latest on X", any request answered by gathering from more than one place: these go to `delegate` as your first tool call for the request. Running their searches, fetches, and reads in this conversation is a mistake, however efficient each call looks. The only research to run inline is a single specific lookup — one search or one read whose result you use directly.',
     "Delegating well:",
-    ...(tiersConfigured
+    ...(delegateRoles.length > 0
       ? [
-          "- Size each worker's model to its task with the required `model` prop, task by task — never one size for the whole batch. `tanto` runs mechanical, fully-specified legwork — lookups, extraction, reformatting, applying a stated edit, running commands and reporting output. `katana` is the default for ordinary work: research strands, routine coding against a clear spec, multi-step tool use — most delegations belong here. `odachi` is reserved for tasks whose outcome hinges on reasoning depth: genuine ambiguity, conflicting sources, subtle code correctness, debugging from symptoms, cross-cutting design. A fan-out of independent strands usually runs `tanto` or `katana`; escalate the one strand that needs it, not the batch. Both sizing failures are real: an undersized worker returns a shallow or wrong report that costs a rerun; an oversized worker burns time and money for the same output.",
+          `- Size each worker's model to its task with the required \`model\` prop, task by task — never one size for the whole batch. ${delegateRoles.map((role) => DELEGATE_ROLE_GUIDANCE[role]).join(" ")} Escalate the one strand that needs it, not the batch. Both sizing failures are real: an undersized worker returns a shallow or wrong report that costs a rerun; an oversized worker burns time and money for the same output.`,
         ]
       : []),
     "- State each worker's effort with the required `effort` prop, task by task — the second sizing lever, independent of which model runs the worker (which model works versus how hard it reasons). `low` runs mechanical, fully-specified legwork whose steps are already known. `medium` is the everyday default for ordinary research and coding strands. `high` is for work whose answer benefits from deliberate reasoning. `xhigh` is for the hardest work, where result quality outweighs time and cost. `max` is the absolute ceiling, on providers that distinguish one from xhigh. A fan-out of simple parallel strands runs low; escalate the one strand that needs deep synthesis rather than the batch.",
@@ -322,7 +336,7 @@ function buildCorePrompt(
   host: HostEnvironment,
   allowedDirectories: readonly string[],
   shellDirectories: readonly string[],
-  tiersConfigured: boolean,
+  delegateRoles: readonly DelegateRole[],
   effort: Effort,
   titled: boolean,
   skills: readonly SkillSummary[],
@@ -344,7 +358,7 @@ function buildCorePrompt(
     buildEffortGuidance(effort),
     buildTitleGuidance(tools, titled),
     buildToolGuidance(tools),
-    buildDelegateGuidance(tools, tiersConfigured),
+    buildDelegateGuidance(tools, delegateRoles),
     buildSkillGuidance(tools, skills),
     buildChartGuidance(),
     buildDiagramGuidance(),
@@ -436,8 +450,8 @@ export interface BuildSystemPromptOptions {
   allowedDirectories?: readonly string[];
   /** The shell tool's working directories, enumerated in its guidance alongside the command-safety rules. */
   shellDirectories?: readonly string[];
-  /** Whether text model tiers are configured — the delegate steer then covers the required tier choice. */
-  tiersConfigured?: boolean;
+  /** The configured delegate roles — the delegate steer then covers the required model choice. */
+  delegateRoles?: readonly DelegateRole[];
   /** The available skills, listed by name and description when `use_skill` is active. */
   skills?: readonly SkillSummary[];
   /** The session's effort level, stated with its calibration expectation; defaults to `medium`. */
@@ -465,7 +479,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.host ?? detectHostEnvironment(),
       opts.allowedDirectories ?? [],
       opts.shellDirectories ?? [],
-      opts.tiersConfigured ?? false,
+      opts.delegateRoles ?? [],
       opts.effort ?? "medium",
       opts.title != null,
       opts.skills ?? [],
@@ -489,7 +503,7 @@ export function createSystemPromptBuilder(
   tools: string[] = [],
   allowedDirectories: readonly string[] = [],
   shellDirectories: readonly string[] = [],
-  tiersConfigured = false,
+  delegateRoles: readonly DelegateRole[] = [],
   skills: readonly SkillSummary[] = [],
 ): (session: Session) => string {
   return (session: Session) =>
@@ -506,7 +520,7 @@ export function createSystemPromptBuilder(
           tools,
           allowedDirectories,
           shellDirectories,
-          tiersConfigured,
+          delegateRoles,
           skills,
           effort: session.effort,
           title: session.title,

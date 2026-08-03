@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { LlmProvider, ProviderType } from "../llm/schema.ts";
 import type { McpServer, McpServerEntry, McpServerUnresolved } from "../mcp/schema.ts";
-import { type ModelTiersConfig, kiriConfigSchema } from "./schema.ts";
+import { type ModelsConfig, kiriConfigSchema } from "./schema.ts";
 import type { ConfigStore } from "./store.ts";
 
 /**
@@ -31,11 +31,11 @@ export interface KiriConfigLoadResult {
   /** MCP servers excluded because a declared env ref names an unset variable. */
   mcpUnresolved: McpServerUnresolved[];
   /**
-   * The configured model tiers per modality — `provider:model` references,
-   * resolved at use rather than here. Empty when the file or its `models:`
-   * section is absent, and on a failed load (fail closed).
+   * The configured model shortcuts and delegates — `provider:model`
+   * references, resolved at use rather than here. Empty when the file or its
+   * `models:` section is absent, and on a failed load (fail closed).
    */
-  modelTiers: ModelTiersConfig;
+  models: ModelsConfig;
   /**
    * Absolute directories the session filesystem tools are confined to. Empty
    * when the file or its `filesystem:` section is absent — the tools are
@@ -66,12 +66,12 @@ const expandHome = (dir: string): string => {
   return dir;
 };
 
-/** An empty result (no providers, no tiers, no MCP servers, no sandbox, no shell), optionally carrying a failure. */
+/** An empty result (no providers, no models, no MCP servers, no sandbox, no shell), optionally carrying a failure. */
 const emptyResult = (extra: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadResult => ({
   providers: new Map(),
   mcp: new Map(),
   mcpUnresolved: [],
-  modelTiers: {},
+  models: { shortcuts: {}, delegates: {} },
   allowedDirectories: [],
   shellDirectories: [],
   ...extra,
@@ -174,11 +174,15 @@ function loadConfigFile(
   const shellDirectories = (result.data.shell?.working_directories ?? []).map((dir) =>
     resolve(config.cwd(), expandHome(dir)),
   );
-  // Tier values are `provider:model` references kept verbatim: they resolve at
-  // use (session create, patch, delegation spawn), so re-pointing a tier
-  // changes future work without rewriting what past sessions ran on.
-  const modelTiers: ModelTiersConfig = result.data.models ?? {};
-  return { providers, mcp, mcpUnresolved, modelTiers, allowedDirectories, shellDirectories };
+  // Shortcut and delegate values are `provider:model` references kept
+  // verbatim: they resolve at use (session create, patch, delegation spawn),
+  // so re-pointing a name changes future work without rewriting what past
+  // sessions ran on.
+  const models: ModelsConfig = {
+    shortcuts: result.data.models?.shortcuts ?? {},
+    delegates: result.data.models?.delegates ?? {},
+  };
+  return { providers, mcp, mcpUnresolved, models, allowedDirectories, shellDirectories };
 }
 
 /** Resolve declared MCP servers, excluding any whose declared env refs are unset. */

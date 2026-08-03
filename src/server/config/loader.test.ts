@@ -422,33 +422,37 @@ mcp:
     expect(result.shellDirectories).toEqual([]);
   });
 
-  it("leaves the model tiers empty when the file or models section is absent", () => {
-    expect(loadKiriConfig(config, {}).modelTiers).toEqual({});
+  it("leaves the models config empty when the file or models section is absent", () => {
+    expect(loadKiriConfig(config, {}).models).toEqual({ shortcuts: {}, delegates: {} });
     write(cwd, "providers: {}\n");
-    expect(loadKiriConfig(config, {}).modelTiers).toEqual({});
+    expect(loadKiriConfig(config, {}).models).toEqual({ shortcuts: {}, delegates: {} });
   });
 
-  it("passes configured model tiers through verbatim (resolved at use, not load)", () => {
+  it("passes configured shortcuts and delegates through verbatim (resolved at use, not load)", () => {
     write(
       cwd,
       `models:
-  text:
-    tanto: a:small
-    katana: a:mid
-    odachi: a:big
+  shortcuts:
+    text:
+      sonnet: a:mid
+      haiku: a:small
+  delegates:
+    daily: a:mid
+    deep: a:big
 `,
     );
     const result = loadKiriConfig(config, {});
     expect(result.failure).toBeUndefined();
-    expect(result.modelTiers).toEqual({
-      text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+    expect(result.models).toEqual({
+      shortcuts: { text: { sonnet: "a:mid", haiku: "a:small" } },
+      delegates: { daily: "a:mid", deep: "a:big" },
     });
   });
 
-  it("empties the model tiers on a failed load (fail closed)", () => {
-    write(cwd, "models:\n  text: { tanto: a:s, katana: a:m, odachi: a:b }\njunk: true\n");
+  it("empties the models config on a failed load (fail closed)", () => {
+    write(cwd, "models:\n  delegates: { daily: a:m }\njunk: true\n");
     const result = loadKiriConfig(config, {});
     expect(result.failure).toBeDefined();
-    expect(result.modelTiers).toEqual({});
+    expect(result.models).toEqual({ shortcuts: {}, delegates: {} });
   });
 });
