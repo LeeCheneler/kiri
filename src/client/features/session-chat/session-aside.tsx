@@ -10,16 +10,8 @@ import {
   type SegmentedOption,
 } from "../../design-system/actions/segmented-control.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
-import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
-import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
-import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useModels, useSession, useUpdateSession } from "../../state/sessions.ts";
-import { contextWindowForModel, currentContextTokens } from "./context-usage.ts";
-
-// Each rail section carries its own vertical rhythm; the divide-y draws the
-// hairline between adjacent ones, the first/last reset keeps the edges flush.
-const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
 
 // The image-model picker entry that means "image generation off". Model ids
 // are always `provider:model`, so a real model can never collide with it.
@@ -99,21 +91,20 @@ function SessionTitleField({
       onBlur={commit}
       className="flex flex-col"
     >
-      <TextInput label="Title" value={draft} onChange={setDraft} placeholder="Untitled" />
+      <TextInput label="Title" value={draft} onChange={setDraft} placeholder="Name this session…" />
     </form>
   );
 }
 
 /**
- * The session chat right rail: the session's title (editable — commit renames,
- * clearing restores the untitled fallback), its model (with whether it accepts
- * image input, when known), the current context fill,
- * and when it started. Reads the same shared session
- * query the chat body uses (no second fetch) and renders nothing until it
- * resolves. `now` is injectable so tests render a deterministic relative
- * timestamp.
+ * The session chat rail's controls: the session's title (editable — commit
+ * renames, clearing restores the untitled fallback) and its model group — the
+ * conversation model, the effort level, and the image model. The session's
+ * vitals (context fill, start time) live in `SessionVitals` below it. Reads
+ * the same shared session query the chat body uses (no second fetch) and
+ * renders nothing until it resolves.
  */
-export function SessionAside({ id, now }: { id: string; now?: Date }) {
+export function SessionAside({ id }: { id: string }) {
   const detail = useSession(id).data;
   const { setModel, setImageModel, setEffort, setTitle } = useUpdateSession(id);
   const modelsQuery = useModels();
@@ -129,8 +120,6 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const modelFailures = modelsData?.failures ?? [];
   if (!detail) return null;
   const { session } = detail;
-  const contextTokens = currentContextTokens(detail.messages);
-  const contextLimit = contextWindowForModel(models, session.model);
   // Pin the current model into the options even if the provider no longer lists
   // it, so the control always has a value to show. Only text-output models can
   // hold a conversation, so only they are offered. Sorted so the long list is
@@ -144,11 +133,6 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
     ? [{ options: [{ value: session.model, label: "" }] }]
     : [...shortcutGroup(modelsData?.shortcuts?.text), ...providerGroups(withCurrent)];
   const turnInFlight = session.status === "running";
-
-  // Whether the selected model accepts image input, when its provider's
-  // listing says either way. Unknown (a bare listing, or a pinned model the
-  // provider no longer lists) shows nothing rather than a guess.
-  const imageInput = models.find((model) => model.id === session.model)?.imageInput;
 
   // Image model, same pattern: image-output models only, `None` leading as
   // the off option, the selected model pinned even if delisted. The picker
@@ -179,13 +163,11 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const showImageModel = withCurrentImageModel.length > 0;
 
   return (
-    <div className="divide-y divide-rule">
-      <section className={SECTION_CLASS}>
-        {/* Renaming never touches the turn, so — like pinning — it stays
-            available while one is in flight. */}
-        <SessionTitleField title={session.title} onCommit={(title) => void setTitle(title)} />
-      </section>
-      <section className={SECTION_CLASS}>
+    <div className="space-y-8">
+      {/* Renaming never touches the turn, so — like pinning — it stays
+          available while one is in flight. */}
+      <SessionTitleField title={session.title} onCommit={(title) => void setTitle(title)} />
+      <section className="space-y-4">
         <Combobox
           label="Model"
           options={modelOptions}
@@ -193,29 +175,31 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           disabled={turnInFlight || modelsPending}
           onChange={(model) => void setModel(model)}
         />
-        {imageInput !== undefined ? (
-          <div className="mt-2">
-            <Meta>{imageInput ? "Accepts image input" : "Text input only"}</Meta>
-          </div>
-        ) : null}
         {/* Effort always applies — the system prompt calibrates the
             assistant's thoroughness to it on every model, and the turn adds
             provider reasoning parameters where the model supports them — so
             the control always shows. Like a model swap, a change applies
             from the next turn. */}
-        <div className="mt-4">
-          <SegmentedControl
-            label="Effort"
-            options={EFFORT_OPTIONS}
-            value={session.effort}
-            disabled={turnInFlight}
-            onChange={(effort) => void setEffort(effort)}
+        <SegmentedControl
+          label="Effort"
+          options={EFFORT_OPTIONS}
+          value={session.effort}
+          disabled={turnInFlight}
+          onChange={(effort) => void setEffort(effort)}
+        />
+        {showImageModel ? (
+          <Combobox
+            label="Image model"
+            options={imageModelOptions}
+            value={session.imageModel ?? IMAGE_MODEL_NONE}
+            disabled={turnInFlight || modelsPending}
+            onChange={(value) => void setImageModel(value === IMAGE_MODEL_NONE ? null : value)}
           />
-        </div>
+        ) : null}
         {/* A provider whose listing failed leaves a gap in the picker; name it
             and why, so a missing model reads as a config issue, not an absence. */}
         {modelFailures.length > 0 ? (
-          <div className="mt-4 space-y-3">
+          <div className="space-y-3">
             {modelFailures.map((failure) => (
               <Notice
                 key={failure.provider}
@@ -228,33 +212,6 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
             ))}
           </div>
         ) : null}
-      </section>
-      {showImageModel ? (
-        <section className={SECTION_CLASS}>
-          <Combobox
-            label="Image model"
-            options={imageModelOptions}
-            value={session.imageModel ?? IMAGE_MODEL_NONE}
-            disabled={turnInFlight || modelsPending}
-            onChange={(value) => void setImageModel(value === IMAGE_MODEL_NONE ? null : value)}
-          />
-        </section>
-      ) : null}
-      {contextTokens !== undefined ? (
-        <section className={SECTION_CLASS}>
-          <Eyebrow tone="muted">Context</Eyebrow>
-          <p className="mt-1 font-mono text-sm text-ink tabular-nums">
-            {contextLimit !== undefined
-              ? `${contextTokens.toLocaleString("en")} / ${contextLimit.toLocaleString("en")} tokens`
-              : `${contextTokens.toLocaleString("en")} tokens`}
-          </p>
-        </section>
-      ) : null}
-      <section className={SECTION_CLASS}>
-        <Eyebrow tone="muted">Started</Eyebrow>
-        <p className="mt-1 font-mono text-sm text-ink-muted">
-          {formatRelativeTime(session.startedAt, now)}
-        </p>
       </section>
     </div>
   );

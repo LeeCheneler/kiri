@@ -4,15 +4,18 @@ import {
   type ClipboardEventHandler,
   type ReactNode,
   useCallback,
+  useId,
   useRef,
   useState,
 } from "react";
 import { Button } from "../../design-system/actions/button.tsx";
+import { Field } from "../../design-system/actions/field.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
 import {
   ATTACHMENT_ACCEPT,
   type PendingImage,
   type PendingTextFile,
+  TEXT_ATTACHMENT_ACCEPT,
   imageFilesFrom,
   readPendingImages,
   readPendingTextFiles,
@@ -23,19 +26,29 @@ import { FileThumb } from "./file-thumb.tsx";
 import { ImageThumb } from "./image-thumb.tsx";
 
 /**
- * The shared message composer: a full-width auto-growing textarea with image
- * and text-file attachments (staged from the file picker, images also from a
- * paste), Enter to submit and Shift+Enter for a newline. Text is controlled via
+ * The shared message composer: one framed surface holding any staged
+ * attachments, an auto-growing textarea, and a toolbar — add file on the left;
+ * the key hint, an optional cancel, and the submit button on the right. Images
+ * and text files stage from the file picker (images also from a paste), Enter
+ * submits and Shift+Enter breaks a line. Text is controlled via
  * `value`/`onChange`, so the caller owns persistence; staged attachments start
  * from `initialImages`/`initialTextFiles` and are cleared on submit. `onSubmit`
  * receives the assembled `UIMessage` parts — images, then each text file as an
  * `<attached-file>` text part, then the typed text — and the caller decides what
- * they mean (send a turn, resend an edit). `onCancel`, when given, fires on
- * Escape (e.g. to close an inline editor). While `busy` — a turn is in flight —
- * the field and its controls stay editable so the next message can be drafted,
- * but submitting is blocked until the turn settles. Pass `id` to let the caller
- * focus the field, `label` for the field lockup, and `hint` for a trailing
- * key-hint line.
+ * they mean (send a turn, resend an edit). `onCancel`, when given, fires from
+ * Escape and a cancel button in the toolbar (e.g. to close an inline editor).
+ * While `busy` — a turn is in flight — the field and its controls stay editable
+ * so the next message can be drafted, but submitting is blocked until the turn
+ * settles (the submit button reflects that). Pass `id` to let the caller focus
+ * the field; `label` names the field — visibly by default, or for assistive
+ * tech only with `labelHidden`. `submitLabel` names the submit action
+ * ("send" by default) and `hint` is the trailing key-hint line.
+ *
+ * `acceptsImages: false` — the session's model reads text only — narrows the
+ * file picker to text files and turns a picked or pasted image into an inline
+ * error pointing at the model picker, instead of staging an attachment the
+ * turn would only fail on. Text files stay attachable throughout. Omit it (or
+ * pass `true`) when images are fine or the model's input support is unknown.
  */
 export function MessageComposer({
   value,
@@ -45,8 +58,11 @@ export function MessageComposer({
   busy = false,
   id,
   label,
+  labelHidden = false,
   placeholder,
   hint,
+  submitLabel = "send",
+  acceptsImages = true,
   initialImages = [],
   initialTextFiles = [],
 }: {
@@ -57,22 +73,36 @@ export function MessageComposer({
   busy?: boolean;
   id?: string;
   label?: string;
+  labelHidden?: boolean;
   placeholder?: string;
   hint?: ReactNode;
+  submitLabel?: string;
+  acceptsImages?: boolean;
   initialImages?: PendingImage[];
   initialTextFiles?: PendingTextFile[];
 }) {
+  const generatedId = useId();
+  const fieldId = id ?? generatedId;
   const [images, setImages] = useState<PendingImage[]>(initialImages);
   const [textFiles, setTextFiles] = useState<PendingTextFile[]>(initialTextFiles);
   const [attachmentError, setAttachmentError] = useState<string>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const addImageFiles = useCallback(async (files: File[]) => {
-    if (files.length === 0) return;
-    const { images, error } = await readPendingImages(files);
-    if (images.length > 0) setImages((prev) => [...prev, ...images]);
-    setAttachmentError(error);
-  }, []);
+  const addImageFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      // The single gate for images from any route (picker or paste): a
+      // text-only model surfaces why instead of staging a doomed attachment.
+      if (!acceptsImages) {
+        setAttachmentError("This model reads text only. Switch model to attach images.");
+        return;
+      }
+      const { images, error } = await readPendingImages(files);
+      if (images.length > 0) setImages((prev) => [...prev, ...images]);
+      setAttachmentError(error);
+    },
+    [acceptsImages],
+  );
   const addTextFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     const { textFiles, error } = await readPendingTextFiles(files);
@@ -97,10 +127,11 @@ export function MessageComposer({
   const removeTextFile = (id: string) =>
     setTextFiles((prev) => prev.filter((file) => file.id !== id));
 
+  const empty = value.trim() === "" && images.length === 0 && textFiles.length === 0;
+
   const submit = () => {
-    if (busy) return;
+    if (busy || empty) return;
     const text = value.trim();
-    if (text === "" && images.length === 0 && textFiles.length === 0) return;
     // Attachments first, then the text, so the model reads them before the
     // question. Text files ride as `<attached-file>` text parts, which reach
     // every provider as plain text.
@@ -118,10 +149,10 @@ export function MessageComposer({
     setAttachmentError(undefined);
   };
 
-  return (
-    <div>
+  const frame = (
+    <div className="border border-rule transition-colors duration-150 focus-within:border-accent">
       {images.length > 0 || textFiles.length > 0 ? (
-        <ul className="mb-3 flex flex-wrap gap-2">
+        <ul className="flex flex-wrap gap-2 px-3 pt-3">
           {images.map((image) => (
             <li key={image.id} className="relative">
               <ImageThumb src={image.part.url} alt={image.part.filename ?? "Attached image"} />
@@ -153,8 +184,9 @@ export function MessageComposer({
         </ul>
       ) : null}
       <Textarea
-        id={id}
-        label={label}
+        bare
+        id={fieldId}
+        aria-label={labelHidden ? label : undefined}
         value={value}
         onChange={onChange}
         placeholder={placeholder}
@@ -170,25 +202,44 @@ export function MessageComposer({
           }
         }}
       />
-      <div className="mt-2 flex items-center gap-3">
+      <div className="flex items-center gap-3 border-t border-rule px-2 py-2">
         <input
           ref={fileInputRef}
           type="file"
-          accept={ATTACHMENT_ACCEPT}
+          accept={acceptsImages ? ATTACHMENT_ACCEPT : TEXT_ATTACHMENT_ACCEPT}
           multiple
           hidden
           onChange={onPickFiles}
         />
-        <Button variant="dismissive" onClick={() => fileInputRef.current?.click()}>
-          add file
-        </Button>
+        <Button onClick={() => fileInputRef.current?.click()}>+ add file</Button>
         {attachmentError ? (
           <span role="alert" className="font-mono text-status-failed text-xs">
             {attachmentError}
           </span>
         ) : null}
-        {hint ? <span className="ml-auto font-mono text-ink-muted text-xs">{hint}</span> : null}
+        <div className="ml-auto flex items-center gap-3">
+          {hint ? (
+            <span className="hidden font-mono text-ink-faint text-xs sm:inline">{hint}</span>
+          ) : null}
+          {onCancel ? (
+            <Button variant="dismissive" onClick={onCancel}>
+              cancel
+            </Button>
+          ) : null}
+          <Button variant="primary" disabled={busy || empty} onClick={submit}>
+            {submitLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );
+
+  if (label !== undefined && !labelHidden) {
+    return (
+      <Field htmlFor={fieldId} label={label}>
+        {frame}
+      </Field>
+    );
+  }
+  return frame;
 }

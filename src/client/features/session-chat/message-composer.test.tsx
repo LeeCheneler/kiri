@@ -11,6 +11,9 @@ function Harness({
   onSubmit,
   onCancel,
   busy = false,
+  labelHidden = false,
+  submitLabel,
+  acceptsImages,
   hint,
   initialImages,
   initialTextFiles,
@@ -18,6 +21,9 @@ function Harness({
   onSubmit: (parts: UIMessage["parts"]) => void;
   onCancel?: () => void;
   busy?: boolean;
+  labelHidden?: boolean;
+  submitLabel?: string;
+  acceptsImages?: boolean;
   hint?: ReactNode;
   initialImages?: PendingImage[];
   initialTextFiles?: PendingTextFile[];
@@ -31,6 +37,9 @@ function Harness({
       onCancel={onCancel}
       busy={busy}
       label="Message"
+      labelHidden={labelHidden}
+      submitLabel={submitLabel}
+      acceptsImages={acceptsImages}
       hint={hint}
       initialImages={initialImages}
       initialTextFiles={initialTextFiles}
@@ -187,6 +196,89 @@ describe("<MessageComposer>", () => {
 
     expect(onCancel.mock.calls).toHaveLength(1);
     expect(onSubmit.mock.calls).toHaveLength(0);
+  });
+
+  it("submits from the send button", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    composer(onSubmit);
+
+    await userEvent.type(textbox(), "Hello there");
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    expect(onSubmit.mock.calls).toEqual([[[{ type: "text", text: "Hello there" }]]]);
+  });
+
+  it("disables the send button while there is nothing to send", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    composer(onSubmit);
+
+    const send = screen.getByRole("button", { name: "send" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    await userEvent.type(textbox(), "a");
+    expect(send.disabled).toBe(false);
+  });
+
+  it("disables the send button while busy", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    composer(onSubmit, true);
+
+    await userEvent.type(textbox(), "drafted ahead");
+    expect((screen.getByRole("button", { name: "send" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("names the submit action from submitLabel", () => {
+    render(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} submitLabel="resend" />);
+    expect(screen.getByRole("button", { name: "resend" })).toBeDefined();
+  });
+
+  it("offers a cancel button only when onCancel is given, wired to it", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const onCancel = mock(() => {});
+    const { unmount } = render(<Harness onSubmit={onSubmit} onCancel={onCancel} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "cancel" }));
+    expect(onCancel.mock.calls).toHaveLength(1);
+
+    unmount();
+    composer(onSubmit);
+    expect(screen.queryByRole("button", { name: "cancel" })).toBeNull();
+  });
+
+  it("rejects a picked image with an inline error when the model reads text only", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = render(<Harness onSubmit={onSubmit} acceptsImages={false} />);
+
+    // The picker's accept narrows to text files, so force the upload past it —
+    // a real picker can still hand over anything via "All Files".
+    await userEvent.upload(fileInput(container), pngFile("photo.png"), { applyAccept: false });
+
+    expect(await screen.findByText(/reads text only/i)).toBeDefined();
+    expect(screen.queryByAltText("photo.png")).toBeNull();
+  });
+
+  it("rejects a pasted image the same way when the model reads text only", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    render(<Harness onSubmit={onSubmit} acceptsImages={false} />);
+
+    fireEvent.paste(textbox(), { clipboardData: { files: [pngFile("pasted.png")] } });
+
+    expect(await screen.findByText(/reads text only/i)).toBeDefined();
+    expect(screen.queryByAltText("pasted.png")).toBeNull();
+  });
+
+  it("still stages text files when the model reads text only", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = render(<Harness onSubmit={onSubmit} acceptsImages={false} />);
+
+    await userEvent.upload(fileInput(container), txtFile("notes.md"));
+
+    expect(await screen.findByText("notes.md")).toBeDefined();
+  });
+
+  it("keeps the accessible name but hides the visible label when labelHidden", () => {
+    render(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} labelHidden />);
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();
+    expect(screen.queryByText("Message")).toBeNull();
   });
 
   it("renders a trailing key hint", () => {

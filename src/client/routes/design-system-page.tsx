@@ -8,6 +8,7 @@ import { Select } from "../design-system/actions/select.tsx";
 import { TextInput } from "../design-system/actions/text-input.tsx";
 import { Textarea } from "../design-system/actions/textarea.tsx";
 import { ToggleChip } from "../design-system/actions/toggle-chip.tsx";
+import { Meter } from "../design-system/charts/meter.tsx";
 import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.tsx";
 import { Code, CodeBlock } from "../design-system/content/code.tsx";
 import { Diff } from "../design-system/content/diff.tsx";
@@ -1245,6 +1246,7 @@ export function DesignSystemContent() {
                   <Button variant="primary">run</Button>
                   <Button>copy</Button>
                   <Button variant="negative">delete</Button>
+                  <Button variant="negative-quiet">delete session</Button>
                   <Button variant="dismissive">cancel</Button>
                 </div>
                 <div className="mt-6 flex flex-wrap items-baseline gap-4">
@@ -1277,6 +1279,12 @@ export function DesignSystemContent() {
                   <Code>negative</Code> — solid red; a destructive, hard-to-undo action (delete,
                   cancel a run mid-flight). Reserve red for genuine consequence so it still makes
                   the user pause — usually behind a confirm.
+                </li>
+                <li>
+                  <Code>negative-quiet</Code> — borderless, muted until hovered, when the red shows;
+                  a destructive action that's rare enough it shouldn't dominate its surface (delete
+                  a session from its rail). The lighter weight is not lighter consequence — keep the
+                  confirm.
                 </li>
                 <li>
                   <Code>dismissive</Code> — borderless; a low-weight action inside chrome that
@@ -1443,7 +1451,10 @@ export function DesignSystemContent() {
                 <Code>maxRows</Code> to make it auto-grow with its content up to that many rows —
                 then scroll — with the grip removed. Reach for it over the text input whenever the
                 value runs long — a chat message, a prompt, freeform notes. Omit the label for the
-                bare control when the caller owns the labelling.
+                bare control when the caller owns the labelling. When a wrapping surface owns the
+                chrome — a composer frame with its own border, focus ring, and toolbar — pass{" "}
+                <Code>bare</Code> to drop the control's border and background so it sits flush
+                inside, and name it with <Code>aria-label</Code> if no visible label applies.
               </p>
             </Prose>
             <div className="mt-5">
@@ -1696,37 +1707,77 @@ export function DesignSystemContent() {
           <p className="mt-1 font-mono text-xs text-ink-muted">design-system/charts</p>
         </header>
 
-        <article>
-          <h4 className="font-mono text-base text-ink">Sparkline</h4>
-          <p className="mt-1 font-mono text-xs text-ink-faint">
-            <span className="text-ink-muted">Sparkline</span> · design-system/charts/sparkline.tsx
-          </p>
-          <Prose>
-            <p className="mt-3">
-              A compact bar chart for a run of recent measurements — one bar per value, scaled to
-              the largest so the shape reads at a glance. Pass the data as{" "}
-              <Code>{"{ value, tone, label? }"}</Code> in <Code>bars</Code>, in display order. Each
-              bar's <Code>tone</Code> colours it — <Code>ok</Code>, <Code>warm</Code> for a
-              slower-than-usual run, or <Code>failed</Code> — and surfaces as <Code>data-tone</Code>
-              ; a near-zero value still draws a stub so gaps don't vanish. <Code>label</Code> names
-              the whole chart for assistive tech, and optional <Code>startLabel</Code> /{" "}
-              <Code>endLabel</Code> caption the axis ends. It owns no width — size it from the
-              caller.
+        <div className="space-y-12">
+          <article>
+            <h4 className="font-mono text-base text-ink">Sparkline</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Sparkline</span> · design-system/charts/sparkline.tsx
             </p>
-          </Prose>
-          <div className="mt-5">
-            <Card>
-              <div className="max-w-md">
-                <Sparkline
-                  label="Run durations, oldest to newest"
-                  bars={SPARKLINE_BARS}
-                  startLabel="oldest"
-                  endLabel="duration · now"
-                />
-              </div>
-            </Card>
-          </div>
-        </article>
+            <Prose>
+              <p className="mt-3">
+                A compact bar chart for a run of recent measurements — one bar per value, scaled to
+                the largest so the shape reads at a glance. Pass the data as{" "}
+                <Code>{"{ value, tone, label? }"}</Code> in <Code>bars</Code>, in display order.
+                Each bar's <Code>tone</Code> colours it — <Code>ok</Code>, <Code>warm</Code> for a
+                slower-than-usual run, or <Code>failed</Code> — and surfaces as{" "}
+                <Code>data-tone</Code>; a near-zero value still draws a stub so gaps don't vanish.{" "}
+                <Code>label</Code> names the whole chart for assistive tech, and optional{" "}
+                <Code>startLabel</Code> / <Code>endLabel</Code> caption the axis ends. It owns no
+                width — size it from the caller.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="max-w-md">
+                  <Sparkline
+                    label="Run durations, oldest to newest"
+                    bars={SPARKLINE_BARS}
+                    startLabel="oldest"
+                    endLabel="duration · now"
+                  />
+                </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Meter</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Meter</span> · design-system/charts/meter.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A slim gauge for consumption of a fixed budget — a session's context window, a
+                quota, anything with a hard ceiling. <Code>value</Code> over <Code>max</Code> sets
+                the fill, clamped to the track, and a non-zero value always draws a visible sliver
+                so a barely-used budget doesn't read as empty. <Code>tone</Code> escalates the fill
+                colour as the budget tightens — <Code>accent</Code> at rest, <Code>warning</Code>{" "}
+                when it's worth watching, <Code>negative</Code> when it's critical — and surfaces as{" "}
+                <Code>data-tone</Code>. <Code>label</Code> names the gauge for assistive tech; put
+                the numbers behind it in a <Code>Meta</Code> caption alongside rather than on the
+                bar. It owns no width — size it from the caller.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="max-w-md space-y-6">
+                  <div className="space-y-2">
+                    <Meter value={27_393} max={1_048_576} label="Context used" />
+                    <Meta>
+                      <span className="tabular-nums">27,393 / 1,048,576 tokens</span>
+                    </Meta>
+                  </div>
+                  <div className="space-y-2">
+                    <Meter value={188_000} max={200_000} label="Context used" tone="warning" />
+                    <Meta>
+                      <span className="tabular-nums">188,000 / 200,000 tokens</span>
+                    </Meta>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </article>
+        </div>
       </section>
 
       <section aria-labelledby="feedback">

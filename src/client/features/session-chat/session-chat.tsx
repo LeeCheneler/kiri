@@ -67,6 +67,11 @@ export function SessionChat({ id }: { id: string }) {
 function Chat({ detail }: { detail: SessionDetail }) {
   const { session } = detail;
   const models = useModels().data?.models ?? [];
+  // Whether the session's model reads images, per its provider's listing. Only
+  // a definite "no" restricts the composer — unknown (a bare listing, a pinned
+  // model the provider no longer lists) keeps images attachable rather than
+  // blocking on a guess.
+  const acceptsImages = models.find((model) => model.id === session.model)?.imageInput !== false;
 
   // Seed once from the persisted transcript; `useChat` owns the live state from
   // here. A later refetch (from a session.* event) re-runs this memo, but
@@ -258,12 +263,14 @@ function Chat({ detail }: { detail: SessionDetail }) {
           key={session.id}
           id={inputId}
           label="Message"
+          labelHidden
           value={draft}
           onChange={setDraft}
           placeholder="Send a message…"
           busy={busy || awaitingApproval}
+          acceptsImages={acceptsImages}
           onSubmit={handleSend}
-          hint="Enter to send · Shift + Enter for newline"
+          hint="enter to send · shift+enter for newline"
         />
       </div>
     </section>

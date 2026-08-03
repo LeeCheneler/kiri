@@ -95,7 +95,7 @@ function UserMessage({
             )}
             onSubmit={(parts) => onResubmit(message.id, parts)}
             onCancel={() => setEditing(false)}
-            hint="Enter to resend · Escape to cancel"
+            submitLabel="resend"
           />
         ) : (
           <>

@@ -87,6 +87,9 @@ const TEXT_FILE_EXTENSIONS = new Set([
 /** The `accept` value for the composer's file picker: images plus text files. */
 export const ATTACHMENT_ACCEPT = ["image/*", ...TEXT_FILE_EXTENSIONS].join(",");
 
+/** The picker `accept` value when the model can't read images: text files only. */
+export const TEXT_ATTACHMENT_ACCEPT = [...TEXT_FILE_EXTENSIONS].join(",");
+
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf(".");
   return dot === -1 ? "" : name.slice(dot).toLowerCase();

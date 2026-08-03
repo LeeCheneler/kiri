@@ -8,7 +8,7 @@ import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionAside } from "./session-aside.tsx";
 
-const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknown[] = []) => ({
+const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
   session: {
     id: "s1",
     status: "idle",
@@ -20,17 +20,7 @@ const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknow
     error: null,
     ...overrides,
   },
-  messages,
-});
-
-const assistantMessage = (contextTokens: number | null) => ({
-  id: "m1",
-  sessionId: "s1",
-  index: 1,
-  role: "assistant",
-  parts: [{ type: "text", text: "hi" }],
-  contextTokens,
-  createdAt: "2026-05-09T12:00:00.000Z",
+  messages: [],
 });
 
 const renderAside = (ui: ReactNode) =>
@@ -47,7 +37,7 @@ const loadedCombobox = async (name: RegExp): Promise<HTMLInputElement> => {
 describe("<SessionAside>", () => {
   it("renders the session's model", async () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    renderAside(<SessionAside id="s1" now={new Date("2026-05-09T12:00:30.000Z")} />);
+    renderAside(<SessionAside id="s1" />);
 
     const combobox = await loadedCombobox(/model/i);
     // The provider group heading names the provider, so the option label —
@@ -227,57 +217,6 @@ describe("<SessionAside>", () => {
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["claude"]);
   });
 
-  it("notes that the selected model accepts image input", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "anthropic:claude", provider: "anthropic", output: "text", imageInput: true },
-          ],
-          failures: [],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    expect(await screen.findByText("Accepts image input")).toBeDefined();
-  });
-
-  it("notes that the selected model is text input only", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "anthropic:claude", provider: "anthropic", output: "text", imageInput: false },
-          ],
-          failures: [],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    expect(await screen.findByText("Text input only")).toBeDefined();
-  });
-
-  it("omits the image input note when the listing doesn't say", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
-          failures: [],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    await screen.findByRole("combobox", { name: /^model/i });
-    expect(screen.queryByText("Accepts image input")).toBeNull();
-    expect(screen.queryByText("Text input only")).toBeNull();
-  });
-
   it("offers image-output models in the image model picker, with None leading", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
@@ -398,7 +337,7 @@ describe("<SessionAside>", () => {
 
     const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
     expect(field.value).toBe("Postgres upgrade plan");
-    expect(field.placeholder).toBe("Untitled");
+    expect(field.placeholder).toBe("Name this session…");
   });
 
   it("renames the session when an edited title is committed with Enter", async () => {
@@ -535,49 +474,5 @@ describe("<SessionAside>", () => {
     server.use(http.get("*/api/sessions/:id", () => new Promise<Response>(() => {})));
     const { container } = renderAside(<SessionAside id="s1" />);
     expect(container.firstChild).toBeNull();
-  });
-
-  it("shows the current context size from the last settled turn", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail({}, [assistantMessage(1545)])),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    // The last turn's context footprint, formatted.
-    expect(await screen.findByText("1,545 tokens")).toBeDefined();
-  });
-
-  it("shows context as current / limit when the model's window is known", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail({}, [assistantMessage(1545)])),
-      ),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            {
-              id: "anthropic:claude",
-              provider: "anthropic",
-              contextWindow: 200000,
-              output: "text",
-            },
-          ],
-          failures: [],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    expect(await screen.findByText("1,545 / 200,000 tokens")).toBeDefined();
-  });
-
-  it("omits the context size until a turn has settled", async () => {
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    renderAside(<SessionAside id="s1" />);
-
-    await screen.findByRole("combobox", { name: /model/i });
-    expect(screen.queryByText("Context")).toBeNull();
   });
 });

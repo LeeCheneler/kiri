@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-type Variant = "primary" | "default" | "negative" | "dismissive";
+type Variant = "primary" | "default" | "negative" | "negative-quiet" | "dismissive";
 type Size = "sm" | "lg";
 
 const VARIANT_CLASSES: Record<Variant, string> = {
@@ -10,6 +10,10 @@ const VARIANT_CLASSES: Record<Variant, string> = {
     "border border-ink text-ink hover:border-accent hover:text-accent focus-visible:border-accent focus-visible:text-accent",
   negative:
     "border border-status-failed bg-status-failed text-canvas hover:bg-transparent hover:text-status-failed focus-visible:bg-transparent focus-visible:text-status-failed",
+  // Muted at rest, only turning red on approach — destructive intent shows
+  // when the pointer arrives, not before.
+  "negative-quiet":
+    "border border-transparent text-ink-muted hover:text-status-failed focus-visible:text-status-failed",
   // Transparent border so the box matches the bordered variants and stays
   // aligned when they share a row.
   dismissive: "border border-transparent text-ink-muted hover:text-ink focus-visible:text-ink",
@@ -24,7 +28,9 @@ const SIZE_CLASSES: Record<Size, string> = {
  * The action button. `variant` carries the emphasis: `primary` is the
  * solid-accent affirmative call-to-action (one per surface), `default` is
  * the outlined everyday action, `negative` is the solid destructive action,
- * and `dismissive` is a borderless low-weight action for chrome that already
+ * `negative-quiet` is its low-weight sibling for a destructive action that
+ * shouldn't dominate its surface (still confirm before acting on it), and
+ * `dismissive` is a borderless low-weight action for chrome that already
  * carries its own visual weight. `size` bumps padding and label — `lg` for a
  * headline action, `sm` (default) everywhere else.
  *
