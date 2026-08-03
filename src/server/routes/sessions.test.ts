@@ -1604,7 +1604,7 @@ describe("sessions routes", () => {
                   type: "tool-call",
                   toolCallId: "c1",
                   toolName: "delegate",
-                  input: '{"task":"Find pelican facts","effort":"low"}',
+                  input: '{"title":"Pelican facts","task":"Find pelican facts","effort":"low"}',
                 },
                 { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
               ]),

@@ -51,7 +51,8 @@ function extractReport(db: KiriDb, childSessionId: string): string | null {
  * session that runs it server-side — its own turn loop, context window, and
  * step budget — and resolves with only the worker's written report, so the
  * parent's context holds the findings rather than the working. The child is
- * created idempotently against the spawning tool call, runs the parent's
+ * created idempotently against the spawning tool call, titled from the
+ * required `title` the call states, runs the parent's
  * model — or, when text tiers are configured, the model of a required tier
  * the caller names, resolved at spawn — at a required effort level the call
  * states, and a parent-turn cancel cascades into it. A failed or cancelled child resolves to a note rather than hanging
@@ -61,6 +62,12 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
   const { db, parentSessionId, childTurnDeps, bus, cancelRegistry, textTiers } = deps;
   const description =
     "The first-call route for research. A comparison, a roundup or comprehensive breakdown, a latest-news check, anything answered by gathering from more than one place: delegate it before running any search, fetch, or read of your own — doing multi-call research in the conversation instead is a mistake. The tool hands the task to a separate worker session — the same model as you, holding the tools the user allows to run without approval — that does the legwork in its own context and returns only a written report, so the conversation holds the findings rather than the working; it runs while you wait, and the user watches it live. The worker cannot see this conversation: write the task as a complete brief, stating the goal, every specific it needs, and the shape of report you want back. The report is the delegated work, done — answer from it rather than re-running any of it yourself. Only a single specific lookup, whose one result you use directly, belongs inline.";
+  const titleField = z
+    .string()
+    .min(1)
+    .describe(
+      "A short human-readable name for the delegated task — a few words, a specific label, not a sentence. It names the work wherever the delegation surfaces, so make it identify this task among others.",
+    );
   const taskField = z
     .string()
     .min(1)
@@ -73,6 +80,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
       "How hard the worker's model reasons on this task. low — mechanical, fully-specified work where the steps are already known. medium — the everyday default for ordinary research and coding. high — work whose answer benefits from deliberate reasoning. xhigh — the hardest work, where result quality outweighs time and cost. max — the absolute ceiling, on providers that distinguish one from xhigh. Independent of which model runs the worker; ignored by models without reasoning support.",
     );
   const run = async (
+    title: string,
     task: string,
     childModel: string | undefined,
     effort: Effort,
@@ -91,6 +99,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     if (!child) {
       child = createSession(db, childModel ?? parent.model, {
         effort,
+        title,
         parentSessionId,
         parentToolCallId: toolCallId,
       });
@@ -141,6 +150,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
       [DELEGATE_TOOL_NAME]: tool({
         description,
         inputSchema: z.object({
+          title: titleField,
           task: taskField,
           model: z
             .enum(MODEL_TIER_NAMES)
@@ -149,15 +159,16 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
             ),
           effort: effortField,
         }),
-        execute: ({ task, model, effort }, ctx) => run(task, textTiers[model], effort, ctx),
+        execute: ({ title, task, model, effort }, ctx) =>
+          run(title, task, textTiers[model], effort, ctx),
       }),
     };
   }
   return {
     [DELEGATE_TOOL_NAME]: tool({
       description,
-      inputSchema: z.object({ task: taskField, effort: effortField }),
-      execute: ({ task, effort }, ctx) => run(task, undefined, effort, ctx),
+      inputSchema: z.object({ title: titleField, task: taskField, effort: effortField }),
+      execute: ({ title, task, effort }, ctx) => run(title, task, undefined, effort, ctx),
     }),
   };
 }

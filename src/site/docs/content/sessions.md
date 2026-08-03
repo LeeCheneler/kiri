@@ -254,6 +254,8 @@ intermediate results, and your context window stays lean.
   haven't already allowed to run unprompted. If a research worker comes back
   empty-handed, check that first: your search tool probably needs **Always
   allow**.
+- Every delegated task gets a short title from the assistant, naming the work
+  wherever it surfaces — so a batch of parallel workers is easy to tell apart.
 - Workers don't appear in the activity feed, the session list, or search —
   they belong to the conversation that spawned them — but each is a real
   session you can open, and continue, at its own URL. Cancelling a delegated

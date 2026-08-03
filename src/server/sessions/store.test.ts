@@ -65,6 +65,13 @@ describe("sessions store", () => {
     expect(session.effort).toBe("high");
   });
 
+  it("creates a session with a title when one is given", () => {
+    expect(createSession(db, MODEL, { id: "s1" }).title).toBeNull();
+    expect(createSession(db, MODEL, { id: "s2", title: "Pelican census" }).title).toBe(
+      "Pelican census",
+    );
+  });
+
   it("sets the effort level", () => {
     createSession(db, MODEL, { id: "s1" });
 

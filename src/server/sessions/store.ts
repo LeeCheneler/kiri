@@ -21,9 +21,10 @@ export interface NewMessage {
  * Insert a new session against `model` (a `provider:model` id), starting it
  * `idle`. Pass `imageModel` to start with image generation on; it stays
  * swappable via `updateSessionImageModel`. Pass `effort` to start at a level
- * other than the `medium` default. Pass `parentSessionId` (with the spawning
- * `parentToolCallId`) to create a child session; omit them for a top-level
- * one. Returns the persisted row.
+ * other than the `medium` default. Pass `title` to name the session from the
+ * start; it stays editable via `updateSessionTitle`. Pass `parentSessionId`
+ * (with the spawning `parentToolCallId`) to create a child session; omit them
+ * for a top-level one. Returns the persisted row.
  */
 export function createSession(
   db: KiriDb,
@@ -33,6 +34,7 @@ export function createSession(
     startedAt?: Date;
     imageModel?: string;
     effort?: Session["effort"];
+    title?: string;
     parentSessionId?: string;
     parentToolCallId?: string;
   } = {},
@@ -44,6 +46,7 @@ export function createSession(
       status: "idle",
       model,
       imageModel: opts.imageModel ?? null,
+      title: opts.title ?? null,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       startedAt: opts.startedAt ?? new Date(),
       parentSessionId: opts.parentSessionId ?? null,
