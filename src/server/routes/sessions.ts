@@ -122,8 +122,9 @@ const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
-// `imageModel` starts the session with image generation on — the tanto
-// default when image tiers are configured; otherwise it's simply not sent.
+// `imageModel` starts the session with image generation on — the
+// first-shortcut default when image shortcuts are configured; otherwise it's
+// simply not sent.
 const createSessionBodySchema = z
   .object({ model: z.string().min(1), imageModel: z.string().min(1).optional() })
   .strict();

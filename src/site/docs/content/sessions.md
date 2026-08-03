@@ -103,7 +103,7 @@ Opus 4.5 takes `low`/`medium`/`high` only, and earlier thinking models
 those, effort acts through the prompt alone.
 
 Model and effort are orthogonal levers: the model (or
-[tier](/docs/llm-providers)) picks *which* model thinks; effort sets *how
+[shortcut](/docs/llm-providers)) picks *which* model thinks; effort sets *how
 hard* it thinks. Size them independently — a large model can answer briskly
 at `low`, and a small one can take its time at `high`.
 
@@ -297,10 +297,10 @@ intermediate results, and your context window stays lean.
   they belong to the conversation that spawned them — but each is a real
   session you can open, and continue, at its own URL. Cancelling a delegated
   task stops just the worker; the assistant is told and carries on.
-- With [model tiers](/docs/llm-providers) configured, the assistant sizes
-  each worker it spawns by naming a tier — tantō for mechanical legwork,
-  katana as the default, ōdachi where the result depends on reasoning depth.
-  Without tiers, workers run the same model as the conversation.
+- With [delegate models](/docs/llm-providers) configured, the assistant sizes
+  each worker it spawns by naming a role — quick for mechanical legwork,
+  daily as the default, deep where the result depends on reasoning depth.
+  Without them, workers run the same model as the conversation.
 - Every delegation also states the worker's own effort level (above) — low
   for cheap parallel legwork, high for deep synthesis — independent of which
   model runs it, and the worker keeps that level for its whole run.
