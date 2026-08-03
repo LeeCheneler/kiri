@@ -13,6 +13,7 @@ const base: SessionListEntry = {
   model: "local:google/gemma-4-26b-a4b-qat",
   imageModel: null,
   effort: "medium" as const,
+  title: null,
   pinned: false,
   parentSessionId: null,
   parentToolCallId: null,
@@ -50,6 +51,18 @@ describe("<SessionRow>", () => {
     expect(screen.getByText("“").getAttribute("aria-hidden")).toBe("true");
     expect(screen.getByText("”").getAttribute("aria-hidden")).toBe("true");
     expect(container.querySelector(".italic")?.textContent).toBe("Summarise the readme");
+  });
+
+  it("leads with the title, unquoted, over the first-message preview", () => {
+    const { container } = renderRow({ title: "Readme summary" });
+    // A title names the conversation rather than voicing it, so it renders
+    // upright with no quote marks — and wins over the preview.
+    expect(screen.getByRole("link", { name: "Readme summary" }).getAttribute("href")).toBe(
+      "/sessions/abc1234567",
+    );
+    expect(screen.queryByText(/summarise the readme/i)).toBeNull();
+    expect(screen.queryByText("“")).toBeNull();
+    expect(container.querySelector(".italic")).toBeNull();
   });
 
   it("falls back to the short id, unquoted, when no message has been sent", () => {

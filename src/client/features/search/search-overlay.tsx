@@ -48,7 +48,7 @@ const toGroups = (results: SearchResults): ResultGroup[] =>
       rows: results.sessions.map((hit) => ({
         key: `session-${hit.id}`,
         href: `/sessions/${encodeURIComponent(hit.id)}`,
-        label: hit.preview === "" ? "Untitled session" : hit.preview,
+        label: hit.title ?? (hit.preview === "" ? "Untitled session" : hit.preview),
         detail: hit.snippet,
       })),
     },

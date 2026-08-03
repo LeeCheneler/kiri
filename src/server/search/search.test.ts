@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { articles, messages, runs, sessions } from "../db/schema.ts";
@@ -180,6 +181,7 @@ describe("search", () => {
     expect(results.sessions).toEqual([
       {
         id: "sess-2",
+        title: null,
         preview: "",
         snippet: [
           { text: "Unprompted ", match: false },
@@ -188,6 +190,32 @@ describe("search", () => {
         ],
       },
     ]);
+  });
+
+  it("finds a session by its title alone and carries the title on the hit", () => {
+    seedSession("sess-titled");
+    db.update(sessions)
+      .set({ title: "Pelican migration plan" })
+      .where(eq(sessions.id, "sess-titled"))
+      .run();
+
+    const results = search({ db, registry }, "pelican");
+    expect(results.sessions).toHaveLength(1);
+    expect(results.sessions[0]?.id).toBe("sess-titled");
+    expect(results.sessions[0]?.title).toBe("Pelican migration plan");
+    // A title-only match has no matching message to snippet.
+    expect(results.sessions[0]?.snippet).toEqual([]);
+  });
+
+  it("carries the session's title on a message-matched hit", () => {
+    seedSession("sess-both");
+    seedMessage("m1", "sess-both", 0, "user", "Tell me about herons");
+    db.update(sessions).set({ title: "Wading birds" }).where(eq(sessions.id, "sess-both")).run();
+
+    const results = search({ db, registry }, "heron");
+    expect(results.sessions).toHaveLength(1);
+    expect(results.sessions[0]?.title).toBe("Wading birds");
+    expect(results.sessions[0]?.preview).toBe("Tell me about herons");
   });
 
   it("finds a run by its summary and carries the workflow name", () => {

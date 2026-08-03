@@ -10,6 +10,16 @@ can swap a session's model mid-conversation — it applies from the next turn.
 A streaming turn survives a reload: it keeps running on the server, and
 reopening the session rejoins it live.
 
+## Titles
+
+Sessions carry a **title** — the name the session list, activity feed, and
+search results lead with. The assistant names an untitled session itself: a
+short title after its first reply, via the built-in `set_session_title` tool,
+and after that it renames only when you ask ("rename this session"). You can
+rename a session yourself from its page at any time, or clear the title to
+fall back to the untitled default — the session's first message. Titles are
+searchable alongside message text.
+
 ## Shaping behaviour
 
 Kiri composes each turn's system prompt from two layers, in order:
@@ -115,6 +125,7 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
 | `delegate` | Always allow | Workers only hold tools already always-allowed. |
+| `set_session_title` | Always allow | Renames only its own session; reversible. |
 | `run_workflow`, `rerun_workflow` | Ask | Execute your workflows. |
 | Workflow write / edit | Ask | Put runnable YAML in your repo. |
 | Filesystem writes / deletes | Ask | Change your files. |

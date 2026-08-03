@@ -42,6 +42,7 @@ import migration0024 from "../../../drizzle/0024_exclude_child_sessions_from_sea
 import migration0025 from "../../../drizzle/0025_add_run_step_outputs.sql" with { type: "text" };
 import migration0026 from "../../../drizzle/0026_drop_session_persona.sql" with { type: "text" };
 import migration0027 from "../../../drizzle/0027_add_session_effort.sql" with { type: "text" };
+import migration0028 from "../../../drizzle/0028_add_session_title.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -68,7 +69,8 @@ interface Migration {
  * schema, so `search_fts` exists only in SQL. It mirrors `articles`,
  * `messages` (user/assistant text parts), and `runs` (summaries) via
  * triggers — schema changes to those tables must keep the triggers in
- * step.
+ * step. `0028_add_session_title` extends the index with triggers on
+ * `sessions` mirroring each top-level session's title.
  */
 const MIGRATIONS: Migration[] = [
   { name: "0000_initial", sql: migration0000 },
@@ -99,6 +101,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0025_add_run_step_outputs", sql: migration0025 },
   { name: "0026_drop_session_persona", sql: migration0026 },
   { name: "0027_add_session_effort", sql: migration0027 },
+  { name: "0028_add_session_title", sql: migration0028 },
 ];
 
 /**

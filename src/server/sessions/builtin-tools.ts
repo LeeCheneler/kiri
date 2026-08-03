@@ -156,4 +156,9 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     description: "Delegate a self-contained task to an isolated worker session that reports back.",
     defaultPermission: "allow",
   },
+  {
+    name: "set_session_title",
+    description: "Set the session's own title, shown in the session list, feed, and search.",
+    defaultPermission: "allow",
+  },
 ];

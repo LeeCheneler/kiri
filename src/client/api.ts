@@ -750,6 +750,8 @@ export interface Session {
   imageModel: string | null;
   /** How hard the session's model reasons; applied from the next turn like the model. */
   effort: SessionEffort;
+  /** The session's display name, or null when untitled — lists fall back to the preview. */
+  title: string | null;
   /** Whether the user has pinned the session onto the feed's Pinned tab. */
   pinned: boolean;
   /** The parent session this one was spawned from, or null for a top-level session. */
@@ -863,9 +865,10 @@ export interface SearchArticleHit {
   snippet: SearchSnippetSegment[];
 }
 
-/** A session search hit: its feed preview (may be empty) and the best-ranked matching message. */
+/** A session search hit: its title (null when untitled), feed preview (may be empty), and the best-ranked matching message. */
 export interface SearchSessionHit {
   id: string;
+  title: string | null;
   preview: string;
   snippet: SearchSnippetSegment[];
 }
@@ -990,6 +993,24 @@ export const patchSessionEffort = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ effort }),
+    }),
+  );
+
+/**
+ * Rename a session, or pass `null` to clear its title back to the untitled
+ * fallback, returning the updated row. A display field only — the list, feed,
+ * and search results lead with it. Throws `ApiError` on non-2xx (404 for an
+ * unknown session).
+ */
+export const patchSessionTitle = async (
+  id: string,
+  title: string | null,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
     }),
   );
 

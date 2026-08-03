@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ModelTiers, SessionEffort } from "../../api.ts";
 import {
   Combobox,
@@ -8,6 +9,7 @@ import {
   SegmentedControl,
   type SegmentedOption,
 } from "../../design-system/actions/segmented-control.tsx";
+import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
@@ -68,8 +70,49 @@ const providerGroups = (ids: readonly string[]): ComboboxGroup[] => {
   return [...byProvider.entries()].map(([provider, options]) => ({ label: provider, options }));
 };
 
+// The rename control: a text field holding the session's title, committed on
+// blur or Enter (the wrapping form catches Enter's submit). A committed blank
+// clears the title back to the untitled fallback; a committed no-change is
+// dropped rather than PATCHed. The draft re-seeds whenever the stored title
+// changes — the assistant's set_session_title lands through the same session
+// query — so an un-edited field follows along.
+function SessionTitleField({
+  title,
+  onCommit,
+}: {
+  title: string | null;
+  onCommit: (title: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(title ?? "");
+  useEffect(() => {
+    setDraft(title ?? "");
+  }, [title]);
+  const commit = () => {
+    const trimmed = draft.trim();
+    const next = trimmed === "" ? null : trimmed;
+    if (next === (title ?? null)) {
+      setDraft(title ?? "");
+      return;
+    }
+    onCommit(next);
+  };
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        commit();
+      }}
+      onBlur={commit}
+      className="flex flex-col"
+    >
+      <TextInput label="Title" value={draft} onChange={setDraft} placeholder="Untitled" />
+    </form>
+  );
+}
+
 /**
- * The session chat right rail: the session's model (with whether it accepts
+ * The session chat right rail: the session's title (editable — commit renames,
+ * clearing restores the untitled fallback), its model (with whether it accepts
  * image input, when known), the current context fill,
  * and when it started. Reads the same shared session
  * query the chat body uses (no second fetch) and renders nothing until it
@@ -78,7 +121,7 @@ const providerGroups = (ids: readonly string[]): ComboboxGroup[] => {
  */
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
-  const { setModel, setImageModel, setEffort } = useUpdateSession(id);
+  const { setModel, setImageModel, setEffort, setTitle } = useUpdateSession(id);
   const modelsQuery = useModels();
   const modelsData = modelsQuery.data;
   // While the listing is still in flight there is nothing to label the
@@ -143,6 +186,11 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
 
   return (
     <div className="divide-y divide-rule">
+      <section className={SECTION_CLASS}>
+        {/* Renaming never touches the turn, so — like pinning — it stays
+            available while one is in flight. */}
+        <SessionTitleField title={session.title} onCommit={(title) => void setTitle(title)} />
+      </section>
       <section className={SECTION_CLASS}>
         <Combobox
           label="Model"

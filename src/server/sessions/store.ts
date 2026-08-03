@@ -128,6 +128,17 @@ export function updateSessionImageModel(
 }
 
 /**
+ * Set the session's display name, or pass `null` to clear it back to the
+ * untitled fallback. A display field only — the session list, activity feed,
+ * and search results lead with it; execution is unaffected. Returns the
+ * updated row.
+ */
+export function updateSessionTitle(db: KiriDb, id: string, title: string | null): Session {
+  db.update(sessions).set({ title }).where(eq(sessions.id, id)).run();
+  return getSession(db, id) as Session;
+}
+
+/**
  * Pin or unpin a session. A display flag only — pinned sessions surface on the
  * feed's Pinned tab; execution is unaffected. Returns the updated row.
  */

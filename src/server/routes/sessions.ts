@@ -22,6 +22,7 @@ import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   BUILTIN_TOOLS,
   type RunTurnDeps,
+  SESSION_TITLE_MAX_LENGTH,
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermission,
@@ -41,11 +42,13 @@ import {
   imageTools,
   resumeTurn,
   runTurn,
+  sessionTitleTools,
   setSessionPinned,
   shellTools,
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
+  updateSessionTitle,
   workflowTools,
 } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
@@ -123,15 +126,16 @@ const createSessionBodySchema = z
   .object({ model: z.string().min(1), imageModel: z.string().min(1).optional() })
   .strict();
 
-// Any field may be set independently: the aside swaps the models and the pin
-// control flips `pinned`, all through this one endpoint. Omitting a field
-// leaves it unchanged.
+// Any field may be set independently: the aside swaps the models, the pin
+// control flips `pinned`, and the rename control sets `title` (`null` clears
+// it), all through this one endpoint. Omitting a field leaves it unchanged.
 const patchSessionBodySchema = z
   .object({
     model: z.string().min(1).optional(),
     imageModel: z.string().min(1).nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).optional(),
     pinned: z.boolean().optional(),
+    title: z.string().trim().min(1).max(SESSION_TITLE_MAX_LENGTH).nullable().optional(),
   })
   .strict();
 
@@ -268,6 +272,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     return {
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
+      ...sessionTitleTools(db, sessionId, (event) => bus?.publish(event)),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
       ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
@@ -276,8 +281,15 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   // Withheld from a delegate-driven worker regardless of permission: a worker
   // can't spawn workers, and its deliverable is the report — articles it wrote
-  // would ride a hidden session rather than a surface the user sees.
-  const childWithheld = new Set(["delegate", "create_article", "replace_article", "edit_article"]);
+  // would ride a hidden session rather than a surface the user sees, as would
+  // a title it set for itself.
+  const childWithheld = new Set([
+    "delegate",
+    "create_article",
+    "replace_article",
+    "edit_article",
+    "set_session_title",
+  ]);
 
   // The tools a delegate-driven child turn runs with: the same catalogue
   // narrowed to tools whose standing permission is "allow", offered ungated.
@@ -585,7 +597,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model, imageModel, effort, pinned } = c.req.valid("json");
+      const { model, imageModel, effort, pinned, title } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Validate the model resolves now, mirroring create, so a bad id fails the
@@ -613,6 +625,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // maps it to provider parameters (or omits them) when it runs.
       if (effort !== undefined) updateSessionEffort(db, id, effort);
       if (pinned !== undefined) setSessionPinned(db, id, pinned);
+      if (title !== undefined) updateSessionTitle(db, id, title);
       const updated = getSession(db, id) as typeof session;
       // The turn endpoint resolves the model per turn, so a change applies
       // from the next turn. Announce it like any other session change so the

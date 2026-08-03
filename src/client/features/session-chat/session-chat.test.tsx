@@ -233,6 +233,27 @@ describe("<SessionChat>", () => {
     expect(screen.getByText("An answer")).toBeDefined();
   });
 
+  it("heads the page with the session's title, falling back to the short id", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([], { id: "abcdef0123", title: "Postgres upgrade plan" })),
+      ),
+    );
+    renderChat();
+    expect(await screen.findByText("Postgres upgrade plan")).toBeDefined();
+    expect(screen.queryByText("abcdef01")).toBeNull();
+  });
+
+  it("heads the page with the short id while the session is untitled", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([], { id: "abcdef0123", title: null })),
+      ),
+    );
+    renderChat();
+    expect(await screen.findByText("abcdef01")).toBeDefined();
+  });
+
   it("warns when the conversation nears the model's context window", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>

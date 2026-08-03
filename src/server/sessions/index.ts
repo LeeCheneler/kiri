@@ -21,7 +21,9 @@ export {
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
+  updateSessionTitle,
 } from "./store.ts";
+export { SESSION_TITLE_MAX_LENGTH, sessionTitleTools } from "./session-title-tool.ts";
 export { type ShellToolsOptions, shellTools } from "./shell-tools.ts";
 export {
   type StreamRegistry,

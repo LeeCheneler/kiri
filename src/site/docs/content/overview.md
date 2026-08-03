@@ -42,8 +42,8 @@ article in your feed.
   that reports back just the findings. Reach for a session when you don't.
 
 Both land in the same activity feed, and everything they produce is
-searchable — articles, session transcripts, run summaries, and the workflows
-themselves.
+searchable — articles, session titles and transcripts, run summaries, and
+the workflows themselves.
 
 ## Why kiri
 

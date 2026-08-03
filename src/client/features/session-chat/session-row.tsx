@@ -29,8 +29,10 @@ const shortModel = (model: string): string => {
  * session declares itself before the shared status vocabulary takes over. Below, the session's first user message is set
  * as quoted speech: italic display face between accent quotation marks (the
  * "human voice" only sessions carry — run rows' headlines stay upright), the
- * whole line linking through to the chat. Before a message is sent the short
- * id stands in, unquoted and upright — only actual speech gets quote marks.
+ * whole line linking through to the chat. A titled session leads with its
+ * title instead, upright and unquoted — a title names the conversation rather
+ * than voicing it. Before a title or message exists the short id stands in,
+ * likewise unquoted — only actual speech gets quote marks.
  * `now` is injectable so tests render deterministic relative times; production
  * omits it.
  */
@@ -48,7 +50,9 @@ export function SessionRow({ session, now }: { session: SessionListEntry; now?: 
           other in the blended feed; the quoted italic voice differentiates. */}
       <div className="mt-1 text-base">
         <HeadlineLink href={`/sessions/${session.id}`}>
-          {session.preview ? (
+          {session.title ? (
+            session.title
+          ) : session.preview ? (
             <>
               <span aria-hidden="true" className="text-accent">
                 “
