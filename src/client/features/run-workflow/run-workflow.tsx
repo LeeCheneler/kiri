@@ -10,9 +10,17 @@ import { InvokeModal } from "./invoke-modal.tsx";
  * resolves — while workflows declaring inputs open a modal to collect them
  * first. Either way this owns the trigger: it POSTs the run and navigates to the
  * new run's detail on success. A failed bare run surfaces inline beneath the
- * button; a failed modal run surfaces inside the still-open modal.
+ * button; a failed modal run surfaces inside the still-open modal. `size`
+ * follows Button's scale — `lg` (default) as a page's headline action, `sm`
+ * when the control sits inside a dense row.
  */
-export function RunWorkflow({ workflow }: { workflow: WorkflowSummary }) {
+export function RunWorkflow({
+  workflow,
+  size = "lg",
+}: {
+  workflow: WorkflowSummary;
+  size?: "sm" | "lg";
+}) {
   const [, navigate] = useLocation();
   const hasInputs = workflow.inputs !== undefined && workflow.inputs.length > 0;
   const [state, setState] = useState<"idle" | "running">("idle");
@@ -44,12 +52,12 @@ export function RunWorkflow({ workflow }: { workflow: WorkflowSummary }) {
     <div>
       <Button
         variant="primary"
-        size="lg"
+        size={size}
         pending={state === "running"}
         pendingLabel="running…"
         onClick={handleRun}
       >
-        {hasInputs ? "run with inputs" : "run"}
+        run
       </Button>
       {errorMessage && (
         <p role="alert" className="mt-3 font-mono text-sm text-status-failed">
