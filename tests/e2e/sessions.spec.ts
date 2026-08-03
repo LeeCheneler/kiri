@@ -18,14 +18,15 @@ test("starting a session, sending a message, and streaming the reply", async ({ 
   // The composer re-enables once the turn settles, ready for the next message.
   await expect(page.getByLabel(/message/i)).toBeEnabled();
 
-  // Back on the activity feed's Sessions view, the session leads with its first
-  // message as the label.
+  // Back on the activity feed's Sessions view, the session leads with the
+  // title kiri generated off the opening message (the stub answers every
+  // title generation with its fixed title).
   await page
     .getByRole("navigation", { name: /breadcrumb/i })
     .getByRole("link", { name: /^sessions$/i })
     .click();
   await expect(page).toHaveURL("/?view=sessions");
-  await expect(page.getByRole("link", { name: /hello from kiri e2e/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /kiri e2e session/i })).toBeVisible();
 });
 
 test("a settled turn reports the context fill in the rail", async ({ page }) => {
