@@ -34,9 +34,9 @@ test("a settled turn reports the context fill in the rail", async ({ page }) => 
   await sendMessage(page, "count my tokens");
   await expect(page.getByText("You said: count my tokens")).toBeVisible({ timeout: 10_000 });
 
-  // The right rail carries the session marginalia; scope to it so the figure
-  // is unambiguous.
-  const rail = page.getByRole("complementary").filter({ hasText: "Context" });
+  // The right rail carries the session marginalia; scope to it (anchored on
+  // its pin action) so the figure is unambiguous.
+  const rail = page.getByRole("complementary").filter({ hasText: "pin session" });
   await expect(page.getByLabel(/^model/i)).toHaveValue("echo");
   // Context fill is the last settled turn's footprint — the stub reports 20.
   await expect(rail.getByText(/20 tokens/i)).toBeVisible();
