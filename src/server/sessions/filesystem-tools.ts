@@ -75,9 +75,12 @@ const withTrailingNewline = (content: string): string =>
  * back into read_file. Every path is resolved to its real form (defeating
  * `../` traversal and symlink escapes) and must sit inside one of
  * `getAllowedDirectories()` — read live per call, so a `kiri.yaml` edit
- * applies on the next call. Hidden (dot-prefixed) paths within the sandbox are
- * outside the tool surface entirely: never listed, searched, or readable —
- * they hold secrets (`.env`, `.kiri/`) more often than not. Results are
+ * applies on the next call. Hidden (dot-prefixed) paths are reachable like any
+ * other, bar a narrow denylist that stays outside the tool surface entirely:
+ * `.git` internals (thousands of object files that would drown every broad
+ * find) and secret-bearing files (`.env*`, kiri's own MCP credential store) —
+ * reads run on the sandbox's authority alone, with no per-call approval to
+ * catch a secret entering the transcript. Results are
  * capped, with a note naming the recovery (narrow the pattern) when cut.
  * Expected failures throw with a message naming the call that recovers,
  * surfaced to the model as a tool error so the turn self-corrects.
@@ -137,13 +140,20 @@ export function filesystemTools(
   const within = (dirs: string[], real: string): string | undefined =>
     dirs.find((dir) => real === dir || real.startsWith(dir + sep));
 
-  // Whether `real` sits under a dot-prefixed segment inside `root`. Also true
-  // for a path that escapes `root` (its relative form starts with ".."), which
+  // Entry names the tools never touch, even though hidden (dot-prefixed)
+  // paths are otherwise reachable: `.git` internals, and the files that hold
+  // secrets — `.env*` and kiri's MCP credential store — because reads carry no
+  // per-call approval to catch a secret entering the transcript.
+  const isBlockedName = (name: string): boolean =>
+    name === ".git" || name.startsWith(".env") || name === "mcp-credentials.json";
+
+  // Whether `real` sits under a blocked segment inside `root`. Also true for
+  // a path that escapes `root` (its relative form starts with ".."), which
   // callers treat the same way: not part of this root's visible tree.
-  const isHiddenWithin = (root: string, real: string): boolean =>
-    relative(root, real)
-      .split(sep)
-      .some((segment) => segment.startsWith("."));
+  const isBlockedWithin = (root: string, real: string): boolean => {
+    const segments = relative(root, real).split(sep);
+    return segments[0] === ".." || segments.some(isBlockedName);
+  };
 
   const describeSandbox = (dirs: string[]): string =>
     dirs.length === 0 ? "none are configured" : dirs.map((dir) => `"${dir}"`).join(", ");
@@ -157,7 +167,7 @@ export function filesystemTools(
   };
 
   // Reject — as a recoverable tool error — a resolved path that sits outside
-  // every sandbox directory or under a hidden segment within one.
+  // every sandbox directory or under a blocked segment within one.
   const requireWithin = (dirs: string[], userPath: string, real: string): void => {
     const root = within(dirs, real);
     if (root === undefined) {
@@ -165,9 +175,9 @@ export function filesystemTools(
         `"${userPath}" is outside the directories the filesystem tools may access (${describeSandbox(dirs)}) — stay inside them.`,
       );
     }
-    if (isHiddenWithin(root, real)) {
+    if (isBlockedWithin(root, real)) {
       throw new Error(
-        `"${userPath}" is a hidden (dot-prefixed) path — hidden files are outside the filesystem tools' reach.`,
+        `"${userPath}" is off-limits — .git internals and secret-bearing files (.env*, mcp-credentials.json) are outside the filesystem tools' reach.`,
       );
     }
   };
@@ -192,7 +202,7 @@ export function filesystemTools(
   // read — so a symlink is judged by where it points, and a broken one is
   // rejected outright rather than written through. A missing one confines the
   // nearest existing ancestor, then re-checks the full target so an escaping
-  // or hidden suffix is rejected before anything touches disk. Returns the
+  // or blocked suffix is rejected before anything touches disk. Returns the
   // real target path and whether an entry already exists there.
   const confineTarget = (userPath: string): { real: string; exists: boolean } => {
     const dirs = sandboxDirs();
@@ -234,23 +244,26 @@ export function filesystemTools(
     directory === undefined ? sandboxDirs() : [confineDir(directory)];
 
   // Glob `pattern` under `root`, yielding real absolute paths that are visible
-  // (not hidden, not symlinked out of the sandbox), sorted for determinism.
+  // (not blocked, not symlinked out of the sandbox), sorted for determinism.
   const visibleMatches = (root: string, pattern: string, dirs: string[]): string[] => {
     const matches: string[] = [];
     const glob = new Bun.Glob(pattern);
     for (const path of glob.scanSync({
       cwd: root,
       absolute: true,
-      dot: false,
+      dot: true,
       followSymlinks: false,
       onlyFiles: true,
     })) {
+      // Checked on the scanned path first — cheap string work that spares a
+      // realpath syscall per `.git` object file on a broad pattern.
+      if (isBlockedWithin(root, path)) continue;
       // Scanning with followSymlinks off yields no symlinks at all (valid or
       // broken), so this resolves to the path itself today — kept as defence
       // in depth so a change in the scanner's symlink posture can't quietly
       // leak a path out of the sandbox.
       const real = realpathSync(path);
-      if (within(dirs, real) === undefined || isHiddenWithin(root, real)) continue;
+      if (within(dirs, real) === undefined || isBlockedWithin(root, real)) continue;
       matches.push(real);
     }
     return matches.sort();
@@ -259,7 +272,7 @@ export function filesystemTools(
   return {
     find_files: tool({
       description:
-        'Find files by name in the directories kiri may access: give a glob pattern (e.g. "**/*.md", "*.yaml") and get back the matching files\' absolute paths. Searches every allowed directory unless directory narrows it. Hidden (dot-prefixed) files and directories are never included. Call it to discover what exists before read_file, or to check a path; a result that notes truncation means the pattern was too broad — narrow it.',
+        'Find files by name in the directories kiri may access: give a glob pattern (e.g. "**/*.md", "*.yaml") and get back the matching files\' absolute paths. Searches every allowed directory unless directory narrows it. Hidden (dot-prefixed) files are included; .git internals and secret-bearing files (.env*, credential stores) never are. Call it to discover what exists before read_file, or to check a path; a result that notes truncation means the pattern was too broad — narrow it.',
       inputSchema: z.object({
         pattern: z
           .string()
@@ -294,7 +307,7 @@ export function filesystemTools(
 
     list_directory: tool({
       description:
-        'List a directory\'s immediate entries in the directories kiri may access, by absolute path; directories in the result end with "/". Use it to orient in an unfamiliar directory one level at a time — reach for find_files when you already know a name pattern, and search_files for contents. Hidden (dot-prefixed) entries are never included.',
+        'List a directory\'s immediate entries in the directories kiri may access, by absolute path; directories in the result end with "/". Use it to orient in an unfamiliar directory one level at a time — reach for find_files when you already know a name pattern, and search_files for contents. Hidden (dot-prefixed) entries are included; .git and secret-bearing entries (.env*, credential stores) never are.',
       inputSchema: z.object({
         path: z.string().min(1).describe("Absolute path of the directory to list."),
       }),
@@ -303,7 +316,7 @@ export function filesystemTools(
         const dirs = sandboxDirs();
         const entries: string[] = [];
         for (const entry of readdirSync(real, { withFileTypes: true })) {
-          if (entry.name.startsWith(".")) continue;
+          if (isBlockedName(entry.name)) continue;
           let isDirectory: boolean;
           if (entry.isSymbolicLink()) {
             // A symlinked entry is shown only when it resolves inside the
@@ -336,7 +349,7 @@ export function filesystemTools(
 
     read_file: tool({
       description:
-        "Read a text file from the directories kiri may access, by absolute path — exactly as find_files reports it. Binary files, hidden (dot-prefixed) paths, and paths outside the allowed directories are rejected. A file too large to return in full comes back truncated with a note — reach for search_files to pinpoint the relevant part of a big file instead of reading it whole.",
+        "Read a text file from the directories kiri may access, by absolute path — exactly as find_files reports it. Binary files, .git internals, secret-bearing files (.env*, credential stores), and paths outside the allowed directories are rejected. A file too large to return in full comes back truncated with a note — reach for search_files to pinpoint the relevant part of a big file instead of reading it whole.",
       inputSchema: z.object({
         path: z
           .string()
@@ -369,7 +382,7 @@ export function filesystemTools(
 
     search_files: tool({
       description:
-        'Search file contents in the directories kiri may access: a regular expression (JavaScript syntax) matched against each line, returning the absolute file path, line number, and line text of every match. Prefer a tight scope: narrow with directory and an include glob (e.g. "**/*.yaml") rather than searching everything. Binary files, very large files, and hidden (dot-prefixed) paths are skipped. A result that notes truncation means the pattern was too broad — tighten it.',
+        'Search file contents in the directories kiri may access: a regular expression (JavaScript syntax) matched against each line, returning the absolute file path, line number, and line text of every match. Prefer a tight scope: narrow with directory and an include glob (e.g. "**/*.yaml") rather than searching everything. Binary files, very large files, .git internals, and secret-bearing files (.env*, credential stores) are skipped. A result that notes truncation means the pattern was too broad — tighten it.',
       inputSchema: z.object({
         pattern: z
           .string()
@@ -435,7 +448,7 @@ export function filesystemTools(
 
     write_file: tool({
       description:
-        "Write a text file in the directories kiri may access, by absolute path — creating it (missing parent directories are created too) or overwriting it wholesale. Prefer edit_file for a targeted change to an existing file, and read_file first so an overwrite starts from the file's current contents. Hidden (dot-prefixed) paths, binary files, and paths outside the allowed directories are rejected.",
+        "Write a text file in the directories kiri may access, by absolute path — creating it (missing parent directories are created too) or overwriting it wholesale. Prefer edit_file for a targeted change to an existing file, and read_file first so an overwrite starts from the file's current contents. Binary files, .git internals, secret-bearing paths (.env*, credential stores), and paths outside the allowed directories are rejected.",
       inputSchema: z.object({
         path: z.string().min(1).describe("Absolute path of the file to write."),
         content: z.string().describe("The full contents the file should hold."),
@@ -544,7 +557,7 @@ export function filesystemTools(
 
     delete_directory: tool({
       description:
-        "Delete a directory in the directories kiri may access, by absolute path. An empty directory is removed outright; deleting one with contents requires recursive, which removes everything inside it — including hidden (dot-prefixed) files the other filesystem tools never touch. Deletion is permanent — there is no undo.",
+        "Delete a directory in the directories kiri may access, by absolute path. An empty directory is removed outright; deleting one with contents requires recursive, which removes everything inside it — including .git internals and secret-bearing files the other filesystem tools never touch. Deletion is permanent — there is no undo.",
       inputSchema: z.object({
         path: z.string().min(1).describe("Absolute path of the directory to delete."),
         recursive: z
