@@ -7,7 +7,7 @@ import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useWorkflows } from "../../state/workflows.ts";
-import { WorkflowCard } from "./workflow-card.tsx";
+import { WorkflowRow } from "./workflow-row.tsx";
 
 type Group = { heading: string; workflows: WorkflowSummary[] };
 
@@ -46,19 +46,19 @@ const partition = (
   return { ungrouped, groups };
 };
 
-function CardGrid({ workflows, now }: { workflows: WorkflowSummary[]; now?: Date }) {
+function RowList({ workflows, now }: { workflows: WorkflowSummary[]; now?: Date }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="divide-y divide-rule">
       {workflows.map((workflow) => (
-        <WorkflowCard key={workflow.name} workflow={workflow} now={now} />
+        <WorkflowRow key={workflow.name} workflow={workflow} now={now} />
       ))}
     </div>
   );
 }
 
 /**
- * The workflow catalogue: a searchable, grouped grid of every registered
- * workflow, each a launchable card. Ungrouped workflows lead; named groups
+ * The workflow catalogue: a searchable, grouped list of every registered
+ * workflow, each a launchable row. Ungrouped workflows lead; named groups
  * follow under their heading. The filter matches name, description, and group.
  * Reads the live workflows registry, so additions and removals reflect without
  * a reload. `now` is injectable so tests render deterministic relative times.
@@ -113,13 +113,13 @@ function Body({
 
   const { ungrouped, groups } = partition(matched);
   return (
-    <div className="space-y-10">
-      {ungrouped.length > 0 ? <CardGrid workflows={ungrouped} now={now} /> : null}
+    <div className="space-y-8">
+      {ungrouped.length > 0 ? <RowList workflows={ungrouped} now={now} /> : null}
       {groups.map((group) => (
         <section key={group.heading}>
           <Eyebrow>{group.heading}</Eyebrow>
-          <div className="mt-4">
-            <CardGrid workflows={group.workflows} now={now} />
+          <div className="mt-1">
+            <RowList workflows={group.workflows} now={now} />
           </div>
         </section>
       ))}

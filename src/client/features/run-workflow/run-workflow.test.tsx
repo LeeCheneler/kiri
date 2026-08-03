@@ -52,7 +52,7 @@ describe("<RunWorkflow>", () => {
     );
     renderRun(wf({ inputs: [{ name: "topic", required: true }] }));
 
-    await user.click(screen.getByRole("button", { name: /run with inputs/i }));
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
 
     expect(screen.getByRole("dialog")).toBeDefined();
     expect(posted).toEqual([]);
@@ -62,7 +62,7 @@ describe("<RunWorkflow>", () => {
     const user = userEvent.setup();
     renderRun(wf({ inputs: [{ name: "topic", required: true }] }));
 
-    await user.click(screen.getByRole("button", { name: /run with inputs/i }));
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
     expect(screen.getByRole("dialog")).toBeDefined();
 
     await user.click(screen.getByRole("button", { name: /^cancel$/i }));
@@ -94,7 +94,7 @@ describe("<RunWorkflow>", () => {
     );
     const { history } = renderRun(wf({ inputs: [{ name: "topic", required: true }] }));
 
-    await user.click(screen.getByRole("button", { name: /run with inputs/i }));
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
     await user.type(screen.getByRole("textbox", { name: /topic/i }), "chips");
     await user.click(screen.getByRole("button", { name: /run →/i }));
 
