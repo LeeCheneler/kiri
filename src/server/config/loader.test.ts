@@ -428,7 +428,7 @@ mcp:
     expect(loadKiriConfig(config, {}).models).toEqual({ shortcuts: {}, delegates: {} });
   });
 
-  it("passes configured shortcuts and delegates through verbatim (resolved at use, not load)", () => {
+  it("passes configured shortcuts, delegates, and utility through verbatim (resolved at use, not load)", () => {
     write(
       cwd,
       `models:
@@ -439,6 +439,7 @@ mcp:
   delegates:
     daily: a:mid
     deep: a:big
+  utility: a:small
 `,
     );
     const result = loadKiriConfig(config, {});
@@ -446,7 +447,15 @@ mcp:
     expect(result.models).toEqual({
       shortcuts: { text: { sonnet: "a:mid", haiku: "a:small" } },
       delegates: { daily: "a:mid", deep: "a:big" },
+      utility: "a:small",
     });
+  });
+
+  it("omits the utility key entirely when unconfigured", () => {
+    write(cwd, "models:\n  delegates: { daily: a:mid }\n");
+    const result = loadKiriConfig(config, {});
+    expect(result.failure).toBeUndefined();
+    expect("utility" in result.models).toBe(false);
   });
 
   it("empties the models config on a failed load (fail closed)", () => {

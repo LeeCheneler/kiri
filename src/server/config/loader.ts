@@ -174,13 +174,14 @@ function loadConfigFile(
   const shellDirectories = (result.data.shell?.working_directories ?? []).map((dir) =>
     resolve(config.cwd(), expandHome(dir)),
   );
-  // Shortcut and delegate values are `provider:model` references kept
-  // verbatim: they resolve at use (session create, patch, delegation spawn),
-  // so re-pointing a name changes future work without rewriting what past
-  // sessions ran on.
+  // Shortcut, delegate, and utility values are `provider:model` references
+  // kept verbatim: they resolve at use (session create, patch, delegation
+  // spawn, an internal one-off call), so re-pointing a name changes future
+  // work without rewriting what past sessions ran on.
   const models: ModelsConfig = {
     shortcuts: result.data.models?.shortcuts ?? {},
     delegates: result.data.models?.delegates ?? {},
+    ...(result.data.models?.utility !== undefined ? { utility: result.data.models.utility } : {}),
   };
   return { providers, mcp, mcpUnresolved, models, allowedDirectories, shellDirectories };
 }

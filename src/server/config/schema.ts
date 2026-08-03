@@ -80,10 +80,15 @@ const modelsSchema = z
   .object({
     shortcuts: modelShortcutsSchema.optional(),
     delegates: modelDelegatesSchema.optional(),
+    utility: modelRef
+      .optional()
+      .describe(
+        "The model kiri itself uses for small internal one-off generations, such as naming a new session. A `provider:model` reference — point it at a fast, cheap model (a local one works well). Unset, each internal call falls back to the model of the session it serves.",
+      ),
   })
   .strict()
   .describe(
-    "Model configuration: `shortcuts` pin your named favourites to the top of the session pickers, `delegates` size the workers the assistant delegates to. All references resolve at use.",
+    "Model configuration: `shortcuts` pin your named favourites to the top of the session pickers, `delegates` size the workers the assistant delegates to, `utility` runs kiri's own small internal generations. All references resolve at use.",
   );
 
 /** One modality's named shortcuts, `name → provider:model`, in config order. */
@@ -108,6 +113,8 @@ export type ModelDelegates = Partial<Record<DelegateRole, string>>;
 export interface ModelsConfig {
   shortcuts: ModelShortcutsConfig;
   delegates: ModelDelegates;
+  /** The model for kiri's internal one-off generations; absent when unconfigured. */
+  utility?: string;
 }
 
 /** The delegate roles that have a model configured, lightest first. */

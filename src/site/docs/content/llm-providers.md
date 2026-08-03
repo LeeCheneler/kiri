@@ -116,6 +116,21 @@ With any roles configured, the assistant names one per task it
 [delegates](/docs/sessions) and the worker runs that role's model, resolved
 at spawn. Without them, workers run the same model as the conversation.
 
+## Utility model
+
+Optionally set the model kiri itself uses for small internal generations —
+naming a new session off its opening message, for instance — under
+`models.utility:`:
+
+```yaml
+models:
+  utility: anthropic:claude-haiku-4-5
+```
+
+These calls are tiny, so a fast, cheap model is the right fit — a
+[local model](#local-models) works well and keeps them off the meter
+entirely. Unset, each call falls back to the model of the session it serves.
+
 Without a `models:` section, nothing changes: pickers list models as usual
 and new sessions default to the most recent session's model.
 
