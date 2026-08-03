@@ -105,6 +105,8 @@ Run it again — same data, but now the article reads like a colleague wrote it.
   session file sandbox. Committed.
 - **`.env`** — secrets, auto-loaded at boot. Git-ignored.
 - **`kiri.md`** — standing instructions for [sessions](/docs/sessions).
+- **`skills/`** — on-demand instruction packs for sessions, one
+  `<name>/SKILL.md` per skill. Committed.
 - **`.kiri/`** — editor schemas and run scratch space. Git-ignored by `kiri init`.
 
 Configuration problems never block boot — kiri prints a health report at
