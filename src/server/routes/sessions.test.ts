@@ -782,6 +782,38 @@ describe("sessions routes", () => {
       expect(unpin.status).toBe(200);
       expect(getSession(env.db, "s1")?.pinned).toBe(false);
     });
+
+    it("renames and un-titles the session and publishes session.updated", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      expect(getSession(env.db, "s1")?.title).toBeNull();
+
+      const res = await patchBody(app, "s1", { title: "  Postgres upgrade plan  " });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { session: { title: string | null } };
+      // The schema trims, so surrounding whitespace never reaches storage.
+      expect(body.session.title).toBe("Postgres upgrade plan");
+      expect(getSession(env.db, "s1")?.title).toBe("Postgres upgrade plan");
+      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+
+      const cleared = await patchBody(app, "s1", { title: null });
+
+      expect(cleared.status).toBe(200);
+      expect(getSession(env.db, "s1")?.title).toBeNull();
+    });
+
+    it("rejects a blank or over-long title and leaves it unchanged", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      expect((await patchBody(app, "s1", { title: "   " })).status).toBe(400);
+      expect((await patchBody(app, "s1", { title: "x".repeat(121) })).status).toBe(400);
+      expect(getSession(env.db, "s1")?.title).toBeNull();
+    });
   });
 
   describe("POST /api/sessions/:id/messages", () => {
@@ -911,6 +943,30 @@ describe("sessions routes", () => {
       expect(row?.slug).toBe("pr-digest");
       expect(row?.contentMd).toBe("# PR Digest\n\nBody.");
       expect(seen).toContainEqual({ type: "article.written", sessionId: "s1", slug: "pr-digest" });
+    });
+
+    it("runs set_session_title straight through, titling the session and announcing it", async () => {
+      const input = JSON.stringify({ title: "Pelican research" });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
+      const app = makeApp(fakeClients({ model: toolCallModel("set_session_title", input) }), {
+        bus,
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "tell me about pelicans")).text();
+      await settled;
+
+      // Standing allow: no approval pause — the tool ran and the model
+      // answered in the same turn, and the rename announced like any other
+      // session change so open views refresh.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      expect(toolPartOf(rows[1]).output).toEqual({ title: "Pelican research" });
+      expect(getSession(env.db, "s1")?.title).toBe("Pelican research");
+      expect(seen).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
     });
 
     it("withholds an off article tool and drops its guidance from the prompt", async () => {
@@ -1617,6 +1673,7 @@ describe("sessions routes", () => {
       expect(childToolNames).toContain("read_article");
       expect(childToolNames).not.toContain("delegate");
       expect(childToolNames).not.toContain("create_article");
+      expect(childToolNames).not.toContain("set_session_title");
       expect(childToolNames).not.toContain("run_workflow");
     });
   });

@@ -12,6 +12,7 @@ import { BUILTIN_TOOLS } from "./builtin-tools.ts";
 import { delegateTool } from "./delegate-tool.ts";
 import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
+import { sessionTitleTools } from "./session-title-tool.ts";
 import { shellTools } from "./shell-tools.ts";
 import { workflowTools } from "./workflow-tools.ts";
 
@@ -52,6 +53,7 @@ describe("BUILTIN_TOOLS", () => {
     const offered = {
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
       ...articleTools(db, "session-1", () => {}),
+      ...sessionTitleTools(db, "session-1", () => {}),
       ...filesystemTools(() => [dir]),
       ...shellTools(() => [dir]),
       ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
