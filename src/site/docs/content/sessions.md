@@ -48,8 +48,10 @@ models, `reasoning_effort` for OpenAI and OpenAI-compatible endpoints. Like
 a model swap, a change applies from the next turn.
 
 The ladder matches Anthropic's exactly, so `max` is distinct from `xhigh`
-only on an `anthropic` provider; OpenAI-style endpoints top out at `xhigh`,
-and `max` sends that. Older Claude generations accept fewer levels, and kiri
+only on an `anthropic` provider. OpenAI-style endpoints top out at `xhigh` —
+kiri sends `reasoning_effort` with `max` sent as `xhigh`, and the host
+applies it when the model supports it (other levels pass through as
+requested). Older Claude generations accept fewer levels, and kiri
 clamps to what each takes: the 4.6 family has no `xhigh` (it sends `high`),
 Opus 4.5 takes `low`/`medium`/`high` only, and earlier thinking models
 (Claude 3.7, Sonnet 4.5, Haiku 4.5) predate the parameter entirely — for

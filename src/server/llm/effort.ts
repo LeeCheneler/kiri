@@ -10,11 +10,12 @@ export type Effort = (typeof EFFORT_LEVELS)[number];
 /** Provider options for one model call, keyed by the provider-options name the AI SDK reads. */
 export type EffortProviderOptions = Record<string, Record<string, JSONValue>>;
 
-// OpenAI-style `reasoning_effort` (Chat Completions, and OpenRouter's unified
-// enum on openai-compatible endpoints) tops out at "xhigh" — there is no
-// "max" — so kiri's max sends the provider's top. Levels below it pass
-// through as requested: a model that doesn't take a given level rejects it
-// like any other provider error rather than being silently clamped.
+// OpenAI-style `reasoning_effort` — Chat Completions, and the same setting
+// on openai-compatible endpoints, applied by the host when the model
+// supports it — tops out at "xhigh" with no "max", so kiri's max sends the
+// top. Levels below it pass through as requested: a model that doesn't take
+// a given level rejects it like any other provider error rather than being
+// silently clamped.
 const OPENAI_REASONING_EFFORT: Record<Effort, string> = {
   low: "low",
   medium: "medium",
