@@ -65,7 +65,15 @@ const providerGroups = (ids: readonly string[]): ComboboxGroup[] => {
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
   const { setModel, setImageModel } = useUpdateSession(id);
-  const modelsData = useModels().data;
+  const modelsQuery = useModels();
+  const modelsData = modelsQuery.data;
+  // While the listing is still in flight there is nothing to label the
+  // committed value with: the pinned-current fallback would show the bare
+  // model name and then be relabelled the moment the listing lands (a tier
+  // model becomes its tier name) — a visible flash. Until the query settles
+  // the pickers render the value with a blank label, disabled. A failed query
+  // settles too, so the fallback label then applies and stays stable.
+  const modelsPending = modelsQuery.isPending;
   const models = modelsData?.models ?? [];
   const modelFailures = modelsData?.failures ?? [];
   if (!detail) return null;
@@ -81,7 +89,9 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const withCurrent = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
   // Configured tiers lead the picker as the pinned "kiri" group; the full
   // listing follows, one group per provider.
-  const modelOptions = [...tierGroup(modelsData?.tiers?.text), ...providerGroups(withCurrent)];
+  const modelOptions = modelsPending
+    ? [{ options: [{ value: session.model, label: "" }] }]
+    : [...tierGroup(modelsData?.tiers?.text), ...providerGroups(withCurrent)];
   const turnInFlight = session.status === "running";
 
   // Whether the selected model accepts image input, when its provider's
@@ -98,11 +108,23 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
     session.imageModel && !imageModelIds.includes(session.imageModel)
       ? [session.imageModel, ...imageModelIds]
       : imageModelIds;
-  const imageModelOptions = [
-    ...tierGroup(modelsData?.tiers?.image),
-    { options: [IMAGE_MODEL_NONE] },
-    ...providerGroups(withCurrentImageModel),
-  ];
+  // While pending, only a committed model id is blanked — the `None` label
+  // is stable (nothing in the listing ever relabels it), so it never flashes.
+  const imageModelOptions = modelsPending
+    ? [
+        {
+          options: [
+            session.imageModel
+              ? { value: session.imageModel, label: "" }
+              : { value: IMAGE_MODEL_NONE, label: IMAGE_MODEL_NONE },
+          ],
+        },
+      ]
+    : [
+        ...tierGroup(modelsData?.tiers?.image),
+        { options: [IMAGE_MODEL_NONE] },
+        ...providerGroups(withCurrentImageModel),
+      ];
   const showImageModel = withCurrentImageModel.length > 0;
 
   return (
@@ -112,7 +134,7 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           label="Model"
           options={modelOptions}
           value={session.model}
-          disabled={turnInFlight}
+          disabled={turnInFlight || modelsPending}
           onChange={(model) => void setModel(model)}
         />
         {imageInput !== undefined ? (
@@ -143,7 +165,7 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
             label="Image model"
             options={imageModelOptions}
             value={session.imageModel ?? IMAGE_MODEL_NONE}
-            disabled={turnInFlight}
+            disabled={turnInFlight || modelsPending}
             onChange={(value) => void setImageModel(value === IMAGE_MODEL_NONE ? null : value)}
           />
         </section>

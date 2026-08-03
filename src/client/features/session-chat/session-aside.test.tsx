@@ -34,15 +34,54 @@ const assistantMessage = (contextTokens: number | null) => ({
 const renderAside = (ui: ReactNode) =>
   render(<QueryClientProvider client={createQueryClient()}>{ui}</QueryClientProvider>);
 
+// The pickers render blank and disabled until the models listing settles, so
+// tests asserting or driving the loaded labels anchor on the enabled control.
+const loadedCombobox = async (name: RegExp): Promise<HTMLInputElement> => {
+  const combobox = (await screen.findByRole("combobox", { name })) as HTMLInputElement;
+  await waitFor(() => expect(combobox.disabled).toBe(false));
+  return combobox;
+};
+
 describe("<SessionAside>", () => {
   it("renders the session's model", async () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
     renderAside(<SessionAside id="s1" now={new Date("2026-05-09T12:00:30.000Z")} />);
 
-    const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
+    const combobox = await loadedCombobox(/model/i);
     // The provider group heading names the provider, so the option label —
     // and the closed input — carry the bare model name.
     expect(combobox.value).toBe("claude");
+  });
+
+  it("labels nothing while the model listing loads, then resolves the tier name", async () => {
+    // Gate the listing so the in-flight window is observable.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail({ model: "a:small" }))),
+      http.get("*/api/models", async () => {
+        await gate;
+        return HttpResponse.json({
+          models: [{ id: "a:small", provider: "a", output: "text" }],
+          failures: [],
+          tiers: { text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" } },
+        });
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    // While the listing is in flight the closed input must not show the bare
+    // committed value — the label that would immediately be replaced.
+    const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
+    expect(combobox.value).toBe("");
+    expect(combobox.disabled).toBe(true);
+
+    release();
+    // Once settled, the tier group labels the value — no intermediate label.
+    await waitFor(() => expect(combobox.value).toBe("tanto"));
+    expect(combobox.disabled).toBe(false);
   });
 
   it("changes the session's model when another is picked", async () => {
@@ -65,7 +104,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
+    const combobox = await loadedCombobox(/model/i);
     await userEvent.click(combobox);
     await userEvent.click(screen.getByRole("option", { name: "gpt" }));
 
@@ -94,7 +133,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    await userEvent.click(await screen.findByRole("combobox", { name: /model/i }));
+    await userEvent.click(await loadedCombobox(/model/i));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
       "claude",
       "gemini",
@@ -124,7 +163,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    await userEvent.click(await screen.findByRole("combobox", { name: /^model/i }));
+    await userEvent.click(await loadedCombobox(/^model/i));
     // Tier entries carry the tier name alone; the listing follows grouped by
     // provider with bare model-name labels.
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
@@ -164,7 +203,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    await userEvent.click(await screen.findByRole("combobox", { name: /image model/i }));
+    await userEvent.click(await loadedCombobox(/image model/i));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
       "tanto",
       "katana",
@@ -189,7 +228,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    await userEvent.click(await screen.findByRole("combobox", { name: /^model/i }));
+    await userEvent.click(await loadedCombobox(/^model/i));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["claude"]);
   });
 
@@ -260,7 +299,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    await userEvent.click(await screen.findByRole("combobox", { name: /image model/i }));
+    await userEvent.click(await loadedCombobox(/image model/i));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
       "None",
       "gpt-image-1",
@@ -303,9 +342,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const combobox = (await screen.findByRole("combobox", {
-      name: /image model/i,
-    })) as HTMLInputElement;
+    const combobox = await loadedCombobox(/image model/i);
     await userEvent.click(combobox);
     await userEvent.click(screen.getByRole("option", { name: "google/gemini-image" }));
 
@@ -335,9 +372,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const combobox = (await screen.findByRole("combobox", {
-      name: /image model/i,
-    })) as HTMLInputElement;
+    const combobox = await loadedCombobox(/image model/i);
     expect(combobox.value).toBe("google/gemini-image");
     await userEvent.click(combobox);
     await userEvent.click(screen.getByRole("option", { name: "None" }));
@@ -354,9 +389,7 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const combobox = (await screen.findByRole("combobox", {
-      name: /image model/i,
-    })) as HTMLInputElement;
+    const combobox = await loadedCombobox(/image model/i);
     expect(combobox.value).toBe("delisted-image");
   });
 
