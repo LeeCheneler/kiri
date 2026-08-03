@@ -116,15 +116,15 @@ describe("<NewSessionButton>", () => {
     await waitFor(() => expect(sentModel).toBe("openai:gpt"));
   });
 
-  it("starts on the tanto tiers, not the most recent model, when tiers are configured", async () => {
+  it("starts on the first shortcuts, not the most recent model, when shortcuts are configured", async () => {
     let sent: { model?: string; imageModel?: string } = {};
     server.use(
       http.get("*/api/models", () =>
         HttpResponse.json({
           ...models("openai:gpt"),
-          tiers: {
-            text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
-            image: { tanto: "b:small", katana: "b:mid", odachi: "b:big" },
+          shortcuts: {
+            text: { flash: "a:small", pro: "a:mid" },
+            image: { images: "b:small", fancy: "b:big" },
           },
         }),
       ),
@@ -144,13 +144,13 @@ describe("<NewSessionButton>", () => {
     await waitFor(() => expect(sent).toEqual({ model: "a:small", imageModel: "b:small" }));
   });
 
-  it("starts with no image model when only text tiers are configured", async () => {
+  it("starts with no image model when only text shortcuts are configured", async () => {
     let sent: { model?: string; imageModel?: string } = {};
     server.use(
       http.get("*/api/models", () =>
         HttpResponse.json({
           ...models("openai:gpt"),
-          tiers: { text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" } },
+          shortcuts: { text: { flash: "a:small", pro: "a:mid" } },
         }),
       ),
       http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),

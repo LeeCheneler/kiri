@@ -55,7 +55,7 @@ describe("<SessionAside>", () => {
     expect(combobox.value).toBe("claude");
   });
 
-  it("labels nothing while the model listing loads, then resolves the tier name", async () => {
+  it("labels nothing while the model listing loads, then resolves the shortcut name", async () => {
     // Gate the listing so the in-flight window is observable.
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -68,7 +68,7 @@ describe("<SessionAside>", () => {
         return HttpResponse.json({
           models: [{ id: "a:small", provider: "a", output: "text" }],
           failures: [],
-          tiers: { text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" } },
+          shortcuts: { text: { flash: "a:small", pro: "a:mid" } },
         });
       }),
     );
@@ -81,8 +81,8 @@ describe("<SessionAside>", () => {
     expect(combobox.disabled).toBe(true);
 
     release();
-    // Once settled, the tier group labels the value — no intermediate label.
-    await waitFor(() => expect(combobox.value).toBe("tanto"));
+    // Once settled, the shortcut group labels the value — no intermediate label.
+    await waitFor(() => expect(combobox.value).toBe("flash"));
     expect(combobox.disabled).toBe(false);
   });
 
@@ -147,7 +147,7 @@ describe("<SessionAside>", () => {
     }
   });
 
-  it("pins the configured text tiers ahead of the full model listing", async () => {
+  it("pins the configured text shortcuts, in config order, ahead of the full model listing", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
       http.get("*/api/models", () =>
@@ -157,8 +157,8 @@ describe("<SessionAside>", () => {
             { id: "openai:gpt", provider: "openai", output: "text" },
           ],
           failures: [],
-          tiers: {
-            text: { tanto: "openai:gpt", katana: "anthropic:claude", odachi: "anthropic:claude" },
+          shortcuts: {
+            text: { gpt: "openai:gpt", sonnet: "anthropic:claude" },
           },
         }),
       ),
@@ -166,22 +166,21 @@ describe("<SessionAside>", () => {
     renderAside(<SessionAside id="s1" />);
 
     await userEvent.click(await loadedCombobox(/^model/i));
-    // Tier entries carry the tier name alone; the listing follows grouped by
-    // provider with bare model-name labels.
+    // Shortcut entries carry the shortcut name alone, in config order; the
+    // listing follows grouped by provider with bare model-name labels.
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "tanto",
-      "katana",
-      "odachi",
+      "gpt",
+      "sonnet",
       "claude",
       "gpt",
     ]);
-    // The pinned tiers group is headed "kiri"; the providers head their own.
+    // The pinned shortcuts group is headed "kiri"; the providers head their own.
     for (const heading of ["kiri", "anthropic", "openai"]) {
       expect(screen.getByText(heading)).toBeDefined();
     }
   });
 
-  it("pins the configured image tiers ahead of the image model listing", async () => {
+  it("pins the configured image shortcuts ahead of the image model listing", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(sessionDetail({ imageModel: "openai:gpt-image" })),
@@ -193,12 +192,8 @@ describe("<SessionAside>", () => {
             { id: "openai:gpt-image", provider: "openai", output: "image" },
           ],
           failures: [],
-          tiers: {
-            image: {
-              tanto: "openai:gpt-image",
-              katana: "openai:gpt-image",
-              odachi: "openai:gpt-image",
-            },
+          shortcuts: {
+            image: { images: "openai:gpt-image" },
           },
         }),
       ),
@@ -207,9 +202,7 @@ describe("<SessionAside>", () => {
 
     await userEvent.click(await loadedCombobox(/image model/i));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "tanto",
-      "katana",
-      "odachi",
+      "images",
       "None",
       "gpt-image",
     ]);

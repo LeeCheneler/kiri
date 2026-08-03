@@ -606,24 +606,20 @@ export interface ModelsFailure {
   reason: string;
 }
 
-/** One modality's configured model tiers, each a `provider:model` id. */
-export interface ModelTiers {
-  tanto: string;
-  katana: string;
-  odachi: string;
+/** One modality's named model shortcuts, `name → provider:model`, in config order. */
+export type ModelShortcuts = Record<string, string>;
+
+/** The configured shortcuts per modality; a modality without shortcuts is absent. */
+export interface ModelShortcutsConfig {
+  text?: ModelShortcuts;
+  image?: ModelShortcuts;
 }
 
-/** The configured tiers per modality; a modality without tiers is absent. */
-export interface ModelTiersConfig {
-  text?: ModelTiers;
-  image?: ModelTiers;
-}
-
-/** Available models across configured providers, plus any per-provider failures and the configured tiers. */
+/** Available models across configured providers, plus any per-provider failures and the configured shortcuts. */
 export interface ModelsResult {
   models: ModelInfo[];
   failures: ModelsFailure[];
-  tiers?: ModelTiersConfig;
+  shortcuts?: ModelShortcutsConfig;
 }
 
 /** Fetch the models every configured provider offers. Throws on non-2xx. */
