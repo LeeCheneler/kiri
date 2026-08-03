@@ -38,16 +38,15 @@ file:line when you reference code.
 ## Effort
 
 Every session carries an **effort level** — `low`, `medium` (the default),
-`high`, or `max` — setting how hard its model reasons. Each turn maps the
+`high`, or `max` — setting how hard the assistant works. It acts through two
+layers. The system prompt always states the level with a matching
+expectation — brisk and direct at `low`, deliberate and exhaustive at `high`
+and `max` — so the assistant calibrates its thoroughness on any model. Where
+the model also supports native reasoning, each turn additionally maps the
 level to the provider's own reasoning parameters (Anthropic thinking budgets;
-`reasoning_effort` for OpenAI and OpenAI-compatible endpoints) and states it
-in the system prompt, so the assistant calibrates its thoroughness to match —
-brisk and direct at `low`, deliberate and exhaustive at `high` and `max`.
-Like a model swap, a change applies from the next turn.
-
-Effort is offered only for models whose listing reports reasoning support;
-for any other model nothing is sent — reasoning parameters are never sent
-blind.
+`reasoning_effort` for OpenAI and OpenAI-compatible endpoints) — sent only
+for models whose listing reports reasoning support, never blind. Like a
+model swap, a change applies from the next turn.
 
 Model and effort are orthogonal levers: the model (or
 [tier](/docs/llm-providers)) picks *which* model thinks; effort sets *how

@@ -394,7 +394,7 @@ describe("<SessionAside>", () => {
     expect(combobox.value).toBe("delisted-image");
   });
 
-  it("offers the effort control only for a reasoning-capable model", async () => {
+  it("always offers the effort control, without a note for a reasoning-capable model", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
       http.get("*/api/models", () =>
@@ -410,11 +410,13 @@ describe("<SessionAside>", () => {
 
     const group = await screen.findByRole("radiogroup", { name: /effort/i });
     expect(group).toBeDefined();
-    // The session's stored level is the selected segment.
+    // The session's stored level is the selected segment, and a model that
+    // takes reasoning parameters natively needs no note.
     expect((screen.getByRole("radio", { name: "medium" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByText(/no native reasoning setting/i)).toBeNull();
   });
 
-  it("hides the effort control for a model without reasoning support", async () => {
+  it("notes when the model has no native reasoning setting, keeping the control", async () => {
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
       http.get("*/api/models", () =>
@@ -428,8 +430,25 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    await screen.findByRole("combobox", { name: /^model/i });
-    expect(screen.queryByRole("radiogroup", { name: /effort/i })).toBeNull();
+    // Effort still calibrates the assistant through the system prompt, so the
+    // control stays; the note explains what the model itself won't do.
+    expect(await screen.findByRole("radiogroup", { name: /effort/i })).toBeDefined();
+    expect(
+      await screen.findByText(
+        "Effort guides the assistant's approach; this model has no native reasoning setting",
+      ),
+    ).toBeDefined();
+  });
+
+  it("omits the reasoning note when the listing doesn't know the model", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () => HttpResponse.json({ models: [], failures: [] })),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    expect(await screen.findByRole("radiogroup", { name: /effort/i })).toBeDefined();
+    expect(screen.queryByText(/no native reasoning setting/i)).toBeNull();
   });
 
   it("changes the session's effort when a level is picked", async () => {

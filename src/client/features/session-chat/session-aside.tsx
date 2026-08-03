@@ -111,11 +111,12 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   // provider no longer lists) shows nothing rather than a guess.
   const imageInput = models.find((model) => model.id === session.model)?.imageInput;
 
-  // The effort control is only offered where effort means something: the
-  // selected model's listing must mark it reasoning-capable. A delisted or
-  // unmarked model hides the control — the turn wouldn't send reasoning
-  // parameters for it anyway.
-  const showEffort = models.find((model) => model.id === session.model)?.reasoning === true;
+  // Effort always applies — the system prompt calibrates the assistant's
+  // thoroughness to it on every model — so the control always shows. The
+  // reasoning flag only decides the note: a model the listing marks
+  // non-reasoning gets no native reasoning parameters, and the note says so.
+  // Unknown (a delisted or unlisted model) shows nothing rather than a guess.
+  const reasoning = models.find((model) => model.id === session.model)?.reasoning;
 
   // Image model, same pattern: image-output models only, `None` leading as
   // the off option, the selected model pinned even if delisted. The picker
@@ -161,17 +162,22 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
           </div>
         ) : null}
         {/* Like a model swap, an effort change applies from the next turn. */}
-        {showEffort ? (
-          <div className="mt-4">
-            <SegmentedControl
-              label="Effort"
-              options={EFFORT_OPTIONS}
-              value={session.effort}
-              disabled={turnInFlight}
-              onChange={(effort) => void setEffort(effort)}
-            />
-          </div>
-        ) : null}
+        <div className="mt-4">
+          <SegmentedControl
+            label="Effort"
+            options={EFFORT_OPTIONS}
+            value={session.effort}
+            disabled={turnInFlight}
+            onChange={(effort) => void setEffort(effort)}
+          />
+          {reasoning === false ? (
+            <div className="mt-2">
+              <Meta>
+                Effort guides the assistant's approach; this model has no native reasoning setting
+              </Meta>
+            </div>
+          ) : null}
+        </div>
         {/* A provider whose listing failed leaves a gap in the picker; name it
             and why, so a missing model reads as a config issue, not an absence. */}
         {modelFailures.length > 0 ? (
