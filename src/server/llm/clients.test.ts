@@ -190,6 +190,7 @@ describe("llm clients", () => {
             { id: "claude-opus-4-5" },
             { id: "claude-sonnet-4-5" },
             { id: "claude-3-7-sonnet-latest" },
+            { id: "claude-opus-4-20250514" },
             { id: "claude-fable-5" },
           ],
         }),
@@ -220,6 +221,11 @@ describe("llm clients", () => {
     ).toBeUndefined();
     expect(
       await clients.reasoningOptionsFor("anthropic:claude-3-7-sonnet-latest", "max"),
+    ).toBeUndefined();
+    // A dated 4.0-generation id reads as major 4 with no minor — the date
+    // suffix is not a minor version — so it gets no parameters either.
+    expect(
+      await clients.reasoningOptionsFor("anthropic:claude-opus-4-20250514", "high"),
     ).toBeUndefined();
     // An id outside the recognised family-version shape is treated as modern.
     expect(await clients.reasoningOptionsFor("anthropic:claude-fable-5", "xhigh")).toEqual({

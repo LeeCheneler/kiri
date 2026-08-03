@@ -31,9 +31,11 @@ type ClaudeEffortSupport = "full" | "no-xhigh" | "three-level" | "none";
 
 // Family and version of a Claude id ("claude-opus-4-8",
 // "anthropic/claude-sonnet-4.5" — dotted or dashed, with or without a path
-// prefix). No match for an id outside this shape (a new family, a bare
-// alias), which classifies as modern below.
-const CLAUDE_VERSION = /(^|[-_/.])claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?(?=[-_/.]|$)/i;
+// prefix). The minor is capped at two digits so a date suffix never reads as
+// one: "claude-opus-4-20250514" is the 4.0 generation, not minor 20250514.
+// No match for an id outside this shape (a new family, a bare alias), which
+// classifies as modern below.
+const CLAUDE_VERSION = /(^|[-_/.])claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d{1,2}))?(?=[-_/.]|$)/i;
 
 // The older version-first naming ("claude-3-7-sonnet", "claude-2.1",
 // "claude-instant-1.2") — all generations that predate the effort parameter.
