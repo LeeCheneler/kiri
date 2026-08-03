@@ -40,11 +40,13 @@ import {
   getSessionMessages,
   getSessionPreviews,
   imageTools,
+  listSkills,
   resumeTurn,
   runTurn,
   sessionTitleTools,
   setSessionPinned,
   shellTools,
+  skillTools,
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
@@ -270,6 +272,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     const sandbox = sandboxDirectories();
     const shellDirs = shellWorkingDirectories();
     return {
+      ...skillTools(config),
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
       ...sessionTitleTools(db, sessionId, (event) => bus?.publish(event)),
@@ -328,6 +331,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         Object.keys(tools),
         sandboxDirectories(),
         shellWorkingDirectories(),
+        false,
+        listSkills(config),
       ),
       tools,
     };
@@ -668,6 +673,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         sandboxDirectories(),
         shellWorkingDirectories(),
         deps.getModelTiers?.().text !== undefined,
+        listSkills(config),
       );
       const turnDeps = {
         db,

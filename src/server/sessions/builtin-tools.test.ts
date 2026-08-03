@@ -14,6 +14,7 @@ import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
 import { sessionTitleTools } from "./session-title-tool.ts";
 import { shellTools } from "./shell-tools.ts";
+import { skillTools } from "./skill-tools.ts";
 import { workflowTools } from "./workflow-tools.ts";
 
 // The merged-set check only reads tool names; no client method ever runs.
@@ -51,6 +52,7 @@ describe("BUILTIN_TOOLS", () => {
   // ship un-gated or broken, so pin the two to exact agreement.
   it("names every first-party session tool exactly once", () => {
     const offered = {
+      ...skillTools(createConfigStore(dir)),
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
       ...articleTools(db, "session-1", () => {}),
       ...sessionTitleTools(db, "session-1", () => {}),

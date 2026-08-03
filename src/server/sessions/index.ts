@@ -25,6 +25,8 @@ export {
 } from "./store.ts";
 export { SESSION_TITLE_MAX_LENGTH, sessionTitleTools } from "./session-title-tool.ts";
 export { type ShellToolsOptions, shellTools } from "./shell-tools.ts";
+export { skillTools } from "./skill-tools.ts";
+export { type Skill, type SkillSummary, listSkills } from "./skills.ts";
 export {
   type StreamRegistry,
   type StreamSink,

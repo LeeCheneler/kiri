@@ -63,8 +63,8 @@ a specific subfolder rather than a huge tree, say).
 
 ## Edits aren't taking effect
 
-Most files are read fresh from disk — workflow edits, `kiri.yaml`, and `kiri.md`
-all apply without a restart (a `kiri.yaml` edit re-validates workflows
+Most files are read fresh from disk — workflow edits, skills, `kiri.yaml`, and
+`kiri.md` all apply without a restart (a `kiri.yaml` edit re-validates workflows
 live, keeping the last-known-good config on an invalid edit). If a change isn't
 landing:
 

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { ConfigStore } from "../config/store.ts";
 import type { Effort } from "../llm/index.ts";
 import { type HostEnvironment, describeHost, detectHostEnvironment } from "./host-environment.ts";
+import type { SkillSummary } from "./skills.ts";
 import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
@@ -48,6 +49,23 @@ function buildDiagramGuidance(): string {
     "  B -- yes --> C[Run workflow]",
     "  B -- no --> D[Wait]",
     "```",
+  ].join("\n");
+}
+
+// The catalogue for the first-party skill tool: each available skill's name
+// and one-line description, and when to load one. Names and descriptions
+// only — a skill's body enters the conversation solely through use_skill, so
+// sessions that never need one don't pay for its content. Keyed off the
+// tool's name, so it never appears when use_skill is withheld, and omitted
+// when no skills are discovered.
+function buildSkillGuidance(tools: string[], skills: readonly SkillSummary[]): string | null {
+  if (!tools.includes("use_skill") || skills.length === 0) return null;
+  return [
+    "You have skills available: named instruction sets for specific kinds of task, loaded on demand with the use_skill tool. When a request matches a skill below, load it before starting that work and follow its instructions. Load a skill at most once per conversation — its content stays in the conversation — and only when its task actually comes up.",
+    "Available skills:",
+    ...skills.map(
+      (skill) => `- ${skill.name}${skill.description === "" ? "" : `: ${skill.description}`}`,
+    ),
   ].join("\n");
 }
 
@@ -307,6 +325,7 @@ function buildCorePrompt(
   tiersConfigured: boolean,
   effort: Effort,
   titled: boolean,
+  skills: readonly SkillSummary[],
 ): string {
   const today = now.toISOString().slice(0, 10);
   const intro = [
@@ -326,6 +345,7 @@ function buildCorePrompt(
     buildTitleGuidance(tools, titled),
     buildToolGuidance(tools),
     buildDelegateGuidance(tools, tiersConfigured),
+    buildSkillGuidance(tools, skills),
     buildChartGuidance(),
     buildDiagramGuidance(),
     buildArticleGuidance(tools),
@@ -343,6 +363,8 @@ export interface BuildChildSessionPromptOptions {
   allowedDirectories?: readonly string[];
   /** The shell tool's working directories, enumerated in its guidance when it is active. */
   shellDirectories?: readonly string[];
+  /** The available skills, listed by name and description when `use_skill` is active. */
+  skills?: readonly SkillSummary[];
   /** The worker's effort level, stated with its calibration expectation; defaults to `medium`. */
   effort?: Effort;
   /** Clock injection for tests; defaults to the current time. */
@@ -381,6 +403,7 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
     reporting,
     buildEffortGuidance(opts.effort ?? "medium"),
     buildToolGuidance(tools),
+    buildSkillGuidance(tools, opts.skills ?? []),
     buildArticleGuidance(tools),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, opts.allowedDirectories ?? []),
@@ -415,6 +438,8 @@ export interface BuildSystemPromptOptions {
   shellDirectories?: readonly string[];
   /** Whether text model tiers are configured — the delegate steer then covers the required tier choice. */
   tiersConfigured?: boolean;
+  /** The available skills, listed by name and description when `use_skill` is active. */
+  skills?: readonly SkillSummary[];
   /** The session's effort level, stated with its calibration expectation; defaults to `medium`. */
   effort?: Effort;
   /** The session's current title, or null/omitted when untitled — the titling steer keys off it. */
@@ -443,6 +468,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.tiersConfigured ?? false,
       opts.effort ?? "medium",
       opts.title != null,
+      opts.skills ?? [],
     ),
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
@@ -464,6 +490,7 @@ export function createSystemPromptBuilder(
   allowedDirectories: readonly string[] = [],
   shellDirectories: readonly string[] = [],
   tiersConfigured = false,
+  skills: readonly SkillSummary[] = [],
 ): (session: Session) => string {
   return (session: Session) =>
     session.parentSessionId !== null
@@ -471,6 +498,7 @@ export function createSystemPromptBuilder(
           tools,
           allowedDirectories,
           shellDirectories,
+          skills,
           effort: session.effort,
         })
       : buildSystemPrompt({
@@ -479,6 +507,7 @@ export function createSystemPromptBuilder(
           allowedDirectories,
           shellDirectories,
           tiersConfigured,
+          skills,
           effort: session.effort,
           title: session.title,
         });

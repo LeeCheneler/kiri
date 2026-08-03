@@ -17,9 +17,6 @@ import {
   parseWorkflowSource,
   stepLabel,
 } from "../workflows/index.ts";
-import { detectHostEnvironment } from "./host-environment.ts";
-import { buildWorkflowAuthoringGuide } from "./workflow-authoring-guide.ts";
-
 export interface WorkflowToolsDeps {
   db: KiriDb;
   /** Workflow definitions, read live so a file change is reflected on the next call. */
@@ -312,13 +309,6 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
       },
     }),
 
-    read_workflow_authoring_guide: tool({
-      description:
-        "Return kiri's complete workflow-authoring reference: the YAML file shape, the host machine and shell environment scripts run on, the three step kinds, data-flow and env rules, articles and summarize, inputs, and the working method for authoring well. Call it once per conversation before your first create_workflow, edit_workflow, or replace_workflow call — its content is authoritative and more detailed than any tool description. Don't call it again once its content is in the conversation.",
-      inputSchema: z.object({}),
-      execute: async () => buildWorkflowAuthoringGuide(detectHostEnvironment()),
-    }),
-
     read_workflow: tool({
       description:
         "Read the raw YAML of one of this workspace's workflows, exactly as the file is on disk. Call it to learn the workspace's workflow shape and house style before authoring a new one, and always before edit_workflow so old_string matches the exact current text.",
@@ -340,7 +330,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
 
     create_workflow: tool({
       description:
-        "Create a new workflow in this workspace: a repeatable automation saved as a YAML file in workflows/, which kiri runs on demand. Use it when the user wants to keep, automate, or repeat something — including turning work figured out in this conversation into a workflow they can run any time. Before your first authoring call in a conversation, call read_workflow_authoring_guide and follow it — it is the authoritative reference for the YAML shape and rules. Supply the complete YAML file content; it is validated before anything is written, and a rejected call names exactly what to fix (YAML parse error, schema violation, unknown bundle or llm provider, missing prompt file) — correct the YAML and retry. The workflow appears in the catalog immediately and can be run with run_workflow.",
+        "Create a new workflow in this workspace: a repeatable automation saved as a YAML file in workflows/, which kiri runs on demand. Use it when the user wants to keep, automate, or repeat something — including turning work figured out in this conversation into a workflow they can run any time. Before your first authoring call in a conversation, load the workflow-authoring skill with use_skill and follow it — it is the authoritative reference for the YAML shape and rules. Supply the complete YAML file content; it is validated before anything is written, and a rejected call names exactly what to fix (YAML parse error, schema violation, unknown bundle or llm provider, missing prompt file) — correct the YAML and retry. The workflow appears in the catalog immediately and can be run with run_workflow.",
       inputSchema: z.object({
         slug: workflowFileSlugSchema.describe(
           'Filename for the new workflow — lowercase letters, digits, and hyphens (e.g. "pr-digest"). The file is written to workflows/<slug>.yaml.',
@@ -349,7 +339,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
           .string()
           .min(1)
           .describe(
-            "The complete YAML file content — `name`, optional `description`/`group`/`inputs`, required `steps`, optional `articles` and `summarize`. The full shape and rules are in read_workflow_authoring_guide.",
+            "The complete YAML file content — `name`, optional `description`/`group`/`inputs`, required `steps`, optional `articles` and `summarize`. The full shape and rules are in the workflow-authoring skill.",
           ),
       }),
       execute: async ({ slug, content_yaml }) => {
@@ -372,7 +362,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
 
     edit_workflow: tool({
       description:
-        "Make a targeted edit to one of this workspace's workflows by replacing an exact string in its YAML file. old_string must match the file exactly — including indentation and whitespace — and appear exactly once unless replace_all is set; get the exact current text with read_workflow. Before your first authoring call in a conversation, call read_workflow_authoring_guide and follow it. The edited file is re-validated in full before it is written — an invalid result is rejected with the reason and the file on disk is unchanged, so fix and retry. For a wholesale rewrite use replace_workflow.",
+        "Make a targeted edit to one of this workspace's workflows by replacing an exact string in its YAML file. old_string must match the file exactly — including indentation and whitespace — and appear exactly once unless replace_all is set; get the exact current text with read_workflow. Before your first authoring call in a conversation, load the workflow-authoring skill with use_skill and follow it. The edited file is re-validated in full before it is written — an invalid result is rejected with the reason and the file on disk is unchanged, so fix and retry. For a wholesale rewrite use replace_workflow.",
       inputSchema: z.object({
         name: z
           .string()
@@ -414,7 +404,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
 
     replace_workflow: tool({
       description:
-        "Replace the entire YAML of one of this workspace's workflows. Reach for this for wholesale rewrites; for a targeted change to existing text, prefer edit_workflow. Before your first authoring call in a conversation, call read_workflow_authoring_guide and follow it. The new content is validated in full before it is written — a rejected call names what to fix and the file on disk is unchanged. The workflow's name comes from the YAML, so a rewrite may rename it; a rename colliding with another workflow is rejected.",
+        "Replace the entire YAML of one of this workspace's workflows. Reach for this for wholesale rewrites; for a targeted change to existing text, prefer edit_workflow. Before your first authoring call in a conversation, load the workflow-authoring skill with use_skill and follow it. The new content is validated in full before it is written — a rejected call names what to fix and the file on disk is unchanged. The workflow's name comes from the YAML, so a rewrite may rename it; a rename colliding with another workflow is rejected.",
       inputSchema: z.object({
         name: z
           .string()

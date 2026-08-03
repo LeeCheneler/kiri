@@ -45,6 +45,41 @@ Answer in British English. Be direct, lead with the answer, and cite
 file:line when you reference code.
 ```
 
+## Skills
+
+A **skill** is a named pack of instructions the assistant pulls in only when
+its task comes up — the middle ground between the two you already have:
+`kiri.md` is always-on, skills load on demand, and workflows are executable.
+Task-specific guidance — how you like release notes drafted, your code-review
+checklist — belongs in a skill, not padded into every conversation via
+`kiri.md`.
+
+Keep each skill in your workspace as `skills/<name>/SKILL.md` (sibling of
+`workflows/`, committed like the rest of your config):
+
+```markdown
+---
+name: release-notes # optional — defaults to the directory name
+description: Draft release notes in this project's format.
+---
+
+The instructions the assistant follows once the skill is loaded…
+```
+
+- The system prompt carries only each skill's name and description; the body
+  loads into the conversation through the `use_skill` tool when the assistant
+  matches a task to it. Unknown frontmatter fields are ignored, so skills
+  written for other tools drop in unmodified.
+- Everything is read fresh — edit a skill and the change applies from the
+  next turn. Supporting files can sit alongside `SKILL.md`; the assistant
+  reads them with the filesystem tools if your sandbox covers the workspace.
+- Kiri ships first-party skills listed alongside yours — the
+  workflow-authoring reference is the first. Name a skill the same as a
+  first-party one and yours wins.
+- Loading a skill is read-only and pre-allowed, so delegated workers (below)
+  inherit it too — skills reach delegated research where `kiri.md`
+  deliberately doesn't.
+
 ## Effort
 
 Every session carries an **effort level** — `low`, `medium` (the default),
@@ -121,7 +156,8 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Built-in tool(s) | Default | Why |
 | --- | --- | --- |
 | Article write / edit / read | Always allow | Only touch kiri's own data. |
-| Workflow list / read, authoring guide | Always allow | Read-only, kiri's own data. |
+| Workflow list / read | Always allow | Read-only, kiri's own data. |
+| `use_skill` | Always allow | Read-only, loads instructions you wrote. |
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
 | `delegate` | Always allow | Workers only hold tools already always-allowed. |

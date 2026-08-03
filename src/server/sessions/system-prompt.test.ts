@@ -232,6 +232,37 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("replace_article only when most of the body is changing");
   });
 
+  it("lists skills by name and description only when use_skill is active", () => {
+    const skills = [
+      { name: "release-notes", description: "Draft release notes." },
+      { name: "workflow-authoring", description: "Author kiri workflows." },
+    ];
+    const withSkills = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["use_skill"], skills });
+    expect(withSkills).toContain("loaded on demand with the use_skill tool");
+    expect(withSkills).toContain("- release-notes: Draft release notes.");
+    expect(withSkills).toContain("- workflow-authoring: Author kiri workflows.");
+
+    // use_skill withheld by its permission drops the catalogue with it.
+    const withoutTool = buildSystemPrompt({ config, now: FIXED_NOW, tools: [], skills });
+    expect(withoutTool).not.toContain("use_skill");
+  });
+
+  it("omits the skill catalogue when no skills are discovered", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["use_skill"], skills: [] });
+    expect(prompt).not.toContain("Available skills:");
+  });
+
+  it("lists a skill without a description as its bare name", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["use_skill"],
+      skills: [{ name: "plain", description: "" }],
+    });
+    expect(prompt).toContain("Available skills:\n- plain");
+    expect(prompt).not.toContain("- plain:");
+  });
+
   it("includes workflow guidance only when run_workflow is active", () => {
     const withWorkflows = buildSystemPrompt({
       config,
@@ -645,6 +676,18 @@ describe("buildChildSessionPrompt", () => {
     expect(bare).not.toContain("You can work with the user's files");
     expect(bare).not.toContain("You can run shell commands");
   });
+
+  it("lists the available skills when use_skill is active, so workers can load them too", () => {
+    const prompt = buildChildSessionPrompt({
+      tools: ["use_skill"],
+      skills: [{ name: "release-notes", description: "Draft release notes." }],
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain("- release-notes: Draft release notes.");
+    expect(buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW })).not.toContain(
+      "Available skills:",
+    );
+  });
 });
 
 describe("createSystemPromptBuilder", () => {
@@ -690,6 +733,14 @@ describe("createSystemPromptBuilder", () => {
     expect(builder(sessionWith(null, "medium", "Postgres upgrade plan"))).toContain(
       "This session already has a title",
     );
+  });
+
+  it("hands the skill catalogue to parent and child prompts alike", () => {
+    const builder = createSystemPromptBuilder(config, ["use_skill"], [], [], false, [
+      { name: "release-notes", description: "Draft release notes." },
+    ]);
+    expect(builder(sessionWith(null))).toContain("- release-notes: Draft release notes.");
+    expect(builder(sessionWith("parent"))).toContain("- release-notes: Draft release notes.");
   });
 
   it("states each session's own stored effort, parent and child alike", () => {

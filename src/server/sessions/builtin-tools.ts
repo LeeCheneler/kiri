@@ -62,13 +62,13 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
-    name: "list_workflows",
-    description: "List the workspace's workflows and their declared inputs.",
+    name: "use_skill",
+    description: "Load a skill's instructions for the task at hand.",
     defaultPermission: "allow",
   },
   {
-    name: "read_workflow_authoring_guide",
-    description: "Return kiri's workflow-authoring reference for the session to follow.",
+    name: "list_workflows",
+    description: "List the workspace's workflows and their declared inputs.",
     defaultPermission: "allow",
   },
   {
