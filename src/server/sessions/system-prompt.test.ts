@@ -592,51 +592,6 @@ describe("delegate guidance", () => {
   });
 });
 
-describe("title guidance", () => {
-  let dir: string;
-  let config: ConfigStore;
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "kiri-sysprompt-title-"));
-    config = createConfigStore(dir);
-  });
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("steers an untitled session to title itself after the first response", () => {
-    const prompt = buildSystemPrompt({
-      config,
-      tools: ["set_session_title"],
-      now: FIXED_NOW,
-    });
-    expect(prompt).toContain("This session has no title yet");
-    expect(prompt).toContain("After completing your first response, call set_session_title");
-    // The steer must also stop churn: one auto-title, then explicit-only.
-    expect(prompt).toContain("only when the user explicitly asks");
-    expect(prompt).toContain("never retitle on your own");
-  });
-
-  it("limits a titled session to explicit renames only", () => {
-    const prompt = buildSystemPrompt({
-      config,
-      tools: ["set_session_title"],
-      title: "Postgres upgrade plan",
-      now: FIXED_NOW,
-    });
-    expect(prompt).toContain("This session already has a title");
-    expect(prompt).toContain("only when the user explicitly asks");
-    expect(prompt).not.toContain("This session has no title yet");
-  });
-
-  it("omits the titling steer when the tool is not offered", () => {
-    const prompt = buildSystemPrompt({ config, tools: ["tavily__search"], now: FIXED_NOW });
-    expect(prompt).not.toContain("set_session_title");
-    expect(prompt).not.toContain("This session has no title yet");
-  });
-});
-
 describe("buildChildSessionPrompt", () => {
   it("frames the worker as a delegated sub-agent that reports back", () => {
     const prompt = buildChildSessionPrompt({ now: FIXED_NOW });
@@ -717,13 +672,11 @@ describe("createSystemPromptBuilder", () => {
   });
 
   // A minimal session stand-in: the builder reads only `parentSessionId` — a
-  // non-null parent marks a child session — plus `effort` for the effort line
-  // and `title` for the titling steer.
+  // non-null parent marks a child session — plus `effort` for the effort line.
   const sessionWith = (
     parentSessionId: string | null,
     effort: Session["effort"] = "medium",
-    title: string | null = null,
-  ): Session => ({ parentSessionId, effort, title }) as unknown as Session;
+  ): Session => ({ parentSessionId, effort }) as unknown as Session;
 
   it("composes the layered chat prompt for a top-level session", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
@@ -738,14 +691,6 @@ describe("createSystemPromptBuilder", () => {
     expect(prompt).toContain("focused assistant");
     expect(prompt).toContain("You have tools available");
     expect(prompt).not.toContain("Be terse.");
-  });
-
-  it("keys the titling steer off the session's stored title", () => {
-    const builder = createSystemPromptBuilder(config, ["set_session_title"]);
-    expect(builder(sessionWith(null))).toContain("This session has no title yet");
-    expect(builder(sessionWith(null, "medium", "Postgres upgrade plan"))).toContain(
-      "This session already has a title",
-    );
   });
 
   it("hands the skill catalogue to parent and child prompts alike", () => {

@@ -35,6 +35,7 @@ import {
   deleteMessagesFrom,
   deleteSession,
   filesystemTools,
+  generateSessionTitle,
   getSession,
   getSessionChildren,
   getSessionMessages,
@@ -43,7 +44,6 @@ import {
   listSkills,
   resumeTurn,
   runTurn,
-  sessionTitleTools,
   setSessionPinned,
   shellTools,
   skillTools,
@@ -276,7 +276,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...skillTools(config),
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
-      ...sessionTitleTools(db, sessionId, (event) => bus?.publish(event)),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
       ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
@@ -285,15 +284,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   // Withheld from a delegate-driven worker regardless of permission: a worker
   // can't spawn workers, and its deliverable is the report — articles it wrote
-  // would ride a hidden session rather than a surface the user sees, as would
-  // a title it set for itself.
-  const childWithheld = new Set([
-    "delegate",
-    "create_article",
-    "replace_article",
-    "edit_article",
-    "set_session_title",
-  ]);
+  // would ride a hidden session rather than a surface the user sees.
+  const childWithheld = new Set(["delegate", "create_article", "replace_article", "edit_article"]);
 
   // The tools a delegate-driven child turn runs with: the same catalogue
   // narrowed to tools whose standing permission is "allow", offered ungated.
@@ -658,7 +650,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
 
       const parts = message.parts as UIMessage["parts"];
-      const last = getSessionMessages(db, id).at(-1);
+      const priorMessages = getSessionMessages(db, id);
+      const last = priorMessages.at(-1);
       const pending =
         last?.role === "assistant" && hasPendingApproval(last.parts as UIMessage["parts"]);
 
@@ -711,6 +704,27 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           { error: `session "${id}" has a pending tool approval; respond to it first` },
           409,
         );
+      }
+
+      // A session names itself off its opening message: a one-off generation
+      // against the utility model (the session's own model when none is
+      // configured), fired alongside the turn rather than awaited by it, so
+      // the title lands in the list and feed while the reply is still
+      // streaming. First message only — a session left untitled by a failed
+      // call stays untitled rather than fighting a user who cleared the title.
+      const userText = parts
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("\n")
+        .trim();
+      if (session.title === null && priorMessages.length === 0 && userText !== "") {
+        void generateSessionTitle({
+          db,
+          llmClients,
+          sessionId: id,
+          userText,
+          model: deps.getModelsConfig?.().utility ?? session.model,
+          publish: (event) => bus?.publish(event),
+        });
       }
 
       const userMessage: UIMessage = { id: message.id ?? crypto.randomUUID(), role: "user", parts };

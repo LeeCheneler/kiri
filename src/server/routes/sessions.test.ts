@@ -97,8 +97,9 @@ const pendingModel = (): LlmModel =>
     }),
   }) as unknown as LlmModel;
 
-// Configurable LlmClients fake. Routes only ever call resolveModel and
-// listModels; generateText is interface ballast they never touch.
+// Configurable LlmClients fake. Routes call resolveModel, listModels, and —
+// for session titling — generateText, whose default answers with an empty
+// title so no fake-titled session leaks into unrelated tests.
 const fakeClients = (
   opts: {
     model?: LlmModel;
@@ -847,6 +848,96 @@ describe("sessions routes", () => {
       expect(settledSession?.status).toBe("idle");
     });
 
+    // A minimal complete text turn for tests that only care about the route's
+    // side effects, not the streamed content.
+    const helloTurn = (): LanguageModelV3StreamPart[] => [
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Hello" },
+      { type: "text-end", id: "t1" },
+      { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 1) },
+    ];
+
+    // Title generation is fired without being awaited by the turn, so give
+    // its promise chain a bounded window to land before asserting.
+    const waitForTitle = async (id: string): Promise<string | null> => {
+      for (let i = 0; i < 50 && getSession(env.db, id)?.title == null; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      return getSession(env.db, id)?.title ?? null;
+    };
+
+    it("titles an untitled session off its first message with the utility model", async () => {
+      const titleCalls: string[] = [];
+      const clients = fakeClients({ model: streamingModel(helloTurn()) });
+      clients.generateText = async ({ model }) => {
+        titleCalls.push(model);
+        return { text: "Postgres upgrade help", usage: {} };
+      };
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(clients, {
+        bus,
+        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "How do I upgrade Postgres?")).text();
+      await settled;
+
+      expect(await waitForTitle("s1")).toBe("Postgres upgrade help");
+      expect(titleCalls).toEqual(["local:tiny"]);
+    });
+
+    it("falls back to the session's own model for titling when no utility model is configured", async () => {
+      const titleCalls: string[] = [];
+      const clients = fakeClients({ model: streamingModel(helloTurn()) });
+      clients.generateText = async ({ model }) => {
+        titleCalls.push(model);
+        return { text: "A title", usage: {} };
+      };
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(clients, { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "Hi there")).text();
+      await settled;
+
+      expect(await waitForTitle("s1")).toBe("A title");
+      expect(titleCalls).toEqual([MODEL]);
+    });
+
+    it("fires title generation only for an untitled session's first message", async () => {
+      const titleCalls: string[] = [];
+      const clients = fakeClients({ model: streamingModel(helloTurn()) });
+      clients.generateText = async ({ model }) => {
+        titleCalls.push(model);
+        return { text: "", usage: {} };
+      };
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(clients, { bus });
+      createSession(env.db, MODEL, { id: "titled", title: "Named at creation" });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      let settled = waitForSettled("titled");
+      await (await postMessage(app, "titled", "Hi")).text();
+      await settled;
+      expect(titleCalls).toHaveLength(0);
+
+      // An untitled session tries once on its first message; a later message
+      // never re-fires, even when that first generation left it untitled.
+      settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "Hi")).text();
+      await settled;
+      expect(titleCalls).toHaveLength(1);
+
+      settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "And another thing")).text();
+      await settled;
+      expect(titleCalls).toHaveLength(1);
+      expect(getSession(env.db, "s1")?.title).toBeNull();
+    });
+
     it("merges MCP server tools into the turn and names them for the system prompt", async () => {
       let toolNames: string[] = [];
       let systemText = "";
@@ -947,30 +1038,6 @@ describe("sessions routes", () => {
       expect(row?.slug).toBe("pr-digest");
       expect(row?.contentMd).toBe("# PR Digest\n\nBody.");
       expect(seen).toContainEqual({ type: "article.written", sessionId: "s1", slug: "pr-digest" });
-    });
-
-    it("runs set_session_title straight through, titling the session and announcing it", async () => {
-      const input = JSON.stringify({ title: "Pelican research" });
-      const { bus, waitForSettled } = createSessionWaiter();
-      const seen: KiriEvent[] = [];
-      bus.subscribe((event) => seen.push(event));
-      const app = makeApp(fakeClients({ model: toolCallModel("set_session_title", input) }), {
-        bus,
-      });
-      createSession(env.db, MODEL, { id: "s1" });
-
-      const settled = waitForSettled("s1");
-      await (await postMessage(app, "s1", "tell me about pelicans")).text();
-      await settled;
-
-      // Standing allow: no approval pause — the tool ran and the model
-      // answered in the same turn, and the rename announced like any other
-      // session change so open views refresh.
-      const rows = getSessionMessages(env.db, "s1");
-      expect(toolPartOf(rows[1]).state).toBe("output-available");
-      expect(toolPartOf(rows[1]).output).toEqual({ title: "Pelican research" });
-      expect(getSession(env.db, "s1")?.title).toBe("Pelican research");
-      expect(seen).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
     });
 
     it("withholds an off article tool and drops its guidance from the prompt", async () => {
@@ -1677,7 +1744,6 @@ describe("sessions routes", () => {
       expect(childToolNames).toContain("read_article");
       expect(childToolNames).not.toContain("delegate");
       expect(childToolNames).not.toContain("create_article");
-      expect(childToolNames).not.toContain("set_session_title");
       expect(childToolNames).not.toContain("run_workflow");
     });
   });

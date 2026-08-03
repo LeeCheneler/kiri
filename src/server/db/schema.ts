@@ -215,8 +215,8 @@ export const sessions = sqliteTable(
       .notNull()
       .default("medium"),
     /**
-     * The session's display name, settable by the user and by the assistant's
-     * `set_session_title` tool. Null until one is set — untitled sessions fall
+     * The session's display name, generated off the opening message and
+     * settable by the user. Null until one is set — untitled sessions fall
      * back to their first user message (or short id) wherever they're listed.
      */
     title: text("title"),
