@@ -13,6 +13,7 @@ const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknow
     id: "s1",
     status: "idle",
     model: "anthropic:claude",
+    effort: "medium",
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
@@ -391,6 +392,73 @@ describe("<SessionAside>", () => {
 
     const combobox = await loadedCombobox(/image model/i);
     expect(combobox.value).toBe("delisted-image");
+  });
+
+  it("offers the effort control only for a reasoning-capable model", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text", reasoning: true },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const group = await screen.findByRole("radiogroup", { name: /effort/i });
+    expect(group).toBeDefined();
+    // The session's stored level is the selected segment.
+    expect((screen.getByRole("radio", { name: "medium" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("hides the effort control for a model without reasoning support", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text", reasoning: false },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await screen.findByRole("combobox", { name: /^model/i });
+    expect(screen.queryByRole("radiogroup", { name: /effort/i })).toBeNull();
+  });
+
+  it("changes the session's effort when a level is picked", async () => {
+    let patched: { effort?: string } = {};
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text", reasoning: true },
+          ],
+          failures: [],
+        }),
+      ),
+      http.patch("*/api/sessions/:id", async ({ request }) => {
+        patched = (await request.json()) as { effort?: string };
+        return HttpResponse.json(sessionDetail({ effort: "high" }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    await userEvent.click(await screen.findByRole("radio", { name: "high" }));
+
+    await waitFor(() => expect(patched.effort).toBe("high"));
+    // The control reflects the choice from the PATCH response, without a
+    // refetch — the mocked GET still returns medium.
+    await waitFor(() =>
+      expect((screen.getByRole("radio", { name: "high" }) as HTMLInputElement).checked).toBe(true),
+    );
   });
 
   it("surfaces a provider whose model listing failed", async () => {

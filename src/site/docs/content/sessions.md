@@ -35,6 +35,25 @@ Answer in British English. Be direct, lead with the answer, and cite
 file:line when you reference code.
 ```
 
+## Effort
+
+Every session carries an **effort level** — `low`, `medium` (the default),
+`high`, or `max` — setting how hard its model reasons. Each turn maps the
+level to the provider's own reasoning parameters (Anthropic thinking budgets;
+`reasoning_effort` for OpenAI and OpenAI-compatible endpoints) and states it
+in the system prompt, so the assistant calibrates its thoroughness to match —
+brisk and direct at `low`, deliberate and exhaustive at `high` and `max`.
+Like a model swap, a change applies from the next turn.
+
+Effort is offered only for models whose listing reports reasoning support;
+for any other model nothing is sent — reasoning parameters are never sent
+blind.
+
+Model and effort are orthogonal levers: the model (or
+[tier](/docs/llm-providers)) picks *which* model thinks; effort sets *how
+hard* it thinks. Size them independently — a large model can answer briskly
+at `low`, and a small one can take its time at `high`.
+
 ## Tools from MCP servers
 
 Beyond the built-in tools (below), a session's tools come from **MCP
@@ -224,6 +243,9 @@ intermediate results, and your context window stays lean.
   each worker it spawns by naming a tier — tantō for mechanical legwork,
   katana as the default, ōdachi where the result depends on reasoning depth.
   Without tiers, workers run the same model as the conversation.
+- Every delegation also states the worker's own effort level (above) — low
+  for cheap parallel legwork, high for deep synthesis — independent of which
+  model runs it, and the worker keeps that level for its whole run.
 
 Delegation is on by default; set `delegate` to **Ask** or **Off** like any
 other tool.

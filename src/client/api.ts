@@ -598,6 +598,8 @@ export interface ModelInfo {
   output: "text" | "image";
   /** Whether the model accepts image input; absent when the provider's listing doesn't say. */
   imageInput?: boolean;
+  /** Whether the model supports reasoning parameters, so effort means something for it. */
+  reasoning: boolean;
 }
 
 /** A provider whose model listing failed, surfaced so the picker can explain a gap. */
@@ -737,6 +739,9 @@ export const setToolPermission = async (
 /** Session lifecycle status. `idle` is the resting state between turns. */
 export type SessionStatus = "running" | "idle" | "failed" | "cancelled";
 
+/** How hard a session's model reasons, lowest to highest. */
+export type SessionEffort = "low" | "medium" | "high" | "max";
+
 /** A session row as returned by the sessions API. */
 export interface Session {
   id: string;
@@ -745,6 +750,8 @@ export interface Session {
   model: string;
   /** `provider:model` id the session generates images with, or null when image generation is off. */
   imageModel: string | null;
+  /** How hard the session's model reasons; applied from the next turn like the model. */
+  effort: SessionEffort;
   /** Whether the user has pinned the session onto the feed's Pinned tab. */
   pinned: boolean;
   /** The parent session this one was spawned from, or null for a top-level session. */
@@ -967,6 +974,24 @@ export const patchSessionImageModel = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ imageModel }),
+    }),
+  );
+
+/**
+ * Change how hard a session's model reasons, returning the updated row.
+ * Applied when the next turn maps it to provider reasoning parameters, so the
+ * change takes effect from the next turn. Throws `ApiError` on non-2xx (404
+ * for an unknown session).
+ */
+export const patchSessionEffort = async (
+  id: string,
+  effort: SessionEffort,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ effort }),
     }),
   );
 

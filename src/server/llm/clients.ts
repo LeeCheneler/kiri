@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { type ImageModel, type LanguageModel, generateText } from "ai";
+import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
 import { type LlmModelsResult, listLlmModels } from "./models.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider } from "./schema.ts";
@@ -80,6 +81,14 @@ export interface LlmClients {
    * rather than failing the lookup.
    */
   contextWindowFor(id: string): Promise<number | undefined>;
+  /**
+   * The provider options that run a `provider:model` id at `effort`, or
+   * undefined for a model without reasoning support (per the same cached
+   * listings as `contextWindowFor`) — reasoning parameters are only ever sent
+   * where the listing says the model takes them, never blind. Throws for an
+   * id that doesn't resolve, matching `resolveModel`.
+   */
+  reasoningOptionsFor(id: string, effort: Effort): Promise<EffortProviderOptions | undefined>;
 }
 
 /**
@@ -118,6 +127,11 @@ export function createLlmClients(
     async contextWindowFor(id) {
       const { models } = await cachedListing();
       return models.find((model) => model.id === id)?.contextWindow;
+    },
+    async reasoningOptionsFor(id, effort) {
+      const { models } = await cachedListing();
+      if (models.find((model) => model.id === id)?.reasoning !== true) return undefined;
+      return effortProviderOptions(resolveProvider(registry, id).provider, effort);
     },
     resolveModel(id) {
       const { provider, modelId } = resolveProvider(registry, id);

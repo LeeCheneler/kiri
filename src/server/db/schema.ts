@@ -181,8 +181,8 @@ export const recommendations = sqliteTable(
 
 /**
  * One row per agentic conversation — the session pillar's instance, mirroring
- * `runs`. A session runs against a chosen `model`; the rest of the agent
- * layer (allowed tools, generation params) is not modelled here yet.
+ * `runs`. A session runs against a chosen `model` at a chosen `effort`; the
+ * rest of the agent layer (allowed tools) is not modelled here.
  */
 export const sessions = sqliteTable(
   "sessions",
@@ -205,6 +205,15 @@ export const sessions = sqliteTable(
      * to the next generation.
      */
     imageModel: text("image_model"),
+    /**
+     * How hard the session's model reasons, mapped to the provider's reasoning
+     * parameters at each turn — and omitted for models without reasoning
+     * support. Applied per turn like `model`, so a change takes effect from
+     * the next turn.
+     */
+    effort: text("effort", { enum: ["low", "medium", "high", "max"] })
+      .notNull()
+      .default("medium"),
     /**
      * Whether the user has pinned the session. A display flag only — pinned
      * sessions surface on the feed's Pinned tab; execution is unaffected.

@@ -159,9 +159,76 @@ describe("llm clients", () => {
     const result = await clients.listModels();
 
     expect(result.models).toEqual([
-      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text" },
+      { id: "anthropic:claude-haiku-4-5", provider: "anthropic", output: "text", reasoning: true },
     ]);
     expect(result.failures).toEqual([]);
+  });
+
+  it("maps effort to anthropic thinking budgets via reasoningOptionsFor", async () => {
+    server.use(
+      http.get("https://api.anthropic.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "claude-haiku-4-5" }] }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(await clients.reasoningOptionsFor("anthropic:claude-haiku-4-5", "low")).toEqual({
+      anthropic: { thinking: { type: "enabled", budgetTokens: 2048 } },
+    });
+    expect(await clients.reasoningOptionsFor("anthropic:claude-haiku-4-5", "medium")).toEqual({
+      anthropic: { thinking: { type: "enabled", budgetTokens: 8192 } },
+    });
+    expect(await clients.reasoningOptionsFor("anthropic:claude-haiku-4-5", "high")).toEqual({
+      anthropic: { thinking: { type: "enabled", budgetTokens: 16384 } },
+    });
+    expect(await clients.reasoningOptionsFor("anthropic:claude-haiku-4-5", "max")).toEqual({
+      anthropic: { thinking: { type: "enabled", budgetTokens: 32768 } },
+    });
+  });
+
+  it("maps effort to an openai reasoning_effort, capping max at high", async () => {
+    server.use(
+      http.get("https://api.openai.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "gpt-5.2" }] }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+
+    expect(await clients.reasoningOptionsFor("openai:gpt-5.2", "low")).toEqual({
+      openai: { reasoningEffort: "low" },
+    });
+    expect(await clients.reasoningOptionsFor("openai:gpt-5.2", "max")).toEqual({
+      openai: { reasoningEffort: "high" },
+    });
+  });
+
+  it("keys an openai-compatible provider's reasoning options by its configured name", async () => {
+    server.use(
+      http.get("http://localhost:1234/v1/models", () =>
+        HttpResponse.json({
+          data: [{ id: "some-deep-model", supported_parameters: ["reasoning"] }],
+        }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(local), {});
+
+    expect(await clients.reasoningOptionsFor("local:some-deep-model", "high")).toEqual({
+      local: { reasoningEffort: "high" },
+    });
+  });
+
+  it("returns undefined from reasoningOptionsFor for models without reasoning support", async () => {
+    server.use(
+      http.get("https://api.openai.com/v1/models", () =>
+        HttpResponse.json({ data: [{ id: "gpt-4o" }] }),
+      ),
+    );
+    const clients = createLlmClients(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+
+    // A listed non-reasoning model, and a model that isn't listed at all —
+    // neither ever gets reasoning parameters sent blind.
+    expect(await clients.reasoningOptionsFor("openai:gpt-4o", "high")).toBeUndefined();
+    expect(await clients.reasoningOptionsFor("openai:ghost", "high")).toBeUndefined();
   });
 
   it("returns a model's context window via contextWindowFor", async () => {

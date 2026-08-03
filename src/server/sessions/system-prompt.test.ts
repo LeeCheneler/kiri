@@ -80,6 +80,26 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Match length and shape");
   });
 
+  it("states the session's effort level, defaulting to medium", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).toContain("This session's effort level is set to medium");
+    expect(prompt).toContain("Apply ordinary care");
+  });
+
+  it("calibrates the effort expectation to the stated level", () => {
+    const low = buildSystemPrompt({ config, effort: "low", now: FIXED_NOW });
+    expect(low).toContain("This session's effort level is set to low");
+    expect(low).toContain("Be brisk and direct");
+
+    const high = buildSystemPrompt({ config, effort: "high", now: FIXED_NOW });
+    expect(high).toContain("This session's effort level is set to high");
+    expect(high).toContain("Work deliberately");
+
+    const max = buildSystemPrompt({ config, effort: "max", now: FIXED_NOW });
+    expect(max).toContain("This session's effort level is set to max");
+    expect(max).toContain("Be exhaustively thorough");
+  });
+
   it("sets an honesty bar against fabrication, including chart data", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(prompt).toContain("never fabricate");
@@ -470,6 +490,33 @@ describe("delegate guidance", () => {
     const withoutTiers = buildSystemPrompt({ config, tools: ["delegate"], now: FIXED_NOW });
     expect(withoutTiers).not.toContain("Size each worker's model to its task");
   });
+
+  it("carries the effort right-sizing rule whenever delegate is offered", () => {
+    // The effort prop is required with or without tiers, so its steer rides
+    // the delegation guidance unconditionally — per task, independent of the
+    // model choice, and speaking to coding work as much as research.
+    for (const tiersConfigured of [true, false]) {
+      const prompt = buildSystemPrompt({
+        config,
+        tools: ["delegate"],
+        tiersConfigured,
+        now: FIXED_NOW,
+      });
+      expect(prompt).toContain("State each worker's effort with the required `effort` prop");
+      expect(prompt).toContain("`medium` is the everyday default for ordinary research and coding");
+      expect(prompt).toContain("`max` only where the outcome hinges on it");
+      expect(prompt).toContain(
+        "escalate the one strand that needs deep synthesis rather than the batch",
+      );
+    }
+    // No delegate, no delegation steer — including the effort rule.
+    const withoutDelegate = buildSystemPrompt({
+      config,
+      tools: ["tavily__search"],
+      now: FIXED_NOW,
+    });
+    expect(withoutDelegate).not.toContain("State each worker's effort");
+  });
 });
 
 describe("buildChildSessionPrompt", () => {
@@ -491,6 +538,15 @@ describe("buildChildSessionPrompt", () => {
     });
     expect(prompt).toContain("macOS (Darwin 25.5.0, arm64; BSD userland, not GNU)");
     expect(buildChildSessionPrompt({ now: FIXED_NOW })).toContain("You are running on ");
+  });
+
+  it("states the worker's effort level, defaulting to medium", () => {
+    expect(buildChildSessionPrompt({ now: FIXED_NOW })).toContain(
+      "This session's effort level is set to medium",
+    );
+    expect(buildChildSessionPrompt({ effort: "low", now: FIXED_NOW })).toContain(
+      "This session's effort level is set to low",
+    );
   });
 
   it("includes tool-use guidance only when tools are active", () => {
@@ -530,10 +586,12 @@ describe("createSystemPromptBuilder", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // A minimal session stand-in: the builder reads only `parentSessionId` —
-  // a non-null parent marks a child session.
-  const sessionWith = (parentSessionId: string | null): Session =>
-    ({ parentSessionId }) as unknown as Session;
+  // A minimal session stand-in: the builder reads only `parentSessionId` — a
+  // non-null parent marks a child session — and `effort` for the effort line.
+  const sessionWith = (
+    parentSessionId: string | null,
+    effort: Session["effort"] = "medium",
+  ): Session => ({ parentSessionId, effort }) as unknown as Session;
 
   it("composes the layered chat prompt for a top-level session", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
@@ -548,5 +606,15 @@ describe("createSystemPromptBuilder", () => {
     expect(prompt).toContain("focused assistant");
     expect(prompt).toContain("You have tools available");
     expect(prompt).not.toContain("Be terse.");
+  });
+
+  it("states each session's own stored effort, parent and child alike", () => {
+    const builder = createSystemPromptBuilder(config);
+    expect(builder(sessionWith(null, "high"))).toContain(
+      "This session's effort level is set to high",
+    );
+    expect(builder(sessionWith("parent", "low"))).toContain(
+      "This session's effort level is set to low",
+    );
   });
 });

@@ -16,7 +16,7 @@ import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
-import type { LlmClients } from "../llm/index.ts";
+import { EFFORT_LEVELS, type LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
@@ -43,6 +43,7 @@ import {
   runTurn,
   setSessionPinned,
   shellTools,
+  updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
   workflowTools,
@@ -129,6 +130,7 @@ const patchSessionBodySchema = z
   .object({
     model: z.string().min(1).optional(),
     imageModel: z.string().min(1).nullable().optional(),
+    effort: z.enum(EFFORT_LEVELS).optional(),
     pinned: z.boolean().optional(),
   })
   .strict();
@@ -576,7 +578,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model, imageModel, pinned } = c.req.valid("json");
+      const { model, imageModel, effort, pinned } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Validate the model resolves now, mirroring create, so a bad id fails the
@@ -600,6 +602,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         }
         updateSessionImageModel(db, id, imageModel);
       }
+      // Effort needs no resolution — the enum is the whole contract; the turn
+      // maps it to provider parameters (or omits them) when it runs.
+      if (effort !== undefined) updateSessionEffort(db, id, effort);
       if (pinned !== undefined) setSessionPinned(db, id, pinned);
       const updated = getSession(db, id) as typeof session;
       // The turn endpoint resolves the model per turn, so a change applies

@@ -103,7 +103,7 @@ const fakeClients = (
   opts: {
     model?: LlmModel;
     resolveError?: string;
-    models?: { id: string; provider: string; output: "text" | "image" }[];
+    models?: { id: string; provider: string; output: "text" | "image"; reasoning?: boolean }[];
   } = {},
 ): LlmClients => ({
   resolveModel: () => {
@@ -114,8 +114,12 @@ const fakeClients = (
     throw new Error("no image model in this fake");
   },
   generateText: async () => ({ text: "", usage: {} }),
-  listModels: async () => ({ models: opts.models ?? [], failures: [] }),
+  listModels: async () => ({
+    models: (opts.models ?? []).map((model) => ({ reasoning: false, ...model })),
+    failures: [],
+  }),
   contextWindowFor: async () => undefined,
+  reasoningOptionsFor: async () => undefined,
 });
 
 // Bus paired with a `waitForSettled(id)` that resolves when a session returns
@@ -202,7 +206,9 @@ describe("sessions routes", () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
+        models: [
+          { id: "anthropic:claude", provider: "anthropic", output: "text", reasoning: false },
+        ],
         failures: [],
         tiers: {},
       });
@@ -727,6 +733,33 @@ describe("sessions routes", () => {
         error: 'unknown llm provider "ghost"',
       });
       expect(getSession(env.db, "s1")?.imageModel).toBeNull();
+    });
+
+    it("updates the session's effort and publishes session.updated", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      expect(getSession(env.db, "s1")?.effort).toBe("medium");
+
+      const res = await patchBody(app, "s1", { effort: "high" });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { session: { effort: string } };
+      expect(body.session.effort).toBe("high");
+      expect(getSession(env.db, "s1")?.effort).toBe("high");
+      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+    });
+
+    it("rejects an effort outside the levels and leaves it unchanged", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await patchBody(app, "s1", { effort: "ultra" });
+
+      expect(res.status).toBe(400);
+      expect(getSession(env.db, "s1")?.effort).toBe("medium");
     });
 
     it("pins and unpins the session and publishes session.updated", async () => {
@@ -1515,7 +1548,7 @@ describe("sessions routes", () => {
                   type: "tool-call",
                   toolCallId: "c1",
                   toolName: "delegate",
-                  input: '{"task":"Find pelican facts"}',
+                  input: '{"task":"Find pelican facts","effort":"low"}',
                 },
                 { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
               ]),

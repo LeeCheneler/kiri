@@ -18,6 +18,7 @@ import {
   setSessionPinned,
   setSessionStatus,
   updateMessage,
+  updateSessionEffort,
   updateSessionImageModel,
 } from "./store.ts";
 
@@ -49,12 +50,25 @@ describe("sessions store", () => {
     expect(session.parentSessionId).toBeNull();
     expect(session.parentToolCallId).toBeNull();
     expect(session.imageModel).toBeNull();
+    expect(session.effort).toBe("medium");
     expect(getSession(db, "s1")?.id).toBe("s1");
   });
 
   it("creates a session with an image model when one is given", () => {
     const session = createSession(db, MODEL, { id: "s1", imageModel: "openai:gpt-image" });
     expect(session.imageModel).toBe("openai:gpt-image");
+  });
+
+  it("creates a session at a stated effort level", () => {
+    const session = createSession(db, MODEL, { id: "s1", effort: "high" });
+    expect(session.effort).toBe("high");
+  });
+
+  it("sets the effort level", () => {
+    createSession(db, MODEL, { id: "s1" });
+
+    expect(updateSessionEffort(db, "s1", "max").effort).toBe("max");
+    expect(getSession(db, "s1")?.effort).toBe("max");
   });
 
   it("creates a child session carrying its parent and spawning tool call", () => {

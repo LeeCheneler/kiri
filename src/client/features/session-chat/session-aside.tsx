@@ -1,9 +1,13 @@
-import type { ModelTiers } from "../../api.ts";
+import type { ModelTiers, SessionEffort } from "../../api.ts";
 import {
   Combobox,
   type ComboboxGroup,
   type ComboboxItem,
 } from "../../design-system/actions/combobox.tsx";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "../../design-system/actions/segmented-control.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
@@ -18,6 +22,14 @@ const SECTION_CLASS = "py-6 first:pt-0 last:pb-0";
 // The image-model picker entry that means "image generation off". Model ids
 // are always `provider:model`, so a real model can never collide with it.
 const IMAGE_MODEL_NONE = "None";
+
+// The effort control's segments, lowest first.
+const EFFORT_OPTIONS: readonly SegmentedOption<SessionEffort>[] = [
+  { value: "low", label: "low" },
+  { value: "medium", label: "medium" },
+  { value: "high", label: "high" },
+  { value: "max", label: "max" },
+];
 
 // A modality's configured tiers as the picker's pinned "kiri" group — the
 // tier name alone as the label, its configured model id as the committed
@@ -64,7 +76,7 @@ const providerGroups = (ids: readonly string[]): ComboboxGroup[] => {
  */
 export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const detail = useSession(id).data;
-  const { setModel, setImageModel } = useUpdateSession(id);
+  const { setModel, setImageModel, setEffort } = useUpdateSession(id);
   const modelsQuery = useModels();
   const modelsData = modelsQuery.data;
   // While the listing is still in flight there is nothing to label the
@@ -98,6 +110,12 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   // listing says either way. Unknown (a bare listing, or a pinned model the
   // provider no longer lists) shows nothing rather than a guess.
   const imageInput = models.find((model) => model.id === session.model)?.imageInput;
+
+  // The effort control is only offered where effort means something: the
+  // selected model's listing must mark it reasoning-capable. A delisted or
+  // unmarked model hides the control — the turn wouldn't send reasoning
+  // parameters for it anyway.
+  const showEffort = models.find((model) => model.id === session.model)?.reasoning === true;
 
   // Image model, same pattern: image-output models only, `None` leading as
   // the off option, the selected model pinned even if delisted. The picker
@@ -140,6 +158,18 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
         {imageInput !== undefined ? (
           <div className="mt-2">
             <Meta>{imageInput ? "Accepts image input" : "Text input only"}</Meta>
+          </div>
+        ) : null}
+        {/* Like a model swap, an effort change applies from the next turn. */}
+        {showEffort ? (
+          <div className="mt-4">
+            <SegmentedControl
+              label="Effort"
+              options={EFFORT_OPTIONS}
+              value={session.effort}
+              disabled={turnInFlight}
+              onChange={(effort) => void setEffort(effort)}
+            />
           </div>
         ) : null}
         {/* A provider whose listing failed leaves a gap in the picker; name it

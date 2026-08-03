@@ -190,6 +190,13 @@
       "when": 1785708203896,
       "tag": "0026_drop_session_persona",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1785712674335,
+      "tag": "0027_add_session_effort",
+      "breakpoints": true
     }
   ]
 }

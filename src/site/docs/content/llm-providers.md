@@ -110,6 +110,10 @@ result depends on reasoning depth.
 Without a `models:` section, nothing changes: pickers list models as usual and
 new sessions default to the most recent session's model.
 
+Tiers and a session's [effort level](/docs/sessions) are orthogonal levers:
+the tier picks *which* model does the work; effort sets *how hard* it
+reasons. Size them independently.
+
 ## Hot reload and health
 
 Edits to `kiri.yaml` apply live: kiri swaps the registry on a valid change and
