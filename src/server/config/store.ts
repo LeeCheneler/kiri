@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 const WORKFLOWS_DIRNAME = "workflows";
 const BUNDLES_DIRNAME = "bundles";
+const SKILLS_DIRNAME = "skills";
 const DATA_DIRNAME = ".kiri";
 const RUNS_DIRNAME = "runs";
 const MCP_CREDENTIALS_FILENAME = "mcp-credentials.json";
@@ -28,6 +29,8 @@ export interface ConfigStore {
   bundleDir(name: string): string;
   /** `<cwd>/bundles/<name>/run.sh` — a bundle's entry script. */
   bundleRunPath(name: string): string;
+  /** `<cwd>/skills` — the user's skills, one directory per skill holding a `SKILL.md`. */
+  skillsDir(): string;
   /** `<cwd>/.kiri` — gitignored runtime state (state DB, per-run scratch dirs). */
   dataDir(): string;
   /** `<cwd>/.kiri/runs/<runId>` — a run's scratch directory. */
@@ -59,6 +62,7 @@ export function createConfigStore(cwd: string): ConfigStore {
     bundlesDir: () => bundlesDir,
     bundleDir: (name) => join(bundlesDir, name),
     bundleRunPath: (name) => join(bundlesDir, name, "run.sh"),
+    skillsDir: () => join(cwd, SKILLS_DIRNAME),
     dataDir: () => dataDir,
     runDir: (runId) => join(dataDir, RUNS_DIRNAME, runId),
     mcpCredentialsFile: () => join(dataDir, MCP_CREDENTIALS_FILENAME),

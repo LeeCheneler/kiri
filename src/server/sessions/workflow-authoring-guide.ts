@@ -32,11 +32,11 @@ and prefer portable POSIX forms.`;
 };
 
 /**
- * Build the workflow-authoring reference served by the
- * `read_workflow_authoring_guide` session tool, tailored to the host the
- * workflows will run on. Loaded into a conversation once, on demand, before
- * the model's first authoring call — kept out of the system prompt so
- * sessions that never author workflows don't pay for it. Content is scoped
+ * Build the workflow-authoring reference served as the first-party
+ * `workflow-authoring` skill, tailored to the host the workflows will run
+ * on. Loaded into a conversation once, on demand, before the model's first
+ * authoring call — kept out of the system prompt so sessions that never
+ * author workflows don't pay for it. Content is scoped
  * to what a session can do through the workflow tools: it teaches the YAML
  * contract, the execution model, the host environment scripts must target,
  * and the working method, but not filesystem-side authoring (bundles, prompt
