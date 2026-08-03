@@ -111,13 +111,6 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   // provider no longer lists) shows nothing rather than a guess.
   const imageInput = models.find((model) => model.id === session.model)?.imageInput;
 
-  // Effort always applies — the system prompt calibrates the assistant's
-  // thoroughness to it on every model — so the control always shows. The
-  // reasoning flag only decides the note: a model the listing marks
-  // non-reasoning gets no native reasoning parameters, and the note says so.
-  // Unknown (a delisted or unlisted model) shows nothing rather than a guess.
-  const reasoning = models.find((model) => model.id === session.model)?.reasoning;
-
   // Image model, same pattern: image-output models only, `None` leading as
   // the off option, the selected model pinned even if delisted. The picker
   // hides entirely when no provider offers an image model and none is
@@ -161,7 +154,11 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
             <Meta>{imageInput ? "Accepts image input" : "Text input only"}</Meta>
           </div>
         ) : null}
-        {/* Like a model swap, an effort change applies from the next turn. */}
+        {/* Effort always applies — the system prompt calibrates the
+            assistant's thoroughness to it on every model, and the turn adds
+            provider reasoning parameters where the model supports them — so
+            the control always shows. Like a model swap, a change applies
+            from the next turn. */}
         <div className="mt-4">
           <SegmentedControl
             label="Effort"
@@ -170,13 +167,6 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
             disabled={turnInFlight}
             onChange={(effort) => void setEffort(effort)}
           />
-          {reasoning === false ? (
-            <div className="mt-2">
-              <Meta>
-                Effort guides the assistant's approach; this model has no native reasoning setting
-              </Meta>
-            </div>
-          ) : null}
         </div>
         {/* A provider whose listing failed leaves a gap in the picker; name it
             and why, so a missing model reads as a config issue, not an absence. */}
