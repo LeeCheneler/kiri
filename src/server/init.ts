@@ -351,7 +351,10 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 # \`delegates\` map the worker sizes the assistant picks between when it
 # delegates — quick (mechanical legwork), daily (ordinary work), deep
 # (reasoning-heavy) — configure any subset; with none, workers run the
-# delegating session's model:
+# delegating session's model. \`utility\` is the model kiri itself uses for
+# small internal generations, like naming a new session — point it at a
+# fast, cheap model (a local one works well); unset, those calls run on
+# the session's own model:
 #
 # models:
 #   shortcuts:
@@ -364,6 +367,7 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #     quick: anthropic:claude-haiku-4-5
 #     daily: anthropic:claude-sonnet-4-5
 #     deep: anthropic:claude-opus-4-5
+#   utility: anthropic:claude-haiku-4-5
 #
 # Give agentic chat sessions tools from MCP servers, under \`mcp:\`. A remote
 # \`http\` server signs in with OAuth (\`auth: oauth\` — kiri runs the browser

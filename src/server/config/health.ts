@@ -44,6 +44,7 @@ const modelReferences = (models: ModelsConfig): ModelReference[] => [
     label: `delegates.${role}`,
     ref,
   })),
+  ...(models.utility !== undefined ? [{ label: "utility", ref: models.utility }] : []),
 ];
 
 // The provider prefix of a well-formed `provider:model` reference, or null

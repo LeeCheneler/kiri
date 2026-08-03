@@ -13,12 +13,13 @@ reopening the session rejoins it live.
 ## Titles
 
 Sessions carry a **title** — the name the session list, activity feed, and
-search results lead with. The assistant names an untitled session itself: a
-short title after its first reply, via the built-in `set_session_title` tool,
-and after that it renames only when you ask ("rename this session"). You can
-rename a session yourself from its page at any time, or clear the title to
-fall back to the untitled default — the session's first message. Titles are
-searchable alongside message text.
+search results lead with. Kiri names a new session automatically: as your
+first message starts the turn, a small one-off generation against the
+[utility model](/docs/llm-providers#utility-model) (or the session's own
+model when none is configured) titles the session, usually before the reply
+finishes streaming. You can rename a session from its page at any time, or
+clear the title to fall back to the untitled default — the session's first
+message. Titles are searchable alongside message text.
 
 ## Shaping behaviour
 
@@ -161,7 +162,6 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
 | `delegate` | Always allow | Workers only hold tools already always-allowed. |
-| `set_session_title` | Always allow | Renames only its own session; reversible. |
 | `run_workflow`, `rerun_workflow` | Ask | Execute your workflows. |
 | Workflow write / edit | Ask | Put runnable YAML in your repo. |
 | Filesystem writes / deletes | Ask | Change your files. |

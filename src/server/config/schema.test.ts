@@ -173,7 +173,7 @@ describe("kiriConfigSchema", () => {
     ).toThrow();
   });
 
-  it("parses a models section with shortcuts and delegates", () => {
+  it("parses a models section with shortcuts, delegates, and utility", () => {
     const result = kiriConfigSchema.parse({
       models: {
         shortcuts: {
@@ -181,11 +181,13 @@ describe("kiriConfigSchema", () => {
           image: { images: "b:img" },
         },
         delegates: { quick: "a:small", daily: "a:mid", deep: "a:big" },
+        utility: "a:small",
       },
     });
     expect(result.models?.shortcuts?.text).toEqual({ sonnet: "a:mid", haiku: "a:small" });
     expect(result.models?.shortcuts?.image).toEqual({ images: "b:img" });
     expect(result.models?.delegates).toEqual({ quick: "a:small", daily: "a:mid", deep: "a:big" });
+    expect(result.models?.utility).toBe("a:small");
   });
 
   it("parses shortcuts with only one modality", () => {

@@ -237,25 +237,6 @@ function buildDelegateGuidance(
   ].join("\n");
 }
 
-// When the session can name itself, the steer that drives it: an untitled
-// session gets a short title after the first response — one call, so the list
-// and feed show a recognisable name from the start — and after that the title
-// changes only on an explicit request, never as the conversation drifts.
-// Keyed off the tool's name, so a session not offered it — including every
-// child session, which never is — gets no titling steer.
-function buildTitleGuidance(tools: string[], titled: boolean): string | null {
-  if (!tools.includes("set_session_title")) return null;
-  const retitleRule =
-    'Change the title only when the user explicitly asks (e.g. "rename this session") — never retitle on your own as the conversation moves on.';
-  if (titled) {
-    return `This session already has a title, shown in the session list, activity feed, and search results. ${retitleRule}`;
-  }
-  return [
-    "This session has no title yet. After completing your first response, call set_session_title with a short title — a few words naming what the conversation is about, drawn from the user's request, not your reply. One call; don't mention it in your response.",
-    retitleRule,
-  ].join(" ");
-}
-
 // Cross-cutting strategy for the session's active tools. The SDK sends each
 // tool's own definition (the *what*, and for MCP tools the *when*); this layer
 // adds what no single tool's schema can: spend the token budget deliberately.
@@ -338,7 +319,6 @@ function buildCorePrompt(
   shellDirectories: readonly string[],
   delegateRoles: readonly DelegateRole[],
   effort: Effort,
-  titled: boolean,
   skills: readonly SkillSummary[],
 ): string {
   const today = now.toISOString().slice(0, 10);
@@ -356,7 +336,6 @@ function buildCorePrompt(
     intro,
     buildResponseGuidance(),
     buildEffortGuidance(effort),
-    buildTitleGuidance(tools, titled),
     buildToolGuidance(tools),
     buildDelegateGuidance(tools, delegateRoles),
     buildSkillGuidance(tools, skills),
@@ -456,8 +435,6 @@ export interface BuildSystemPromptOptions {
   skills?: readonly SkillSummary[];
   /** The session's effort level, stated with its calibration expectation; defaults to `medium`. */
   effort?: Effort;
-  /** The session's current title, or null/omitted when untitled — the titling steer keys off it. */
-  title?: string | null;
   /** Clock injection for tests; defaults to the current time. */
   now?: Date;
   /** Host injection for tests; defaults to the running process's machine. */
@@ -481,7 +458,6 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.shellDirectories ?? [],
       opts.delegateRoles ?? [],
       opts.effort ?? "medium",
-      opts.title != null,
       opts.skills ?? [],
     ),
   ];
@@ -523,6 +499,5 @@ export function createSystemPromptBuilder(
           delegateRoles,
           skills,
           effort: session.effort,
-          title: session.title,
         });
 }

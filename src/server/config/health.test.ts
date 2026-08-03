@@ -179,6 +179,7 @@ describe("evaluateConfigHealth", () => {
         models: {
           shortcuts: { text: { sonnet: "a:mid" }, image: { images: "a:img" } },
           delegates: { daily: "a:mid" },
+          utility: "a:small",
         },
       }),
       env: {},
@@ -186,8 +187,10 @@ describe("evaluateConfigHealth", () => {
     const models = find(checks, "models");
     expect(models).toHaveLength(1);
     expect(models[0].level).toBe("ok");
-    expect(models[0].title).toBe("3 model references configured");
-    expect(models[0].detail).toBe("shortcuts.text.sonnet, shortcuts.image.images, delegates.daily");
+    expect(models[0].title).toBe("4 model references configured");
+    expect(models[0].detail).toBe(
+      "shortcuts.text.sonnet, shortcuts.image.images, delegates.daily, utility",
+    );
   });
 
   it("flags a malformed model reference as an error", () => {

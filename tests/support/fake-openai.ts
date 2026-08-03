@@ -23,6 +23,10 @@
  *   output modality, and `POST …/images/generations` returns a fixed 1×1 PNG
  *   (or the stub error when the prompt starts with `boom`).
  *
+ * Whatever the model, a request whose last user message is kiri's session-title
+ * generation prompt is answered with the fixed `STUB_SESSION_TITLE`, so titled
+ * sessions carry a stable, assertable label.
+ *
  * The same `fakeOpenAiFetch` handler backs both the in-process server the
  * integration tests spin up and the standalone process Playwright boots for e2e.
  */
@@ -210,6 +214,14 @@ const chatCompletionJson = (model: string, reply: string): Response =>
     usage: FAKE_USAGE,
   });
 
+// Kiri's session-title generation opens its prompt with this phrase; the stub
+// answers those calls with a fixed title so e2e session labels are stable
+// instead of echoing the whole instruction back as the title.
+const TITLE_PROMPT_PREFIX = "Name the conversation";
+
+/** The title the stub answers every session-title generation with. */
+export const STUB_SESSION_TITLE = "Kiri e2e session";
+
 // A 400 (not 5xx) so the AI SDK treats it as non-retryable and fails fast,
 // rather than burning its retry/backoff budget before surfacing the error.
 const errorResponse = (): Response =>
@@ -256,6 +268,7 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
     const model = body.model ?? "echo";
     const messages = body.messages ?? [];
     let reply = fakeReply(lastUserText(messages));
+    if (lastUserText(messages).startsWith(TITLE_PROMPT_PREFIX)) reply = STUB_SESSION_TITLE;
 
     if (model === "boom") return errorResponse();
 

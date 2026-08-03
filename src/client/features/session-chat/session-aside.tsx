@@ -60,8 +60,8 @@ const providerGroups = (ids: readonly string[]): ComboboxGroup[] => {
 // blur or Enter (the wrapping form catches Enter's submit). A committed blank
 // clears the title back to the untitled fallback; a committed no-change is
 // dropped rather than PATCHed. The draft re-seeds whenever the stored title
-// changes — the assistant's set_session_title lands through the same session
-// query — so an un-edited field follows along.
+// changes — kiri's generated title lands through the same session query — so
+// an un-edited field follows along.
 function SessionTitleField({
   title,
   onCommit,
