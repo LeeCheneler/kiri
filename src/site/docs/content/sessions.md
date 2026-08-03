@@ -239,10 +239,11 @@ filesystem:
   paths it's about to create. Entries resolve relative to the workspace
   root; a leading `~` expands to your home directory (granting the whole
   home directory needs the quoted `"~"` form — a bare `~` is YAML null).
-- Hidden (dot-prefixed) files are never listed, read, searched, or written —
-  `.env` and `.kiri/` stay out of reach. Binary files aren't read or written,
-  and oversized results are truncated so one big file can't swamp the
-  conversation.
+- Hidden (dot-prefixed) files are reachable like any other, with two
+  exceptions that are never listed, read, searched, or written: `.git`
+  internals, and secret-bearing files — `.env*` and kiri's own credential
+  store. Binary files aren't read or written, and oversized results are
+  truncated so one big file can't swamp the conversation.
 - Reads are pre-allowed — declaring the sandbox is the authorisation. Writes
   and deletes ask, previewing the exact change as a diff. Deleting a
   non-empty directory takes an explicit recursive opt-in, and an allowed

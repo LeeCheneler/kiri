@@ -155,7 +155,7 @@ function buildFilesystemGuidance(
           "- Scope narrowly: find or search first, then read the specific files that answer the need. Don't trawl whole trees or read files speculatively.",
         ]
       : []),
-    "- Hidden (dot-prefixed) files and binary files are outside your reach, and an oversized result is cut with a note saying so — treat a truncated result as incomplete and tighten the call rather than reading it as the whole picture.",
+    "- Binary files, .git internals, and secret-bearing files (.env*, credential stores) are outside your reach, and an oversized result is cut with a note saying so — treat a truncated result as incomplete and tighten the call rather than reading it as the whole picture.",
     ...(writes
       ? [
           "- Read before you change: base every edit or overwrite on the file's current contents, copying edit_file's old_string verbatim from read_file output — it must match exactly, whitespace included, and exactly once (add surrounding context to pin down one occurrence, or set replace_all).",
