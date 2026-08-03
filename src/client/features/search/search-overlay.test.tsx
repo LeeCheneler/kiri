@@ -37,10 +37,17 @@ const fullResults = {
   sessions: [
     {
       id: "s1",
+      title: null,
       preview: "Tell me about pelicans",
       snippet: [{ text: "pelicans", match: true }],
     },
-    { id: "s2", preview: "", snippet: [{ text: "pelican", match: true }] },
+    { id: "s2", title: null, preview: "", snippet: [{ text: "pelican", match: true }] },
+    {
+      id: "s3",
+      title: "Pelican migration plan",
+      preview: "Where do pelicans go",
+      snippet: [{ text: "pelican", match: true }],
+    },
   ],
   runs: [
     {
@@ -112,6 +119,11 @@ describe("<SearchOverlay>", () => {
     expect(screen.getByRole("link", { name: /untitled session/i }).getAttribute("href")).toBe(
       "/sessions/s2",
     );
+    // A titled session leads with its title, not its first-message preview.
+    expect(screen.getByRole("link", { name: /pelican migration plan/i }).getAttribute("href")).toBe(
+      "/sessions/s3",
+    );
+    expect(screen.queryByText(/where do pelicans go/i)).toBeNull();
     expect(screen.getByRole("link", { name: /news-digest/i }).getAttribute("href")).toBe(
       "/runs/r1",
     );

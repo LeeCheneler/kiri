@@ -14,6 +14,7 @@ const sessionDetail = (overrides: Record<string, unknown> = {}, messages: unknow
     status: "idle",
     model: "anthropic:claude",
     effort: "medium",
+    title: null,
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
@@ -392,6 +393,81 @@ describe("<SessionAside>", () => {
 
     const combobox = await loadedCombobox(/image model/i);
     expect(combobox.value).toBe("delisted-image");
+  });
+
+  it("shows the stored title in the rename field, or its untitled placeholder", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ title: "Postgres upgrade plan" })),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
+    expect(field.value).toBe("Postgres upgrade plan");
+    expect(field.placeholder).toBe("Untitled");
+  });
+
+  it("renames the session when an edited title is committed with Enter", async () => {
+    let patched: { title?: string | null } = {};
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.patch("*/api/sessions/:id", async ({ request }) => {
+        patched = (await request.json()) as { title?: string | null };
+        return HttpResponse.json(sessionDetail({ title: "Postgres upgrade plan" }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
+    await userEvent.type(field, "  Postgres upgrade plan  {Enter}");
+
+    // Committed trimmed, and the field settles on the PATCH response's title.
+    await waitFor(() => expect(patched.title).toBe("Postgres upgrade plan"));
+    await waitFor(() => expect(field.value).toBe("Postgres upgrade plan"));
+  });
+
+  it("clears the title when a blanked field is committed on blur", async () => {
+    let patched: { title?: string | null } = { title: "unset" };
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ title: "Postgres upgrade plan" })),
+      ),
+      http.patch("*/api/sessions/:id", async ({ request }) => {
+        patched = (await request.json()) as { title?: string | null };
+        return HttpResponse.json(sessionDetail({ title: null }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
+    await userEvent.clear(field);
+    await userEvent.tab();
+
+    await waitFor(() => expect(patched.title).toBeNull());
+  });
+
+  it("does not PATCH an unchanged title on blur", async () => {
+    let patchCalls = 0;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ title: "Postgres upgrade plan" })),
+      ),
+      http.patch("*/api/sessions/:id", () => {
+        patchCalls += 1;
+        return HttpResponse.json(sessionDetail({ title: "Postgres upgrade plan" }));
+      }),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
+    // Editing whitespace only still commits to the same stored title — the
+    // draft resets to it rather than PATCHing.
+    await userEvent.type(field, "  ");
+    await userEvent.tab();
+
+    await waitFor(() => expect(field.value).toBe("Postgres upgrade plan"));
+    expect(patchCalls).toBe(0);
   });
 
   it("always offers the effort control at the session's stored level", async () => {
