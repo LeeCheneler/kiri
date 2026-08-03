@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { http, HttpResponse } from "msw";
@@ -725,6 +725,28 @@ describe("<SessionChat>", () => {
     await user.keyboard("{Enter}");
 
     expect(screen.getByText(/no messages yet/i)).toBeDefined();
+  });
+
+  it("rejects a pasted image when the session's model reads text only", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            { id: "anthropic:claude", provider: "anthropic", output: "text", imageInput: false },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    renderChat();
+
+    const textbox = await screen.findByRole("textbox", { name: /message/i });
+    fireEvent.paste(textbox, {
+      clipboardData: { files: [new File(["img"], "shot.png", { type: "image/png" })] },
+    });
+
+    expect(await screen.findByText(/reads text only/i)).toBeDefined();
   });
 
   it("restores a saved draft into the composer", async () => {

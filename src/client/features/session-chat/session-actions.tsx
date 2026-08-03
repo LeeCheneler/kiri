@@ -66,24 +66,31 @@ export function SessionActions({ id }: { id: string }) {
 
   return (
     <>
-      <div className="flex flex-col items-start gap-2">
-        <Button
-          pending={pinPending}
-          pendingLabel={pinned ? "unpinning…" : "pinning…"}
-          onClick={handlePinToggle}
-        >
-          {pinned ? "unpin session" : "pin session"}
-        </Button>
-        <Button
-          variant="negative"
-          pending={pending}
-          pendingLabel="deleting…"
-          disabled={running}
-          title={running ? "a turn is in flight; cancel it first" : undefined}
-          onClick={() => setConfirmOpen(true)}
-        >
-          delete session
-        </Button>
+      <div className="flex flex-col items-start gap-1">
+        {/* Quiet text actions: rare, considered moves that shouldn't compete
+            with the rail's controls. Delete still confirms — and only shows
+            its red on approach. The negative margin re-aligns the borderless
+            labels with the rail's left edge. */}
+        <div className="-mx-3 flex items-center">
+          <Button
+            variant="dismissive"
+            pending={pinPending}
+            pendingLabel={pinned ? "unpinning…" : "pinning…"}
+            onClick={handlePinToggle}
+          >
+            {pinned ? "unpin session" : "pin session"}
+          </Button>
+          <Button
+            variant="negative-quiet"
+            pending={pending}
+            pendingLabel="deleting…"
+            disabled={running}
+            title={running ? "a turn is in flight; cancel it first" : undefined}
+            onClick={() => setConfirmOpen(true)}
+          >
+            delete session
+          </Button>
+        </div>
         {error ? (
           <p role="alert" className="font-mono text-xs text-status-failed">
             {error}

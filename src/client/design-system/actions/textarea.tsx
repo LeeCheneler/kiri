@@ -21,7 +21,11 @@ import { Field } from "./field.tsx";
  * to render the lockup; omit it for the bare control. `onKeyDown` and `onPaste`
  * are forwarded for callers that need key/clipboard handling (e.g. a chat
  * composer's Enter-to-send and paste-an-image). It owns the control's chrome —
- * and, when labelled, the field rhythm — but no width or margin.
+ * and, when labelled, the field rhythm — but no width or margin. Pass `bare`
+ * when a wrapping surface owns the chrome (border, background, focus ring) and
+ * the control should sit inside it flush — e.g. a composer frame with its own
+ * toolbar; with no visible label, `aria-label` names the bare control for
+ * assistive tech.
  */
 export function Textarea({
   value,
@@ -35,6 +39,8 @@ export function Textarea({
   placeholder,
   rows = 3,
   maxRows,
+  bare = false,
+  "aria-label": ariaLabel,
   onKeyDown,
   onPaste,
 }: {
@@ -49,6 +55,8 @@ export function Textarea({
   placeholder?: string;
   rows?: number;
   maxRows?: number;
+  bare?: boolean;
+  "aria-label"?: string;
   onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>;
   onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
@@ -98,7 +106,12 @@ export function Textarea({
       onPaste={onPaste}
       aria-describedby={description ? `${fieldId}-description` : undefined}
       aria-required={required ? true : undefined}
-      className="w-full border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+      aria-label={label === undefined ? ariaLabel : undefined}
+      className={
+        bare
+          ? "w-full bg-transparent px-3 py-2 font-mono text-sm text-ink outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          : "w-full border border-rule bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+      }
     />
   );
   if (label === undefined) return control;

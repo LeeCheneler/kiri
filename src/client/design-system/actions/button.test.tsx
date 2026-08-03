@@ -24,6 +24,11 @@ describe("<Button>", () => {
     expect(screen.getByRole("button").getAttribute("data-variant")).toBe("negative");
   });
 
+  it("exposes the negative-quiet variant via data-variant for low-weight destructive actions", () => {
+    render(<Button variant="negative-quiet">delete</Button>);
+    expect(screen.getByRole("button").getAttribute("data-variant")).toBe("negative-quiet");
+  });
+
   it("exposes the dismissive variant via data-variant for low-weight actions", () => {
     render(<Button variant="dismissive">cancel</Button>);
     expect(screen.getByRole("button").getAttribute("data-variant")).toBe("dismissive");
