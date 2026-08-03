@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { sendMessage, startSession, useModel } from "./support/session.ts";
 
 test("starting a session, sending a message, and streaming the reply", async ({ page }) => {
-  await startSession(page);
+  const id = await startSession(page);
   await useModel(page, "fake:echo");
 
   // The composer lands focused on an empty transcript.
@@ -18,15 +18,18 @@ test("starting a session, sending a message, and streaming the reply", async ({ 
   // The composer re-enables once the turn settles, ready for the next message.
   await expect(page.getByLabel(/message/i)).toBeEnabled();
 
-  // Back on the activity feed's Sessions view, the session leads with the
-  // title kiri generated off the opening message (the stub answers every
-  // title generation with its fixed title).
+  // Back on the activity feed's Sessions view, this session's row leads with
+  // the title kiri generated off the opening message (the stub answers every
+  // title generation with its fixed title, and other specs' sessions share
+  // the fixture DB — so scope to the row by href rather than by name).
   await page
     .getByRole("navigation", { name: /breadcrumb/i })
     .getByRole("link", { name: /^sessions$/i })
     .click();
   await expect(page).toHaveURL("/?view=sessions");
-  await expect(page.getByRole("link", { name: /kiri e2e session/i })).toBeVisible();
+  const row = page.locator(`a[href="/sessions/${id}"]`);
+  await expect(row).toBeVisible();
+  await expect(row).toContainText(/kiri e2e session/i);
 });
 
 test("a settled turn reports the context fill in the rail", async ({ page }) => {
