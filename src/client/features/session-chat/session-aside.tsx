@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ModelTiers, SessionEffort } from "../../api.ts";
+import type { ModelShortcuts, SessionEffort } from "../../api.ts";
 import {
   Combobox,
   type ComboboxGroup,
@@ -35,21 +35,15 @@ const EFFORT_OPTIONS: readonly SegmentedOption<SessionEffort>[] = [
   { value: "max", label: "max" },
 ];
 
-// A modality's configured tiers as the picker's pinned "kiri" group — the
-// tier name alone as the label, its configured model id as the committed
-// value, smallest tier first. Absent tiers pin nothing.
-const tierGroup = (tiers: ModelTiers | undefined): ComboboxGroup[] =>
-  tiers
-    ? [
-        {
-          label: "kiri",
-          options: (["tanto", "katana", "odachi"] as const).map((tier) => ({
-            value: tiers[tier],
-            label: tier,
-          })),
-        },
-      ]
+// A modality's configured shortcuts as the picker's pinned "kiri" group — the
+// shortcut name alone as the label, its configured model id as the committed
+// value, in config order. Absent or empty shortcuts pin nothing.
+const shortcutGroup = (shortcuts: ModelShortcuts | undefined): ComboboxGroup[] => {
+  const entries = Object.entries(shortcuts ?? {});
+  return entries.length > 0
+    ? [{ label: "kiri", options: entries.map(([name, id]) => ({ value: id, label: name })) }]
     : [];
+};
 
 // The model listing as one picker group per provider, providers and models
 // sorted. The group heading names the provider, so each option's label drops
@@ -126,8 +120,8 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   const modelsData = modelsQuery.data;
   // While the listing is still in flight there is nothing to label the
   // committed value with: the pinned-current fallback would show the bare
-  // model name and then be relabelled the moment the listing lands (a tier
-  // model becomes its tier name) — a visible flash. Until the query settles
+  // model name and then be relabelled the moment the listing lands (a
+  // shortcut model becomes its shortcut name) — a visible flash. Until the query settles
   // the pickers render the value with a blank label, disabled. A failed query
   // settles too, so the fallback label then applies and stays stable.
   const modelsPending = modelsQuery.isPending;
@@ -144,11 +138,11 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
   // resolved its model and the change applies next.
   const modelIds = models.filter((model) => model.output === "text").map((model) => model.id);
   const withCurrent = modelIds.includes(session.model) ? modelIds : [session.model, ...modelIds];
-  // Configured tiers lead the picker as the pinned "kiri" group; the full
+  // Configured shortcuts lead the picker as the pinned "kiri" group; the full
   // listing follows, one group per provider.
   const modelOptions = modelsPending
     ? [{ options: [{ value: session.model, label: "" }] }]
-    : [...tierGroup(modelsData?.tiers?.text), ...providerGroups(withCurrent)];
+    : [...shortcutGroup(modelsData?.shortcuts?.text), ...providerGroups(withCurrent)];
   const turnInFlight = session.status === "running";
 
   // Whether the selected model accepts image input, when its provider's
@@ -178,7 +172,7 @@ export function SessionAside({ id, now }: { id: string; now?: Date }) {
         },
       ]
     : [
-        ...tierGroup(modelsData?.tiers?.image),
+        ...shortcutGroup(modelsData?.shortcuts?.image),
         { options: [IMAGE_MODEL_NONE] },
         ...providerGroups(withCurrentImageModel),
       ];

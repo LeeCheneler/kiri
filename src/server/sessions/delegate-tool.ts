@@ -1,6 +1,10 @@
 import { type ToolSet, type UIMessage, tool } from "ai";
 import { z } from "zod";
-import { MODEL_TIER_NAMES, type ModelTiers } from "../config/schema.ts";
+import {
+  type DelegateRole,
+  type ModelDelegates,
+  configuredDelegateRoles,
+} from "../config/schema.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import { EFFORT_LEVELS, type Effort } from "../llm/index.ts";
@@ -26,13 +30,23 @@ export interface DelegateToolDeps {
   /** Lets a parent-turn cancel cascade into the child's in-flight turn. */
   cancelRegistry?: CancelRegistry;
   /**
-   * The configured text model tiers. Present, the tool takes a required
-   * `model` tier name and the worker runs the tier's model, resolved at
-   * spawn; absent, the prop is not offered and the worker inherits the
-   * parent's model.
+   * The configured delegate models by role. With at least one role
+   * configured, the tool takes a required `model` role name and the worker
+   * runs that role's model, resolved at spawn; with none, the prop is not
+   * offered and the worker inherits the parent's model.
    */
-  textTiers?: ModelTiers;
+  delegates?: ModelDelegates;
 }
+
+// The sizing prose per delegate role, composed into the `model` prop's
+// description for whichever roles are configured.
+const ROLE_PROSE: Record<DelegateRole, string> = {
+  quick:
+    "quick — the lightest: mechanical, fully-specified tasks with no judgement calls (fetch and extract, reformat, enumerate, apply a stated edit or pattern, run a command and report output).",
+  daily:
+    "daily — the default for ordinary work: research strands, routine coding against a clear spec, multi-step tool use.",
+  deep: "deep — the heaviest: only for tasks whose result depends on reasoning depth (genuine ambiguity, conflicting sources, subtle code correctness, debugging from symptoms, cross-cutting design).",
+};
 
 // The report is the last assistant message's text parts. A worker that ended
 // without any text produced no report — surfaced honestly rather than as "".
@@ -53,13 +67,13 @@ function extractReport(db: KiriDb, childSessionId: string): string | null {
  * parent's context holds the findings rather than the working. The child is
  * created idempotently against the spawning tool call, titled from the
  * required `title` the call states, runs the parent's
- * model — or, when text tiers are configured, the model of a required tier
- * the caller names, resolved at spawn — at a required effort level the call
- * states, and a parent-turn cancel cascades into it. A failed or cancelled child resolves to a note rather than hanging
+ * model — or, when delegate models are configured, the model of a required
+ * role the caller names, resolved at spawn — at a required effort level the
+ * call states, and a parent-turn cancel cascades into it. A failed or cancelled child resolves to a note rather than hanging
  * or throwing, so the parent model can always carry on.
  */
 export function delegateTool(deps: DelegateToolDeps): ToolSet {
-  const { db, parentSessionId, childTurnDeps, bus, cancelRegistry, textTiers } = deps;
+  const { db, parentSessionId, childTurnDeps, bus, cancelRegistry, delegates } = deps;
   const description =
     "The first-call route for research. A comparison, a roundup or comprehensive breakdown, a latest-news check, anything answered by gathering from more than one place: delegate it before running any search, fetch, or read of your own — doing multi-call research in the conversation instead is a mistake. The tool hands the task to a separate worker session — the same model as you, holding the tools the user allows to run without approval — that does the legwork in its own context and returns only a written report, so the conversation holds the findings rather than the working; it runs while you wait, and the user watches it live. The worker cannot see this conversation: write the task as a complete brief, stating the goal, every specific it needs, and the shape of report you want back. The report is the delegated work, done — answer from it rather than re-running any of it yourself. Only a single specific lookup, whose one result you use directly, belongs inline.";
   const titleField = z
@@ -141,11 +155,12 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     );
   };
 
-  // With text tiers configured the tier is a required choice — sizing the
-  // worker is part of writing the brief — and resolves to the tier's model at
-  // spawn. Without them the prop doesn't exist and the worker inherits the
-  // parent's model.
-  if (textTiers) {
+  // With delegate models configured the role is a required choice — sizing
+  // the worker is part of writing the brief — and resolves to the role's
+  // model at spawn. Without them the prop doesn't exist and the worker
+  // inherits the parent's model.
+  const roles = configuredDelegateRoles(delegates);
+  if (roles.length > 0) {
     return {
       [DELEGATE_TOOL_NAME]: tool({
         description,
@@ -153,14 +168,14 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
           title: titleField,
           task: taskField,
           model: z
-            .enum(MODEL_TIER_NAMES)
+            .enum(roles as [DelegateRole, ...DelegateRole[]])
             .describe(
-              "Which model runs the worker. tanto — smallest and fastest: mechanical, fully-specified tasks with no judgement calls (fetch and extract, reformat, enumerate, apply a stated edit or pattern, run a command and report output). katana — the default for ordinary work: research strands, routine coding against a clear spec, multi-step tool use. odachi — largest and slowest: only for tasks whose result depends on reasoning depth (genuine ambiguity, conflicting sources, subtle code correctness, debugging from symptoms, cross-cutting design). Undersizing forces a rerun; oversizing wastes time and cost for identical output.",
+              `Which model runs the worker. ${roles.map((role) => ROLE_PROSE[role]).join(" ")} Undersizing forces a rerun; oversizing wastes time and cost for identical output.`,
             ),
           effort: effortField,
         }),
         execute: ({ title, task, model, effort }, ctx) =>
-          run(title, task, textTiers[model], effort, ctx),
+          run(title, task, delegates?.[model], effort, ctx),
       }),
     };
   }

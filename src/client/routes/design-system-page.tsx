@@ -195,9 +195,9 @@ function ComboboxGroupsDemo() {
         {
           label: "kiri",
           options: [
-            { value: "anthropic:claude-haiku", label: "tanto" },
-            { value: "anthropic:claude-sonnet", label: "katana" },
-            { value: "anthropic:claude-opus", label: "odachi" },
+            { value: "anthropic:claude-haiku", label: "haiku" },
+            { value: "anthropic:claude-sonnet", label: "sonnet" },
+            { value: "anthropic:claude-opus", label: "opus" },
           ],
         },
         {

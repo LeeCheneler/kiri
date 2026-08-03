@@ -11,7 +11,7 @@ import { and, asc, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
-import type { ModelTiersConfig } from "../config/schema.ts";
+import { type ModelsConfig, configuredDelegateRoles } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, sessions as sessionsTable } from "../db/schema.ts";
@@ -107,12 +107,12 @@ export interface SessionsRoutesDeps {
    */
   getShellDirectories?: () => readonly string[];
   /**
-   * Live model tiers from `kiri.yaml`'s `models:` section, read per use so a
-   * config edit applies at once. Rides the model listing (so the pickers can
-   * pin the tiers) and sizes delegated workers. Empty (or omitted) means no
-   * tiers are configured and every tier surface stays as it was.
+   * Live models config from `kiri.yaml`'s `models:` section, read per use so
+   * a config edit applies at once. Shortcuts ride the model listing (so the
+   * pickers can pin them); delegates size the workers the delegate tool
+   * spawns. Empty (or omitted) means none are configured.
    */
-  getModelTiers?: () => ModelTiersConfig;
+  getModelsConfig?: () => ModelsConfig;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -122,8 +122,9 @@ const sessionIdParamSchema = z.object({ id: z.string().min(1) });
 
 const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
-// `imageModel` starts the session with image generation on — the tanto
-// default when image tiers are configured; otherwise it's simply not sent.
+// `imageModel` starts the session with image generation on — the
+// first-shortcut default when image shortcuts are configured; otherwise it's
+// simply not sent.
 const createSessionBodySchema = z
   .object({ model: z.string().min(1), imageModel: z.string().min(1).optional() })
   .strict();
@@ -331,7 +332,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         Object.keys(tools),
         sandboxDirectories(),
         shellWorkingDirectories(),
-        false,
+        [],
         listSkills(config),
       ),
       tools,
@@ -359,9 +360,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     const builtin: ToolSet = {
       ...builtinToolsFor(sessionId),
       // A worker can't spawn workers: delegate is offered only to a session
-      // with no parent. Text tiers, when configured, make the worker's model
-      // a required tier choice, read live so a kiri.yaml edit applies on the
-      // next turn.
+      // with no parent. Delegate models, when configured, make the worker's
+      // model a required role choice, read live so a kiri.yaml edit applies
+      // on the next turn.
       ...(getSession(db, sessionId)?.parentSessionId
         ? {}
         : delegateTool({
@@ -370,7 +371,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             childTurnDeps,
             bus,
             cancelRegistry,
-            textTiers: deps.getModelTiers?.().text,
+            delegates: deps.getModelsConfig?.().delegates,
           })),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
@@ -382,17 +383,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     return tools;
   };
 
-  // The listing carries the configured model tiers alongside the models, so
-  // the pickers can pin them and new sessions can start on tanto. Read live,
-  // so a kiri.yaml edit is reflected on the next fetch. The reasoning flag
-  // stays server-side: it drives whether a turn sends provider reasoning
-  // parameters, and nothing client-side consumes it.
+  // The listing carries the configured model shortcuts alongside the models,
+  // so the pickers can pin them and new sessions can start on the first one.
+  // Read live, so a kiri.yaml edit is reflected on the next fetch. The
+  // reasoning flag stays server-side: it drives whether a turn sends provider
+  // reasoning parameters, and nothing client-side consumes it.
   app.get("/models", async (c) => {
     const { models, failures } = await llmClients.listModels();
     return c.json({
       models: models.map(({ reasoning: _reasoning, ...model }) => model),
       failures,
-      tiers: deps.getModelTiers?.() ?? {},
+      shortcuts: deps.getModelsConfig?.().shortcuts ?? {},
     });
   });
 
@@ -672,7 +673,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         Object.keys(tools),
         sandboxDirectories(),
         shellWorkingDirectories(),
-        deps.getModelTiers?.().text !== undefined,
+        configuredDelegateRoles(deps.getModelsConfig?.().delegates),
         listSkills(config),
       );
       const turnDeps = {

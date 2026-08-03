@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { loadKiriConfig } from "./config/loader.ts";
-import type { ModelTiersConfig } from "./config/schema.ts";
+import type { ModelsConfig } from "./config/schema.ts";
 import type { ConfigStore } from "./config/store.ts";
 import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
@@ -119,11 +119,11 @@ export interface AppDeps {
    */
   getShellDirectories?: () => readonly string[];
   /**
-   * Live model tiers for the session surface. Defaults to reading the
+   * Live models config for the session surface. Defaults to reading the
    * `models:` section from `kiri.yaml` on each use, the same fresh-from-disk
-   * posture as the sandboxes. Empty ⇒ no tiers are configured.
+   * posture as the sandboxes. Empty ⇒ no shortcuts or delegates configured.
    */
-  getModelTiers?: () => ModelTiersConfig;
+  getModelsConfig?: () => ModelsConfig;
 }
 
 // Upper bound on request body size. Invoke bodies are
@@ -226,7 +226,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api", systemRoutes({ version }));
   // Mounted unconditionally — it reports *why* the workspace may have no
   // providers, so it must answer even when the session surface is absent.
-  app.route("/api/config", configRoutes({ config, env }));
+  app.route("/api/config", configRoutes({ config, env, llmClients }));
   app.route(
     "/api/workflows",
     workflowsRoutes({ db, registry, config, bus, cancelRegistry, llmClients }),
@@ -255,7 +255,7 @@ export function createApp(deps: AppDeps): Hono {
           deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),
         getShellDirectories:
           deps.getShellDirectories ?? (() => loadKiriConfig(config, env).shellDirectories),
-        getModelTiers: deps.getModelTiers ?? (() => loadKiriConfig(config, env).modelTiers),
+        getModelsConfig: deps.getModelsConfig ?? (() => loadKiriConfig(config, env).models),
       }),
     );
   }

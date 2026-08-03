@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ConfigCheck } from "../config/health.ts";
 import { createApp } from "../index.ts";
+import type { LlmClients } from "../llm/index.ts";
 import { type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 const writeConfig = (cwd: string, yaml: string): void =>
@@ -55,6 +56,60 @@ describe("config routes", () => {
         checks: ConfigCheck[];
       };
       expect(areasByLevel(checks, "error")).toEqual(["providers"]);
+    });
+
+    it("flags a model reference to an unknown provider without llm clients wired", async () => {
+      writeConfig(env.cwd, "models:\n  shortcuts:\n    text:\n      flash: nowhere:small\n");
+      const app = createApp({ db: env.db, registry: env.registry, config: env.config, env: {} });
+      const { checks } = (await (await app.request("/api/config/health")).json()) as {
+        checks: ConfigCheck[];
+      };
+      expect(areasByLevel(checks, "error")).toEqual(["models"]);
+    });
+
+    it("appends listing-level model checks when llm clients are wired", async () => {
+      writeConfig(
+        env.cwd,
+        [
+          "providers:",
+          "  local:",
+          "    type: openai-compatible",
+          "    base_url: http://localhost:9/v1",
+          "models:",
+          "  shortcuts:",
+          "    text:",
+          "      real: local:listed",
+          "      typo: local:missing",
+        ].join("\n"),
+      );
+      const llmClients: LlmClients = {
+        resolveModel: () => {
+          throw new Error("unused in this fake");
+        },
+        resolveImageModel: () => {
+          throw new Error("unused in this fake");
+        },
+        generateText: async () => ({ text: "", usage: {} }),
+        listModels: async () => ({
+          models: [{ id: "local:listed", provider: "local", output: "text", reasoning: false }],
+          failures: [],
+        }),
+        contextWindowFor: async () => undefined,
+        reasoningOptionsFor: async () => undefined,
+      };
+      const app = createApp({
+        db: env.db,
+        registry: env.registry,
+        config: env.config,
+        env: {},
+        llmClients,
+      });
+      const { checks } = (await (await app.request("/api/config/health")).json()) as {
+        checks: ConfigCheck[];
+      };
+      const degraded = checks.filter((c) => c.area === "models" && c.level === "degraded");
+      expect(degraded).toHaveLength(1);
+      expect(degraded[0].title).toBe("shortcuts.text.typo: model not listed");
     });
   });
 });

@@ -7,10 +7,10 @@ import { useModels, useSessionsFeed } from "../../state/sessions.ts";
 /**
  * One-click new-session action. Starts a session against a default model and
  * navigates to its chat, no model picker in the way (the model is swappable
- * once inside). With model tiers configured the session starts on tanto for
- * each configured modality — text and image alike; without them the default
- * is the most recent session's model, falling back to the first available
- * text-output model (only those can drive a session).
+ * once inside). With model shortcuts configured the session starts on the
+ * first shortcut for each configured modality — text and image alike; without
+ * them the default is the most recent session's model, falling back to the
+ * first available text-output model (only those can drive a session).
  * Disabled, with a hint, when no models are configured.
  */
 export function NewSessionButton() {
@@ -19,12 +19,12 @@ export function NewSessionButton() {
   const sessions = useSessionsFeed();
   const [starting, setStarting] = useState(false);
 
-  const tiers = models.data?.tiers;
+  const shortcuts = models.data?.shortcuts;
   const defaultModel =
-    tiers?.text?.tanto ??
+    Object.values(shortcuts?.text ?? {})[0] ??
     sessions.data?.[0]?.model ??
     models.data?.models.find((model) => model.output === "text")?.id;
-  const defaultImageModel = tiers?.image?.tanto;
+  const defaultImageModel = Object.values(shortcuts?.image ?? {})[0];
 
   const start = async () => {
     if (defaultModel === undefined) return;

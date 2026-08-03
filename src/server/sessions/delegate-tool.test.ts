@@ -171,101 +171,139 @@ describe("delegate tool", () => {
     expect(events).toContainEqual({ type: "session.started", id: child?.id ?? "" });
   });
 
-  it("spawns the worker on the named tier's model when text tiers are configured", async () => {
+  it("spawns the worker on the named role's model when delegates are configured", async () => {
     const capture: { childId?: string } = {};
     const deps: DelegateToolDeps = {
       ...depsFor(reportingModel("Done."), capture),
-      textTiers: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+      delegates: { quick: "a:small", daily: "a:mid", deep: "a:big" },
     };
 
-    const report = await invoke(deps, "Quick lookup", { model: "tanto" });
+    const report = await invoke(deps, "Quick lookup", { model: "quick" });
 
     expect(report).toBe("Done.");
-    // The tier resolved to its configured model at spawn — the child stores
+    // The role resolved to its configured model at spawn — the child stores
     // that id rather than the parent's model.
     expect(capture.childId && getSession(db, capture.childId)?.model).toBe("a:small");
   });
 
-  it("requires the model tier exactly when text tiers are configured", () => {
-    const withTiers = delegateTool({
+  it("requires the model role exactly when delegates are configured", () => {
+    const withDelegates = delegateTool({
       ...depsFor(reportingModel("")),
-      textTiers: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+      delegates: { quick: "a:small", daily: "a:mid", deep: "a:big" },
     })[DELEGATE_TOOL_NAME] as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } };
     expect(
-      withTiers.inputSchema.safeParse({ title: "n", task: "t", effort: "medium" }).success,
+      withDelegates.inputSchema.safeParse({ title: "n", task: "t", effort: "medium" }).success,
     ).toBe(false);
     expect(
-      withTiers.inputSchema.safeParse({ title: "n", task: "t", model: "katana", effort: "medium" })
-        .success,
-    ).toBe(true);
-    expect(
-      withTiers.inputSchema.safeParse({
+      withDelegates.inputSchema.safeParse({
         title: "n",
         task: "t",
-        model: "wakizashi",
+        model: "daily",
+        effort: "medium",
+      }).success,
+    ).toBe(true);
+    expect(
+      withDelegates.inputSchema.safeParse({
+        title: "n",
+        task: "t",
+        model: "katana",
         effort: "medium",
       }).success,
     ).toBe(false);
 
-    const withoutTiers = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
+    const withoutDelegates = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
       inputSchema: { safeParse: (v: unknown) => { success: boolean; data?: unknown } };
     };
-    const bare = withoutTiers.inputSchema.safeParse({ title: "n", task: "t", effort: "medium" });
-    expect(bare.success).toBe(true);
-    // Unconfigured, the prop doesn't exist at all — a stray value is dropped.
-    const stray = withoutTiers.inputSchema.safeParse({
+    const bare = withoutDelegates.inputSchema.safeParse({
       title: "n",
       task: "t",
-      model: "katana",
+      effort: "medium",
+    });
+    expect(bare.success).toBe(true);
+    // Unconfigured, the prop doesn't exist at all — a stray value is dropped.
+    const stray = withoutDelegates.inputSchema.safeParse({
+      title: "n",
+      task: "t",
+      model: "daily",
       effort: "low",
     });
     expect(stray.data).toEqual({ title: "n", task: "t", effort: "low" });
   });
 
-  it("requires the effort level with or without tiers configured", () => {
-    const withTiers = delegateTool({
+  it("offers only the configured subset of roles", () => {
+    const partial = delegateTool({
       ...depsFor(reportingModel("")),
-      textTiers: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+      delegates: { daily: "a:mid" },
     })[DELEGATE_TOOL_NAME] as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } };
     expect(
-      withTiers.inputSchema.safeParse({ title: "n", task: "t", model: "katana" }).success,
+      partial.inputSchema.safeParse({ title: "n", task: "t", model: "daily", effort: "medium" })
+        .success,
+    ).toBe(true);
+    expect(
+      partial.inputSchema.safeParse({ title: "n", task: "t", model: "quick", effort: "medium" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("treats an empty delegates config as unconfigured", () => {
+    const empty = delegateTool({ ...depsFor(reportingModel("")), delegates: {} })[
+      DELEGATE_TOOL_NAME
+    ] as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } };
+    expect(empty.inputSchema.safeParse({ title: "n", task: "t", effort: "medium" }).success).toBe(
+      true,
+    );
+  });
+
+  it("requires the effort level with or without delegates configured", () => {
+    const withDelegates = delegateTool({
+      ...depsFor(reportingModel("")),
+      delegates: { quick: "a:small", daily: "a:mid", deep: "a:big" },
+    })[DELEGATE_TOOL_NAME] as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } };
+    expect(
+      withDelegates.inputSchema.safeParse({ title: "n", task: "t", model: "daily" }).success,
     ).toBe(false);
     expect(
-      withTiers.inputSchema.safeParse({ title: "n", task: "t", model: "katana", effort: "max" })
+      withDelegates.inputSchema.safeParse({ title: "n", task: "t", model: "daily", effort: "max" })
         .success,
     ).toBe(true);
 
-    const withoutTiers = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
+    const withoutDelegates = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
       inputSchema: { safeParse: (v: unknown) => { success: boolean } };
     };
-    expect(withoutTiers.inputSchema.safeParse({ title: "n", task: "t" }).success).toBe(false);
+    expect(withoutDelegates.inputSchema.safeParse({ title: "n", task: "t" }).success).toBe(false);
     expect(
-      withoutTiers.inputSchema.safeParse({ title: "n", task: "t", effort: "banana" }).success,
+      withoutDelegates.inputSchema.safeParse({ title: "n", task: "t", effort: "banana" }).success,
     ).toBe(false);
     expect(
-      withoutTiers.inputSchema.safeParse({ title: "n", task: "t", effort: "high" }).success,
+      withoutDelegates.inputSchema.safeParse({ title: "n", task: "t", effort: "high" }).success,
     ).toBe(true);
   });
 
-  it("requires the title with or without tiers configured", () => {
-    const withTiers = delegateTool({
+  it("requires the title with or without delegates configured", () => {
+    const withDelegates = delegateTool({
       ...depsFor(reportingModel("")),
-      textTiers: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
+      delegates: { quick: "a:small", daily: "a:mid", deep: "a:big" },
     })[DELEGATE_TOOL_NAME] as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } };
     expect(
-      withTiers.inputSchema.safeParse({ task: "t", model: "katana", effort: "medium" }).success,
+      withDelegates.inputSchema.safeParse({ task: "t", model: "daily", effort: "medium" }).success,
     ).toBe(false);
     expect(
-      withTiers.inputSchema.safeParse({ title: "", task: "t", model: "katana", effort: "medium" })
-        .success,
+      withDelegates.inputSchema.safeParse({
+        title: "",
+        task: "t",
+        model: "daily",
+        effort: "medium",
+      }).success,
     ).toBe(false);
 
-    const withoutTiers = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
+    const withoutDelegates = delegateTool(depsFor(reportingModel("")))[DELEGATE_TOOL_NAME] as {
       inputSchema: { safeParse: (v: unknown) => { success: boolean } };
     };
-    expect(withoutTiers.inputSchema.safeParse({ task: "t", effort: "medium" }).success).toBe(false);
+    expect(withoutDelegates.inputSchema.safeParse({ task: "t", effort: "medium" }).success).toBe(
+      false,
+    );
     expect(
-      withoutTiers.inputSchema.safeParse({ title: "", task: "t", effort: "medium" }).success,
+      withoutDelegates.inputSchema.safeParse({ title: "", task: "t", effort: "medium" }).success,
     ).toBe(false);
   });
 

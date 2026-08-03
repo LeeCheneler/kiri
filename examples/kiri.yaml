@@ -19,6 +19,24 @@ providers:
     type: openai-compatible
     base_url: http://localhost:1234/v1
 
+# Model shortcuts and delegates. `shortcuts` are free-form names pinned to
+# the top of the session pickers, in config order — the first is the default
+# for new sessions. `delegates` set the models delegated workers run, by
+# role — quick (mechanical legwork), daily (ordinary work), deep
+# (reasoning-heavy) — any subset; with none, workers run the delegating
+# session's model.
+# models:
+#   shortcuts:
+#     text:
+#       sonnet: anthropic:claude-sonnet-4-5
+#       haiku: anthropic:claude-haiku-4-5
+#     image:
+#       images: openai:gpt-image-1
+#   delegates:
+#     quick: anthropic:claude-haiku-4-5
+#     daily: anthropic:claude-sonnet-4-5
+#     deep: anthropic:claude-opus-4-5
+
 # MCP servers whose tools are offered to agentic chat sessions, keyed by name.
 # Tools appear in sessions namespaced `<server>__<tool>`.
 mcp:

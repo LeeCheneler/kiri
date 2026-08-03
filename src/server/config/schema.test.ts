@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { kiriConfigSchema } from "./schema.ts";
+import { configuredDelegateRoles, kiriConfigSchema } from "./schema.ts";
 
 describe("kiriConfigSchema", () => {
   it("parses an empty config (no providers key)", () => {
@@ -173,54 +173,69 @@ describe("kiriConfigSchema", () => {
     ).toThrow();
   });
 
-  it("parses a models section with text and image tiers", () => {
+  it("parses a models section with shortcuts and delegates", () => {
     const result = kiriConfigSchema.parse({
       models: {
-        text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" },
-        image: { tanto: "b:small", katana: "b:mid", odachi: "b:big" },
+        shortcuts: {
+          text: { sonnet: "a:mid", haiku: "a:small" },
+          image: { images: "b:img" },
+        },
+        delegates: { quick: "a:small", daily: "a:mid", deep: "a:big" },
       },
     });
-    expect(result.models?.text).toEqual({ tanto: "a:small", katana: "a:mid", odachi: "a:big" });
-    expect(result.models?.image).toEqual({ tanto: "b:small", katana: "b:mid", odachi: "b:big" });
+    expect(result.models?.shortcuts?.text).toEqual({ sonnet: "a:mid", haiku: "a:small" });
+    expect(result.models?.shortcuts?.image).toEqual({ images: "b:img" });
+    expect(result.models?.delegates).toEqual({ quick: "a:small", daily: "a:mid", deep: "a:big" });
   });
 
-  it("parses a models section with only one modality", () => {
+  it("parses shortcuts with only one modality", () => {
     const result = kiriConfigSchema.parse({
-      models: { text: { tanto: "a:small", katana: "a:mid", odachi: "a:big" } },
+      models: { shortcuts: { text: { sonnet: "a:mid" } } },
     });
-    expect(result.models?.image).toBeUndefined();
+    expect(result.models?.shortcuts?.image).toBeUndefined();
+  });
+
+  it("parses a subset of delegate roles", () => {
+    const result = kiriConfigSchema.parse({
+      models: { delegates: { daily: "a:mid" } },
+    });
+    expect(result.models?.delegates).toEqual({ daily: "a:mid" });
   });
 
   it("leaves models undefined when the key is absent", () => {
     expect(kiriConfigSchema.parse({}).models).toBeUndefined();
   });
 
-  it("requires all three tiers on a present modality block", () => {
-    const result = kiriConfigSchema.safeParse({
-      models: { text: { tanto: "a:small", katana: "a:mid" } },
-    });
-    expect(result.success).toBe(false);
-    expect(result.error?.issues[0].path).toEqual(["models", "text", "odachi"]);
-  });
-
-  it("rejects an empty tier reference", () => {
+  it("rejects an empty shortcut reference", () => {
     expect(() =>
-      kiriConfigSchema.parse({ models: { text: { tanto: "", katana: "a:mid", odachi: "a:big" } } }),
+      kiriConfigSchema.parse({ models: { shortcuts: { text: { sonnet: "" } } } }),
     ).toThrow();
   });
 
-  it("rejects an unknown tier name (strict)", () => {
+  it("rejects an empty delegate reference", () => {
+    expect(() => kiriConfigSchema.parse({ models: { delegates: { daily: "" } } })).toThrow();
+  });
+
+  it("rejects an unknown delegate role (strict)", () => {
     expect(() =>
       kiriConfigSchema.parse({
-        models: { text: { tanto: "a:s", katana: "a:m", odachi: "a:b", wakizashi: "a:x" } },
+        models: { delegates: { daily: "a:mid", katana: "a:x" } },
       }),
     ).toThrow();
   });
 
-  it("rejects an unknown modality (strict)", () => {
+  it("rejects an unknown shortcuts modality (strict)", () => {
     expect(() =>
       kiriConfigSchema.parse({
-        models: { audio: { tanto: "a:s", katana: "a:m", odachi: "a:b" } },
+        models: { shortcuts: { audio: { whisper: "a:audio" } } },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an unknown models key (strict)", () => {
+    expect(() =>
+      kiriConfigSchema.parse({
+        models: { text: { tanto: "a:s" } },
       }),
     ).toThrow();
   });
@@ -233,5 +248,24 @@ describe("kiriConfigSchema", () => {
     expect(() =>
       kiriConfigSchema.parse({ providers: { anthropic: { type: "anthropic", junk: true } } }),
     ).toThrow();
+  });
+});
+
+describe("configuredDelegateRoles", () => {
+  it("returns the configured roles, lightest first", () => {
+    expect(configuredDelegateRoles({ deep: "a:big", quick: "a:small" })).toEqual(["quick", "deep"]);
+  });
+
+  it("returns every role when all are configured", () => {
+    expect(configuredDelegateRoles({ quick: "a:s", daily: "a:m", deep: "a:b" })).toEqual([
+      "quick",
+      "daily",
+      "deep",
+    ]);
+  });
+
+  it("returns no roles for an empty or absent config", () => {
+    expect(configuredDelegateRoles({})).toEqual([]);
+    expect(configuredDelegateRoles(undefined)).toEqual([]);
   });
 });

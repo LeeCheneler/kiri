@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import type { LlmClients } from "../llm/index.ts";
 import type { LlmProvider } from "../llm/schema.ts";
 import type { McpServer } from "../mcp/schema.ts";
-import { type ConfigCheck, evaluateConfigHealth } from "./health.ts";
+import { type ConfigCheck, evaluateConfigHealth, evaluateModelListingHealth } from "./health.ts";
 import type { KiriConfigLoadResult } from "./loader.ts";
 
 const providerMap = (...providers: LlmProvider[]): Map<string, LlmProvider> =>
@@ -14,7 +15,7 @@ const result = (overrides: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadRe
   providers: new Map(),
   mcp: new Map(),
   mcpUnresolved: [],
-  modelTiers: {},
+  models: { shortcuts: {}, delegates: {} },
   allowedDirectories: [],
   shellDirectories: [],
   ...overrides,
@@ -164,5 +165,154 @@ describe("evaluateConfigHealth", () => {
       env: {},
     });
     expect(find(checks, "mcp")).toHaveLength(0);
+  });
+
+  it("emits no models line when none are configured", () => {
+    const { checks } = evaluateConfigHealth({ kiriConfig: result(), env: {} });
+    expect(find(checks, "models")).toHaveLength(0);
+  });
+
+  it("summarises resolvable model references as ok", () => {
+    const { checks } = evaluateConfigHealth({
+      kiriConfig: result({
+        providers: providerMap({ name: "a", type: "openai-compatible", baseUrl: "http://x" }),
+        models: {
+          shortcuts: { text: { sonnet: "a:mid" }, image: { images: "a:img" } },
+          delegates: { daily: "a:mid" },
+        },
+      }),
+      env: {},
+    });
+    const models = find(checks, "models");
+    expect(models).toHaveLength(1);
+    expect(models[0].level).toBe("ok");
+    expect(models[0].title).toBe("3 model references configured");
+    expect(models[0].detail).toBe("shortcuts.text.sonnet, shortcuts.image.images, delegates.daily");
+  });
+
+  it("flags a malformed model reference as an error", () => {
+    const { checks } = evaluateConfigHealth({
+      kiriConfig: result({
+        providers: providerMap({ name: "a", type: "openai-compatible", baseUrl: "http://x" }),
+        models: {
+          shortcuts: { text: { bare: "no-colon", trailing: "a:" } },
+          delegates: {},
+        },
+      }),
+      env: {},
+    });
+    const errors = find(checks, "models").filter((c) => c.level === "error");
+    expect(errors.map((c) => c.title)).toEqual([
+      "shortcuts.text.bare: not a provider:model reference",
+      "shortcuts.text.trailing: not a provider:model reference",
+    ]);
+  });
+
+  it("flags a reference to an unconfigured provider as an error, naming the configured ones", () => {
+    const { checks } = evaluateConfigHealth({
+      kiriConfig: result({
+        providers: providerMap({ name: "a", type: "openai-compatible", baseUrl: "http://x" }),
+        models: { shortcuts: {}, delegates: { deep: "missing:big" } },
+      }),
+      env: {},
+    });
+    const errors = find(checks, "models").filter((c) => c.level === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0].title).toBe('delegates.deep: unknown provider "missing"');
+    expect(errors[0].detail).toContain("configured: a");
+  });
+
+  it("points at the providers section when none are configured at all", () => {
+    const { checks } = evaluateConfigHealth({
+      kiriConfig: result({ models: { shortcuts: { text: { flash: "a:small" } }, delegates: {} } }),
+      env: {},
+    });
+    const errors = find(checks, "models").filter((c) => c.level === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0].detail).toContain("declared under providers:");
+  });
+
+  it("skips model checks when the config failed to load", () => {
+    const { checks } = evaluateConfigHealth({
+      kiriConfig: result({
+        failure: { path: "/w/kiri.yaml", reason: "bad" },
+        models: { shortcuts: { text: { flash: "a:small" } }, delegates: {} },
+      }),
+      env: {},
+    });
+    expect(find(checks, "models")).toHaveLength(0);
+  });
+});
+
+describe("evaluateModelListingHealth", () => {
+  const clientsListing = (
+    models: { id: string; provider: string }[],
+    failures: { provider: string; reason: string }[] = [],
+  ): LlmClients => ({
+    resolveModel: () => {
+      throw new Error("unused in this fake");
+    },
+    resolveImageModel: () => {
+      throw new Error("unused in this fake");
+    },
+    generateText: async () => ({ text: "", usage: {} }),
+    listModels: async () => ({
+      models: models.map((m) => ({ ...m, output: "text" as const, reasoning: false })),
+      failures,
+    }),
+    contextWindowFor: async () => undefined,
+    reasoningOptionsFor: async () => undefined,
+  });
+
+  const configured = (models: KiriConfigLoadResult["models"]): KiriConfigLoadResult =>
+    result({
+      providers: providerMap({ name: "a", type: "openai-compatible", baseUrl: "http://x" }),
+      models,
+    });
+
+  it("flags a reference the provider's listing doesn't carry as degraded", async () => {
+    const checks = await evaluateModelListingHealth(
+      configured({ shortcuts: { text: { real: "a:listed", typo: "a:missing" } }, delegates: {} }),
+      clientsListing([{ id: "a:listed", provider: "a" }]),
+    );
+    expect(checks).toHaveLength(1);
+    expect(checks[0].level).toBe("degraded");
+    expect(checks[0].title).toBe("shortcuts.text.typo: model not listed");
+  });
+
+  it("skips references whose provider's listing failed", async () => {
+    const checks = await evaluateModelListingHealth(
+      configured({ shortcuts: {}, delegates: { daily: "a:mid" } }),
+      clientsListing([], [{ provider: "a", reason: "connection refused" }]),
+    );
+    expect(checks).toHaveLength(0);
+  });
+
+  it("leaves malformed and unknown-provider references to the pure checks", async () => {
+    const checks = await evaluateModelListingHealth(
+      configured({ shortcuts: { text: { bare: "no-colon" } }, delegates: { deep: "missing:big" } }),
+      clientsListing([]),
+    );
+    expect(checks).toHaveLength(0);
+  });
+
+  it("never fetches the listing when nothing resolvable is configured", async () => {
+    const clients = clientsListing([]);
+    clients.listModels = () => {
+      throw new Error("listing should not be fetched");
+    };
+    const checks = await evaluateModelListingHealth(
+      result({ models: { shortcuts: {}, delegates: {} } }),
+      clients,
+    );
+    expect(checks).toHaveLength(0);
+  });
+
+  it("stays silent when every reference is listed", async () => {
+    const checks = await evaluateModelListingHealth(
+      configured({ shortcuts: { text: { flash: "a:small" } }, delegates: { daily: "a:small" } }),
+      clientsListing([{ id: "a:small", provider: "a" }]),
+    );
+    expect(checks).toHaveLength(0);
   });
 });

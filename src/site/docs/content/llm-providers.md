@@ -72,47 +72,56 @@ providers:
 Everything that takes a `model:` — pipeline steps, articles, summarisers,
 sessions — accepts `local:<model-id>` the same as a hosted provider.
 
-## Model tiers
+## Model shortcuts
 
-Optionally name three tiers of model per modality — text and image — under
-`models:`, and model choice becomes a deliberate size decision. The names are
-the three Japanese blades, smallest to largest:
-
-- **tantō** — smallest, fastest, cheapest: mechanical, fully-specified work
-  with no judgement calls.
-- **katana** — the everyday default for ordinary work.
-- **ōdachi** — largest and deepest: work whose outcome hinges on reasoning
-  depth.
+Name the models you actually use per modality — text and image — under
+`models.shortcuts:`, with any names you like:
 
 ```yaml
 models:
-  text:
-    tanto: anthropic:claude-haiku-4-5
-    katana: anthropic:claude-sonnet-4-5
-    odachi: anthropic:claude-opus-4-5
-  image:
-    tanto: openai:gpt-image-1-mini
-    katana: openai:gpt-image-1
-    odachi: openai:gpt-image-1
+  shortcuts:
+    text:
+      sonnet: anthropic:claude-sonnet-4-5
+      haiku: anthropic:claude-haiku-4-5
+    image:
+      images: openai:gpt-image-1
 ```
 
-Each modality block is optional, but a present block defines all three tiers.
-Tier values are ordinary `provider:model` references, resolved when a tier is
-used — a session records the model its tier pointed at at the time, so
-re-pointing a tier later changes future work without rewriting what past
+The session model pickers pin shortcuts ahead of the full listing, in config
+order, and every new session starts on the first shortcut of each configured
+modality. Picking a shortcut selects its model — nothing is stored by name.
+Values are ordinary `provider:model` references, resolved when picked, so
+re-pointing a shortcut later changes future picks without rewriting what past
 sessions ran on.
 
-With tiers configured, the session model pickers pin the three tiers ahead of
-the full listing, every new session starts on tanto for each configured
-modality, and the assistant sizes each worker it delegates to by naming a
-tier — tantō for mechanical legwork, katana by default, ōdachi where the
-result depends on reasoning depth.
-Without a `models:` section, nothing changes: pickers list models as usual and
-new sessions default to the most recent session's model.
+## Delegate models
 
-Tiers and a session's [effort level](/docs/sessions) are orthogonal levers:
-the tier picks *which* model does the work; effort sets *how hard* it
-reasons. Size them independently.
+Optionally set the models delegated workers run under `models.delegates:`,
+and worker model choice becomes a deliberate size decision. Three roles, each
+optional:
+
+- **quick** — mechanical, fully-specified legwork with no judgement calls.
+- **daily** — the default for ordinary work.
+- **deep** — work whose outcome hinges on reasoning depth.
+
+```yaml
+models:
+  delegates:
+    quick: anthropic:claude-haiku-4-5
+    daily: anthropic:claude-sonnet-4-5
+    deep: anthropic:claude-opus-4-5
+```
+
+With any roles configured, the assistant names one per task it
+[delegates](/docs/sessions) and the worker runs that role's model, resolved
+at spawn. Without them, workers run the same model as the conversation.
+
+Without a `models:` section, nothing changes: pickers list models as usual
+and new sessions default to the most recent session's model.
+
+Shortcuts, delegates, and a session's [effort level](/docs/sessions) are
+independent levers: they pick *which* model does the work; effort sets *how
+hard* it reasons. Size them independently.
 
 ## Hot reload and health
 
@@ -120,7 +129,9 @@ Edits to `kiri.yaml` apply live: kiri swaps the registry on a valid change and
 re-validates every workflow's `llm:` references, keeping the last-known-good
 config on an invalid edit. A declared provider whose key env var is unset is
 flagged in the boot report and the in-app health banner — it never blocks
-boot. See [Troubleshooting](/docs/troubleshooting).
+boot. So is a `models:` reference to an undeclared provider, or to a model
+its provider doesn't currently list. See
+[Troubleshooting](/docs/troubleshooting).
 
 For the full `llm:` step contract — prompts, templating, data flow — see the
 [workflow reference](/docs/workflow-reference).

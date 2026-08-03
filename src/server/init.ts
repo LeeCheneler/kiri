@@ -345,21 +345,25 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #     type: openai-compatible          # LM Studio, Ollama, vLLM, …
 #     base_url: http://localhost:1234/v1
 #
-# Name three model tiers per modality under \`models:\` — tanto (small and
-# quick), katana (the balanced default), odachi (the deepest) — and the
-# session pickers pin them, new sessions start on tanto, and the assistant
-# right-sizes the workers it delegates to. Each block is optional, but a
-# present block defines all three tiers:
+# Pin your favourite models and size delegated work under \`models:\`.
+# \`shortcuts\` are free-form names hoisted to the top of the session
+# pickers, in config order — the first is the default for new sessions.
+# \`delegates\` map the worker sizes the assistant picks between when it
+# delegates — quick (mechanical legwork), daily (ordinary work), deep
+# (reasoning-heavy) — configure any subset; with none, workers run the
+# delegating session's model:
 #
 # models:
-#   text:
-#     tanto: anthropic:claude-haiku-4-5
-#     katana: anthropic:claude-sonnet-4-5
-#     odachi: anthropic:claude-opus-4-5
-#   image:
-#     tanto: openai:gpt-image-1-mini
-#     katana: openai:gpt-image-1
-#     odachi: openai:gpt-image-1
+#   shortcuts:
+#     text:
+#       sonnet: anthropic:claude-sonnet-4-5
+#       haiku: anthropic:claude-haiku-4-5
+#     image:
+#       images: openai:gpt-image-1
+#   delegates:
+#     quick: anthropic:claude-haiku-4-5
+#     daily: anthropic:claude-sonnet-4-5
+#     deep: anthropic:claude-opus-4-5
 #
 # Give agentic chat sessions tools from MCP servers, under \`mcp:\`. A remote
 # \`http\` server signs in with OAuth (\`auth: oauth\` — kiri runs the browser
