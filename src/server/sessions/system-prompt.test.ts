@@ -605,14 +605,17 @@ describe("title guidance", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("steers an untitled session to title itself after the first response", () => {
+  it("steers an untitled session to title itself as part of the current turn", () => {
     const prompt = buildSystemPrompt({
       config,
       tools: ["set_session_title"],
       now: FIXED_NOW,
     });
     expect(prompt).toContain("This session has no title yet");
-    expect(prompt).toContain("After completing your first response, call set_session_title");
+    // The call is framed as required work of the turn, not optional follow-up.
+    expect(prompt).toContain("required part of completing this turn");
+    expect(prompt).toContain("call set_session_title exactly once before you finish responding");
+    expect(prompt).toContain("leaves the session untitled is incomplete");
     // The steer must also stop churn: one auto-title, then explicit-only.
     expect(prompt).toContain("only when the user explicitly asks");
     expect(prompt).toContain("never retitle on your own");

@@ -22,7 +22,7 @@ export function sessionTitleTools(
   return {
     set_session_title: tool({
       description:
-        "Set this session's title: the short display name shown for the conversation in the session list, activity feed, and search results. Applies immediately and replaces any existing title.",
+        "Set this session's title: the short display name shown for the conversation in the session list, activity feed, and search results. Every session must be titled — call this during your first response whenever the session is untitled. Applies immediately and replaces any existing title.",
       inputSchema: z.object({
         title: z
           .string()

@@ -238,11 +238,12 @@ function buildDelegateGuidance(
 }
 
 // When the session can name itself, the steer that drives it: an untitled
-// session gets a short title after the first response — one call, so the list
-// and feed show a recognisable name from the start — and after that the title
-// changes only on an explicit request, never as the conversation drifts.
-// Keyed off the tool's name, so a session not offered it — including every
-// child session, which never is — gets no titling steer.
+// session must title itself as part of its very next response — the call is
+// framed as a required step of the turn, not optional follow-up, because a
+// "when convenient" phrasing gets dropped — and after that the title changes
+// only on an explicit request, never as the conversation drifts. Keyed off
+// the tool's name, so a session not offered it — including every child
+// session, which never is — gets no titling steer.
 function buildTitleGuidance(tools: string[], titled: boolean): string | null {
   if (!tools.includes("set_session_title")) return null;
   const retitleRule =
@@ -251,7 +252,7 @@ function buildTitleGuidance(tools: string[], titled: boolean): string | null {
     return `This session already has a title, shown in the session list, activity feed, and search results. ${retitleRule}`;
   }
   return [
-    "This session has no title yet. After completing your first response, call set_session_title with a short title — a few words naming what the conversation is about, drawn from the user's request, not your reply. One call; don't mention it in your response.",
+    "This session has no title yet, so it shows up unnamed in the session list, activity feed, and search results. Naming it is a required part of completing this turn: call set_session_title exactly once before you finish responding, with a short title — a few words naming what the conversation is about, drawn from the user's request, not your reply. Do this every time, even for trivial or one-line exchanges; a response that leaves the session untitled is incomplete. Don't mention the call or the title in your reply.",
     retitleRule,
   ].join(" ");
 }

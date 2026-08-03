@@ -14,7 +14,7 @@ reopening the session rejoins it live.
 
 Sessions carry a **title** — the name the session list, activity feed, and
 search results lead with. The assistant names an untitled session itself: a
-short title after its first reply, via the built-in `set_session_title` tool,
+short title as part of its first reply, via the built-in `set_session_title` tool,
 and after that it renames only when you ask ("rename this session"). You can
 rename a session yourself from its page at any time, or clear the title to
 fall back to the untitled default — the session's first message. Titles are
