@@ -474,7 +474,7 @@ export function filesystemTools(
 
     set_working_directory: tool({
       description:
-        "Move the session's working directory — its current location within the directories kiri may access. Give an absolute path, or a path relative to the current working directory; it must name a directory that exists inside the allowed directories.",
+        "Move the session's working directory — its current location within the directories kiri may access. Give an absolute path, or a path relative to the current working directory; it must name a directory that exists inside the allowed directories. Reach for this only when the root of the work itself changes (settling into a different project): everything beneath the current working directory is already reachable with relative paths, so never move just to step into a subdirectory.",
       inputSchema: z.object({
         path: z
           .string()

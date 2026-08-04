@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { sep } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import {
   type ModelMessage,
@@ -136,6 +137,9 @@ const createSessionBodySchema = z
 // Any field may be set independently: the aside swaps the models, the pin
 // control flips `pinned`, and the rename control sets `title` (`null` clears
 // it), all through this one endpoint. Omitting a field leaves it unchanged.
+// `cwd` accepts only `null` — a reset to the configured default. The model
+// moves the working directory through set_working_directory; there is no
+// free-text path entry from the app, so an arbitrary value has no writer.
 const patchSessionBodySchema = z
   .object({
     model: z.string().min(1).optional(),
@@ -143,6 +147,7 @@ const patchSessionBodySchema = z
     effort: z.enum(EFFORT_LEVELS).optional(),
     pinned: z.boolean().optional(),
     title: z.string().trim().min(1).max(SESSION_TITLE_MAX_LENGTH).nullable().optional(),
+    cwd: z.null().optional(),
   })
   .strict();
 
@@ -238,6 +243,36 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const defaultWorkingDirectory = (): string | undefined => {
     const dir = deps.getDefaultWorkingDirectory?.();
     return dir !== undefined && existsSync(dir) ? dir : undefined;
+  };
+
+  // Why a session's stored working directory can no longer be used — it left
+  // the disk, or a kiri.yaml edit moved the sandbox out from under it — or
+  // null while it remains valid. With an empty sandbox the check stands down:
+  // the filesystem and shell tools are withheld outright then, so a stale
+  // value can't send any work astray, and a plain chat shouldn't be blocked
+  // by config it no longer uses.
+  const staleCwdReason = (cwd: string): string | null => {
+    const roots: string[] = [];
+    for (const dir of sandboxDirectories()) {
+      try {
+        roots.push(realpathSync(dir));
+      } catch {
+        // Skipped: a declared directory that doesn't exist.
+      }
+    }
+    if (roots.length === 0) return null;
+    const recovery =
+      "update filesystem.allowed_directories in kiri.yaml, or reset the session's working directory";
+    let real: string;
+    try {
+      real = realpathSync(cwd);
+    } catch {
+      return `The session's working directory "${cwd}" no longer exists — ${recovery}.`;
+    }
+    if (!roots.some((dir) => real === dir || real.startsWith(dir + sep))) {
+      return `The session's working directory "${cwd}" is outside the allowed directories — ${recovery}.`;
+    }
+    return null;
   };
 
   // One registry of in-flight turn streams for this surface: the turn endpoint
@@ -656,7 +691,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model, imageModel, effort, pinned, title } = c.req.valid("json");
+      const { model, imageModel, effort, pinned, title, cwd } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Validate the model resolves now, mirroring create, so a bad id fails the
@@ -685,6 +720,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (effort !== undefined) updateSessionEffort(db, id, effort);
       if (pinned !== undefined) setSessionPinned(db, id, pinned);
       if (title !== undefined) updateSessionTitle(db, id, title);
+      // A cwd reset re-derives the start value from the live config — the
+      // recovery for a session whose directory left the sandbox or the disk.
+      if (cwd !== undefined) updateSessionCwd(db, id, defaultWorkingDirectory() ?? null);
       const updated = getSession(db, id) as typeof session;
       // The turn endpoint resolves the model per turn, so a change applies
       // from the next turn. Announce it like any other session change so the
@@ -708,6 +746,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // accepts the next message, picking the conversation back up.
       if (session.status === "running") {
         return c.json({ error: `session "${id}" already has a turn in flight` }, 409);
+      }
+      // A stale working directory fails the turn before anything persists —
+      // erroring loudly beats silently working somewhere other than where the
+      // session says it is. The message names both recoveries.
+      if (session.cwd !== null) {
+        const stale = staleCwdReason(session.cwd);
+        if (stale !== null) return c.json({ error: stale }, 409);
       }
 
       const parts = message.parts as UIMessage["parts"];

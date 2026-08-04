@@ -411,6 +411,43 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("states the session's working directory only when one is set", () => {
+    const withCwd = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file"],
+      allowedDirectories: ["/srv/notes"],
+      workingDirectory: "/srv/notes/inbox",
+    });
+    expect(withCwd).toContain("The session's working directory is /srv/notes/inbox");
+
+    const withoutCwd = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(withoutCwd).not.toContain("The session's working directory");
+  });
+
+  it("adds the move-yourself bullet only when set_working_directory is active", () => {
+    const withMove = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file", "set_working_directory"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(withMove).toContain("Move the session's working directory with set_working_directory");
+
+    const withoutMove = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(withoutMove).not.toContain("Move the session's working directory");
+  });
+
   it("appends kiri.md instructions after the core layer", () => {
     writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
@@ -633,10 +670,12 @@ describe("buildChildSessionPrompt", () => {
     const prompt = buildChildSessionPrompt({
       tools: ["read_file", "run_command"],
       allowedDirectories: ["/workspace/notes"],
+      workingDirectory: "/workspace/notes/project",
       now: FIXED_NOW,
     });
     expect(prompt).toContain("You can work with the user's files");
     expect(prompt).toContain("You can run shell commands with run_command");
+    expect(prompt).toContain("The session's working directory is /workspace/notes/project");
     expect(prompt.split("- /workspace/notes").length).toBe(3);
     // Neither section appears when its tools are absent.
     const bare = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
@@ -671,11 +710,24 @@ describe("createSystemPromptBuilder", () => {
   });
 
   // A minimal session stand-in: the builder reads only `parentSessionId` — a
-  // non-null parent marks a child session — plus `effort` for the effort line.
+  // non-null parent marks a child session — plus `effort` for the effort line
+  // and `cwd` for the working-directory line.
   const sessionWith = (
     parentSessionId: string | null,
     effort: Session["effort"] = "medium",
-  ): Session => ({ parentSessionId, effort }) as unknown as Session;
+    cwd: string | null = null,
+  ): Session => ({ parentSessionId, effort, cwd }) as unknown as Session;
+
+  it("states the session's stored working directory, parent and child alike", () => {
+    const builder = createSystemPromptBuilder(config);
+    expect(builder(sessionWith(null, "medium", "/srv/notes"))).toContain(
+      "The session's working directory is /srv/notes",
+    );
+    expect(builder(sessionWith("parent", "medium", "/srv/notes"))).toContain(
+      "The session's working directory is /srv/notes",
+    );
+    expect(builder(sessionWith(null))).not.toContain("The session's working directory");
+  });
 
   it("composes the layered chat prompt for a top-level session", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
