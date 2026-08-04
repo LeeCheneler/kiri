@@ -204,6 +204,13 @@
       "when": 1785748357960,
       "tag": "0028_add_session_title",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1785878419340,
+      "tag": "0029_add_session_cwd",
+      "breakpoints": true
     }
   ]
 }

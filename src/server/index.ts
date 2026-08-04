@@ -113,11 +113,13 @@ export interface AppDeps {
    */
   getAllowedDirectories?: () => readonly string[];
   /**
-   * Live working directories for the session shell tool. Defaults to reading
-   * `shell.working_directories` from `kiri.yaml` on each turn, the same
-   * posture as the filesystem sandbox. Empty ⇒ `run_command` is withheld.
+   * Live default working directory for new sessions. Defaults to reading
+   * `filesystem.default_working_directory` (falling back to the first
+   * allowed directory) from `kiri.yaml` at each session create, the same
+   * fresh-from-disk posture as the sandbox. Absent ⇒ new sessions start
+   * without a working directory.
    */
-  getShellDirectories?: () => readonly string[];
+  getDefaultWorkingDirectory?: () => string | undefined;
   /**
    * Live models config for the session surface. Defaults to reading the
    * `models:` section from `kiri.yaml` on each use, the same fresh-from-disk
@@ -253,8 +255,9 @@ export function createApp(deps: AppDeps): Hono {
         getProviderNames: deps.getProviderNames,
         getAllowedDirectories:
           deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),
-        getShellDirectories:
-          deps.getShellDirectories ?? (() => loadKiriConfig(config, env).shellDirectories),
+        getDefaultWorkingDirectory:
+          deps.getDefaultWorkingDirectory ??
+          (() => loadKiriConfig(config, env).defaultWorkingDirectory),
         getModelsConfig: deps.getModelsConfig ?? (() => loadKiriConfig(config, env).models),
       }),
     );

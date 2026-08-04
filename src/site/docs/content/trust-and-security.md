@@ -55,12 +55,14 @@ in [Sessions](/docs/sessions). Three invariants hold throughout:
   session writes is validated against the schema before it touches disk, is
   an ordinary git change you can review, and only ever *runs* via an
   approved run tool or your own invocation.
-- **Sandboxes are declared in git.** The filesystem and shell tools exist
-  only when you declare `filesystem:` / `shell:` in `kiri.yaml` — a
-  reviewable opt-in. File paths must resolve inside the declared directories
+- **The sandbox is declared in git.** The filesystem and shell tools exist
+  only when you declare `filesystem:` in `kiri.yaml` — a reviewable opt-in
+  that enables both. File paths must resolve inside the declared directories
   (symlinks are followed to their real target and checked, even for files
-  that don't exist yet), and dot-files like `.env` and `.kiri/` are
-  unreachable outright. Shell working directories only anchor where a
+  that don't exist yet — a relative path resolves against the session's
+  working directory, itself confined to the sandbox and re-checked every
+  turn), and dot-files like `.env` and `.kiri/` are unreachable outright.
+  The sandbox only anchors where a
   command *runs* — a command can touch anything you can — which is why
   `run_command` is never blanket pre-authorised: the approval showing the
   verbatim command is the boundary, with the system prompt holding the model

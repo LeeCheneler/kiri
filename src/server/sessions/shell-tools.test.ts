@@ -19,10 +19,12 @@ const run = (
 describe("shellTools", () => {
   let workspace: string;
   let outside: string;
+  let cwdValue: string | null;
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "kiri-shell-tools-"));
     outside = mkdtempSync(join(tmpdir(), "kiri-shell-outside-"));
+    cwdValue = null;
   });
 
   afterEach(() => {
@@ -31,13 +33,22 @@ describe("shellTools", () => {
   });
 
   const tool = (dirs: string[] = [workspace], options: ShellToolsOptions = {}) =>
-    shellTools(() => dirs, options).run_command;
+    shellTools(
+      () => dirs,
+      {
+        get: () => cwdValue,
+        set: (dir) => {
+          cwdValue = dir;
+        },
+      },
+      options,
+    ).run_command;
 
   // Results report *real* absolute paths (macOS's tmpdir is symlinked), so
   // expectations build on the realpath'd roots.
   const ws = (...segments: string[]): string => join(realpathSync(workspace), ...segments);
 
-  it("runs a command in the sole working directory when cwd is omitted", async () => {
+  it("runs a command in the sole allowed directory when cwd is omitted with no session working directory", async () => {
     const result = await run(tool(), { command: "pwd" });
     expect(result).toEqual({
       cwd: ws(),
@@ -72,20 +83,42 @@ describe("shellTools", () => {
     expect(result.stdout).toBe(`${process.env.HOME}\n`);
   });
 
-  it("runs in a named subdirectory of a working directory", async () => {
+  it("runs in a named subdirectory of an allowed directory", async () => {
     mkdirSync(join(workspace, "packages", "app"), { recursive: true });
     const result = await run(tool(), { command: "pwd", cwd: join(workspace, "packages", "app") });
     expect(result.cwd).toBe(ws("packages", "app"));
     expect(result.stdout).toBe(`${ws("packages", "app")}\n`);
   });
 
-  it("requires cwd when several working directories are configured", async () => {
-    expect(run(tool([workspace, outside]), { command: "pwd" })).rejects.toThrow(
-      /Several working directories are configured/,
+  it("runs in the session's working directory when cwd is omitted", async () => {
+    mkdirSync(join(workspace, "sub"));
+    cwdValue = ws("sub");
+    const result = await run(tool([workspace, outside]), { command: "pwd" });
+    expect(result.cwd).toBe(ws("sub"));
+    expect(result.stdout).toBe(`${ws("sub")}\n`);
+  });
+
+  it("resolves a relative cwd against the session's working directory", async () => {
+    mkdirSync(join(workspace, "packages", "app"), { recursive: true });
+    cwdValue = ws("packages");
+    const result = await run(tool(), { command: "pwd", cwd: "app" });
+    expect(result.cwd).toBe(ws("packages", "app"));
+  });
+
+  it("rejects a relative cwd that escapes the sandbox", async () => {
+    cwdValue = ws();
+    expect(run(tool(), { command: "pwd", cwd: ".." })).rejects.toThrow(
+      /outside the directories commands may run in/,
     );
   });
 
-  it("deduplicates working directories, so a repeated entry still counts as one", async () => {
+  it("requires cwd with several allowed directories and no session working directory", async () => {
+    expect(run(tool([workspace, outside]), { command: "pwd" })).rejects.toThrow(
+      /has no working directory/,
+    );
+  });
+
+  it("deduplicates allowed directories, so a repeated entry still counts as one", async () => {
     const result = await run(tool([workspace, workspace]), { command: "pwd" });
     expect(result.cwd).toBe(ws());
   });
@@ -95,17 +128,17 @@ describe("shellTools", () => {
     expect(result.cwd).toBe(ws());
   });
 
-  it("errors when no working directories are configured", async () => {
+  it("errors when no allowed directories are configured", async () => {
     expect(run(tool([]), { command: "pwd" })).rejects.toThrow(
-      /No shell working directories are configured/,
+      /No allowed directories are configured/,
     );
   });
 
-  it("rejects a relative cwd", async () => {
+  it("rejects a relative cwd when the session has no working directory", async () => {
     expect(run(tool(), { command: "pwd", cwd: "packages" })).rejects.toThrow(/Relative cwd/);
   });
 
-  it("rejects a cwd outside every working directory", async () => {
+  it("rejects a cwd outside every allowed directory", async () => {
     expect(run(tool(), { command: "pwd", cwd: outside })).rejects.toThrow(
       /outside the directories commands may run in/,
     );

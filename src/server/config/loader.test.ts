@@ -380,46 +380,66 @@ mcp:
     expect(result.allowedDirectories).toEqual([]);
   });
 
-  it("leaves the shell directories empty when the file is absent (tool withheld)", () => {
-    expect(loadKiriConfig(config, {}).shellDirectories).toEqual([]);
+  it("defaults the working directory to the first allowed directory when undeclared", () => {
+    write(cwd, "filesystem:\n  allowed_directories: [notes, /srv/other]\n");
+    expect(loadKiriConfig(config, {}).defaultWorkingDirectory).toBe(join(cwd, "notes"));
   });
 
-  it("leaves the shell directories empty when the shell section is absent", () => {
-    write(cwd, "providers: {}\n");
-    expect(loadKiriConfig(config, {}).shellDirectories).toEqual([]);
+  it("leaves the default working directory absent when the sandbox is empty", () => {
+    expect(loadKiriConfig(config, {}).defaultWorkingDirectory).toBeUndefined();
+    write(cwd, "filesystem:\n  allowed_directories: []\n");
+    expect(loadKiriConfig(config, {}).defaultWorkingDirectory).toBeUndefined();
   });
 
-  it("resolves shell working directories like the sandbox: workspace-relative, with ~ expansion", () => {
+  it("resolves a declared default like the sandbox entries: workspace-relative, with ~ expansion", () => {
     write(
       cwd,
-      `shell:
-  working_directories:
-    - .
-    - packages/../apps
-    - /srv/absolute
-    - ~/projects
+      `filesystem:
+  allowed_directories: ["~"]
+  default_working_directory: ~/projects/notes
 `,
     );
     const result = loadKiriConfig(config, {});
     expect(result.failure).toBeUndefined();
-    expect(result.shellDirectories).toEqual([
+    expect(result.defaultWorkingDirectory).toBe(join(homedir(), "projects", "notes"));
+  });
+
+  it("accepts a declared default equal to an allowed directory root", () => {
+    write(
       cwd,
-      join(cwd, "apps"),
-      "/srv/absolute",
-      join(homedir(), "projects"),
-    ]);
-  });
-
-  it("treats an empty working_directories the same as an absent section", () => {
-    write(cwd, "shell:\n  working_directories: []\n");
-    expect(loadKiriConfig(config, {}).shellDirectories).toEqual([]);
-  });
-
-  it("empties the shell directories on a failed load (fail closed)", () => {
-    write(cwd, "shell:\n  working_directories: [/srv/other]\njunk: true\n");
+      `filesystem:
+  allowed_directories: [/srv/other, .]
+  default_working_directory: .
+`,
+    );
     const result = loadKiriConfig(config, {});
-    expect(result.failure).toBeDefined();
-    expect(result.shellDirectories).toEqual([]);
+    expect(result.failure).toBeUndefined();
+    expect(result.defaultWorkingDirectory).toBe(cwd);
+  });
+
+  it("fails load when the declared default lies outside every allowed directory", () => {
+    write(
+      cwd,
+      `filesystem:
+  allowed_directories: [notes]
+  default_working_directory: ../elsewhere
+`,
+    );
+    const result = loadKiriConfig(config, {});
+    expect(result.failure?.reason).toContain("default_working_directory");
+    expect(result.allowedDirectories).toEqual([]);
+    expect(result.defaultWorkingDirectory).toBeUndefined();
+  });
+
+  it("rejects a sibling whose name shares an allowed root's prefix", () => {
+    write(
+      cwd,
+      `filesystem:
+  allowed_directories: [notes]
+  default_working_directory: notes-other
+`,
+    );
+    expect(loadKiriConfig(config, {}).failure).toBeDefined();
   });
 
   it("leaves the models config empty when the file or models section is absent", () => {

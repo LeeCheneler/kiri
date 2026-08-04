@@ -309,10 +309,11 @@ describe("buildSystemPrompt", () => {
     });
     expect(withFilesystem).toContain("You can work with the user's files");
     // The sandbox is enumerated so the model needn't discover the reachable
-    // roots through errors, and the absolute-path currency is stated.
+    // roots through errors, and the path currency — absolute results,
+    // working-directory-relative inputs allowed — is stated.
     expect(withFilesystem).toContain("- /srv/notes");
     expect(withFilesystem).toContain("- /srv/projects");
-    expect(withFilesystem).toContain("must be absolute");
+    expect(withFilesystem).toContain("relative to the session's working directory");
 
     // find_files alone (read_file withheld by its permission) carries no
     // filesystem guidance — the find tool's own description suffices.
@@ -375,18 +376,19 @@ describe("buildSystemPrompt", () => {
     expect(writesOnly).not.toContain("Scope narrowly");
   });
 
-  it("includes shell guidance with the working directories only when run_command is active", () => {
+  it("includes shell guidance with the allowed directories only when run_command is active", () => {
     const withShell = buildSystemPrompt({
       config,
       now: FIXED_NOW,
       tools: ["run_command"],
-      shellDirectories: ["/srv/projects/app", "/srv/projects/lib"],
+      allowedDirectories: ["/srv/projects/app", "/srv/projects/lib"],
     });
     expect(withShell).toContain("You can run shell commands");
-    // The working directories are enumerated so the model needn't discover
-    // them through errors.
+    // The allowed directories are enumerated so the model needn't discover
+    // them through errors, and the session-working-directory default is stated.
     expect(withShell).toContain("- /srv/projects/app");
     expect(withShell).toContain("- /srv/projects/lib");
+    expect(withShell).toContain("session's working directory");
     // The safety contract rides with the tool: the approval review is not the
     // model's safety margin, and the prohibitions are stated as hard rules.
     expect(withShell).toContain("not your safety margin");
@@ -401,13 +403,49 @@ describe("buildSystemPrompt", () => {
       now: FIXED_NOW,
       tools: ["read_file"],
       allowedDirectories: ["/srv/notes"],
-      shellDirectories: ["/srv/projects/app"],
     });
     expect(withoutShell).not.toContain("You can run shell commands");
     expect(withoutShell).not.toContain("Hard rules");
     expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain(
       "You can run shell commands",
     );
+  });
+
+  it("states the session's working directory only when one is set", () => {
+    const withCwd = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file"],
+      allowedDirectories: ["/srv/notes"],
+      workingDirectory: "/srv/notes/inbox",
+    });
+    expect(withCwd).toContain("The session's working directory is /srv/notes/inbox");
+
+    const withoutCwd = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(withoutCwd).not.toContain("The session's working directory");
+  });
+
+  it("adds the move-yourself bullet only when set_working_directory is active", () => {
+    const withMove = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file", "set_working_directory"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(withMove).toContain("Move the session's working directory with set_working_directory");
+
+    const withoutMove = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_file"],
+      allowedDirectories: ["/srv/notes"],
+    });
+    expect(withoutMove).not.toContain("Move the session's working directory");
   });
 
   it("appends kiri.md instructions after the core layer", () => {
@@ -632,13 +670,13 @@ describe("buildChildSessionPrompt", () => {
     const prompt = buildChildSessionPrompt({
       tools: ["read_file", "run_command"],
       allowedDirectories: ["/workspace/notes"],
-      shellDirectories: ["/workspace/project"],
+      workingDirectory: "/workspace/notes/project",
       now: FIXED_NOW,
     });
     expect(prompt).toContain("You can work with the user's files");
-    expect(prompt).toContain("/workspace/notes");
     expect(prompt).toContain("You can run shell commands with run_command");
-    expect(prompt).toContain("/workspace/project");
+    expect(prompt).toContain("The session's working directory is /workspace/notes/project");
+    expect(prompt.split("- /workspace/notes").length).toBe(3);
     // Neither section appears when its tools are absent.
     const bare = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
     expect(bare).not.toContain("You can work with the user's files");
@@ -672,11 +710,24 @@ describe("createSystemPromptBuilder", () => {
   });
 
   // A minimal session stand-in: the builder reads only `parentSessionId` — a
-  // non-null parent marks a child session — plus `effort` for the effort line.
+  // non-null parent marks a child session — plus `effort` for the effort line
+  // and `cwd` for the working-directory line.
   const sessionWith = (
     parentSessionId: string | null,
     effort: Session["effort"] = "medium",
-  ): Session => ({ parentSessionId, effort }) as unknown as Session;
+    cwd: string | null = null,
+  ): Session => ({ parentSessionId, effort, cwd }) as unknown as Session;
+
+  it("states the session's stored working directory, parent and child alike", () => {
+    const builder = createSystemPromptBuilder(config);
+    expect(builder(sessionWith(null, "medium", "/srv/notes"))).toContain(
+      "The session's working directory is /srv/notes",
+    );
+    expect(builder(sessionWith("parent", "medium", "/srv/notes"))).toContain(
+      "The session's working directory is /srv/notes",
+    );
+    expect(builder(sessionWith(null))).not.toContain("The session's working directory");
+  });
 
   it("composes the layered chat prompt for a top-level session", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
@@ -697,7 +748,6 @@ describe("createSystemPromptBuilder", () => {
     const builder = createSystemPromptBuilder(
       config,
       ["use_skill"],
-      [],
       [],
       [],
       [{ name: "release-notes", description: "Draft release notes." }],

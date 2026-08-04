@@ -22,7 +22,9 @@ export interface NewMessage {
  * `idle`. Pass `imageModel` to start with image generation on; it stays
  * swappable via `updateSessionImageModel`. Pass `effort` to start at a level
  * other than the `medium` default. Pass `title` to name the session from the
- * start; it stays editable via `updateSessionTitle`. Pass `parentSessionId`
+ * start; it stays editable via `updateSessionTitle`. Pass `cwd` to start the
+ * session working from that directory; it stays movable via
+ * `updateSessionCwd`. Pass `parentSessionId`
  * (with the spawning `parentToolCallId`) to create a child session; omit them
  * for a top-level one. Returns the persisted row.
  */
@@ -35,6 +37,7 @@ export function createSession(
     imageModel?: string;
     effort?: Session["effort"];
     title?: string;
+    cwd?: string;
     parentSessionId?: string;
     parentToolCallId?: string;
   } = {},
@@ -47,6 +50,7 @@ export function createSession(
       model,
       imageModel: opts.imageModel ?? null,
       title: opts.title ?? null,
+      cwd: opts.cwd ?? null,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       startedAt: opts.startedAt ?? new Date(),
       parentSessionId: opts.parentSessionId ?? null,
@@ -138,6 +142,17 @@ export function updateSessionImageModel(
  */
 export function updateSessionTitle(db: KiriDb, id: string, title: string | null): Session {
   db.update(sessions).set({ title }).where(eq(sessions.id, id)).run();
+  return getSession(db, id) as Session;
+}
+
+/**
+ * Set the absolute directory the session works from — relative filesystem-tool
+ * paths resolve against it and shell commands run in it by default. Callers
+ * validate the directory against the sandbox before writing; this is the bare
+ * persistence step. Returns the updated row.
+ */
+export function updateSessionCwd(db: KiriDb, id: string, cwd: string | null): Session {
+  db.update(sessions).set({ cwd }).where(eq(sessions.id, id)).run();
   return getSession(db, id) as Session;
 }
 

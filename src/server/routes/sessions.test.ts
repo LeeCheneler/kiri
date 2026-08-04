@@ -163,6 +163,7 @@ describe("sessions routes", () => {
       mcpRegistry?: McpRegistry;
       streamRegistry?: StreamRegistry;
       getModelsConfig?: () => ModelsConfig;
+      getDefaultWorkingDirectory?: () => string | undefined;
     } = {},
   ) =>
     createApp({
@@ -267,6 +268,40 @@ describe("sessions routes", () => {
       const body = (await res.json()) as { session: { id: string; imageModel: string | null } };
       expect(body.session.imageModel).toBe("openai:gpt-image");
       expect(getSession(env.db, body.session.id)?.imageModel).toBe("openai:gpt-image");
+    });
+
+    it("starts the session working from the configured default directory", async () => {
+      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: MODEL }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { session: { id: string; cwd: string | null } };
+      expect(body.session.cwd).toBe(env.cwd);
+      expect(getSession(env.db, body.session.id)?.cwd).toBe(env.cwd);
+    });
+
+    it("starts the session without a working directory when the default is unset or not on disk", async () => {
+      for (const getDefaultWorkingDirectory of [
+        undefined,
+        () => undefined,
+        () => join(env.cwd, "gone"),
+      ]) {
+        const app = makeApp(fakeClients(), { getDefaultWorkingDirectory });
+
+        const res = await app.request("/api/sessions", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: MODEL }),
+        });
+
+        expect(res.status).toBe(201);
+        expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBeNull();
+      }
     });
 
     it("rejects an image model that does not resolve, creating nothing", async () => {
@@ -709,6 +744,13 @@ describe("sessions routes", () => {
         headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+
+    it("rejects any cwd write — the working directory has no app-side writer", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      expect((await patchBody(app, "s1", { cwd: null })).status).toBe(400);
+      expect((await patchBody(app, "s1", { cwd: "/somewhere/else" })).status).toBe(400);
+    });
 
     it("sets and clears the session's image model", async () => {
       const app = makeApp(fakeClients());
@@ -1245,8 +1287,146 @@ describe("sessions routes", () => {
       });
     });
 
-    it("offers run_command with shell guidance when kiri.yaml declares working directories", async () => {
-      writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+    it("moves the session's working directory and publishes session.updated", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      mkdirSync(join(env.cwd, "docs"));
+      // A relative path: resolved against the session's stored working
+      // directory, exercising the row-backed read as well as the write.
+      const input = JSON.stringify({ path: "docs" });
+      const events: KiriEvent[] = [];
+      const { bus, waitForSettled } = createSessionWaiter();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients({ model: toolCallModel("set_working_directory", input) }), {
+        bus,
+      });
+      createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "work in docs")).text();
+      await settled;
+
+      // The move ran without an approval pause (allow by default), persisted
+      // onto the session row, and announced itself so the app can refresh.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      expect(toolPartOf(rows[1]).output).toEqual({ cwd: realpathSync(join(env.cwd, "docs")) });
+      expect(getSession(env.db, "s1")?.cwd).toBe(realpathSync(join(env.cwd, "docs")));
+      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
+    });
+
+    it("fails the turn before anything persists when the working directory left the disk", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
+
+      const res = await postMessage(app, "s1", "hello");
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toContain("no longer exists");
+      // Nothing persisted: the message was rejected before the turn started.
+      expect(getSessionMessages(env.db, "s1")).toEqual([]);
+      // The announcement also cleared the stale value, so the next message
+      // self-heals from the configured default instead of failing again.
+      expect(getSession(env.db, "s1")?.cwd).toBeNull();
+    });
+
+    it("heals a session without a working directory from the live default", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      // Loading the session detail stamps the default onto the row.
+      const res = await app.request("/api/sessions/s1");
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBe(env.cwd);
+      expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
+    });
+
+    it("leaves a session without a working directory alone when no default exists", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1");
+      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBeNull();
+      expect(getSession(env.db, "s1")?.cwd).toBeNull();
+    });
+
+    it("fails the turn when a config edit moved the sandbox out from under the session", async () => {
+      mkdirSync(join(env.cwd, "inner"));
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [inner]\n");
+      const app = makeApp(fakeClients());
+      // A directory that exists but now sits outside the narrowed sandbox.
+      createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
+
+      const res = await postMessage(app, "s1", "hello");
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toContain(
+        "outside the allowed directories",
+      );
+    });
+
+    it("plays the turn despite a stale working directory when no sandbox is declared", async () => {
+      // With no sandbox the filesystem and shell tools are withheld outright,
+      // so a stale cwd can't misdirect anything — a plain chat must not be
+      // blocked by config it no longer uses.
+      const model = new MockLanguageModelV3({
+        doStream: async () => ({
+          stream: convertArrayToReadableStream([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "hi" },
+            { type: "text-end", id: "t1" },
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+          ]),
+        }),
+      }) as unknown as LlmModel;
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
+
+      const settled = waitForSettled("s1");
+      const res = await postMessage(app, "s1", "hello");
+      expect(res.status).toBe(200);
+      await res.text();
+      await settled;
+
+      expect(getSession(env.db, "s1")?.status).toBe("idle");
+    });
+
+    it("states the working directory in the system prompt when the session has one", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "where are we?")).text();
+      await settled;
+
+      expect(systemText).toContain(`The session's working directory is ${env.cwd}`);
+      expect(systemText).toContain(
+        "Move the session's working directory with set_working_directory",
+      );
+    });
+
+    it("offers run_command with shell guidance when kiri.yaml declares a sandbox", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
       let toolNames: string[] = [];
       let systemText = "";
       const model = new MockLanguageModelV3({
@@ -1275,15 +1455,16 @@ describe("sessions routes", () => {
 
       expect(toolNames).toContain("run_command");
       // The guidance layer turned on with its safety contract, enumerating
-      // the declared working directory — "." resolved against the workspace
-      // root — while the filesystem tools stay withheld (no sandbox declared).
+      // the declared sandbox — "." resolved against the workspace root. One
+      // declaration enables the whole file-and-shell surface, so the
+      // filesystem tools ride along with it.
       expect(systemText).toContain("You can run shell commands");
       expect(systemText).toContain(`- ${env.cwd}`);
       expect(systemText).toContain("not your safety margin");
-      expect(toolNames).not.toContain("read_file");
+      expect(toolNames).toContain("read_file");
     });
 
-    it("withholds run_command when no working directories are declared", async () => {
+    it("withholds run_command when no sandbox is declared", async () => {
       let toolNames: string[] = [];
       let systemText = "";
       const model = new MockLanguageModelV3({
@@ -1317,7 +1498,7 @@ describe("sessions routes", () => {
     });
 
     it("pauses run_command for approval by default, then runs it when approved", async () => {
-      writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
       const input = JSON.stringify({ command: "echo hi" });
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: toolCallModel("run_command", input) }), { bus });
@@ -1382,7 +1563,7 @@ describe("sessions routes", () => {
         judgeReply?: string;
         modelsConfig?: () => ModelsConfig;
       }) => {
-        writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+        writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
         createToolPermissionStore(env.config.toolPermissionsFile()).set("run_command", "auto");
         const judge = scriptedJudge(opts.judgeReply ?? "");
         const { bus, waitForSettled } = createSessionWaiter();

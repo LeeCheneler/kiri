@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { sep } from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import {
   type ModelMessage,
@@ -23,6 +24,8 @@ import {
   BUILTIN_TOOLS,
   type RunTurnDeps,
   SESSION_TITLE_MAX_LENGTH,
+  type Session,
+  type SessionCwd,
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermission,
@@ -49,6 +52,7 @@ import {
   setSessionPinned,
   shellTools,
   skillTools,
+  updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
@@ -101,13 +105,13 @@ export interface SessionsRoutesDeps {
    */
   getAllowedDirectories?: () => readonly string[];
   /**
-   * Live working directories for the first-party shell tool: the absolute
-   * directories declared under `shell.working_directories` in `kiri.yaml`,
-   * read per turn so a config edit applies on the next one. Empty (or
-   * omitted) withholds `run_command` entirely — declaring where commands may
-   * run is what enables it.
+   * Live default working directory for new sessions: the absolute directory
+   * resolved from `filesystem.default_working_directory` in `kiri.yaml` (or
+   * the first allowed directory), read at each session create. Omitted — or
+   * pointing at a directory that doesn't exist on disk — leaves new sessions
+   * without a working directory.
    */
-  getShellDirectories?: () => readonly string[];
+  getDefaultWorkingDirectory?: () => string | undefined;
   /**
    * Live models config from `kiri.yaml`'s `models:` section, read per use so
    * a config edit applies at once. Shortcuts ride the model listing (so the
@@ -134,6 +138,10 @@ const createSessionBodySchema = z
 // Any field may be set independently: the aside swaps the models, the pin
 // control flips `pinned`, and the rename control sets `title` (`null` clears
 // it), all through this one endpoint. Omitting a field leaves it unchanged.
+// The working directory is deliberately absent: the assistant moves it
+// through its own sandbox-validated tool, and a missing or cleared value
+// heals from the configured default when the session is next loaded — there
+// is nothing for the app to write.
 const patchSessionBodySchema = z
   .object({
     model: z.string().min(1).optional(),
@@ -230,10 +238,54 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const sandboxDirectories = (): readonly string[] =>
     (deps.getAllowedDirectories?.() ?? []).filter((dir) => existsSync(dir));
 
-  // The shell tool's working directories, on the same live-read, must-exist
-  // posture as the filesystem sandbox: nothing usable, no run_command.
-  const shellWorkingDirectories = (): readonly string[] =>
-    (deps.getShellDirectories?.() ?? []).filter((dir) => existsSync(dir));
+  // Where a new session starts working, on the same live-read, must-exist
+  // posture: a configured default that isn't on disk yields a session with no
+  // working directory rather than one pointing somewhere unusable.
+  const defaultWorkingDirectory = (): string | undefined => {
+    const dir = deps.getDefaultWorkingDirectory?.();
+    return dir !== undefined && existsSync(dir) ? dir : undefined;
+  };
+
+  // Why a session's stored working directory can no longer be used — it left
+  // the disk, or a kiri.yaml edit moved the sandbox out from under it — or
+  // null while it remains valid. With an empty sandbox the check stands down:
+  // the filesystem and shell tools are withheld outright then, so a stale
+  // value can't send any work astray, and a plain chat shouldn't be blocked
+  // by config it no longer uses.
+  const staleCwdReason = (cwd: string): string | null => {
+    const roots: string[] = [];
+    for (const dir of sandboxDirectories()) {
+      try {
+        roots.push(realpathSync(dir));
+      } catch {
+        // Skipped: a declared directory that doesn't exist.
+      }
+    }
+    if (roots.length === 0) return null;
+    const recovery =
+      "it has been cleared, so the next message starts from the configured default (update kiri.yaml first if that isn't right)";
+    let real: string;
+    try {
+      real = realpathSync(cwd);
+    } catch {
+      return `The session's working directory "${cwd}" no longer exists — ${recovery}.`;
+    }
+    if (!roots.some((dir) => real === dir || real.startsWith(dir + sep))) {
+      return `The session's working directory "${cwd}" is outside the allowed directories — ${recovery}.`;
+    }
+    return null;
+  };
+
+  // Self-heal a session with no working directory — created before a default
+  // existed, or whose stale directory a failed turn cleared: stamp the live
+  // config default, so the session picks one up the moment it becomes usable.
+  // A session that has a directory is returned untouched — a *stale* one is
+  // never swapped silently; the turn errors, announces, and clears it instead.
+  const withHealedCwd = (session: Session): Session => {
+    if (session.cwd !== null) return session;
+    const dir = defaultWorkingDirectory();
+    return dir === undefined ? session : updateSessionCwd(db, session.id, dir);
+  };
 
   // One registry of in-flight turn streams for this surface: the turn endpoint
   // fills it, the resume endpoint reads it, so a client that reconnects mid-turn
@@ -259,7 +311,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             llmClients,
             model,
             command: screened.command,
-            cwd: cwd ?? shellWorkingDirectories().join(", "),
+            cwd: cwd ?? sandboxDirectories().join(", "),
           })
         : screened;
     console.log(
@@ -306,15 +358,29 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // self-gate on configuration: no image model on the session, no
   // generate_image offered. The delegate tool is merged separately by each
   // caller — only a top-level session's own turn offers it.
+  // The session's working directory as the filesystem tools see it: read live
+  // from the row, and written back — with a `session.updated` publish — when
+  // set_working_directory moves it.
+  const cwdBindingFor = (sessionId: string): SessionCwd => ({
+    get: () => getSession(db, sessionId)?.cwd ?? null,
+    set: (dir) => {
+      const session = updateSessionCwd(db, sessionId, dir);
+      bus?.publish({
+        type: "session.updated",
+        id: sessionId,
+        status: session.status as SessionStatus,
+      });
+    },
+  });
+
   const builtinToolsFor = (sessionId: string): ToolSet => {
     const sandbox = sandboxDirectories();
-    const shellDirs = shellWorkingDirectories();
     return {
       ...skillTools(config),
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
-      ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
-      ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
+      ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
+      ...(sandbox.length > 0 ? shellTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
     };
   };
@@ -362,7 +428,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         config,
         Object.keys(tools),
         sandboxDirectories(),
-        shellWorkingDirectories(),
         [],
         listSkills(config),
       ),
@@ -441,7 +506,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       } catch (cause) {
         return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
       }
-      const session = createSession(db, model, imageModel === undefined ? {} : { imageModel });
+      const cwd = defaultWorkingDirectory();
+      const session = createSession(db, model, {
+        ...(imageModel !== undefined ? { imageModel } : {}),
+        ...(cwd !== undefined ? { cwd } : {}),
+      });
       bus?.publish({ type: "session.started", id: session.id });
       return c.json({ session }, 201);
     },
@@ -597,7 +666,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { id } = c.req.valid("param");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
-      return c.json({ session, messages: getSessionMessages(db, id) });
+      return c.json({ session: withHealedCwd(session), messages: getSessionMessages(db, id) });
     },
   );
 
@@ -679,7 +748,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     async (c) => {
       const { id } = c.req.valid("param");
       const { message } = c.req.valid("json");
-      const session = getSession(db, id);
+      let session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Reject only a concurrent turn (one already in flight). A session is
       // long-lived and resumable: after an idle, failed, or cancelled turn it
@@ -687,6 +756,21 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (session.status === "running") {
         return c.json({ error: `session "${id}" already has a turn in flight` }, 409);
       }
+      // A stale working directory fails the turn before anything persists —
+      // erroring loudly beats silently working somewhere other than where the
+      // session says it is. Clearing it as part of the announcement is what
+      // lets the next message self-heal from the configured default: the user
+      // hears about the move before any work runs under it, and no manual
+      // reset is ever needed.
+      if (session.cwd !== null) {
+        const stale = staleCwdReason(session.cwd);
+        if (stale !== null) {
+          updateSessionCwd(db, id, null);
+          bus?.publish({ type: "session.updated", id, status: session.status as SessionStatus });
+          return c.json({ error: stale }, 409);
+        }
+      }
+      session = withHealedCwd(session);
 
       const parts = message.parts as UIMessage["parts"];
       const priorMessages = getSessionMessages(db, id);
@@ -696,15 +780,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
       // Resolve the live, approval-gated tools for this turn and compose the
       // system prompt from their names so the core layer's tool guidance matches
-      // what the model is actually offered; the filesystem sandbox and shell
-      // working directories ride along so their guidance can enumerate the
-      // reachable roots.
+      // what the model is actually offered; the sandbox rides along so the
+      // filesystem and shell guidance can enumerate the reachable roots.
       const tools = activeTools(id);
       const buildSystemPrompt = createSystemPromptBuilder(
         config,
         Object.keys(tools),
         sandboxDirectories(),
-        shellWorkingDirectories(),
         configuredDelegateRoles(deps.getModelsConfig?.().delegates),
         listSkills(config),
       );

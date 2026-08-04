@@ -10,7 +10,13 @@ import { type EventBus, type KiriEvent, createEventBus } from "../events/index.t
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import { DELEGATE_TOOL_NAME, type DelegateToolDeps, delegateTool } from "./delegate-tool.ts";
-import { createSession, getSession, getSessionMessages, setSessionStatus } from "./store.ts";
+import {
+  createSession,
+  getSession,
+  getSessionMessages,
+  setSessionStatus,
+  updateSessionCwd,
+} from "./store.ts";
 import type { RunTurnDeps } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
@@ -315,6 +321,23 @@ describe("delegate tool", () => {
     });
 
     expect(capture.childId && getSession(db, capture.childId)?.title).toBe("Pelican census");
+  });
+
+  it("spawns the child working from the parent's directory", async () => {
+    updateSessionCwd(db, "parent", "/srv/notes");
+    const capture: { childId?: string } = {};
+
+    await invoke(depsFor(reportingModel("Done."), capture), "Count pelicans", {});
+
+    expect(capture.childId && getSession(db, capture.childId)?.cwd).toBe("/srv/notes");
+  });
+
+  it("spawns the child without a working directory when the parent has none", async () => {
+    const capture: { childId?: string } = {};
+
+    await invoke(depsFor(reportingModel("Done."), capture), "Count pelicans", {});
+
+    expect(capture.childId && getSession(db, capture.childId)?.cwd).toBeNull();
   });
 
   it("stores the stated effort on the child session", async () => {

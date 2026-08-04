@@ -1,7 +1,8 @@
 import { realpathSync, statSync } from "node:fs";
-import { isAbsolute, sep } from "node:path";
+import { isAbsolute, join, sep } from "node:path";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
+import type { SessionCwd } from "./filesystem-tools.ts";
 
 // Cap on each returned output stream (stdout and stderr independently). The
 // tail is kept — a failing build or test run prints its cause last — and the
@@ -31,10 +32,12 @@ const tailCap = (value: string, max: number): { text: string; truncated: boolean
 
 /**
  * First-party tool that lets a session run a shell command — `run_command` —
- * executed with `bash -c` on the host, anchored to the workspace's declared
- * working directories. Only the command's *working directory* is confined
+ * executed with `bash -c` on the host, anchored inside the workspace's
+ * filesystem sandbox. A command runs in the session's working directory
+ * unless the call's `cwd` overrides it (absolute, or relative to the session's
+ * working directory). Only the command's *working directory* is confined
  * (resolved to its real form and required to sit inside one of
- * `getWorkingDirectories()`, read live per call): what the command itself
+ * `getAllowedDirectories()`, read live per call): what the command itself
  * touches is not, which is why the tool's standing permission defaults to
  * asking per call. The command runs non-interactively (stdin closed) with the
  * kiri process's environment, must finish within its timeout (killed
@@ -44,16 +47,17 @@ const tailCap = (value: string, max: number): { text: string; truncated: boolean
  * directories) throws, with a message naming what recovers.
  */
 export function shellTools(
-  getWorkingDirectories: () => readonly string[],
+  getAllowedDirectories: () => readonly string[],
+  cwd: SessionCwd,
   options: ShellToolsOptions = {},
 ): ToolSet {
   const { maxOutputLength = MAX_OUTPUT_LENGTH } = options;
 
-  // The declared working directories as real paths, deduplicated; an entry
-  // that doesn't exist on disk can't be run in and is skipped.
-  const workingDirs = (): string[] => {
+  // The sandbox as real paths, deduplicated; an entry that doesn't exist on
+  // disk can't be run in and is skipped.
+  const allowedDirs = (): string[] => {
     const dirs = new Set<string>();
-    for (const dir of getWorkingDirectories()) {
+    for (const dir of getAllowedDirectories()) {
       try {
         dirs.add(realpathSync(dir));
       } catch {
@@ -67,43 +71,52 @@ export function shellTools(
   // empty set before any message needs to name the roots.
   const describeDirs = (dirs: string[]): string => dirs.map((dir) => `"${dir}"`).join(", ");
 
-  // Resolve the call's working directory to its real absolute form and reject
-  // — as a recoverable tool error — anything relative, missing, not a
-  // directory, or outside every declared root. An omitted cwd falls back to
-  // the sole declared directory; with several declared it must be named, so a
-  // command never silently runs in the wrong project.
+  // Resolve where the command runs to its real absolute form and reject — as
+  // a recoverable tool error — anything missing, not a directory, or outside
+  // every allowed root. An omitted cwd is the session's working directory
+  // (falling back to the sole allowed directory when the session has none); a
+  // relative cwd resolves against the session's working directory, like the
+  // filesystem tools' paths.
   const confineCwd = (userCwd: string | undefined): string => {
-    const dirs = workingDirs();
+    const dirs = allowedDirs();
     if (dirs.length === 0) {
       throw new Error(
-        "No shell working directories are configured — the user must declare shell.working_directories in kiri.yaml.",
+        "No allowed directories are configured — the user must declare filesystem.allowed_directories in kiri.yaml.",
       );
     }
+    const sessionCwd = cwd.get();
+    let target: string;
     if (userCwd === undefined) {
-      if (dirs.length === 1) return dirs[0];
+      if (sessionCwd !== null) {
+        target = sessionCwd;
+      } else if (dirs.length === 1) {
+        target = dirs[0];
+      } else {
+        throw new Error(
+          `The session has no working directory — set one with set_working_directory, or pass cwd as one of ${describeDirs(dirs)} (or a subdirectory).`,
+        );
+      }
+    } else if (isAbsolute(userCwd)) {
+      target = userCwd;
+    } else if (sessionCwd !== null) {
+      target = join(sessionCwd, userCwd);
+    } else {
       throw new Error(
-        `Several working directories are configured — pass cwd as one of ${describeDirs(dirs)} (or a subdirectory).`,
-      );
-    }
-    if (!isAbsolute(userCwd)) {
-      throw new Error(
-        `Relative cwd "${userCwd}" — pass an absolute path; commands may run in ${describeDirs(dirs)}.`,
+        `Relative cwd "${userCwd}" — the session has no working directory; pass an absolute path (commands may run in ${describeDirs(dirs)}).`,
       );
     }
     let real: string;
     try {
-      real = realpathSync(userCwd);
+      real = realpathSync(target);
     } catch {
-      throw new Error(
-        `No such directory "${userCwd}" — commands may run in ${describeDirs(dirs)}.`,
-      );
+      throw new Error(`No such directory "${target}" — commands may run in ${describeDirs(dirs)}.`);
     }
     if (!statSync(real).isDirectory()) {
-      throw new Error(`"${userCwd}" is a file — pass the directory to run the command in.`);
+      throw new Error(`"${target}" is a file — pass the directory to run the command in.`);
     }
     if (!dirs.some((dir) => real === dir || real.startsWith(dir + sep))) {
       throw new Error(
-        `"${userCwd}" is outside the directories commands may run in (${describeDirs(dirs)}) — stay inside them.`,
+        `"${target}" is outside the directories commands may run in (${describeDirs(dirs)}) — stay inside them.`,
       );
     }
     return real;
@@ -112,7 +125,7 @@ export function shellTools(
   return {
     run_command: tool({
       description:
-        "Run a shell command on the user's machine, executed with bash -c in one of the allowed working directories. The result carries the exit code, stdout, and stderr — a non-zero exit is a result to read and act on, not an error. Commands run non-interactively (stdin reads end-of-file, so interactive prompts fail rather than wait) and must finish within timeout_seconds — never start servers, watchers, or anything meant to keep running. Each output stream is trimmed to its tail past a cap, flagged with stdoutTruncated/stderrTruncated. Prefer the filesystem tools to read, search, or edit files; reach for this to build, test, use git, and run the user's own scripts and tooling.",
+        "Run a shell command on the user's machine, executed with bash -c in the session's working directory unless cwd names another allowed directory. The result carries the exit code, stdout, and stderr — a non-zero exit is a result to read and act on, not an error. Commands run non-interactively (stdin reads end-of-file, so interactive prompts fail rather than wait) and must finish within timeout_seconds — never start servers, watchers, or anything meant to keep running. Each output stream is trimmed to its tail past a cap, flagged with stdoutTruncated/stderrTruncated. Prefer the filesystem tools to read, search, or edit files; reach for this to build, test, use git, and run the user's own scripts and tooling.",
       inputSchema: z.object({
         command: z.string().min(1).describe("The shell command to run, executed with bash -c."),
         cwd: z
@@ -120,7 +133,7 @@ export function shellTools(
           .min(1)
           .optional()
           .describe(
-            "Absolute path to run in — one of the allowed working directories or a subdirectory. May be omitted only when exactly one is configured.",
+            "Directory to run in — absolute, or relative to the session's working directory; must be inside the allowed directories. Omitted, the command runs in the session's working directory.",
           ),
         timeout_seconds: z
           .number()

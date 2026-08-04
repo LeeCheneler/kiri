@@ -25,10 +25,12 @@ const run = (t: ToolSet[string], input: unknown): Promise<unknown> =>
 describe("filesystemTools", () => {
   let workspace: string;
   let outside: string;
+  let cwdValue: string | null;
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "kiri-fs-tools-"));
     outside = mkdtempSync(join(tmpdir(), "kiri-fs-outside-"));
+    cwdValue = null;
   });
 
   afterEach(() => {
@@ -37,7 +39,16 @@ describe("filesystemTools", () => {
   });
 
   const tools = (allowed: string[] = [workspace], options: FilesystemToolsOptions = {}): ToolSet =>
-    filesystemTools(() => allowed, options);
+    filesystemTools(
+      () => allowed,
+      {
+        get: () => cwdValue,
+        set: (dir) => {
+          cwdValue = dir;
+        },
+      },
+      options,
+    );
 
   // Results report *real* absolute paths (macOS's tmpdir is symlinked), so
   // expectations build on the realpath'd roots.
@@ -390,6 +401,108 @@ describe("filesystemTools", () => {
       writeFileSync(join(workspace, "a.md"), "quiet\n");
       const result = await run(tools().search_files, { pattern: "absent" });
       expect(result).toEqual({ matches: [] });
+    });
+  });
+
+  describe("set_working_directory", () => {
+    it("moves to an absolute directory inside the sandbox and persists it", async () => {
+      mkdirSync(join(workspace, "sub"));
+      const result = await run(tools().set_working_directory, { path: join(workspace, "sub") });
+      expect(result).toEqual({ cwd: ws("sub") });
+      expect(cwdValue).toBe(ws("sub"));
+    });
+
+    it("resolves a relative path against the current working directory", async () => {
+      mkdirSync(join(workspace, "a", "b"), { recursive: true });
+      cwdValue = ws("a");
+      expect(await run(tools().set_working_directory, { path: "b" })).toEqual({
+        cwd: ws("a", "b"),
+      });
+      expect(await run(tools().set_working_directory, { path: ".." })).toEqual({ cwd: ws("a") });
+    });
+
+    it("rejects a relative path when the session has no working directory", async () => {
+      mkdirSync(join(workspace, "sub"));
+      expect(run(tools().set_working_directory, { path: "sub" })).rejects.toThrow(
+        /use an absolute path/,
+      );
+      expect(cwdValue).toBeNull();
+    });
+
+    it("rejects a directory outside the sandbox, including one reached via ..", async () => {
+      expect(run(tools().set_working_directory, { path: outside })).rejects.toThrow(/outside/);
+      cwdValue = ws();
+      expect(run(tools().set_working_directory, { path: ".." })).rejects.toThrow(/outside/);
+      expect(cwdValue).toBe(ws());
+    });
+
+    it("rejects a symlink that points out of the sandbox", async () => {
+      symlinkSync(outside, join(workspace, "escape"));
+      expect(
+        run(tools().set_working_directory, { path: join(workspace, "escape") }),
+      ).rejects.toThrow(/outside/);
+    });
+
+    it("rejects files, missing paths, and blocked directories", async () => {
+      writeFileSync(join(workspace, "notes.md"), "hi");
+      expect(
+        run(tools().set_working_directory, { path: join(workspace, "notes.md") }),
+      ).rejects.toThrow(/must be a directory/);
+      expect(run(tools().set_working_directory, { path: join(workspace, "gone") })).rejects.toThrow(
+        /No such path/,
+      );
+      mkdirSync(join(workspace, ".git", "objects"), { recursive: true });
+      expect(
+        run(tools().set_working_directory, { path: join(workspace, ".git", "objects") }),
+      ).rejects.toThrow(/off-limits/);
+      expect(cwdValue).toBeNull();
+    });
+  });
+
+  describe("working-directory-relative paths", () => {
+    it("resolves reads and searches against the working directory", async () => {
+      mkdirSync(join(workspace, "docs"));
+      writeFileSync(join(workspace, "docs", "notes.md"), "remember\n");
+      cwdValue = ws("docs");
+      expect(await run(tools().read_file, { path: "notes.md" })).toEqual({
+        path: ws("docs", "notes.md"),
+        content: "remember\n",
+      });
+      expect(await run(tools().find_files, { pattern: "*.md", directory: "." })).toEqual({
+        files: [ws("docs", "notes.md")],
+      });
+      expect(await run(tools().list_directory, { path: "." })).toEqual({
+        path: ws("docs"),
+        entries: ["notes.md"],
+      });
+    });
+
+    it("resolves a write target that doesn't exist yet against the working directory", async () => {
+      cwdValue = ws();
+      const result = await run(tools().write_file, { path: "new/draft.md", content: "hi" });
+      expect(result).toEqual({ path: ws("new", "draft.md"), created: true });
+      expect(readFileSync(join(workspace, "new", "draft.md"), "utf8")).toBe("hi\n");
+    });
+
+    it("rejects a relative path that escapes the sandbox or lands somewhere blocked", async () => {
+      cwdValue = ws();
+      expect(run(tools().read_file, { path: join("..", basename(outside)) })).rejects.toThrow(
+        /outside the directories/,
+      );
+      mkdirSync(join(workspace, ".git"));
+      writeFileSync(join(workspace, ".git", "config"), "[core]");
+      expect(run(tools().read_file, { path: ".git/config" })).rejects.toThrow(/off-limits/);
+      expect(run(tools().write_file, { path: "../escape.md", content: "x" })).rejects.toThrow(
+        /outside the directories/,
+      );
+    });
+
+    it("rejects every relative path when the session has no working directory", async () => {
+      writeFileSync(join(workspace, "notes.md"), "hi");
+      expect(run(tools().read_file, { path: "notes.md" })).rejects.toThrow(/use an absolute path/);
+      expect(run(tools().write_file, { path: "new.md", content: "x" })).rejects.toThrow(
+        /use an absolute path/,
+      );
     });
   });
 

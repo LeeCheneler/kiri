@@ -99,7 +99,8 @@ function SessionTitleField({
 /**
  * The session chat rail's controls: the session's title (editable — commit
  * renames, clearing restores the untitled fallback) and its model group — the
- * conversation model, the effort level, and the image model. The session's
+ * conversation model, the effort level, the image model, and the working
+ * directory (display-only). The session's
  * vitals (context fill, start time) live in `SessionVitals` below it. Reads
  * the same shared session query the chat body uses (no second fetch) and
  * renders nothing until it resolves.
@@ -195,6 +196,17 @@ export function SessionAside({ id }: { id: string }) {
             disabled={turnInFlight || modelsPending}
             onChange={(value) => void setImageModel(value === IMAGE_MODEL_NONE ? null : value)}
           />
+        ) : null}
+        {/* Where the session is working. Display-only by design: the
+            assistant moves the directory through its own sandbox-validated
+            tool, and the app offers no path entry to get wrong. */}
+        {session.cwd ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="font-mono text-xs tracking-widest text-ink-muted uppercase">
+              Working directory
+            </span>
+            <p className="break-all font-mono text-xs text-ink">{session.cwd}</p>
+          </div>
         ) : null}
         {/* A provider whose listing failed leaves a gap in the picker; name it
             and why, so a missing model reads as a config issue, not an absence. */}

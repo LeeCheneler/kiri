@@ -114,6 +114,9 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
       child = createSession(db, childModel ?? parent.model, {
         effort,
         title,
+        // The worker picks up where the parent is working, not the config
+        // default — a delegated task refers to the same tree the parent sees.
+        ...(parent.cwd !== null ? { cwd: parent.cwd } : {}),
         parentSessionId,
         parentToolCallId: toolCallId,
       });

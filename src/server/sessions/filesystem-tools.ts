@@ -44,6 +44,16 @@ const MAX_DIFF_LENGTH = 64 * 1024;
 // than decoded to an invalid fragment.
 const decoder = new TextDecoder("utf-8", { fatal: false });
 
+/**
+ * The session's working directory binding: `get` reads the current value
+ * (null when the session has none), `set` persists a move the tools have
+ * already validated against the sandbox.
+ */
+export interface SessionCwd {
+  get: () => string | null;
+  set: (dir: string) => void;
+}
+
 /** Tunable bounds, defaulting to the module constants. Tests pass tiny values. */
 export interface FilesystemToolsOptions {
   maxReadBytes?: number;
@@ -67,12 +77,13 @@ const withTrailingNewline = (content: string): string =>
  * First-party tools that let a session find, list, read, search, and change
  * files — `find_files`, `list_directory`, `read_file`, `search_files`,
  * `write_file`, `edit_file`, `create_directory`, `delete_file`,
- * `delete_directory` — confined to the workspace's declared sandbox.
- * Paths are absolute in both directions: every
- * model-supplied path must be absolute (a relative one is rejected with the
- * allowed set named — nothing ever resolves against a working directory), and
- * results report real absolute paths, so a find_files result feeds straight
- * back into read_file. Every path is resolved to its real form (defeating
+ * `delete_directory` — confined to the workspace's declared sandbox, plus
+ * `set_working_directory`, which moves the session's working directory
+ * (read and persisted through `cwd`) to another sandboxed directory.
+ * Results report real absolute paths, so a find_files result feeds straight
+ * back into read_file. Model-supplied paths may be absolute or relative: a
+ * relative one resolves against the session's working directory, and is
+ * rejected with the allowed set named when the session has none. Every path is resolved to its real form (defeating
  * `../` traversal and symlink escapes) and must sit inside one of
  * `getAllowedDirectories()` — read live per call, so a `kiri.yaml` edit
  * applies on the next call. Hidden (dot-prefixed) paths are reachable like any
@@ -87,6 +98,7 @@ const withTrailingNewline = (content: string): string =>
  */
 export function filesystemTools(
   getAllowedDirectories: () => readonly string[],
+  cwd: SessionCwd,
   options: FilesystemToolsOptions = {},
 ): ToolSet {
   const {
@@ -158,12 +170,19 @@ export function filesystemTools(
   const describeSandbox = (dirs: string[]): string =>
     dirs.length === 0 ? "none are configured" : dirs.map((dir) => `"${dir}"`).join(", ");
 
-  const requireAbsolute = (dirs: string[], userPath: string): void => {
-    if (!isAbsolute(userPath)) {
+  // A model-supplied path made absolute: a relative one resolves against the
+  // session's working directory. With no working directory set, only absolute
+  // paths are usable — rejected as a recoverable tool error naming the
+  // allowed set.
+  const absolutize = (dirs: string[], userPath: string): string => {
+    if (isAbsolute(userPath)) return userPath;
+    const current = cwd.get();
+    if (current === null) {
       throw new Error(
         `Relative path "${userPath}" — use an absolute path; the directories kiri may access are ${describeSandbox(dirs)}.`,
       );
     }
+    return join(current, userPath);
   };
 
   // Reject — as a recoverable tool error — a resolved path that sits outside
@@ -182,15 +201,15 @@ export function filesystemTools(
     }
   };
 
-  // Resolve a model-supplied path to its real absolute form and reject — as a
-  // recoverable tool error — anything relative, outside the sandbox, or hidden
-  // within it.
+  // Resolve a model-supplied path — relative ones against the session's
+  // working directory — to its real absolute form and reject, as a
+  // recoverable tool error, anything outside the sandbox or hidden within it.
   const confine = (userPath: string): string => {
     const dirs = sandboxDirs();
-    requireAbsolute(dirs, userPath);
+    const target = absolutize(dirs, userPath);
     let real: string;
     try {
-      real = realpathSync(userPath);
+      real = realpathSync(target);
     } catch {
       throw new Error(`No such path "${userPath}" — call find_files to see what exists.`);
     }
@@ -206,21 +225,21 @@ export function filesystemTools(
   // real target path and whether an entry already exists there.
   const confineTarget = (userPath: string): { real: string; exists: boolean } => {
     const dirs = sandboxDirs();
-    requireAbsolute(dirs, userPath);
+    const absolute = absolutize(dirs, userPath);
     // lstat so a symlink counts as an existing entry even when its target is
     // missing — the ancestor walk below must never legitimise one.
     let entryExists = true;
     try {
-      lstatSync(userPath);
+      lstatSync(absolute);
     } catch {
       entryExists = false;
     }
     if (entryExists) {
-      return { real: confine(userPath), exists: true };
+      return { real: confine(absolute), exists: true };
     }
     // normalize collapses "." and ".." so the walk judges the path's true
     // location; the missing suffix can hold no symlinks yet.
-    const target = normalize(userPath);
+    const target = normalize(absolute);
     let ancestor = dirname(target);
     while (!existsSync(ancestor)) {
       ancestor = dirname(ancestor);
@@ -283,7 +302,7 @@ export function filesystemTools(
           .min(1)
           .optional()
           .describe(
-            "Absolute path of a directory to search under. Omit to search every allowed directory.",
+            "Directory to search under — absolute, or relative to the working directory. Omit to search every allowed directory.",
           ),
       }),
       execute: async ({ pattern, directory }) => {
@@ -307,9 +326,14 @@ export function filesystemTools(
 
     list_directory: tool({
       description:
-        'List a directory\'s immediate entries in the directories kiri may access, by absolute path; directories in the result end with "/". Use it to orient in an unfamiliar directory one level at a time — reach for find_files when you already know a name pattern, and search_files for contents. Hidden (dot-prefixed) entries are included; .git and secret-bearing entries (.env*, credential stores) never are.',
+        'List a directory\'s immediate entries in the directories kiri may access, by absolute or working-directory-relative path; directories in the result end with "/". Use it to orient in an unfamiliar directory one level at a time — reach for find_files when you already know a name pattern, and search_files for contents. Hidden (dot-prefixed) entries are included; .git and secret-bearing entries (.env*, credential stores) never are.',
       inputSchema: z.object({
-        path: z.string().min(1).describe("Absolute path of the directory to list."),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            "Path of the directory to list — absolute or relative to the working directory.",
+          ),
       }),
       execute: async ({ path }) => {
         const real = confineDir(path);
@@ -349,12 +373,14 @@ export function filesystemTools(
 
     read_file: tool({
       description:
-        "Read a text file from the directories kiri may access, by absolute path — exactly as find_files reports it. Binary files, .git internals, secret-bearing files (.env*, credential stores), and paths outside the allowed directories are rejected. A file too large to return in full comes back truncated with a note — reach for search_files to pinpoint the relevant part of a big file instead of reading it whole.",
+        "Read a text file from the directories kiri may access — by absolute path (exactly as find_files reports it) or one relative to the working directory. Binary files, .git internals, secret-bearing files (.env*, credential stores), and paths outside the allowed directories are rejected. A file too large to return in full comes back truncated with a note — reach for search_files to pinpoint the relevant part of a big file instead of reading it whole.",
       inputSchema: z.object({
         path: z
           .string()
           .min(1)
-          .describe("Absolute path of the file to read, as find_files reports it."),
+          .describe(
+            "Path of the file to read — absolute (as find_files reports it) or relative to the working directory.",
+          ),
       }),
       execute: async ({ path }) => {
         const real = confine(path);
@@ -393,7 +419,7 @@ export function filesystemTools(
           .min(1)
           .optional()
           .describe(
-            "Absolute path of a directory to search under. Omit to search every allowed directory.",
+            "Directory to search under — absolute, or relative to the working directory. Omit to search every allowed directory.",
           ),
         include: z
           .string()
@@ -446,11 +472,35 @@ export function filesystemTools(
       },
     }),
 
+    set_working_directory: tool({
+      description:
+        "Move the session's working directory — its current location within the directories kiri may access. Give an absolute path, or a path relative to the current working directory; it must name a directory that exists inside the allowed directories. Reach for this only when the root of the work itself changes (settling into a different project): everything beneath the current working directory is already reachable with relative paths, so never move just to step into a subdirectory.",
+      inputSchema: z.object({
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            "The directory to move to — absolute, or relative to the current working directory.",
+          ),
+      }),
+      execute: async ({ path }) => {
+        const real = confine(path);
+        if (!statSync(real).isDirectory()) {
+          throw new Error(`"${path}" is a file — the working directory must be a directory.`);
+        }
+        cwd.set(real);
+        return { cwd: real };
+      },
+    }),
+
     write_file: tool({
       description:
-        "Write a text file in the directories kiri may access, by absolute path — creating it (missing parent directories are created too) or overwriting it wholesale. Prefer edit_file for a targeted change to an existing file, and read_file first so an overwrite starts from the file's current contents. Binary files, .git internals, secret-bearing paths (.env*, credential stores), and paths outside the allowed directories are rejected.",
+        "Write a text file in the directories kiri may access, by absolute or working-directory-relative path — creating it (missing parent directories are created too) or overwriting it wholesale. Prefer edit_file for a targeted change to an existing file, and read_file first so an overwrite starts from the file's current contents. Binary files, .git internals, secret-bearing paths (.env*, credential stores), and paths outside the allowed directories are rejected.",
       inputSchema: z.object({
-        path: z.string().min(1).describe("Absolute path of the file to write."),
+        path: z
+          .string()
+          .min(1)
+          .describe("Path of the file to write — absolute or relative to the working directory."),
         content: z.string().describe("The full contents the file should hold."),
       }),
       execute: async ({ path, content }) => {
@@ -479,9 +529,12 @@ export function filesystemTools(
 
     edit_file: tool({
       description:
-        "Make a targeted edit to a text file in the directories kiri may access, by absolute path: old_string is replaced with new_string. old_string must match the file's current contents exactly — copy it verbatim from read_file output, whitespace included — and match exactly once; when it appears several times, include more surrounding context to pin down one occurrence, or set replace_all to change every one.",
+        "Make a targeted edit to a text file in the directories kiri may access, by absolute or working-directory-relative path: old_string is replaced with new_string. old_string must match the file's current contents exactly — copy it verbatim from read_file output, whitespace included — and match exactly once; when it appears several times, include more surrounding context to pin down one occurrence, or set replace_all to change every one.",
       inputSchema: z.object({
-        path: z.string().min(1).describe("Absolute path of the file to edit."),
+        path: z
+          .string()
+          .min(1)
+          .describe("Path of the file to edit — absolute or relative to the working directory."),
         old_string: z.string().min(1).describe("Exact text to replace, as it appears in the file."),
         new_string: z.string().describe("Replacement text. Empty deletes old_string."),
         replace_all: z
@@ -522,9 +575,14 @@ export function filesystemTools(
 
     create_directory: tool({
       description:
-        "Create a directory (and any missing parents) in the directories kiri may access, by absolute path. Creating a directory that already exists succeeds without changing anything. write_file creates its parent directories itself, so reach for this only when an empty directory is wanted on its own.",
+        "Create a directory (and any missing parents) in the directories kiri may access, by absolute or working-directory-relative path. Creating a directory that already exists succeeds without changing anything. write_file creates its parent directories itself, so reach for this only when an empty directory is wanted on its own.",
       inputSchema: z.object({
-        path: z.string().min(1).describe("Absolute path of the directory to create."),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            "Path of the directory to create — absolute or relative to the working directory.",
+          ),
       }),
       execute: async ({ path }) => {
         const { real, exists } = confineTarget(path);
@@ -541,9 +599,12 @@ export function filesystemTools(
 
     delete_file: tool({
       description:
-        "Delete one file in the directories kiri may access, by absolute path. Directories go through delete_directory instead. Deletion is permanent — there is no undo.",
+        "Delete one file in the directories kiri may access, by absolute or working-directory-relative path. Directories go through delete_directory instead. Deletion is permanent — there is no undo.",
       inputSchema: z.object({
-        path: z.string().min(1).describe("Absolute path of the file to delete."),
+        path: z
+          .string()
+          .min(1)
+          .describe("Path of the file to delete — absolute or relative to the working directory."),
       }),
       execute: async ({ path }) => {
         const real = confine(path);
@@ -557,9 +618,14 @@ export function filesystemTools(
 
     delete_directory: tool({
       description:
-        "Delete a directory in the directories kiri may access, by absolute path. An empty directory is removed outright; deleting one with contents requires recursive, which removes everything inside it — including .git internals and secret-bearing files the other filesystem tools never touch. Deletion is permanent — there is no undo.",
+        "Delete a directory in the directories kiri may access, by absolute or working-directory-relative path. An empty directory is removed outright; deleting one with contents requires recursive, which removes everything inside it — including .git internals and secret-bearing files the other filesystem tools never touch. Deletion is permanent — there is no undo.",
       inputSchema: z.object({
-        path: z.string().min(1).describe("Absolute path of the directory to delete."),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            "Path of the directory to delete — absolute or relative to the working directory.",
+          ),
         recursive: z
           .boolean()
           .optional()

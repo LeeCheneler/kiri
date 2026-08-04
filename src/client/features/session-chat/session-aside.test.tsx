@@ -470,6 +470,26 @@ describe("<SessionAside>", () => {
     expect(combobox.disabled).toBe(true);
   });
 
+  it("shows the session's working directory", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ cwd: "/srv/notes/inbox" })),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    expect(await screen.findByText("Working directory")).toBeTruthy();
+    expect(screen.getByText("/srv/notes/inbox")).toBeTruthy();
+  });
+
+  it("omits the working directory block when the session has none", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderAside(<SessionAside id="s1" />);
+
+    await screen.findByRole("combobox", { name: /model/i });
+    expect(screen.queryByText(/working directory/i)).toBeNull();
+  });
+
   it("renders nothing until the session loads", () => {
     server.use(http.get("*/api/sessions/:id", () => new Promise<Response>(() => {})));
     const { container } = renderAside(<SessionAside id="s1" />);

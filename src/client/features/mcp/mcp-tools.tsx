@@ -111,6 +111,7 @@ const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly s
       "list_directory",
       "read_file",
       "search_files",
+      "set_working_directory",
       "write_file",
       "edit_file",
       "create_directory",

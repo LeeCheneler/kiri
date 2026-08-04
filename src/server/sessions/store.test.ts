@@ -18,6 +18,7 @@ import {
   setSessionPinned,
   setSessionStatus,
   updateMessage,
+  updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionTitle,
@@ -70,6 +71,21 @@ describe("sessions store", () => {
     expect(createSession(db, MODEL, { id: "s2", title: "Pelican census" }).title).toBe(
       "Pelican census",
     );
+  });
+
+  it("creates a session with a working directory when one is given", () => {
+    expect(createSession(db, MODEL, { id: "s1" }).cwd).toBeNull();
+    expect(createSession(db, MODEL, { id: "s2", cwd: "/srv/notes" }).cwd).toBe("/srv/notes");
+  });
+
+  it("sets and clears the working directory", () => {
+    createSession(db, MODEL, { id: "s1" });
+
+    expect(updateSessionCwd(db, "s1", "/srv/notes/inbox").cwd).toBe("/srv/notes/inbox");
+    expect(getSession(db, "s1")?.cwd).toBe("/srv/notes/inbox");
+
+    expect(updateSessionCwd(db, "s1", null).cwd).toBeNull();
+    expect(getSession(db, "s1")?.cwd).toBeNull();
   });
 
   it("sets the effort level", () => {

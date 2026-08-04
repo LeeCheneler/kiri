@@ -215,6 +215,14 @@ export const sessions = sqliteTable(
       .notNull()
       .default("medium"),
     /**
+     * Absolute directory the session works from: relative filesystem-tool
+     * paths resolve against it and shell commands run in it by default. Set
+     * from the configured default at create (children inherit their parent's),
+     * movable within the sandbox thereafter, and re-checked against the live
+     * sandbox each turn. Null when no sandbox was configured at create.
+     */
+    cwd: text("cwd"),
+    /**
      * The session's display name, generated off the opening message and
      * settable by the user. Null until one is set — untitled sessions fall
      * back to their first user message (or short id) wherever they're listed.
