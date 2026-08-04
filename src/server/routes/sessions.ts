@@ -24,6 +24,7 @@ import {
   BUILTIN_TOOLS,
   type RunTurnDeps,
   SESSION_TITLE_MAX_LENGTH,
+  type Session,
   type SessionCwd,
   type StreamRegistry,
   type ToolApprovalDecision,
@@ -137,9 +138,10 @@ const createSessionBodySchema = z
 // Any field may be set independently: the aside swaps the models, the pin
 // control flips `pinned`, and the rename control sets `title` (`null` clears
 // it), all through this one endpoint. Omitting a field leaves it unchanged.
-// `cwd` accepts only `null` — a reset to the configured default. The model
-// moves the working directory through set_working_directory; there is no
-// free-text path entry from the app, so an arbitrary value has no writer.
+// The working directory is deliberately absent: the assistant moves it
+// through its own sandbox-validated tool, and a missing or cleared value
+// heals from the configured default when the session is next loaded — there
+// is nothing for the app to write.
 const patchSessionBodySchema = z
   .object({
     model: z.string().min(1).optional(),
@@ -147,7 +149,6 @@ const patchSessionBodySchema = z
     effort: z.enum(EFFORT_LEVELS).optional(),
     pinned: z.boolean().optional(),
     title: z.string().trim().min(1).max(SESSION_TITLE_MAX_LENGTH).nullable().optional(),
-    cwd: z.null().optional(),
   })
   .strict();
 
@@ -262,7 +263,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     }
     if (roots.length === 0) return null;
     const recovery =
-      "update filesystem.allowed_directories in kiri.yaml, or reset the session's working directory";
+      "it has been cleared, so the next message starts from the configured default (update kiri.yaml first if that isn't right)";
     let real: string;
     try {
       real = realpathSync(cwd);
@@ -273,6 +274,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       return `The session's working directory "${cwd}" is outside the allowed directories — ${recovery}.`;
     }
     return null;
+  };
+
+  // Self-heal a session with no working directory — created before a default
+  // existed, or whose stale directory a failed turn cleared: stamp the live
+  // config default, so the session picks one up the moment it becomes usable.
+  // A session that has a directory is returned untouched — a *stale* one is
+  // never swapped silently; the turn errors, announces, and clears it instead.
+  const withHealedCwd = (session: Session): Session => {
+    if (session.cwd !== null) return session;
+    const dir = defaultWorkingDirectory();
+    return dir === undefined ? session : updateSessionCwd(db, session.id, dir);
   };
 
   // One registry of in-flight turn streams for this surface: the turn endpoint
@@ -654,7 +666,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { id } = c.req.valid("param");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
-      return c.json({ session, messages: getSessionMessages(db, id) });
+      return c.json({ session: withHealedCwd(session), messages: getSessionMessages(db, id) });
     },
   );
 
@@ -691,7 +703,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model, imageModel, effort, pinned, title, cwd } = c.req.valid("json");
+      const { model, imageModel, effort, pinned, title } = c.req.valid("json");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Validate the model resolves now, mirroring create, so a bad id fails the
@@ -720,9 +732,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (effort !== undefined) updateSessionEffort(db, id, effort);
       if (pinned !== undefined) setSessionPinned(db, id, pinned);
       if (title !== undefined) updateSessionTitle(db, id, title);
-      // A cwd reset re-derives the start value from the live config — the
-      // recovery for a session whose directory left the sandbox or the disk.
-      if (cwd !== undefined) updateSessionCwd(db, id, defaultWorkingDirectory() ?? null);
       const updated = getSession(db, id) as typeof session;
       // The turn endpoint resolves the model per turn, so a change applies
       // from the next turn. Announce it like any other session change so the
@@ -739,7 +748,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     async (c) => {
       const { id } = c.req.valid("param");
       const { message } = c.req.valid("json");
-      const session = getSession(db, id);
+      let session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Reject only a concurrent turn (one already in flight). A session is
       // long-lived and resumable: after an idle, failed, or cancelled turn it
@@ -749,11 +758,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       }
       // A stale working directory fails the turn before anything persists —
       // erroring loudly beats silently working somewhere other than where the
-      // session says it is. The message names both recoveries.
+      // session says it is. Clearing it as part of the announcement is what
+      // lets the next message self-heal from the configured default: the user
+      // hears about the move before any work runs under it, and no manual
+      // reset is ever needed.
       if (session.cwd !== null) {
         const stale = staleCwdReason(session.cwd);
-        if (stale !== null) return c.json({ error: stale }, 409);
+        if (stale !== null) {
+          updateSessionCwd(db, id, null);
+          bus?.publish({ type: "session.updated", id, status: session.status as SessionStatus });
+          return c.json({ error: stale }, 409);
+        }
       }
+      session = withHealedCwd(session);
 
       const parts = message.parts as UIMessage["parts"];
       const priorMessages = getSessionMessages(db, id);

@@ -259,8 +259,9 @@ filesystem:
   settles somewhere else; delegated workers start where their parent is.
   The directory is checked before every turn: if a `kiri.yaml` edit or a
   deletion has invalidated it, the turn refuses to play and says so rather
-  than silently working elsewhere — fix the config, or reset the session's
-  directory to the default.
+  than silently working elsewhere — the stale value is cleared as part of
+  the announcement, and the next message picks the configured default back
+  up on its own.
 
 ## Running shell commands
 

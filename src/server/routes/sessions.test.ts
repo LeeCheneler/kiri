@@ -745,30 +745,10 @@ describe("sessions routes", () => {
         body: JSON.stringify(body),
       });
 
-    it("resets the working directory to the live config default on cwd: null", async () => {
-      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
-      createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
-
-      const res = await patchBody(app, "s1", { cwd: null });
-
-      expect(res.status).toBe(200);
-      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBe(env.cwd);
-      expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
-    });
-
-    it("clears the working directory on reset when no default is configured", async () => {
-      const app = makeApp(fakeClients());
-      createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
-
-      const res = await patchBody(app, "s1", { cwd: null });
-
-      expect(res.status).toBe(200);
-      expect(getSession(env.db, "s1")?.cwd).toBeNull();
-    });
-
-    it("rejects a free-text cwd — reset is the only supported write", async () => {
+    it("rejects any cwd write — the working directory has no app-side writer", async () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });
+      expect((await patchBody(app, "s1", { cwd: null })).status).toBe(400);
       expect((await patchBody(app, "s1", { cwd: "/somewhere/else" })).status).toBe(400);
     });
 
@@ -1345,6 +1325,30 @@ describe("sessions routes", () => {
       expect(((await res.json()) as { error: string }).error).toContain("no longer exists");
       // Nothing persisted: the message was rejected before the turn started.
       expect(getSessionMessages(env.db, "s1")).toEqual([]);
+      // The announcement also cleared the stale value, so the next message
+      // self-heals from the configured default instead of failing again.
+      expect(getSession(env.db, "s1")?.cwd).toBeNull();
+    });
+
+    it("heals a session without a working directory from the live default", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      // Loading the session detail stamps the default onto the row.
+      const res = await app.request("/api/sessions/s1");
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBe(env.cwd);
+      expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
+    });
+
+    it("leaves a session without a working directory alone when no default exists", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1");
+      expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBeNull();
+      expect(getSession(env.db, "s1")?.cwd).toBeNull();
     });
 
     it("fails the turn when a config edit moved the sandbox out from under the session", async () => {

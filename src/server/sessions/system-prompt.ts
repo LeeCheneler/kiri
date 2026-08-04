@@ -152,7 +152,7 @@ function buildFilesystemGuidance(
     "Working with files:",
     ...(tools.includes("set_working_directory")
       ? [
-          "- Move the session's working directory with set_working_directory only when the root of the work itself changes — settling into a different project, say. Relative paths already reach everything beneath the working directory, so stepping into a subdirectory is never a reason to move; prefer staying put at the project root and using relative paths over moving back and forth.",
+          "- Move the session's working directory with set_working_directory only when the root of the work itself changes — settling into a different project, say. When the user names where the work will happen (\"we're working on X today\", a request clearly rooted in one project), move there up front, before the first file call, so the whole session runs from the right root. Relative paths already reach everything beneath the working directory, so stepping into a subdirectory is never a reason to move; prefer staying put at the project root and using relative paths over moving back and forth.",
         ]
       : []),
     "- Results report absolute paths. The paths you pass may be absolute, or relative to the session's working directory — when the session has none, every path must be absolute.",
