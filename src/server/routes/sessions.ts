@@ -41,9 +41,11 @@ import {
   getSessionMessages,
   getSessionPreviews,
   imageTools,
+  judgeCommand,
   listSkills,
   resumeTurn,
   runTurn,
+  screenCommand,
   setSessionPinned,
   shellTools,
   skillTools,
@@ -238,6 +240,34 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // rejoins the live response. A caller may inject one to share it.
   const streamRegistry = deps.streamRegistry ?? createStreamRegistry();
 
+  // Decide a run_command call under the "auto" permission: the deterministic
+  // screen rules first, and only a screen deferral consults the utility
+  // model. No configured utility model means no judgement at all — auto
+  // degrades to ask wholesale, screen included, so what the permissions page
+  // states holds exactly. Every decision is logged: a command that runs
+  // unprompted must stay auditable.
+  const shellAutoNeedsApproval = async (input: unknown): Promise<boolean> => {
+    // The SDK validates the call against the tool's input schema before any
+    // approval gating, so `command` is present and string-typed here.
+    const { command, cwd } = input as { command: string; cwd?: string };
+    const model = deps.getModelsConfig?.().utility;
+    if (model === undefined) return true;
+    const screened = screenCommand(command);
+    const decision =
+      screened.verdict === "judge"
+        ? await judgeCommand({
+            llmClients,
+            model,
+            command: screened.command,
+            cwd: cwd ?? shellWorkingDirectories().join(", "),
+          })
+        : screened;
+    console.log(
+      `run_command auto: ${decision.verdict} (${decision.reason}): ${JSON.stringify(command)}`,
+    );
+    return decision.verdict === "ask";
+  };
+
   // Wrap a tool with its standing permission. An "off" tool is withheld from
   // the model entirely (null — never offered). An "ask" tool always pauses
   // for an Allow / Always allow / Deny decision. An "allow" tool runs
@@ -245,9 +275,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // which must still report as needing approval so the SDK honours that
   // answer on resume. (The SDK re-checks `needsApproval` when resuming and
   // denies a call that no longer needs it — so a fresh "allow" would
-  // otherwise cancel the very call the user just allowed.) `fallback` is the
-  // permission that applies when none is recorded: "ask" for MCP tools, a
-  // built-in tool's declared default.
+  // otherwise cancel the very call the user just allowed.) An "auto" tool is
+  // decided per call — only the shell tool defines a judgement; on any other
+  // tool auto simply asks. `fallback` is the permission that applies when
+  // none is recorded: "ask" for MCP tools, a built-in tool's declared
+  // default.
   const gate = (
     name: string,
     gatedTool: ToolSet[string],
@@ -257,10 +289,15 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     if (permission === "off") return null;
     return {
       ...gatedTool,
-      needsApproval: (
-        _input: unknown,
+      needsApproval: async (
+        input: unknown,
         { toolCallId, messages }: { toolCallId: string; messages: ModelMessage[] },
-      ) => permission !== "allow" || hasPriorApprovalRequest(messages, toolCallId),
+      ) => {
+        if (hasPriorApprovalRequest(messages, toolCallId)) return true;
+        if (permission === "allow") return false;
+        if (permission === "auto" && name === "run_command") return shellAutoNeedsApproval(input);
+        return true;
+      },
     };
   };
 
@@ -291,7 +328,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // narrowed to tools whose standing permission is "allow", offered ungated.
   // A worker runs unattended — no approval prompt can surface mid-delegation —
   // so a tool the user hasn't already allowed to run unprompted is simply
-  // absent. Delegation therefore never widens what runs without asking.
+  // absent. An "auto" tool is likewise absent: its judgement can ask, and a
+  // worker has no one to ask. Delegation therefore never widens what runs
+  // without asking.
   const childActiveTools = (childSessionId: string): ToolSet => {
     const tools: ToolSet = {};
     for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {

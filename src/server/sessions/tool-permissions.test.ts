@@ -55,6 +55,11 @@ describe("createToolPermissionStore", () => {
     expect(reopened.list()).toEqual({ tavily__search: "allow", linear__create_issue: "off" });
   });
 
+  it("persists auto so a later store sees it", () => {
+    createToolPermissionStore(filePath).set("run_command", "auto");
+    expect(createToolPermissionStore(filePath).get("run_command")).toBe("auto");
+  });
+
   it("records a change back to ask alongside the other decisions", () => {
     const store = createToolPermissionStore(filePath);
     store.set("tavily__search", "off");

@@ -42,7 +42,7 @@ export interface McpRoutesDeps {
 // Setting a tool's standing permission: its namespaced `<server>__<tool>` name
 // and the verdict to record. `"ask"` clears any recorded decision.
 const toolPermissionBodySchema = z
-  .object({ tool: z.string().min(1), permission: z.enum(["allow", "ask", "off"]) })
+  .object({ tool: z.string().min(1), permission: z.enum(["allow", "ask", "off", "auto"]) })
   .strict();
 
 const escapeHtml = (value: string): string =>

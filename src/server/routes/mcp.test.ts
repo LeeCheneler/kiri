@@ -193,6 +193,21 @@ describe("mcp routes", () => {
       expect(events).toEqual([{ type: "tool.permission.updated", tool: "linear__search" }]);
     });
 
+    it("accepts auto as a standing permission", async () => {
+      const app = buildApp(async () => "REDIRECT");
+
+      const res = await app.request("/api/mcp/tool-permissions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "run_command", permission: "auto" }),
+      });
+
+      expect(res.status).toBe(204);
+      expect(createToolPermissionStore(env.config.toolPermissionsFile()).get("run_command")).toBe(
+        "auto",
+      );
+    });
+
     it("rejects an unknown permission value", async () => {
       const app = buildApp(async () => "REDIRECT");
 

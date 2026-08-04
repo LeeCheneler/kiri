@@ -142,6 +142,58 @@ describe("<McpTools>", () => {
     });
   });
 
+  it("offers Auto on the shell tool only, and persists selecting it", async () => {
+    let permission = "ask";
+    const recorded: { tool?: string; permission?: string }[] = [];
+    server.use(
+      http.get("*/api/mcp/tools", () =>
+        HttpResponse.json({
+          servers: [
+            {
+              name: "linear",
+              type: "http",
+              state: "connected",
+              tools: [{ name: "search", namespacedName: "linear__search", permission: "ask" }],
+            },
+          ],
+          builtin: [
+            { name: "run_command", description: "Run a shell command.", permission },
+            { name: "run_workflow", description: "Run a workflow.", permission: "ask" },
+          ],
+        }),
+      ),
+      http.post("*/api/mcp/tool-permissions", async ({ request }) => {
+        const body = (await request.json()) as { tool?: string; permission?: string };
+        recorded.push(body);
+        permission = body.permission ?? permission;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderTools();
+
+    await userEvent.click(await screen.findByRole("button", { name: /built-in tools/i }));
+    const shellGroup = await screen.findByRole("radiogroup", {
+      name: "Permission for run_command",
+    });
+    await userEvent.click(within(shellGroup).getByRole("radio", { name: "Auto" }));
+
+    expect(recorded).toEqual([{ tool: "run_command", permission: "auto" }]);
+    await waitFor(() => {
+      const settled = screen.getByRole("radiogroup", { name: "Permission for run_command" });
+      expect(
+        (within(settled).getByRole("radio", { name: "Auto" }) as HTMLInputElement).checked,
+      ).toBe(true);
+    });
+
+    // No judgement exists for other built-ins or MCP tools, so Auto is absent
+    // there rather than offered as a synonym for Ask.
+    const workflowGroup = screen.getByRole("radiogroup", { name: "Permission for run_workflow" });
+    expect(within(workflowGroup).queryByRole("radio", { name: "Auto" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /linear/i }));
+    const mcpGroup = screen.getByRole("radiogroup", { name: "Permission for search" });
+    expect(within(mcpGroup).queryByRole("radio", { name: "Auto" })).toBeNull();
+  });
+
   it("renders the built-in kiri tools and persists their permission change", async () => {
     let permission = "ask";
     const recorded: { tool?: string; permission?: string }[] = [];

@@ -4,19 +4,21 @@ import { z } from "zod";
 
 /**
  * A tool's standing permission in agentic sessions. `"allow"` runs it without
- * prompting, `"off"` withholds it from the model entirely, and `"ask"` prompts
- * for approval on every call. A tool with no recorded entry falls back to a
- * caller-supplied default — `"ask"` for MCP tools, each built-in tool's own
- * declared default.
+ * prompting, `"off"` withholds it from the model entirely, `"ask"` prompts for
+ * approval on every call, and `"auto"` decides per call whether the invocation
+ * is safe to run unprompted — asking otherwise. Only tools with a per-call
+ * judgement honour `"auto"`; everywhere else it behaves as `"ask"`. A tool with
+ * no recorded entry falls back to a caller-supplied default — `"ask"` for MCP
+ * tools, each built-in tool's own declared default.
  */
-export type ToolPermission = "allow" | "ask" | "off";
+export type ToolPermission = "allow" | "ask" | "off" | "auto";
 
 // Recorded decisions, keyed by the namespaced `<server>__<tool>` name — the
 // same name the model is offered. An explicit "ask" is persistable so a
 // default-"allow" tool set back to Ask sticks; an absent key reads back as
 // the caller's fallback.
 const decisionSchema = z.object({
-  permission: z.enum(["allow", "ask", "off"]),
+  permission: z.enum(["allow", "ask", "off", "auto"]),
   decidedAt: z.string(),
 });
 const permissionsFileSchema = z.record(z.string(), decisionSchema);

@@ -105,6 +105,7 @@ const fakeClients = (
     model?: LlmModel;
     resolveError?: string;
     models?: { id: string; provider: string; output: "text" | "image"; reasoning?: boolean }[];
+    generateText?: LlmClients["generateText"];
   } = {},
 ): LlmClients => ({
   resolveModel: () => {
@@ -114,7 +115,7 @@ const fakeClients = (
   resolveImageModel: () => {
     throw new Error("no image model in this fake");
   },
-  generateText: async () => ({ text: "", usage: {} }),
+  generateText: opts.generateText ?? (async () => ({ text: "", usage: {} })),
   listModels: async () => ({
     models: (opts.models ?? []).map((model) => ({ reasoning: false, ...model })),
     failures: [],
@@ -1360,6 +1361,130 @@ describe("sessions routes", () => {
         stdout: "hi\n",
         stderr: "",
         durationMs: expect.any(Number),
+      });
+    });
+
+    describe("run_command auto permission", () => {
+      const UTILITY_MODELS = () => ({ shortcuts: {}, delegates: {}, utility: "fake:utility" });
+
+      // Tracks judge calls and answers with a scripted reply.
+      const scriptedJudge = (reply: string) => {
+        const calls: { model: string; prompt: string }[] = [];
+        const generateText: LlmClients["generateText"] = async ({ model, prompt }) => {
+          calls.push({ model, prompt });
+          return { text: reply, usage: {} };
+        };
+        return { calls, generateText };
+      };
+
+      const startAutoTurn = async (opts: {
+        input: string;
+        judgeReply?: string;
+        modelsConfig?: () => ModelsConfig;
+      }) => {
+        writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+        createToolPermissionStore(env.config.toolPermissionsFile()).set("run_command", "auto");
+        const judge = scriptedJudge(opts.judgeReply ?? "");
+        const { bus, waitForSettled } = createSessionWaiter();
+        const app = makeApp(
+          fakeClients({
+            model: toolCallModel("run_command", opts.input),
+            generateText: judge.generateText,
+          }),
+          { bus, getModelsConfig: opts.modelsConfig ?? UTILITY_MODELS },
+        );
+        // Pre-titled so first-turn title generation doesn't also call the
+        // scripted generateText and muddy the judge-call assertions.
+        createSession(env.db, MODEL, { id: "s1", title: "auto shell" });
+        const settled = waitForSettled("s1");
+        await (await postMessage(app, "s1", "run it")).text();
+        await settled;
+        return { app, judge, waitForSettled };
+      };
+
+      it("runs a screen-allowed command without consulting the judge", async () => {
+        const { judge } = await startAutoTurn({ input: JSON.stringify({ command: "pwd" }) });
+
+        const rows = getSessionMessages(env.db, "s1");
+        const ranTool = toolPartOf(rows[1]);
+        expect(ranTool.state).toBe("output-available");
+        expect((ranTool.output as { stdout: string }).stdout).toBe(`${realpathSync(env.cwd)}\n`);
+        expect(judge.calls).toEqual([]);
+      });
+
+      it("pauses a screen-triggered command without consulting the judge", async () => {
+        const { judge } = await startAutoTurn({
+          input: JSON.stringify({ command: "rm -rf build" }),
+        });
+
+        const pendingTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);
+        expect(pendingTool.state).toBe("approval-requested");
+        expect(pendingTool.output).toBeUndefined();
+        expect(judge.calls).toEqual([]);
+      });
+
+      it("runs a command the judge allows, judging with the utility model", async () => {
+        const { judge } = await startAutoTurn({
+          input: JSON.stringify({ command: "echo judged", cwd: env.cwd }),
+          judgeReply: "EFFECTS: prints text\nVERDICT: allow\nREASON: harmless echo",
+        });
+
+        const ranTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);
+        expect(ranTool.state).toBe("output-available");
+        expect((ranTool.output as { stdout: string }).stdout).toBe("judged\n");
+        expect(judge.calls).toHaveLength(1);
+        expect(judge.calls[0]?.model).toBe("fake:utility");
+        expect(judge.calls[0]?.prompt).toContain("echo judged");
+        expect(judge.calls[0]?.prompt).toContain(`Working directory: ${env.cwd}`);
+      });
+
+      it("pauses a command the judge asks about, then honours an approval", async () => {
+        const { app, judge, waitForSettled } = await startAutoTurn({
+          input: JSON.stringify({ command: "echo judged" }),
+          judgeReply: "EFFECTS: unclear\nVERDICT: ask\nREASON: unsure",
+        });
+
+        const paused = getSessionMessages(env.db, "s1");
+        const pendingTool = toolPartOf(paused[1]);
+        expect(pendingTool.state).toBe("approval-requested");
+        expect(judge.calls).toHaveLength(1);
+
+        // Approving resumes and runs the call: the prior approval request is
+        // honoured rather than the command being re-judged.
+        const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
+          part.state === "approval-requested"
+            ? {
+                ...part,
+                state: "approval-responded",
+                approval: { ...part.approval, approved: true },
+              }
+            : part,
+        );
+        const resumed = waitForSettled("s1");
+        const res = await app.request("/api/sessions/s1/messages", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: { role: "assistant", parts: respondedParts } }),
+        });
+        expect(res.status).toBe(200);
+        await res.text();
+        await resumed;
+
+        expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-available");
+        expect(judge.calls).toHaveLength(1);
+      });
+
+      it("degrades to ask wholesale when no utility model is configured", async () => {
+        // Even a screen-allowed command pauses: without a utility model the
+        // permissions page states auto falls back to ask, so it must.
+        const { judge } = await startAutoTurn({
+          input: JSON.stringify({ command: "pwd" }),
+          modelsConfig: () => ({ shortcuts: {}, delegates: {} }),
+        });
+
+        const pendingTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);
+        expect(pendingTool.state).toBe("approval-requested");
+        expect(judge.calls).toEqual([]);
       });
     });
 

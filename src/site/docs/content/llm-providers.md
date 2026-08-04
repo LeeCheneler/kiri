@@ -119,8 +119,8 @@ at spawn. Without them, workers run the same model as the conversation.
 ## Utility model
 
 Optionally set the model kiri itself uses for small internal generations —
-naming a new session off its opening message, for instance — under
-`models.utility:`:
+naming a new session off its opening message, or judging shell commands
+under the Auto permission — under `models.utility:`:
 
 ```yaml
 models:
@@ -129,7 +129,9 @@ models:
 
 These calls are tiny, so a fast, cheap model is the right fit — a
 [local model](#local-models) works well and keeps them off the meter
-entirely. Unset, each call falls back to the model of the session it serves.
+entirely. Unset, session titling falls back to the model of the session it
+serves; the shell tool's Auto judgement deliberately doesn't — without a
+utility model, Auto falls back to asking on every command.
 
 Without a `models:` section, nothing changes: pickers list models as usual
 and new sessions default to the most recent session's model.

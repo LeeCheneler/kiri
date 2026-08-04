@@ -673,8 +673,12 @@ export const fetchMcpServers = async (): Promise<McpServersResult> =>
 export const mcpAuthStartUrl = (server: string): string =>
   apiUrl(`/api/mcp/${encodeURIComponent(server)}/auth/start`);
 
-/** A tool's standing permission: run without prompting, prompt every call, or withhold it. */
-export type McpToolPermission = "allow" | "ask" | "off";
+/**
+ * A tool's standing permission: run without prompting, prompt every call,
+ * withhold it, or decide per call (tools without a per-call judgement treat
+ * `"auto"` as `"ask"`).
+ */
+export type McpToolPermission = "allow" | "ask" | "off" | "auto";
 
 /** One tool a connected MCP server exposes, with its standing permission. */
 export interface McpTool {

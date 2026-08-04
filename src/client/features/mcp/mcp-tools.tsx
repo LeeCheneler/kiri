@@ -21,15 +21,27 @@ const PERMISSION_OPTIONS: SegmentedOption<McpToolPermission>[] = [
   { value: "off", label: "Off" },
 ];
 
+// Auto is offered only where a per-call judgement exists — the built-in shell
+// tool. Everywhere else the option is absent rather than a synonym for Ask.
+const SHELL_PERMISSION_OPTIONS: SegmentedOption<McpToolPermission>[] = [
+  { value: "auto", label: "Auto" },
+  { value: "allow", label: "Always allow" },
+  { value: "ask", label: "Ask" },
+  { value: "off", label: "Off" },
+];
+
 // One tool: its name and description on the left, its permission control on
 // the right. Shared by the MCP tool rows and the built-in kiri tool rows —
-// the caller supplies the permission key to record against.
+// the caller supplies the permission key to record against, and may widen the
+// offered options where a tool supports more than the standard three.
 function ToolRow({
   tool,
   onChange,
+  options = PERMISSION_OPTIONS,
 }: {
   tool: { name: string; description?: string; permission: McpToolPermission };
   onChange: (permission: McpToolPermission) => void;
+  options?: SegmentedOption<McpToolPermission>[];
 }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -44,7 +56,7 @@ function ToolRow({
           aria-label={`Permission for ${tool.name}`}
           value={tool.permission}
           onChange={onChange}
-          options={PERMISSION_OPTIONS}
+          options={options}
         />
       </div>
     </div>
@@ -74,12 +86,18 @@ function BuiltinCard({
           </span>
         }
       >
-        {/* The one permission interaction that isn't self-evident from a row:
-            a delegated worker inherits only Always-allow tools, so an Ask
-            tool's absence from a worker is a setting here, not a bug. */}
+        {/* The permission interactions that aren't self-evident from a row:
+            a delegated worker inherits only Always-allow tools, so an Ask or
+            Auto tool's absence from a worker is a setting here, not a bug;
+            and Auto needs a utility model to judge with. */}
+        <p className="mb-2 font-mono text-ink-muted text-xs">
+          A delegated worker session runs unattended, so it only holds tools set to Always allow —
+          tools on Ask or Auto are never offered to workers.
+        </p>
         <p className="mb-5 font-mono text-ink-muted text-xs">
-          Tools set to Ask are never offered to delegated worker sessions — a worker runs
-          unattended, so it only holds tools set to Always allow.
+          Auto, on the shell tool, judges each command as it's called: clearly safe commands run
+          unprompted, anything else asks. It needs a utility model under models in kiri.yaml —
+          without one, Auto falls back to Ask.
         </p>
         <ul className="space-y-5">
           {tools.map((tool) => (
@@ -87,6 +105,7 @@ function BuiltinCard({
               <ToolRow
                 tool={tool}
                 onChange={(permission) => onSetPermission(tool.name, permission)}
+                options={tool.name === "run_command" ? SHELL_PERMISSION_OPTIONS : undefined}
               />
             </li>
           ))}

@@ -352,9 +352,10 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 # delegates — quick (mechanical legwork), daily (ordinary work), deep
 # (reasoning-heavy) — configure any subset; with none, workers run the
 # delegating session's model. \`utility\` is the model kiri itself uses for
-# small internal generations, like naming a new session — point it at a
-# fast, cheap model (a local one works well); unset, those calls run on
-# the session's own model:
+# small internal generations — naming a new session, judging shell
+# commands under the Auto permission — point it at a fast, cheap model (a
+# local one works well); unset, titling runs on the session's own model
+# and Auto falls back to asking:
 #
 # models:
 #   shortcuts:
