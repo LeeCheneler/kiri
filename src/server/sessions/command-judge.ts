@@ -23,7 +23,7 @@ EFFECTS: what the command does — data written or deleted, network use, process
 VERDICT: allow or ask
 REASON: one short line justifying the verdict
 
-Judge effects, not shape. A command chained with && or ; or pipes takes the verdict of its riskiest part: a chain of read-only steps is still read-only, and being long or multi-step is never by itself a reason to ask.
+Judge effects, not shape. A command chained with && or ; or pipes takes the verdict of its riskiest part: a chain of read-only steps is still read-only, and being long or multi-step is never by itself a reason to ask. A leading cd only moves where the rest runs — judge the rest as if that were the working directory. Redirections and pipes that reshape output for display (2>&1, | tail, | grep, | head) add no effect of their own.
 
 Answer "allow" only when every effect is routine and recoverable:
 - reading, searching, or inspecting files, processes, or system state — ls, cat, find, grep, head, stat, which, version checks, and the like — anywhere except credential or secret files
