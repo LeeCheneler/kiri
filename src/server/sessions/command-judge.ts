@@ -9,7 +9,9 @@ export interface CommandJudgement {
 // A command too long to reason about reliably is asked about, not judged.
 const COMMAND_MAX_LENGTH = 4000;
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+// Generous because a timeout degrades to asking: routed providers can take
+// tens of seconds on a cold path, and a stale ask wastes the whole feature.
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 // Effects first, verdict second: stating what the command does before ruling
 // on it measurably reduces snap verdicts, and the reason line is what gets
