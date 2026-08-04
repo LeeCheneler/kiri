@@ -23,6 +23,7 @@ import {
   BUILTIN_TOOLS,
   type RunTurnDeps,
   SESSION_TITLE_MAX_LENGTH,
+  type SessionCwd,
   type StreamRegistry,
   type ToolApprovalDecision,
   type ToolPermission,
@@ -49,6 +50,7 @@ import {
   setSessionPinned,
   shellTools,
   skillTools,
+  updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
@@ -322,6 +324,21 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // self-gate on configuration: no image model on the session, no
   // generate_image offered. The delegate tool is merged separately by each
   // caller — only a top-level session's own turn offers it.
+  // The session's working directory as the filesystem tools see it: read live
+  // from the row, and written back — with a `session.updated` publish — when
+  // set_working_directory moves it.
+  const cwdBindingFor = (sessionId: string): SessionCwd => ({
+    get: () => getSession(db, sessionId)?.cwd ?? null,
+    set: (dir) => {
+      const session = updateSessionCwd(db, sessionId, dir);
+      bus?.publish({
+        type: "session.updated",
+        id: sessionId,
+        status: session.status as SessionStatus,
+      });
+    },
+  });
+
   const builtinToolsFor = (sessionId: string): ToolSet => {
     const sandbox = sandboxDirectories();
     const shellDirs = shellWorkingDirectories();
@@ -329,7 +346,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...skillTools(config),
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
-      ...(sandbox.length > 0 ? filesystemTools(() => sandbox) : {}),
+      ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
     };

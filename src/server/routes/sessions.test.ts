@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type Tool, type ToolSet, tool } from "ai";
@@ -1278,6 +1278,31 @@ describe("sessions routes", () => {
         path: realpathSync(join(env.cwd, "notes.md")),
         content: "remember the milk\n",
       });
+    });
+
+    it("moves the session's working directory and publishes session.updated", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      mkdirSync(join(env.cwd, "docs"));
+      const input = JSON.stringify({ path: join(env.cwd, "docs") });
+      const events: KiriEvent[] = [];
+      const { bus, waitForSettled } = createSessionWaiter();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients({ model: toolCallModel("set_working_directory", input) }), {
+        bus,
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "work in docs")).text();
+      await settled;
+
+      // The move ran without an approval pause (allow by default), persisted
+      // onto the session row, and announced itself so the app can refresh.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      expect(toolPartOf(rows[1]).output).toEqual({ cwd: realpathSync(join(env.cwd, "docs")) });
+      expect(getSession(env.db, "s1")?.cwd).toBe(realpathSync(join(env.cwd, "docs")));
+      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
     });
 
     it("offers run_command with shell guidance when kiri.yaml declares working directories", async () => {

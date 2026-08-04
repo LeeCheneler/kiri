@@ -3,7 +3,11 @@ export { BUILTIN_TOOLS, type BuiltinTool } from "./builtin-tools.ts";
 export { type CommandJudgement, judgeCommand } from "./command-judge.ts";
 export { type CommandScreenResult, screenCommand } from "./command-screen.ts";
 export { DELEGATE_TOOL_NAME, type DelegateToolDeps, delegateTool } from "./delegate-tool.ts";
-export { type FilesystemToolsOptions, filesystemTools } from "./filesystem-tools.ts";
+export {
+  type FilesystemToolsOptions,
+  type SessionCwd,
+  filesystemTools,
+} from "./filesystem-tools.ts";
 export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
 export {
   type Message,

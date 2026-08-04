@@ -54,7 +54,7 @@ describe("BUILTIN_TOOLS", () => {
       ...skillTools(createConfigStore(dir)),
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
       ...articleTools(db, "session-1", () => {}),
-      ...filesystemTools(() => [dir]),
+      ...filesystemTools(() => [dir], { get: () => null, set: () => {} }),
       ...shellTools(() => [dir]),
       ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),
       ...delegateTool({

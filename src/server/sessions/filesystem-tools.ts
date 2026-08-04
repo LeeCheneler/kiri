@@ -44,6 +44,16 @@ const MAX_DIFF_LENGTH = 64 * 1024;
 // than decoded to an invalid fragment.
 const decoder = new TextDecoder("utf-8", { fatal: false });
 
+/**
+ * The session's working directory binding: `get` reads the current value
+ * (null when the session has none), `set` persists a move the tools have
+ * already validated against the sandbox.
+ */
+export interface SessionCwd {
+  get: () => string | null;
+  set: (dir: string) => void;
+}
+
 /** Tunable bounds, defaulting to the module constants. Tests pass tiny values. */
 export interface FilesystemToolsOptions {
   maxReadBytes?: number;
@@ -67,7 +77,9 @@ const withTrailingNewline = (content: string): string =>
  * First-party tools that let a session find, list, read, search, and change
  * files — `find_files`, `list_directory`, `read_file`, `search_files`,
  * `write_file`, `edit_file`, `create_directory`, `delete_file`,
- * `delete_directory` — confined to the workspace's declared sandbox.
+ * `delete_directory` — confined to the workspace's declared sandbox, plus
+ * `set_working_directory`, which moves the session's working directory
+ * (read and persisted through `cwd`) to another sandboxed directory.
  * Paths are absolute in both directions: every
  * model-supplied path must be absolute (a relative one is rejected with the
  * allowed set named — nothing ever resolves against a working directory), and
@@ -87,6 +99,7 @@ const withTrailingNewline = (content: string): string =>
  */
 export function filesystemTools(
   getAllowedDirectories: () => readonly string[],
+  cwd: SessionCwd,
   options: FilesystemToolsOptions = {},
 ): ToolSet {
   const {
@@ -443,6 +456,34 @@ export function filesystemTools(
           };
         }
         return { matches };
+      },
+    }),
+
+    set_working_directory: tool({
+      description:
+        "Move the session's working directory — its current location within the directories kiri may access. Give an absolute path, or a path relative to the current working directory; it must name a directory that exists inside the allowed directories.",
+      inputSchema: z.object({
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            "The directory to move to — absolute, or relative to the current working directory.",
+          ),
+      }),
+      execute: async ({ path }) => {
+        const current = cwd.get();
+        const target = isAbsolute(path) ? path : current === null ? null : join(current, path);
+        if (target === null) {
+          throw new Error(
+            `Relative path "${path}" — the session has no working directory to resolve it against; pass an absolute path.`,
+          );
+        }
+        const real = confine(target);
+        if (!statSync(real).isDirectory()) {
+          throw new Error(`"${path}" is a file — the working directory must be a directory.`);
+        }
+        cwd.set(real);
+        return { cwd: real };
       },
     }),
 

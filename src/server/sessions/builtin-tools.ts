@@ -122,6 +122,11 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
+    name: "set_working_directory",
+    description: "Move the session's working directory within the allowed directories.",
+    defaultPermission: "allow",
+  },
+  {
     name: "write_file",
     description: "Create or overwrite a text file in the allowed directories.",
     defaultPermission: "ask",
