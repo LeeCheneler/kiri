@@ -9,7 +9,9 @@ export interface CommandJudgement {
 // A command too long to reason about reliably is asked about, not judged.
 const COMMAND_MAX_LENGTH = 4000;
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+// Generous because a timeout degrades to asking: routed providers can take
+// tens of seconds on a cold path, and a stale ask wastes the whole feature.
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 // Effects first, verdict second: stating what the command does before ruling
 // on it measurably reduces snap verdicts, and the reason line is what gets
@@ -23,7 +25,7 @@ EFFECTS: what the command does — data written or deleted, network use, process
 VERDICT: allow or ask
 REASON: one short line justifying the verdict
 
-Judge effects, not shape. A command chained with && or ; or pipes takes the verdict of its riskiest part: a chain of read-only steps is still read-only, and being long or multi-step is never by itself a reason to ask.
+Judge effects, not shape. A command chained with && or ; or pipes takes the verdict of its riskiest part: a chain of read-only steps is still read-only, and being long or multi-step is never by itself a reason to ask. A leading cd only moves where the rest runs — judge the rest as if that were the working directory. Redirections and pipes that reshape output for display (2>&1, | tail, | grep, | head) add no effect of their own.
 
 Answer "allow" only when every effect is routine and recoverable:
 - reading, searching, or inspecting files, processes, or system state — ls, cat, find, grep, head, stat, which, version checks, and the like — anywhere except credential or secret files
