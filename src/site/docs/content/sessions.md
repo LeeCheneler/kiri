@@ -162,6 +162,7 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
+| `set_working_directory` | Always allow | Only moves a value confined to the sandbox. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
 | `delegate` | Always allow | Workers only hold tools already always-allowed. |
 | `run_workflow`, `rerun_workflow` | Ask | Execute your workflows. |
@@ -233,6 +234,7 @@ filesystem:
   allowed_directories:
     - . # the workspace itself
     - ~/projects
+  default_working_directory: ~/projects # optional — where sessions start
 ```
 
 - The list is the entire boundary, and declaring it is what turns the tools
@@ -250,24 +252,26 @@ filesystem:
   and deletes ask, previewing the exact change as a diff. Deleting a
   non-empty directory takes an explicit recursive opt-in, and an allowed
   directory itself can never be deleted.
+- Every session has a **working directory** inside the sandbox. It starts at
+  `default_working_directory` (the first allowed directory when that's
+  unset), relative paths resolve against it, and the assistant moves it —
+  within the sandbox — with a `set_working_directory` tool when the work
+  settles somewhere else; delegated workers start where their parent is.
+  The directory is checked before every turn: if a `kiri.yaml` edit or a
+  deletion has invalidated it, the turn refuses to play and says so rather
+  than silently working elsewhere — fix the config, or reset the session's
+  directory to the default.
 
 ## Running shell commands
 
-Declare `shell:` in `kiri.yaml` and sessions gain a `run_command` tool —
-builds, tests, git, your project's own scripts — run in the working
-directories you list:
+The same `filesystem:` declaration gives sessions a `run_command` tool —
+builds, tests, git, your project's own scripts. A command runs in the
+session's working directory unless the call names another directory inside
+the sandbox.
 
-```yaml
-shell:
-  working_directories:
-    - . # the workspace itself
-    - ~/projects/my-app
-```
-
-- Declaring the section is what turns the tool on; entries resolve like the
-  filesystem sandbox — relative to the workspace root, `~` for home.
-- Be clear about what the list does: it confines where a command *starts*,
-  not what it can touch — a shell command can reach anything you can. That's
+- Be clear about what the sandbox does here: it confines where a command
+  *starts*, not what it can touch — a shell command can reach anything you
+  can. That's
   why every call asks by default, showing the exact command verbatim with its
   directory, and why the system prompt holds the model to safe,
   narrowly-scoped commands as a first line of defence in front of your
