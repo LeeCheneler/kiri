@@ -1283,14 +1283,16 @@ describe("sessions routes", () => {
     it("moves the session's working directory and publishes session.updated", async () => {
       writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
       mkdirSync(join(env.cwd, "docs"));
-      const input = JSON.stringify({ path: join(env.cwd, "docs") });
+      // A relative path: resolved against the session's stored working
+      // directory, exercising the row-backed read as well as the write.
+      const input = JSON.stringify({ path: "docs" });
       const events: KiriEvent[] = [];
       const { bus, waitForSettled } = createSessionWaiter();
       bus.subscribe((e) => events.push(e));
       const app = makeApp(fakeClients({ model: toolCallModel("set_working_directory", input) }), {
         bus,
       });
-      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
 
       const settled = waitForSettled("s1");
       await (await postMessage(app, "s1", "work in docs")).text();

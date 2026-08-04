@@ -309,10 +309,11 @@ describe("buildSystemPrompt", () => {
     });
     expect(withFilesystem).toContain("You can work with the user's files");
     // The sandbox is enumerated so the model needn't discover the reachable
-    // roots through errors, and the absolute-path currency is stated.
+    // roots through errors, and the path currency — absolute results,
+    // working-directory-relative inputs allowed — is stated.
     expect(withFilesystem).toContain("- /srv/notes");
     expect(withFilesystem).toContain("- /srv/projects");
-    expect(withFilesystem).toContain("must be absolute");
+    expect(withFilesystem).toContain("relative to the session's working directory");
 
     // find_files alone (read_file withheld by its permission) carries no
     // filesystem guidance — the find tool's own description suffices.

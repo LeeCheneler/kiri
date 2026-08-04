@@ -424,7 +424,7 @@ describe("filesystemTools", () => {
     it("rejects a relative path when the session has no working directory", async () => {
       mkdirSync(join(workspace, "sub"));
       expect(run(tools().set_working_directory, { path: "sub" })).rejects.toThrow(
-        /no working directory/,
+        /use an absolute path/,
       );
       expect(cwdValue).toBeNull();
     });
@@ -456,6 +456,53 @@ describe("filesystemTools", () => {
         run(tools().set_working_directory, { path: join(workspace, ".git", "objects") }),
       ).rejects.toThrow(/off-limits/);
       expect(cwdValue).toBeNull();
+    });
+  });
+
+  describe("working-directory-relative paths", () => {
+    it("resolves reads and searches against the working directory", async () => {
+      mkdirSync(join(workspace, "docs"));
+      writeFileSync(join(workspace, "docs", "notes.md"), "remember\n");
+      cwdValue = ws("docs");
+      expect(await run(tools().read_file, { path: "notes.md" })).toEqual({
+        path: ws("docs", "notes.md"),
+        content: "remember\n",
+      });
+      expect(await run(tools().find_files, { pattern: "*.md", directory: "." })).toEqual({
+        files: [ws("docs", "notes.md")],
+      });
+      expect(await run(tools().list_directory, { path: "." })).toEqual({
+        path: ws("docs"),
+        entries: ["notes.md"],
+      });
+    });
+
+    it("resolves a write target that doesn't exist yet against the working directory", async () => {
+      cwdValue = ws();
+      const result = await run(tools().write_file, { path: "new/draft.md", content: "hi" });
+      expect(result).toEqual({ path: ws("new", "draft.md"), created: true });
+      expect(readFileSync(join(workspace, "new", "draft.md"), "utf8")).toBe("hi\n");
+    });
+
+    it("rejects a relative path that escapes the sandbox or lands somewhere blocked", async () => {
+      cwdValue = ws();
+      expect(run(tools().read_file, { path: join("..", basename(outside)) })).rejects.toThrow(
+        /outside the directories/,
+      );
+      mkdirSync(join(workspace, ".git"));
+      writeFileSync(join(workspace, ".git", "config"), "[core]");
+      expect(run(tools().read_file, { path: ".git/config" })).rejects.toThrow(/off-limits/);
+      expect(run(tools().write_file, { path: "../escape.md", content: "x" })).rejects.toThrow(
+        /outside the directories/,
+      );
+    });
+
+    it("rejects every relative path when the session has no working directory", async () => {
+      writeFileSync(join(workspace, "notes.md"), "hi");
+      expect(run(tools().read_file, { path: "notes.md" })).rejects.toThrow(/use an absolute path/);
+      expect(run(tools().write_file, { path: "new.md", content: "x" })).rejects.toThrow(
+        /use an absolute path/,
+      );
     });
   });
 

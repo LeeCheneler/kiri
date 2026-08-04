@@ -150,7 +150,7 @@ function buildFilesystemGuidance(
     `You can work with the user's files: ${capabilities}. The tools reach exactly these directories (and their subdirectories), which the user has allowed:`,
     ...allowedDirectories.map((dir) => `- ${dir}`),
     "Working with files:",
-    "- Every path is absolute: results report absolute paths and the paths you pass must be absolute too — never relative to some working directory.",
+    "- Results report absolute paths. The paths you pass may be absolute, or relative to the session's working directory — when the session has none, every path must be absolute.",
     ...(reads
       ? [
           "- Scope narrowly: find or search first, then read the specific files that answer the need. Don't trawl whole trees or read files speculatively.",
