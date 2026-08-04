@@ -23,9 +23,12 @@ EFFECTS: what the command does — data written or deleted, network use, process
 VERDICT: allow or ask
 REASON: one short line justifying the verdict
 
+Judge effects, not shape. A command chained with && or ; or pipes takes the verdict of its riskiest part: a chain of read-only steps is still read-only, and being long or multi-step is never by itself a reason to ask.
+
 Answer "allow" only when every effect is routine and recoverable:
-- reading files or repository state
+- reading, searching, or inspecting files, processes, or system state — ls, cat, find, grep, head, stat, which, version checks, and the like — anywhere except credential or secret files
 - building, testing, linting, formatting, or type-checking
+- running the project's own scripts (npm/bun/yarn/pnpm run, make targets, and the like) whose names read as routine development work — build, test, dev, check; a name that sounds destructive or outward-facing (clean, reset, deploy, publish, release, migrate) asks instead
 - git operations that do not destroy work: pull, fetch, commit, push, switching branches, stashing
 - installing dependencies already declared in a lockfile
 - writing files inside the working directory as a normal part of such work
@@ -35,12 +38,13 @@ Answer "ask" when any part of the command:
 - rewrites history or force-pushes
 - adds new dependencies, or executes code fetched from the network
 - reads or writes credentials, keys, or .env files
-- touches paths outside the working directory, or system configuration
-- runs a script or binary whose contents you cannot see
+- writes or deletes outside the working directory, or changes system configuration
+- sends file contents or other local data to a remote host
+- runs a local script or unfamiliar program whose effects the command line does not reveal — standard Unix and developer tools and routinely-named project scripts (above) do not count
 - is obfuscated, encoded, or dynamically constructed
-- has any effect you are unsure of
+- has an effect you cannot determine
 
-When in doubt, ask: a wrong "ask" costs one click, a wrong "allow" may be unrecoverable.`;
+When you cannot tell what a command does, ask: a wrong "ask" costs one click, a wrong "allow" may be unrecoverable. But when every effect is visible and read-only, allow — do not ask out of caution alone.`;
 
 const VERDICT_LINE = /^\s*verdict:\s*(allow|ask)\s*$/i;
 const REASON_LINE = /^\s*reason:\s*(\S.*)$/i;
