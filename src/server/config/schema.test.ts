@@ -140,6 +140,26 @@ describe("kiriConfigSchema", () => {
     expect(() => kiriConfigSchema.parse({ filesystem: { allowed_directories: [""] } })).toThrow();
   });
 
+  it("parses a filesystem section with a default working directory", () => {
+    const result = kiriConfigSchema.parse({
+      filesystem: { allowed_directories: ["."], default_working_directory: "notes" },
+    });
+    expect(result.filesystem?.default_working_directory).toBe("notes");
+  });
+
+  it("leaves default_working_directory undefined when the key is absent", () => {
+    const result = kiriConfigSchema.parse({ filesystem: { allowed_directories: ["."] } });
+    expect(result.filesystem?.default_working_directory).toBeUndefined();
+  });
+
+  it("rejects an empty default_working_directory", () => {
+    expect(() =>
+      kiriConfigSchema.parse({
+        filesystem: { allowed_directories: ["."], default_working_directory: "" },
+      }),
+    ).toThrow();
+  });
+
   it("rejects an unknown filesystem key (strict)", () => {
     expect(() =>
       kiriConfigSchema.parse({ filesystem: { allowed_directories: ["."], junk: true } }),

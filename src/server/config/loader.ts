@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import type { LlmProvider, ProviderType } from "../llm/schema.ts";
 import type { McpServer, McpServerEntry, McpServerUnresolved } from "../mcp/schema.ts";
 import { type ModelsConfig, kiriConfigSchema } from "./schema.ts";
@@ -43,6 +43,12 @@ export interface KiriConfigLoadResult {
    */
   allowedDirectories: string[];
   /**
+   * Absolute directory new sessions start in — the configured
+   * `filesystem.default_working_directory`, falling back to the first allowed
+   * directory. Absent when the sandbox is empty, and on a failed load.
+   */
+  defaultWorkingDirectory?: string;
+  /**
    * Absolute directories the session shell tool may run commands in. Empty
    * when the file or its `shell:` section is absent — the tool is withheld
    * entirely — and on a failed load (fail closed).
@@ -65,6 +71,12 @@ const expandHome = (dir: string): string => {
   if (dir.startsWith("~/")) return join(homedir(), dir.slice(2));
   return dir;
 };
+
+// Lexical containment: equal to a root or beneath one. Both sides are already
+// resolved (normalised, absolute), so a prefix check suffices here; symlink
+// escapes are the tools' concern at use time, via realpath.
+const withinAny = (roots: readonly string[], dir: string): boolean =>
+  roots.some((root) => dir === root || dir.startsWith(root + sep));
 
 /** An empty result (no providers, no models, no MCP servers, no sandbox, no shell), optionally carrying a failure. */
 const emptyResult = (extra: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadResult => ({
@@ -169,6 +181,21 @@ function loadConfigFile(
   const allowedDirectories = (result.data.filesystem?.allowed_directories ?? []).map((dir) =>
     resolve(config.cwd(), expandHome(dir)),
   );
+  // New sessions start in the declared default, or the first allowed directory.
+  // A declared default outside the sandbox fails the whole load rather than
+  // being dropped — a session would otherwise silently start somewhere else.
+  const declaredDefault = result.data.filesystem?.default_working_directory;
+  const resolvedDefault =
+    declaredDefault !== undefined ? resolve(config.cwd(), expandHome(declaredDefault)) : undefined;
+  if (resolvedDefault !== undefined && !withinAny(allowedDirectories, resolvedDefault)) {
+    return emptyResult({
+      failure: {
+        path,
+        reason: `filesystem.default_working_directory (${resolvedDefault}) is not inside any of filesystem.allowed_directories`,
+      },
+    });
+  }
+  const defaultWorkingDirectory = resolvedDefault ?? allowedDirectories[0];
   // Declaring working directories is what enables the shell tool — commands
   // run nowhere by default. Entries resolve exactly like the sandbox above.
   const shellDirectories = (result.data.shell?.working_directories ?? []).map((dir) =>
@@ -183,7 +210,15 @@ function loadConfigFile(
     delegates: result.data.models?.delegates ?? {},
     ...(result.data.models?.utility !== undefined ? { utility: result.data.models.utility } : {}),
   };
-  return { providers, mcp, mcpUnresolved, models, allowedDirectories, shellDirectories };
+  return {
+    providers,
+    mcp,
+    mcpUnresolved,
+    models,
+    allowedDirectories,
+    ...(defaultWorkingDirectory !== undefined ? { defaultWorkingDirectory } : {}),
+    shellDirectories,
+  };
 }
 
 /** Resolve declared MCP servers, excluding any whose declared env refs are unset. */

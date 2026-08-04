@@ -9,6 +9,13 @@ const filesystemSchema = z
       .describe(
         'Directories the session filesystem tools may touch, each relative to the workspace root ("." grants the workspace root itself). Absolute paths are allowed, and a leading ~ expands to your home directory. An empty list is the same as omitting the section.',
       ),
+    default_working_directory: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "The directory new sessions start in. Resolves like the entries above — workspace-relative, with ~ expansion — and must lie inside one of the allowed directories (a subdirectory is fine). Omitted, new sessions start in the first allowed directory.",
+      ),
   })
   .strict()
   .describe(
