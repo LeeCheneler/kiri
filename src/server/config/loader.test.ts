@@ -442,48 +442,6 @@ mcp:
     expect(loadKiriConfig(config, {}).failure).toBeDefined();
   });
 
-  it("leaves the shell directories empty when the file is absent (tool withheld)", () => {
-    expect(loadKiriConfig(config, {}).shellDirectories).toEqual([]);
-  });
-
-  it("leaves the shell directories empty when the shell section is absent", () => {
-    write(cwd, "providers: {}\n");
-    expect(loadKiriConfig(config, {}).shellDirectories).toEqual([]);
-  });
-
-  it("resolves shell working directories like the sandbox: workspace-relative, with ~ expansion", () => {
-    write(
-      cwd,
-      `shell:
-  working_directories:
-    - .
-    - packages/../apps
-    - /srv/absolute
-    - ~/projects
-`,
-    );
-    const result = loadKiriConfig(config, {});
-    expect(result.failure).toBeUndefined();
-    expect(result.shellDirectories).toEqual([
-      cwd,
-      join(cwd, "apps"),
-      "/srv/absolute",
-      join(homedir(), "projects"),
-    ]);
-  });
-
-  it("treats an empty working_directories the same as an absent section", () => {
-    write(cwd, "shell:\n  working_directories: []\n");
-    expect(loadKiriConfig(config, {}).shellDirectories).toEqual([]);
-  });
-
-  it("empties the shell directories on a failed load (fail closed)", () => {
-    write(cwd, "shell:\n  working_directories: [/srv/other]\njunk: true\n");
-    const result = loadKiriConfig(config, {});
-    expect(result.failure).toBeDefined();
-    expect(result.shellDirectories).toEqual([]);
-  });
-
   it("leaves the models config empty when the file or models section is absent", () => {
     expect(loadKiriConfig(config, {}).models).toEqual({ shortcuts: {}, delegates: {} });
     write(cwd, "providers: {}\n");

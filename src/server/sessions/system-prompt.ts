@@ -173,11 +173,11 @@ function buildFilesystemGuidance(
 // are already safe, minimal, and aimed at the user's actual goal, stated as
 // hard prohibitions rather than advice. Keyed off run_command, so it appears
 // exactly when running commands is offered and never in a plain chat.
-function buildShellGuidance(tools: string[], workingDirectories: readonly string[]): string | null {
+function buildShellGuidance(tools: string[], allowedDirectories: readonly string[]): string | null {
   if (!tools.includes("run_command")) return null;
   return [
-    "You can run shell commands with run_command: real commands, executed as the user on their machine, in these working directories (or their subdirectories):",
-    ...workingDirectories.map((dir) => `- ${dir}`),
+    "You can run shell commands with run_command: real commands, executed as the user on their machine. A command runs in the session's working directory unless the call's cwd says otherwise, and must start inside the allowed directories (or their subdirectories):",
+    ...allowedDirectories.map((dir) => `- ${dir}`),
     'Every command must be one you would run unattended. A call may pause for the user\'s review before it runs, but that review is a backstop, not your safety margin — never propose a command hoping the review will catch a problem, and never propose one to "see what happens". When you are unsure whether a command is safe or wanted, ask in chat first.',
     "Hard rules — prohibitions, not preferences:",
     "- Run only what serves the user's actual request, scoped as narrowly as it can be. No side quests, no speculative cleanup, no \"while I'm here\" changes.",
@@ -316,7 +316,6 @@ function buildCorePrompt(
   tools: string[],
   host: HostEnvironment,
   allowedDirectories: readonly string[],
-  shellDirectories: readonly string[],
   delegateRoles: readonly DelegateRole[],
   effort: Effort,
   skills: readonly SkillSummary[],
@@ -344,7 +343,7 @@ function buildCorePrompt(
     buildArticleGuidance(tools),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, allowedDirectories),
-    buildShellGuidance(tools, shellDirectories),
+    buildShellGuidance(tools, allowedDirectories),
   ];
   return sections.filter((section): section is string => section !== null).join("\n\n");
 }
@@ -352,10 +351,8 @@ function buildCorePrompt(
 export interface BuildChildSessionPromptOptions {
   /** Names of the tools active this turn; drives the tool-use guidance. */
   tools?: string[];
-  /** The filesystem tools' sandbox, enumerated in their guidance when those tools are active. */
+  /** The sandbox for the filesystem and shell tools, enumerated in their guidance when they are active. */
   allowedDirectories?: readonly string[];
-  /** The shell tool's working directories, enumerated in its guidance when it is active. */
-  shellDirectories?: readonly string[];
   /** The available skills, listed by name and description when `use_skill` is active. */
   skills?: readonly SkillSummary[];
   /** The worker's effort level, stated with its calibration expectation; defaults to `medium`. */
@@ -400,7 +397,7 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
     buildArticleGuidance(tools),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, opts.allowedDirectories ?? []),
-    buildShellGuidance(tools, opts.shellDirectories ?? []),
+    buildShellGuidance(tools, opts.allowedDirectories ?? []),
   ];
   return sections.filter((section): section is string => section !== null).join("\n\n");
 }
@@ -425,10 +422,8 @@ export interface BuildSystemPromptOptions {
   config: ConfigStore;
   /** Names of the tools active this session; drives the core layer's tool-use guidance. */
   tools?: string[];
-  /** The filesystem tools' sandbox, enumerated in their guidance so the model knows the reachable roots up front. */
+  /** The sandbox for the filesystem and shell tools, enumerated in their guidance so the model knows the reachable roots up front. */
   allowedDirectories?: readonly string[];
-  /** The shell tool's working directories, enumerated in its guidance alongside the command-safety rules. */
-  shellDirectories?: readonly string[];
   /** The configured delegate roles — the delegate steer then covers the required model choice. */
   delegateRoles?: readonly DelegateRole[];
   /** The available skills, listed by name and description when `use_skill` is active. */
@@ -455,7 +450,6 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.tools ?? [],
       opts.host ?? detectHostEnvironment(),
       opts.allowedDirectories ?? [],
-      opts.shellDirectories ?? [],
       opts.delegateRoles ?? [],
       opts.effort ?? "medium",
       opts.skills ?? [],
@@ -478,7 +472,6 @@ export function createSystemPromptBuilder(
   config: ConfigStore,
   tools: string[] = [],
   allowedDirectories: readonly string[] = [],
-  shellDirectories: readonly string[] = [],
   delegateRoles: readonly DelegateRole[] = [],
   skills: readonly SkillSummary[] = [],
 ): (session: Session) => string {
@@ -487,7 +480,6 @@ export function createSystemPromptBuilder(
       ? buildChildSessionPrompt({
           tools,
           allowedDirectories,
-          shellDirectories,
           skills,
           effort: session.effort,
         })
@@ -495,7 +487,6 @@ export function createSystemPromptBuilder(
           config,
           tools,
           allowedDirectories,
-          shellDirectories,
           delegateRoles,
           skills,
           effort: session.effort,

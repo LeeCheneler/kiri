@@ -386,24 +386,19 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #     args: ["-y", "@modelcontextprotocol/server-memory"]
 #
 # Give sessions first-party tools to find, read, search, and change
-# files by declaring \`filesystem:\` with the directories they may touch —
-# without it the tools aren't offered at all (reads run freely; writes,
-# edits, and deletes ask first). "." is the workspace root and a
-# leading ~ expands to your home directory:
+# files — and run shell commands (builds, tests, git) — by declaring
+# \`filesystem:\` with the directories they may work in; without it none
+# of those tools are offered at all (reads run freely; writes, edits,
+# deletes, and every command ask first). "." is the workspace root and
+# a leading ~ expands to your home directory. Sessions start working in
+# \`default_working_directory\` (or the first allowed directory when it
+# is unset) and can move themselves anywhere inside the sandbox:
 #
 # filesystem:
 #   allowed_directories:
 #     - .
 #     - ~/notes
-#
-# Let sessions run shell commands — builds, tests, git — by declaring
-# \`shell:\` with the directories commands may run in; without it the tool
-# isn't offered at all. The list only anchors where a command starts, not
-# what it can touch, so every command asks for your approval first:
-#
-# shell:
-#   working_directories:
-#     - .
+#   default_working_directory: .
 `;
 
 /** Relative paths reported by `initRepo`. */

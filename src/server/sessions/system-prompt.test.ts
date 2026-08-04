@@ -376,18 +376,19 @@ describe("buildSystemPrompt", () => {
     expect(writesOnly).not.toContain("Scope narrowly");
   });
 
-  it("includes shell guidance with the working directories only when run_command is active", () => {
+  it("includes shell guidance with the allowed directories only when run_command is active", () => {
     const withShell = buildSystemPrompt({
       config,
       now: FIXED_NOW,
       tools: ["run_command"],
-      shellDirectories: ["/srv/projects/app", "/srv/projects/lib"],
+      allowedDirectories: ["/srv/projects/app", "/srv/projects/lib"],
     });
     expect(withShell).toContain("You can run shell commands");
-    // The working directories are enumerated so the model needn't discover
-    // them through errors.
+    // The allowed directories are enumerated so the model needn't discover
+    // them through errors, and the session-working-directory default is stated.
     expect(withShell).toContain("- /srv/projects/app");
     expect(withShell).toContain("- /srv/projects/lib");
+    expect(withShell).toContain("session's working directory");
     // The safety contract rides with the tool: the approval review is not the
     // model's safety margin, and the prohibitions are stated as hard rules.
     expect(withShell).toContain("not your safety margin");
@@ -402,7 +403,6 @@ describe("buildSystemPrompt", () => {
       now: FIXED_NOW,
       tools: ["read_file"],
       allowedDirectories: ["/srv/notes"],
-      shellDirectories: ["/srv/projects/app"],
     });
     expect(withoutShell).not.toContain("You can run shell commands");
     expect(withoutShell).not.toContain("Hard rules");
@@ -633,13 +633,11 @@ describe("buildChildSessionPrompt", () => {
     const prompt = buildChildSessionPrompt({
       tools: ["read_file", "run_command"],
       allowedDirectories: ["/workspace/notes"],
-      shellDirectories: ["/workspace/project"],
       now: FIXED_NOW,
     });
     expect(prompt).toContain("You can work with the user's files");
-    expect(prompt).toContain("/workspace/notes");
     expect(prompt).toContain("You can run shell commands with run_command");
-    expect(prompt).toContain("/workspace/project");
+    expect(prompt.split("- /workspace/notes").length).toBe(3);
     // Neither section appears when its tools are absent.
     const bare = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
     expect(bare).not.toContain("You can work with the user's files");
@@ -698,7 +696,6 @@ describe("createSystemPromptBuilder", () => {
     const builder = createSystemPromptBuilder(
       config,
       ["use_skill"],
-      [],
       [],
       [],
       [{ name: "release-notes", description: "Draft release notes." }],

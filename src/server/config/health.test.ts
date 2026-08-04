@@ -17,7 +17,6 @@ const result = (overrides: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadRe
   mcpUnresolved: [],
   models: { shortcuts: {}, delegates: {} },
   allowedDirectories: [],
-  shellDirectories: [],
   ...overrides,
 });
 

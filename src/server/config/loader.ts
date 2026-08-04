@@ -48,12 +48,6 @@ export interface KiriConfigLoadResult {
    * directory. Absent when the sandbox is empty, and on a failed load.
    */
   defaultWorkingDirectory?: string;
-  /**
-   * Absolute directories the session shell tool may run commands in. Empty
-   * when the file or its `shell:` section is absent — the tool is withheld
-   * entirely — and on a failed load (fail closed).
-   */
-  shellDirectories: string[];
   /** Set when a present file failed to load. An absent file is not a failure. */
   failure?: KiriConfigLoadFailure;
   /** Non-fatal note — e.g. both `kiri.yaml` and `kiri.yml` exist and the canonical one was used. */
@@ -78,14 +72,13 @@ const expandHome = (dir: string): string => {
 const withinAny = (roots: readonly string[], dir: string): boolean =>
   roots.some((root) => dir === root || dir.startsWith(root + sep));
 
-/** An empty result (no providers, no models, no MCP servers, no sandbox, no shell), optionally carrying a failure. */
+/** An empty result (no providers, no models, no MCP servers, no sandbox), optionally carrying a failure. */
 const emptyResult = (extra: Partial<KiriConfigLoadResult> = {}): KiriConfigLoadResult => ({
   providers: new Map(),
   mcp: new Map(),
   mcpUnresolved: [],
   models: { shortcuts: {}, delegates: {} },
   allowedDirectories: [],
-  shellDirectories: [],
   ...extra,
 });
 
@@ -196,11 +189,6 @@ function loadConfigFile(
     });
   }
   const defaultWorkingDirectory = resolvedDefault ?? allowedDirectories[0];
-  // Declaring working directories is what enables the shell tool — commands
-  // run nowhere by default. Entries resolve exactly like the sandbox above.
-  const shellDirectories = (result.data.shell?.working_directories ?? []).map((dir) =>
-    resolve(config.cwd(), expandHome(dir)),
-  );
   // Shortcut, delegate, and utility values are `provider:model` references
   // kept verbatim: they resolve at use (session create, patch, delegation
   // spawn, an internal one-off call), so re-pointing a name changes future
@@ -217,7 +205,6 @@ function loadConfigFile(
     models,
     allowedDirectories,
     ...(defaultWorkingDirectory !== undefined ? { defaultWorkingDirectory } : {}),
-    shellDirectories,
   };
 }
 

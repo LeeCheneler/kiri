@@ -121,12 +121,6 @@ export interface AppDeps {
    */
   getDefaultWorkingDirectory?: () => string | undefined;
   /**
-   * Live working directories for the session shell tool. Defaults to reading
-   * `shell.working_directories` from `kiri.yaml` on each turn, the same
-   * posture as the filesystem sandbox. Empty ⇒ `run_command` is withheld.
-   */
-  getShellDirectories?: () => readonly string[];
-  /**
    * Live models config for the session surface. Defaults to reading the
    * `models:` section from `kiri.yaml` on each use, the same fresh-from-disk
    * posture as the sandboxes. Empty ⇒ no shortcuts or delegates configured.
@@ -264,8 +258,6 @@ export function createApp(deps: AppDeps): Hono {
         getDefaultWorkingDirectory:
           deps.getDefaultWorkingDirectory ??
           (() => loadKiriConfig(config, env).defaultWorkingDirectory),
-        getShellDirectories:
-          deps.getShellDirectories ?? (() => loadKiriConfig(config, env).shellDirectories),
         getModelsConfig: deps.getModelsConfig ?? (() => loadKiriConfig(config, env).models),
       }),
     );

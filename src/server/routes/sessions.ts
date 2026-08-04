@@ -111,14 +111,6 @@ export interface SessionsRoutesDeps {
    */
   getDefaultWorkingDirectory?: () => string | undefined;
   /**
-   * Live working directories for the first-party shell tool: the absolute
-   * directories declared under `shell.working_directories` in `kiri.yaml`,
-   * read per turn so a config edit applies on the next one. Empty (or
-   * omitted) withholds `run_command` entirely — declaring where commands may
-   * run is what enables it.
-   */
-  getShellDirectories?: () => readonly string[];
-  /**
    * Live models config from `kiri.yaml`'s `models:` section, read per use so
    * a config edit applies at once. Shortcuts ride the model listing (so the
    * pickers can pin them); delegates size the workers the delegate tool
@@ -240,11 +232,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   const sandboxDirectories = (): readonly string[] =>
     (deps.getAllowedDirectories?.() ?? []).filter((dir) => existsSync(dir));
 
-  // The shell tool's working directories, on the same live-read, must-exist
-  // posture as the filesystem sandbox: nothing usable, no run_command.
-  const shellWorkingDirectories = (): readonly string[] =>
-    (deps.getShellDirectories?.() ?? []).filter((dir) => existsSync(dir));
-
   // Where a new session starts working, on the same live-read, must-exist
   // posture: a configured default that isn't on disk yields a session with no
   // working directory rather than one pointing somewhere unusable.
@@ -277,7 +264,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             llmClients,
             model,
             command: screened.command,
-            cwd: cwd ?? shellWorkingDirectories().join(", "),
+            cwd: cwd ?? sandboxDirectories().join(", "),
           })
         : screened;
     console.log(
@@ -341,13 +328,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   const builtinToolsFor = (sessionId: string): ToolSet => {
     const sandbox = sandboxDirectories();
-    const shellDirs = shellWorkingDirectories();
     return {
       ...skillTools(config),
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
-      ...(shellDirs.length > 0 ? shellTools(() => shellDirs) : {}),
+      ...(sandbox.length > 0 ? shellTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
     };
   };
@@ -395,7 +381,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         config,
         Object.keys(tools),
         sandboxDirectories(),
-        shellWorkingDirectories(),
         [],
         listSkills(config),
       ),
@@ -733,15 +718,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
       // Resolve the live, approval-gated tools for this turn and compose the
       // system prompt from their names so the core layer's tool guidance matches
-      // what the model is actually offered; the filesystem sandbox and shell
-      // working directories ride along so their guidance can enumerate the
-      // reachable roots.
+      // what the model is actually offered; the sandbox rides along so the
+      // filesystem and shell guidance can enumerate the reachable roots.
       const tools = activeTools(id);
       const buildSystemPrompt = createSystemPromptBuilder(
         config,
         Object.keys(tools),
         sandboxDirectories(),
-        shellWorkingDirectories(),
         configuredDelegateRoles(deps.getModelsConfig?.().delegates),
         listSkills(config),
       );

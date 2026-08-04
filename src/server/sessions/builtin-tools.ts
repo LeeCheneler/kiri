@@ -25,9 +25,9 @@ export interface BuiltinTool {
  * (the workflow and filesystem write tools), or run model-authored commands
  * (`run_command`) ask first. `delegate` runs without prompting because its
  * worker holds only standing-allow tools — delegation never widens what runs
- * unprompted. A tool whose capability isn't configured (the filesystem tools
- * with no declared sandbox, `run_command` with no declared working
- * directories) is withheld from the model regardless of its permission, as is
+ * unprompted. A tool whose capability isn't configured (the filesystem
+ * tools and `run_command` with no declared sandbox) is withheld from the
+ * model regardless of its permission, as is
  * `delegate` from a child session — a worker can't spawn workers.
  */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
@@ -153,7 +153,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   },
   {
     name: "run_command",
-    description: "Run a shell command in the allowed working directories.",
+    description: "Run a shell command inside the allowed directories.",
     defaultPermission: "ask",
   },
   {

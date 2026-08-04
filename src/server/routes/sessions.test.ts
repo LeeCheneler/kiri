@@ -1307,8 +1307,8 @@ describe("sessions routes", () => {
       expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
     });
 
-    it("offers run_command with shell guidance when kiri.yaml declares working directories", async () => {
-      writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+    it("offers run_command with shell guidance when kiri.yaml declares a sandbox", async () => {
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
       let toolNames: string[] = [];
       let systemText = "";
       const model = new MockLanguageModelV3({
@@ -1337,15 +1337,16 @@ describe("sessions routes", () => {
 
       expect(toolNames).toContain("run_command");
       // The guidance layer turned on with its safety contract, enumerating
-      // the declared working directory — "." resolved against the workspace
-      // root — while the filesystem tools stay withheld (no sandbox declared).
+      // the declared sandbox — "." resolved against the workspace root. One
+      // declaration enables the whole file-and-shell surface, so the
+      // filesystem tools ride along with it.
       expect(systemText).toContain("You can run shell commands");
       expect(systemText).toContain(`- ${env.cwd}`);
       expect(systemText).toContain("not your safety margin");
-      expect(toolNames).not.toContain("read_file");
+      expect(toolNames).toContain("read_file");
     });
 
-    it("withholds run_command when no working directories are declared", async () => {
+    it("withholds run_command when no sandbox is declared", async () => {
       let toolNames: string[] = [];
       let systemText = "";
       const model = new MockLanguageModelV3({
@@ -1379,7 +1380,7 @@ describe("sessions routes", () => {
     });
 
     it("pauses run_command for approval by default, then runs it when approved", async () => {
-      writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
       const input = JSON.stringify({ command: "echo hi" });
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: toolCallModel("run_command", input) }), { bus });
@@ -1444,7 +1445,7 @@ describe("sessions routes", () => {
         judgeReply?: string;
         modelsConfig?: () => ModelsConfig;
       }) => {
-        writeFileSync(join(env.cwd, "kiri.yaml"), "shell:\n  working_directories: [.]\n");
+        writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
         createToolPermissionStore(env.config.toolPermissionsFile()).set("run_command", "auto");
         const judge = scriptedJudge(opts.judgeReply ?? "");
         const { bus, waitForSettled } = createSessionWaiter();
