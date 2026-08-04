@@ -11,6 +11,7 @@ import {
 } from "../../design-system/actions/segmented-control.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
+import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { useMcpTools, useSetToolPermission } from "../../state/mcp.ts";
@@ -63,10 +64,81 @@ function ToolRow({
   );
 }
 
+// The built-in tools grouped by what they touch, in listing order. Each group
+// heads its rows with a line of context; the shell and delegation lines carry
+// the permission behaviour that isn't self-evident from a row — a delegated
+// worker inherits only Always-allow tools, so an Ask or Auto tool's absence
+// from a worker is a setting here, not a bug; and Auto needs a utility model
+// to judge with.
+const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly string[] }[] = [
+  {
+    title: "Articles & images",
+    blurb:
+      "Standalone session output saved outside the chat — markdown articles and generated images.",
+    tools: [
+      "create_article",
+      "replace_article",
+      "edit_article",
+      "list_articles",
+      "read_article",
+      "generate_image",
+    ],
+  },
+  {
+    title: "Skills",
+    blurb: "Named instruction sets the session pulls in on demand when their task comes up.",
+    tools: ["use_skill"],
+  },
+  {
+    title: "Workflows",
+    blurb: "List, read, author, and run the workspace's workflow YAML files.",
+    tools: [
+      "list_workflows",
+      "read_workflow",
+      "create_workflow",
+      "edit_workflow",
+      "replace_workflow",
+      "run_workflow",
+      "rerun_workflow",
+    ],
+  },
+  {
+    title: "Files",
+    blurb:
+      "Read and change files in the allowed directories — the sandbox declared under filesystem in kiri.yaml. Without one, these tools aren't offered at all.",
+    tools: [
+      "find_files",
+      "list_directory",
+      "read_file",
+      "search_files",
+      "write_file",
+      "edit_file",
+      "create_directory",
+      "delete_file",
+      "delete_directory",
+    ],
+  },
+  {
+    title: "Shell",
+    blurb:
+      "Auto judges each command as it's called: clearly safe commands run unprompted, anything else asks. It needs a utility model under models in kiri.yaml — without one, Auto falls back to Ask.",
+    tools: ["run_command"],
+  },
+  {
+    title: "Delegation",
+    blurb:
+      "A delegated worker session runs unattended, so it only holds tools set to Always allow — tools on Ask or Auto are never offered to workers.",
+    tools: ["delegate"],
+  },
+];
+
 // The built-in kiri tools: every first-party session tool, each carrying the
-// same standing permission control as an MCP tool. Collapsed by default —
-// the card is always present and most of its tools sit on sensible defaults,
-// so it opens on demand rather than pushing the MCP servers down the page.
+// same standing permission control as an MCP tool, grouped under subheaders
+// by what the tools touch. A tool the server lists that no group claims still
+// renders, in a trailing group, so it is never silently hidden. Collapsed by
+// default — the card is always present and most of its tools sit on sensible
+// defaults, so it opens on demand rather than pushing the MCP servers down
+// the page.
 function BuiltinCard({
   tools,
   onSetPermission,
@@ -74,6 +146,16 @@ function BuiltinCard({
   tools: McpBuiltinTool[];
   onSetPermission: (tool: string, permission: McpToolPermission) => void;
 }) {
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  const claimed = new Set(BUILTIN_GROUPS.flatMap((group) => group.tools));
+  const groups = [
+    ...BUILTIN_GROUPS.map((group) => ({
+      title: group.title,
+      blurb: group.blurb as string | undefined,
+      tools: group.tools.flatMap((name) => byName.get(name) ?? []),
+    })),
+    { title: "Other", blurb: undefined, tools: tools.filter((tool) => !claimed.has(tool.name)) },
+  ].filter((group) => group.tools.length > 0);
   return (
     <div className="overflow-hidden rounded-sm border border-rule bg-canvas-2">
       <Disclosure
@@ -86,30 +168,27 @@ function BuiltinCard({
           </span>
         }
       >
-        {/* The permission interactions that aren't self-evident from a row:
-            a delegated worker inherits only Always-allow tools, so an Ask or
-            Auto tool's absence from a worker is a setting here, not a bug;
-            and Auto needs a utility model to judge with. */}
-        <p className="mb-2 font-mono text-ink-muted text-xs">
-          A delegated worker session runs unattended, so it only holds tools set to Always allow —
-          tools on Ask or Auto are never offered to workers.
-        </p>
-        <p className="mb-5 font-mono text-ink-muted text-xs">
-          Auto, on the shell tool, judges each command as it's called: clearly safe commands run
-          unprompted, anything else asks. It needs a utility model under models in kiri.yaml —
-          without one, Auto falls back to Ask.
-        </p>
-        <ul className="space-y-5">
-          {tools.map((tool) => (
-            <li key={tool.name}>
-              <ToolRow
-                tool={tool}
-                onChange={(permission) => onSetPermission(tool.name, permission)}
-                options={tool.name === "run_command" ? SHELL_PERMISSION_OPTIONS : undefined}
-              />
-            </li>
+        <div className="space-y-8">
+          {groups.map((group) => (
+            <section key={group.title}>
+              <Eyebrow tone="muted">{group.title}</Eyebrow>
+              {group.blurb ? (
+                <p className="mt-1 font-mono text-ink-muted text-xs">{group.blurb}</p>
+              ) : null}
+              <ul className="mt-4 space-y-5">
+                {group.tools.map((tool) => (
+                  <li key={tool.name}>
+                    <ToolRow
+                      tool={tool}
+                      onChange={(permission) => onSetPermission(tool.name, permission)}
+                      options={tool.name === "run_command" ? SHELL_PERMISSION_OPTIONS : undefined}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       </Disclosure>
     </div>
   );

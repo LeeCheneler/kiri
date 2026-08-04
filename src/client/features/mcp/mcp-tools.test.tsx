@@ -142,6 +142,23 @@ describe("<McpTools>", () => {
     });
   });
 
+  it("still renders a built-in tool that no group claims", async () => {
+    server.use(
+      http.get("*/api/mcp/tools", () =>
+        HttpResponse.json({
+          servers: [],
+          builtin: [{ name: "brand_new_tool", description: "Not yet grouped.", permission: "ask" }],
+        }),
+      ),
+    );
+    renderTools();
+
+    await userEvent.click(await screen.findByRole("button", { name: /built-in tools/i }));
+    expect(
+      await screen.findByRole("radiogroup", { name: "Permission for brand_new_tool" }),
+    ).toBeDefined();
+  });
+
   it("offers Auto on the shell tool only, and persists selecting it", async () => {
     let permission = "ask";
     const recorded: { tool?: string; permission?: string }[] = [];
