@@ -101,6 +101,14 @@ export interface SessionsRoutesDeps {
    */
   getAllowedDirectories?: () => readonly string[];
   /**
+   * Live default working directory for new sessions: the absolute directory
+   * resolved from `filesystem.default_working_directory` in `kiri.yaml` (or
+   * the first allowed directory), read at each session create. Omitted — or
+   * pointing at a directory that doesn't exist on disk — leaves new sessions
+   * without a working directory.
+   */
+  getDefaultWorkingDirectory?: () => string | undefined;
+  /**
    * Live working directories for the first-party shell tool: the absolute
    * directories declared under `shell.working_directories` in `kiri.yaml`,
    * read per turn so a config edit applies on the next one. Empty (or
@@ -234,6 +242,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // posture as the filesystem sandbox: nothing usable, no run_command.
   const shellWorkingDirectories = (): readonly string[] =>
     (deps.getShellDirectories?.() ?? []).filter((dir) => existsSync(dir));
+
+  // Where a new session starts working, on the same live-read, must-exist
+  // posture: a configured default that isn't on disk yields a session with no
+  // working directory rather than one pointing somewhere unusable.
+  const defaultWorkingDirectory = (): string | undefined => {
+    const dir = deps.getDefaultWorkingDirectory?.();
+    return dir !== undefined && existsSync(dir) ? dir : undefined;
+  };
 
   // One registry of in-flight turn streams for this surface: the turn endpoint
   // fills it, the resume endpoint reads it, so a client that reconnects mid-turn
@@ -441,7 +457,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       } catch (cause) {
         return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
       }
-      const session = createSession(db, model, imageModel === undefined ? {} : { imageModel });
+      const cwd = defaultWorkingDirectory();
+      const session = createSession(db, model, {
+        ...(imageModel !== undefined ? { imageModel } : {}),
+        ...(cwd !== undefined ? { cwd } : {}),
+      });
       bus?.publish({ type: "session.started", id: session.id });
       return c.json({ session }, 201);
     },

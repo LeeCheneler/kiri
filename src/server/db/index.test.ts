@@ -1041,6 +1041,7 @@ describe("db", () => {
       .sort();
     expect(sessionCols).toEqual(
       [
+        "cwd",
         "effort",
         "error",
         "finished_at",

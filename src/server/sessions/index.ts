@@ -20,6 +20,7 @@ export {
   getSessionPreviews,
   setSessionPinned,
   setSessionStatus,
+  updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,

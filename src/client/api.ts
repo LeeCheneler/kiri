@@ -750,6 +750,8 @@ export interface Session {
   imageModel: string | null;
   /** How hard the session's model reasons; applied from the next turn like the model. */
   effort: SessionEffort;
+  /** Absolute directory the session works from, or null when no sandbox was configured at create. */
+  cwd: string | null;
   /** The session's display name, or null when untitled — lists fall back to the preview. */
   title: string | null;
   /** Whether the user has pinned the session onto the feed's Pinned tab. */

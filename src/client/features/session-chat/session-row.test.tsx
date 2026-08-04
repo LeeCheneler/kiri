@@ -13,6 +13,7 @@ const base: SessionListEntry = {
   model: "local:google/gemma-4-26b-a4b-qat",
   imageModel: null,
   effort: "medium" as const,
+  cwd: null,
   title: null,
   pinned: false,
   parentSessionId: null,

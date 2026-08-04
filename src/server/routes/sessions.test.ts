@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type Tool, type ToolSet, tool } from "ai";
@@ -163,6 +163,7 @@ describe("sessions routes", () => {
       mcpRegistry?: McpRegistry;
       streamRegistry?: StreamRegistry;
       getModelsConfig?: () => ModelsConfig;
+      getDefaultWorkingDirectory?: () => string | undefined;
     } = {},
   ) =>
     createApp({
@@ -267,6 +268,40 @@ describe("sessions routes", () => {
       const body = (await res.json()) as { session: { id: string; imageModel: string | null } };
       expect(body.session.imageModel).toBe("openai:gpt-image");
       expect(getSession(env.db, body.session.id)?.imageModel).toBe("openai:gpt-image");
+    });
+
+    it("starts the session working from the configured default directory", async () => {
+      const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: MODEL }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { session: { id: string; cwd: string | null } };
+      expect(body.session.cwd).toBe(env.cwd);
+      expect(getSession(env.db, body.session.id)?.cwd).toBe(env.cwd);
+    });
+
+    it("starts the session without a working directory when the default is unset or not on disk", async () => {
+      for (const getDefaultWorkingDirectory of [
+        undefined,
+        () => undefined,
+        () => join(env.cwd, "gone"),
+      ]) {
+        const app = makeApp(fakeClients(), { getDefaultWorkingDirectory });
+
+        const res = await app.request("/api/sessions", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: MODEL }),
+        });
+
+        expect(res.status).toBe(201);
+        expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBeNull();
+      }
     });
 
     it("rejects an image model that does not resolve, creating nothing", async () => {
