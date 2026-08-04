@@ -178,7 +178,7 @@ function buildShellGuidance(tools: string[], workingDirectories: readonly string
   return [
     "You can run shell commands with run_command: real commands, executed as the user on their machine, in these working directories (or their subdirectories):",
     ...workingDirectories.map((dir) => `- ${dir}`),
-    'Every command must be one you would run unattended. The user reviews each call before it runs, but that review is a backstop, not your safety margin — never propose a command hoping the review will catch a problem, and never propose one to "see what happens". When you are unsure whether a command is safe or wanted, ask in chat first.',
+    'Every command must be one you would run unattended. A call may pause for the user\'s review before it runs, but that review is a backstop, not your safety margin — never propose a command hoping the review will catch a problem, and never propose one to "see what happens". When you are unsure whether a command is safe or wanted, ask in chat first.',
     "Hard rules — prohibitions, not preferences:",
     "- Run only what serves the user's actual request, scoped as narrowly as it can be. No side quests, no speculative cleanup, no \"while I'm here\" changes.",
     "- Stay inside the working directories above. The tool only anchors where a command starts; keeping every path it reads or writes inside those directories is your responsibility.",

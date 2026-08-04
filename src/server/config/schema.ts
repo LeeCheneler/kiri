@@ -83,7 +83,7 @@ const modelsSchema = z
     utility: modelRef
       .optional()
       .describe(
-        "The model kiri itself uses for small internal one-off generations, such as naming a new session. A `provider:model` reference — point it at a fast, cheap model (a local one works well). Unset, each internal call falls back to the model of the session it serves.",
+        "The model kiri itself uses for small internal one-off generations, such as naming a new session or judging shell commands under the Auto permission. A `provider:model` reference — point it at a fast, cheap model (a local one works well). Unset, session titling falls back to the session's model; the Auto shell permission falls back to asking.",
       ),
   })
   .strict()

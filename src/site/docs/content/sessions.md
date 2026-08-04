@@ -146,6 +146,8 @@ approval survives a reload.
 
 Each tool also has a standing permission — **Always allow**, **Ask**
 (default), or **Off**, which withholds the tool from the model entirely.
+The shell tool alone adds **Auto**, which decides each command as it's
+called — see [Running shell commands](#running-shell-commands).
 Decisions persist to a gitignored `.kiri/tool-permissions.json` (manage them
 in the app, or hand-edit the file) and apply on the next call, no restart.
 
@@ -276,6 +278,20 @@ shell:
   with it.
 - Prefer this for *executing* things; reading and editing files is the
   filesystem tools' job, with its tighter boundary and diff previews.
+
+If asking on every `git status` wears thin, set the tool's permission to
+**Auto** and each command is decided as it's called. A deterministic screen
+rules first: commands like `sudo`, recursive deletes, force-pushes, or
+anything piped into a shell always ask — no model can override that — while
+a short list of exactly-matched read-only commands (`git status`, `ls`)
+runs straight away. Everything in between is judged by your
+[utility model](/docs/llm-providers#utility-model), which sees only the
+command and its directory, and asks whenever it errs, times out, or is
+unsure — an asked command lands in the normal approval prompt, and every
+decision is logged with its reason. Auto needs `models.utility` configured
+in `kiri.yaml`; without it, Auto behaves exactly like Ask. Answering
+**Always allow** on an approval prompt switches the tool to Always allow —
+set it back to Auto afterwards if that's not what you meant.
 
 ## Delegating research
 

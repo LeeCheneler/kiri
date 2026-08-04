@@ -62,9 +62,14 @@ in [Sessions](/docs/sessions). Three invariants hold throughout:
   that don't exist yet), and dot-files like `.env` and `.kiri/` are
   unreachable outright. Shell working directories only anchor where a
   command *runs* — a command can touch anything you can — which is why
-  `run_command` is never pre-authorised: the approval showing the verbatim
-  command is the boundary, with the system prompt holding the model to safe,
-  narrowly-scoped commands as a first line of defence in front of it.
+  `run_command` is never blanket pre-authorised: the approval showing the
+  verbatim command is the boundary, with the system prompt holding the model
+  to safe, narrowly-scoped commands as a first line of defence in front of
+  it. The opt-in **Auto** permission moves only the prompting, not the
+  boundary: a deterministic screen (comment-stripping, hard triggers no
+  model can override) and a fail-closed judgement by your utility model
+  decide per command between running and that same approval — its worst
+  case is exactly Ask.
 - **Delegated workers can't exceed the chat.** A worker session runs
   unattended, so it only holds tools already set to Always allow — one that
   would ask first isn't offered to it at all — and a worker can't spawn
