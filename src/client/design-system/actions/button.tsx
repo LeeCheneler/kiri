@@ -66,7 +66,7 @@ export function Button({
       disabled={disabled || pending}
       title={title}
       data-variant={variant}
-      className={`cursor-pointer font-mono outline-none transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${SIZE_CLASSES[size]} ${VARIANT_CLASSES[variant]}`}
+      className={`cursor-pointer whitespace-nowrap font-mono outline-none transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${SIZE_CLASSES[size]} ${VARIANT_CLASSES[variant]}`}
     >
       {pending ? (
         <span className="inline-flex items-baseline gap-1.5">
