@@ -2,6 +2,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { Route, Switch } from "wouter";
 import { type EventSourceFactory, LiveEventsProvider } from "./events/live.tsx";
+import { DesktopNotifications } from "./features/notifications/desktop-notifications.tsx";
+import type { Notifier } from "./features/notifications/notifier.ts";
 import { ScrollReset } from "./features/page-shell/scroll-reset.tsx";
 import { SearchProvider } from "./features/search/search-provider.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
@@ -26,15 +28,19 @@ import { createQueryClient } from "./state/query-client.ts";
  * root is just the providers and the route switch. `<SearchProvider>`
  * hosts the search overlay above the routes so ⌘K reaches it from any page.
  *
- * `liveEventsFactory` is a test seam — production callers omit it and
- * get the native `EventSource`.
+ * `liveEventsFactory` and `notifier` are test seams — production callers
+ * omit both and get the native `EventSource` and `Notification` APIs.
  */
-export function App({ liveEventsFactory }: { liveEventsFactory?: EventSourceFactory } = {}) {
+export function App({
+  liveEventsFactory,
+  notifier,
+}: { liveEventsFactory?: EventSourceFactory; notifier?: Notifier } = {}) {
   const [queryClient] = useState(createQueryClient);
   return (
     <QueryClientProvider client={queryClient}>
       <LiveEventsProvider factory={liveEventsFactory}>
         <LiveSync />
+        <DesktopNotifications notifier={notifier} />
         <ScrollReset />
         <SearchProvider>
           <Switch>

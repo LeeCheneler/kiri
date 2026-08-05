@@ -473,7 +473,7 @@ Browser caveat: Safari and Brave block HTTP-localhost subresource loads from an 
 
 ### Future: native shell
 
-Web-first for v1. If/when native system notifications, menu bar presence, or a real "app icon" become worth the effort, wrap the same Hono+React+Vite app in **Tauri 2** — minimal change to the codebase, native integration where it matters. Not a v1 commitment, just a path that stays open.
+Web-first for v1. Completion notifications already ride the browser's Notification API (opt-in, delivered only while a kiri tab is open). If/when notifications attributed to kiri rather than the browser, menu bar presence, or a real "app icon" become worth the effort, wrap the same Hono+React+Vite app in **Tauri 2** — minimal change to the codebase, native integration where it matters. Not a v1 commitment, just a path that stays open.
 
 ## Security
 
