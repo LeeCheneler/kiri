@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -147,6 +148,64 @@ describe("filesystemTools", () => {
       })) as { files: string[]; note: string };
       expect(result.files).toEqual([ws("a.md"), ws("b.md")]);
       expect(result.note).toMatch(/showing 2 of 3 matches — narrow the pattern/);
+    });
+
+    it("skips dependency, cache, and build-output directories by default", async () => {
+      for (const name of ["node_modules", "dist", "target", ".venv"]) {
+        mkdirSync(join(workspace, name, "pkg"), { recursive: true });
+        writeFileSync(join(workspace, name, "pkg", "readme.md"), "generated");
+      }
+      writeFileSync(join(workspace, "a.md"), "a");
+      const result = await run(tools().find_files, { pattern: "**/*.md" });
+      expect(result).toEqual({ files: [ws("a.md")] });
+    });
+
+    it("still finds a file named like a pruned directory", async () => {
+      mkdirSync(join(workspace, "bin"));
+      writeFileSync(join(workspace, "bin", "build"), "#!/bin/sh");
+      const result = await run(tools().find_files, { pattern: "**/*" });
+      expect(result).toEqual({ files: [ws("bin", "build")] });
+    });
+
+    it("descends into node_modules when the pattern names it", async () => {
+      mkdirSync(join(workspace, "node_modules", "pkg"), { recursive: true });
+      writeFileSync(join(workspace, "node_modules", "pkg", "readme.md"), "dep");
+      const result = await run(tools().find_files, { pattern: "node_modules/**/*.md" });
+      expect(result).toEqual({ files: [ws("node_modules", "pkg", "readme.md")] });
+    });
+
+    it("searches inside node_modules when directory points into one", async () => {
+      mkdirSync(join(workspace, "node_modules", "pkg"), { recursive: true });
+      writeFileSync(join(workspace, "node_modules", "pkg", "readme.md"), "dep");
+      const result = await run(tools().find_files, {
+        pattern: "**/*.md",
+        directory: join(workspace, "node_modules", "pkg"),
+      });
+      expect(result).toEqual({ files: [ws("node_modules", "pkg", "readme.md")] });
+    });
+
+    it("stops at the scan budget with a note telling the model to narrow", async () => {
+      for (const name of ["a.md", "b.md", "c.md", "d.md"]) {
+        writeFileSync(join(workspace, name), name);
+      }
+      const result = (await run(tools([workspace], { maxScannedEntries: 2 }).find_files, {
+        pattern: "**/*.md",
+      })) as { files: string[]; note: string };
+      expect(result.files).toHaveLength(2);
+      expect(result.note).toMatch(/stopped after scanning 2 entries — narrow with directory/);
+    });
+
+    it("skips an unreadable directory rather than failing", async () => {
+      mkdirSync(join(workspace, "locked"));
+      writeFileSync(join(workspace, "locked", "hidden.md"), "h");
+      writeFileSync(join(workspace, "a.md"), "a");
+      chmodSync(join(workspace, "locked"), 0o000);
+      try {
+        const result = await run(tools().find_files, { pattern: "**/*.md" });
+        expect(result).toEqual({ files: [ws("a.md")] });
+      } finally {
+        chmodSync(join(workspace, "locked"), 0o755);
+      }
     });
   });
 
@@ -401,6 +460,40 @@ describe("filesystemTools", () => {
       writeFileSync(join(workspace, "a.md"), "quiet\n");
       const result = await run(tools().search_files, { pattern: "absent" });
       expect(result).toEqual({ matches: [] });
+    });
+
+    it("skips dependency, cache, and build-output directories by default", async () => {
+      for (const name of ["node_modules", "dist", "target", ".venv"]) {
+        mkdirSync(join(workspace, name, "pkg"), { recursive: true });
+        writeFileSync(join(workspace, name, "pkg", "index.js"), "hit\n");
+      }
+      writeFileSync(join(workspace, "a.md"), "hit\n");
+      const result = (await run(tools().search_files, { pattern: "hit" })) as {
+        matches: { file: string }[];
+      };
+      expect(result.matches.map((m) => m.file)).toEqual([ws("a.md")]);
+    });
+
+    it("searches node_modules when the include names it", async () => {
+      mkdirSync(join(workspace, "node_modules", "pkg"), { recursive: true });
+      writeFileSync(join(workspace, "node_modules", "pkg", "index.js"), "hit\n");
+      writeFileSync(join(workspace, "a.md"), "hit\n");
+      const result = (await run(tools().search_files, {
+        pattern: "hit",
+        include: "node_modules/**",
+      })) as { matches: { file: string }[] };
+      expect(result.matches.map((m) => m.file)).toEqual([ws("node_modules", "pkg", "index.js")]);
+    });
+
+    it("stops at the scan budget with a note telling the model to narrow", async () => {
+      for (const name of ["a.md", "b.md", "c.md", "d.md"]) {
+        writeFileSync(join(workspace, name), "hit\n");
+      }
+      const result = (await run(tools([workspace], { maxScannedEntries: 2 }).search_files, {
+        pattern: "hit",
+      })) as { matches: unknown[]; note: string };
+      expect(result.matches).toHaveLength(2);
+      expect(result.note).toMatch(/stopped after scanning 2 entries — narrow with directory/);
     });
   });
 
