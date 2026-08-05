@@ -23,10 +23,10 @@ message. Titles are searchable alongside message text.
 
 ## Shaping behaviour
 
-Kiri composes each turn's system prompt from two layers, in order:
+Kiri composes each turn's system prompt from three layers, in order:
 
 ```
-core (kiri)  →  kiri.md
+core (kiri)  →  kiri.md  →  AGENTS.md chain
 ```
 
 Every layer is read fresh from disk each turn, so an edit applies on the next
@@ -37,20 +37,32 @@ turn — git stays the source of truth.
   `mermaid` blocks), and the trust boundary — your instructions are
   authoritative, quoted external text is untrusted data.
 - **`kiri.md`** — a plain markdown file at the workspace root, applied to
-  every session: your standing "how I want you to behave." It's read only by
-  kiri sessions — separate from any `CLAUDE.md`/`AGENTS.md` you keep for
-  coding agents.
+  every session: your standing "how I want you to behave."
+- **`AGENTS.md` chain** — the per-directory instructions governing the
+  session's [working directory](#working-with-your-files). Kiri walks from that
+  directory up to the top of the tree, collecting every `AGENTS.md` it finds,
+  and layers them in most-general-first: a file applies to its own directory
+  and everything below it, and where two conflict the nearer one wins. This
+  is the same `AGENTS.md` convention other coding assistants follow, so a
+  repo that already has one needs no kiri-specific setup.
 
 ```
 Answer in British English. Be direct, lead with the answer, and cite
 file:line when you reference code.
 ```
 
+Only `AGENTS.md` files inside the directories you allow in `kiri.yaml` are
+read — one above that boundary is never opened, even when the session's
+working directory sits below it. Sessions without a working directory, or
+with no allowed directories declared, load no chain at all. Kiri reads
+`AGENTS.md`; it never writes one.
+
 ## Skills
 
 A **skill** is a named pack of instructions the assistant pulls in only when
 its task comes up — the middle ground between the two you already have:
-`kiri.md` is always-on, skills load on demand, and workflows are executable.
+standing instructions are always-on, skills load on demand, and workflows are
+executable.
 Task-specific guidance — how you like release notes drafted, your code-review
 checklist — belongs in a skill, not padded into every conversation via
 `kiri.md`.
