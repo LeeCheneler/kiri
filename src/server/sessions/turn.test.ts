@@ -288,7 +288,7 @@ describe("runTurn", () => {
     expect(events.filter((e) => e.type === "session.message.added")).toHaveLength(2);
   });
 
-  it("culls older tool results from what the model sees over half a full context, leaving storage intact", async () => {
+  it("culls older tool results from what the model sees over the cull ratio, leaving storage intact", async () => {
     const toolResult = (id: string, marker: string): UIMessage["parts"][number] =>
       ({
         type: "tool-search",
@@ -300,7 +300,8 @@ describe("runTurn", () => {
 
     const session = createSession(db, MODEL, { id: "s1" });
     // Five tool results across two prior assistant turns; the latest turn's usage
-    // puts the session over half of the 1000-token window the model reports.
+    // puts the session over the cull ratio of the 1000-token window the model
+    // reports.
     appendMessage(
       db,
       "s1",
@@ -324,7 +325,7 @@ describe("runTurn", () => {
           toolResult("c5", "ECHO"),
           { type: "text", text: "done" },
         ],
-        contextTokens: 600,
+        contextTokens: 900,
       },
       { id: "a2" },
     );

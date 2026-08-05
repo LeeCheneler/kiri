@@ -39,6 +39,14 @@ const toolErrored = (id: string): Part =>
     errorText: "boom",
   }) as Part;
 const textPart = (text: string): Part => ({ type: "text", text });
+const delegateResult = (id: string, output: unknown): Part =>
+  ({
+    type: "tool-delegate",
+    toolCallId: id,
+    state: "output-available",
+    input: { task: id },
+    output,
+  }) as Part;
 
 const assistant = (...parts: Part[]): UIMessage => ({
   id: crypto.randomUUID(),
@@ -57,9 +65,9 @@ const toolOutputs = (history: UIMessage[]): unknown[] => {
   return outputs;
 };
 
-// 60% and 40% of a 1000-token window — straddling the 50% cull ratio.
-const OVER_BUDGET = { contextTokens: 600, contextWindow: 1000 };
-const UNDER_BUDGET = { contextTokens: 400, contextWindow: 1000 };
+// 90% and 70% of a 1000-token window — straddling the 80% cull ratio.
+const OVER_BUDGET = { contextTokens: 900, contextWindow: 1000 };
+const UNDER_BUDGET = { contextTokens: 700, contextWindow: 1000 };
 
 describe("currentContextTokens", () => {
   it("is undefined until a turn has settled with a recorded footprint", () => {
@@ -99,8 +107,8 @@ describe("cullToolHistory", () => {
       ),
     ];
     expect(cullToolHistory(history, UNDER_BUDGET)).toBe(history);
-    // Exactly 50% is within budget — culling is for *over* half.
-    expect(cullToolHistory(history, { contextTokens: 500, contextWindow: 1000 })).toBe(history);
+    // Exactly at the ratio is within budget — culling is for *over* it.
+    expect(cullToolHistory(history, { contextTokens: 800, contextWindow: 1000 })).toBe(history);
   });
 
   it("returns the history unchanged when there are no more results than we keep", () => {
@@ -160,6 +168,26 @@ describe("cullToolHistory", () => {
     expect(culled[0]).toBe(history[0]);
     expect(culled[1]).toBe(history[1]);
     expect(toolOutputs(culled)).toEqual([CULLED_RESULT_NOTICE, { b: 2 }, { c: 3 }, { d: 4 }]);
+  });
+
+  it("never culls delegate results, and they don't spend a keep slot", () => {
+    const history = [
+      assistant(delegateResult("d1", "the report")),
+      assistant(toolResult("c1", { a: 1 })),
+      assistant(toolResult("c2", { b: 2 }), toolResult("c3", { c: 3 }), toolResult("c4", { d: 4 })),
+    ];
+
+    const culled = cullToolHistory(history, OVER_BUDGET);
+    // The delegate report survives in full even though it is the oldest result,
+    // and doesn't count as one of the three kept — c1 is the sole cull.
+    expect(culled[0]).toBe(history[0]);
+    expect(toolOutputs(culled)).toEqual([
+      "the report",
+      CULLED_RESULT_NOTICE,
+      { b: 2 },
+      { c: 3 },
+      { d: 4 },
+    ]);
   });
 
   it("does not mutate the input history", () => {

@@ -249,8 +249,9 @@ async function streamCore(
 
   const rows = getSessionMessages(db, session.id);
   const history = rows.map(toUiMessage);
-  // Past 50% of the model's context window, send the model a trimmed history —
-  // older tool results replaced by a short notice — to claw back token budget.
+  // Past the cull ratio of the model's context window, send the model a
+  // trimmed history — older tool results replaced by a short notice, delegate
+  // reports always kept — to claw back token budget.
   // The untrimmed `history` still feeds persistence below, so nothing stored is
   // lost. The window is unknown for some providers (then this no-ops).
   const contextWindow = await llmClients.contextWindowFor(session.model);
