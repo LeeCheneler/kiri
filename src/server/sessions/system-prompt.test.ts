@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
 import type { Session } from "./store.ts";
 import {
+  AGENTS_FILENAME,
   INSTRUCTIONS_FILENAME,
   buildChildSessionPrompt,
   buildSystemPrompt,
   createSystemPromptBuilder,
+  readAgentsChain,
 } from "./system-prompt.ts";
 
 const FIXED_NOW = new Date("2026-06-17T10:00:00.000Z");
@@ -496,6 +498,138 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(dir, "personas", "poet.md"), "You speak only in verse.");
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     expect(prompt).not.toContain("You speak only in verse.");
+  });
+});
+
+describe("AGENTS.md chain", () => {
+  let dir: string;
+  let root: string;
+  let config: ConfigStore;
+
+  // <root>/a/b inside the sandbox, with <dir>/outside sitting above it.
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-sysprompt-agents-"));
+    root = join(dir, "root");
+    mkdirSync(join(root, "a", "b"), { recursive: true });
+    config = createConfigStore(root);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const writeAgents = (directory: string, body: string): void => {
+    writeFileSync(join(directory, AGENTS_FILENAME), body);
+  };
+
+  const bodies = (chain: readonly { text: string }[]): string[] => chain.map(({ text }) => text);
+
+  it("collects the chain from the sandbox root down to the working directory", () => {
+    writeAgents(root, "Root rules.");
+    writeAgents(join(root, "a"), "A rules.");
+    writeAgents(join(root, "a", "b"), "B rules.");
+    expect(bodies(readAgentsChain(join(root, "a", "b"), [root]))).toEqual([
+      "Root rules.",
+      "A rules.",
+      "B rules.",
+    ]);
+  });
+
+  it("keeps only the files that exist", () => {
+    writeAgents(root, "Root rules.");
+    expect(bodies(readAgentsChain(join(root, "a", "b"), [root]))).toEqual(["Root rules."]);
+  });
+
+  it("never reads an AGENTS.md above the allowed directories", () => {
+    writeAgents(dir, "Instructions outside the sandbox.");
+    writeAgents(root, "Root rules.");
+    // The sandbox root is <root>, so the walk passes <dir> but must exclude it
+    // by path containment — its contents may not reach the prompt at all.
+    expect(bodies(readAgentsChain(join(root, "a"), [root]))).toEqual(["Root rules."]);
+  });
+
+  it("excludes an AGENTS.md that symlinks out of the allowed directories", () => {
+    writeFileSync(join(dir, "elsewhere.md"), "Smuggled instructions.");
+    symlinkSync(join(dir, "elsewhere.md"), join(root, AGENTS_FILENAME));
+    expect(readAgentsChain(root, [root])).toEqual([]);
+  });
+
+  it("resolves the working directory before testing containment", () => {
+    writeAgents(dir, "Instructions outside the sandbox.");
+    // A traversal out of the sandbox lands above it, so nothing is collected.
+    expect(readAgentsChain(join(root, "a", "..", ".."), [root])).toEqual([]);
+  });
+
+  it("skips an empty, whitespace-only, or unreadable AGENTS.md", () => {
+    writeAgents(root, "  \n\t\n");
+    mkdirSync(join(root, "a", AGENTS_FILENAME));
+    writeAgents(join(root, "a", "b"), "B rules.");
+    expect(bodies(readAgentsChain(join(root, "a", "b"), [root]))).toEqual(["B rules."]);
+  });
+
+  it("collects nothing without a working directory or allowed directories", () => {
+    writeAgents(root, "Root rules.");
+    expect(readAgentsChain(null, [root])).toEqual([]);
+    expect(readAgentsChain(root, [])).toEqual([]);
+  });
+
+  it("ignores an allowed directory that doesn't exist and a missing working directory", () => {
+    writeAgents(root, "Root rules.");
+    expect(bodies(readAgentsChain(root, [join(dir, "gone"), root]))).toEqual(["Root rules."]);
+    expect(readAgentsChain(join(root, "gone"), [root])).toEqual([]);
+  });
+
+  it("walks up to a second allowed directory's own root", () => {
+    const notes = join(dir, "notes");
+    mkdirSync(join(notes, "daily"), { recursive: true });
+    writeAgents(dir, "Instructions outside the sandbox.");
+    writeAgents(notes, "Notes rules.");
+    expect(bodies(readAgentsChain(join(notes, "daily"), [root, notes]))).toEqual(["Notes rules."]);
+  });
+
+  it("appends the chain after kiri.md, most specific last", () => {
+    writeFileSync(config.instructionsFile(), "Be terse.");
+    writeAgents(root, "Root rules.");
+    writeAgents(join(root, "a"), "A rules.");
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      workingDirectory: join(root, "a"),
+      allowedDirectories: [root],
+    });
+    expect(prompt).toContain("Root rules.");
+    // Precedence is carried by ordering, so the nearest file must land last.
+    expect(prompt.indexOf("Be terse.")).toBeLessThan(prompt.indexOf("Root rules."));
+    expect(prompt.indexOf("Root rules.")).toBeLessThan(prompt.indexOf("A rules."));
+  });
+
+  it("adds no layer when no AGENTS.md governs the working directory", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      workingDirectory: join(root, "a"),
+      allowedDirectories: [root],
+    });
+    expect(prompt).not.toContain(`Standing instructions from the ${AGENTS_FILENAME} files`);
+  });
+
+  it("resolves the chain against the session's current working directory", () => {
+    writeAgents(join(root, "a", "b"), "B rules.");
+    const builder = createSystemPromptBuilder(config, [], [root]);
+    const session = (cwd: string): Session =>
+      ({ parentSessionId: null, effort: "medium", cwd }) as unknown as Session;
+    expect(builder(session(join(root, "a")))).not.toContain("B rules.");
+    expect(builder(session(join(root, "a", "b")))).toContain("B rules.");
+  });
+
+  it("keeps the chain out of a child session's worker prompt", () => {
+    writeAgents(root, "Root rules.");
+    const prompt = createSystemPromptBuilder(
+      config,
+      [],
+      [root],
+    )({ parentSessionId: "parent", effort: "medium", cwd: root } as unknown as Session);
+    expect(prompt).not.toContain("Root rules.");
   });
 });
 

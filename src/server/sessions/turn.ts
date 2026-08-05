@@ -271,8 +271,9 @@ async function streamCore(
   );
   const modelMessages = await convertToModelMessages(modelHistory);
 
-  // Compose the turn's system prompt — the kiri core layer and the
-  // workspace's `kiri.md` — read fresh from disk each turn. Undefined when no
+  // Compose the turn's system prompt — the kiri core layer, the workspace's
+  // `kiri.md`, and the `AGENTS.md` chain covering the session's working
+  // directory — read fresh from disk each turn. Undefined when no
   // builder is wired (a bare chat with no system
   // prompt), which leaves `streamText` to send the messages alone.
   const system = buildSystemPrompt?.(session);

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
 import type { DelegateRole } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { Effort } from "../llm/index.ts";
@@ -8,6 +9,9 @@ import type { Session } from "./store.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
 export const INSTRUCTIONS_FILENAME = "kiri.md";
+
+/** Per-directory instructions file, governing its own directory and everything below it. */
+export const AGENTS_FILENAME = "AGENTS.md";
 
 // How kiri's markdown renderer turns a fenced `chart` block into a chart. The
 // chat transcript renders assistant replies through the same renderer the
@@ -435,14 +439,98 @@ function readInstructions(path: string): string | null {
   }
 }
 
+// The declared sandbox as real paths, deduplicated; a directory that doesn't
+// exist on disk can't contain anything and is dropped. Resolving here is what
+// makes the containment test below symlink-proof.
+function sandboxRoots(allowedDirectories: readonly string[]): string[] {
+  const roots = new Set<string>();
+  for (const dir of allowedDirectories) {
+    try {
+      roots.add(realpathSync(dir));
+    } catch {
+      // Skipped: a declared directory that doesn't exist.
+    }
+  }
+  return [...roots];
+}
+
+function isWithin(roots: readonly string[], real: string): boolean {
+  return roots.some((root) => real === root || real.startsWith(root + sep));
+}
+
+/** One directory's `AGENTS.md` instructions: the directory it governs and the file's trimmed body. */
+export interface AgentsInstructions {
+  directory: string;
+  text: string;
+}
+
+/**
+ * The `AGENTS.md` chain governing `workingDirectory`: every such file from the
+ * top of the tree down to the working directory itself, ordered most general
+ * first so the nearest file's directives land last and win. A file counts only
+ * when its real path resolves inside `allowedDirectories`, decided before the
+ * file is opened, so nothing outside the sandbox is ever read; absent, empty,
+ * and unreadable files contribute nothing. Read fresh on each call.
+ */
+export function readAgentsChain(
+  workingDirectory: string | null,
+  allowedDirectories: readonly string[],
+): AgentsInstructions[] {
+  if (workingDirectory === null) return [];
+  const roots = sandboxRoots(allowedDirectories);
+  if (roots.length === 0) return [];
+  let real: string;
+  try {
+    real = realpathSync(workingDirectory);
+  } catch {
+    return [];
+  }
+  const chain: AgentsInstructions[] = [];
+  // Walk up to the filesystem root, prepending as we go so the collected
+  // chain comes out general → specific.
+  for (let dir = real; ; dir = dirname(dir)) {
+    if (isWithin(roots, dir)) {
+      const text = readChainFile(join(dir, AGENTS_FILENAME), roots);
+      if (text !== null) chain.unshift({ directory: dir, text });
+    }
+    if (dirname(dir) === dir) break;
+  }
+  return chain;
+}
+
+// Read one candidate chain file, or null when it contributes nothing. The
+// realpath decides membership before any byte is read, so a symlink pointing
+// out of the sandbox is dropped rather than followed; a resolution failure is
+// the file simply not being there.
+function readChainFile(path: string, roots: readonly string[]): string | null {
+  let real: string;
+  try {
+    real = realpathSync(path);
+  } catch {
+    return null;
+  }
+  return isWithin(roots, real) ? readInstructions(real) : null;
+}
+
+// The chain as one prompt layer. Each block names the directory it governs and
+// the preamble states the precedence order: without both, the model has no way
+// to tell which of two conflicting directives applies where it is working.
+function buildAgentsLayer(chain: readonly AgentsInstructions[]): string | null {
+  if (chain.length === 0) return null;
+  return [
+    `Standing instructions from the ${AGENTS_FILENAME} files covering the session's working directory. Each governs its own directory and everything below it, and they are listed most general first — where two conflict, the later, more specific one wins.`,
+    ...chain.map(({ directory, text }) => `Instructions for ${directory}:\n\n${text}`),
+  ].join("\n\n");
+}
+
 export interface BuildSystemPromptOptions {
   /** Workspace config; `kiri.md` resolves against it. */
   config: ConfigStore;
   /** Names of the tools active this session; drives the core layer's tool-use guidance. */
   tools?: string[];
-  /** The sandbox for the filesystem and shell tools, enumerated in their guidance so the model knows the reachable roots up front. */
+  /** The sandbox for the filesystem and shell tools, enumerated in their guidance so the model knows the reachable roots up front, and the boundary the `AGENTS.md` chain may be read within. */
   allowedDirectories?: readonly string[];
-  /** The session's working directory, stated in the intro when set; null or omitted states nothing. */
+  /** The session's working directory: stated in the intro when set, and the directory the `AGENTS.md` chain resolves from. */
   workingDirectory?: string | null;
   /** The configured delegate roles — the delegate steer then covers the required model choice. */
   delegateRoles?: readonly DelegateRole[];
@@ -458,8 +546,9 @@ export interface BuildSystemPromptOptions {
 
 /**
  * Compose a session's system prompt: the immutable kiri core layer, then the
- * workspace's `kiri.md` standing instructions when present. Always returns a
- * non-empty string — the core layer is always included. Every layer is read
+ * workspace's `kiri.md` standing instructions when present, then the
+ * `AGENTS.md` chain governing the session's working directory. Always returns
+ * a non-empty string — the core layer is always included. Every layer is read
  * fresh from disk each turn so edits take effect on the next turn, with git as
  * the source of truth and nothing snapshotted onto the session.
  */
@@ -478,6 +567,10 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
   if (instructions !== null) sections.push(instructions);
+  const agents = buildAgentsLayer(
+    readAgentsChain(opts.workingDirectory ?? null, opts.allowedDirectories ?? []),
+  );
+  if (agents !== null) sections.push(agents);
   return sections.join("\n\n");
 }
 
@@ -485,8 +578,9 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
  * Build the per-turn system-prompt resolver for a workspace. The returned
  * function composes the prompt for a session, choosing by its lineage: a
  * top-level session gets the layered prompt — core (with tool-use guidance for
- * the active `tools`), then `kiri.md` — while a child session (one with a
- * parent) gets the focused worker prompt with no user layers. Handed to
+ * the active `tools`), then `kiri.md`, then the `AGENTS.md` chain for its
+ * working directory — while a child session (one with a parent) gets the
+ * focused worker prompt with no user layers. Handed to
  * `runTurn`, so a turn streams with its system prompt in place.
  */
 export function createSystemPromptBuilder(
