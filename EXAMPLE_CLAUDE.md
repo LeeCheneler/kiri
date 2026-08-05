@@ -1,6 +1,6 @@
 # Kiri — Workflow Authoring Reference
 
-Drop this file into a kiri workspace (or copy it into the workspace's `CLAUDE.md`) so an AI assistant has full context on how to write workflows, bundles, prompts, and `articles:` / `summarize:` blocks — and how to shape agentic sessions with `kiri.md` — without hunting around for the schema.
+Drop this file into a kiri workspace (or copy it into the workspace's `CLAUDE.md`) so an AI assistant has full context on how to write workflows, bundles, prompts, and `articles:` / `summarize:` blocks — and how to shape agentic sessions with `kiri.md` and `AGENTS.md` — without hunting around for the schema.
 
 Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a linear sequence of steps: any step that declares an `id` can have its output referenced by name from later steps, articles, and the summariser — declared env refs are how data moves. Workflows are YAML, bundles are bash scripts on disk, prompts are plain text templates.
 
@@ -775,13 +775,14 @@ The JSON Schemas under `.kiri/` are generated from the Zod schemas and refreshed
 
 ---
 
-## Agentic sessions: `kiri.md`
+## Agentic sessions: `kiri.md` and `AGENTS.md`
 
-Sessions are kiri's second pillar — a multi-turn chat with a model, separate from workflows. You don't author a session the way you author a workflow; instead one optional workspace file shapes every session's **system prompt**, which kiri composes fresh on each turn from two layers, in order:
+Sessions are kiri's second pillar — a multi-turn chat with a model, separate from workflows. You don't author a session the way you author a workflow; instead a couple of optional markdown files shape every session's **system prompt**, which kiri composes fresh on each turn from three layers, in order:
 
-**core (kiri) → `kiri.md`**
+**core (kiri) → `kiri.md` → the `AGENTS.md` chain**
 
-- **`kiri.md`** — a single markdown file at the workspace root, applied to *every* session. Its body is your standing instructions: the session equivalent of a global "how I want you to behave." Optional — with no `kiri.md`, sessions run on kiri's core layer alone. Only kiri sessions read `kiri.md` — it's separate from any `CLAUDE.md`/`AGENTS.md` you keep for AI tools that edit the workspace, so that authoring guidance stays out of your sessions.
+- **`kiri.md`** — a single markdown file at the workspace root, applied to *every* session. Its body is your standing instructions: the session equivalent of a global "how I want you to behave." Optional — with no `kiri.md`, sessions run on kiri's core layer alone.
+- **The `AGENTS.md` chain** — the per-directory layer, resolved against the session's working directory. Kiri walks from that directory up to the top of the tree, collects every `AGENTS.md`, and layers them most general first, so a file applies to its own directory and everything below it and the nearest one wins on conflict. This is the same `AGENTS.md` convention other assistants follow, so a repo that already carries one needs no kiri-specific setup. Only files inside the directories allowed in `kiri.yaml` are read — one above that boundary is never opened — and a session with no working directory or no allowed directories loads no chain. Kiri reads these files; it never writes them.
 
 Authoring notes:
 
@@ -835,5 +836,5 @@ If kiri's repo is the workspace and behaviour is unclear, these are the source-o
 - **LLM providers (schema, loader, provider clients):** `src/server/llm/`
 - **`kiri.yaml` config (providers + MCP; schema, loader, health):** `src/server/config/`
 - **MCP servers (connect, tool namespacing, OAuth):** `src/server/mcp/`
-- **Session system prompt (core layer, `kiri.md`):** `src/server/sessions/system-prompt.ts`
+- **Session system prompt (core layer, `kiri.md`, `AGENTS.md` chain):** `src/server/sessions/system-prompt.ts`
 - **Architecture & roadmap:** `docs/design-notes.md`
