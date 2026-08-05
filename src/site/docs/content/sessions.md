@@ -347,3 +347,18 @@ source, JSON, CSV) are sent inline so the model reads the whole file; images
 ride alongside — worth checking your chosen model accepts image input first.
 Attachments are treated as untrusted data and capped to fit the context
 window.
+
+## Desktop notifications
+
+Switch **Desktop notifications** on and kiri tells you when work finishes
+while you're looking elsewhere: a workflow run landing or a session finishing
+a turn pops a system notification that opens the run or session when clicked.
+Whatever you're actively watching stays quiet — nothing fires for a run or
+session whose page you have focused — and delegated workers never notify;
+they report back to their conversation instead.
+
+Notifications come from the browser, so switching them on prompts for browser
+permission, and they arrive only while kiri is open in a tab — backgrounded
+is fine, closed is not, since kiri never runs in the background. A disabled
+switch means the browser has notifications blocked for kiri; re-enable them
+in the browser's site settings.
