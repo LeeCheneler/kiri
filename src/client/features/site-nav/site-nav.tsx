@@ -4,6 +4,7 @@ import { Button } from "../../design-system/actions/button.tsx";
 import { Rule } from "../../design-system/content/rule.tsx";
 import { type NavItem, NavList } from "../../design-system/navigation/nav-list.tsx";
 import { Drawer } from "../../design-system/surfaces/drawer.tsx";
+import { NotificationsToggle } from "../notifications/notifications-toggle.tsx";
 import { NewSessionButton } from "../session-chat/new-session-button.tsx";
 import { VersionInfo } from "./version-info.tsx";
 
@@ -38,6 +39,9 @@ function RailContent({ location }: { location: string }) {
           <Rule />
         </div>
         <NavList heading="Documentation" items={docItems} />
+        <div className="mt-6">
+          <NotificationsToggle />
+        </div>
         <VersionInfo />
       </div>
     </>
