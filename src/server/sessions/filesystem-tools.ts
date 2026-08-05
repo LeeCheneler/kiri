@@ -1,4 +1,5 @@
 import {
+  type Dirent,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -10,6 +11,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { type JSONValue, type ToolSet, tool } from "ai";
 import { structuredPatch } from "diff";
@@ -30,6 +32,55 @@ const MAX_SEARCH_MATCHES = 200;
 // Files larger than this are skipped by content search rather than read into
 // memory; a lockfile or generated blob is noise at match time anyway.
 const MAX_SEARCH_FILE_BYTES = 4 * 1024 * 1024;
+
+// Cap on directory entries one find/search visits across all its roots. A
+// sandbox can hold millions of files, and a walk that size takes long enough
+// that the result would be stale noise — past the cap the walk stops and the
+// note tells the model to narrow its scope instead.
+const MAX_SCANNED_ENTRIES = 20_000;
+
+// Directory names every walk prunes without descending: dependency stores,
+// tool caches, and build output across the common ecosystems. Generated trees
+// dwarf the code around them, so a broad find or search would drown in them
+// long before the scan budget bites. Only conventionally-generated names that
+// rarely hold hand-written source belong here — the pruning is silent, and a
+// name like "src" being skipped would be a mystery, not a mercy. A call opts
+// back in by naming one: in its pattern or include, or by rooting `directory`
+// inside one. Files sharing these names are never pruned, only directories.
+const PRUNED_DIR_NAMES = new Set([
+  // Dependency stores.
+  "node_modules",
+  "bower_components",
+  "vendor",
+  "Pods",
+  // Build and coverage output.
+  "dist",
+  "build",
+  "out",
+  "target",
+  "coverage",
+  "DerivedData",
+  "__pycache__",
+  // Framework and tool caches.
+  ".cache",
+  ".next",
+  ".nuxt",
+  ".output",
+  ".svelte-kit",
+  ".astro",
+  ".turbo",
+  ".parcel-cache",
+  ".gradle",
+  ".terraform",
+  ".build",
+  ".tox",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  // Python virtual environments.
+  ".venv",
+  "venv",
+]);
 
 // Cap on a single reported match line, so one minified line can't dominate the
 // result.
@@ -60,6 +111,7 @@ export interface FilesystemToolsOptions {
   maxFindResults?: number;
   maxSearchMatches?: number;
   maxSearchFileBytes?: number;
+  maxScannedEntries?: number;
   maxDiffLength?: number;
 }
 
@@ -91,7 +143,11 @@ const withTrailingNewline = (content: string): string =>
  * `.git` internals (thousands of object files that would drown every broad
  * find) and secret-bearing files (`.env*`, kiri's own MCP credential store) —
  * reads run on the sandbox's authority alone, with no per-call approval to
- * catch a secret entering the transcript. Results are
+ * catch a secret entering the transcript. Broad walks (find_files,
+ * search_files) skip dependency, cache, and build-output directories
+ * (node_modules, dist, target, .venv, …) unless the call names one, run
+ * asynchronously so a big sandbox can't starve the server's event loop, and
+ * stop at a scanned-entry budget. Results are
  * capped, with a note naming the recovery (narrow the pattern) when cut.
  * Expected failures throw with a message naming the call that recovers,
  * surfaced to the model as a tool error so the turn self-corrects.
@@ -106,6 +162,7 @@ export function filesystemTools(
     maxFindResults = MAX_FIND_RESULTS,
     maxSearchMatches = MAX_SEARCH_MATCHES,
     maxSearchFileBytes = MAX_SEARCH_FILE_BYTES,
+    maxScannedEntries = MAX_SCANNED_ENTRIES,
     maxDiffLength = MAX_DIFF_LENGTH,
   } = options;
 
@@ -262,36 +319,67 @@ export function filesystemTools(
   const searchRoots = (directory: string | undefined): string[] =>
     directory === undefined ? sandboxDirs() : [confineDir(directory)];
 
-  // Glob `pattern` under `root`, yielding real absolute paths that are visible
-  // (not blocked, not symlinked out of the sandbox), sorted for determinism.
-  const visibleMatches = (root: string, pattern: string, dirs: string[]): string[] => {
-    const matches: string[] = [];
+  // Walk `root` collecting real absolute file paths whose root-relative form
+  // matches `pattern`, sorted for determinism. The walk is asynchronous —
+  // one await per directory and per matched file — so however big the tree,
+  // the event loop keeps breathing; a synchronous walk here blocks the whole
+  // server (every session, the UI, even signal handling) for the walk's
+  // duration. Blocked names prune whole subtrees at the directory, never
+  // descended into, and PRUNED_DIR_NAMES prune the same way unless the call
+  // names one. Every entry seen is paid for from `budget`, shared
+  // across the call's roots; when it runs out the walk stops and reports
+  // itself capped so the caller can tell the model to narrow.
+  const visibleMatches = async (
+    root: string,
+    pattern: string,
+    dirs: string[],
+    budget: { remaining: number },
+  ): Promise<{ files: string[]; capped: boolean }> => {
+    const rootSegments = new Set(root.split(sep));
+    const isPruned = (name: string): boolean =>
+      PRUNED_DIR_NAMES.has(name) && !pattern.includes(name) && !rootSegments.has(name);
     const glob = new Bun.Glob(pattern);
-    for (const path of glob.scanSync({
-      cwd: root,
-      absolute: true,
-      dot: true,
-      followSymlinks: false,
-      onlyFiles: true,
-    })) {
-      // Checked on the scanned path first — cheap string work that spares a
-      // realpath syscall per `.git` object file on a broad pattern.
-      if (isBlockedWithin(root, path)) continue;
-      // Scanning with followSymlinks off yields no symlinks at all (valid or
-      // broken), so this resolves to the path itself today — kept as defence
-      // in depth so a change in the scanner's symlink posture can't quietly
-      // leak a path out of the sandbox.
-      const real = realpathSync(path);
-      if (within(dirs, real) === undefined || isBlockedWithin(root, real)) continue;
-      matches.push(real);
+    const files: string[] = [];
+    const stack: string[] = [root];
+    for (let dir = stack.pop(); dir !== undefined; dir = stack.pop()) {
+      let entries: Dirent[];
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        // Skipped: a directory deleted or unreadable mid-walk.
+        continue;
+      }
+      for (const entry of entries) {
+        if (budget.remaining === 0) {
+          return { files: files.sort(), capped: true };
+        }
+        budget.remaining -= 1;
+        if (isBlockedName(entry.name)) continue;
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (!isPruned(entry.name)) stack.push(path);
+          continue;
+        }
+        // Anything that isn't a plain file — symlinks included, valid or
+        // broken — is skipped outright: a link inside the sandbox can point
+        // anywhere, so nothing is matched or read through one.
+        if (!entry.isFile()) continue;
+        if (!glob.match(relative(root, path))) continue;
+        // The walk never descends a symlinked directory, so this resolves to
+        // the path itself today — kept as defence in depth so a change in the
+        // walk's symlink posture can't quietly leak a path out of the sandbox.
+        const real = await realpath(path);
+        if (within(dirs, real) === undefined || isBlockedWithin(root, real)) continue;
+        files.push(real);
+      }
     }
-    return matches.sort();
+    return { files: files.sort(), capped: false };
   };
 
   return {
     find_files: tool({
       description:
-        'Find files by name in the directories kiri may access: give a glob pattern (e.g. "**/*.md", "*.yaml") and get back the matching files\' absolute paths. Searches every allowed directory unless directory narrows it. Hidden (dot-prefixed) files are included; .git internals and secret-bearing files (.env*, credential stores) never are. Call it to discover what exists before read_file, or to check a path; a result that notes truncation means the pattern was too broad — narrow it.',
+        'Find files by name in the directories kiri may access: give a glob pattern (e.g. "**/*.md", "*.yaml") and get back the matching files\' absolute paths. Searches every allowed directory unless directory narrows it. Hidden (dot-prefixed) files are included; .git internals and secret-bearing files (.env*, credential stores) never are, and dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) are skipped unless the pattern names them. Call it to discover what exists before read_file, or to check a path; a result that notes truncation means the scope was too broad — narrow it with directory or a tighter pattern.',
       inputSchema: z.object({
         pattern: z
           .string()
@@ -308,19 +396,27 @@ export function filesystemTools(
       execute: async ({ pattern, directory }) => {
         const dirs = sandboxDirs();
         const files = new Set<string>();
+        const budget = { remaining: maxScannedEntries };
+        let capped = false;
         for (const root of searchRoots(directory)) {
-          for (const real of visibleMatches(root, pattern, dirs)) {
+          const walk = await visibleMatches(root, pattern, dirs, budget);
+          for (const real of walk.files) {
             files.add(real);
           }
+          capped ||= walk.capped;
         }
         const sorted = [...files].sort();
+        const notes: string[] = [];
         if (sorted.length > maxFindResults) {
-          return {
-            files: sorted.slice(0, maxFindResults),
-            note: `showing ${maxFindResults} of ${sorted.length} matches — narrow the pattern`,
-          };
+          notes.push(`showing ${maxFindResults} of ${sorted.length} matches — narrow the pattern`);
         }
-        return { files: sorted };
+        if (capped) {
+          notes.push(
+            `stopped after scanning ${maxScannedEntries} entries — narrow with directory or a tighter pattern`,
+          );
+        }
+        const shown = sorted.slice(0, maxFindResults);
+        return notes.length > 0 ? { files: shown, note: notes.join("; ") } : { files: shown };
       },
     }),
 
@@ -408,7 +504,7 @@ export function filesystemTools(
 
     search_files: tool({
       description:
-        'Search file contents in the directories kiri may access: a regular expression (JavaScript syntax) matched against each line, returning the absolute file path, line number, and line text of every match. Prefer a tight scope: narrow with directory and an include glob (e.g. "**/*.yaml") rather than searching everything. Binary files, very large files, .git internals, and secret-bearing files (.env*, credential stores) are skipped. A result that notes truncation means the pattern was too broad — tighten it.',
+        'Search file contents in the directories kiri may access: a regular expression (JavaScript syntax) matched against each line, returning the absolute file path, line number, and line text of every match. Prefer a tight scope: narrow with directory and an include glob (e.g. "**/*.yaml") rather than searching everything. Binary files, very large files, .git internals, and secret-bearing files (.env*, credential stores) are skipped, along with dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) unless the include glob names one or directory points inside one. A result that notes truncation means the scope was too broad — tighten the pattern, directory, or include.',
       inputSchema: z.object({
         pattern: z
           .string()
@@ -439,11 +535,15 @@ export function filesystemTools(
         }
         const dirs = sandboxDirs();
         const matches: { file: string; line: number; text: string }[] = [];
+        const budget = { remaining: maxScannedEntries };
+        let capped = false;
         let truncated = false;
         for (const root of searchRoots(directory)) {
-          for (const real of visibleMatches(root, include ?? "**/*", dirs)) {
-            if (statSync(real).size > maxSearchFileBytes) continue;
-            const content = readFileSync(real);
+          const walk = await visibleMatches(root, include ?? "**/*", dirs, budget);
+          capped ||= walk.capped;
+          for (const real of walk.files) {
+            if ((await stat(real)).size > maxSearchFileBytes) continue;
+            const content = await readFile(real);
             if (isBinary(content)) continue;
             const lines = content.toString("utf8").split(/\r?\n/);
             for (let i = 0; i < lines.length; i++) {
@@ -462,13 +562,18 @@ export function filesystemTools(
           }
           if (truncated) break;
         }
+        const notes: string[] = [];
         if (truncated) {
-          return {
-            matches,
-            note: `stopped at ${maxSearchMatches} matches — tighten the pattern or include filter`,
-          };
+          notes.push(
+            `stopped at ${maxSearchMatches} matches — tighten the pattern or include filter`,
+          );
         }
-        return { matches };
+        if (capped) {
+          notes.push(
+            `stopped after scanning ${maxScannedEntries} entries — narrow with directory or an include filter`,
+          );
+        }
+        return notes.length > 0 ? { matches, note: notes.join("; ") } : { matches };
       },
     }),
 
