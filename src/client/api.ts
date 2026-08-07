@@ -1140,3 +1140,58 @@ export const fetchLatestRelease = async (): Promise<LatestRelease> => {
   }
   return { tagName: parsed.data.tag_name, htmlUrl: parsed.data.html_url };
 };
+
+/** One memory's index entry: everything but the body. */
+export interface MemorySummary {
+  name: string;
+  description: string;
+  updatedAt: string;
+}
+
+/** A memory in full, as seen by the curation page. */
+export interface MemoryDetail {
+  name: string;
+  description: string;
+  contentMd: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Fetch every memory's index entry — name, one-line summary, and last
+ * update — alphabetically by name. Throws on non-2xx.
+ */
+export const fetchMemories = async (): Promise<{ memories: MemorySummary[] }> =>
+  json<{ memories: MemorySummary[] }>(await apiFetch("/api/memories"));
+
+/**
+ * Fetch a single memory in full by name. Throws `ApiError` on non-2xx —
+ * 400 for a malformed name, 404 when no memory has it.
+ */
+export const fetchMemory = async (name: string): Promise<{ memory: MemoryDetail }> =>
+  json<{ memory: MemoryDetail }>(await apiFetch(`/api/memories/${encodeURIComponent(name)}`));
+
+/**
+ * Update a memory's summary and/or body, returning the updated row. Omitted
+ * fields keep their current value. Throws `ApiError` on non-2xx (404 for an
+ * unknown name).
+ */
+export const patchMemory = async (
+  name: string,
+  patch: { description?: string; contentMd?: string },
+): Promise<{ memory: MemoryDetail }> =>
+  json<{ memory: MemoryDetail }>(
+    await apiFetch(`/api/memories/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  );
+
+/**
+ * Delete a memory permanently. Throws `ApiError` on non-2xx (404 for an
+ * unknown name).
+ */
+export const deleteMemory = async (name: string): Promise<void> => {
+  await assertOk(await apiFetch(`/api/memories/${encodeURIComponent(name)}`, { method: "DELETE" }));
+};
