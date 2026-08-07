@@ -254,6 +254,71 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("Available skills:");
   });
 
+  it("indexes memories by name and summary only when read_memory is active", () => {
+    const memories = [
+      { name: "prefers-bun", description: "Prefers bun over node.", updatedAt: FIXED_NOW },
+      {
+        name: "release-style",
+        description: "Groups release notes by feature.",
+        updatedAt: FIXED_NOW,
+      },
+    ];
+    const withMemories = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_memory", "save_memory", "delete_memory"],
+      memories,
+    });
+    expect(withMemories).toContain("load its full body with read_memory");
+    expect(withMemories).toContain("- prefers-bun: Prefers bun over node.");
+    expect(withMemories).toContain("- release-style: Groups release notes by feature.");
+
+    // read_memory withheld by its permission drops the index with it.
+    const withoutTool = buildSystemPrompt({ config, now: FIXED_NOW, tools: [], memories });
+    expect(withoutTool).not.toContain("Saved memories:");
+  });
+
+  it("carries the saving discipline only when save_memory is active", () => {
+    const memories = [
+      { name: "prefers-bun", description: "Prefers bun over node.", updatedAt: FIXED_NOW },
+    ];
+    const readOnly = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_memory"],
+      memories,
+    });
+    expect(readOnly).toContain("Saved memories:");
+    expect(readOnly).not.toContain("Saving memories:");
+
+    const writable = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_memory", "save_memory"],
+      memories,
+    });
+    expect(writable).toContain("Saving memories:");
+  });
+
+  it("guides the first save when nothing is saved yet, and stays silent read-only", () => {
+    const writable = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_memory", "save_memory"],
+      memories: [],
+    });
+    expect(writable).toContain("Saving memories:");
+    expect(writable).not.toContain("Saved memories:");
+
+    const readOnly = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_memory"],
+      memories: [],
+    });
+    expect(readOnly).not.toContain("memories");
+  });
+
   it("lists a skill without a description as its bare name", () => {
     const prompt = buildSystemPrompt({
       config,
@@ -828,6 +893,18 @@ describe("buildChildSessionPrompt", () => {
       "Available skills:",
     );
   });
+
+  it("indexes memories for recall without the saving discipline workers can't act on", () => {
+    const prompt = buildChildSessionPrompt({
+      tools: ["read_memory"],
+      memories: [
+        { name: "prefers-bun", description: "Prefers bun over node.", updatedAt: FIXED_NOW },
+      ],
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain("- prefers-bun: Prefers bun over node.");
+    expect(prompt).not.toContain("Saving memories:");
+  });
 });
 
 describe("createSystemPromptBuilder", () => {
@@ -888,6 +965,19 @@ describe("createSystemPromptBuilder", () => {
     );
     expect(builder(sessionWith(null))).toContain("- release-notes: Draft release notes.");
     expect(builder(sessionWith("parent"))).toContain("- release-notes: Draft release notes.");
+  });
+
+  it("hands the memory index to parent and child prompts alike", () => {
+    const builder = createSystemPromptBuilder(
+      config,
+      ["read_memory"],
+      [],
+      [],
+      [],
+      [{ name: "prefers-bun", description: "Prefers bun over node.", updatedAt: new Date() }],
+    );
+    expect(builder(sessionWith(null))).toContain("- prefers-bun: Prefers bun over node.");
+    expect(builder(sessionWith("parent"))).toContain("- prefers-bun: Prefers bun over node.");
   });
 
   it("states each session's own stored effort, parent and child alike", () => {

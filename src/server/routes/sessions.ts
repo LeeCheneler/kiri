@@ -45,6 +45,7 @@ import {
   getSessionPreviews,
   imageTools,
   judgeCommand,
+  listMemories,
   listSkills,
   memoryTools,
   resumeTurn,
@@ -441,6 +442,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         sandboxDirectories(),
         [],
         listSkills(config),
+        listMemories(db),
       ),
       tools,
     };
@@ -800,6 +802,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         sandboxDirectories(),
         configuredDelegateRoles(deps.getModelsConfig?.().delegates),
         listSkills(config),
+        listMemories(db),
       );
       const turnDeps = {
         db,
