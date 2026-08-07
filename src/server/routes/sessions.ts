@@ -46,6 +46,7 @@ import {
   imageTools,
   judgeCommand,
   listSkills,
+  memoryTools,
   resumeTurn,
   runTurn,
   screenCommand,
@@ -379,6 +380,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...skillTools(config),
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
       ...articleTools(db, sessionId, (event) => bus?.publish(event)),
+      ...memoryTools(db, (event) => bus?.publish(event)),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(sandbox.length > 0 ? shellTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
@@ -387,8 +389,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   // Withheld from a delegate-driven worker regardless of permission: a worker
   // can't spawn workers, and its deliverable is the report — articles it wrote
-  // would ride a hidden session rather than a surface the user sees.
-  const childWithheld = new Set(["delegate", "create_article", "replace_article", "edit_article"]);
+  // would ride a hidden session rather than a surface the user sees. Memory
+  // writes stay with the user-facing conversation too: a worker recalls
+  // memories but never rewrites the durable record.
+  const childWithheld = new Set([
+    "delegate",
+    "create_article",
+    "replace_article",
+    "edit_article",
+    "save_memory",
+    "delete_memory",
+  ]);
 
   // The tools a delegate-driven child turn runs with: the same catalogue
   // narrowed to tools whose standing permission is "allow", offered ungated.
