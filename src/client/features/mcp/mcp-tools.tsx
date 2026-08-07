@@ -90,6 +90,12 @@ const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly s
     tools: ["use_skill"],
   },
   {
+    title: "Memories",
+    blurb:
+      "Durable facts carried across sessions — saved and recalled by the model, curated on the Memories page.",
+    tools: ["save_memory", "read_memory", "delete_memory"],
+  },
+  {
     title: "Workflows",
     blurb: "List, read, author, and run the workspace's workflow YAML files.",
     tools: [

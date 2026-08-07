@@ -68,6 +68,24 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /memories to the memory index", async () => {
+    renderAt("/memories");
+    // The index's filter box is unique to this route; its presence confirms
+    // the list rendered rather than falling through to not-found.
+    expect(screen.getByPlaceholderText(/filter memories/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
+  it("routes /memories/:name to the memory page", async () => {
+    // Stall the memory fetch so the page holds its loading state for the assertion.
+    server.use(http.get("*/api/memories/:name", () => new Promise<Response>(() => {})));
+    renderAt("/memories/prefers-bun");
+    expect(screen.getByText(/loading memory/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
   it("routes /mcp to the MCP page", async () => {
     // Stall the tools fetch so the page holds its loading state for the assertion.
     server.use(http.get("*/api/mcp/tools", () => new Promise<Response>(() => {})));

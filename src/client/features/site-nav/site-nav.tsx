@@ -28,6 +28,7 @@ function RailContent({ location }: { location: string }) {
         items={[
           { label: "Activity", href: "/", active: location === "/" },
           { label: "Workflows", href: "/workflows", active: location.startsWith("/workflows") },
+          { label: "Memories", href: "/memories", active: location.startsWith("/memories") },
           { label: "Tools & MCP", href: "/mcp", active: location.startsWith("/mcp") },
         ]}
       />
