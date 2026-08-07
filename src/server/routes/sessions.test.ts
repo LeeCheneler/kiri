@@ -7,7 +7,7 @@ import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { ModelShortcutsConfig, ModelsConfig } from "../config/schema.ts";
-import { articles } from "../db/schema.ts";
+import { articles, memories } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
@@ -1083,6 +1083,34 @@ describe("sessions routes", () => {
       expect(seen).toContainEqual({ type: "article.written", sessionId: "s1", slug: "pr-digest" });
     });
 
+    it("runs a memory tool straight through by default and persists the memory", async () => {
+      const input = JSON.stringify({
+        name: "prefers-bun",
+        description: "Prefers bun over node.",
+        content_md: "Always reach for bun.",
+      });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
+      const app = makeApp(fakeClients({ model: toolCallModel("save_memory", input) }), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "remember I prefer bun")).text();
+      await settled;
+
+      // No approval pause with no recorded permission: the memory tools
+      // default to allow, so the save ran and the model answered in the same
+      // turn, with the write announced on the bus.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      expect(toolPartOf(rows[1]).output).toEqual({ name: "prefers-bun", saved: "created" });
+
+      const row = env.db.select().from(memories).where(eq(memories.name, "prefers-bun")).get();
+      expect(row?.contentMd).toBe("Always reach for bun.");
+      expect(seen).toContainEqual({ type: "memory.saved", name: "prefers-bun" });
+    });
+
     it("withholds an off article tool and drops its guidance from the prompt", async () => {
       // A built-in tool rides the same standing permissions as an MCP tool:
       // a recorded "off" overrides its allow default, withholding it, and the
@@ -2045,11 +2073,15 @@ describe("sessions routes", () => {
       expect((await app.request(`/api/sessions/${child?.id}`)).status).toBe(200);
 
       // The worker held only standing-allow tools: the allowed MCP search and
-      // the article reads, never the ask-gated, withheld, or spawning ones.
+      // the article and memory reads, never the ask-gated, withheld, or
+      // spawning ones.
       expect(childToolNames).toContain("tavily__search");
       expect(childToolNames).toContain("read_article");
+      expect(childToolNames).toContain("read_memory");
       expect(childToolNames).not.toContain("delegate");
       expect(childToolNames).not.toContain("create_article");
+      expect(childToolNames).not.toContain("save_memory");
+      expect(childToolNames).not.toContain("delete_memory");
       expect(childToolNames).not.toContain("run_workflow");
     });
   });

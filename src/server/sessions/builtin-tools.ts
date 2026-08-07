@@ -67,6 +67,21 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
+    name: "save_memory",
+    description: "Save or update a durable memory for future sessions to recall.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "read_memory",
+    description: "Load the full body of a saved memory.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "delete_memory",
+    description: "Delete a saved memory.",
+    defaultPermission: "allow",
+  },
+  {
     name: "list_workflows",
     description: "List the workspace's workflows and their declared inputs.",
     defaultPermission: "allow",

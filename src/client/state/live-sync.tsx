@@ -2,6 +2,7 @@ import { useActivityFeedLive } from "./activity.ts";
 import { useRunArticlesLive, useSessionArticlesLive } from "./articles.ts";
 import { useConfigHealthLive } from "./config.ts";
 import { useMcpServersLive, useMcpToolsLive } from "./mcp.ts";
+import { useMemoriesLive } from "./memories.ts";
 import { useRunFeedsLive, useRunWindowsLive, useRunsLive } from "./runs.ts";
 import { useSessionsLive } from "./sessions.ts";
 import { useWorkflowsLive } from "./workflows.ts";
@@ -21,6 +22,7 @@ export function LiveSync(): null {
   useSessionsLive();
   useSessionArticlesLive();
   useRunArticlesLive();
+  useMemoriesLive();
   useConfigHealthLive();
   useMcpServersLive();
   useMcpToolsLive();

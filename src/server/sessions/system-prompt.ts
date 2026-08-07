@@ -4,6 +4,7 @@ import type { DelegateRole } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { Effort } from "../llm/index.ts";
 import { type HostEnvironment, describeHost, detectHostEnvironment } from "./host-environment.ts";
+import type { MemorySummary } from "./memory-tools.ts";
 import type { SkillSummary } from "./skills.ts";
 import type { Session } from "./store.ts";
 
@@ -72,6 +73,33 @@ function buildSkillGuidance(tools: string[], skills: readonly SkillSummary[]): s
       (skill) => `- ${skill.name}${skill.description === "" ? "" : `: ${skill.description}`}`,
     ),
   ].join("\n");
+}
+
+// The memory index and its working discipline: each saved memory's name and
+// one-line summary, recall via read_memory, and — only when the write tools
+// ride along — when a fact earns saving. Names and summaries only: a memory's
+// body enters the conversation solely through read_memory, so sessions that
+// never need one don't pay for its content. Keyed off read_memory, so a
+// worker whose mutations are withheld gets the recall half alone, and omitted
+// entirely when there is nothing to recall and no way to save.
+function buildMemoryGuidance(tools: string[], memories: readonly MemorySummary[]): string | null {
+  if (!tools.includes("read_memory")) return null;
+  const canSave = tools.includes("save_memory");
+  if (memories.length === 0 && !canSave) return null;
+  const lines: string[] = [];
+  if (memories.length > 0) {
+    lines.push(
+      "You have saved memories: small durable facts carried across this workspace's sessions, indexed below by name and one-line summary. When one looks relevant to the task at hand, load its full body with read_memory before relying on it — the index carries only the summaries.",
+      "Saved memories:",
+      ...memories.map((memory) => `- ${memory.name}: ${memory.description}`),
+    );
+  }
+  if (canSave) {
+    lines.push(
+      "Saving memories: when the user states a durable preference or standing context, or corrects you in a way future sessions should remember, save it with save_memory — one fact per memory, written so a future conversation can apply it without this one's context. Save sparingly: every memory rides in each session's instructions, so only facts with lasting value earn a place. Prefer updating an existing memory — saving its name rewrites it in place — over creating a near-duplicate, and use delete_memory on anything wrong, stale, or superseded.",
+    );
+  }
+  return lines.join("\n");
 }
 
 // Cross-cutting guidance for the first-party article tools — the workflow no
@@ -337,6 +365,7 @@ function buildCorePrompt(
   delegateRoles: readonly DelegateRole[],
   effort: Effort,
   skills: readonly SkillSummary[],
+  memories: readonly MemorySummary[],
 ): string {
   const today = now.toISOString().slice(0, 10);
   const intro = [
@@ -357,6 +386,7 @@ function buildCorePrompt(
     buildToolGuidance(tools),
     buildDelegateGuidance(tools, delegateRoles),
     buildSkillGuidance(tools, skills),
+    buildMemoryGuidance(tools, memories),
     buildChartGuidance(),
     buildDiagramGuidance(),
     buildArticleGuidance(tools),
@@ -376,6 +406,8 @@ export interface BuildChildSessionPromptOptions {
   workingDirectory?: string | null;
   /** The available skills, listed by name and description when `use_skill` is active. */
   skills?: readonly SkillSummary[];
+  /** The saved memories, indexed by name and summary when `read_memory` is active. */
+  memories?: readonly MemorySummary[];
   /** The worker's effort level, stated with its calibration expectation; defaults to `medium`. */
   effort?: Effort;
   /** Clock injection for tests; defaults to the current time. */
@@ -416,6 +448,7 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
     buildEffortGuidance(opts.effort ?? "medium"),
     buildToolGuidance(tools),
     buildSkillGuidance(tools, opts.skills ?? []),
+    buildMemoryGuidance(tools, opts.memories ?? []),
     buildArticleGuidance(tools),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, opts.allowedDirectories ?? []),
@@ -536,6 +569,8 @@ export interface BuildSystemPromptOptions {
   delegateRoles?: readonly DelegateRole[];
   /** The available skills, listed by name and description when `use_skill` is active. */
   skills?: readonly SkillSummary[];
+  /** The saved memories, indexed by name and summary when `read_memory` is active. */
+  memories?: readonly MemorySummary[];
   /** The session's effort level, stated with its calibration expectation; defaults to `medium`. */
   effort?: Effort;
   /** Clock injection for tests; defaults to the current time. */
@@ -563,6 +598,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.delegateRoles ?? [],
       opts.effort ?? "medium",
       opts.skills ?? [],
+      opts.memories ?? [],
     ),
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
@@ -589,6 +625,7 @@ export function createSystemPromptBuilder(
   allowedDirectories: readonly string[] = [],
   delegateRoles: readonly DelegateRole[] = [],
   skills: readonly SkillSummary[] = [],
+  memories: readonly MemorySummary[] = [],
 ): (session: Session) => string {
   return (session: Session) =>
     session.parentSessionId !== null
@@ -597,6 +634,7 @@ export function createSystemPromptBuilder(
           allowedDirectories,
           workingDirectory: session.cwd,
           skills,
+          memories,
           effort: session.effort,
         })
       : buildSystemPrompt({
@@ -606,6 +644,7 @@ export function createSystemPromptBuilder(
           workingDirectory: session.cwd,
           delegateRoles,
           skills,
+          memories,
           effort: session.effort,
         });
 }

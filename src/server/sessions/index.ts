@@ -10,6 +10,12 @@ export {
 } from "./filesystem-tools.ts";
 export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
 export {
+  type MemorySummary,
+  listMemories,
+  memoryNameSchema,
+  memoryTools,
+} from "./memory-tools.ts";
+export {
   type Message,
   type NewMessage,
   type Session,
