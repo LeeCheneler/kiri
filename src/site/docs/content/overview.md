@@ -38,8 +38,9 @@ article in your feed.
   you know the shape of the work.
 - **Sessions** — chat with the same models, plus tools from MCP servers you
   configure. Sessions write articles too, on request, can run your
-  workflows for you, and can delegate research to a separate worker session
-  that reports back just the findings. Reach for a session when you don't.
+  workflows for you, can delegate research to a separate worker session
+  that reports back just the findings, and remember durable facts across
+  sessions as curatable memories. Reach for a session when you don't.
 
 Both land in the same activity feed, and everything they produce is
 searchable — articles, session titles and transcripts, run summaries, and

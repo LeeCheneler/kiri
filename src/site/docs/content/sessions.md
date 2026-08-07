@@ -93,6 +93,29 @@ The instructions the assistant follows once the skill is loaded…
   inherit it too — skills reach delegated research where `kiri.md`
   deliberately doesn't.
 
+## Memories
+
+A **memory** is a small durable fact the assistant carries across sessions —
+a preference, standing context, or a correction you've given — saved to
+kiri's own database, not your repo. Tell kiri to remember something (or
+correct it in a way worth keeping) and it saves the fact with `save_memory`;
+every later session sees an index of memory names and one-line summaries in
+its instructions and loads the full body with `read_memory` only when a
+memory looks relevant, so recall costs almost nothing until it's used.
+Saving an existing memory's name rewrites it in place, so a misunderstood
+memory is corrected in one step — just explain what it got wrong.
+
+The **Memories page** is where you curate the record: read any memory, edit
+its summary or body, and delete what's wrong or stale. Because that page
+gives you standing oversight, the three memory tools run without prompting
+by default — saving a fact in response to conversation is the authorisation,
+and prompting on every save would stop the assistant bothering. Any of the
+three can be set to Ask or Off like any other tool.
+
+Memories are per-workspace, and they reach delegated workers read-only: a
+worker can recall your memories while researching, but only the conversation
+you're actually in ever saves or deletes one.
+
 ## Effort
 
 Every session carries an **effort level** — `low`, `medium` (the default),
@@ -173,6 +196,7 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Article write / edit / read | Always allow | Only touch kiri's own data. |
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
+| Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `set_working_directory` | Always allow | Only moves a value confined to the sandbox. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
