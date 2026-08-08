@@ -59,9 +59,14 @@ export function SessionActions({ id }: { id: string }) {
       }
     }
     // The session (or its already-deleted remains) is gone — drop any unsent
-    // draft we were holding for it before leaving.
+    // draft we were holding for it before leaving. A project session returns
+    // home to its project; a projectless one to the session list.
     clearSessionDraft(id);
-    navigate("/?view=sessions");
+    navigate(
+      detail.session.projectId !== null
+        ? `/projects/${encodeURIComponent(detail.session.projectId)}`
+        : "/?view=sessions",
+    );
   };
 
   return (

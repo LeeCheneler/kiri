@@ -68,6 +68,16 @@ export function useProjectsLive(): void {
       void queryClient.invalidateQueries({ queryKey: projectsKey });
     },
   });
+  // Session lifecycle reshapes a project's session index and counts, but
+  // session events carry no project id — restale every project query and let
+  // the mounted ones refetch.
+  useLiveEvent({
+    on: ["session.started", "session.updated", "session.finished", "session.deleted"],
+    handler: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project"] });
+      void queryClient.invalidateQueries({ queryKey: projectsKey });
+    },
+  });
   // A project session writing into the corpus announces the write with its
   // project id — the project's page, index counts, and the touched article
   // all refresh without a project.* event.

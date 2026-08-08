@@ -1,11 +1,12 @@
 import type { UIMessage } from "ai";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
-import { ApiError, type SessionDetail } from "../../api.ts";
+import { ApiError, type Session, type SessionDetail } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
+import { useProject } from "../../state/projects.ts";
 import { useModels, useSession } from "../../state/sessions.ts";
 import { ChatMessage } from "./chat-message.tsx";
 import {
@@ -62,6 +63,34 @@ export function SessionChat({ id }: { id: string }) {
   }
 
   return <Chat detail={session.data} />;
+}
+
+// The chat header breadcrumb: a project session threads home through its
+// project; a projectless one through the session list.
+function ChatBreadcrumb({ session }: { session: Session }) {
+  const current = session.title ?? session.id.slice(0, 8);
+  if (session.projectId === null) {
+    return (
+      <Breadcrumb items={[{ label: "Sessions", href: "/?view=sessions" }]} current={current} />
+    );
+  }
+  return <ProjectChatBreadcrumb projectId={session.projectId} current={current} />;
+}
+
+// Split out so the project-name query mounts only for project sessions. The
+// short project id stands in while the name loads (or if the project query
+// errors independently of the session).
+function ProjectChatBreadcrumb({ projectId, current }: { projectId: string; current: string }) {
+  const name = useProject(projectId).data?.project.name ?? projectId.slice(0, 8);
+  return (
+    <Breadcrumb
+      items={[
+        { label: "Projects", href: "/projects" },
+        { label: name, href: `/projects/${encodeURIComponent(projectId)}` },
+      ]}
+      current={current}
+    />
+  );
 }
 
 function Chat({ detail }: { detail: SessionDetail }) {
@@ -199,10 +228,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
           inner padding) so it pins flush to the top with breathing room, mirroring
           the sticky composer at the foot. The transcript scrolls behind it. */}
       <div className="sticky top-0 z-10 -mt-6 border-b border-rule bg-canvas pt-6 pb-4 lg:-mt-8 lg:pt-8">
-        <Breadcrumb
-          items={[{ label: "Sessions", href: "/?view=sessions" }]}
-          current={session.title ?? session.id.slice(0, 8)}
-        />
+        <ChatBreadcrumb session={session} />
       </div>
 
       <div className="mt-8 space-y-8">

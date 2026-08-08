@@ -16,6 +16,7 @@ const sessionDetail = (messages: unknown[] = [], overrides: Record<string, unkno
     id: "s1",
     status: "idle",
     model: "anthropic:claude",
+    projectId: null,
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
@@ -252,6 +253,27 @@ describe("<SessionChat>", () => {
     );
     renderChat();
     expect(await screen.findByText("abcdef01")).toBeDefined();
+  });
+
+  it("threads a project session's breadcrumb home through its project", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([], { projectId: "p1" })),
+      ),
+      http.get("*/api/projects/:id", () =>
+        HttpResponse.json({
+          project: { id: "p1", name: "Research", createdAt: "2026-05-09T10:00:00.000Z" },
+          articles: [],
+          sessions: [],
+        }),
+      ),
+    );
+    renderChat();
+
+    const projectLink = await screen.findByRole("link", { name: "Research" });
+    expect(projectLink.getAttribute("href")).toBe("/projects/p1");
+    expect(screen.getByRole("link", { name: "Projects" }).getAttribute("href")).toBe("/projects");
+    expect(screen.queryByRole("link", { name: "Sessions" })).toBeNull();
   });
 
   it("warns when the conversation nears the model's context window", async () => {

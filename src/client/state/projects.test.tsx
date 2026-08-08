@@ -149,6 +149,28 @@ describe("projects state", () => {
     expect(await screen.findByText("body:New body.")).toBeDefined();
   });
 
+  it("refetches project queries when sessions start or die — their events carry no project id", async () => {
+    let fetches = 0;
+    server.use(
+      http.get("*/api/projects/p1", () => {
+        fetches += 1;
+        return HttpResponse.json(detail("p1", `Fetch ${fetches}`));
+      }),
+    );
+    const { sources } = renderProbe(<DetailProbe id="p1" />);
+    expect(await screen.findByText("name:Fetch 1")).toBeDefined();
+
+    act(() => {
+      sources[0]?.emit({ type: "session.started", id: "s1" });
+    });
+    expect(await screen.findByText("name:Fetch 2")).toBeDefined();
+
+    act(() => {
+      sources[0]?.emit({ type: "session.deleted", id: "s1" });
+    });
+    expect(await screen.findByText("name:Fetch 3")).toBeDefined();
+  });
+
   it("refetches project queries on a corpus write, ignoring session-article writes", async () => {
     let fetches = 0;
     server.use(

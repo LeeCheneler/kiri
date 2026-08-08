@@ -36,7 +36,7 @@ const renderList = () => {
 };
 
 const openCreateModal = async () => {
-  await userEvent.click(await screen.findByRole("button", { name: "create" }));
+  await userEvent.click(await screen.findByRole("button", { name: /new project/i }));
   return await screen.findByRole("dialog");
 };
 

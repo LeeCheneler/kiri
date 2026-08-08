@@ -130,63 +130,65 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
           </div>
         </>
       )}
-      <div className="mt-10">
-        <Eyebrow tone="muted">Articles</Eyebrow>
-        {data.articles.length === 0 ? (
-          <div className="mt-3">
-            <EmptyState>
-              no articles yet. sessions in this project write their articles into this shared
-              corpus.
-            </EmptyState>
-          </div>
-        ) : (
-          <div className="mt-1 divide-y divide-rule">
-            {data.articles.map((article) => (
-              <div key={article.slug} className="py-3">
-                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                  <HeadlineLink
-                    href={`/projects/${encodeURIComponent(id)}/articles/${encodeURIComponent(article.slug)}`}
-                  >
-                    {article.heading ?? article.name}
-                  </HeadlineLink>
-                  <Meta>
-                    <span>created {formatRelativeTime(article.createdAt, now)}</span>
-                  </Meta>
+      <div className="mt-10 grid gap-10 lg:grid-cols-2">
+        <div>
+          <Eyebrow tone="muted">Articles</Eyebrow>
+          {data.articles.length === 0 ? (
+            <div className="mt-3">
+              <EmptyState>
+                no articles yet. sessions in this project write their articles into this shared
+                corpus.
+              </EmptyState>
+            </div>
+          ) : (
+            <div className="mt-1 divide-y divide-rule">
+              {data.articles.map((article) => (
+                <div key={article.slug} className="py-3">
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <HeadlineLink
+                      href={`/projects/${encodeURIComponent(id)}/articles/${encodeURIComponent(article.slug)}`}
+                    >
+                      {article.heading ?? article.name}
+                    </HeadlineLink>
+                    <Meta>
+                      <span>created {formatRelativeTime(article.createdAt, now)}</span>
+                    </Meta>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="mt-10">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Eyebrow tone="muted">Sessions</Eyebrow>
-          <NewSessionButton projectId={id} />
+              ))}
+            </div>
+          )}
         </div>
-        {data.sessions.length === 0 ? (
-          <div className="mt-3">
-            <EmptyState>
-              no sessions yet. sessions created in this project appear here and share its article
-              corpus.
-            </EmptyState>
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Eyebrow tone="muted">Sessions</Eyebrow>
+            <NewSessionButton projectId={id} />
           </div>
-        ) : (
-          <div className="mt-1 divide-y divide-rule">
-            {data.sessions.map((session) => (
-              <div key={session.id} className="py-3">
-                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                  <HeadlineLink href={`/sessions/${encodeURIComponent(session.id)}`}>
-                    {sessionLabel(session)}
-                  </HeadlineLink>
-                  <Meta>
-                    <span>{session.status}</span>
-                    <span>started {formatRelativeTime(session.startedAt, now)}</span>
-                  </Meta>
+          {data.sessions.length === 0 ? (
+            <div className="mt-3">
+              <EmptyState>
+                no sessions yet. sessions created in this project appear here and share its article
+                corpus.
+              </EmptyState>
+            </div>
+          ) : (
+            <div className="mt-1 divide-y divide-rule">
+              {data.sessions.map((session) => (
+                <div key={session.id} className="py-3">
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <HeadlineLink href={`/sessions/${encodeURIComponent(session.id)}`}>
+                      {sessionLabel(session)}
+                    </HeadlineLink>
+                    <Meta>
+                      <span>{session.status}</span>
+                      <span>started {formatRelativeTime(session.startedAt, now)}</span>
+                    </Meta>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       {editing ? null : (
         <div className="-mx-3 mt-10 flex items-center">
