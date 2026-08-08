@@ -125,6 +125,7 @@ describe("search", () => {
         name: "Daily Digest",
         runId: "r1",
         sessionId: null,
+        projectId: null,
         snippet: [
           { text: "Pelicans", match: true },
           { text: " nested on the pier.", match: false },

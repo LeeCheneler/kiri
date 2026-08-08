@@ -7,7 +7,13 @@ import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import { articles, messages } from "../db/schema.ts";
 import { appendMessage, createSession, getSession } from "../sessions/store.ts";
-import { createProject, deleteProject, getProject, listProjects } from "./store.ts";
+import {
+  createProject,
+  deleteProject,
+  getProject,
+  listProjects,
+  updateProjectName,
+} from "./store.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -51,6 +57,15 @@ describe("projects store", () => {
     createProject(db, "Newer", { id: "p2", createdAt: new Date(2000) });
 
     expect(listProjects(db).map((project) => project.id)).toEqual(["p2", "p1"]);
+  });
+
+  it("renames a project", () => {
+    createProject(db, "Old Name", { id: "p1" });
+
+    const updated = updateProjectName(db, "p1", "New Name");
+
+    expect(updated.name).toBe("New Name");
+    expect(getProject(db, "p1")?.name).toBe("New Name");
   });
 
   it("deletes a project with no sessions or articles", () => {

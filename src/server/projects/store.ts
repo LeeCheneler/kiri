@@ -28,6 +28,12 @@ export function listProjects(db: KiriDb): Project[] {
   return db.select().from(projects).orderBy(desc(projects.createdAt), desc(projects.id)).all();
 }
 
+/** Rename a project. A display change only — nothing keys off the name. Returns the updated row. */
+export function updateProjectName(db: KiriDb, id: string, name: string): Project {
+  db.update(projects).set({ name }).where(eq(projects.id, id)).run();
+  return getProject(db, id) as Project;
+}
+
 /**
  * Permanently delete a project and everything in its container: the
  * project's articles, its sessions — including the delegate children those

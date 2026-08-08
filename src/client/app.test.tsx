@@ -86,6 +86,36 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /projects to the project index", async () => {
+    renderAt("/projects");
+    // The index's create box is unique to this route; its presence confirms
+    // the list rendered rather than falling through to not-found.
+    expect(screen.getByPlaceholderText(/new project name/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
+  it("routes /projects/:id to the project page", async () => {
+    // Stall the project fetch so the page holds its loading state for the assertion.
+    server.use(http.get("*/api/projects/:id", () => new Promise<Response>(() => {})));
+    renderAt("/projects/p1");
+    expect(screen.getByText(/loading project/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
+  it("routes /projects/:id/articles/:slug to the project article page", async () => {
+    // Stall the article fetch so the page holds its loading state for the assertion.
+    server.use(
+      http.get("*/api/projects/:id/articles/:slug", () => new Promise<Response>(() => {})),
+      http.get("*/api/projects/:id", () => new Promise<Response>(() => {})),
+    );
+    renderAt("/projects/p1/articles/corpus-doc");
+    expect(screen.getByText(/loading article/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
   it("routes /mcp to the MCP page", async () => {
     // Stall the tools fetch so the page holds its loading state for the assertion.
     server.use(http.get("*/api/mcp/tools", () => new Promise<Response>(() => {})));

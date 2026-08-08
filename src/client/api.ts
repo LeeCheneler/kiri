@@ -857,13 +857,14 @@ export interface SearchSnippetSegment {
   match: boolean;
 }
 
-/** An article search hit. `runId`/`sessionId` name the producer — exactly one is set. */
+/** An article search hit. `runId`/`sessionId`/`projectId` name the owner — exactly one is set. */
 export interface SearchArticleHit {
   id: string;
   slug: string;
   name: string;
   runId: string | null;
   sessionId: string | null;
+  projectId: string | null;
   snippet: SearchSnippetSegment[];
 }
 
@@ -1195,3 +1196,103 @@ export const patchMemory = async (
 export const deleteMemory = async (name: string): Promise<void> => {
   await assertOk(await apiFetch(`/api/memories/${encodeURIComponent(name)}`, { method: "DELETE" }));
 };
+
+/** One project's index entry: the container plus its corpus and session sizes. */
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  articleCount: number;
+  sessionCount: number;
+}
+
+/** One of a project's sessions, as listed on its project page. */
+export interface ProjectSessionSummary {
+  id: string;
+  title: string | null;
+  preview: string | null;
+  status: SessionStatus;
+  startedAt: string;
+}
+
+/** A project in full: the container with its article and session indexes. */
+export interface ProjectDetail {
+  project: { id: string; name: string; createdAt: string };
+  articles: ArticleSummary[];
+  sessions: ProjectSessionSummary[];
+}
+
+/**
+ * A project-owned article as seen by its article page — the project-corpus
+ * analogue of `SessionArticleDetail`. `heading` is the body's first markdown
+ * `# heading`, derived server-side, or null.
+ */
+export interface ProjectArticleDetail {
+  id: string;
+  projectId: string;
+  slug: string;
+  name: string;
+  contentMd: string;
+  createdAt: string;
+  heading: string | null;
+}
+
+/** Fetch every project with its corpus and session counts, newest first. Throws on non-2xx. */
+export const fetchProjects = async (): Promise<{ projects: ProjectSummary[] }> =>
+  json<{ projects: ProjectSummary[] }>(await apiFetch("/api/projects"));
+
+/** Create a project named `name`, returning the persisted row. Throws on non-2xx. */
+export const createProject = async (
+  name: string,
+): Promise<{ project: { id: string; name: string; createdAt: string } }> =>
+  json<{ project: { id: string; name: string; createdAt: string } }>(
+    await apiFetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
+  );
+
+/**
+ * Fetch a single project with its article and session indexes. Throws
+ * `ApiError` on non-2xx (404 for an unknown id).
+ */
+export const fetchProject = async (id: string): Promise<ProjectDetail> =>
+  json<ProjectDetail>(await apiFetch(`/api/projects/${encodeURIComponent(id)}`));
+
+/** Rename a project, returning the updated row. Throws `ApiError` on non-2xx (404 for an unknown id). */
+export const patchProject = async (
+  id: string,
+  patch: { name: string },
+): Promise<{ project: { id: string; name: string; createdAt: string } }> =>
+  json<{ project: { id: string; name: string; createdAt: string } }>(
+    await apiFetch(`/api/projects/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  );
+
+/**
+ * Delete a project permanently, cascading its articles, its sessions, and
+ * everything those sessions own. Throws `ApiError` on non-2xx (404 for an
+ * unknown id).
+ */
+export const deleteProject = async (id: string): Promise<void> => {
+  await assertOk(await apiFetch(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }));
+};
+
+/**
+ * Fetch a single project-owned article by project id and slug. Throws on
+ * non-2xx — 400 for a malformed slug, 404 when either the project or the
+ * named article is missing.
+ */
+export const fetchProjectArticle = async (
+  projectId: string,
+  slug: string,
+): Promise<ProjectArticleDetail> =>
+  json<ProjectArticleDetail>(
+    await apiFetch(
+      `/api/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(slug)}`,
+    ),
+  );

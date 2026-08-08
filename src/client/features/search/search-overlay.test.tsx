@@ -19,6 +19,7 @@ const fullResults = {
       name: "Pelican Digest",
       runId: "r1",
       sessionId: null,
+      projectId: null,
       snippet: [
         { text: "All the ", match: false },
         { text: "pelican", match: true },
@@ -31,6 +32,16 @@ const fullResults = {
       name: "Session Notes",
       runId: null,
       sessionId: "s9",
+      projectId: null,
+      snippet: [{ text: "pelican", match: true }],
+    },
+    {
+      id: "a3",
+      slug: "corpus-doc",
+      name: "Corpus Doc",
+      runId: null,
+      sessionId: null,
+      projectId: "p7",
       snippet: [{ text: "pelican", match: true }],
     },
   ],
@@ -112,6 +123,9 @@ describe("<SearchOverlay>", () => {
     );
     expect(screen.getByRole("link", { name: /session notes/i }).getAttribute("href")).toBe(
       "/sessions/s9/articles/notes",
+    );
+    expect(screen.getByRole("link", { name: /corpus doc/i }).getAttribute("href")).toBe(
+      "/projects/p7/articles/corpus-doc",
     );
     expect(screen.getByRole("link", { name: /tell me about pelicans/i }).getAttribute("href")).toBe(
       "/sessions/s1",

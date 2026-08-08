@@ -15,6 +15,9 @@ export type KiriEventType =
   | "session.finished"
   | "session.deleted"
   | "article.written"
+  | "project.created"
+  | "project.updated"
+  | "project.deleted"
   | "memory.saved"
   | "memory.deleted"
   | "workflow.added"
@@ -57,6 +60,9 @@ export type KiriEvent =
   | { type: "session.finished"; id: string; status: SessionStatus }
   | { type: "session.deleted"; id: string }
   | { type: "article.written"; sessionId: string; slug: string }
+  | { type: "project.created"; id: string }
+  | { type: "project.updated"; id: string }
+  | { type: "project.deleted"; id: string }
   | { type: "memory.saved"; name: string }
   | { type: "memory.deleted"; name: string }
   | { type: "workflow.added"; name: string }
@@ -92,6 +98,9 @@ const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
   "session.finished",
   "session.deleted",
   "article.written",
+  "project.created",
+  "project.updated",
+  "project.deleted",
   "memory.saved",
   "memory.deleted",
   "workflow.added",
