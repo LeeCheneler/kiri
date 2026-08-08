@@ -80,9 +80,9 @@ describe("db", () => {
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
-  it("declares articles.run_id and session_id foreign keys to their producers", () => {
+  it("declares articles.run_id, session_id, and project_id foreign keys to their owners", () => {
     const fks = getTableConfig(articles).foreignKeys;
-    expect(fks).toHaveLength(2);
+    expect(fks).toHaveLength(3);
     const refs = fks.map((fk) =>
       (
         fk as unknown as {
@@ -94,7 +94,7 @@ describe("db", () => {
       ).reference(),
     );
     const columnNames = refs.map((r) => r.columns.map((c) => c.name).join(",")).sort();
-    expect(columnNames).toEqual(["run_id", "session_id"]);
+    expect(columnNames).toEqual(["project_id", "run_id", "session_id"]);
     for (const ref of refs) {
       expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
     }
@@ -560,6 +560,8 @@ describe("db", () => {
       .map((r) => r.name)
       .sort();
     expect(indexes).toEqual([
+      "articles_project_id_idx",
+      "articles_project_id_slug_unique",
       "articles_run_id_idx",
       "articles_run_id_slug_unique",
       "articles_session_id_idx",
@@ -963,18 +965,24 @@ describe("db", () => {
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
-  it("declares sessions.parent_session_id → sessions.id self foreign key", () => {
+  it("declares sessions.parent_session_id and project_id foreign keys", () => {
     const fks = getTableConfig(sessions).foreignKeys;
-    expect(fks).toHaveLength(1);
-    const fk = fks[0] as unknown as {
-      reference: () => {
-        columns: { name: string }[];
-        foreignColumns: { name: string }[];
-      };
-    };
-    const ref = fk.reference();
-    expect(ref.columns.map((c) => c.name)).toEqual(["parent_session_id"]);
-    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+    expect(fks).toHaveLength(2);
+    const refs = fks.map((fk) =>
+      (
+        fk as unknown as {
+          reference: () => {
+            columns: { name: string }[];
+            foreignColumns: { name: string }[];
+          };
+        }
+      ).reference(),
+    );
+    const columnNames = refs.map((r) => r.columns.map((c) => c.name).join(",")).sort();
+    expect(columnNames).toEqual(["parent_session_id", "project_id"]);
+    for (const ref of refs) {
+      expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+    }
   });
 
   it("adds the sessions + messages tables when migrating a pre-sessions DB", () => {
@@ -1051,6 +1059,7 @@ describe("db", () => {
         "parent_session_id",
         "parent_tool_call_id",
         "pinned",
+        "project_id",
         "started_at",
         "status",
         "title",
@@ -1180,6 +1189,8 @@ describe("db", () => {
       .map((r) => r.name)
       .sort();
     expect(indexes).toEqual([
+      "articles_project_id_idx",
+      "articles_project_id_slug_unique",
       "articles_run_id_idx",
       "articles_run_id_slug_unique",
       "articles_session_id_idx",
@@ -1561,6 +1572,8 @@ describe("db", () => {
     sqlite.run("CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, persona TEXT)");
     sqlite.run(`CREATE TABLE articles (
       id TEXT PRIMARY KEY NOT NULL,
+      run_id TEXT,
+      session_id TEXT,
       name TEXT NOT NULL,
       content_md TEXT NOT NULL
     )`);
@@ -1600,7 +1613,7 @@ describe("db", () => {
         .join(", ")}`,
     );
     sqlite.run("INSERT INTO runs VALUES ('r1', 'wf', 'Ran fine.'), ('r2', 'wf', NULL)");
-    sqlite.run("INSERT INTO articles VALUES ('a1', 'Digest', 'Old pelican news')");
+    sqlite.run("INSERT INTO articles VALUES ('a1', 'r1', NULL, 'Digest', 'Old pelican news')");
     sqlite.run(
       `INSERT INTO messages VALUES
         ('m1', 's1', 'user', '[{"type":"text","text":"hello there"}]'),

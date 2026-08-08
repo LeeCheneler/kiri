@@ -24,7 +24,8 @@ export interface NewMessage {
  * other than the `medium` default. Pass `title` to name the session from the
  * start; it stays editable via `updateSessionTitle`. Pass `cwd` to start the
  * session working from that directory; it stays movable via
- * `updateSessionCwd`. Pass `parentSessionId`
+ * `updateSessionCwd`. Pass `projectId` to create the session within a
+ * project — set at creation and never moved. Pass `parentSessionId`
  * (with the spawning `parentToolCallId`) to create a child session; omit them
  * for a top-level one. Returns the persisted row.
  */
@@ -38,6 +39,7 @@ export function createSession(
     effort?: Session["effort"];
     title?: string;
     cwd?: string;
+    projectId?: string;
     parentSessionId?: string;
     parentToolCallId?: string;
   } = {},
@@ -51,6 +53,7 @@ export function createSession(
       imageModel: opts.imageModel ?? null,
       title: opts.title ?? null,
       cwd: opts.cwd ?? null,
+      projectId: opts.projectId ?? null,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       startedAt: opts.startedAt ?? new Date(),
       parentSessionId: opts.parentSessionId ?? null,

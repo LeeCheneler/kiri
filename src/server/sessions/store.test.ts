@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { articles, sessions } from "../db/schema.ts";
+import { articles, projects, sessions } from "../db/schema.ts";
 import {
   appendMessage,
   createSession,
@@ -53,7 +53,16 @@ describe("sessions store", () => {
     expect(session.parentToolCallId).toBeNull();
     expect(session.imageModel).toBeNull();
     expect(session.effort).toBe("medium");
+    expect(session.projectId).toBeNull();
     expect(getSession(db, "s1")?.id).toBe("s1");
+  });
+
+  it("creates a session within a project when one is given", () => {
+    db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+
+    const session = createSession(db, MODEL, { id: "s1", projectId: "p1" });
+
+    expect(session.projectId).toBe("p1");
   });
 
   it("creates a session with an image model when one is given", () => {
