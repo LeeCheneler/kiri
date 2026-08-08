@@ -422,6 +422,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "create_article",
     "replace_article",
     "edit_article",
+    "delete_article",
     "save_memory",
     "delete_memory",
   ]);
@@ -688,6 +689,26 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           createdAt: article.createdAt,
         })),
       });
+    },
+  );
+
+  app.delete(
+    "/sessions/:id/articles/:slug",
+    zValidator("param", articleParamSchema, onZodFail("invalid article slug")),
+    (c) => {
+      const { id, slug } = c.req.valid("param");
+      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      const article = db
+        .select()
+        .from(articles)
+        .where(and(eq(articles.sessionId, id), eq(articles.slug, slug)))
+        .get();
+      if (!article) {
+        return c.json({ error: `article "${slug}" not found on session "${id}"` }, 404);
+      }
+      db.delete(articles).where(eq(articles.id, article.id)).run();
+      bus?.publish({ type: "article.deleted", sessionId: id, slug });
+      return c.body(null, 204);
     },
   );
 

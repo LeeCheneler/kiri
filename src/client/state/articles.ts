@@ -3,6 +3,7 @@ import {
   type ArticleDetail,
   type ArticleSummary,
   type SessionArticleDetail,
+  deleteSessionArticle,
   fetchArticle,
   fetchSessionArticle,
   fetchSessionArticles,
@@ -99,8 +100,34 @@ export function useSessionArticlesLive(): void {
       void queryClient.invalidateQueries({ queryKey: sessionArticlesKey(event.sessionId) });
     },
   });
+  // A deletion restales the same pair — the announced article's detail 404s
+  // rather than rendering from cache, and the list drops it. Deletions from
+  // the project page carry no session id and touch no session caches.
+  useLiveEvent({
+    on: ["article.deleted"],
+    handler: (event) => {
+      if (event.sessionId === undefined) return;
+      void queryClient.invalidateQueries({
+        queryKey: sessionArticleKey(event.sessionId, event.slug),
+      });
+      void queryClient.invalidateQueries({ queryKey: sessionArticlesKey(event.sessionId) });
+    },
+  });
   useLiveReconnect(() => {
     void queryClient.invalidateQueries({ queryKey: ["session-article"] });
     void queryClient.invalidateQueries({ queryKey: ["session-articles"] });
   });
+}
+
+/**
+ * A deleter for a session-owned article: removes it, then invalidates the
+ * session's article queries so the list drops it and its page 404s.
+ */
+export function useDeleteSessionArticle(): (sessionId: string, slug: string) => Promise<void> {
+  const queryClient = useQueryClient();
+  return async (sessionId, slug) => {
+    await deleteSessionArticle(sessionId, slug);
+    void queryClient.invalidateQueries({ queryKey: sessionArticleKey(sessionId, slug) });
+    void queryClient.invalidateQueries({ queryKey: sessionArticlesKey(sessionId) });
+  };
 }

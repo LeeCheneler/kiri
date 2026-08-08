@@ -3,9 +3,10 @@ import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
+import { DeleteArticleButton } from "../features/article/delete-article-button.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
-import { useSessionArticle } from "../state/articles.ts";
+import { useDeleteSessionArticle, useSessionArticle } from "../state/articles.ts";
 
 /**
  * Session article route. Composes the article content into the page shell,
@@ -50,6 +51,7 @@ export function SessionArticleContent({
   now?: Date;
 }) {
   const article = useSessionArticle(params.id, params.slug);
+  const deleteArticle = useDeleteSessionArticle();
 
   if (article.isPending) {
     return <LoadingState>Loading article…</LoadingState>;
@@ -91,6 +93,12 @@ export function SessionArticleContent({
         { label: "Activity", href: "/" },
         { label: data.sessionId.slice(0, 8), href: `/sessions/${data.sessionId}` },
       ]}
+      actions={
+        <DeleteArticleButton
+          onDelete={() => deleteArticle(data.sessionId, data.slug)}
+          returnTo={`/sessions/${data.sessionId}`}
+        />
+      }
       now={now}
     />
   );

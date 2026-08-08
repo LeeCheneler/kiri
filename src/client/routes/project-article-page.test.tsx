@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -24,7 +25,10 @@ const Live = () => {
 
 const renderArticle = (id: string, slug: string) => {
   const { factory, sources } = captureEventSources();
-  const { hook } = memoryLocation({ path: `/projects/${id}/articles/${slug}` });
+  const { hook, history } = memoryLocation({
+    path: `/projects/${id}/articles/${slug}`,
+    record: true,
+  });
   const view = render(
     <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
@@ -35,7 +39,7 @@ const renderArticle = (id: string, slug: string) => {
       </LiveEventsProvider>
     </QueryClientProvider>,
   );
-  return { ...view, sources };
+  return { ...view, sources, history };
 };
 
 const articleJson = (id: string, slug: string, contentMd: string) => ({
@@ -122,6 +126,30 @@ describe("<ProjectArticlePage>", () => {
 
     expect(await screen.findByText(/Edited body\./)).toBeDefined();
     expect(screen.queryByText(/Original body\./)).toBeNull();
+  });
+
+  it("deletes the article behind a confirm and returns to the project", async () => {
+    let deleted = false;
+    serveProject();
+    server.use(
+      http.get("*/api/projects/:id/articles/:slug", ({ params }) =>
+        HttpResponse.json(
+          articleJson(params.id as string, params.slug as string, "# Hello\n\nBody."),
+        ),
+      ),
+      http.delete("*/api/projects/:id/articles/:slug", () => {
+        deleted = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const { history } = renderArticle(PROJECT_ID, "corpus-doc");
+    await userEvent.click(await screen.findByRole("button", { name: "delete article" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => expect(history[history.length - 1]).toBe(`/projects/${PROJECT_ID}`));
+    expect(deleted).toBe(true);
   });
 
   it("renders the not-found view with a project breadcrumb when the API returns 404", async () => {

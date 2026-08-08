@@ -172,6 +172,24 @@ export function articleTools(
       },
     }),
 
+    delete_article: tool({
+      description: `Delete one of this ${scope}'s articles permanently by slug. Use it when the user asks to remove an article, or when curating away a document that is wrong, stale, or superseded. This cannot be undone — when the content might still be wanted, prefer editing it instead.`,
+      inputSchema: z.object({
+        slug: articleSlugSchema.describe("Slug of the article to delete."),
+      }),
+      execute: async ({ slug }) => {
+        const row = requireArticle(slug);
+        db.delete(articles).where(eq(articles.id, row.id)).run();
+        publish({
+          type: "article.deleted",
+          sessionId,
+          slug,
+          ...(projectId !== null ? { projectId } : {}),
+        });
+        return { slug, deleted: true };
+      },
+    }),
+
     list_articles: tool({
       description:
         projectId !== null

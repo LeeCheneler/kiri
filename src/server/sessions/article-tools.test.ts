@@ -181,6 +181,30 @@ describe("articleTools", () => {
     });
   });
 
+  describe("delete_article", () => {
+    it("deletes an article and publishes article.deleted", async () => {
+      await run(tools.create_article, { slug: "scratch", content_md: "# Scratch" });
+
+      const output = (await run(tools.delete_article, { slug: "scratch" })) as {
+        deleted: boolean;
+      };
+
+      expect(output.deleted).toBe(true);
+      expect(db.select().from(articles).all()).toEqual([]);
+      expect(events).toContainEqual({
+        type: "article.deleted",
+        sessionId: "s1",
+        slug: "scratch",
+      });
+    });
+
+    it("rejects an unknown slug", () => {
+      expect(run(tools.delete_article, { slug: "missing" })).rejects.toThrow(
+        'No article with slug "missing" in this session',
+      );
+    });
+  });
+
   describe("list_articles", () => {
     it("returns an empty list before any article is written", async () => {
       expect(await run(tools.list_articles, {})).toEqual([]);
@@ -320,6 +344,21 @@ describe("articleTools", () => {
       expect(run(corpus.read_article, { slug: "missing" })).rejects.toThrow(
         'No article with slug "missing" in this project',
       );
+    });
+
+    it("deletes a corpus article from any of the project's sessions, announcing the project", async () => {
+      await run(corpus.create_article, { slug: "corpus-doc", content_md: "# Corpus" });
+      const sibling = articleTools(db, "ps2", "p1", (event) => events.push(event));
+
+      await run(sibling.delete_article, { slug: "corpus-doc" });
+
+      expect(db.select().from(articles).all()).toEqual([]);
+      expect(events).toContainEqual({
+        type: "article.deleted",
+        sessionId: "ps2",
+        slug: "corpus-doc",
+        projectId: "p1",
+      });
     });
 
     it("keeps the corpus invisible to the session-scoped tools and vice versa", async () => {

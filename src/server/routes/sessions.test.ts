@@ -683,6 +683,59 @@ describe("sessions routes", () => {
       });
       expect(res.status).toBe(400);
     });
+
+    it("deletes a session article and publishes article.deleted", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      insertArticle("s1", "notes", "# Meeting Notes\n\nBody.", new Date(1000));
+
+      const res = await app.request("/api/sessions/s1/articles/notes", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      expect(events).toContainEqual({ type: "article.deleted", sessionId: "s1", slug: "notes" });
+      expect(env.db.select().from(articles).all()).toEqual([]);
+    });
+
+    it("404s deleting an article absent from the session", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const res = await app.request("/api/sessions/s1/articles/ghost", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("cannot reach a project-owned article through the session route", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+      env.db
+        .insert(articles)
+        .values({
+          id: "a1",
+          projectId: "p1",
+          slug: "corpus-doc",
+          name: "Doc",
+          contentMd: "# Doc",
+          createdAt: new Date(),
+        })
+        .run();
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions/s1/articles/corpus-doc", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(404);
+      expect(env.db.select().from(articles).all()).toHaveLength(1);
+    });
   });
 
   describe("GET /api/sessions/:id/stream", () => {

@@ -109,7 +109,7 @@ describe("<ProjectDetail>", () => {
     expect(screen.queryByText("Project not found")).toBeNull();
   });
 
-  it("renames in place: prefills, patches, and returns to reading", async () => {
+  it("renames through the modal: prefills, patches, and closes", async () => {
     let patched: unknown = null;
     serveProject(detail());
     server.use(
@@ -123,38 +123,40 @@ describe("<ProjectDetail>", () => {
     renderDetail();
     await userEvent.click(await screen.findByRole("button", { name: "rename project" }));
 
-    const nameField = screen.getByLabelText("Name");
+    const dialog = await screen.findByRole("dialog");
+    const nameField = within(dialog).getByLabelText("Name");
     expect((nameField as HTMLInputElement).value).toBe("Research");
     await userEvent.clear(nameField);
     await userEvent.type(nameField, "Renamed");
-    await userEvent.click(screen.getByRole("button", { name: "save" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "save" }));
 
     await waitFor(() => expect(patched).toEqual({ name: "Renamed" }));
-    // Back in reading mode: the editor field is gone.
-    await waitFor(() => expect(screen.queryByLabelText("Name")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("cancelling a rename keeps the stored name", async () => {
+  it("cancelling the rename modal keeps the stored name", async () => {
     serveProject(detail());
     renderDetail();
     await userEvent.click(await screen.findByRole("button", { name: "rename project" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "cancel" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "cancel" }));
 
-    expect(screen.queryByLabelText("Name")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("heading", { name: "Research" })).toBeDefined();
   });
 
-  it("surfaces a failed rename inline and stays in the editor", async () => {
+  it("surfaces a failed rename inside the modal and stays open", async () => {
     serveProject(detail());
     server.use(http.patch("*/api/projects/:id", () => new HttpResponse("boom", { status: 500 })));
     renderDetail();
     await userEvent.click(await screen.findByRole("button", { name: "rename project" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "save" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "save" }));
 
-    expect(await screen.findByRole("alert")).toBeDefined();
-    expect(screen.getByLabelText("Name")).toBeDefined();
+    expect(await within(dialog).findByRole("alert")).toBeDefined();
+    expect(within(dialog).getByLabelText("Name")).toBeDefined();
   });
 
   it("deletes behind a confirm that spells out the cascade", async () => {

@@ -212,6 +212,43 @@ describe("projects routes", () => {
     });
   });
 
+  describe("DELETE /api/projects/:id/articles/:slug", () => {
+    it("deletes the corpus article and publishes article.deleted with the project", async () => {
+      seedProject("p1");
+      seedArticle("a1", "p1", "corpus-doc");
+
+      const res = await buildApp().request("/api/projects/p1/articles/corpus-doc", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      expect(events).toContainEqual({
+        type: "article.deleted",
+        projectId: "p1",
+        slug: "corpus-doc",
+      });
+      expect(env.db.select().from(articles).all()).toEqual([]);
+    });
+
+    it("404s an unknown slug on an existing project", async () => {
+      seedProject("p1");
+      const res = await buildApp().request("/api/projects/p1/articles/missing", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("404s an unknown project", async () => {
+      const res = await buildApp().request("/api/projects/missing/articles/corpus-doc", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe("GET /api/projects/:id/articles/:slug", () => {
     it("returns the full article with its derived heading", async () => {
       seedProject("p1");

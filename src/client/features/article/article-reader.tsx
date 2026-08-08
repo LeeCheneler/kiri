@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { splitLeadingHeading } from "../../../shared/extract-first-heading.ts";
 import { CopyButton } from "../../design-system/actions/copy-button.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
@@ -20,6 +21,7 @@ export function ArticleReader({
   createdAt,
   context,
   breadcrumbItems,
+  actions,
   now,
 }: {
   /** Full stored markdown; its leading `# ` heading becomes the page title. */
@@ -32,6 +34,8 @@ export function ArticleReader({
   context: string;
   /** Trail above the title; the article's own title is appended as the current crumb. */
   breadcrumbItems: { label: string; href: string }[];
+  /** Page-level actions rendered after the body — e.g. a delete control for owners that allow it. */
+  actions?: ReactNode;
   /** Clock injection for tests; production callers omit it. */
   now?: Date;
 }) {
@@ -82,6 +86,7 @@ export function ArticleReader({
       <div className="mt-10">
         <Markdown content={body} withSectionOrdinals sectionLevel={2} />
       </div>
+      {actions !== undefined ? <div className="mt-10">{actions}</div> : null}
     </article>
   );
 }

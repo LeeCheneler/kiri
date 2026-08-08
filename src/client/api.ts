@@ -477,6 +477,19 @@ export const fetchSessionArticle = async (
   );
 
 /**
+ * Delete a session-owned article permanently. Throws `ApiError` on non-2xx
+ * (404 when the session or article is missing).
+ */
+export const deleteSessionArticle = async (sessionId: string, slug: string): Promise<void> => {
+  await assertOk(
+    await apiFetch(
+      `/api/sessions/${encodeURIComponent(sessionId)}/articles/${encodeURIComponent(slug)}`,
+      { method: "DELETE" },
+    ),
+  );
+};
+
+/**
  * Fetch the articles a session has written — summary metadata only, oldest
  * first; bodies live on the article detail route. Throws on non-2xx (404
  * when the session doesn't exist).
@@ -1291,6 +1304,19 @@ export const patchProject = async (
  */
 export const deleteProject = async (id: string): Promise<void> => {
   await assertOk(await apiFetch(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }));
+};
+
+/**
+ * Delete a project-owned article permanently. Throws `ApiError` on non-2xx
+ * (404 when the project or article is missing).
+ */
+export const deleteProjectArticle = async (projectId: string, slug: string): Promise<void> => {
+  await assertOk(
+    await apiFetch(
+      `/api/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(slug)}`,
+      { method: "DELETE" },
+    ),
+  );
 };
 
 /**

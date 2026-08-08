@@ -109,14 +109,14 @@ export function ProjectsList({ now }: { now?: Date }) {
 
   return (
     <section>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb items={[]} current="Projects" />
+      <Breadcrumb items={[]} current="Projects" />
+      <div className="mt-6 max-w-sm">
+        <TextInput value={query} onChange={setQuery} placeholder="Filter projects…" />
+      </div>
+      <div className="mt-4">
         <Button variant="primary" onClick={() => setCreateOpen(true)}>
           + New project
         </Button>
-      </div>
-      <div className="mt-6 max-w-sm">
-        <TextInput value={query} onChange={setQuery} placeholder="Filter projects…" />
       </div>
       <div className="mt-8">
         <Body projects={projects} query={query} now={now} />

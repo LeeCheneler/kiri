@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -24,7 +25,10 @@ const Live = () => {
 
 const renderArticle = (id: string, slug: string) => {
   const { factory, sources } = captureEventSources();
-  const { hook } = memoryLocation({ path: `/sessions/${id}/articles/${slug}` });
+  const { hook, history } = memoryLocation({
+    path: `/sessions/${id}/articles/${slug}`,
+    record: true,
+  });
   const view = render(
     <QueryClientProvider client={createQueryClient()}>
       <LiveEventsProvider factory={factory}>
@@ -35,7 +39,7 @@ const renderArticle = (id: string, slug: string) => {
       </LiveEventsProvider>
     </QueryClientProvider>,
   );
-  return { ...view, sources };
+  return { ...view, sources, history };
 };
 
 const articleJson = (id: string, slug: string, contentMd: string) => ({
@@ -144,6 +148,92 @@ describe("<SessionArticlePage>", () => {
     // the article is missing.
     const sessionLink = screen.getByRole("link", { name: "deadbeef" });
     expect(sessionLink.getAttribute("href")).toBe("/sessions/deadbeef-1111-2222-3333-444444444444");
+  });
+
+  it("deletes the article behind a confirm and returns to the session", async () => {
+    let deleted = false;
+    server.use(
+      http.get("*/api/sessions/:id/articles/:slug", ({ params }) =>
+        HttpResponse.json(
+          articleJson(params.id as string, params.slug as string, "# Hello\n\nBody."),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/articles/:slug", () => {
+        deleted = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const { history } = renderArticle(SESSION_ID, "notes");
+    await userEvent.click(await screen.findByRole("button", { name: "delete article" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => expect(history[history.length - 1]).toBe(`/sessions/${SESSION_ID}`));
+    expect(deleted).toBe(true);
+  });
+
+  it("dismissing the delete confirm leaves the article alone", async () => {
+    let deleted = false;
+    server.use(
+      http.get("*/api/sessions/:id/articles/:slug", ({ params }) =>
+        HttpResponse.json(
+          articleJson(params.id as string, params.slug as string, "# Hello\n\nBody."),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/articles/:slug", () => {
+        deleted = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderArticle(SESSION_ID, "notes");
+    await userEvent.click(await screen.findByRole("button", { name: "delete article" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /cancel/i }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(deleted).toBe(false);
+  });
+
+  it("surfaces a failed delete inline and stays on the page", async () => {
+    server.use(
+      http.get("*/api/sessions/:id/articles/:slug", ({ params }) =>
+        HttpResponse.json(
+          articleJson(params.id as string, params.slug as string, "# Hello\n\nBody."),
+        ),
+      ),
+      http.delete(
+        "*/api/sessions/:id/articles/:slug",
+        () => new HttpResponse("boom", { status: 500 }),
+      ),
+    );
+    const { history } = renderArticle(SESSION_ID, "notes");
+    await userEvent.click(await screen.findByRole("button", { name: "delete article" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(history[history.length - 1]).toBe(`/sessions/${SESSION_ID}/articles/notes`);
+  });
+
+  it("treats deleting an already-deleted article as done and navigates back", async () => {
+    server.use(
+      http.get("*/api/sessions/:id/articles/:slug", ({ params }) =>
+        HttpResponse.json(
+          articleJson(params.id as string, params.slug as string, "# Hello\n\nBody."),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/articles/:slug", () =>
+        HttpResponse.json({ error: "gone" }, { status: 404 }),
+      ),
+    );
+    const { history } = renderArticle(SESSION_ID, "notes");
+    await userEvent.click(await screen.findByRole("button", { name: "delete article" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => expect(history[history.length - 1]).toBe(`/sessions/${SESSION_ID}`));
   });
 
   it("renders a generic error view on non-404 failures", async () => {

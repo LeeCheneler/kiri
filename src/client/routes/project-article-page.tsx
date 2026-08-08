@@ -3,9 +3,10 @@ import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
+import { DeleteArticleButton } from "../features/article/delete-article-button.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
-import { useProject, useProjectArticle } from "../state/projects.ts";
+import { useDeleteProjectArticle, useProject, useProjectArticle } from "../state/projects.ts";
 
 /**
  * Project article route. Composes the article content into the page shell,
@@ -50,6 +51,7 @@ export function ProjectArticleContent({
   now?: Date;
 }) {
   const article = useProjectArticle(params.id, params.slug);
+  const deleteArticle = useDeleteProjectArticle();
   // The owning project's name situates the article; fall back to the short
   // id while it loads (or if the project query errors independently).
   const projectName = useProject(params.id).data?.project.name ?? params.id.slice(0, 8);
@@ -93,6 +95,12 @@ export function ProjectArticleContent({
         { label: "Projects", href: "/projects" },
         { label: projectName, href: `/projects/${data.projectId}` },
       ]}
+      actions={
+        <DeleteArticleButton
+          onDelete={() => deleteArticle(data.projectId, data.slug)}
+          returnTo={`/projects/${data.projectId}`}
+        />
+      }
       now={now}
     />
   );

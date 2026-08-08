@@ -130,6 +130,26 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     return c.body(null, 204);
   });
 
+  app.delete(
+    "/:id/articles/:slug",
+    zValidator("param", articleParamSchema, onZodFail("invalid article slug")),
+    (c) => {
+      const { id, slug } = c.req.valid("param");
+      if (!getProject(db, id)) return c.json({ error: `project "${id}" not found` }, 404);
+      const article = db
+        .select()
+        .from(articles)
+        .where(and(eq(articles.projectId, id), eq(articles.slug, slug)))
+        .get();
+      if (!article) {
+        return c.json({ error: `article "${slug}" not found on project "${id}"` }, 404);
+      }
+      db.delete(articles).where(eq(articles.id, article.id)).run();
+      bus?.publish({ type: "article.deleted", projectId: id, slug });
+      return c.body(null, 204);
+    },
+  );
+
   app.get(
     "/:id/articles/:slug",
     zValidator("param", articleParamSchema, onZodFail("invalid article slug")),

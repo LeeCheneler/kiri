@@ -5,6 +5,7 @@ import {
   type ProjectSummary,
   createProject,
   deleteProject,
+  deleteProjectArticle,
   fetchProject,
   fetchProjectArticle,
   fetchProjects,
@@ -78,11 +79,11 @@ export function useProjectsLive(): void {
       void queryClient.invalidateQueries({ queryKey: projectsKey });
     },
   });
-  // A project session writing into the corpus announces the write with its
-  // project id — the project's page, index counts, and the touched article
-  // all refresh without a project.* event.
+  // Corpus writes and deletions announce their project id — the project's
+  // page, index counts, and the touched article all refresh without a
+  // project.* event. Session-owned article events carry none and are ignored.
   useLiveEvent({
-    on: ["article.written"],
+    on: ["article.written", "article.deleted"],
     handler: (event) => {
       if (event.projectId === undefined) return;
       void queryClient.invalidateQueries({ queryKey: projectKey(event.projectId) });
@@ -121,6 +122,21 @@ export function useRenameProject(): (id: string, name: string) => Promise<void> 
   return async (id, name) => {
     await patchProject(id, { name });
     void queryClient.invalidateQueries({ queryKey: projectKey(id) });
+    void queryClient.invalidateQueries({ queryKey: projectsKey });
+  };
+}
+
+/**
+ * A deleter for a project-owned article: removes it from the corpus, then
+ * invalidates the project's queries so its indexes drop it and the article's
+ * page 404s.
+ */
+export function useDeleteProjectArticle(): (projectId: string, slug: string) => Promise<void> {
+  const queryClient = useQueryClient();
+  return async (projectId, slug) => {
+    await deleteProjectArticle(projectId, slug);
+    void queryClient.invalidateQueries({ queryKey: projectKey(projectId) });
+    void queryClient.invalidateQueries({ queryKey: projectArticleKey(projectId, slug) });
     void queryClient.invalidateQueries({ queryKey: projectsKey });
   };
 }
