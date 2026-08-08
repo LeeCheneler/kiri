@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { ApiError } from "../api.ts";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
+import type { WikiLinkResolver } from "../design-system/content/wiki-links.ts";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
@@ -54,7 +56,24 @@ export function ProjectArticleContent({
   const deleteArticle = useDeleteProjectArticle();
   // The owning project's name situates the article; fall back to the short
   // id while it loads (or if the project query errors independently).
-  const projectName = useProject(params.id).data?.project.name ?? params.id.slice(0, 8);
+  const projectDetail = useProject(params.id).data;
+  const projectName = projectDetail?.project.name ?? params.id.slice(0, 8);
+  // `[[slug]]` references resolve against the corpus index, linking by the
+  // target's title. Memoised so the Markdown memo holds between renders;
+  // unresolved slugs (and everything until the index loads) stay literal.
+  const corpus = projectDetail?.articles;
+  const wikiLinkResolver = useMemo<WikiLinkResolver>(() => {
+    const targets = new Map(
+      (corpus ?? []).map((entry) => [
+        entry.slug,
+        {
+          href: `/projects/${encodeURIComponent(params.id)}/articles/${encodeURIComponent(entry.slug)}`,
+          label: entry.heading ?? entry.name,
+        },
+      ]),
+    );
+    return (slug) => targets.get(slug) ?? null;
+  }, [corpus, params.id]);
 
   if (article.isPending) {
     return <LoadingState>Loading article…</LoadingState>;
@@ -101,6 +120,7 @@ export function ProjectArticleContent({
           returnTo={`/projects/${data.projectId}`}
         />
       }
+      wikiLinkResolver={wikiLinkResolver}
       now={now}
     />
   );

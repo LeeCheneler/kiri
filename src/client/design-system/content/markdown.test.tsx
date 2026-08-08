@@ -319,4 +319,40 @@ describe("<Markdown>", () => {
       expect(container.querySelector("h4")?.querySelector("span[aria-hidden]")).toBeNull();
     });
   });
+
+  describe("wiki links", () => {
+    const resolver = (slug: string) =>
+      slug === "corpus-doc"
+        ? { href: "/projects/p1/articles/corpus-doc", label: "Field Notes" }
+        : null;
+
+    it("renders a resolved [[slug]] as a link titled by its target", () => {
+      renderMd(<Markdown content="See [[corpus-doc]] for details." wikiLinkResolver={resolver} />);
+
+      const link = screen.getByRole("link", { name: "Field Notes" });
+      expect(link.getAttribute("href")).toBe("/projects/p1/articles/corpus-doc");
+      expect(screen.getByText(/See/)).toBeDefined();
+      expect(screen.getByText(/for details\./)).toBeDefined();
+    });
+
+    it("leaves unresolved references and code spans literal", () => {
+      const { container } = renderMd(
+        <Markdown
+          content={"[[missing-doc]] stays text, and `[[corpus-doc]]` stays code."}
+          wikiLinkResolver={resolver}
+        />,
+      );
+
+      expect(screen.queryByRole("link")).toBeNull();
+      expect(screen.getByText(/\[\[missing-doc\]\] stays text/)).toBeDefined();
+      expect(container.querySelector("code")?.textContent).toBe("[[corpus-doc]]");
+    });
+
+    it("leaves the syntax literal entirely without a resolver", () => {
+      renderMd(<Markdown content="See [[corpus-doc]]." />);
+
+      expect(screen.queryByRole("link")).toBeNull();
+      expect(screen.getByText(/See \[\[corpus-doc\]\]\./)).toBeDefined();
+    });
+  });
 });

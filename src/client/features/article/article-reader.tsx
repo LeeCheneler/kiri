@@ -4,6 +4,7 @@ import { CopyButton } from "../../design-system/actions/copy-button.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
+import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { readingStats } from "../../formatters/reading-stats.ts";
@@ -22,6 +23,7 @@ export function ArticleReader({
   context,
   breadcrumbItems,
   actions,
+  wikiLinkResolver,
   now,
 }: {
   /** Full stored markdown; its leading `# ` heading becomes the page title. */
@@ -36,6 +38,8 @@ export function ArticleReader({
   breadcrumbItems: { label: string; href: string }[];
   /** Page-level actions rendered after the body — e.g. a delete control for owners that allow it. */
   actions?: ReactNode;
+  /** Turns `[[slug]]` references into links — the project corpus reader passes one; other owners leave the syntax literal. */
+  wikiLinkResolver?: WikiLinkResolver;
   /** Clock injection for tests; production callers omit it. */
   now?: Date;
 }) {
@@ -84,7 +88,12 @@ export function ArticleReader({
       </header>
 
       <div className="mt-10">
-        <Markdown content={body} withSectionOrdinals sectionLevel={2} />
+        <Markdown
+          content={body}
+          withSectionOrdinals
+          sectionLevel={2}
+          wikiLinkResolver={wikiLinkResolver}
+        />
       </div>
       {actions !== undefined ? <div className="mt-10">{actions}</div> : null}
     </article>

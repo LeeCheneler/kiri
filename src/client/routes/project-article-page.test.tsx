@@ -128,6 +128,45 @@ describe("<ProjectArticlePage>", () => {
     expect(screen.queryByText(/Original body\./)).toBeNull();
   });
 
+  it("links [[slug]] references to their corpus targets, leaving unknown slugs literal", async () => {
+    server.use(
+      http.get("*/api/projects/:id", ({ params }) =>
+        HttpResponse.json({
+          project: {
+            id: params.id,
+            name: "Research",
+            createdAt: new Date(NOW.getTime() - 60_000).toISOString(),
+          },
+          articles: [
+            {
+              slug: "level-design",
+              name: "Level Design",
+              heading: "Level Design Notes",
+              createdAt: new Date(NOW.getTime() - 45_000).toISOString(),
+            },
+          ],
+          sessions: [],
+        }),
+      ),
+      http.get("*/api/projects/:id/articles/:slug", ({ params }) =>
+        HttpResponse.json(
+          articleJson(
+            params.id as string,
+            params.slug as string,
+            "# Hello\n\nSee [[level-design]] and [[missing-doc]].",
+          ),
+        ),
+      ),
+    );
+
+    renderArticle(PROJECT_ID, "corpus-doc");
+
+    const link = await screen.findByRole("link", { name: "Level Design Notes" });
+    expect(link.getAttribute("href")).toBe(`/projects/${PROJECT_ID}/articles/level-design`);
+    // A slug nothing in the corpus owns stays as written.
+    expect(screen.getByText(/\[\[missing-doc\]\]/)).toBeDefined();
+  });
+
   it("deletes the article behind a confirm and returns to the project", async () => {
     let deleted = false;
     serveProject();
