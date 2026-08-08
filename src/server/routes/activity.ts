@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, recommendations, runs, sessions } from "../db/schema.ts";
+import { articles, projects, recommendations, runs, sessions } from "../db/schema.ts";
 import { getSessionPreviews } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
 import { onZodFail } from "./shared.ts";
@@ -217,6 +217,22 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
       }
     }
 
+    // Each project row's container name, batched across the page — the feed
+    // shows where a session lives without a per-row lookup.
+    const projectIds = [
+      ...new Set(page.flatMap((e) => (e.kind === "session" ? (e.row.projectId ?? []) : []))),
+    ];
+    const projectNames = new Map(
+      projectIds.length > 0
+        ? db
+            .select({ id: projects.id, name: projects.name })
+            .from(projects)
+            .where(inArray(projects.id, projectIds))
+            .all()
+            .map((project) => [project.id, project.name])
+        : [],
+    );
+
     const entries = page.map((e) => {
       if (e.kind === "run") {
         const run = runEntryById.get(e.row.id);
@@ -229,6 +245,8 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
           ...e.row,
           preview: previews.get(e.row.id) ?? null,
           articles: articlesBySessionId.get(e.row.id) ?? [],
+          projectName:
+            e.row.projectId !== null ? (projectNames.get(e.row.projectId) ?? null) : null,
         },
       };
     });

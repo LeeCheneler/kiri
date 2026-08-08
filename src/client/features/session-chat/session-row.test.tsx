@@ -10,6 +10,8 @@ const NOW = new Date("2026-05-09T12:03:00.000Z");
 const base: SessionListEntry = {
   id: "abc1234567",
   status: "idle",
+  projectId: null,
+  projectName: null,
   model: "local:google/gemma-4-26b-a4b-qat",
   imageModel: null,
   effort: "medium" as const,
@@ -96,5 +98,19 @@ describe("<SessionRow>", () => {
     expect(screen.getByRole("link", { name: "Scratch" }).getAttribute("href")).toBe(
       "/sessions/abc1234567/articles/scratch",
     );
+  });
+
+  it("links the byline through to the session's project when it has one", () => {
+    renderRow({ projectId: "p1", projectName: "Research" });
+
+    expect(screen.getByRole("link", { name: "Research" }).getAttribute("href")).toBe(
+      "/projects/p1",
+    );
+  });
+
+  it("carries no project link for a projectless session", () => {
+    renderRow({});
+
+    expect(screen.queryByRole("link", { name: "Research" })).toBeNull();
   });
 });

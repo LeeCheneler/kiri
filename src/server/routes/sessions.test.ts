@@ -7,7 +7,7 @@ import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { ModelShortcutsConfig, ModelsConfig } from "../config/schema.ts";
-import { articles, memories } from "../db/schema.ts";
+import { articles, memories, projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
@@ -270,6 +270,35 @@ describe("sessions routes", () => {
       expect(getSession(env.db, body.session.id)?.imageModel).toBe("openai:gpt-image");
     });
 
+    it("creates a session within a project when the body carries one", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: MODEL, projectId: "p1" }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { session: { id: string; projectId: string | null } };
+      expect(body.session.projectId).toBe("p1");
+      expect(getSession(env.db, body.session.id)?.projectId).toBe("p1");
+    });
+
+    it("400s a create naming a project that doesn't exist", async () => {
+      const app = makeApp(fakeClients());
+
+      const res = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: MODEL, projectId: "missing" }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'project "missing" not found' });
+    });
+
     it("starts the session working from the configured default directory", async () => {
       const app = makeApp(fakeClients(), { getDefaultWorkingDirectory: () => env.cwd });
 
@@ -359,6 +388,19 @@ describe("sessions routes", () => {
       ).json()) as { sessions: { id: string }[]; nextCursor: string | null };
       expect(page2.sessions.map((s) => s.id)).toEqual(["s1"]);
       expect(page2.nextCursor).toBeNull();
+    });
+
+    it("names each session's project on the row", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      createSession(env.db, MODEL, { id: "s1", startedAt: new Date(1000), projectId: "p1" });
+      createSession(env.db, MODEL, { id: "s2", startedAt: new Date(2000) });
+      const app = makeApp(fakeClients());
+
+      const page = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string; projectName: string | null }[];
+      };
+      expect(page.sessions.find((s) => s.id === "s1")?.projectName).toBe("Research");
+      expect(page.sessions.find((s) => s.id === "s2")?.projectName).toBeNull();
     });
 
     it("labels each session with a preview of its first user message", async () => {
@@ -1451,6 +1493,47 @@ describe("sessions routes", () => {
       expect(systemText).toContain(
         "Move the session's working directory with set_working_directory",
       );
+    });
+
+    it("carries the project corpus map in the system prompt for a project session", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      env.db
+        .insert(articles)
+        .values({
+          id: "a1",
+          projectId: "p1",
+          slug: "corpus-doc",
+          name: "Corpus Doc",
+          contentMd: "# Field Notes\n\nBody.",
+          createdAt: new Date(),
+        })
+        .run();
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "what do we know?")).text();
+      await settled;
+
+      expect(systemText).toContain('This session belongs to the project "Research"');
+      expect(systemText).toContain("- corpus-doc: Field Notes");
     });
 
     it("offers run_command with shell guidance when kiri.yaml declares a sandbox", async () => {

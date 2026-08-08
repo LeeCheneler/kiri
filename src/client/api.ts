@@ -756,6 +756,8 @@ export interface Session {
   title: string | null;
   /** Whether the user has pinned the session onto the feed's Pinned tab. */
   pinned: boolean;
+  /** The project this session was created within, or null for a projectless session. Set at creation and never moved. */
+  projectId: string | null;
   /** The parent session this one was spawned from, or null for a top-level session. */
   parentSessionId: string | null;
   /** The parent's spawning tool call, or null for a top-level session. */
@@ -788,6 +790,8 @@ export interface SessionMessage {
 export interface SessionListEntry extends Session {
   preview: string | null;
   articles: ArticleSummary[];
+  /** The owning project's display name, or null for a projectless session. */
+  projectName: string | null;
 }
 
 /**
@@ -932,18 +936,25 @@ export const fetchSessionChildren = async (id: string): Promise<Session[]> =>
 /**
  * Create a session against `model` (a `provider:model` id), returning the new
  * row — navigate to it to start chatting. Pass `imageModel` to start with image
- * generation on. Throws `ApiError` on non-2xx, notably 400 when a model can't
- * be resolved against the provider registry.
+ * generation on, and `projectId` to create the session within a project —
+ * membership is set at creation and never moved. Throws `ApiError` on non-2xx,
+ * notably 400 when a model can't be resolved against the provider registry or
+ * the project doesn't exist.
  */
 export const createSession = async (
   model: string,
   imageModel?: string,
+  projectId?: string,
 ): Promise<{ session: Session }> =>
   json<{ session: Session }>(
     await apiFetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(imageModel === undefined ? { model } : { model, imageModel }),
+      body: JSON.stringify({
+        model,
+        ...(imageModel !== undefined ? { imageModel } : {}),
+        ...(projectId !== undefined ? { projectId } : {}),
+      }),
     }),
   );
 

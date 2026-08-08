@@ -12,6 +12,7 @@ import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useDeleteProject, useProject, useRenameProject } from "../../state/projects.ts";
+import { NewSessionButton } from "../session-chat/new-session-button.tsx";
 
 const BREADCRUMB = [{ label: "Projects", href: "/projects" }];
 
@@ -158,7 +159,10 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
         )}
       </div>
       <div className="mt-10">
-        <Eyebrow tone="muted">Sessions</Eyebrow>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Eyebrow tone="muted">Sessions</Eyebrow>
+          <NewSessionButton projectId={id} />
+        </div>
         {data.sessions.length === 0 ? (
           <div className="mt-3">
             <EmptyState>

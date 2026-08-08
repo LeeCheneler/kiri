@@ -117,6 +117,9 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
         // The worker picks up where the parent is working, not the config
         // default — a delegated task refers to the same tree the parent sees.
         ...(parent.cwd !== null ? { cwd: parent.cwd } : {}),
+        // A project parent's worker sees the same shared corpus — read-only,
+        // since the article write tools are withheld from children.
+        ...(parent.projectId !== null ? { projectId: parent.projectId } : {}),
         parentSessionId,
         parentToolCallId: toolCallId,
       });

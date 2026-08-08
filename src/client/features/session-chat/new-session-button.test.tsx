@@ -28,12 +28,12 @@ const sessionsPage = (...entries: ReturnType<typeof session>[]) => ({
   nextCursor: null,
 });
 
-const renderButton = () => {
+const renderButton = (props: { projectId?: string } = {}) => {
   const memory = memoryLocation({ path: "/", record: true });
   render(
     <QueryClientProvider client={createQueryClient()}>
       <Router hook={memory.hook}>
-        <NewSessionButton />
+        <NewSessionButton {...props} />
       </Router>
     </QueryClientProvider>,
   );
@@ -165,6 +165,25 @@ describe("<NewSessionButton>", () => {
     await user.click(await enabledButton());
 
     await waitFor(() => expect(sent).toEqual({ model: "a:small" }));
+  });
+
+  it("creates the session inside the given project", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.post("*/api/sessions", async ({ request }) => {
+        sentBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ session: session("new-1", "openai:gpt") }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    const { history } = renderButton({ projectId: "p1" });
+
+    await user.click(await enabledButton());
+
+    await waitFor(() => expect(history[history.length - 1]).toBe("/sessions/new-1"));
+    expect(sentBody).toEqual({ model: "openai:gpt", projectId: "p1" });
   });
 
   it("re-enables and stays put when the create fails", async () => {

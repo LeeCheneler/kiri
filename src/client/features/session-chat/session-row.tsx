@@ -43,6 +43,13 @@ export function SessionRow({ session, now }: { session: SessionListEntry; now?: 
       <Meta>
         <span className="text-accent uppercase">session</span>
         <Status status={status} />
+        {session.projectName !== null && session.projectId !== null ? (
+          <span>
+            <HeadlineLink href={`/projects/${encodeURIComponent(session.projectId)}`}>
+              {session.projectName}
+            </HeadlineLink>
+          </span>
+        ) : null}
         <span>{shortModel(session.model)}</span>
         <span>{formatRelativeTime(session.startedAt, now)}</span>
       </Meta>

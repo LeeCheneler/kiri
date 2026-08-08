@@ -1,9 +1,18 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, projects, sessions } from "../db/schema.ts";
 
 /** A persisted project row. */
 export type Project = typeof projects.$inferSelect;
+
+/** One entry of a project's article index: summary metadata plus the body's derived first heading. */
+export interface ProjectArticleSummary {
+  slug: string;
+  name: string;
+  heading: string | null;
+  createdAt: Date;
+}
 
 /** Insert a new project named `name`. Returns the persisted row. */
 export function createProject(
@@ -26,6 +35,25 @@ export function getProject(db: KiriDb, id: string): Project | undefined {
 /** List all projects, newest first. */
 export function listProjects(db: KiriDb): Project[] {
   return db.select().from(projects).orderBy(desc(projects.createdAt), desc(projects.id)).all();
+}
+
+/**
+ * A project's article index, oldest first. The body is read only to derive
+ * each entry's heading, never returned — detail surfaces serve it.
+ */
+export function listProjectArticles(db: KiriDb, projectId: string): ProjectArticleSummary[] {
+  return db
+    .select()
+    .from(articles)
+    .where(eq(articles.projectId, projectId))
+    .orderBy(asc(articles.createdAt))
+    .all()
+    .map((article) => ({
+      slug: article.slug,
+      name: article.name,
+      heading: extractFirstHeading(article.contentMd),
+      createdAt: article.createdAt,
+    }));
 }
 
 /** Rename a project. A display change only — nothing keys off the name. Returns the updated row. */

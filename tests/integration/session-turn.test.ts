@@ -101,7 +101,7 @@ describe("session turn streaming", () => {
 
   it("drives a real tool loop over the wire: the model's call runs an article tool and the turn settles", async () => {
     const session = createSession(db, "fake:tool");
-    const tools = articleTools(db, session.id, () => {});
+    const tools = articleTools(db, session.id, null, () => {});
 
     // The stub's `tool` model streams back exactly the call the message
     // directs, so this exercises the full loop: streamed tool-call chunks →

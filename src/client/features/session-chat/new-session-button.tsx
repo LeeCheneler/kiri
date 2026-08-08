@@ -11,9 +11,10 @@ import { useModels, useSessionsFeed } from "../../state/sessions.ts";
  * first shortcut for each configured modality — text and image alike; without
  * them the default is the most recent session's model, falling back to the
  * first available text-output model (only those can drive a session).
- * Disabled, with a hint, when no models are configured.
+ * Disabled, with a hint, when no models are configured. Pass `projectId` to
+ * create the session within that project — the project page's variant.
  */
-export function NewSessionButton() {
+export function NewSessionButton({ projectId }: { projectId?: string } = {}) {
   const [, navigate] = useLocation();
   const models = useModels();
   const sessions = useSessionsFeed();
@@ -30,7 +31,7 @@ export function NewSessionButton() {
     if (defaultModel === undefined) return;
     setStarting(true);
     try {
-      const { session } = await createSession(defaultModel, defaultImageModel);
+      const { session } = await createSession(defaultModel, defaultImageModel, projectId);
       navigate(`/sessions/${session.id}`);
     } catch {
       // Swallow the error; the button re-enables below so the user can retry.

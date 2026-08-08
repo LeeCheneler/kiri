@@ -10,6 +10,7 @@ import {
   createProject,
   deleteProject,
   getProject,
+  listProjectArticles,
   listProjects,
   updateProjectName,
 } from "../projects/store.ts";
@@ -32,22 +33,6 @@ const projectSessions = (db: KiriDb, projectId: string) =>
     .where(and(eq(sessions.projectId, projectId), isNull(sessions.parentSessionId)))
     .orderBy(asc(sessions.startedAt), asc(sessions.id))
     .all();
-
-// A project's article index, oldest first. The body is fetched only to
-// derive the heading, never echoed — the detail route serves it.
-const projectArticles = (db: KiriDb, projectId: string) =>
-  db
-    .select()
-    .from(articles)
-    .where(eq(articles.projectId, projectId))
-    .orderBy(asc(articles.createdAt))
-    .all()
-    .map((article) => ({
-      slug: article.slug,
-      name: article.name,
-      heading: extractFirstHeading(article.contentMd),
-      createdAt: article.createdAt,
-    }));
 
 /**
  * HTTP surface for projects: list and create containers, read one with its
@@ -106,7 +91,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     );
     return c.json({
       project,
-      articles: projectArticles(db, id),
+      articles: listProjectArticles(db, id),
       sessions: rows.map((row) => ({
         id: row.id,
         title: row.title,

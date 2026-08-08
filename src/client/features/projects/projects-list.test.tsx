@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
@@ -35,6 +35,11 @@ const renderList = () => {
   return { history: memory.history };
 };
 
+const openCreateModal = async () => {
+  await userEvent.click(await screen.findByRole("button", { name: "create" }));
+  return await screen.findByRole("dialog");
+};
+
 describe("<ProjectsList>", () => {
   it("lists each project as a link with its counts", async () => {
     serveProjects([
@@ -48,6 +53,27 @@ describe("<ProjectsList>", () => {
     expect(screen.getByText("2 articles")).toBeDefined();
     expect(screen.getByText("1 session")).toBeDefined();
     expect(screen.getByRole("link", { name: "Gardening" })).toBeDefined();
+  });
+
+  it("filters by name client-side", async () => {
+    serveProjects([summary("p1", "Research"), summary("p2", "Gardening")]);
+    renderList();
+    await screen.findByRole("link", { name: "Research" });
+
+    await userEvent.type(screen.getByPlaceholderText("Filter projects…"), "gard");
+
+    expect(screen.queryByRole("link", { name: "Research" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Gardening" })).toBeDefined();
+  });
+
+  it("reports when nothing matches the filter", async () => {
+    serveProjects([summary("p1", "Research")]);
+    renderList();
+    await screen.findByRole("link", { name: "Research" });
+
+    await userEvent.type(screen.getByPlaceholderText("Filter projects…"), "zzz");
+
+    expect(screen.getByText(/no projects match/i)).toBeDefined();
   });
 
   it("explains the feature when no projects exist", async () => {
@@ -64,7 +90,7 @@ describe("<ProjectsList>", () => {
     expect(await screen.findByRole("alert")).toBeDefined();
   });
 
-  it("creates a project and navigates to its page", async () => {
+  it("creates through the naming modal and navigates to the new project", async () => {
     let posted: unknown = null;
     serveProjects([]);
     server.use(
@@ -78,14 +104,26 @@ describe("<ProjectsList>", () => {
     );
     const { history } = renderList();
 
-    await userEvent.type(await screen.findByPlaceholderText("New project name…"), "  Research  ");
-    await userEvent.click(screen.getByRole("button", { name: "create" }));
+    const dialog = await openCreateModal();
+    await userEvent.type(within(dialog).getByLabelText("Name"), "  Research  ");
+    await userEvent.click(within(dialog).getByRole("button", { name: "create" }));
 
     await waitFor(() => expect(history[history.length - 1]).toBe("/projects/p1"));
     expect(posted).toEqual({ name: "Research" });
   });
 
-  it("ignores a blank create", async () => {
+  it("disables the modal's create until a name is typed", async () => {
+    serveProjects([]);
+    renderList();
+
+    const dialog = await openCreateModal();
+
+    expect(
+      (within(dialog).getByRole("button", { name: "create" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("cancelling the modal creates nothing", async () => {
     let posted = false;
     serveProjects([]);
     server.use(
@@ -96,20 +134,23 @@ describe("<ProjectsList>", () => {
     );
     renderList();
 
-    await userEvent.click(await screen.findByRole("button", { name: "create" }));
+    const dialog = await openCreateModal();
+    await userEvent.click(within(dialog).getByRole("button", { name: "cancel" }));
 
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(posted).toBe(false);
   });
 
-  it("surfaces a failed create inline and stays on the page", async () => {
+  it("surfaces a failed create inside the modal and stays put", async () => {
     serveProjects([]);
     server.use(http.post("*/api/projects", () => new HttpResponse("boom", { status: 500 })));
     const { history } = renderList();
 
-    await userEvent.type(await screen.findByPlaceholderText("New project name…"), "Research");
-    await userEvent.click(screen.getByRole("button", { name: "create" }));
+    const dialog = await openCreateModal();
+    await userEvent.type(within(dialog).getByLabelText("Name"), "Research");
+    await userEvent.click(within(dialog).getByRole("button", { name: "create" }));
 
-    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(await within(dialog).findByRole("alert")).toBeDefined();
     expect(history[history.length - 1]).toBe("/projects");
   });
 });

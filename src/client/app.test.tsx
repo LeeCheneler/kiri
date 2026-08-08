@@ -88,9 +88,9 @@ describe("<App>", () => {
 
   it("routes /projects to the project index", async () => {
     renderAt("/projects");
-    // The index's create box is unique to this route; its presence confirms
+    // The index's filter box is unique to this route; its presence confirms
     // the list rendered rather than falling through to not-found.
-    expect(screen.getByPlaceholderText(/new project name/i)).toBeDefined();
+    expect(screen.getByPlaceholderText(/filter projects/i)).toBeDefined();
     expect(screen.queryByText(/page not found/i)).toBeNull();
     await flushAsync();
   });

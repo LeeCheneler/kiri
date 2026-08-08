@@ -106,4 +106,71 @@ describe("<SessionArticles>", () => {
 
     expect(fetches).toBe(1);
   });
+
+  const serveProjectSession = (projectId: string | null) =>
+    server.use(
+      http.get("*/api/sessions/:id", ({ params }) =>
+        HttpResponse.json({
+          session: {
+            id: params.id,
+            status: "idle",
+            model: "anthropic:claude",
+            imageModel: null,
+            effort: "medium",
+            cwd: null,
+            title: null,
+            pinned: false,
+            projectId,
+            parentSessionId: null,
+            parentToolCallId: null,
+            startedAt: new Date().toISOString(),
+            finishedAt: null,
+            error: null,
+          },
+          messages: [],
+        }),
+      ),
+    );
+
+  it("shows the project's shared corpus instead for a project session", async () => {
+    serveProjectSession("p1");
+    server.use(
+      http.get("*/api/projects/:id", () =>
+        HttpResponse.json({
+          project: { id: "p1", name: "Research", createdAt: new Date().toISOString() },
+          articles: [summary("corpus-doc", "Field Notes"), summary("scratch", null)],
+          sessions: [],
+        }),
+      ),
+    );
+
+    renderPanel(SESSION_ID);
+
+    const projectLink = await screen.findByRole("link", { name: "Research" });
+    expect(projectLink.getAttribute("href")).toBe("/projects/p1");
+    const corpusLink = screen.getByRole("link", { name: "Field Notes" });
+    expect(corpusLink.getAttribute("href")).toBe("/projects/p1/articles/corpus-doc");
+    // A heading-less corpus article falls back to its name.
+    expect(screen.getByRole("link", { name: "Notes" }).getAttribute("href")).toBe(
+      "/projects/p1/articles/scratch",
+    );
+  });
+
+  it("keeps the project link even while the corpus is empty", async () => {
+    serveProjectSession("p1");
+    server.use(
+      http.get("*/api/projects/:id", () =>
+        HttpResponse.json({
+          project: { id: "p1", name: "Research", createdAt: new Date().toISOString() },
+          articles: [],
+          sessions: [],
+        }),
+      ),
+    );
+
+    renderPanel(SESSION_ID);
+
+    expect(await screen.findByRole("link", { name: "Research" })).toBeDefined();
+    expect(screen.queryByRole("list")).toBeNull();
+  });
 });

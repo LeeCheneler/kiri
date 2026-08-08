@@ -68,6 +68,20 @@ export function useProjectsLive(): void {
       void queryClient.invalidateQueries({ queryKey: projectsKey });
     },
   });
+  // A project session writing into the corpus announces the write with its
+  // project id — the project's page, index counts, and the touched article
+  // all refresh without a project.* event.
+  useLiveEvent({
+    on: ["article.written"],
+    handler: (event) => {
+      if (event.projectId === undefined) return;
+      void queryClient.invalidateQueries({ queryKey: projectKey(event.projectId) });
+      void queryClient.invalidateQueries({
+        queryKey: projectArticleKey(event.projectId, event.slug),
+      });
+      void queryClient.invalidateQueries({ queryKey: projectsKey });
+    },
+  });
   useLiveReconnect(() => {
     void queryClient.invalidateQueries({ queryKey: ["project"] });
     void queryClient.invalidateQueries({ queryKey: ["project-article"] });

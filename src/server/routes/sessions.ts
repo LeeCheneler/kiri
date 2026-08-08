@@ -15,10 +15,11 @@ import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { type ModelsConfig, configuredDelegateRoles } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, sessions as sessionsTable } from "../db/schema.ts";
+import { articles, projects, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import { EFFORT_LEVELS, type LlmClients } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
+import { getProject, listProjectArticles } from "../projects/store.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   BUILTIN_TOOLS,
@@ -132,9 +133,14 @@ const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string
 
 // `imageModel` starts the session with image generation on — the
 // first-shortcut default when image shortcuts are configured; otherwise it's
-// simply not sent.
+// simply not sent. `projectId` creates the session within a project — set at
+// creation and never moved, so it has no PATCH counterpart.
 const createSessionBodySchema = z
-  .object({ model: z.string().min(1), imageModel: z.string().min(1).optional() })
+  .object({
+    model: z.string().min(1),
+    imageModel: z.string().min(1).optional(),
+    projectId: z.string().min(1).optional(),
+  })
   .strict();
 
 // Any field may be set independently: the aside swaps the models, the pin
@@ -375,12 +381,30 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     },
   });
 
+  // The prompt-layer context for a session's project: its name plus the
+  // corpus index the prompt map lists — each slug titled by its body's first
+  // heading, falling back to the display name. Null for projectless sessions.
+  const projectContextFor = (sessionId: string) => {
+    const projectId = getSession(db, sessionId)?.projectId ?? null;
+    const project = projectId !== null ? getProject(db, projectId) : undefined;
+    if (!project) return null;
+    return {
+      name: project.name,
+      articles: listProjectArticles(db, project.id).map((article) => ({
+        slug: article.slug,
+        heading: article.heading ?? article.name,
+      })),
+    };
+  };
+
   const builtinToolsFor = (sessionId: string): ToolSet => {
     const sandbox = sandboxDirectories();
     return {
       ...skillTools(config),
       ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
-      ...articleTools(db, sessionId, (event) => bus?.publish(event)),
+      ...articleTools(db, sessionId, getSession(db, sessionId)?.projectId ?? null, (event) =>
+        bus?.publish(event),
+      ),
       ...memoryTools(db, (event) => bus?.publish(event)),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(sandbox.length > 0 ? shellTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
@@ -443,6 +467,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         [],
         listSkills(config),
         listMemories(db),
+        projectContextFor(childSessionId),
       ),
       tools,
     };
@@ -510,7 +535,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "/sessions",
     zValidator("json", createSessionBodySchema, onZodFail("invalid session")),
     (c) => {
-      const { model, imageModel } = c.req.valid("json");
+      const { model, imageModel, projectId } = c.req.valid("json");
       // Validate the models resolve now, at create time, so a bad id fails the
       // create with the resolver's own message rather than a later turn.
       try {
@@ -519,10 +544,16 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       } catch (cause) {
         return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
       }
+      // The project must exist at create — membership is set once here, so a
+      // stale id fails the create rather than minting an orphaned session.
+      if (projectId !== undefined && !getProject(db, projectId)) {
+        return c.json({ error: `project "${projectId}" not found` }, 400);
+      }
       const cwd = defaultWorkingDirectory();
       const session = createSession(db, model, {
         ...(imageModel !== undefined ? { imageModel } : {}),
         ...(cwd !== undefined ? { cwd } : {}),
+        ...(projectId !== undefined ? { projectId } : {}),
       });
       bus?.publish({ type: "session.started", id: session.id });
       return c.json({ session }, 201);
@@ -612,10 +643,24 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           else articlesBySessionId.set(article.sessionId, [entry]);
         }
       }
+      // Each project row's container name, batched across the page — the
+      // feed shows where a session lives without a per-row lookup.
+      const projectIds = [...new Set(rows.flatMap((row) => row.projectId ?? []))];
+      const projectNames = new Map(
+        projectIds.length > 0
+          ? db
+              .select({ id: projects.id, name: projects.name })
+              .from(projects)
+              .where(inArray(projects.id, projectIds))
+              .all()
+              .map((project) => [project.id, project.name])
+          : [],
+      );
       const sessions = rows.map((row) => ({
         ...row,
         preview: previews.get(row.id) ?? null,
         articles: articlesBySessionId.get(row.id) ?? [],
+        projectName: row.projectId !== null ? (projectNames.get(row.projectId) ?? null) : null,
       }));
       return c.json({ sessions, nextCursor });
     },
@@ -803,6 +848,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         configuredDelegateRoles(deps.getModelsConfig?.().delegates),
         listSkills(config),
         listMemories(db),
+        projectContextFor(id),
       );
       const turnDeps = {
         db,

@@ -8,10 +8,19 @@ import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
+import { Modal } from "../../design-system/surfaces/modal.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import { useCreateProject, useProjects } from "../../state/projects.ts";
 
 const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+// Substring filter across project names (case-insensitive). An empty query
+// passes everything.
+const filterProjects = (projects: ProjectSummary[], query: string): ProjectSummary[] => {
+  const q = query.trim().toLowerCase();
+  if (q === "") return projects;
+  return projects.filter((project) => project.name.toLowerCase().includes(q));
+};
 
 function ProjectRow({ project, now }: { project: ProjectSummary; now?: Date }) {
   return (
@@ -32,14 +41,10 @@ function ProjectRow({ project, now }: { project: ProjectSummary; now?: Date }) {
   );
 }
 
-/**
- * The project index: every project with its corpus and session sizes, each
- * linking to its page, plus the create form. Kept live by the shared
- * project queries. `now` is injectable so tests render deterministic
- * relative times.
- */
-export function ProjectsList({ now }: { now?: Date }) {
-  const projects = useProjects();
+// The name-and-confirm dialog behind the create button. Owns its own field
+// state so each opening starts blank; a successful create navigates straight
+// to the new project's page.
+function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const create = useCreateProject();
   const [, navigate] = useLocation();
   const [name, setName] = useState("");
@@ -47,7 +52,6 @@ export function ProjectsList({ now }: { now?: Date }) {
   const [error, setError] = useState<string | null>(null);
 
   const handleCreate = async () => {
-    if (name.trim() === "") return;
     setError(null);
     setPending(true);
     try {
@@ -60,27 +64,75 @@ export function ProjectsList({ now }: { now?: Date }) {
   };
 
   return (
+    <Modal title="New project" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <TextInput
+          value={name}
+          onChange={setName}
+          label="Name"
+          description="A project collects sessions around a shared corpus of articles."
+        />
+        <div className="flex items-center justify-end gap-3">
+          <Button variant="dismissive" disabled={pending} onClick={onClose}>
+            cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={name.trim() === ""}
+            pending={pending}
+            pendingLabel="creating…"
+            onClick={handleCreate}
+          >
+            create
+          </Button>
+        </div>
+        {error ? (
+          <p role="alert" className="font-mono text-xs text-status-failed">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * The project index: every project with its corpus and session sizes, each
+ * linking to its page. The top bar filters the list client-side; the create
+ * button opens a naming modal. Kept live by the shared project queries.
+ * `now` is injectable so tests render deterministic relative times.
+ */
+export function ProjectsList({ now }: { now?: Date }) {
+  const projects = useProjects();
+  const [query, setQuery] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+
+  return (
     <section>
       <Breadcrumb items={[]} current="Projects" />
       <div className="mt-6 flex items-center gap-3">
-        <TextInput value={name} onChange={setName} placeholder="New project name…" />
-        <Button variant="primary" pending={pending} pendingLabel="creating…" onClick={handleCreate}>
+        <TextInput value={query} onChange={setQuery} placeholder="Filter projects…" />
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
           create
         </Button>
       </div>
-      {error ? (
-        <p role="alert" className="mt-3 font-mono text-xs text-status-failed">
-          {error}
-        </p>
-      ) : null}
       <div className="mt-8">
-        <Body projects={projects} now={now} />
+        <Body projects={projects} query={query} now={now} />
       </div>
+      {createOpen ? <CreateProjectModal onClose={() => setCreateOpen(false)} /> : null}
     </section>
   );
 }
 
-function Body({ projects, now }: { projects: ReturnType<typeof useProjects>; now?: Date }) {
+function Body({
+  projects,
+  query,
+  now,
+}: {
+  projects: ReturnType<typeof useProjects>;
+  query: string;
+  now?: Date;
+}) {
   if (projects.isPending) return <LoadingState>Loading projects…</LoadingState>;
   if (projects.isError) {
     return (
@@ -99,9 +151,14 @@ function Body({ projects, now }: { projects: ReturnType<typeof useProjects>; now
     );
   }
 
+  const matched = filterProjects(projects.data, query);
+  if (matched.length === 0) {
+    return <EmptyState>No projects match “{query.trim()}”.</EmptyState>;
+  }
+
   return (
     <div className="divide-y divide-rule">
-      {projects.data.map((project) => (
+      {matched.map((project) => (
         <ProjectRow key={project.id} project={project} now={now} />
       ))}
     </div>

@@ -4,6 +4,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
+import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import {
@@ -146,6 +147,37 @@ describe("projects state", () => {
       sources[0]?.emit({ type: "project.updated", id: "p1" });
     });
     expect(await screen.findByText("body:New body.")).toBeDefined();
+  });
+
+  it("refetches project queries on a corpus write, ignoring session-article writes", async () => {
+    let fetches = 0;
+    server.use(
+      http.get("*/api/projects/p1", () => {
+        fetches += 1;
+        return HttpResponse.json(detail("p1", fetches === 1 ? "Before" : "After"));
+      }),
+    );
+    const { sources } = renderProbe(<DetailProbe id="p1" />);
+    expect(await screen.findByText("name:Before")).toBeDefined();
+
+    act(() => {
+      sources[0]?.emit({
+        type: "article.written",
+        sessionId: "s1",
+        slug: "corpus-doc",
+        projectId: "p1",
+      });
+    });
+    expect(await screen.findByText("name:After")).toBeDefined();
+    expect(fetches).toBe(2);
+
+    // A projectless session's write carries no project id and must not
+    // disturb project caches.
+    act(() => {
+      sources[0]?.emit({ type: "article.written", sessionId: "s1", slug: "own-doc" });
+    });
+    await flushAsync();
+    expect(fetches).toBe(2);
   });
 
   it("drops a deleted project from a mounted index", async () => {
