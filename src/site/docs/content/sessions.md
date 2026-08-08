@@ -193,7 +193,7 @@ first. Any default can be tightened, or the tool switched off entirely.
 
 | Built-in tool(s) | Default | Why |
 | --- | --- | --- |
-| Article write / edit / read | Always allow | Only touch kiri's own data. |
+| Article write / edit / delete / read | Always allow | Only touch kiri's own data. |
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
 | Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
@@ -246,8 +246,35 @@ Ask for a write-up — a report, a digest, a guide — and the session saves it
 as an **article** rather than scrolling it into the chat: the same readable
 pages workflows produce, charts and diagrams included. The chat reply stays a
 short pointer; the piece lives on its own page. Ask for changes and the
-session edits the article in place. Articles belong to their session:
-deleting the session deletes them.
+session edits the article in place, and ask for one to go and it deletes it —
+every article page carries the same delete action. Articles belong to their
+session — deleting the session deletes them — unless the session lives in a
+project, where they land in the project's shared corpus instead (see
+Projects below).
+
+## Projects
+
+A **project** is a named container for a body of work: a shared corpus of
+articles and the sessions that build it. Create one from the Projects page,
+start sessions inside it, and every article those sessions write lands in
+the project rather than in any one conversation — each session sees the
+whole corpus, reads any article on demand, and keeps existing ones current,
+whoever wrote them. A session belongs to a project from creation or not at
+all; its feed rows name the project, and its chat threads home through it.
+
+- Each project session's instructions carry the **corpus index** — slugs and
+  titles only. An article's body enters the conversation only when the
+  assistant reads it, so a growing corpus costs nothing until it's used.
+- Articles cross-reference each other with `[[slug]]`: in the project's
+  reading view the reference renders as a link to that article, titled by
+  its heading, so the corpus browses like a small wiki. The assistant knows
+  the syntax and cross-links as it writes.
+- Corpus articles outlive the sessions that wrote them — deleting a session
+  never touches the corpus. Deleting the **project** deletes everything it
+  contains: its articles, its sessions, and everything those sessions own,
+  behind a confirmation that states the counts.
+- Delegated workers inherit the project read-only: a worker consults the
+  corpus while researching, but only the conversation you're in writes it.
 
 ## Generating images
 

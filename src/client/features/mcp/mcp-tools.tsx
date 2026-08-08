@@ -72,17 +72,22 @@ function ToolRow({
 // to judge with.
 const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly string[] }[] = [
   {
-    title: "Articles & images",
+    title: "Articles",
     blurb:
-      "Standalone session output saved outside the chat — markdown articles and generated images.",
+      "Standalone markdown documents saved outside the chat — a session's own, or its project's shared corpus.",
     tools: [
       "create_article",
       "replace_article",
       "edit_article",
+      "delete_article",
       "list_articles",
       "read_article",
-      "generate_image",
     ],
+  },
+  {
+    title: "Images",
+    blurb: "Generated with the image model selected on the session.",
+    tools: ["generate_image"],
   },
   {
     title: "Skills",
