@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { ToolExecutionOptions, ToolSet } from "ai";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
-import { articles, runs } from "../db/schema.ts";
+import { articles, projects, runs } from "../db/schema.ts";
 import type { KiriEvent } from "../events/index.ts";
 import { articleTools } from "./article-tools.ts";
 import { createSession } from "./store.ts";
@@ -32,7 +32,7 @@ describe("articleTools", () => {
     migrate(db);
     createSession(db, MODEL, { id: "s1" });
     events = [];
-    tools = articleTools(db, "s1", (event) => events.push(event));
+    tools = articleTools(db, "s1", null, (event) => events.push(event));
   });
 
   afterEach(() => {
@@ -79,7 +79,7 @@ describe("articleTools", () => {
 
     it("scopes slug uniqueness to the session", async () => {
       createSession(db, MODEL, { id: "s2" });
-      const other = articleTools(db, "s2", () => {});
+      const other = articleTools(db, "s2", null, () => {});
 
       await run(tools.create_article, { slug: "notes", content_md: "# Mine" });
       await run(other.create_article, { slug: "notes", content_md: "# Theirs" });
@@ -181,6 +181,30 @@ describe("articleTools", () => {
     });
   });
 
+  describe("delete_article", () => {
+    it("deletes an article and publishes article.deleted", async () => {
+      await run(tools.create_article, { slug: "scratch", content_md: "# Scratch" });
+
+      const output = (await run(tools.delete_article, { slug: "scratch" })) as {
+        deleted: boolean;
+      };
+
+      expect(output.deleted).toBe(true);
+      expect(db.select().from(articles).all()).toEqual([]);
+      expect(events).toContainEqual({
+        type: "article.deleted",
+        sessionId: "s1",
+        slug: "scratch",
+      });
+    });
+
+    it("rejects an unknown slug", () => {
+      expect(run(tools.delete_article, { slug: "missing" })).rejects.toThrow(
+        'No article with slug "missing" in this session',
+      );
+    });
+  });
+
   describe("list_articles", () => {
     it("returns an empty list before any article is written", async () => {
       expect(await run(tools.list_articles, {})).toEqual([]);
@@ -188,7 +212,7 @@ describe("articleTools", () => {
 
     it("lists only this session's articles, oldest first", async () => {
       createSession(db, MODEL, { id: "s2" });
-      const other = articleTools(db, "s2", () => {});
+      const other = articleTools(db, "s2", null, () => {});
       await run(other.create_article, { slug: "elsewhere", content_md: "# Other" });
       await run(tools.create_article, { slug: "alpha", content_md: "# A" });
       await run(tools.create_article, { slug: "beta", name: "Second", content_md: "# B" });
@@ -266,6 +290,112 @@ describe("articleTools", () => {
       expect(run(tools.read_article, { slug: "edition" })).rejects.toThrow(
         'No article with slug "edition" in this session',
       );
+    });
+  });
+  describe("project scope", () => {
+    let corpus: ToolSet;
+
+    beforeEach(() => {
+      db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      createSession(db, MODEL, { id: "ps1", projectId: "p1" });
+      createSession(db, MODEL, { id: "ps2", projectId: "p1" });
+      corpus = articleTools(db, "ps1", "p1", (event) => events.push(event));
+    });
+
+    it("writes project-owned articles and announces the project on the event", async () => {
+      await run(corpus.create_article, { slug: "corpus-doc", content_md: "# Corpus" });
+
+      const row = db.select().from(articles).all()[0];
+      expect(row?.projectId).toBe("p1");
+      expect(row?.sessionId).toBeNull();
+      expect(events).toContainEqual({
+        type: "article.written",
+        sessionId: "ps1",
+        slug: "corpus-doc",
+        projectId: "p1",
+      });
+    });
+
+    it("shares the corpus across the project's sessions", async () => {
+      await run(corpus.create_article, { slug: "corpus-doc", content_md: "# Corpus\n\nOld." });
+      const sibling = articleTools(db, "ps2", "p1", (event) => events.push(event));
+
+      await run(sibling.edit_article, {
+        slug: "corpus-doc",
+        old_string: "Old.",
+        new_string: "New.",
+      });
+
+      const body = (await run(corpus.read_article, { slug: "corpus-doc" })) as {
+        content_md: string;
+      };
+      expect(body.content_md).toBe("# Corpus\n\nNew.");
+      const listed = (await run(sibling.list_articles, {})) as { slug: string }[];
+      expect(listed.map((entry) => entry.slug)).toEqual(["corpus-doc"]);
+    });
+
+    it("scopes slug uniqueness to the project and words errors for it", async () => {
+      await run(corpus.create_article, { slug: "corpus-doc", content_md: "# Corpus" });
+      const sibling = articleTools(db, "ps2", "p1", () => {});
+
+      expect(
+        run(sibling.create_article, { slug: "corpus-doc", content_md: "# Again" }),
+      ).rejects.toThrow("already exists in this project");
+      expect(run(corpus.read_article, { slug: "missing" })).rejects.toThrow(
+        'No article with slug "missing" in this project',
+      );
+    });
+
+    it("deletes a corpus article from any of the project's sessions, announcing the project", async () => {
+      await run(corpus.create_article, { slug: "corpus-doc", content_md: "# Corpus" });
+      const sibling = articleTools(db, "ps2", "p1", (event) => events.push(event));
+
+      await run(sibling.delete_article, { slug: "corpus-doc" });
+
+      expect(db.select().from(articles).all()).toEqual([]);
+      expect(events).toContainEqual({
+        type: "article.deleted",
+        sessionId: "ps2",
+        slug: "corpus-doc",
+        projectId: "p1",
+      });
+    });
+
+    it("keeps the corpus invisible to the session-scoped tools and vice versa", async () => {
+      await run(corpus.create_article, { slug: "corpus-doc", content_md: "# Corpus" });
+      await run(tools.create_article, { slug: "own-doc", content_md: "# Own" });
+
+      const corpusListed = (await run(corpus.list_articles, {})) as { slug: string }[];
+      expect(corpusListed.map((entry) => entry.slug)).toEqual(["corpus-doc"]);
+      const ownListed = (await run(tools.list_articles, {})) as { slug: string }[];
+      expect(ownListed.map((entry) => entry.slug)).toEqual(["own-doc"]);
+    });
+
+    it("still reads run articles through the run_id escape", async () => {
+      db.insert(runs)
+        .values({
+          id: "r1",
+          workflowName: "wf",
+          status: "ok",
+          startedAt: new Date(),
+          definitionSnapshot: {},
+        })
+        .run();
+      db.insert(articles)
+        .values({
+          id: "ra1",
+          runId: "r1",
+          slug: "edition",
+          name: "Edition",
+          contentMd: "# Edition",
+          createdAt: new Date(),
+        })
+        .run();
+
+      const output = (await run(corpus.read_article, { slug: "edition", run_id: "r1" })) as {
+        content_md: string;
+      };
+      expect(output.content_md).toBe("# Edition");
     });
   });
 });

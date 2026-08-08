@@ -34,6 +34,8 @@ const baseRun: RunListEntry = {
 const baseSession: SessionListEntry = {
   id: "s1",
   status: "idle",
+  projectId: null,
+  projectName: null,
   model: "anthropic:claude",
   imageModel: null,
   effort: "medium" as const,

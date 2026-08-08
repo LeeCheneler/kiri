@@ -205,6 +205,27 @@ describe("articles state", () => {
     expect(calls()).toBe(1);
   });
 
+  it("restales the list and detail when a session article is deleted", async () => {
+    serveCountingList();
+    const { source } = renderLive(<ListProbe sessionId="s1" />);
+    expect(await screen.findByText("a-1")).toBeDefined();
+
+    act(() => source().emit({ type: "article.deleted", sessionId: "s1", slug: "notes" }));
+
+    expect(await screen.findByText("a-2")).toBeDefined();
+  });
+
+  it("ignores deletions announced without a session — project corpus deletions", async () => {
+    const calls = serveCountingDetail();
+    const { source } = renderLive(<DetailProbe sessionId="s1" slug="notes" />);
+    expect(await screen.findByText("v-1")).toBeDefined();
+
+    act(() => source().emit({ type: "article.deleted", projectId: "p1", slug: "notes" }));
+    await flushAsync();
+
+    expect(calls()).toBe(1);
+  });
+
   it("re-syncs session article queries on event-stream reconnect", async () => {
     serveCountingDetail();
     const { source } = renderLive(<DetailProbe sessionId="s1" slug="notes" />);

@@ -3,6 +3,7 @@ import { useRunArticlesLive, useSessionArticlesLive } from "./articles.ts";
 import { useConfigHealthLive } from "./config.ts";
 import { useMcpServersLive, useMcpToolsLive } from "./mcp.ts";
 import { useMemoriesLive } from "./memories.ts";
+import { useProjectsLive } from "./projects.ts";
 import { useRunFeedsLive, useRunWindowsLive, useRunsLive } from "./runs.ts";
 import { useSessionsLive } from "./sessions.ts";
 import { useWorkflowsLive } from "./workflows.ts";
@@ -23,6 +24,7 @@ export function LiveSync(): null {
   useSessionArticlesLive();
   useRunArticlesLive();
   useMemoriesLive();
+  useProjectsLive();
   useConfigHealthLive();
   useMcpServersLive();
   useMcpToolsLive();

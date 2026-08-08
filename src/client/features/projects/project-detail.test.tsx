@@ -1,0 +1,229 @@
+import { describe, expect, it } from "bun:test";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
+import { server } from "../../../../tests/setup/msw.ts";
+import { createQueryClient } from "../../state/query-client.ts";
+import { ProjectDetail } from "./project-detail.tsx";
+
+const NOW = new Date("2026-08-07T12:00:00.000Z");
+
+const detail = (over: Record<string, unknown> = {}) => ({
+  project: { id: "p1", name: "Research", createdAt: "2026-08-07T10:00:00.000Z" },
+  articles: [],
+  sessions: [],
+  ...over,
+});
+
+const article = (slug: string, heading: string | null, name = "Doc") => ({
+  slug,
+  name,
+  heading,
+  createdAt: "2026-08-07T10:00:00.000Z",
+});
+
+const session = (id: string, over: Record<string, unknown> = {}) => ({
+  id,
+  title: null,
+  preview: null,
+  status: "idle",
+  startedAt: "2026-08-07T10:00:00.000Z",
+  ...over,
+});
+
+const serveProject = (body: unknown) =>
+  server.use(http.get("*/api/projects/:id", () => HttpResponse.json(body as object)));
+
+const renderDetail = () => {
+  const memory = memoryLocation({ path: "/projects/p1", record: true });
+  render(
+    <Router hook={memory.hook}>
+      <QueryClientProvider client={createQueryClient()}>
+        <ProjectDetail id="p1" now={NOW} />
+      </QueryClientProvider>
+    </Router>,
+  );
+  return { history: memory.history };
+};
+
+describe("<ProjectDetail>", () => {
+  it("renders the article index with links into the corpus", async () => {
+    serveProject(
+      detail({
+        articles: [article("corpus-doc", "Corpus Doc"), article("headless", null, "Headless")],
+      }),
+    );
+    renderDetail();
+
+    const link = await screen.findByRole("link", { name: "Corpus Doc" });
+    expect(link.getAttribute("href")).toBe("/projects/p1/articles/corpus-doc");
+    // Falls back to the article name when the body has no heading.
+    expect(screen.getByRole("link", { name: "Headless" })).toBeDefined();
+  });
+
+  it("renders the session index, leading with title then preview then id", async () => {
+    serveProject(
+      detail({
+        sessions: [
+          session("aaaabbbb-1", { title: "Titled" }),
+          session("ccccdddd-2", { preview: "first message" }),
+          session("eeeeffff-3"),
+        ],
+      }),
+    );
+    renderDetail();
+
+    expect(await screen.findByRole("link", { name: "Titled" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "first message" })).toBeDefined();
+    const byId = screen.getByRole("link", { name: "eeeeffff" });
+    expect(byId.getAttribute("href")).toBe("/sessions/eeeeffff-3");
+  });
+
+  it("explains both indexes when the container is empty", async () => {
+    serveProject(detail());
+    renderDetail();
+
+    expect(await screen.findByText(/no articles yet/i)).toBeDefined();
+    expect(screen.getByText(/no sessions yet/i)).toBeDefined();
+  });
+
+  it("renders not-found for a project that no longer exists", async () => {
+    server.use(
+      http.get("*/api/projects/:id", () =>
+        HttpResponse.json({ error: 'project "p1" not found' }, { status: 404 }),
+      ),
+    );
+    renderDetail();
+
+    expect(await screen.findByText("Project not found")).toBeDefined();
+  });
+
+  it("surfaces a non-404 load failure as an alert", async () => {
+    server.use(http.get("*/api/projects/:id", () => new HttpResponse("boom", { status: 500 })));
+    renderDetail();
+
+    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(screen.queryByText("Project not found")).toBeNull();
+  });
+
+  it("renames through the modal: prefills, patches, and closes", async () => {
+    let patched: unknown = null;
+    serveProject(detail());
+    server.use(
+      http.patch("*/api/projects/:id", async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json({
+          project: { id: "p1", name: "Renamed", createdAt: "2026-08-07T10:00:00.000Z" },
+        });
+      }),
+    );
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "rename project" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const nameField = within(dialog).getByLabelText("Name");
+    expect((nameField as HTMLInputElement).value).toBe("Research");
+    await userEvent.clear(nameField);
+    await userEvent.type(nameField, "Renamed");
+    await userEvent.click(within(dialog).getByRole("button", { name: "save" }));
+
+    await waitFor(() => expect(patched).toEqual({ name: "Renamed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("cancelling the rename modal keeps the stored name", async () => {
+    serveProject(detail());
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "rename project" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "cancel" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Research" })).toBeDefined();
+  });
+
+  it("surfaces a failed rename inside the modal and stays open", async () => {
+    serveProject(detail());
+    server.use(http.patch("*/api/projects/:id", () => new HttpResponse("boom", { status: 500 })));
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "rename project" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "save" }));
+
+    expect(await within(dialog).findByRole("alert")).toBeDefined();
+    expect(within(dialog).getByLabelText("Name")).toBeDefined();
+  });
+
+  it("deletes behind a confirm that spells out the cascade", async () => {
+    let deleted = false;
+    serveProject(
+      detail({ articles: [article("corpus-doc", "Corpus Doc")], sessions: [session("s1")] }),
+    );
+    server.use(
+      http.delete("*/api/projects/:id", () => {
+        deleted = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const { history } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "delete project" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/1 article and 1 session/)).toBeDefined();
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => expect(history[history.length - 1]).toBe("/projects"));
+    expect(deleted).toBe(true);
+  });
+
+  it("dismissing the delete confirm leaves the project alone", async () => {
+    let deleted = false;
+    serveProject(detail());
+    server.use(
+      http.delete("*/api/projects/:id", () => {
+        deleted = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "delete project" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /cancel/i }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(deleted).toBe(false);
+  });
+
+  it("surfaces a failed delete inline and stays on the page", async () => {
+    serveProject(detail());
+    server.use(http.delete("*/api/projects/:id", () => new HttpResponse("boom", { status: 500 })));
+    const { history } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "delete project" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(history[history.length - 1]).toBe("/projects/p1");
+  });
+
+  it("treats deleting an already-deleted project as done and navigates home", async () => {
+    serveProject(detail());
+    server.use(
+      http.delete("*/api/projects/:id", () =>
+        HttpResponse.json({ error: "gone" }, { status: 404 }),
+      ),
+    );
+    const { history } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "delete project" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => expect(history[history.length - 1]).toBe("/projects"));
+  });
+});

@@ -24,6 +24,7 @@ const delegatePart = (overrides: Record<string, unknown> = {}): ToolPart =>
 const child = (status: Session["status"]): Session => ({
   id: "child-1",
   status,
+  projectId: null,
   model: "anthropic:claude",
   imageModel: null,
   effort: "medium" as const,

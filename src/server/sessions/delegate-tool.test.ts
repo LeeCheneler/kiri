@@ -6,6 +6,7 @@ import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
+import { projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
@@ -338,6 +339,20 @@ describe("delegate tool", () => {
     await invoke(depsFor(reportingModel("Done."), capture), "Count pelicans", {});
 
     expect(capture.childId && getSession(db, capture.childId)?.cwd).toBeNull();
+  });
+
+  it("spawns the child inside the parent's project so it reads the same corpus", async () => {
+    db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+    createSession(db, MODEL, { id: "project-parent", projectId: "p1" });
+    const capture: { childId?: string } = {};
+
+    await invoke(
+      { ...depsFor(reportingModel("Done."), capture), parentSessionId: "project-parent" },
+      "Count pelicans",
+      {},
+    );
+
+    expect(capture.childId && getSession(db, capture.childId)?.projectId).toBe("p1");
   });
 
   it("stores the stated effort on the child session", async () => {

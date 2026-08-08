@@ -22,6 +22,7 @@ import { Prose } from "./prose.tsx";
 import { Quote } from "./quote.tsx";
 import { Rule } from "./rule.tsx";
 import { Table } from "./table.tsx";
+import { type WikiLinkResolver, remarkWikiLinks } from "./wiki-links.ts";
 
 // Vega and its dependencies weigh ~290 KB gzipped. Loading the chart
 // component lazily keeps them in a separate chunk fetched only when a
@@ -274,11 +275,14 @@ export const Markdown = memo(function Markdown({
   withSectionOrdinals = false,
   downgradeHeaderLevels = 0,
   sectionLevel = 1,
+  wikiLinkResolver,
 }: {
   content: string;
   withSectionOrdinals?: boolean;
   downgradeHeaderLevels?: number;
   sectionLevel?: HeadingLevel;
+  /** Turns `[[slug]]` references into links when set — the project corpus reader's affordance; other surfaces leave the syntax literal. */
+  wikiLinkResolver?: WikiLinkResolver;
 }) {
   const resolvedComponents = buildMarkdownComponents({
     downgrade: downgradeHeaderLevels,
@@ -289,7 +293,11 @@ export const Markdown = memo(function Markdown({
     <Prose>
       <ReactMarkdown
         components={resolvedComponents}
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={
+          wikiLinkResolver
+            ? [remarkGfm, remarkMath, remarkWikiLinks(wikiLinkResolver)]
+            : [remarkGfm, remarkMath]
+        }
         rehypePlugins={[rehypeKatex]}
       >
         {normaliseLatexFallbacks(content)}

@@ -54,7 +54,7 @@ describe("BUILTIN_TOOLS", () => {
     const offered = {
       ...skillTools(createConfigStore(dir)),
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
-      ...articleTools(db, "session-1", () => {}),
+      ...articleTools(db, "session-1", null, () => {}),
       ...memoryTools(db, () => {}),
       ...filesystemTools(() => [dir], { get: () => null, set: () => {} }),
       ...shellTools(() => [dir], { get: () => null, set: () => {} }),

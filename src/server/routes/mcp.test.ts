@@ -134,6 +134,7 @@ describe("mcp routes", () => {
           { name: "create_article", description: expect.any(String), permission: "allow" },
           { name: "replace_article", description: expect.any(String), permission: "allow" },
           { name: "edit_article", description: expect.any(String), permission: "allow" },
+          { name: "delete_article", description: expect.any(String), permission: "allow" },
           { name: "list_articles", description: expect.any(String), permission: "allow" },
           { name: "read_article", description: expect.any(String), permission: "allow" },
           { name: "generate_image", description: expect.any(String), permission: "allow" },

@@ -319,6 +319,50 @@ describe("buildSystemPrompt", () => {
     expect(readOnly).not.toContain("memories");
   });
 
+  it("maps the project corpus with the curation line when the session can write", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      tools: ["read_article", "create_article"],
+      project: {
+        name: "Research",
+        articles: [{ slug: "corpus-doc", heading: "Field Notes" }],
+      },
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain('This session belongs to the project "Research"');
+    expect(prompt).toContain("its sessions all read and write the same documents");
+    expect(prompt).toContain("- corpus-doc: Field Notes");
+    expect(prompt).toContain("load an article's body with read_article");
+    expect(prompt).toContain("Write durable knowledge into the corpus");
+  });
+
+  it("states an empty corpus rather than listing nothing", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      tools: ["read_article", "create_article"],
+      project: { name: "Research", articles: [] },
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain("The corpus is currently empty.");
+    expect(prompt).not.toContain("The project's articles");
+  });
+
+  it("carries no project layer without a project or without read_article", () => {
+    const withoutProject = buildSystemPrompt({
+      config,
+      tools: ["read_article"],
+      now: FIXED_NOW,
+    });
+    expect(withoutProject).not.toContain("belongs to the project");
+    const withoutTool = buildSystemPrompt({
+      config,
+      tools: ["tavily__search"],
+      project: { name: "Research", articles: [] },
+      now: FIXED_NOW,
+    });
+    expect(withoutTool).not.toContain("belongs to the project");
+  });
+
   it("lists a skill without a description as its bare name", () => {
     const prompt = buildSystemPrompt({
       config,
@@ -904,6 +948,21 @@ describe("buildChildSessionPrompt", () => {
     });
     expect(prompt).toContain("- prefers-bun: Prefers bun over node.");
     expect(prompt).not.toContain("Saving memories:");
+  });
+
+  it("maps the project corpus read-only: workers get the index without the curation line", () => {
+    const prompt = buildChildSessionPrompt({
+      tools: ["read_article"],
+      project: {
+        name: "Research",
+        articles: [{ slug: "corpus-doc", heading: "Field Notes" }],
+      },
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain('This session belongs to the project "Research"');
+    expect(prompt).toContain("its sessions all read the same documents");
+    expect(prompt).toContain("- corpus-doc: Field Notes");
+    expect(prompt).not.toContain("Write durable knowledge into the corpus");
   });
 });
 

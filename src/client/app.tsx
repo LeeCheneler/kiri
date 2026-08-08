@@ -13,6 +13,9 @@ import { McpPage } from "./routes/mcp-page.tsx";
 import { MemoriesPage } from "./routes/memories-page.tsx";
 import { MemoryPage } from "./routes/memory-page.tsx";
 import { NotFoundPage } from "./routes/not-found-page.tsx";
+import { ProjectArticlePage } from "./routes/project-article-page.tsx";
+import { ProjectPage } from "./routes/project-page.tsx";
+import { ProjectsPage } from "./routes/projects-page.tsx";
 import { RunPage } from "./routes/run-page.tsx";
 import { SessionArticlePage } from "./routes/session-article-page.tsx";
 import { SessionPage } from "./routes/session-page.tsx";
@@ -52,6 +55,9 @@ export function App({
             <Route path="/mcp" component={McpPage} />
             <Route path="/memories/:name" component={MemoryPage} />
             <Route path="/memories" component={MemoriesPage} />
+            <Route path="/projects/:id/articles/:slug" component={ProjectArticlePage} />
+            <Route path="/projects/:id" component={ProjectPage} />
+            <Route path="/projects" component={ProjectsPage} />
             <Route path="/sessions/:id/articles/:slug" component={SessionArticlePage} />
             <Route path="/sessions/:id" component={SessionPage} />
             <Route path="/runs/:id/articles/:slug" component={ArticlePage} />

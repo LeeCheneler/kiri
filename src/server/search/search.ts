@@ -17,9 +17,10 @@ export interface ArticleHit {
   id: string;
   slug: string;
   name: string;
-  /** Producing run, or null for session articles — one of the two is always set. */
+  /** The article's owner — exactly one of the three is always set. */
   runId: string | null;
   sessionId: string | null;
+  projectId: string | null;
   snippet: SnippetSegment[];
 }
 
@@ -194,6 +195,7 @@ export function search(deps: SearchDeps, rawQuery: string, limit = 20): SearchRe
         name: articles.name,
         runId: articles.runId,
         sessionId: articles.sessionId,
+        projectId: articles.projectId,
       })
       .from(articles)
       .where(inArray(articles.id, [...articleSnippets.keys()]))

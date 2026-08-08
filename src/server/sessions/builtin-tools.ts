@@ -47,6 +47,11 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
+    name: "delete_article",
+    description: "Permanently delete one of the session's articles.",
+    defaultPermission: "allow",
+  },
+  {
     name: "list_articles",
     description: "List the articles the session has written so far.",
     defaultPermission: "allow",

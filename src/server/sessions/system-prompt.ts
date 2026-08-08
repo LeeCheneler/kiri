@@ -102,6 +102,46 @@ function buildMemoryGuidance(tools: string[], memories: readonly MemorySummary[]
   return lines.join("\n");
 }
 
+/**
+ * The project context a project session's prompt carries: the container's
+ * name and its article index — each entry's slug with the body's first
+ * heading (falling back to the display name), the title the map leads with.
+ */
+export interface ProjectPromptContext {
+  name: string;
+  articles: readonly { slug: string; heading: string }[];
+}
+
+// The project layer of a project session's prompt: what the shared corpus is,
+// its index (slugs and titles only — progressive disclosure, bodies enter the
+// conversation solely through read_article), and — for sessions that can
+// write — that keeping the corpus current is normal curation. Keyed off
+// read_article so a worker whose article mutations are withheld still gets
+// the map; a session outside any project gets nothing.
+function buildProjectGuidance(
+  tools: string[],
+  project: ProjectPromptContext | null,
+): string | null {
+  if (project === null || !tools.includes("read_article")) return null;
+  const canWrite = tools.includes("create_article");
+  const lines = [
+    `This session belongs to the project "${project.name}". The project owns a shared corpus of articles — its sessions all read${canWrite ? " and write" : ""} the same documents, and your article tools operate on that corpus rather than on session-private articles.`,
+    ...(project.articles.length > 0
+      ? [
+          "The project's articles (slug: title):",
+          ...project.articles.map((article) => `- ${article.slug}: ${article.heading}`),
+          "The index carries titles only — load an article's body with read_article before relying on its content.",
+        ]
+      : ["The corpus is currently empty."]),
+  ];
+  if (canWrite) {
+    lines.push(
+      "Write durable knowledge into the corpus: create_article for a new document, edit_article or replace_article to keep an existing one current — including articles other sessions wrote; the corpus is shared, and improving it is normal curation. Cross-reference corpus articles by writing [[slug]] in a body — kiri renders it as a link to that article.",
+    );
+  }
+  return lines.join("\n");
+}
+
 // Cross-cutting guidance for the first-party article tools — the workflow no
 // single tool description can carry: what an article is *for* (a deliverable
 // kept outside the chat), keeping the full piece out of the reply, and how to
@@ -366,6 +406,7 @@ function buildCorePrompt(
   effort: Effort,
   skills: readonly SkillSummary[],
   memories: readonly MemorySummary[],
+  project: ProjectPromptContext | null,
 ): string {
   const today = now.toISOString().slice(0, 10);
   const intro = [
@@ -390,6 +431,7 @@ function buildCorePrompt(
     buildChartGuidance(),
     buildDiagramGuidance(),
     buildArticleGuidance(tools),
+    buildProjectGuidance(tools, project),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, allowedDirectories),
     buildShellGuidance(tools, allowedDirectories),
@@ -408,6 +450,8 @@ export interface BuildChildSessionPromptOptions {
   skills?: readonly SkillSummary[];
   /** The saved memories, indexed by name and summary when `read_memory` is active. */
   memories?: readonly MemorySummary[];
+  /** The worker's project context — the shared corpus map — when its parent session belongs to one. */
+  project?: ProjectPromptContext | null;
   /** The worker's effort level, stated with its calibration expectation; defaults to `medium`. */
   effort?: Effort;
   /** Clock injection for tests; defaults to the current time. */
@@ -450,6 +494,7 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
     buildSkillGuidance(tools, opts.skills ?? []),
     buildMemoryGuidance(tools, opts.memories ?? []),
     buildArticleGuidance(tools),
+    buildProjectGuidance(tools, opts.project ?? null),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, opts.allowedDirectories ?? []),
     buildShellGuidance(tools, opts.allowedDirectories ?? []),
@@ -571,6 +616,8 @@ export interface BuildSystemPromptOptions {
   skills?: readonly SkillSummary[];
   /** The saved memories, indexed by name and summary when `read_memory` is active. */
   memories?: readonly MemorySummary[];
+  /** The session's project context — the shared corpus map — when it belongs to one. */
+  project?: ProjectPromptContext | null;
   /** The session's effort level, stated with its calibration expectation; defaults to `medium`. */
   effort?: Effort;
   /** Clock injection for tests; defaults to the current time. */
@@ -599,6 +646,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
       opts.effort ?? "medium",
       opts.skills ?? [],
       opts.memories ?? [],
+      opts.project ?? null,
     ),
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
@@ -626,6 +674,7 @@ export function createSystemPromptBuilder(
   delegateRoles: readonly DelegateRole[] = [],
   skills: readonly SkillSummary[] = [],
   memories: readonly MemorySummary[] = [],
+  project: ProjectPromptContext | null = null,
 ): (session: Session) => string {
   return (session: Session) =>
     session.parentSessionId !== null
@@ -635,6 +684,7 @@ export function createSystemPromptBuilder(
           workingDirectory: session.cwd,
           skills,
           memories,
+          project,
           effort: session.effort,
         })
       : buildSystemPrompt({
@@ -645,6 +695,7 @@ export function createSystemPromptBuilder(
           delegateRoles,
           skills,
           memories,
+          project,
           effort: session.effort,
         });
 }

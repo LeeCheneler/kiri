@@ -27,6 +27,7 @@ function RailContent({ location }: { location: string }) {
       <NavList
         items={[
           { label: "Activity", href: "/", active: location === "/" },
+          { label: "Projects", href: "/projects", active: location.startsWith("/projects") },
           { label: "Workflows", href: "/workflows", active: location.startsWith("/workflows") },
           { label: "Memories", href: "/memories", active: location.startsWith("/memories") },
           { label: "Tools & MCP", href: "/mcp", active: location.startsWith("/mcp") },

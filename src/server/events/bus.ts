@@ -28,7 +28,11 @@ export type KiriEvent =
   | { type: "session.updated"; id: string; status: SessionStatus }
   | { type: "session.finished"; id: string; status: SessionStatus }
   | { type: "session.deleted"; id: string }
-  | { type: "article.written"; sessionId: string; slug: string }
+  | { type: "article.written"; sessionId: string; slug: string; projectId?: string }
+  | { type: "article.deleted"; slug: string; sessionId?: string; projectId?: string }
+  | { type: "project.created"; id: string }
+  | { type: "project.updated"; id: string }
+  | { type: "project.deleted"; id: string }
   | { type: "memory.saved"; name: string }
   | { type: "memory.deleted"; name: string }
   | { type: "workflow.added"; name: string }

@@ -15,6 +15,7 @@ import { activityRoutes } from "./routes/activity.ts";
 import { configRoutes } from "./routes/config.ts";
 import { type McpAuth, mcpRoutes } from "./routes/mcp.ts";
 import { memoriesRoutes } from "./routes/memories.ts";
+import { projectsRoutes } from "./routes/projects.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { sessionsRoutes } from "./routes/sessions.ts";
@@ -238,6 +239,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api/activity", activityRoutes({ db, registry }));
   app.route("/api/search", searchRoutes({ db, registry }));
   app.route("/api/memories", memoriesRoutes({ db, bus }));
+  app.route("/api/projects", projectsRoutes({ db, bus }));
 
   // Sessions resolve, stream, and list models off `llmClients`; without it the
   // surface is inert, so its routes (and `/api/models`) only mount when present.

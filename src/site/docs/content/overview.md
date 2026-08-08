@@ -40,7 +40,9 @@ article in your feed.
   configure. Sessions write articles too, on request, can run your
   workflows for you, can delegate research to a separate worker session
   that reports back just the findings, and remember durable facts across
-  sessions as curatable memories. Reach for a session when you don't.
+  sessions as curatable memories. Group related sessions into a **project**
+  and they share one corpus of articles — read, kept current, and
+  cross-linked by every session in it. Reach for a session when you don't.
 
 Both land in the same activity feed, and everything they produce is
 searchable — articles, session titles and transcripts, run summaries, and

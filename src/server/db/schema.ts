@@ -117,14 +117,29 @@ export const runSteps = sqliteTable(
 );
 
 /**
- * One row per article, linked to exactly one producer: the workflow run or
- * the agentic session that wrote it (`runId` XOR `sessionId`, enforced by a
- * check constraint). Run articles are populated after `steps:` complete
+ * One row per project — a named container owning a curated corpus of
+ * articles and the sessions created within it. A project's articles are
+ * written and read by any of its sessions and outlive every one of them;
+ * deleting the project cascades the whole container: its articles, its
+ * sessions, and everything those sessions own.
+ */
+export const projects = sqliteTable("projects", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+/**
+ * One row per article, linked to exactly one owner: the workflow run or
+ * agentic session that wrote it, or the project whose corpus it belongs to
+ * (`runId` XOR `sessionId` XOR `projectId`, enforced by a check
+ * constraint). Run articles are populated after `steps:` complete
  * (when the workflow defines `articles:`) and read back to render article
- * chips on the feed and the dedicated article page. `slug` is the
- * URL/identifier, unique within its producer; `name` is the resolved
- * display label — never null — so write-time titlecasing doesn't leak into
- * read paths.
+ * chips on the feed and the dedicated article page. Sessions created within
+ * a project write project-owned articles — the shared corpus — rather than
+ * session-owned ones. `slug` is the URL/identifier, unique within its
+ * owner; `name` is the resolved display label — never null — so write-time
+ * titlecasing doesn't leak into read paths.
  */
 export const articles = sqliteTable(
   "articles",
@@ -132,6 +147,7 @@ export const articles = sqliteTable(
     id: text("id").primaryKey(),
     runId: text("run_id").references(() => runs.id),
     sessionId: text("session_id").references(() => sessions.id),
+    projectId: text("project_id").references(() => projects.id),
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     contentMd: text("content_md").notNull(),
@@ -142,9 +158,16 @@ export const articles = sqliteTable(
     uniqueIndex("articles_session_id_slug_unique")
       .on(t.sessionId, t.slug)
       .where(sql`"session_id" is not null`),
+    uniqueIndex("articles_project_id_slug_unique")
+      .on(t.projectId, t.slug)
+      .where(sql`"project_id" is not null`),
     index("articles_run_id_idx").on(t.runId),
     index("articles_session_id_idx").on(t.sessionId),
-    check("articles_producer_check", sql`("run_id" is not null) <> ("session_id" is not null)`),
+    index("articles_project_id_idx").on(t.projectId),
+    check(
+      "articles_producer_check",
+      sql`(("run_id" is not null) + ("session_id" is not null) + ("project_id" is not null)) = 1`,
+    ),
   ],
 );
 
@@ -233,6 +256,13 @@ export const sessions = sqliteTable(
      * sessions surface on the feed's Pinned tab; execution is unaffected.
      */
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+    /**
+     * The project this session was created within, or null for a projectless
+     * session. Set at creation and never moved — a project session's article
+     * tools target the project's shared corpus instead of session-owned
+     * articles, and deleting the project deletes the session with it.
+     */
+    projectId: text("project_id").references(() => projects.id),
     /**
      * The parent session this one was spawned from, or null for a top-level
      * session. A non-null parent is the marker that this session is a

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { articles, messages, recommendations, runs, sessions } from "../db/schema.ts";
+import { articles, messages, projects, recommendations, runs, sessions } from "../db/schema.ts";
 import { createApp } from "../index.ts";
 import { type TestEnv, createTestEnv } from "./test-helpers.ts";
 
@@ -163,6 +163,28 @@ describe("activity routes", () => {
         name: "Notes",
         heading: "Meeting notes",
       });
+    });
+
+    it("names each session's project on its entry", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      env.db
+        .insert(sessions)
+        .values({
+          id: "s1",
+          status: "idle",
+          model: "anthropic:claude",
+          startedAt: new Date(100),
+          projectId: "p1",
+        })
+        .run();
+      insertSession("s2", 200);
+
+      const { body } = await getActivity();
+      const named = body.entries.flatMap((entry) =>
+        entry.kind === "session" ? [entry.session] : [],
+      ) as unknown as { id: string; projectName: string | null }[];
+      expect(named.find((session) => session.id === "s1")?.projectName).toBe("Research");
+      expect(named.find((session) => session.id === "s2")?.projectName).toBeNull();
     });
 
     it("pages across the run/session boundary via the cursor", async () => {

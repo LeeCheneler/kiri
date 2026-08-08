@@ -9,12 +9,13 @@ import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionActions } from "./session-actions.tsx";
 
-const sessionDetail = (status = "idle", pinned = false) => ({
+const sessionDetail = (status = "idle", pinned = false, projectId: string | null = null) => ({
   session: {
     id: "s1",
     status,
     model: "anthropic:claude",
     pinned,
+    projectId,
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
@@ -22,9 +23,11 @@ const sessionDetail = (status = "idle", pinned = false) => ({
   messages: [],
 });
 
-const serveSession = (status = "idle", pinned = false) =>
+const serveSession = (status = "idle", pinned = false, projectId: string | null = null) =>
   server.use(
-    http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(status, pinned))),
+    http.get("*/api/sessions/:id", () =>
+      HttpResponse.json(sessionDetail(status, pinned, projectId)),
+    ),
   );
 
 const renderActions = () => {
@@ -67,6 +70,16 @@ describe("<SessionActions>", () => {
 
     await waitFor(() => expect(history[history.length - 1]).toBe("/?view=sessions"));
     expect(deleted).toBe(true);
+  });
+
+  it("returns to the project page when deleting a project session", async () => {
+    serveSession("idle", false, "p1");
+    server.use(http.delete("*/api/sessions/:id", () => new HttpResponse(null, { status: 204 })));
+    const { history } = renderActions();
+
+    await confirmDelete();
+
+    await waitFor(() => expect(history[history.length - 1]).toBe("/projects/p1"));
   });
 
   it("drops the session's saved draft on delete", async () => {

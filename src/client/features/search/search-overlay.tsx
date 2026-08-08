@@ -27,10 +27,13 @@ interface ResultGroup {
   rows: ResultRow[];
 }
 
-const articleHref = (hit: SearchResults["articles"][number]): string =>
-  hit.runId !== null
-    ? `/runs/${encodeURIComponent(hit.runId)}/articles/${encodeURIComponent(hit.slug)}`
-    : `/sessions/${encodeURIComponent(hit.sessionId ?? "")}/articles/${encodeURIComponent(hit.slug)}`;
+const articleHref = (hit: SearchResults["articles"][number]): string => {
+  if (hit.runId !== null)
+    return `/runs/${encodeURIComponent(hit.runId)}/articles/${encodeURIComponent(hit.slug)}`;
+  if (hit.projectId !== null)
+    return `/projects/${encodeURIComponent(hit.projectId)}/articles/${encodeURIComponent(hit.slug)}`;
+  return `/sessions/${encodeURIComponent(hit.sessionId ?? "")}/articles/${encodeURIComponent(hit.slug)}`;
+};
 
 const toGroups = (results: SearchResults): ResultGroup[] =>
   [
