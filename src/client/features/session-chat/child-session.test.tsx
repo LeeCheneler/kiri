@@ -30,7 +30,6 @@ const child = (status: Session["status"]): Session => ({
   effort: "medium" as const,
   cwd: null,
   title: null,
-  pinned: false,
   parentSessionId: "parent-1",
   parentToolCallId: "c1",
   startedAt: "2026-07-17T10:00:00.000Z",

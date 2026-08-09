@@ -11,7 +11,7 @@ import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { useSessionArticlesLive } from "../state/articles.ts";
 import { createQueryClient } from "../state/query-client.ts";
-import { SessionArticleContent } from "./session-article-page.tsx";
+import { SessionArticleActions, SessionArticleContent } from "./session-article-page.tsx";
 
 const NOW = new Date("2026-05-09T12:00:00.000Z");
 
@@ -35,6 +35,9 @@ const renderArticle = (id: string, slug: string) => {
         <Live />
         <Router hook={hook}>
           <SessionArticleContent params={{ id, slug }} now={NOW} />
+          {/* The rail's actions, which the page shell renders alongside the
+              content in the right column. */}
+          <SessionArticleActions params={{ id, slug }} />
         </Router>
       </LiveEventsProvider>
     </QueryClientProvider>,

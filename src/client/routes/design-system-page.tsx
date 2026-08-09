@@ -1308,6 +1308,17 @@ export function DesignSystemContent() {
                   </Button>
                   <Button disabled>unavailable</Button>
                 </div>
+                <div className="mt-6">
+                  <Meta>
+                    <span>created 8 minutes ago</span>
+                    <Button variant="dismissive" size="inline">
+                      rename project
+                    </Button>
+                    <Button variant="negative-quiet" size="inline">
+                      delete project
+                    </Button>
+                  </Meta>
+                </div>
               </Card>
             </div>
             <Prose>
@@ -1344,10 +1355,14 @@ export function DesignSystemContent() {
               </List>
               <p className="mt-4">
                 Use <Code>size="lg"</Code> only for a true headline action — a hero run button
-                crowning a page — and the default <Code>sm</Code> everywhere else. For anything
-                asynchronous, pass <Code>pending</Code> with a <Code>pendingLabel</Code>: the label
-                swaps for a pulse and the button disables itself, so progress shows and it can't be
-                fired twice.
+                crowning a page — and the default <Code>sm</Code> everywhere else.{" "}
+                <Code>size="inline"</Code> drops the padding so a borderless action can sit in a run
+                of text as one more item — an owner's rename and delete trailing a <Code>Meta</Code>{" "}
+                byline, as above — where <Code>sm</Code>'s padding would push the separators out of
+                true. Pair it with <Code>dismissive</Code> or <Code>negative-quiet</Code>; a
+                bordered variant needs its padding. For anything asynchronous, pass{" "}
+                <Code>pending</Code> with a <Code>pendingLabel</Code>: the label swaps for a pulse
+                and the button disables itself, so progress shows and it can't be fired twice.
               </p>
             </Prose>
           </article>

@@ -32,10 +32,33 @@ export function ProjectArticlePage({
   return (
     <PageShell
       left={<SiteNav />}
-      right={<ArticleToc key={article.isSuccess ? `${params.id}/${params.slug}` : "pending"} />}
+      right={
+        <div className="flex flex-col gap-8">
+          <ArticleToc key={article.isSuccess ? `${params.id}/${params.slug}` : "pending"} />
+          <ProjectArticleActions params={params} />
+        </div>
+      }
     >
       <ProjectArticleContent params={params} now={now} />
     </PageShell>
+  );
+}
+
+/**
+ * The article's owner actions, rendered in the right rail under the table of
+ * contents. Renders nothing until the article resolves — there's nothing to
+ * act on, and the loading and not-found states own the centre column.
+ */
+export function ProjectArticleActions({ params }: { params: { id: string; slug: string } }) {
+  const article = useProjectArticle(params.id, params.slug);
+  const deleteArticle = useDeleteProjectArticle();
+  if (!article.isSuccess) return null;
+  const data = article.data;
+  return (
+    <DeleteArticleButton
+      onDelete={() => deleteArticle(data.projectId, data.slug)}
+      returnTo={`/projects/${data.projectId}`}
+    />
   );
 }
 
@@ -53,7 +76,6 @@ export function ProjectArticleContent({
   now?: Date;
 }) {
   const article = useProjectArticle(params.id, params.slug);
-  const deleteArticle = useDeleteProjectArticle();
   // The owning project's name situates the article; fall back to the short
   // id while it loads (or if the project query errors independently).
   const projectDetail = useProject(params.id).data;
@@ -114,12 +136,6 @@ export function ProjectArticleContent({
         { label: "Projects", href: "/projects" },
         { label: projectName, href: `/projects/${data.projectId}` },
       ]}
-      actions={
-        <DeleteArticleButton
-          onDelete={() => deleteArticle(data.projectId, data.slug)}
-          returnTo={`/projects/${data.projectId}`}
-        />
-      }
       wikiLinkResolver={wikiLinkResolver}
       now={now}
     />

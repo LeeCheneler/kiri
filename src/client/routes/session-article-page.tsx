@@ -30,10 +30,33 @@ export function SessionArticlePage({
   return (
     <PageShell
       left={<SiteNav />}
-      right={<ArticleToc key={article.isSuccess ? `${params.id}/${params.slug}` : "pending"} />}
+      right={
+        <div className="flex flex-col gap-8">
+          <ArticleToc key={article.isSuccess ? `${params.id}/${params.slug}` : "pending"} />
+          <SessionArticleActions params={params} />
+        </div>
+      }
     >
       <SessionArticleContent params={params} now={now} />
     </PageShell>
+  );
+}
+
+/**
+ * The article's owner actions, rendered in the right rail under the table of
+ * contents. Renders nothing until the article resolves — there's nothing to
+ * act on, and the loading and not-found states own the centre column.
+ */
+export function SessionArticleActions({ params }: { params: { id: string; slug: string } }) {
+  const article = useSessionArticle(params.id, params.slug);
+  const deleteArticle = useDeleteSessionArticle();
+  if (!article.isSuccess) return null;
+  const data = article.data;
+  return (
+    <DeleteArticleButton
+      onDelete={() => deleteArticle(data.sessionId, data.slug)}
+      returnTo={`/sessions/${data.sessionId}`}
+    />
   );
 }
 
@@ -51,7 +74,6 @@ export function SessionArticleContent({
   now?: Date;
 }) {
   const article = useSessionArticle(params.id, params.slug);
-  const deleteArticle = useDeleteSessionArticle();
 
   if (article.isPending) {
     return <LoadingState>Loading article…</LoadingState>;
@@ -93,12 +115,6 @@ export function SessionArticleContent({
         { label: "Activity", href: "/" },
         { label: data.sessionId.slice(0, 8), href: `/sessions/${data.sessionId}` },
       ]}
-      actions={
-        <DeleteArticleButton
-          onDelete={() => deleteArticle(data.sessionId, data.slug)}
-          returnTo={`/sessions/${data.sessionId}`}
-        />
-      }
       now={now}
     />
   );

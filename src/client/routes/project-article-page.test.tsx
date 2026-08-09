@@ -11,7 +11,7 @@ import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { useProjectsLive } from "../state/projects.ts";
 import { createQueryClient } from "../state/query-client.ts";
-import { ProjectArticleContent } from "./project-article-page.tsx";
+import { ProjectArticleActions, ProjectArticleContent } from "./project-article-page.tsx";
 
 const NOW = new Date("2026-08-07T12:00:00.000Z");
 
@@ -35,6 +35,9 @@ const renderArticle = (id: string, slug: string) => {
         <Live />
         <Router hook={hook}>
           <ProjectArticleContent params={{ id, slug }} now={NOW} />
+          {/* The rail's actions, which the page shell renders alongside the
+              content in the right column. */}
+          <ProjectArticleActions params={{ id, slug }} />
         </Router>
       </LiveEventsProvider>
     </QueryClientProvider>,

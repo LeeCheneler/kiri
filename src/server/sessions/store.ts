@@ -159,15 +159,6 @@ export function updateSessionCwd(db: KiriDb, id: string, cwd: string | null): Se
   return getSession(db, id) as Session;
 }
 
-/**
- * Pin or unpin a session. A display flag only — pinned sessions surface on the
- * feed's Pinned tab; execution is unaffected. Returns the updated row.
- */
-export function setSessionPinned(db: KiriDb, id: string, pinned: boolean): Session {
-  db.update(sessions).set({ pinned }).where(eq(sessions.id, id)).run();
-  return getSession(db, id) as Session;
-}
-
 /** Length cap for a session's preview label. */
 const PREVIEW_LENGTH = 100;
 

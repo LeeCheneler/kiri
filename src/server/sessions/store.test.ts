@@ -15,7 +15,6 @@ import {
   getSession,
   getSessionMessages,
   getSessionPreviews,
-  setSessionPinned,
   setSessionStatus,
   updateMessage,
   updateSessionCwd,
@@ -47,7 +46,6 @@ describe("sessions store", () => {
     expect(session.id).toBe("s1");
     expect(session.status).toBe("idle");
     expect(session.model).toBe(MODEL);
-    expect(session.pinned).toBe(false);
     expect(session.finishedAt).toBeNull();
     expect(session.parentSessionId).toBeNull();
     expect(session.parentToolCallId).toBeNull();
@@ -142,16 +140,6 @@ describe("sessions store", () => {
 
     expect(updateSessionTitle(db, "s1", null).title).toBeNull();
     expect(getSession(db, "s1")?.title).toBeNull();
-  });
-
-  it("pins and unpins a session", () => {
-    createSession(db, MODEL, { id: "s1" });
-
-    expect(setSessionPinned(db, "s1", true).pinned).toBe(true);
-    expect(getSession(db, "s1")?.pinned).toBe(true);
-
-    expect(setSessionPinned(db, "s1", false).pinned).toBe(false);
-    expect(getSession(db, "s1")?.pinned).toBe(false);
   });
 
   it("sets and clears the image model", () => {

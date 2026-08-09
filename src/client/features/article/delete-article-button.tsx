@@ -5,7 +5,7 @@ import { Button } from "../../design-system/actions/button.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 
 /**
- * The quiet delete action at the foot of an article page, shared by the
+ * The quiet delete action in an article page's right rail, shared by the
  * session- and project-owned readers (run articles are immutable and never
  * offer it). Confirms, runs the caller's deleter, and navigates to
  * `returnTo` — the owning session or project — treating a 404 as already

@@ -38,7 +38,6 @@ const sessionRow = (over: Record<string, unknown> = {}) => ({
   id: "s1",
   status: "idle",
   model: "anthropic:claude",
-  pinned: false,
   startedAt: "2026-05-09T12:00:00.000Z",
   finishedAt: null,
   error: null,
@@ -112,26 +111,6 @@ describe("<ActivityFeed>", () => {
 
     await user.click(await screen.findByRole("tab", { name: /sessions/i }));
     expect(await screen.findByRole("link", { name: /sessions-tab/i })).toBeDefined();
-  });
-
-  it("filters to pinned sessions on the Pinned tab", async () => {
-    server.use(
-      http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
-      // Serve rows only to the pinned query, so the tab passing pinned=true is
-      // what the rendered link proves.
-      http.get("*/api/sessions", ({ request }) => {
-        const pinned = new URL(request.url).searchParams.get("pinned");
-        return HttpResponse.json({
-          sessions: pinned === "true" ? [sessionRow({ preview: "pinned-tab", pinned: true })] : [],
-          nextCursor: null,
-        });
-      }),
-    );
-    const user = userEvent.setup();
-    renderActivity();
-
-    await user.click(await screen.findByRole("tab", { name: /pinned/i }));
-    expect(await screen.findByRole("link", { name: /pinned-tab/i })).toBeDefined();
   });
 
   it("loads the next page of the All feed when the sentinel intersects", async () => {

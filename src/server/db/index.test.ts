@@ -1058,7 +1058,6 @@ describe("db", () => {
         "model",
         "parent_session_id",
         "parent_tool_call_id",
-        "pinned",
         "project_id",
         "started_at",
         "status",
@@ -1561,15 +1560,18 @@ describe("db", () => {
       "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
     );
     // Minimal post-0021 shapes of the three tables 0022's backfill reads,
-    // plus sessions, which 0023 alters with the lineage columns, and
-    // run_steps, which 0025 alters with the outputs column.
+    // plus sessions, which 0023 alters with the lineage columns and 0032
+    // strips `pinned` from, and run_steps, which 0025 alters with the
+    // outputs column.
     sqlite.run("CREATE TABLE run_steps (id TEXT PRIMARY KEY NOT NULL)");
     sqlite.run(`CREATE TABLE runs (
       id TEXT PRIMARY KEY NOT NULL,
       workflow_name TEXT NOT NULL,
       summary TEXT
     )`);
-    sqlite.run("CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, persona TEXT)");
+    sqlite.run(
+      "CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, persona TEXT, pinned INTEGER DEFAULT false NOT NULL)",
+    );
     sqlite.run(`CREATE TABLE articles (
       id TEXT PRIMARY KEY NOT NULL,
       run_id TEXT,

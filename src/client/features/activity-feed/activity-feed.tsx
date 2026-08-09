@@ -40,20 +40,12 @@ function SessionsFeed({ now }: { now?: Date }) {
   return <Feed state={state} noun="sessions" now={now} />;
 }
 
-function PinnedFeed({ now }: { now?: Date }) {
-  const state = toState(useSessionsFeed({ pinned: true }), (sessions) =>
-    sessions.map((session) => ({ kind: "session", session })),
-  );
-  return <Feed state={state} noun="pinned sessions" now={now} />;
-}
-
 /**
- * The home activity feed: a deep-linkable `All · Workflows · Sessions · Pinned`
- * tab strip over one of four reverse-chronological feeds. `All` is the union of
- * runs and sessions; `Workflows` and `Sessions` are each kind on its own;
- * `Pinned` is the sessions the user has pinned. The active view lives in the
- * `?view=` search param (defaulting to `All`); only the active panel mounts, so
- * just its query runs. `now` is injectable for deterministic tests; production
+ * The home activity feed: a deep-linkable `All · Workflows · Sessions` tab
+ * strip over one of three reverse-chronological feeds. `All` is the union of
+ * runs and sessions; `Workflows` and `Sessions` are each kind on its own. The
+ * active view lives in the `?view=` search param (defaulting to `All`); only
+ * the active panel mounts, so just its query runs. `now` is injectable for deterministic tests; production
  * omits it.
  */
 export function ActivityFeed({ now }: { now?: Date }) {
@@ -61,7 +53,6 @@ export function ActivityFeed({ now }: { now?: Date }) {
     { id: "all", label: "All", content: <AllFeed now={now} /> },
     { id: "workflows", label: "Workflows", content: <WorkflowsFeed now={now} /> },
     { id: "sessions", label: "Sessions", content: <SessionsFeed now={now} /> },
-    { id: "pinned", label: "Pinned", content: <PinnedFeed now={now} /> },
   ];
   return <Tabs tabs={tabs} label="Activity views" param="view" />;
 }

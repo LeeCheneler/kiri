@@ -28,7 +28,6 @@ export {
   getSessionChildren,
   getSessionMessages,
   getSessionPreviews,
-  setSessionPinned,
   setSessionStatus,
   updateSessionCwd,
   updateSessionEffort,

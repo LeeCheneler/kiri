@@ -9,12 +9,11 @@ import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionActions } from "./session-actions.tsx";
 
-const sessionDetail = (status = "idle", pinned = false, projectId: string | null = null) => ({
+const sessionDetail = (status = "idle", projectId: string | null = null) => ({
   session: {
     id: "s1",
     status,
     model: "anthropic:claude",
-    pinned,
     projectId,
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
@@ -23,11 +22,9 @@ const sessionDetail = (status = "idle", pinned = false, projectId: string | null
   messages: [],
 });
 
-const serveSession = (status = "idle", pinned = false, projectId: string | null = null) =>
+const serveSession = (status = "idle", projectId: string | null = null) =>
   server.use(
-    http.get("*/api/sessions/:id", () =>
-      HttpResponse.json(sessionDetail(status, pinned, projectId)),
-    ),
+    http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(status, projectId))),
   );
 
 const renderActions = () => {
@@ -73,7 +70,7 @@ describe("<SessionActions>", () => {
   });
 
   it("returns to the project page when deleting a project session", async () => {
-    serveSession("idle", false, "p1");
+    serveSession("idle", "p1");
     server.use(http.delete("*/api/sessions/:id", () => new HttpResponse(null, { status: 204 })));
     const { history } = renderActions();
 
@@ -149,48 +146,5 @@ describe("<SessionActions>", () => {
 
     const button = (await deleteButton()) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-  });
-
-  it("pins the session and flips the control to unpin", async () => {
-    serveSession();
-    server.use(
-      http.patch("*/api/sessions/:id", async ({ request }) => {
-        const { pinned } = (await request.json()) as { pinned: boolean };
-        return HttpResponse.json({ session: { ...sessionDetail().session, pinned } });
-      }),
-    );
-    renderActions();
-
-    await userEvent.click(await screen.findByRole("button", { name: /^pin session$/i }));
-
-    expect(await screen.findByRole("button", { name: /^unpin session$/i })).toBeDefined();
-  });
-
-  it("unpins a pinned session", async () => {
-    serveSession("idle", true);
-    server.use(
-      http.patch("*/api/sessions/:id", async ({ request }) => {
-        const { pinned } = (await request.json()) as { pinned: boolean };
-        return HttpResponse.json({ session: { ...sessionDetail().session, pinned } });
-      }),
-    );
-    renderActions();
-
-    await userEvent.click(await screen.findByRole("button", { name: /^unpin session$/i }));
-
-    expect(await screen.findByRole("button", { name: /^pin session$/i })).toBeDefined();
-  });
-
-  it("surfaces an error when the pin toggle fails", async () => {
-    serveSession();
-    server.use(
-      http.patch("*/api/sessions/:id", () => HttpResponse.json({ error: "boom" }, { status: 500 })),
-    );
-    renderActions();
-
-    await userEvent.click(await screen.findByRole("button", { name: /^pin session$/i }));
-
-    expect(await screen.findByText("boom")).toBeDefined();
-    expect(await screen.findByRole("button", { name: /^pin session$/i })).toBeDefined();
   });
 });

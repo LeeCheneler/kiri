@@ -35,7 +35,6 @@ const sessionPayload = (id: string, overrides: Record<string, unknown> = {}) => 
     id,
     status: "idle",
     model: "anthropic:claude",
-    pinned: false,
     title: "Ship checklist",
     parentSessionId: null,
     parentToolCallId: null,
