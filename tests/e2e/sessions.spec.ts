@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { sendMessage, startSession, useModel } from "./support/session.ts";
+import { openModels, sendMessage, startSession, useModel } from "./support/session.ts";
 
 test("starting a session, sending a message, and streaming the reply", async ({ page }) => {
   const id = await startSession(page);
@@ -41,7 +41,9 @@ test("a settled turn reports the context fill in the rail", async ({ page }) => 
   // The right rail carries the session marginalia; scope to it (anchored on
   // its pin action) so the figure is unambiguous.
   const rail = page.getByRole("complementary").filter({ hasText: "pin session" });
+  await openModels(page);
   await expect(page.getByLabel(/^model/i)).toHaveValue("echo");
+  await page.keyboard.press("Escape");
   // Context fill is the last settled turn's footprint — the stub reports 20.
   await expect(rail.getByText(/20 tokens/i)).toBeVisible();
 });

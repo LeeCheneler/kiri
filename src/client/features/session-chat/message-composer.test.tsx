@@ -14,7 +14,7 @@ function Harness({
   labelHidden = false,
   submitLabel,
   acceptsImages,
-  hint,
+  controls,
   initialImages,
   initialTextFiles,
 }: {
@@ -24,7 +24,7 @@ function Harness({
   labelHidden?: boolean;
   submitLabel?: string;
   acceptsImages?: boolean;
-  hint?: ReactNode;
+  controls?: ReactNode;
   initialImages?: PendingImage[];
   initialTextFiles?: PendingTextFile[];
 }) {
@@ -40,7 +40,7 @@ function Harness({
       labelHidden={labelHidden}
       submitLabel={submitLabel}
       acceptsImages={acceptsImages}
-      hint={hint}
+      controls={controls}
       initialImages={initialImages}
       initialTextFiles={initialTextFiles}
     />
@@ -198,37 +198,44 @@ describe("<MessageComposer>", () => {
     expect(onSubmit.mock.calls).toHaveLength(0);
   });
 
-  it("submits from the send button", async () => {
+  it("renders a submit button only when submitLabel names one", () => {
+    const { unmount } = render(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} />);
+    // Enter-only by default: the toolbar carries no submit action.
+    expect(screen.queryByRole("button", { name: /send|submit/i })).toBeNull();
+    unmount();
+
+    render(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} submitLabel="resend" />);
+    expect(screen.getByRole("button", { name: "resend" })).toBeDefined();
+  });
+
+  it("submits from the named submit button", async () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
-    composer(onSubmit);
+    render(<Harness onSubmit={onSubmit} submitLabel="resend" />);
 
     await userEvent.type(textbox(), "Hello there");
-    await userEvent.click(screen.getByRole("button", { name: "send" }));
+    await userEvent.click(screen.getByRole("button", { name: "resend" }));
 
     expect(onSubmit.mock.calls).toEqual([[[{ type: "text", text: "Hello there" }]]]);
   });
 
-  it("disables the send button while there is nothing to send", async () => {
-    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
-    composer(onSubmit);
+  it("disables the submit button while there is nothing to send", async () => {
+    render(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} submitLabel="resend" />);
 
-    const send = screen.getByRole("button", { name: "send" }) as HTMLButtonElement;
-    expect(send.disabled).toBe(true);
+    const submit = screen.getByRole("button", { name: "resend" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
     await userEvent.type(textbox(), "a");
-    expect(send.disabled).toBe(false);
+    expect(submit.disabled).toBe(false);
   });
 
-  it("disables the send button while busy", async () => {
-    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
-    composer(onSubmit, true);
+  it("disables the submit button while busy", async () => {
+    render(
+      <Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} submitLabel="resend" busy />,
+    );
 
     await userEvent.type(textbox(), "drafted ahead");
-    expect((screen.getByRole("button", { name: "send" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("names the submit action from submitLabel", () => {
-    render(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} submitLabel="resend" />);
-    expect(screen.getByRole("button", { name: "resend" })).toBeDefined();
+    expect((screen.getByRole("button", { name: "resend" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   it("offers a cancel button only when onCancel is given, wired to it", async () => {
@@ -281,9 +288,14 @@ describe("<MessageComposer>", () => {
     expect(screen.queryByText("Message")).toBeNull();
   });
 
-  it("renders a trailing key hint", () => {
-    render(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} hint="Enter to resend" />);
-    expect(screen.getByText("Enter to resend")).toBeDefined();
+  it("renders caller-supplied toolbar controls", () => {
+    render(
+      <Harness
+        onSubmit={mock((_parts: UIMessage["parts"]) => {})}
+        controls={<button type="button">model picker</button>}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "model picker" })).toBeDefined();
   });
 
   it("starts with the seeded images and submits them ahead of the text", async () => {

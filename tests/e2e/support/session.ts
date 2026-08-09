@@ -12,27 +12,41 @@ export const startSession = async (page: Page): Promise<string> => {
 };
 
 /**
- * Point the open session at `model` via the chat aside, waiting for the change
- * to persist so the next turn runs against it. The one-click create lands on a
- * default model that carries across the run, so this is a no-op when the session
- * already uses `model` — re-selecting an unchanged value fires no request to
- * await. Drives the searchable combobox: open it, type to filter, pick the match.
+ * Open the composer's models popover, putting the session's model pickers on
+ * screen. A no-op when it is already open.
+ */
+export const openModels = async (page: Page): Promise<void> => {
+  const trigger = page.getByRole("button", { name: "models" });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+};
+
+/**
+ * Point the open session at `model` via the composer's models popover, waiting
+ * for the change to persist so the next turn runs against it. The one-click
+ * create lands on a default model that carries across the run, so this is a
+ * no-op when the session already uses `model` — re-selecting an unchanged value
+ * fires no request to await. Drives the searchable combobox: open it, type to
+ * filter, pick the match — then closes the popover so the composer is clear
+ * for the message that follows.
  */
 export const useModel = async (page: Page, model: string): Promise<void> => {
   // The picker groups models by provider and labels each with the bare model
   // name — the group heading carries the provider — so drive it by the name
   // after the `provider:` prefix while `model` stays the full id.
   const bareName = model.slice(model.indexOf(":") + 1);
-  // Anchored: /model/i would also match the sibling "Image model" picker.
+  await openModels(page);
+  // Anchored: /model/i alone would also match the sibling "Image model" picker.
   const combobox = page.getByLabel(/^model/i);
-  if ((await combobox.inputValue()) === bareName) return;
-  const persisted = page.waitForResponse(
-    (res) => res.request().method() === "PATCH" && res.url().includes("/api/sessions/"),
-  );
-  await combobox.click();
-  await combobox.fill(bareName);
-  await page.getByRole("option", { name: bareName, exact: true }).click();
-  await persisted;
+  if ((await combobox.inputValue()) !== bareName) {
+    const persisted = page.waitForResponse(
+      (res) => res.request().method() === "PATCH" && res.url().includes("/api/sessions/"),
+    );
+    await combobox.click();
+    await combobox.fill(bareName);
+    await page.getByRole("option", { name: bareName, exact: true }).click();
+    await persisted;
+  }
+  await page.keyboard.press("Escape");
 };
 
 /** Type `text` into the chat composer and submit the turn. */

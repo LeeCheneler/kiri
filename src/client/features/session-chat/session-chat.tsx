@@ -16,6 +16,7 @@ import {
 } from "./context-usage.ts";
 import { MessageComposer } from "./message-composer.tsx";
 import { useSessionDraft } from "./session-draft.ts";
+import { SessionModelControls } from "./session-model-controls.tsx";
 import { useSessionConversation } from "./use-session-conversation.ts";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
@@ -265,7 +266,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
           {failedWithImage ? (
             <p className="mt-1 text-ink-muted">
               This turn included an image. If the model can't read images, switch to a multimodal
-              model in the panel and resend.
+              model in the composer and resend.
             </p>
           ) : null}
         </div>
@@ -284,7 +285,9 @@ function Chat({ detail }: { detail: SessionDetail }) {
           </div>
         ) : null}
         {/* Keyed by session so switching sessions remounts a fresh composer,
-            clearing any staged images (the draft text is per-session already). */}
+            clearing any staged images (the draft text is per-session already).
+            Enter-only submit — the key instructions ride in the placeholder,
+            visible exactly when there's nothing typed to send. */}
         <MessageComposer
           key={session.id}
           id={inputId}
@@ -292,11 +295,11 @@ function Chat({ detail }: { detail: SessionDetail }) {
           labelHidden
           value={draft}
           onChange={setDraft}
-          placeholder="Send a message…"
+          placeholder="Send a message… enter to send · shift+enter for newline"
           busy={busy || awaitingApproval}
           acceptsImages={acceptsImages}
+          controls={<SessionModelControls id={session.id} />}
           onSubmit={handleSend}
-          hint="enter to send · shift+enter for newline"
         />
       </div>
     </section>
