@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 type Variant = "primary" | "default" | "negative" | "negative-quiet" | "dismissive";
-type Size = "sm" | "lg";
+type Size = "inline" | "sm" | "lg";
 
 const VARIANT_CLASSES: Record<Variant, string> = {
   primary:
@@ -20,6 +20,9 @@ const VARIANT_CLASSES: Record<Variant, string> = {
 };
 
 const SIZE_CLASSES: Record<Size, string> = {
+  // No padding, so the label sits flush in a text row and the row's own
+  // separators (a Meta middot, say) space evenly either side of it.
+  inline: "text-xs",
   sm: "px-3 py-1.5 text-xs",
   lg: "px-5 py-2.5 text-sm",
 };
@@ -31,8 +34,9 @@ const SIZE_CLASSES: Record<Size, string> = {
  * `negative-quiet` is its low-weight sibling for a destructive action that
  * shouldn't dominate its surface (still confirm before acting on it), and
  * `dismissive` is a borderless low-weight action for chrome that already
- * carries its own visual weight. `size` bumps padding and label — `lg` for a
- * headline action, `sm` (default) everywhere else.
+ * carries its own visual weight. `size` sets the padding — `lg` for a headline
+ * action, `inline` for a borderless action seated in a run of text, and `sm`
+ * (default) everywhere else.
  *
  * `pending` swaps the label for a pulsing dot + `pendingLabel` and implicitly
  * disables the button. It owns its intrinsic style and padding only;

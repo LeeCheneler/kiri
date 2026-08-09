@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { splitLeadingHeading } from "../../../shared/extract-first-heading.ts";
 import { CopyButton } from "../../design-system/actions/copy-button.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
@@ -22,7 +21,6 @@ export function ArticleReader({
   createdAt,
   context,
   breadcrumbItems,
-  actions,
   wikiLinkResolver,
   now,
 }: {
@@ -36,8 +34,6 @@ export function ArticleReader({
   context: string;
   /** Trail above the title; the article's own title is appended as the current crumb. */
   breadcrumbItems: { label: string; href: string }[];
-  /** Page-level actions rendered after the body — e.g. a delete control for owners that allow it. */
-  actions?: ReactNode;
   /** Turns `[[slug]]` references into links — the project corpus reader passes one; other owners leave the syntax literal. */
   wikiLinkResolver?: WikiLinkResolver;
   /** Clock injection for tests; production callers omit it. */
@@ -95,7 +91,6 @@ export function ArticleReader({
           wikiLinkResolver={wikiLinkResolver}
         />
       </div>
-      {actions !== undefined ? <div className="mt-10">{actions}</div> : null}
     </article>
   );
 }

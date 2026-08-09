@@ -149,11 +149,30 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
     <section>
       <Breadcrumb items={BREADCRUMB} current={data.project.name} />
       <h2 className="mt-6 font-display text-4xl text-ink leading-tight">{data.project.name}</h2>
+      {/* The container's own actions trail the byline as further meta items,
+          picking up its middot separators. */}
       <div className="mt-2">
         <Meta>
           <span>created {formatRelativeTime(data.project.createdAt, now)}</span>
+          <Button variant="dismissive" size="inline" onClick={() => setRenameOpen(true)}>
+            rename project
+          </Button>
+          <Button
+            variant="negative-quiet"
+            size="inline"
+            pending={pending}
+            pendingLabel="deleting…"
+            onClick={() => setConfirmOpen(true)}
+          >
+            delete project
+          </Button>
         </Meta>
       </div>
+      {error ? (
+        <p role="alert" className="mt-2 font-mono text-xs text-status-failed">
+          {error}
+        </p>
+      ) : null}
       <div className="mt-4">
         <NewSessionButton projectId={id} />
       </div>
@@ -214,24 +233,6 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
           )}
         </div>
       </div>
-      <div className="-mx-3 mt-10 flex items-center">
-        <Button variant="dismissive" onClick={() => setRenameOpen(true)}>
-          rename project
-        </Button>
-        <Button
-          variant="negative-quiet"
-          pending={pending}
-          pendingLabel="deleting…"
-          onClick={() => setConfirmOpen(true)}
-        >
-          delete project
-        </Button>
-      </div>
-      {error ? (
-        <p role="alert" className="mt-3 font-mono text-xs text-status-failed">
-          {error}
-        </p>
-      ) : null}
       {renameOpen ? (
         <RenameProjectModal
           id={id}
