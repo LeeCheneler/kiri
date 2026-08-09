@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import type { ActivityEntry } from "../../api.ts";
+import type { ActivityEntry, ArticleFeedEntry } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
@@ -7,34 +7,63 @@ import { Rule } from "../../design-system/content/rule.tsx";
 import { formatDayMarker } from "../../formatters/format-time.ts";
 import { SessionRow } from "../session-chat/session-row.tsx";
 import { RunRow } from "../workflow-details/run-row.tsx";
+import { ArticleRow } from "./article-row.tsx";
+
+/**
+ * One row a `Feed` can render. Widens the `/api/activity` union with the
+ * articles view's own kind — that endpoint returns runs and sessions only, so
+ * the extra arm lives here rather than being folded into `ActivityEntry`.
+ */
+export type FeedEntry = ActivityEntry | { kind: "article"; article: ArticleFeedEntry };
 
 /**
  * The normalised paging state a `Feed` renders, decoupled from which query
- * produced it so the same feed serves the union, runs-only, and sessions-only
- * views. `fetchNextPage` is void-returning — the feed only ever fires it.
+ * produced it so the same feed serves the union, runs-only, sessions-only, and
+ * articles-only views. `fetchNextPage` is void-returning — the feed only ever
+ * fires it.
  */
 export interface FeedState {
   isPending: boolean;
   isError: boolean;
   error: Error | null;
-  entries: ActivityEntry[];
+  entries: FeedEntry[];
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
 }
 
-const entryStartedAt = (entry: ActivityEntry) =>
-  entry.kind === "run" ? entry.run.startedAt : entry.session.startedAt;
+// An article's place in the timeline is when it was written; runs and sessions
+// are placed by when they began.
+const entryStartedAt = (entry: FeedEntry) => {
+  switch (entry.kind) {
+    case "run":
+      return entry.run.startedAt;
+    case "session":
+      return entry.session.startedAt;
+    case "article":
+      return entry.article.createdAt;
+  }
+};
 
-const entryKey = (entry: ActivityEntry) =>
-  entry.kind === "run" ? `run:${entry.run.id}` : `session:${entry.session.id}`;
+// An article has no id of its own in the feed — its slug is unique only within
+// the container that owns it, so the pair is the key.
+const entryKey = (entry: FeedEntry) => {
+  switch (entry.kind) {
+    case "run":
+      return `run:${entry.run.id}`;
+    case "session":
+      return `session:${entry.session.id}`;
+    case "article":
+      return `article:${entry.article.producer.id}:${entry.article.slug}`;
+  }
+};
 
-type DayGroup = { marker: string; entries: ActivityEntry[] };
+type DayGroup = { marker: string; entries: FeedEntry[] };
 
 // Segment the newest-first stream into contiguous local-day buckets. Entries of
 // one day are adjacent, so a marker change is a bucket boundary; the marker text
 // is unique per calendar day, so it doubles as the group's React key.
-const groupByDay = (entries: ActivityEntry[], now?: Date): DayGroup[] => {
+const groupByDay = (entries: FeedEntry[], now?: Date): DayGroup[] => {
   const groups: DayGroup[] = [];
   for (const entry of entries) {
     const marker = formatDayMarker(entryStartedAt(entry), now);
@@ -47,11 +76,12 @@ const groupByDay = (entries: ActivityEntry[], now?: Date): DayGroup[] => {
 
 /**
  * Presentational activity feed: a live, infinite, reverse-chronological stream
- * of runs and sessions, segmented by day marker (Today / Yesterday / date), each
- * entry rendered as its kind's row. An `IntersectionObserver` sentinel at the
- * foot loads the next page as it scrolls into view. Renders one of loading,
- * error, empty, or the grouped list. The caller supplies the normalised `state`
- * and a `noun` for the loading/error/empty copy ("activity", "runs", "sessions").
+ * of runs, sessions, and articles, segmented by day marker (Today / Yesterday /
+ * date), each entry rendered as its kind's row. An `IntersectionObserver`
+ * sentinel at the foot loads the next page as it scrolls into view. Renders one
+ * of loading, error, empty, or the grouped list. The caller supplies the
+ * normalised `state` and a `noun` for the loading/error/empty copy
+ * ("activity", "runs", "sessions", "articles").
  * `now` is injectable so tests render deterministic day markers and relative
  * times; production omits it.
  */
@@ -113,8 +143,10 @@ export function Feed({
               <li key={entryKey(entry)}>
                 {entry.kind === "run" ? (
                   <RunRow run={entry.run} now={now} showWorkflow />
-                ) : (
+                ) : entry.kind === "session" ? (
                   <SessionRow session={entry.session} now={now} />
+                ) : (
+                  <ArticleRow article={entry.article} now={now} />
                 )}
               </li>
             ))}
