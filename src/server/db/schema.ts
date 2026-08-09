@@ -252,11 +252,6 @@ export const sessions = sqliteTable(
      */
     title: text("title"),
     /**
-     * Whether the user has pinned the session. A display flag only — pinned
-     * sessions surface on the feed's Pinned tab; execution is unaffected.
-     */
-    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
-    /**
      * The project this session was created within, or null for a projectless
      * session. Set at creation and never moved — a project session's article
      * tools target the project's shared corpus instead of session-owned

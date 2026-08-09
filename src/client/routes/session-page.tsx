@@ -11,7 +11,7 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
  * group (conversation model, effort, image model) lives in the chat's
  * composer, so the right rail holds the session's metadata, descending from
  * what's touched most to least — its title, its written articles, then its
- * vitals and the pin/delete actions grouped as the quiet foot.
+ * vitals and the delete action as the quiet foot.
  */
 export function SessionPage({ params }: { params: { id: string } }) {
   return (

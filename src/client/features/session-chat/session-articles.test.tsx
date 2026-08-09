@@ -119,7 +119,6 @@ describe("<SessionArticles>", () => {
             effort: "medium",
             cwd: null,
             title: null,
-            pinned: false,
             projectId,
             parentSessionId: null,
             parentToolCallId: null,

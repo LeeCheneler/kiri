@@ -39,8 +39,8 @@ test("a settled turn reports the context fill in the rail", async ({ page }) => 
   await expect(page.getByText("You said: count my tokens")).toBeVisible({ timeout: 10_000 });
 
   // The right rail carries the session marginalia; scope to it (anchored on
-  // its pin action) so the figure is unambiguous.
-  const rail = page.getByRole("complementary").filter({ hasText: "pin session" });
+  // its delete action) so the figure is unambiguous.
+  const rail = page.getByRole("complementary").filter({ hasText: "delete session" });
   await openModels(page);
   await expect(page.getByRole("combobox", { name: /^model/i })).toHaveValue("echo");
   await page.keyboard.press("Escape");

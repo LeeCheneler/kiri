@@ -225,6 +225,13 @@
       "when": 1786197928449,
       "tag": "0031_add_projects",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1786259492746,
+      "tag": "0032_drop_session_pinned",
+      "breakpoints": true
     }
   ]
 }

@@ -767,8 +767,6 @@ export interface Session {
   cwd: string | null;
   /** The session's display name, or null when untitled — lists fall back to the preview. */
   title: string | null;
-  /** Whether the user has pinned the session onto the feed's Pinned tab. */
-  pinned: boolean;
   /** The project this session was created within, or null for a projectless session. Set at creation and never moved. */
   projectId: string | null;
   /** The parent session this one was spawned from, or null for a top-level session. */
@@ -818,16 +816,15 @@ export interface SessionsPage {
 
 /**
  * Fetch one page of the session list, newest first. Pass `cursor` from the
- * previous page's `nextCursor` to advance, `limit` (1–100) to size the page,
- * and `pinned: true` to narrow the page to pinned sessions. Throws on non-2xx.
+ * previous page's `nextCursor` to advance and `limit` (1–100) to size the
+ * page. Throws on non-2xx.
  */
 export const fetchSessionsPage = async (
-  opts: { cursor?: string; limit?: number; pinned?: true } = {},
+  opts: { cursor?: string; limit?: number } = {},
 ): Promise<SessionsPage> => {
   const params = new URLSearchParams();
   if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));
-  if (opts.pinned) params.set("pinned", "true");
   const qs = params.toString();
   return json<SessionsPage>(await apiFetch(`/api/sessions${qs ? `?${qs}` : ""}`));
 };
@@ -1038,23 +1035,6 @@ export const patchSessionTitle = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
-    }),
-  );
-
-/**
- * Pin or unpin a session, returning the updated row. A display flag only —
- * pinned sessions surface on the feed's Pinned tab. Throws `ApiError` on
- * non-2xx (404 for an unknown session).
- */
-export const patchSessionPinned = async (
-  id: string,
-  pinned: boolean,
-): Promise<{ session: Session }> =>
-  json<{ session: Session }>(
-    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pinned }),
     }),
   );
 

@@ -17,7 +17,6 @@ const base: SessionListEntry = {
   effort: "medium" as const,
   cwd: null,
   title: null,
-  pinned: false,
   parentSessionId: null,
   parentToolCallId: null,
   startedAt: "2026-05-09T12:00:00.000Z",

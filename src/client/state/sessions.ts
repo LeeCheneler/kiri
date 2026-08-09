@@ -18,7 +18,6 @@ import {
   patchSessionEffort,
   patchSessionImageModel,
   patchSessionModel,
-  patchSessionPinned,
   patchSessionTitle,
 } from "../api.ts";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
@@ -63,7 +62,7 @@ export function useSessionChildren(id: string): UseQueryResult<Session[]> {
 }
 
 /**
- * Change a session's model, image model, effort, title, or pinned flag and write the
+ * Change a session's model, image model, effort, or title and write the
  * server's updated row straight into the cached detail, so the control
  * reflects the choice at once. A user-initiated change shouldn't wait on the
  * `session.updated` echo to land before showing — the PATCH already returns
@@ -74,7 +73,6 @@ export function useUpdateSession(id: string): {
   setImageModel: (imageModel: string | null) => Promise<void>;
   setEffort: (effort: SessionEffort) => Promise<void>;
   setTitle: (title: string | null) => Promise<void>;
-  setPinned: (pinned: boolean) => Promise<void>;
 } {
   const queryClient = useQueryClient();
   const apply = (session: Session) => {
@@ -88,25 +86,20 @@ export function useUpdateSession(id: string): {
       apply((await patchSessionImageModel(id, imageModel)).session),
     setEffort: async (effort) => apply((await patchSessionEffort(id, effort)).session),
     setTitle: async (title) => apply((await patchSessionTitle(id, title)).session),
-    setPinned: async (pinned) => apply((await patchSessionPinned(id, pinned)).session),
   };
 }
 
 /**
  * Read the full session history as an infinite, cursor-paginated feed, newest
- * first — or, with `pinned: true`, just the pinned sessions. The first page
- * fetches on mount; `fetchNextPage` advances by the previous page's
- * `nextCursor` until it runs dry. `data` is the loaded pages flattened into
- * one newest-first array. Both variants key under `["sessions", "feed"]`, so
- * `useSessionsLive`'s subtree invalidations keep them current.
+ * first. The first page fetches on mount; `fetchNextPage` advances by the
+ * previous page's `nextCursor` until it runs dry. `data` is the loaded pages
+ * flattened into one newest-first array. It keys under `["sessions", "feed"]`,
+ * so `useSessionsLive`'s subtree invalidations keep it current.
  */
-export function useSessionsFeed(
-  opts: { pinned?: true } = {},
-): UseInfiniteQueryResult<SessionListEntry[], Error> {
+export function useSessionsFeed(): UseInfiniteQueryResult<SessionListEntry[], Error> {
   return useInfiniteQuery({
-    queryKey: opts.pinned ? ([...sessionsFeedKey, "pinned"] as const) : sessionsFeedKey,
-    queryFn: ({ pageParam }) =>
-      fetchSessionsPage({ cursor: pageParam, limit: FEED_PAGE_SIZE, pinned: opts.pinned }),
+    queryKey: sessionsFeedKey,
+    queryFn: ({ pageParam }) => fetchSessionsPage({ cursor: pageParam, limit: FEED_PAGE_SIZE }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     select: (data) => data.pages.flatMap((page) => page.sessions),

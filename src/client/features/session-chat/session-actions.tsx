@@ -3,45 +3,26 @@ import { useLocation } from "wouter";
 import { ApiError, deleteSession } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
-import { useSession, useUpdateSession } from "../../state/sessions.ts";
+import { useSession } from "../../state/sessions.ts";
 import { clearSessionDraft } from "./session-draft.ts";
 
 /**
- * Session-level controls for the chat right rail: pin/unpin and delete.
- * Pinning toggles the session onto the feed's Pinned tab; the PATCH result
- * lands straight in the cached detail, so the label flips at once. Deleting
- * confirms, removes the session and its messages, then returns to the session
- * list — a 404 counts as already-deleted (another tab, a stale view), so it
- * still navigates. Delete is disabled while a turn is in flight, since the
- * server refuses to remove a running session; pinning stays available — it
- * never touches the turn. Failures from either action surface inline. Reads
- * the same shared session query the chat and aside use, so it adds no fetch
- * and renders nothing until that resolves.
+ * The chat right rail's delete control. Confirms, removes the session and its
+ * messages, then returns to the session list — a 404 counts as already-deleted
+ * (another tab, a stale view), so it still navigates. Disabled while a turn is
+ * in flight, since the server refuses to remove a running session. Failures
+ * surface inline. Reads the same shared session query the chat and aside use,
+ * so it adds no fetch and renders nothing until that resolves.
  */
 export function SessionActions({ id }: { id: string }) {
   const [, navigate] = useLocation();
   const detail = useSession(id).data;
-  const { setPinned } = useUpdateSession(id);
   const [pending, setPending] = useState(false);
-  const [pinPending, setPinPending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!detail) return null;
   const running = detail.session.status === "running";
-  const pinned = detail.session.pinned;
-
-  const handlePinToggle = async () => {
-    setError(null);
-    setPinPending(true);
-    try {
-      await setPinned(!pinned);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPinPending(false);
-    }
-  };
 
   const handleDelete = async () => {
     setConfirmOpen(false);
@@ -72,19 +53,11 @@ export function SessionActions({ id }: { id: string }) {
   return (
     <>
       <div className="flex flex-col items-start gap-1">
-        {/* Quiet text actions: rare, considered moves that shouldn't compete
-            with the rail's controls. Delete still confirms — and only shows
-            its red on approach. The negative margin re-aligns the borderless
-            labels with the rail's left edge. */}
+        {/* A quiet text action: a rare, considered move that shouldn't
+            compete with the rail's controls. It still confirms — and only
+            shows its red on approach. The negative margin re-aligns the
+            borderless label with the rail's left edge. */}
         <div className="-mx-3 flex items-center">
-          <Button
-            variant="dismissive"
-            pending={pinPending}
-            pendingLabel={pinned ? "unpinning…" : "pinning…"}
-            onClick={handlePinToggle}
-          >
-            {pinned ? "unpin session" : "pin session"}
-          </Button>
           <Button
             variant="negative-quiet"
             pending={pending}
