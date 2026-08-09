@@ -1,8 +1,16 @@
-import { Fragment, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  Fragment,
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Field } from "./field.tsx";
 
 const LISTBOX_CLASS =
-  "absolute z-20 mt-1 max-h-60 w-full overflow-auto border border-rule bg-paper py-1 shadow-lg";
+  "absolute z-20 max-h-60 w-full overflow-auto border border-rule bg-paper py-1 shadow-lg";
 const OPTION_CLASS =
   "cursor-pointer px-3 py-2 font-mono text-sm text-ink aria-selected:text-accent hover:bg-paper-2";
 const OPTION_ACTIVE_CLASS = `${OPTION_CLASS} bg-paper-2`;
@@ -54,10 +62,12 @@ const toGroups = (
  * empties a group hides it, and keyboard movement walks the flattened list.
  * Pass a `label` to render the field
  * lockup (label, optional `description` help line, `required` marker), wired for
- * assistive tech through the ARIA combobox/listbox roles; omit it for the bare
- * control. Reach for it over `Select` when the list is long enough that scanning
- * a native dropdown is painful. It carries no width or margin — the field owns
- * layout.
+ * assistive tech through the ARIA combobox/listbox roles; omit it for the
+ * bare control. The list opens below the input, flipping above it when the
+ * viewport leaves too little room underneath (a control docked near the
+ * viewport foot). Reach for it over `Select` when the list is long enough
+ * that scanning a native dropdown is painful. It carries no width or margin —
+ * the field owns layout.
  */
 export function Combobox({
   value,
@@ -87,7 +97,10 @@ export function Combobox({
   const listboxId = `${fieldId}-listbox`;
   const rootRef = useRef<HTMLDivElement>(null);
 
+  const listRef = useRef<HTMLUListElement>(null);
+
   const [open, setOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -155,6 +168,20 @@ export function Combobox({
     return () => window.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
+  // Pick the list's side as it opens, before paint: below by default, above
+  // only when the viewport leaves less room under the input than the list
+  // needs and there is more room over it. Settled once per open — a list
+  // that shrinks as the filter narrows stays put rather than hopping sides.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const root = rootRef.current;
+    const list = listRef.current;
+    if (!root || !list) return;
+    const rect = root.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom;
+    setOpenUp(below < list.offsetHeight + 8 && rect.top > below);
+  }, [open]);
+
   // Keep the keyboard highlight in view as it walks a list taller than the popup.
   useEffect(() => {
     if (activeOptionId)
@@ -179,6 +206,9 @@ export function Combobox({
       close();
     }
   };
+
+  // The popup sits below the input, or above it when that's the side with room.
+  const listboxClass = `${LISTBOX_CLASS} ${openUp ? "bottom-full mb-1" : "mt-1"}`;
 
   const control = (
     <div ref={rootRef} className="relative">
@@ -208,7 +238,7 @@ export function Combobox({
       />
       {open ? (
         // biome-ignore lint/a11y/useFocusableInteractive lint/a11y/useSemanticElements lint/a11y/noNoninteractiveElementToInteractiveRole: ARIA combobox pattern — the listbox isn't focusable and isn't a native <select>; focus stays on the input, which drives selection through aria-activedescendant.
-        <ul id={listboxId} role="listbox" className={LISTBOX_CLASS}>
+        <ul ref={listRef} id={listboxId} role="listbox" className={listboxClass}>
           {filtered.length === 0 ? (
             <li role="presentation" className="px-3 py-2 font-mono text-sm text-ink-faint italic">
               No matches

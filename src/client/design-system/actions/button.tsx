@@ -37,6 +37,8 @@ const SIZE_CLASSES: Record<Size, string> = {
  * `pending` swaps the label for a pulsing dot + `pendingLabel` and implicitly
  * disables the button. It owns its intrinsic style and padding only;
  * positioning and any shared error slot belong to the surrounding action group.
+ * A button that toggles an attached surface (a popover, a disclosure) passes
+ * `aria-expanded` / `aria-haspopup` through so assistive tech hears the state.
  */
 export function Button({
   children,
@@ -48,6 +50,8 @@ export function Button({
   type = "button",
   onClick,
   title,
+  "aria-expanded": ariaExpanded,
+  "aria-haspopup": ariaHasPopup,
 }: {
   children: ReactNode;
   variant?: Variant;
@@ -58,6 +62,8 @@ export function Button({
   type?: "button" | "submit" | "reset";
   onClick?: () => void;
   title?: string;
+  "aria-expanded"?: boolean;
+  "aria-haspopup"?: boolean | "dialog" | "listbox" | "menu";
 }) {
   return (
     <button
@@ -65,6 +71,8 @@ export function Button({
       onClick={onClick}
       disabled={disabled || pending}
       title={title}
+      aria-expanded={ariaExpanded}
+      aria-haspopup={ariaHasPopup}
       data-variant={variant}
       className={`cursor-pointer whitespace-nowrap font-mono outline-none transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${SIZE_CLASSES[size]} ${VARIANT_CLASSES[variant]}`}
     >
