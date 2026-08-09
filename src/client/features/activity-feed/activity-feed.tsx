@@ -28,7 +28,7 @@ function AllFeed({ now }: { now?: Date }) {
   return <Feed state={state} noun="activity" now={now} />;
 }
 
-function WorkflowsFeed({ now }: { now?: Date }) {
+function RunsFeed({ now }: { now?: Date }) {
   const state = toState(useRunFeed(), (runs) => runs.map((run) => ({ kind: "run", run })));
   return <Feed state={state} noun="runs" now={now} />;
 }
@@ -41,17 +41,19 @@ function SessionsFeed({ now }: { now?: Date }) {
 }
 
 /**
- * The home activity feed: a deep-linkable `All · Workflows · Sessions` tab
- * strip over one of three reverse-chronological feeds. `All` is the union of
- * runs and sessions; `Workflows` and `Sessions` are each kind on its own. The
- * active view lives in the `?view=` search param (defaulting to `All`); only
- * the active panel mounts, so just its query runs. `now` is injectable for deterministic tests; production
- * omits it.
+ * The home activity feed: a deep-linkable `All · Runs · Sessions` tab strip
+ * over one of three reverse-chronological feeds. `All` is the union of runs
+ * and sessions; `Runs` and `Sessions` are each kind on its own. The tabs name
+ * the events they list, not the definitions behind them — the workflow
+ * catalogue in the nav is a separate surface. The active view lives in the
+ * `?view=` search param (defaulting to `All`); only the active panel mounts,
+ * so just its query runs. `now` is injectable for deterministic tests;
+ * production omits it.
  */
 export function ActivityFeed({ now }: { now?: Date }) {
   const tabs: TabDef[] = [
     { id: "all", label: "All", content: <AllFeed now={now} /> },
-    { id: "workflows", label: "Workflows", content: <WorkflowsFeed now={now} /> },
+    { id: "runs", label: "Runs", content: <RunsFeed now={now} /> },
     { id: "sessions", label: "Sessions", content: <SessionsFeed now={now} /> },
   ];
   return <Tabs tabs={tabs} label="Activity views" param="view" />;

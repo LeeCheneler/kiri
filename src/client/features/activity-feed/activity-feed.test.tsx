@@ -76,7 +76,7 @@ describe("<ActivityFeed>", () => {
     );
   });
 
-  it("filters to runs on the Workflows tab", async () => {
+  it("filters to runs on the Runs tab", async () => {
     let runsHit = false;
     server.use(
       http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
@@ -91,7 +91,7 @@ describe("<ActivityFeed>", () => {
     const user = userEvent.setup();
     renderActivity();
 
-    await user.click(await screen.findByRole("tab", { name: /workflows/i }));
+    await user.click(await screen.findByRole("tab", { name: /runs/i }));
     expect(await screen.findByRole("link", { name: "wf-runs" })).toBeDefined();
     expect(runsHit).toBe(true);
   });
