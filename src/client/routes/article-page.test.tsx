@@ -57,16 +57,16 @@ describe("<ArticlePage>", () => {
     // The reader renders the fetched body, situated under the workflow as the
     // eyebrow context.
     expect(await screen.findByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
-    expect(screen.getByText("pr-review · PR Review Digest")).toBeDefined();
     expect(screen.getByText(/First paragraph\./)).toBeDefined();
     // The breadcrumb threads Activity → workflow → run → (current article).
     expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
     const workflowLink = screen.getByRole("link", { name: "pr-review" });
     expect(workflowLink.getAttribute("href")).toBe("/workflows/pr-review");
-    const runLink = screen.getByRole("link", { name: "abc12345" });
+    // The run crumb names the run by when it ran; its id never appears.
+    const runLink = screen.getByRole("link", { name: /\d\d:\d\d/ });
     expect(runLink.getAttribute("href")).toBe("/runs/abc12345-0000-0000-0000-000000000000");
-    // The run's git sha and duration are not surfaced here. (Exact match: the
-    // run crumb label "abc12345" must not be mistaken for a 7-char sha.)
+    expect(screen.queryByText(/abc12345/)).toBeNull();
+    // The run's git sha and duration are not surfaced here.
     expect(screen.queryByText("abc1234")).toBeNull();
     expect(screen.queryByText(/\(dirty\)/)).toBeNull();
   });
@@ -86,7 +86,8 @@ describe("<ArticlePage>", () => {
     expect(screen.getByText("missing-art")).toBeDefined();
     // Even on 404 the run stays reachable — the run might still exist, only
     // the article is missing.
-    const runLink = screen.getByRole("link", { name: "deadbeef" });
+    // Nothing is loaded to name the run by, so the crumb states the kind.
+    const runLink = screen.getByRole("link", { name: "Run" });
     expect(runLink.getAttribute("href")).toBe("/runs/deadbeef-1111-2222-3333-444444444444");
   });
 

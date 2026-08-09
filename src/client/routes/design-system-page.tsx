@@ -26,6 +26,7 @@ import { Quote } from "../design-system/content/quote.tsx";
 import { Rule } from "../design-system/content/rule.tsx";
 import { Stat, StatList } from "../design-system/content/stat.tsx";
 import { Table } from "../design-system/content/table.tsx";
+import { EdgedBlock } from "../design-system/feedback/edged-block.tsx";
 import { Notice } from "../design-system/feedback/notice.tsx";
 import { StatusBlock } from "../design-system/feedback/status-block.tsx";
 import { Status, type StatusKind } from "../design-system/feedback/status.tsx";
@@ -1009,7 +1010,10 @@ export function DesignSystemContent() {
                 The small mono uppercase kicker above a page title or section heading. The default{" "}
                 <Code>accent</Code> tone is a page's lead eyebrow — it colours the kicker so the
                 title reads as the page's opening — while <Code>muted</Code> heads a section{" "}
-                <em>within</em> a page, where an accent kicker would compete with the lead.
+                <em>within</em> a page, where an accent kicker would compete with the lead.{" "}
+                <Code>faint</Code> is quieter still, for a label heading a group nested inside a row
+                or card — a feed row's article count, say — where even a muted kicker would read as
+                loud as the content it introduces.
               </p>
             </Prose>
             <div className="mt-5">
@@ -1022,6 +1026,7 @@ export function DesignSystemContent() {
                     </p>
                   </div>
                   <Eyebrow tone="muted">Steps</Eyebrow>
+                  <Eyebrow tone="faint">2 articles</Eyebrow>
                 </div>
               </Card>
             </div>
@@ -1925,6 +1930,37 @@ export function DesignSystemContent() {
                     <p className="mt-1 font-mono text-xs text-ink-muted">session · idle</p>
                   </StatusBlock>
                 </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Edged block</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">EdgedBlock</span> ·
+              design-system/feedback/edged-block.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                The same left edge as <Code>StatusBlock</Code>, drawn in accent for an entry with no
+                lifecycle to report. An article in the activity feed is the case it exists for:
+                sitting among status-edged run and session rows, the accent edge says it is
+                something the system <em>produced</em> rather than something the system did. It
+                exposes <Code>data-edge</Code> rather than <Code>data-status</Code> — there is no
+                state to report. Whenever the entry does have one, use <Code>StatusBlock</Code>.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <EdgedBlock>
+                  <p className="font-mono text-xs text-ink-muted">
+                    <span className="text-accent uppercase">article</span> · morning briefing · 20
+                    hours ago
+                  </p>
+                  <p className="mt-1 font-display text-base text-ink">
+                    Tuesday briefing: three things that actually moved
+                  </p>
+                </EdgedBlock>
               </Card>
             </div>
           </article>

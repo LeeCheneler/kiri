@@ -25,11 +25,14 @@ const makeRun = (overrides: Partial<RunDetailRun> = {}): RunDetailRun => ({
 });
 
 describe("<RunHeader>", () => {
-  it("renders the workflow eyebrow, short-id heading, and a finished byline", () => {
+  it("heads the page with when the run ran, never its id", () => {
     render(<RunHeader run={makeRun()} now={NOW} />);
 
-    expect(screen.getByText("pr-review · Run")).toBeDefined();
-    expect(screen.getByRole("heading", { level: 2, name: "abcd1234" })).toBeDefined();
+    // The kind alone; the breadcrumb above already names the workflow.
+    expect(screen.getByText("Run")).toBeDefined();
+    expect(screen.queryByText(/pr-review/)).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: /12:00/ })).toBeDefined();
+    expect(screen.queryByText(/abcd1234/)).toBeNull();
     expect(screen.getByText("ok")).toBeDefined();
     // Final span from start → finish (42s); no deleted marker on a live workflow.
     expect(screen.getByText("42s")).toBeDefined();

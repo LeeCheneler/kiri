@@ -6,7 +6,12 @@ import type { ReactNode } from "react";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
-import { useActivityFeed, useActivityFeedLive } from "./activity.ts";
+import {
+  useActivityFeed,
+  useActivityFeedLive,
+  useArticleFeed,
+  useArticleFeedLive,
+} from "./activity.ts";
 import { createQueryClient } from "./query-client.ts";
 
 const renderProbe = (ui: ReactNode) => {
@@ -39,6 +44,27 @@ const serveCountingActivity = () => {
       calls++;
       return HttpResponse.json({
         entries: [{ kind: "run", run: { id: `a-${calls}` } }],
+        nextCursor: null,
+      });
+    }),
+  );
+};
+
+// Probe for the articles feed, mirroring FeedProbe.
+const ArticleProbe = () => {
+  useArticleFeedLive();
+  const { data } = useArticleFeed();
+  if (!data) return <p>loading</p>;
+  return <p>{data.map((a) => a.slug).join(",") || "empty"}</p>;
+};
+
+const serveCountingArticles = () => {
+  let calls = 0;
+  server.use(
+    http.get("*/api/activity/articles", () => {
+      calls++;
+      return HttpResponse.json({
+        entries: [{ slug: `art-${calls}`, producer: { kind: "run", id: "r1", label: "wf" } }],
         nextCursor: null,
       });
     }),
@@ -83,5 +109,29 @@ describe("activity state", () => {
     act(() => sources[0]?.triggerOpen());
     act(() => sources[0]?.triggerOpen());
     await screen.findByText("a-2");
+  });
+
+  it("folds a newly written article into the articles feed", async () => {
+    serveCountingArticles();
+    const { sources } = renderProbe(<ArticleProbe />);
+    await screen.findByText("art-1");
+
+    act(() => sources[0]?.emit({ type: "article.written", sessionId: "s1", slug: "notes" }));
+    await screen.findByText("art-2");
+
+    // A run's articles are written as it completes and announce no event of
+    // their own, so the run's own finish has to restale the feed.
+    act(() => sources[0]?.emit({ type: "run.finished", id: "r9", status: "ok" }));
+    await screen.findByText("art-3");
+  });
+
+  it("recovers the articles feed on event-stream reconnect", async () => {
+    serveCountingArticles();
+    const { sources } = renderProbe(<ArticleProbe />);
+    await screen.findByText("art-1");
+
+    act(() => sources[0]?.triggerOpen());
+    act(() => sources[0]?.triggerOpen());
+    await screen.findByText("art-2");
   });
 });

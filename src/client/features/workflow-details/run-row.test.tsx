@@ -27,20 +27,19 @@ const run = (over: Partial<RunListEntry> = {}): RunListEntry => ({
   ...over,
 });
 
-const renderRow = (entry: RunListEntry, opts: { showWorkflow?: boolean } = {}) => {
+const renderRow = (entry: RunListEntry, opts: { nameBy?: "workflow" | "time" } = {}) => {
   const { hook } = memoryLocation({ path: "/workflows/deploy" });
   return render(
     <Router hook={hook}>
-      <RunRow run={entry} now={NOW} showWorkflow={opts.showWorkflow} />
+      <RunRow run={entry} now={NOW} nameBy={opts.nameBy} />
     </Router>,
   );
 };
 
 describe("<RunRow>", () => {
-  it("renders the status, short run id, relative start time, and duration in the byline", () => {
+  it("renders the status, relative start time, and duration in the byline", () => {
     renderRow(run({ status: "ok" }));
     expect(screen.getByText("ok")).toBeDefined();
-    expect(screen.getByRole("link", { name: "r1" }).getAttribute("href")).toBe("/runs/r1");
     expect(screen.getByText("3 minutes ago")).toBeDefined();
     expect(screen.getByText("1.4s")).toBeDefined();
   });
@@ -51,29 +50,23 @@ describe("<RunRow>", () => {
     expect(screen.queryByText("1.4s")).toBeNull();
   });
 
-  it("links the run detail from the short run id, leaving the time as plain text", () => {
-    renderRow(run({ id: "abc" }));
-    const anchor = screen.getByRole("link", { name: "abc" });
-    expect(anchor.getAttribute("href")).toBe("/runs/abc");
-    // The relative start time is a plain meta fact now, not the link.
-    expect(screen.queryByRole("link", { name: "3 minutes ago" })).toBeNull();
+  it("never surfaces the run id, which addresses a run rather than naming one", () => {
+    renderRow(run({ id: "abcd1234-5678" }));
+    expect(screen.queryByText(/abcd1234/)).toBeNull();
   });
 
-  it("omits the workflow name by default for the single-workflow feed", () => {
-    renderRow(run({ workflowName: "deploy" }));
+  it("names a run by when it ran on a single workflow's page", () => {
+    renderRow(run({ id: "abc", workflowName: "deploy" }));
+    const anchor = screen.getByRole("link", { name: /12:00/ });
+    expect(anchor.getAttribute("href")).toBe("/runs/abc");
+    // Every row there would otherwise read "deploy".
     expect(screen.queryByText("deploy")).toBeNull();
   });
 
-  it("leads the byline with a link to the workflow page when showWorkflow is set", () => {
-    renderRow(run({ workflowName: "deploy" }), { showWorkflow: true });
-    const link = screen.getByRole("link", { name: "deploy" });
-    expect(link.getAttribute("href")).toBe("/workflows/deploy");
-  });
-
-  it("encodes a workflow name with a slash in the workflow-page href", () => {
-    renderRow(run({ workflowName: "dev/deploy" }), { showWorkflow: true });
-    const link = screen.getByRole("link", { name: "dev/deploy" });
-    expect(link.getAttribute("href")).toBe("/workflows/dev%2Fdeploy");
+  it("names a run by its workflow in the blended feed", () => {
+    renderRow(run({ id: "abc", workflowName: "deploy" }), { nameBy: "workflow" });
+    const anchor = screen.getByRole("link", { name: /deploy/ });
+    expect(anchor.getAttribute("href")).toBe("/runs/abc");
   });
 
   it("surfaces a pluralised recommendation count when the run produced any", () => {

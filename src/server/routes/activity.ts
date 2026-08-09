@@ -5,7 +5,7 @@ import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, projects, recommendations, runs, sessions } from "../db/schema.ts";
-import { getSessionPreviews } from "../sessions/index.ts";
+import { getSessionLabels, getSessionPreviews } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
 import { onZodFail } from "./shared.ts";
 
@@ -98,12 +98,80 @@ function buildRunEntries(db: KiriDb, registry: Registry, rows: Array<typeof runs
   return new Map(entries.map((e) => [e.id, e] as const));
 }
 
+// The container an article belongs to, as its feed row's byline names it. A
+// run article is labelled by the workflow that produced it, a session article
+// by how that session is listed elsewhere, a project article by its project. Ids travel rather than paths —
+// the client owns routing.
+type ArticleProducer =
+  | { kind: "run"; id: string; label: string }
+  | { kind: "session"; id: string; label: string }
+  | { kind: "project"; id: string; label: string };
+
+// Resolve every producer referenced by a page of articles, one query per kind.
+// Rows whose producer has vanished are dropped by the caller rather than
+// rendered ownerless.
+function resolveProducers(
+  db: KiriDb,
+  rows: Array<typeof articles.$inferSelect>,
+): Map<string, ArticleProducer> {
+  const byArticleId = new Map<string, ArticleProducer>();
+
+  const runIds = [...new Set(rows.flatMap((r) => r.runId ?? []))];
+  const workflowByRunId = new Map(
+    runIds.length > 0
+      ? db
+          .select({ id: runs.id, workflowName: runs.workflowName })
+          .from(runs)
+          .where(inArray(runs.id, runIds))
+          .all()
+          .map((run) => [run.id, run.workflowName] as const)
+      : [],
+  );
+
+  const labelBySessionId = getSessionLabels(db, [
+    ...new Set(rows.flatMap((r) => r.sessionId ?? [])),
+  ]);
+
+  const projectIds = [...new Set(rows.flatMap((r) => r.projectId ?? []))];
+  const nameByProjectId = new Map(
+    projectIds.length > 0
+      ? db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(inArray(projects.id, projectIds))
+          .all()
+          .map((project) => [project.id, project.name] as const)
+      : [],
+  );
+
+  for (const row of rows) {
+    if (row.runId !== null) {
+      const workflowName = workflowByRunId.get(row.runId);
+      if (workflowName !== undefined) {
+        byArticleId.set(row.id, { kind: "run", id: row.runId, label: workflowName });
+      }
+    } else if (row.sessionId !== null) {
+      const label = labelBySessionId.get(row.sessionId);
+      if (label !== undefined) {
+        byArticleId.set(row.id, { kind: "session", id: row.sessionId, label });
+      }
+    } else if (row.projectId !== null) {
+      const name = nameByProjectId.get(row.projectId);
+      if (name !== undefined) {
+        byArticleId.set(row.id, { kind: "project", id: row.projectId, label: name });
+      }
+    }
+  }
+  return byArticleId;
+}
+
 /**
  * Build the Hono sub-app for `/api/activity`: the unified, cursor-paginated
  * activity feed — workflow runs and sessions interleaved newest-first by start
- * time. Mounted at `/api/activity` by `createApp`, always present (the sessions
- * table exists regardless of whether the LLM surface is configured, so its arm
- * is simply empty when no sessions exist).
+ * time — plus `/activity/articles`, the same timeline filtered to the
+ * documents kiri has written. Mounted at `/api/activity` by `createApp`,
+ * always present (the sessions table exists regardless of whether the LLM
+ * surface is configured, so its arm is simply empty when no sessions exist).
  */
 export function activityRoutes(deps: ActivityRoutesDeps): Hono {
   const { db, registry } = deps;
@@ -253,6 +321,66 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
 
     return c.json({ entries, nextCursor });
   });
+
+  // The same timeline as `/`, filtered to what the system wrote rather than
+  // what it did. Articles are the one entity all three producers — runs,
+  // sessions, and projects — write to, so this is the only feed where a
+  // project's shared corpus surfaces: its articles belong to the project, not
+  // to whichever session happened to edit them, so no session row can carry
+  // them. One table, so the cursor is an ordinary keyset over
+  // (created_at, id) rather than the union's merge.
+  app.get(
+    "/articles",
+    zValidator("query", activityListQuerySchema, onZodFail("invalid query")),
+    (c) => {
+      const { cursor, limit } = c.req.valid("query");
+
+      let anchor: { startedAt: Date; id: string } | undefined;
+      if (cursor !== undefined) {
+        anchor = decodeCursor(cursor);
+        if (!anchor) return c.json({ error: `invalid cursor "${cursor}"` }, 400);
+      }
+
+      const rows = db
+        .select()
+        .from(articles)
+        .where(
+          anchor
+            ? or(
+                lt(articles.createdAt, anchor.startedAt),
+                and(eq(articles.createdAt, anchor.startedAt), lt(articles.id, anchor.id)),
+              )
+            : undefined,
+        )
+        .orderBy(desc(articles.createdAt), desc(articles.id))
+        .limit(limit)
+        .all();
+
+      const producers = resolveProducers(db, rows);
+      const entries = rows.flatMap((row) => {
+        const producer = producers.get(row.id);
+        if (!producer) return [];
+        return [
+          {
+            slug: row.slug,
+            name: row.name,
+            heading: extractFirstHeading(row.contentMd),
+            createdAt: row.createdAt,
+            producer,
+          },
+        ];
+      });
+
+      // Paged off the raw rows, not the projected entries: a row dropped for a
+      // vanished producer still advanced the cursor, so the next page picks up
+      // after it rather than re-reading it forever.
+      const last = rows[rows.length - 1];
+      const nextCursor =
+        rows.length === limit && last ? encodeCursor(last.createdAt, last.id) : null;
+
+      return c.json({ entries, nextCursor });
+    },
+  );
 
   return app;
 }

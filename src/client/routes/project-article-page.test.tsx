@@ -96,7 +96,6 @@ describe("<ProjectArticlePage>", () => {
     // The reader renders the fetched body, situated under the owning
     // project as the eyebrow context.
     expect(await screen.findByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
-    expect(await screen.findByText("Project Research · Corpus Doc")).toBeDefined();
     expect(screen.getByText(/First paragraph\./)).toBeDefined();
     // The breadcrumb threads Projects → project → (current article).
     expect(screen.getByRole("link", { name: /projects/i }).getAttribute("href")).toBe("/projects");

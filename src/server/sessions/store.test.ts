@@ -13,6 +13,7 @@ import {
   deleteSession,
   findChildByToolCall,
   getSession,
+  getSessionLabels,
   getSessionMessages,
   getSessionPreviews,
   setSessionStatus,
@@ -233,6 +234,30 @@ describe("sessions store", () => {
     const previews = getSessionPreviews(db, ["s1", "s2"]);
     expect(previews.get("s1")).toBe("Ship it");
     expect(previews.has("s2")).toBe(false);
+  });
+
+  it("labels sessions by title, else opening message, else short id", () => {
+    createSession(db, MODEL, { id: "titled-0000-0000", title: "Corpus sweep" });
+    createSession(db, MODEL, { id: "spoken-0000-0000" });
+    appendMessage(db, "spoken-0000-0000", {
+      role: "user",
+      parts: [{ type: "text", text: "Sweep the corpus" }],
+    });
+    createSession(db, MODEL, { id: "silent-0000-0000" });
+
+    expect(getSessionLabels(db, []).size).toBe(0);
+
+    const labels = getSessionLabels(db, [
+      "titled-0000-0000",
+      "spoken-0000-0000",
+      "silent-0000-0000",
+      "gone",
+    ]);
+    expect(labels.get("titled-0000-0000")).toBe("Corpus sweep");
+    expect(labels.get("spoken-0000-0000")).toBe("Sweep the corpus");
+    // Never left unnamed: the short id stands in when there is nothing else.
+    expect(labels.get("silent-0000-0000")).toBe("silent-0");
+    expect(labels.has("gone")).toBe(false);
   });
 
   it("moves a session to a terminal status with error and finishedAt", () => {

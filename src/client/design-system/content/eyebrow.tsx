@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 
-type Tone = "accent" | "muted";
+type Tone = "accent" | "muted" | "faint";
 
 const TONE_CLASSES: Record<Tone, string> = {
   accent: "text-accent",
   muted: "text-ink-muted",
+  faint: "text-ink-faint",
 };
 
 /**
@@ -13,8 +14,11 @@ const TONE_CLASSES: Record<Tone, string> = {
  * step rows. `tone` carries the emphasis: `accent` (default) is the page's
  * lead eyebrow, in the accent colour so the title reads as the start of the
  * page; `muted` is the quieter label that heads a section *within* a page,
- * where an accent kicker would compete with the lead. Renders a `<p>` and
- * owns only its type treatment — the space around it is the caller's. The
+ * where an accent kicker would compete with the lead; `faint` is quieter
+ * still, for a label heading a group nested inside a row or card, where even
+ * a muted kicker would read as loud as the content it introduces. Renders a
+ * `<p>` and owns only its type treatment — the space around it is the
+ * caller's. The
  * tone is reflected as `data-tone` so containers and tests can anchor on it
  * without inspecting CSS.
  */

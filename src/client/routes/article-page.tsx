@@ -5,6 +5,7 @@ import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
+import { formatAbsoluteTime } from "../formatters/format-time.ts";
 import { useArticle } from "../state/articles.ts";
 
 /**
@@ -62,7 +63,7 @@ export function ArticleContent({
           <Breadcrumb
             items={[
               { label: "Activity", href: "/" },
-              { label: params.id.slice(0, 8), href: `/runs/${params.id}` },
+              { label: "Run", href: `/runs/${params.id}` },
             ]}
             current="Not found"
           />
@@ -87,11 +88,10 @@ export function ArticleContent({
       contentMd={data.contentMd}
       name={data.name}
       createdAt={data.createdAt}
-      context={data.workflowName}
       breadcrumbItems={[
         { label: "Activity", href: "/" },
         { label: data.workflowName, href: `/workflows/${encodeURIComponent(data.workflowName)}` },
-        { label: data.runId.slice(0, 8), href: `/runs/${data.runId}` },
+        { label: formatAbsoluteTime(data.startedAt, now), href: `/runs/${data.runId}` },
       ]}
       now={now}
     />

@@ -1,4 +1,4 @@
-import { useActivityFeedLive } from "./activity.ts";
+import { useActivityFeedLive, useArticleFeedLive } from "./activity.ts";
 import { useRunArticlesLive, useSessionArticlesLive } from "./articles.ts";
 import { useConfigHealthLive } from "./config.ts";
 import { useMcpServersLive, useMcpToolsLive } from "./mcp.ts";
@@ -19,6 +19,7 @@ export function LiveSync(): null {
   useRunWindowsLive();
   useRunFeedsLive();
   useActivityFeedLive();
+  useArticleFeedLive();
   useWorkflowsLive();
   useSessionsLive();
   useSessionArticlesLive();

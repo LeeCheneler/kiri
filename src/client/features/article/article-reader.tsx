@@ -10,28 +10,29 @@ import { readingStats } from "../../formatters/reading-stats.ts";
 
 /**
  * The article reading view, shared by every producer's article page: title
- * split from the body's leading `# ` heading, breadcrumb, eyebrow, byline
- * with reading stats and a copy control, and the markdown body with section
- * ordinals. Purely presentational — the route resolves the article and its
- * producer context and hands them in.
+ * split from the body's leading `# ` heading, breadcrumb, a kind eyebrow,
+ * byline with reading stats and a copy control, and the markdown body with
+ * section ordinals. The eyebrow names the kind alone — the breadcrumb above it
+ * already names the container, so a kicker echoing that would read as the same
+ * string twice.
+ *
+ * Purely presentational — the route resolves the article and the trail that
+ * situates it, and hands them in.
  */
 export function ArticleReader({
   contentMd,
   name,
   createdAt,
-  context,
   breadcrumbItems,
   wikiLinkResolver,
   now,
 }: {
   /** Full stored markdown; its leading `# ` heading becomes the page title. */
   contentMd: string;
-  /** Resolved display label — the title fallback, and the series label when it adds context. */
+  /** Resolved display label, standing in as the title when the body carries no heading of its own. */
   name: string;
   /** ISO timestamp the article was written. */
   createdAt: string;
-  /** Producer label leading the eyebrow — the workflow name, or the session's label. */
-  context: string;
   /** Trail above the title; the article's own title is appended as the current crumb. */
   breadcrumbItems: { label: string; href: string }[];
   /** Turns `[[slug]]` references into links — the project corpus reader passes one; other owners leave the syntax literal. */
@@ -44,11 +45,6 @@ export function ArticleReader({
   // article name when the body carries no headline of its own.
   const { heading, body } = splitLeadingHeading(contentMd);
   const displayTitle = heading ?? name;
-  // The article name earns its spot in the eyebrow only when it adds context:
-  // not when the body already supplies the page title, and not when it merely
-  // restates the producer context or the headline. Otherwise fall back to the
-  // generic label.
-  const seriesLabel = heading !== null && name !== context && name !== heading ? name : "Article";
   const stats = readingStats(body);
   // Copy the article as displayed: the headline normalised to a `#` line plus
   // the preamble-stripped body, so a paste lands a tidy document rather than
@@ -61,12 +57,10 @@ export function ArticleReader({
       <Breadcrumb items={breadcrumbItems} current={displayTitle} />
 
       <header className="mt-6">
-        {/* The eyebrow situates the article under its producer, suffixed with
-            the article name as the series label when it adds context (see
-            seriesLabel). */}
-        <Eyebrow>
-          {context} · {seriesLabel}
-        </Eyebrow>
+        {/* Names the kind and nothing else. The breadcrumb directly above
+            already names the container — as a link, which a kicker can't be —
+            so repeating it here would read as the same string twice. */}
+        <Eyebrow>Article</Eyebrow>
         <h1 className="mt-2 font-display text-7xl text-ink italic leading-[0.95] tracking-tight">
           {displayTitle}
         </h1>

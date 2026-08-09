@@ -3,16 +3,24 @@ import type { RunDetailRun } from "../../api.ts";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
-import { formatDuration, formatRelativeTime } from "../../formatters/format-time.ts";
+import {
+  formatAbsoluteTime,
+  formatDuration,
+  formatRelativeTime,
+} from "../../formatters/format-time.ts";
 import { LiveDuration } from "./live-duration.tsx";
 
 /**
- * The run detail header: an accent eyebrow naming the producing workflow, the
- * run's short id as the page heading — set in mono, since a run id is a
- * machine-layer identifier rather than prose — and a byline of run facts:
- * status, when it started, how long it ran (a live elapsed timer while in
- * flight, the final span once it has a finish time), and a "deleted" marker
- * when the workflow is no longer in the registry.
+ * The run detail header: an accent `Run` eyebrow, when the run started as the
+ * page heading, and a byline of run facts: status, the relative start time,
+ * how long it ran (a live elapsed timer while in flight, the final span once
+ * it has a finish time), and a "deleted" marker when the workflow is no longer
+ * in the registry.
+ *
+ * The breadcrumb above names the workflow, so the heading's job is to say
+ * *which run* — and the only fact that distinguishes two runs of one workflow
+ * is when each happened. The run's id is an address rather than a name, so it
+ * names the page nowhere.
  *
  * `actions` renders beside the heading — the run-level controls (cancel while
  * running; re-run and delete once terminal). `now` is injectable so tests
@@ -30,10 +38,13 @@ export function RunHeader({
 }) {
   return (
     <header className="mt-6 border-rule border-b pb-6">
-      <Eyebrow>{run.workflowName} · Run</Eyebrow>
+      {/* Names the kind and nothing else. The breadcrumb directly above
+          already names the workflow — as a link, which a kicker can't be — so
+          repeating it here would read as the same string twice. */}
+      <Eyebrow>Run</Eyebrow>
       <div className="mt-2 flex items-start justify-between gap-4">
-        <h2 title={run.id} className="min-w-0 font-mono text-5xl text-ink leading-none">
-          {run.id.slice(0, 8)}
+        <h2 title={run.id} className="min-w-0 font-display text-5xl text-ink leading-tight">
+          {formatAbsoluteTime(run.startedAt, now)}
         </h2>
         {actions ? <div className="shrink-0">{actions}</div> : null}
       </div>

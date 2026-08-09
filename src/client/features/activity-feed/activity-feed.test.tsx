@@ -76,7 +76,7 @@ describe("<ActivityFeed>", () => {
     );
   });
 
-  it("filters to runs on the Workflows tab", async () => {
+  it("filters to runs on the Runs tab", async () => {
     let runsHit = false;
     server.use(
       http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
@@ -91,9 +91,36 @@ describe("<ActivityFeed>", () => {
     const user = userEvent.setup();
     renderActivity();
 
-    await user.click(await screen.findByRole("tab", { name: /workflows/i }));
+    await user.click(await screen.findByRole("tab", { name: /runs/i }));
     expect(await screen.findByRole("link", { name: "wf-runs" })).toBeDefined();
     expect(runsHit).toBe(true);
+  });
+
+  it("lists every producer's articles on the Articles tab", async () => {
+    server.use(
+      http.get("*/api/activity", () => HttpResponse.json({ entries: [], nextCursor: null })),
+      http.get("*/api/activity/articles", () =>
+        HttpResponse.json({
+          entries: [
+            {
+              slug: "corpus",
+              name: "Corpus",
+              heading: "Corpus audit",
+              createdAt: "2026-05-09T12:00:00.000Z",
+              producer: { kind: "project", id: "p1", label: "Research" },
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderActivity();
+
+    await user.click(await screen.findByRole("tab", { name: /articles/i }));
+    expect((await screen.findByRole("link", { name: /Corpus audit/ })).getAttribute("href")).toBe(
+      "/projects/p1/articles/corpus",
+    );
   });
 
   it("filters to sessions on the Sessions tab", async () => {

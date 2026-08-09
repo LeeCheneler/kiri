@@ -44,9 +44,12 @@ article in your feed.
   and they share one corpus of articles — read, kept current, and
   cross-linked by every session in it. Reach for a session when you don't.
 
-Both land in the same activity feed, and everything they produce is
-searchable — articles, session titles and transcripts, run summaries, and
-the workflows themselves.
+Both land in the same activity feed, filterable to just runs, just sessions,
+or just the **articles** they wrote — the last of these being where a
+project's shared corpus shows up, since those articles belong to the project
+rather than to any one session. Everything they produce is searchable —
+articles, session titles and transcripts, run summaries, and the workflows
+themselves.
 
 ## Why kiri
 

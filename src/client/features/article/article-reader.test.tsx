@@ -20,7 +20,6 @@ const renderReader = (props: Partial<Parameters<typeof ArticleReader>[0]> = {}) 
         contentMd={"# Hello\n"}
         name="PR Review Digest"
         createdAt={NOW.toISOString()}
-        context="pr-review"
         breadcrumbItems={BREADCRUMB}
         now={NOW}
         {...props}
@@ -36,10 +35,11 @@ describe("<ArticleReader>", () => {
       createdAt: new Date(NOW.getTime() - 30_000).toISOString(),
     });
 
-    // The body's `# Hello` becomes the page title (an h1); the article name
-    // rides in the eyebrow as the series label after the producer context.
+    // The body's `# Hello` becomes the page title (an h1). The eyebrow names
+    // the kind alone — never the container, nor the stored article name.
     expect(screen.getByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
-    expect(screen.getByText("pr-review · PR Review Digest")).toBeDefined();
+    expect(screen.getByText("Article")).toBeDefined();
+    expect(screen.queryByText(/PR Review Digest/)).toBeNull();
     // The passed trail renders as links, with the article title as current.
     expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
     expect(screen.getByRole("link", { name: "pr-review" }).getAttribute("href")).toBe(
@@ -72,7 +72,6 @@ describe("<ArticleReader>", () => {
     renderReader({
       contentMd: "Sure, here's the article:\n\n# The Headline\n\n## Section\n\nBody copy.",
       name: "Demo",
-      context: "wf",
     });
 
     await user.click(screen.getByRole("button", { name: /^copy markdown$/i }));
@@ -81,37 +80,21 @@ describe("<ArticleReader>", () => {
     expect(writeText.mock.calls).toEqual([["# The Headline\n\n## Section\n\nBody copy."]]);
   });
 
-  it("falls back to the article name and generic label for a heading-less body", () => {
-    renderReader({ contentMd: "Body only, no heading.\n", name: "Sparse", context: "wf" });
+  it("falls back to the article name as the title for a heading-less body", () => {
+    renderReader({ contentMd: "Body only, no heading.\n", name: "Sparse" });
 
-    // With no body headline, the article name supplies the page title and the
-    // eyebrow keeps the generic "Article" label.
+    // With no body headline, the article name supplies the page title.
     expect(screen.getByRole("heading", { level: 1, name: "Sparse" })).toBeDefined();
-    expect(screen.getByText("wf · Article")).toBeDefined();
     expect(screen.getByText(/Body only/)).toBeDefined();
     // The byline reading stats are computed even when the body has no heading.
     expect(screen.getByText("4 words")).toBeDefined();
     expect(screen.getByText("1 min read")).toBeDefined();
   });
 
-  it("drops the eyebrow series label when the article name restates the context", () => {
-    renderReader({
-      contentMd: "# Wednesday's briefing\n\n## Lead\n\nBody.\n",
-      name: "Daily Briefing",
-      context: "Daily Briefing",
-    });
-
-    // The article name equals the producer context, so it adds nothing — the
-    // eyebrow keeps the generic "Article" label rather than echoing it.
-    expect(screen.getByRole("heading", { level: 1, name: "Wednesday's briefing" })).toBeDefined();
-    expect(screen.getByText("Daily Briefing · Article")).toBeDefined();
-  });
-
   it("renders body `## section` markdown as h2 with section-NN ids and § NN eyebrows", () => {
     const { container } = renderReader({
       contentMd: "# The headline\n\n## First section\n\nBody.\n\n## Second section\n\nMore.\n",
       name: "Sectioned",
-      context: "wf",
     });
 
     // The headline is the page h1; the `##` headings are the sections that the

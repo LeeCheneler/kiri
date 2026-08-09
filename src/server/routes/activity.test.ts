@@ -243,4 +243,151 @@ describe("activity routes", () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe("GET /api/activity/articles", () => {
+    type ArticlesBody = {
+      entries: Array<{
+        slug: string;
+        name: string;
+        heading: string | null;
+        producer: { kind: string; id: string; label: string };
+      }>;
+      nextCursor: string | null;
+    };
+
+    const insertArticle = (
+      id: string,
+      owner: { runId?: string; sessionId?: string; projectId?: string },
+      createdAtMs: number,
+      contentMd = "# Heading\n\nbody",
+    ) => {
+      env.db
+        .insert(articles)
+        .values({ id, ...owner, slug: id, name: id, contentMd, createdAt: new Date(createdAtMs) })
+        .run();
+    };
+
+    const getArticles = async (query = "") => {
+      const res = await createApp({
+        db: env.db,
+        registry: env.registry,
+        config: env.config,
+      }).request(`/api/activity/articles${query}`);
+      return { status: res.status, body: (await res.json()) as ArticlesBody };
+    };
+
+    it("returns articles newest-first regardless of which producer wrote them", async () => {
+      insertRun("r1", 100);
+      insertSession("s1", 100);
+      env.db
+        .insert(projects)
+        .values({ id: "p1", name: "Research", createdAt: new Date(50) })
+        .run();
+      insertArticle("a-run", { runId: "r1" }, 100);
+      insertArticle("a-project", { projectId: "p1" }, 300);
+      insertArticle("a-session", { sessionId: "s1" }, 200);
+
+      const { body } = await getArticles();
+
+      expect(body.entries.map((e) => e.slug)).toEqual(["a-project", "a-session", "a-run"]);
+    });
+
+    it("labels a run's article with its workflow", async () => {
+      insertRun("r1", 100);
+      insertArticle("a1", { runId: "r1" }, 100);
+
+      const { body } = await getArticles();
+
+      expect(body.entries[0].producer).toEqual({ kind: "run", id: "r1", label: "wf" });
+    });
+
+    it("labels a project's article with its project", async () => {
+      env.db
+        .insert(projects)
+        .values({ id: "p1", name: "Research", createdAt: new Date(50) })
+        .run();
+      insertArticle("a1", { projectId: "p1" }, 100);
+
+      const { body } = await getArticles();
+
+      expect(body.entries[0].producer).toEqual({ kind: "project", id: "p1", label: "Research" });
+    });
+
+    it("labels a session's article with its title", async () => {
+      insertSession("s1", 100);
+      env.db.update(sessions).set({ title: "Corpus sweep" }).run();
+      insertArticle("a1", { sessionId: "s1" }, 100);
+
+      const { body } = await getArticles();
+
+      expect(body.entries[0].producer.label).toBe("Corpus sweep");
+    });
+
+    it("falls back to a session's opening message when it has no title", async () => {
+      insertSession("s1", 100);
+      env.db
+        .insert(messages)
+        .values({
+          id: "m1",
+          sessionId: "s1",
+          index: 0,
+          role: "user",
+          parts: [{ type: "text", text: "Sweep the corpus" }],
+          createdAt: new Date(110),
+        })
+        .run();
+      insertArticle("a1", { sessionId: "s1" }, 200);
+
+      const { body } = await getArticles();
+
+      expect(body.entries[0].producer.label).toBe("Sweep the corpus");
+    });
+
+    it("falls back to the short session id when a session has neither title nor message", async () => {
+      insertSession("ssssssss-1111", 100);
+      insertArticle("a1", { sessionId: "ssssssss-1111" }, 100);
+
+      const { body } = await getArticles();
+
+      expect(body.entries[0].producer.label).toBe("ssssssss");
+    });
+
+    it("carries the body's first heading, and null when it has none", async () => {
+      insertRun("r1", 100);
+      insertArticle("a1", { runId: "r1" }, 200, "# The morning digest\n\nbody");
+      insertArticle("a2", { runId: "r1" }, 100, "no heading here");
+
+      const { body } = await getArticles();
+
+      expect(body.entries[0].heading).toBe("The morning digest");
+      expect(body.entries[1].heading).toBeNull();
+    });
+
+    it("pages with a cursor, and stops when the table is drained", async () => {
+      insertRun("r1", 100);
+      insertArticle("a1", { runId: "r1" }, 100);
+      insertArticle("a2", { runId: "r1" }, 200);
+      insertArticle("a3", { runId: "r1" }, 300);
+
+      const first = await getArticles("?limit=2");
+      expect(first.body.entries.map((e) => e.slug)).toEqual(["a3", "a2"]);
+      expect(first.body.nextCursor).not.toBeNull();
+
+      const second = await getArticles(`?limit=2&cursor=${first.body.nextCursor}`);
+      expect(second.body.entries.map((e) => e.slug)).toEqual(["a1"]);
+      expect(second.body.nextCursor).toBeNull();
+    });
+
+    it("returns an empty page when nothing has been written", async () => {
+      const { body } = await getArticles();
+      expect(body.entries).toEqual([]);
+      expect(body.nextCursor).toBeNull();
+    });
+
+    it("rejects a malformed cursor with 400", async () => {
+      const bad = Buffer.from("nope").toString("base64url");
+      const { status } = await getArticles(`?cursor=${bad}`);
+      expect(status).toBe(400);
+    });
+  });
 });

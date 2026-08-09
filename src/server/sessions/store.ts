@@ -197,6 +197,30 @@ export function getSessionPreviews(db: KiriDb, sessionIds: string[]): Map<string
   return previews;
 }
 
+/**
+ * Display label for each of `sessionIds` — how a session is named wherever it
+ * is listed rather than read: its title, else its opening message, else its
+ * short id. Every session in `sessionIds` gets an entry, so a caller never has
+ * to invent a fallback; ids naming no session are absent.
+ */
+export function getSessionLabels(db: KiriDb, sessionIds: string[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  if (sessionIds.length === 0) return labels;
+  const rows = db
+    .select({ id: sessions.id, title: sessions.title })
+    .from(sessions)
+    .where(inArray(sessions.id, sessionIds))
+    .all();
+  const previews = getSessionPreviews(
+    db,
+    rows.map((row) => row.id),
+  );
+  for (const { id, title } of rows) {
+    labels.set(id, title ?? previews.get(id) ?? id.slice(0, 8));
+  }
+  return labels;
+}
+
 /** Read a session's messages in order. */
 export function getSessionMessages(db: KiriDb, sessionId: string): Message[] {
   return db

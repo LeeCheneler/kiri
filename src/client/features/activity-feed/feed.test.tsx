@@ -106,9 +106,7 @@ describe("<Feed>", () => {
     );
     expect(screen.getByText("Today")).toBeDefined();
     expect(screen.getByText("Yesterday")).toBeDefined();
-    expect(screen.getByRole("link", { name: "deploy" }).getAttribute("href")).toBe(
-      "/workflows/deploy",
-    );
+    expect(screen.getByRole("link", { name: /deploy/ }).getAttribute("href")).toBe("/runs/r1");
     expect(screen.getByRole("link", { name: /summarise the readme/i }).getAttribute("href")).toBe(
       "/sessions/s1",
     );
