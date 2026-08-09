@@ -1,5 +1,6 @@
 import type { SessionListEntry, SessionStatus } from "../../api.ts";
 import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
+import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { StatusBlock } from "../../design-system/feedback/status-block.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
@@ -27,7 +28,11 @@ const shortModel = (model: string): string => {
  * One session in an activity feed, differentiated from run rows as a
  * conversation rather than an artifact record. An accent `session` kind marker
  * leads the mono byline — kind, status, model, and relative start — so a
- * session declares itself before the shared status vocabulary takes over. Below, the session's first user message is set
+ * session declares itself before the shared status vocabulary takes over. A
+ * project session names its project in the byline too, linked inline like a
+ * run row's workflow — the byline is the machine layer, so a destination link
+ * in the display face would read as the row's headline rather than as
+ * metadata. Below, the session's first user message is set
  * as quoted speech: italic display face between accent quotation marks (the
  * "human voice" only sessions carry — run rows' headlines stay upright), the
  * whole line linking through to the chat. Any articles the session wrote
@@ -47,10 +52,12 @@ export function SessionRow({ session, now }: { session: SessionListEntry; now?: 
         <span className="text-accent uppercase">session</span>
         <Status status={status} />
         {session.projectName !== null && session.projectId !== null ? (
+          // Wrapped so Meta's middot attaches to the span rather than
+          // joining the link's underline and hit area, as run rows do.
           <span>
-            <HeadlineLink href={`/projects/${encodeURIComponent(session.projectId)}`}>
+            <InlineLink href={`/projects/${encodeURIComponent(session.projectId)}`}>
               {session.projectName}
-            </HeadlineLink>
+            </InlineLink>
           </span>
         ) : null}
         <span>{shortModel(session.model)}</span>
