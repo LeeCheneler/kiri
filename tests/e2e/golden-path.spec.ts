@@ -80,9 +80,11 @@ test("opening a run detail page reveals stdout when the step is expanded", async
   const { runId } = await triggerRun(request, "golden");
 
   await page.goto(`/runs/${runId}`);
-  // The workflow name sits in the eyebrow above the run's short-id heading,
-  // and the pipeline renders under the "Steps" group label.
-  await expect(page.getByText("golden · Run")).toBeVisible();
+  // The workflow is named in the breadcrumb, not the eyebrow or the heading —
+  // the heading says when the run ran. The pipeline renders under "Steps".
+  await expect(
+    page.getByRole("navigation", { name: /breadcrumb/i }).getByRole("link", { name: "golden" }),
+  ).toBeVisible();
   await expect(page.getByText("Steps")).toBeVisible();
 
   const step = page.getByRole("button", { name: /echo fixture/i });
@@ -121,8 +123,10 @@ test("launching a workflow from the catalog lands on the run detail", async ({ p
 
   await page.getByRole("button", { name: /^run/i }).click();
   await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
-  // On the run page the workflow name is the eyebrow, not the heading.
-  await expect(page.getByText("golden · Run")).toBeVisible();
+  // On the run page the workflow is named in the breadcrumb, not the heading.
+  await expect(
+    page.getByRole("navigation", { name: /breadcrumb/i }).getByRole("link", { name: "golden" }),
+  ).toBeVisible();
 });
 
 test("invoking a workflow with inputs opens a modal, collects values, and lands on the run", async ({
@@ -149,7 +153,11 @@ test("invoking a workflow with inputs opens a modal, collects values, and lands 
   await dialog.getByRole("button", { name: /^run/i }).click();
 
   await expect(page).toHaveURL(/\/runs\/[a-f0-9-]+$/);
-  await expect(page.getByText("with-inputs · Run")).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation", { name: /breadcrumb/i })
+      .getByRole("link", { name: "with-inputs" }),
+  ).toBeVisible();
 
   // The step echoes the resolved env, confirming the inputs flowed through
   // the API → snapshot → spawn env path. The disclosure has to be expanded
