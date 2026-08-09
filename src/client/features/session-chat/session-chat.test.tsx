@@ -16,6 +16,7 @@ const sessionDetail = (messages: unknown[] = [], overrides: Record<string, unkno
     id: "s1",
     status: "idle",
     model: "anthropic:claude",
+    effort: "medium",
     projectId: null,
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,

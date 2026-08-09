@@ -112,6 +112,48 @@ describe("<ProjectsList>", () => {
     expect(posted).toEqual({ name: "Research" });
   });
 
+  it("creates on Enter in the name field", async () => {
+    let posted: unknown = null;
+    serveProjects([]);
+    server.use(
+      http.post("*/api/projects", async ({ request }) => {
+        posted = await request.json();
+        return HttpResponse.json(
+          { project: { id: "p1", name: "Research", createdAt: "2026-08-07T10:00:00.000Z" } },
+          { status: 201 },
+        );
+      }),
+    );
+    const { history } = renderList();
+
+    const dialog = await openCreateModal();
+    await userEvent.type(within(dialog).getByLabelText("Name"), "Research{Enter}");
+
+    await waitFor(() => expect(history[history.length - 1]).toBe("/projects/p1"));
+    expect(posted).toEqual({ name: "Research" });
+  });
+
+  it("ignores Enter while the name is blank", async () => {
+    let posted = false;
+    serveProjects([]);
+    server.use(
+      http.post("*/api/projects", () => {
+        posted = true;
+        return HttpResponse.json(
+          { project: { id: "p1", name: "x", createdAt: "2026-08-07T10:00:00.000Z" } },
+          { status: 201 },
+        );
+      }),
+    );
+    renderList();
+
+    const dialog = await openCreateModal();
+    await userEvent.type(within(dialog).getByLabelText("Name"), "{Enter}");
+
+    expect(posted).toBe(false);
+    expect(screen.getByRole("dialog")).toBeDefined();
+  });
+
   it("disables the modal's create until a name is typed", async () => {
     serveProjects([]);
     renderList();

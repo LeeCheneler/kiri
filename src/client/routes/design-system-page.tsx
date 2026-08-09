@@ -37,6 +37,7 @@ import { Card } from "../design-system/surfaces/card.tsx";
 import { ConfirmModal } from "../design-system/surfaces/confirm-modal.tsx";
 import { Drawer } from "../design-system/surfaces/drawer.tsx";
 import { Modal } from "../design-system/surfaces/modal.tsx";
+import { Popover } from "../design-system/surfaces/popover.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
 
@@ -303,6 +304,28 @@ function TextareaDemo() {
 
 // Interactive specimen for the Modal — a button per size opens a confirm dialog,
 // so the `md` (default), `lg`, and `full` widths can be compared side by side.
+// Interactive specimen for the Popover — an occasional control cluster folded
+// behind its trigger, dismissed by Escape or a click outside. Owns the value
+// its control commits.
+function PopoverDemo() {
+  const [density, setDensity] = useState("comfortable");
+  return (
+    <Popover trigger="display" label="Display">
+      <div className="w-56">
+        <SegmentedControl
+          label="Density"
+          options={[
+            { value: "comfortable", label: "comfortable" },
+            { value: "compact", label: "compact" },
+          ]}
+          value={density}
+          onChange={setDensity}
+        />
+      </div>
+    </Popover>
+  );
+}
+
 function ModalDemo() {
   const [size, setSize] = useState<"md" | "lg" | "full" | null>(null);
   const close = () => setSize(null);
@@ -650,6 +673,33 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <DrawerDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Popover</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Popover</span> · design-system/surfaces/popover.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A trigger button owning a small floating panel — for a cluster of controls that's
+                reached for occasionally and shouldn't occupy the surface it serves (a composer
+                toolbar's model settings, a list's display options). <Code>trigger</Code> names the
+                button and <Code>label</Code> names the panel, a non-modal <Code>dialog</Code>: the
+                page behind stays live, unlike the <Code>Modal</Code> above. The panel opens under
+                the trigger, flipping above it when the viewport leaves too little room underneath,
+                and <Code>align</Code> pins it to the trigger's <Code>start</Code> (default) or{" "}
+                <Code>end</Code> edge. Escape and a click outside dismiss it, Escape handing focus
+                back to the trigger; the panel owns frame and padding only, so the children dictate
+                its size. Reserve it for controls: content that needs reading room belongs in a{" "}
+                <Code>Modal</Code> or on the page.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <PopoverDemo />
               </Card>
             </div>
           </article>
@@ -1366,9 +1416,10 @@ export function DesignSystemContent() {
                 own label). <Code>↑</Code>/<Code>↓</Code> move the highlight, <Code>Enter</Code> or
                 a click commits it, and <Code>Escape</Code> or a click outside dismisses without
                 changing the value. It shares the field lockup — pass a <Code>label</Code> for the
-                label, optional <Code>description</Code>, and <Code>required</Code> marker. Reach
-                for it over <Code>Select</Code> once the list is long enough that scanning a native
-                dropdown is painful.
+                label, optional <Code>description</Code>, and <Code>required</Code> marker. The list
+                opens beneath the input, flipping above it when the viewport leaves too little room
+                underneath. Reach for it over <Code>Select</Code> once the list is long enough that
+                scanning a native dropdown is painful.
               </p>
               <p>
                 To section the list, pass <Code>{"{ label?, options }"}</Code> groups instead of a

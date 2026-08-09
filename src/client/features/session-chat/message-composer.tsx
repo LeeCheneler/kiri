@@ -28,9 +28,9 @@ import { ImageThumb } from "./image-thumb.tsx";
 /**
  * The shared message composer: one framed surface holding any staged
  * attachments, an auto-growing textarea, and a toolbar — add file on the left;
- * the key hint, an optional cancel, and the submit button on the right. Images
- * and text files stage from the file picker (images also from a paste), Enter
- * submits and Shift+Enter breaks a line. Text is controlled via
+ * caller controls, an optional cancel, and an optional submit button on the
+ * right. Images and text files stage from the file picker (images also from a
+ * paste), Enter submits and Shift+Enter breaks a line. Text is controlled via
  * `value`/`onChange`, so the caller owns persistence; staged attachments start
  * from `initialImages`/`initialTextFiles` and are cleared on submit. `onSubmit`
  * receives the assembled `UIMessage` parts — images, then each text file as an
@@ -39,10 +39,14 @@ import { ImageThumb } from "./image-thumb.tsx";
  * Escape and a cancel button in the toolbar (e.g. to close an inline editor).
  * While `busy` — a turn is in flight — the field and its controls stay editable
  * so the next message can be drafted, but submitting is blocked until the turn
- * settles (the submit button reflects that). Pass `id` to let the caller focus
- * the field; `label` names the field — visibly by default, or for assistive
- * tech only with `labelHidden`. `submitLabel` names the submit action
- * ("send" by default) and `hint` is the trailing key-hint line.
+ * settles. Pass `id` to let the caller focus the field; `label` names the
+ * field — visibly by default, or for assistive tech only with `labelHidden`.
+ * Enter is the primary submit; pass `submitLabel` to also render a named
+ * submit button (an inline editor's "resend"), or omit it for an Enter-only
+ * composer — fold the key instructions into the `placeholder` there.
+ * `controls` slots caller-owned controls into the toolbar's right side — e.g.
+ * the session's model group — laid out by the toolbar row, which wraps when it
+ * runs out of width.
  *
  * `acceptsImages: false` — the session's model reads text only — narrows the
  * file picker to text files and turns a picked or pasted image into an inline
@@ -60,9 +64,9 @@ export function MessageComposer({
   label,
   labelHidden = false,
   placeholder,
-  hint,
-  submitLabel = "send",
+  submitLabel,
   acceptsImages = true,
+  controls,
   initialImages = [],
   initialTextFiles = [],
 }: {
@@ -75,9 +79,9 @@ export function MessageComposer({
   label?: string;
   labelHidden?: boolean;
   placeholder?: string;
-  hint?: ReactNode;
   submitLabel?: string;
   acceptsImages?: boolean;
+  controls?: ReactNode;
   initialImages?: PendingImage[];
   initialTextFiles?: PendingTextFile[];
 }) {
@@ -202,7 +206,7 @@ export function MessageComposer({
           }
         }}
       />
-      <div className="flex items-center gap-3 border-t border-rule px-2 py-2">
+      <div className="flex flex-wrap items-center gap-3 border-t border-rule px-2 py-2">
         <input
           ref={fileInputRef}
           type="file"
@@ -217,18 +221,18 @@ export function MessageComposer({
             {attachmentError}
           </span>
         ) : null}
-        <div className="ml-auto flex items-center gap-3">
-          {hint ? (
-            <span className="hidden font-mono text-ink-faint text-xs sm:inline">{hint}</span>
-          ) : null}
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          {controls}
           {onCancel ? (
             <Button variant="dismissive" onClick={onCancel}>
               cancel
             </Button>
           ) : null}
-          <Button variant="primary" disabled={busy || empty} onClick={submit}>
-            {submitLabel}
-          </Button>
+          {submitLabel !== undefined ? (
+            <Button variant="primary" disabled={busy || empty} onClick={submit}>
+              {submitLabel}
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>

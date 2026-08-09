@@ -54,18 +54,27 @@ function RenameProjectModal({
 
   return (
     <Modal title="Rename project" onClose={onClose}>
-      <div className="flex flex-col gap-4">
+      {/* A form so Enter in the name field saves too; the guard mirrors the
+          save button's disabled state, which Enter doesn't pass through. */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (pending || name.trim() === "") return;
+          void handleRename();
+        }}
+        className="flex flex-col gap-4"
+      >
         <TextInput value={name} onChange={setName} label="Name" />
         <div className="flex items-center justify-end gap-3">
           <Button variant="dismissive" disabled={pending} onClick={onClose}>
             cancel
           </Button>
           <Button
+            type="submit"
             variant="primary"
             disabled={name.trim() === ""}
             pending={pending}
             pendingLabel="saving…"
-            onClick={handleRename}
           >
             save
           </Button>
@@ -75,7 +84,7 @@ function RenameProjectModal({
             {error}
           </p>
         ) : null}
-      </div>
+      </form>
     </Modal>
   );
 }

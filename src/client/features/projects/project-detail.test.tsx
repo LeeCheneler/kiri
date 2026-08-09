@@ -134,6 +134,29 @@ describe("<ProjectDetail>", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("renames on Enter in the name field", async () => {
+    let patched: unknown = null;
+    serveProject(detail());
+    server.use(
+      http.patch("*/api/projects/:id", async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json({
+          project: { id: "p1", name: "Renamed", createdAt: "2026-08-07T10:00:00.000Z" },
+        });
+      }),
+    );
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "rename project" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const nameField = within(dialog).getByLabelText("Name");
+    await userEvent.clear(nameField);
+    await userEvent.type(nameField, "Renamed{Enter}");
+
+    await waitFor(() => expect(patched).toEqual({ name: "Renamed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("cancelling the rename modal keeps the stored name", async () => {
     serveProject(detail());
     renderDetail();

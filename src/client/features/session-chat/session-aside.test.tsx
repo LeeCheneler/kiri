@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
@@ -26,308 +26,16 @@ const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
 const renderAside = (ui: ReactNode) =>
   render(<QueryClientProvider client={createQueryClient()}>{ui}</QueryClientProvider>);
 
-// The pickers render blank and disabled until the models listing settles, so
-// tests asserting or driving the loaded labels anchor on the enabled control.
-const loadedCombobox = async (name: RegExp): Promise<HTMLInputElement> => {
-  const combobox = (await screen.findByRole("combobox", { name })) as HTMLInputElement;
-  await waitFor(() => expect(combobox.disabled).toBe(false));
-  return combobox;
+// Open the rename dialog from the rail's edit action and hand back its field.
+const openRename = async (): Promise<HTMLInputElement> => {
+  await userEvent.click(await screen.findByRole("button", { name: /edit title/i }));
+  return within(screen.getByRole("dialog", { name: /rename session/i })).getByLabelText(
+    /title/i,
+  ) as HTMLInputElement;
 };
 
 describe("<SessionAside>", () => {
-  it("renders the session's model", async () => {
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    renderAside(<SessionAside id="s1" />);
-
-    const combobox = await loadedCombobox(/model/i);
-    // The provider group heading names the provider, so the option label —
-    // and the closed input — carry the bare model name.
-    expect(combobox.value).toBe("claude");
-  });
-
-  it("labels nothing while the model listing loads, then resolves the shortcut name", async () => {
-    // Gate the listing so the in-flight window is observable.
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail({ model: "a:small" }))),
-      http.get("*/api/models", async () => {
-        await gate;
-        return HttpResponse.json({
-          models: [{ id: "a:small", provider: "a", output: "text" }],
-          failures: [],
-          shortcuts: { text: { flash: "a:small", pro: "a:mid" } },
-        });
-      }),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    // While the listing is in flight the closed input must not show the bare
-    // committed value — the label that would immediately be replaced.
-    const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
-    expect(combobox.value).toBe("");
-    expect(combobox.disabled).toBe(true);
-
-    release();
-    // Once settled, the shortcut group labels the value — no intermediate label.
-    await waitFor(() => expect(combobox.value).toBe("flash"));
-    expect(combobox.disabled).toBe(false);
-  });
-
-  it("changes the session's model when another is picked", async () => {
-    let patched: { model?: string } = {};
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "anthropic:claude", provider: "anthropic", output: "text" },
-            { id: "openai:gpt", provider: "openai", output: "text" },
-          ],
-          failures: [],
-        }),
-      ),
-      http.patch("*/api/sessions/:id", async ({ request }) => {
-        patched = (await request.json()) as { model?: string };
-        return HttpResponse.json(sessionDetail({ model: "openai:gpt" }));
-      }),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    const combobox = await loadedCombobox(/model/i);
-    await userEvent.click(combobox);
-    await userEvent.click(screen.getByRole("option", { name: "gpt" }));
-
-    // The label drops the provider prefix; the committed value keeps the full id.
-    await waitFor(() => expect(patched.model).toBe("openai:gpt"));
-    // The picker reflects the choice from the PATCH response, without a refetch —
-    // the mocked GET still returns the old model, so a stale combobox would fail here.
-    await waitFor(() => expect(combobox.value).toBe("gpt"));
-  });
-
-  it("groups the models by provider, sorted, with bare model-name labels", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail({ model: "openai:gpt" })),
-      ),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "openai:gpt", provider: "openai", output: "text" },
-            { id: "anthropic:claude", provider: "anthropic", output: "text" },
-            { id: "google:gemini", provider: "google", output: "text" },
-          ],
-          failures: [],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    await userEvent.click(await loadedCombobox(/model/i));
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "claude",
-      "gemini",
-      "gpt",
-    ]);
-    // Each provider heads its own group under its configured name.
-    for (const provider of ["anthropic", "google", "openai"]) {
-      expect(screen.getByText(provider)).toBeDefined();
-    }
-  });
-
-  it("pins the configured text shortcuts, in config order, ahead of the full model listing", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "anthropic:claude", provider: "anthropic", output: "text" },
-            { id: "openai:gpt", provider: "openai", output: "text" },
-          ],
-          failures: [],
-          shortcuts: {
-            text: { gpt: "openai:gpt", sonnet: "anthropic:claude" },
-          },
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    await userEvent.click(await loadedCombobox(/^model/i));
-    // Shortcut entries carry the shortcut name alone, in config order; the
-    // listing follows grouped by provider with bare model-name labels.
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "gpt",
-      "sonnet",
-      "claude",
-      "gpt",
-    ]);
-    // The pinned shortcuts group is headed "kiri"; the providers head their own.
-    for (const heading of ["kiri", "anthropic", "openai"]) {
-      expect(screen.getByText(heading)).toBeDefined();
-    }
-  });
-
-  it("pins the configured image shortcuts ahead of the image model listing", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail({ imageModel: "openai:gpt-image" })),
-      ),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "anthropic:claude", provider: "anthropic", output: "text" },
-            { id: "openai:gpt-image", provider: "openai", output: "image" },
-          ],
-          failures: [],
-          shortcuts: {
-            image: { images: "openai:gpt-image" },
-          },
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    await userEvent.click(await loadedCombobox(/image model/i));
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "images",
-      "None",
-      "gpt-image",
-    ]);
-  });
-
-  it("offers only text-output models in the model picker", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "anthropic:claude", provider: "anthropic", output: "text" },
-            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
-          ],
-          failures: [],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    await userEvent.click(await loadedCombobox(/^model/i));
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["claude"]);
-  });
-
-  it("offers image-output models in the image model picker, with None leading", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "anthropic:claude", provider: "anthropic", output: "text" },
-            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
-            { id: "openai:gpt-image-1", provider: "openai", output: "image" },
-          ],
-          failures: [],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    await userEvent.click(await loadedCombobox(/image model/i));
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "None",
-      "gpt-image-1",
-      "google/gemini-image",
-    ]);
-  });
-
-  it("hides the image model picker when no provider offers an image model", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
-          failures: [],
-        }),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    await screen.findByRole("combobox", { name: /^model/i });
-    expect(screen.queryByRole("combobox", { name: /image model/i })).toBeNull();
-  });
-
-  it("sets the session's image model when one is picked", async () => {
-    let patched: { imageModel?: string | null } = {};
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
-          ],
-          failures: [],
-        }),
-      ),
-      http.patch("*/api/sessions/:id", async ({ request }) => {
-        patched = (await request.json()) as { imageModel?: string | null };
-        return HttpResponse.json(sessionDetail({ imageModel: "openrouter:google/gemini-image" }));
-      }),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    const combobox = await loadedCombobox(/image model/i);
-    await userEvent.click(combobox);
-    await userEvent.click(screen.getByRole("option", { name: "google/gemini-image" }));
-
-    // Bare label, full committed id — same contract as the text picker.
-    await waitFor(() => expect(patched.imageModel).toBe("openrouter:google/gemini-image"));
-    await waitFor(() => expect(combobox.value).toBe("google/gemini-image"));
-  });
-
-  it("turns image generation off when None is picked", async () => {
-    let patched: { imageModel?: string | null } = { imageModel: "unset" };
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail({ imageModel: "openrouter:google/gemini-image" })),
-      ),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [
-            { id: "openrouter:google/gemini-image", provider: "openrouter", output: "image" },
-          ],
-          failures: [],
-        }),
-      ),
-      http.patch("*/api/sessions/:id", async ({ request }) => {
-        patched = (await request.json()) as { imageModel?: string | null };
-        return HttpResponse.json(sessionDetail({ imageModel: null }));
-      }),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    const combobox = await loadedCombobox(/image model/i);
-    expect(combobox.value).toBe("google/gemini-image");
-    await userEvent.click(combobox);
-    await userEvent.click(screen.getByRole("option", { name: "None" }));
-
-    await waitFor(() => expect(patched.imageModel).toBeNull());
-    await waitFor(() => expect(combobox.value).toBe("None"));
-  });
-
-  it("pins a selected image model that the provider no longer lists", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionDetail({ imageModel: "openrouter:delisted-image" })),
-      ),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    const combobox = await loadedCombobox(/image model/i);
-    expect(combobox.value).toBe("delisted-image");
-  });
-
-  it("shows the stored title in the rename field, or its untitled placeholder", async () => {
+  it("shows the stored title read-only, with the rename action under it", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(sessionDetail({ title: "Postgres upgrade plan" })),
@@ -335,12 +43,22 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
-    expect(field.value).toBe("Postgres upgrade plan");
-    expect(field.placeholder).toBe("Name this session…");
+    expect(await screen.findByText("Postgres upgrade plan")).toBeDefined();
+    expect(screen.getByRole("button", { name: /edit title/i })).toBeDefined();
+    // Read-only: no title field until the rename dialog is opened.
+    expect(screen.queryByLabelText(/title/i)).toBeNull();
   });
 
-  it("renames the session when an edited title is committed with Enter", async () => {
+  it("stands the short id in for an untitled session", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderAside(<SessionAside id="s1" />);
+
+    await screen.findByRole("button", { name: /edit title/i });
+    // The session fixture's id is "s1"; its 8-char prefix is the id itself.
+    expect(screen.getByText("s1")).toBeDefined();
+  });
+
+  it("renames the session from the dialog, committed with Enter", async () => {
     let patched: { title?: string | null } = {};
     server.use(
       http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
@@ -351,15 +69,17 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
+    const field = await openRename();
     await userEvent.type(field, "  Postgres upgrade plan  {Enter}");
 
-    // Committed trimmed, and the field settles on the PATCH response's title.
+    // Committed trimmed; the dialog closes and the rail shows the PATCH
+    // response's title.
     await waitFor(() => expect(patched.title).toBe("Postgres upgrade plan"));
-    await waitFor(() => expect(field.value).toBe("Postgres upgrade plan"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByText("Postgres upgrade plan")).toBeDefined());
   });
 
-  it("clears the title when a blanked field is committed on blur", async () => {
+  it("clears the title when a blanked field is saved", async () => {
     let patched: { title?: string | null } = { title: "unset" };
     server.use(
       http.get("*/api/sessions/:id", () =>
@@ -372,14 +92,16 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
+    const field = await openRename();
+    expect(field.value).toBe("Postgres upgrade plan");
     await userEvent.clear(field);
-    await userEvent.tab();
+    await userEvent.click(screen.getByRole("button", { name: "save" }));
 
     await waitFor(() => expect(patched.title).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("does not PATCH an unchanged title on blur", async () => {
+  it("does not PATCH an unchanged title on save", async () => {
     let patchCalls = 0;
     server.use(
       http.get("*/api/sessions/:id", () =>
@@ -392,56 +114,36 @@ describe("<SessionAside>", () => {
     );
     renderAside(<SessionAside id="s1" />);
 
-    const field = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
-    // Editing whitespace only still commits to the same stored title — the
-    // draft resets to it rather than PATCHing.
+    const field = await openRename();
+    // Editing whitespace only still saves to the same stored title — the
+    // dialog closes without PATCHing.
     await userEvent.type(field, "  ");
-    await userEvent.tab();
+    await userEvent.click(screen.getByRole("button", { name: "save" }));
 
-    await waitFor(() => expect(field.value).toBe("Postgres upgrade plan"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(patchCalls).toBe(0);
   });
 
-  it("always offers the effort control at the session's stored level", async () => {
-    // No model listing needed: effort calibrates the assistant on every
-    // model, so the control never depends on what the listing reports.
+  it("abandons the rename when the dialog is cancelled", async () => {
+    let patchCalls = 0;
     server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () => HttpResponse.json({ models: [], failures: [] })),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    expect(await screen.findByRole("radiogroup", { name: /effort/i })).toBeDefined();
-    // The session's stored level is the selected segment.
-    // The medium segment's visible label is "med"; the committed value stays "medium".
-    expect((screen.getByRole("radio", { name: "med" }) as HTMLInputElement).checked).toBe(true);
-  });
-
-  it("changes the session's effort when a level is picked", async () => {
-    let patched: { effort?: string } = {};
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({
-          models: [{ id: "anthropic:claude", provider: "anthropic", output: "text" }],
-          failures: [],
-        }),
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail({ title: "Postgres upgrade plan" })),
       ),
-      http.patch("*/api/sessions/:id", async ({ request }) => {
-        patched = (await request.json()) as { effort?: string };
-        return HttpResponse.json(sessionDetail({ effort: "high" }));
+      http.patch("*/api/sessions/:id", () => {
+        patchCalls += 1;
+        return HttpResponse.json(sessionDetail({ title: "Renamed anyway" }));
       }),
     );
     renderAside(<SessionAside id="s1" />);
 
-    await userEvent.click(await screen.findByRole("radio", { name: "high" }));
+    const field = await openRename();
+    await userEvent.type(field, " with edits nobody keeps");
+    await userEvent.click(screen.getByRole("button", { name: "cancel" }));
 
-    await waitFor(() => expect(patched.effort).toBe("high"));
-    // The control reflects the choice from the PATCH response, without a
-    // refetch — the mocked GET still returns medium.
-    await waitFor(() =>
-      expect((screen.getByRole("radio", { name: "high" }) as HTMLInputElement).checked).toBe(true),
-    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(patchCalls).toBe(0);
+    expect(screen.getByText("Postgres upgrade plan")).toBeDefined();
   });
 
   it("surfaces a provider whose model listing failed", async () => {
@@ -460,16 +162,6 @@ describe("<SessionAside>", () => {
     expect(screen.getByText("401 Unauthorized")).toBeDefined();
   });
 
-  it("disables the model select while a turn is in flight", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail({ status: "running" }))),
-    );
-    renderAside(<SessionAside id="s1" />);
-
-    const combobox = (await screen.findByRole("combobox", { name: /model/i })) as HTMLInputElement;
-    expect(combobox.disabled).toBe(true);
-  });
-
   it("shows the session's working directory", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
@@ -486,7 +178,7 @@ describe("<SessionAside>", () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
     renderAside(<SessionAside id="s1" />);
 
-    await screen.findByRole("combobox", { name: /model/i });
+    await screen.findByRole("button", { name: /edit title/i });
     expect(screen.queryByText(/working directory/i)).toBeNull();
   });
 
