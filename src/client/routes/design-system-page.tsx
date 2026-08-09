@@ -1009,7 +1009,10 @@ export function DesignSystemContent() {
                 The small mono uppercase kicker above a page title or section heading. The default{" "}
                 <Code>accent</Code> tone is a page's lead eyebrow — it colours the kicker so the
                 title reads as the page's opening — while <Code>muted</Code> heads a section{" "}
-                <em>within</em> a page, where an accent kicker would compete with the lead.
+                <em>within</em> a page, where an accent kicker would compete with the lead.{" "}
+                <Code>faint</Code> is quieter still, for a label heading a group nested inside a row
+                or card — a feed row's article count, say — where even a muted kicker would read as
+                loud as the content it introduces.
               </p>
             </Prose>
             <div className="mt-5">
@@ -1022,6 +1025,7 @@ export function DesignSystemContent() {
                     </p>
                   </div>
                   <Eyebrow tone="muted">Steps</Eyebrow>
+                  <Eyebrow tone="faint">2 articles</Eyebrow>
                 </div>
               </Card>
             </div>

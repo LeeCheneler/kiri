@@ -13,4 +13,9 @@ describe("<Eyebrow>", () => {
     render(<Eyebrow tone="muted">Steps</Eyebrow>);
     expect(screen.getByText("Steps").getAttribute("data-tone")).toBe("muted");
   });
+
+  it("reflects the faint tone for labels nested inside a row", () => {
+    render(<Eyebrow tone="faint">2 articles</Eyebrow>);
+    expect(screen.getByText("2 articles").getAttribute("data-tone")).toBe("faint");
+  });
 });

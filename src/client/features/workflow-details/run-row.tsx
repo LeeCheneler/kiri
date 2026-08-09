@@ -1,11 +1,11 @@
 import type { RunListEntry } from "../../api.ts";
-import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
 import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { StatusBlock } from "../../design-system/feedback/status-block.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
 import { formatDuration, formatRelativeTime } from "../../formatters/format-time.ts";
+import { ArticleList } from "../activity-feed/article-list.tsx";
 
 /**
  * One run in an activity feed, edged with its status colour. A mono byline
@@ -16,10 +16,10 @@ import { formatDuration, formatRelativeTime } from "../../formatters/format-time
  * down one column of entity nouns. `showWorkflow` surfaces the run's workflow
  * as the byline's lead link (to the workflow page); it defaults off for the
  * single-workflow feed, where the name would repeat on every row, and is set
- * for the cross-workflow home feed. An optional summary
- * renders below as prose, and the run's articles follow as a stacked list of
- * links, each carrying the article's first heading (falling back to its name).
- * With no summary, those articles are the row's visual lead.
+ * for the cross-workflow home feed. An optional summary renders below as
+ * prose, and the run's articles follow in an indented block, set apart from
+ * the row's own links so they read as what the run produced rather than as
+ * more of its byline.
  *
  * Runs still in flight have no `finishedAt`, so the duration is omitted — the
  * `running` status word already signals the live state. `now` is injectable so
@@ -71,20 +71,10 @@ export function RunRow({
           <Markdown content={run.summary} />
         </div>
       ) : null}
-      {run.articles.length > 0 ? (
-        // Article links sit at the same 16px scale as the summary text — the
-        // feed is a scanning surface, so the entry's hierarchy comes from ink
-        // against the summary's muted tint, not from size.
-        <ul className="mt-4 space-y-3 text-base">
-          {run.articles.map((article) => (
-            <li key={article.slug}>
-              <HeadlineLink href={`/runs/${run.id}/articles/${article.slug}`}>
-                {article.heading ?? article.name}
-              </HeadlineLink>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <ArticleList
+        articles={run.articles}
+        hrefFor={(article) => `/runs/${run.id}/articles/${article.slug}`}
+      />
     </StatusBlock>
   );
 }

@@ -4,6 +4,7 @@ import { Meta } from "../../design-system/content/meta.tsx";
 import { StatusBlock } from "../../design-system/feedback/status-block.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
+import { ArticleList } from "../activity-feed/article-list.tsx";
 
 // Session lifecycle mapped onto the shared status vocabulary: a running turn
 // reads as "working", the resting state as "idle".
@@ -29,9 +30,11 @@ const shortModel = (model: string): string => {
  * session declares itself before the shared status vocabulary takes over. Below, the session's first user message is set
  * as quoted speech: italic display face between accent quotation marks (the
  * "human voice" only sessions carry — run rows' headlines stay upright), the
- * whole line linking through to the chat. A titled session leads with its
- * title instead, upright and unquoted — a title names the conversation rather
- * than voicing it. Before a title or message exists the short id stands in,
+ * whole line linking through to the chat. Any articles the session wrote
+ * follow in an indented block, set apart from that headline so the row reads
+ * as one conversation and its output rather than as peer titles. A titled
+ * session leads with its title instead, upright and unquoted — a title names
+ * the conversation rather than voicing it. Before a title or message exists the short id stands in,
  * likewise unquoted — only actual speech gets quote marks.
  * `now` is injectable so tests render deterministic relative times; production
  * omits it.
@@ -74,19 +77,10 @@ export function SessionRow({ session, now }: { session: SessionListEntry; now?: 
           )}
         </HeadlineLink>
       </div>
-      {session.articles.length > 0 ? (
-        // Article links at the same 16px scale as the quoted preview,
-        // mirroring how a run row leads with what it produced.
-        <ul className="mt-4 space-y-3 text-base">
-          {session.articles.map((article) => (
-            <li key={article.slug}>
-              <HeadlineLink href={`/sessions/${session.id}/articles/${article.slug}`}>
-                {article.heading ?? article.name}
-              </HeadlineLink>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <ArticleList
+        articles={session.articles}
+        hrefFor={(article) => `/sessions/${session.id}/articles/${article.slug}`}
+      />
     </StatusBlock>
   );
 }
