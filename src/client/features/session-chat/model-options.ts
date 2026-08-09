@@ -14,6 +14,18 @@ export const shortcutGroup = (shortcuts: ModelShortcuts | undefined): ComboboxGr
 };
 
 /**
+ * The display label for a committed model id: the shortcut's name when a
+ * configured shortcut points at it, otherwise the id with its `provider:`
+ * prefix dropped — the same labelling the picker gives the id.
+ */
+export const modelLabel = (shortcuts: ModelShortcuts | undefined, id: string): string => {
+  const shortcut = Object.entries(shortcuts ?? {}).find(([, model]) => model === id);
+  if (shortcut) return shortcut[0];
+  const split = id.indexOf(":");
+  return split === -1 ? id : id.slice(split + 1);
+};
+
+/**
  * The model listing as one picker group per provider, providers and models
  * sorted. The group heading names the provider, so each option's label drops
  * the `provider:` prefix; committed values stay the full ids.
