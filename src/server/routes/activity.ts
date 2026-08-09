@@ -5,7 +5,7 @@ import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, projects, recommendations, runs, sessions } from "../db/schema.ts";
-import { getSessionPreviews } from "../sessions/index.ts";
+import { getSessionLabels, getSessionPreviews } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
 import { onZodFail } from "./shared.ts";
 
@@ -100,8 +100,7 @@ function buildRunEntries(db: KiriDb, registry: Registry, rows: Array<typeof runs
 
 // The container an article belongs to, as its feed row's byline names it. A
 // run article is labelled by the workflow that produced it, a session article
-// by how that session is listed elsewhere (title, else opening message, else
-// short id), a project article by its project. Ids travel rather than paths —
+// by how that session is listed elsewhere, a project article by its project. Ids travel rather than paths —
 // the client owns routing.
 type ArticleProducer =
   | { kind: "run"; id: string; label: string }
@@ -129,18 +128,9 @@ function resolveProducers(
       : [],
   );
 
-  const sessionIds = [...new Set(rows.flatMap((r) => r.sessionId ?? []))];
-  const titleBySessionId = new Map(
-    sessionIds.length > 0
-      ? db
-          .select({ id: sessions.id, title: sessions.title })
-          .from(sessions)
-          .where(inArray(sessions.id, sessionIds))
-          .all()
-          .map((session) => [session.id, session.title] as const)
-      : [],
-  );
-  const previews = getSessionPreviews(db, sessionIds);
+  const labelBySessionId = getSessionLabels(db, [
+    ...new Set(rows.flatMap((r) => r.sessionId ?? [])),
+  ]);
 
   const projectIds = [...new Set(rows.flatMap((r) => r.projectId ?? []))];
   const nameByProjectId = new Map(
@@ -161,11 +151,8 @@ function resolveProducers(
         byArticleId.set(row.id, { kind: "run", id: row.runId, label: workflowName });
       }
     } else if (row.sessionId !== null) {
-      if (titleBySessionId.has(row.sessionId)) {
-        const label =
-          titleBySessionId.get(row.sessionId) ??
-          previews.get(row.sessionId) ??
-          row.sessionId.slice(0, 8);
+      const label = labelBySessionId.get(row.sessionId);
+      if (label !== undefined) {
         byArticleId.set(row.id, { kind: "session", id: row.sessionId, label });
       }
     } else if (row.projectId !== null) {

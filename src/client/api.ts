@@ -454,6 +454,8 @@ export const fetchArticle = async (runId: string, slug: string): Promise<Article
 export interface SessionArticleDetail {
   id: string;
   sessionId: string;
+  /** How the producing session is named wherever it is listed: its title, else its opening message, else its short id. */
+  sessionLabel: string;
   slug: string;
   name: string;
   contentMd: string;

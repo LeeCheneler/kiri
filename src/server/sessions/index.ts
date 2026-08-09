@@ -26,6 +26,7 @@ export {
   findChildByToolCall,
   getSession,
   getSessionChildren,
+  getSessionLabels,
   getSessionMessages,
   getSessionPreviews,
   setSessionStatus,

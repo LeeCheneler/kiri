@@ -85,7 +85,7 @@ export function SessionArticleContent({
           <Breadcrumb
             items={[
               { label: "Activity", href: "/" },
-              { label: params.id.slice(0, 8), href: `/sessions/${params.id}` },
+              { label: "Session", href: `/sessions/${params.id}` },
             ]}
             current="Not found"
           />
@@ -110,10 +110,9 @@ export function SessionArticleContent({
       contentMd={data.contentMd}
       name={data.name}
       createdAt={data.createdAt}
-      context={`Session ${data.sessionId.slice(0, 8)}`}
       breadcrumbItems={[
         { label: "Activity", href: "/" },
-        { label: data.sessionId.slice(0, 8), href: `/sessions/${data.sessionId}` },
+        { label: data.sessionLabel, href: `/sessions/${data.sessionId}` },
       ]}
       now={now}
     />

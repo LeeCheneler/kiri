@@ -142,7 +142,7 @@ export function Feed({
             {group.entries.map((entry) => (
               <li key={entryKey(entry)}>
                 {entry.kind === "run" ? (
-                  <RunRow run={entry.run} now={now} showWorkflow />
+                  <RunRow run={entry.run} now={now} nameBy="workflow" />
                 ) : entry.kind === "session" ? (
                   <SessionRow session={entry.session} now={now} />
                 ) : (

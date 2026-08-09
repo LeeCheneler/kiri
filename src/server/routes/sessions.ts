@@ -42,6 +42,7 @@ import {
   generateSessionTitle,
   getSession,
   getSessionChildren,
+  getSessionLabels,
   getSessionMessages,
   getSessionPreviews,
   imageTools,
@@ -723,6 +724,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       return c.json({
         id: article.id,
         sessionId: article.sessionId,
+        // The reading view situates the article under its session by name, so
+        // the label rides along rather than costing a second round-trip.
+        sessionLabel: getSessionLabels(db, [id]).get(id) ?? id.slice(0, 8),
         slug: article.slug,
         name: article.name,
         contentMd: article.contentMd,

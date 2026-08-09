@@ -131,7 +131,6 @@ export function ProjectArticleContent({
       contentMd={data.contentMd}
       name={data.name}
       createdAt={data.createdAt}
-      context={`Project ${projectName}`}
       breadcrumbItems={[
         { label: "Projects", href: "/projects" },
         { label: projectName, href: `/projects/${data.projectId}` },

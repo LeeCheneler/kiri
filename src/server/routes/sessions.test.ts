@@ -631,6 +631,18 @@ describe("sessions routes", () => {
       });
     });
 
+    it("names the producing session on the article so the reader can situate it", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1", title: "Corpus sweep" });
+      insertArticle("s1", "notes", "# Meeting Notes\n\nBody.", new Date(1000));
+
+      const res = await app.request("/api/sessions/s1/articles/notes", { headers: CLIENT_HEADERS });
+
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        sessionLabel: "Corpus sweep",
+      });
+    });
+
     it("404s an article absent from the session", async () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });

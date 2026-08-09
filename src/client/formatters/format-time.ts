@@ -82,3 +82,21 @@ export const formatDayMarker = (iso: string, now: Date = new Date()): string => 
     ? DAY_MARKER_FORMAT.format(date)
     : DAY_MARKER_FORMAT_WITH_YEAR.format(date);
 };
+
+const CLOCK_FORMAT = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/**
+ * Format an ISO timestamp as the name of a moment — "14:32 · 12 May", or
+ * "14:32 · 12 May 2025" when it falls in an earlier year than `now`. This is
+ * what titles a run wherever a workflow name can't: a run has no name of its
+ * own, and when it happened is the fact that tells two runs of the same
+ * workflow apart. `now` is injectable for deterministic tests.
+ */
+export const formatAbsoluteTime = (iso: string, now: Date = new Date()): string => {
+  const date = new Date(iso);
+  const day =
+    date.getFullYear() === now.getFullYear()
+      ? DAY_MARKER_FORMAT.format(date)
+      : DAY_MARKER_FORMAT_WITH_YEAR.format(date);
+  return `${CLOCK_FORMAT.format(date)} · ${day}`;
+};

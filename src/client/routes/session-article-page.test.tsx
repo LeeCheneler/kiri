@@ -48,6 +48,7 @@ const renderArticle = (id: string, slug: string) => {
 const articleJson = (id: string, slug: string, contentMd: string) => ({
   id: "art-1",
   sessionId: id,
+  sessionLabel: "Corpus sweep",
   slug,
   name: "Meeting Notes",
   contentMd,
@@ -79,11 +80,10 @@ describe("<SessionArticlePage>", () => {
     // The reader renders the fetched body, situated under the producing
     // session as the eyebrow context.
     expect(await screen.findByRole("heading", { level: 1, name: "Hello" })).toBeDefined();
-    expect(screen.getByText("Session abc12345 · Meeting Notes")).toBeDefined();
     expect(screen.getByText(/First paragraph\./)).toBeDefined();
     // The breadcrumb threads Activity → session → (current article).
     expect(screen.getByRole("link", { name: /activity/i }).getAttribute("href")).toBe("/");
-    const sessionLink = screen.getByRole("link", { name: "abc12345" });
+    const sessionLink = screen.getByRole("link", { name: "Corpus sweep" });
     expect(sessionLink.getAttribute("href")).toBe(`/sessions/${SESSION_ID}`);
   });
 
@@ -149,7 +149,8 @@ describe("<SessionArticlePage>", () => {
     expect(screen.getByText("missing-art")).toBeDefined();
     // Even on 404 the session stays reachable — it might still exist, only
     // the article is missing.
-    const sessionLink = screen.getByRole("link", { name: "deadbeef" });
+    // Nothing is loaded to name the session by, so the crumb states the kind.
+    const sessionLink = screen.getByRole("link", { name: "Session" });
     expect(sessionLink.getAttribute("href")).toBe("/sessions/deadbeef-1111-2222-3333-444444444444");
   });
 

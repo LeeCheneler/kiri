@@ -35,10 +35,10 @@ test("clicking an article navigates to a page rendering its markdown body", asyn
   await expect(page.locator('article h2[id^="section-"]')).toHaveCount(2);
   await expect(page.locator("article p").first()).toBeVisible();
 
-  // The breadcrumb's run crumb (the short run id) returns to the parent run.
+  // The breadcrumb's run crumb — the run named by when it ran — returns to it.
   await page
     .getByRole("navigation", { name: /breadcrumb/i })
-    .getByRole("link", { name: runId.slice(0, 8) })
+    .getByRole("link", { name: /\d\d:\d\d/ })
     .click();
   await expect(page).toHaveURL(`/runs/${runId}`);
 });

@@ -11,6 +11,7 @@ import { RunHeader } from "../features/run-detail/run-header.tsx";
 import { RunPhases } from "../features/run-detail/run-phases.tsx";
 import { RunRecommendations } from "../features/run-detail/run-recommendations.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
+import { formatAbsoluteTime } from "../formatters/format-time.ts";
 import { useRun } from "../state/runs.ts";
 import { useWorkflows } from "../state/workflows.ts";
 
@@ -75,7 +76,7 @@ export function RunContent({ params, now }: { params: { id: string }; now?: Date
             href: `/workflows/${encodeURIComponent(detail.workflowName)}`,
           },
         ]}
-        current={detail.id.slice(0, 8)}
+        current={formatAbsoluteTime(detail.startedAt, now)}
       />
       <RunHeader
         run={detail}

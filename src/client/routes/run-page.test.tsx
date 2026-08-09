@@ -83,8 +83,8 @@ describe("<RunPage>", () => {
     renderRun("abcd1234efgh");
 
     // Header: the workflow eyebrow above the run's short id as the heading.
-    expect(await screen.findByText("kiri-self-review · Run")).toBeDefined();
-    expect(screen.getByRole("heading", { level: 2, name: "abcd1234" })).toBeDefined();
+    expect(await screen.findByText("Run")).toBeDefined();
+    expect(screen.getByRole("heading", { level: 2, name: /\d\d:\d\d/ })).toBeDefined();
     // The summary renders below the header once the run has produced one.
     expect(screen.getByText("All checks passed.")).toBeDefined();
     // The phases render: the Steps group lists the declared step.
@@ -99,7 +99,7 @@ describe("<RunPage>", () => {
     expect(breadcrumb.getByRole("link", { name: /kiri-self-review/i }).getAttribute("href")).toBe(
       "/workflows/kiri-self-review",
     );
-    expect(breadcrumb.getByText("abcd1234").getAttribute("aria-current")).toBe("page");
+    expect(breadcrumb.getByText(/\d\d:\d\d/).getAttribute("aria-current")).toBe("page");
   });
 
   it("renders a not-found view when the API returns 404", async () => {
