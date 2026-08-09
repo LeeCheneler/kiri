@@ -9,12 +9,14 @@ import { formatDuration, formatRelativeTime } from "../../formatters/format-time
 
 /**
  * One run in an activity feed, edged with its status colour. A mono byline
- * tops the entry — status, the short run id (which carries the link through to
- * the run detail), the relative start time, the duration, and a recommendation
- * count when the run produced any. `showWorkflow` surfaces the run's workflow as
- * the byline's lead link (to the workflow page);
- * it defaults off for the single-workflow feed, where the name would repeat on
- * every row, and is set for the cross-workflow home feed. An optional summary
+ * tops the entry — an accent `run` kind marker, then status, the short run id
+ * (which carries the link through to the run detail), the relative start time,
+ * the duration, and a recommendation count when the run produced any. Every
+ * feed row leads with its kind marker whatever the kind, so a mixed feed reads
+ * down one column of entity nouns. `showWorkflow` surfaces the run's workflow
+ * as the byline's lead link (to the workflow page); it defaults off for the
+ * single-workflow feed, where the name would repeat on every row, and is set
+ * for the cross-workflow home feed. An optional summary
  * renders below as prose, and the run's articles follow as a stacked list of
  * links, each carrying the article's first heading (falling back to its name).
  * With no summary, those articles are the row's visual lead.
@@ -35,6 +37,7 @@ export function RunRow({
   return (
     <StatusBlock status={run.status}>
       <Meta>
+        <span className="text-accent uppercase">run</span>
         <Status status={run.status} />
         {/* Each link is wrapped in a span so Meta's middot separator attaches to
             the span, not the anchor — on the anchor it joins the link's underline
