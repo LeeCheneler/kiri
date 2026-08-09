@@ -39,6 +39,12 @@ export function TextInput({
       id={fieldId}
       name={name}
       type="text"
+      // Nothing in kiri collects autofillable identity data, so browser
+      // autofill and password-manager prompts (1Password reads the data
+      // attribute) are suppressed wholesale — a name field inviting a saved
+      // identity is pure noise.
+      autoComplete="off"
+      data-1p-ignore
       value={value}
       disabled={disabled}
       placeholder={placeholder}

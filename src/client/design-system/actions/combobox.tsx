@@ -224,6 +224,7 @@ export function Combobox({
         aria-describedby={description ? `${fieldId}-description` : undefined}
         aria-required={required ? true : undefined}
         autoComplete="off"
+        data-1p-ignore
         value={open ? query : selectedLabel}
         placeholder={placeholder}
         disabled={disabled}
