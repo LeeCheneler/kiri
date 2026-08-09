@@ -35,8 +35,9 @@ export const useModel = async (page: Page, model: string): Promise<void> => {
   // after the `provider:` prefix while `model` stays the full id.
   const bareName = model.slice(model.indexOf(":") + 1);
   await openModels(page);
-  // Anchored: /model/i alone would also match the sibling "Image model" picker.
-  const combobox = page.getByLabel(/^model/i);
+  // Role-scoped and anchored: the popover panel itself is labelled "Models",
+  // and /model/i alone would also match the sibling "Image model" picker.
+  const combobox = page.getByRole("combobox", { name: /^model/i });
   if ((await combobox.inputValue()) !== bareName) {
     const persisted = page.waitForResponse(
       (res) => res.request().method() === "PATCH" && res.url().includes("/api/sessions/"),

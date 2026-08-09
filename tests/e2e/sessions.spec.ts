@@ -42,7 +42,7 @@ test("a settled turn reports the context fill in the rail", async ({ page }) => 
   // its pin action) so the figure is unambiguous.
   const rail = page.getByRole("complementary").filter({ hasText: "pin session" });
   await openModels(page);
-  await expect(page.getByLabel(/^model/i)).toHaveValue("echo");
+  await expect(page.getByRole("combobox", { name: /^model/i })).toHaveValue("echo");
   await page.keyboard.press("Escape");
   // Context fill is the last settled turn's footprint — the stub reports 20.
   await expect(rail.getByText(/20 tokens/i)).toBeVisible();

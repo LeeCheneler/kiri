@@ -16,7 +16,7 @@ test("swapping the model mid-chat changes which model the next turn runs against
   // turns that follow it.
   await useModel(page, "fake:boom");
   await openModels(page);
-  await expect(page.getByLabel(/^model/i)).toHaveValue("boom");
+  await expect(page.getByRole("combobox", { name: /^model/i })).toHaveValue("boom");
   await page.keyboard.press("Escape");
 
   await sendMessage(page, "after the swap");
@@ -34,5 +34,5 @@ test("the model select is disabled while a turn is streaming", async ({ page }) 
   // swapped out from under the in-flight turn.
   await expect(page.locator('[data-status="working"]')).toBeVisible({ timeout: 10_000 });
   await openModels(page);
-  await expect(page.getByLabel(/^model/i)).toBeDisabled();
+  await expect(page.getByRole("combobox", { name: /^model/i })).toBeDisabled();
 });
