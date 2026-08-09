@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from 
 import { ApiError, type Session, type SessionDetail } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
+import { Meta } from "../../design-system/content/meta.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
@@ -15,6 +16,7 @@ import {
   currentContextTokens,
 } from "./context-usage.ts";
 import { MessageComposer } from "./message-composer.tsx";
+import { modelLabel } from "./model-options.ts";
 import { useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
 import { useSessionConversation } from "./use-session-conversation.ts";
@@ -96,7 +98,8 @@ function ProjectChatBreadcrumb({ projectId, current }: { projectId: string; curr
 
 function Chat({ detail }: { detail: SessionDetail }) {
   const { session } = detail;
-  const models = useModels().data?.models ?? [];
+  const modelsData = useModels().data;
+  const models = modelsData?.models ?? [];
   // Whether the session's model reads images, per its provider's listing. Only
   // a definite "no" restricts the composer — unknown (a bare listing, a pinned
   // model the provider no longer lists) keeps images attachable rather than
@@ -301,6 +304,15 @@ function Chat({ detail }: { detail: SessionDetail }) {
           controls={<SessionModelControls id={session.id} />}
           onSubmit={handleSend}
         />
+        {/* A quiet readout of what the next turn runs with, labelled the way
+            the picker labels it — the shortcut's name when one points at the
+            session's model. */}
+        <div className="mt-2 flex justify-end">
+          <Meta>
+            <span>{modelLabel(modelsData?.shortcuts?.text, session.model)}</span>
+            <span>{session.effort}</span>
+          </Meta>
+        </div>
       </div>
     </section>
   );

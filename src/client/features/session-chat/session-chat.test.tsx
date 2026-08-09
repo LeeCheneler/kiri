@@ -235,6 +235,28 @@ describe("<SessionChat>", () => {
     expect(screen.getByText("An answer")).toBeDefined();
   });
 
+  it("captions the composer with the session's model and effort", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+    renderChat();
+    expect(await screen.findByText("claude")).toBeDefined();
+    expect(screen.getByText("medium")).toBeDefined();
+  });
+
+  it("captions the composer with a shortcut's name when one points at the model", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [],
+          failures: [],
+          shortcuts: { text: { daily: "anthropic:claude" } },
+        }),
+      ),
+    );
+    renderChat();
+    expect(await screen.findByText("daily")).toBeDefined();
+  });
+
   it("heads the page with the session's title, falling back to the short id", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
