@@ -19,6 +19,10 @@ const STATUS_BORDER: Record<StatusKind, string> = {
  * the coloured border and exposes the state as `data-status`. Carries its own
  * left border and inset padding only; vertical rhythm between stacked blocks is
  * the caller's.
+ *
+ * For an entry with no lifecycle to report — an article among the feed's run
+ * and session rows — reach for `EdgedBlock`, which draws the same edge in
+ * accent instead of a status colour.
  */
 export function StatusBlock({
   status,
