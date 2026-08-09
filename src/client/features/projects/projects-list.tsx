@@ -65,7 +65,16 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal title="New project" onClose={onClose}>
-      <div className="flex flex-col gap-4">
+      {/* A form so Enter in the name field creates too; the guard mirrors the
+          create button's disabled state, which Enter doesn't pass through. */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (pending || name.trim() === "") return;
+          void handleCreate();
+        }}
+        className="flex flex-col gap-4"
+      >
         <TextInput
           value={name}
           onChange={setName}
@@ -77,11 +86,11 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
             cancel
           </Button>
           <Button
+            type="submit"
             variant="primary"
             disabled={name.trim() === ""}
             pending={pending}
             pendingLabel="creating…"
-            onClick={handleCreate}
           >
             create
           </Button>
@@ -91,7 +100,7 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
             {error}
           </p>
         ) : null}
-      </div>
+      </form>
     </Modal>
   );
 }
