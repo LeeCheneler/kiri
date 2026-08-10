@@ -32,16 +32,22 @@ Answer "allow" only when every effect is routine and recoverable:
 - building, testing, linting, formatting, or type-checking
 - running the project's own scripts (npm/bun/yarn/pnpm run, make targets, and the like) whose names read as routine development work — build, test, dev, check; a name that sounds destructive or outward-facing (clean, reset, deploy, publish, release, migrate) asks instead
 - git operations that do not destroy work: pull, fetch, commit, push, switching branches, stashing
-- installing dependencies already declared in a lockfile
+- managing dependencies through the project's own package manager against its normal registry — installing from a lockfile, adding, updating, or removing packages (bun add, npm install, cargo add, and the like)
+- installing or trusting toolchain versions the project pins in its config — mise, nvm, rustup, and the like
+- opening a pull request or reading CI status on the project's own repository with gh
 - writing files inside the working directory as a normal part of such work
+- scratch use of the system temp directory — creating, writing, or deleting its own temp and log files there (mktemp, /tmp paths, $TMPDIR)
+- deleting a specific named file the command itself created or that is plainly disposable scratch output — never recursive, never by pattern
+- starting background processes for the work at hand and stopping only its own: kill by a PID it captured, or pkill narrowly scoped to this project's paths
 
 Answer "ask" when any part of the command:
-- deletes or destructively overwrites files, or discards git work (reset --hard, clean, restore)
-- rewrites history or force-pushes
-- adds new dependencies, or executes code fetched from the network
+- recursively deletes, deletes by glob or find-pipe, or destructively overwrites files whose origin the command line does not show
+- discards git work (reset --hard, clean, restore), rewrites history, or force-pushes
+- executes code fetched from the network outside a package manager's normal install flow (curl piped anywhere, running a downloaded script)
 - reads or writes credentials, keys, or .env files
-- writes or deletes outside the working directory, or changes system configuration
+- writes or deletes outside the working directory and the system temp directory, or changes system configuration
 - sends file contents or other local data to a remote host
+- kills processes it did not start, matched broadly by name rather than scoped to this project
 - runs a local script or unfamiliar program whose effects the command line does not reveal — standard Unix and developer tools and routinely-named project scripts (above) do not count
 - is obfuscated, encoded, or dynamically constructed
 - has an effect you cannot determine

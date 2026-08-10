@@ -47,10 +47,10 @@ describe("screenCommand", () => {
     const asked: [string, string][] = [
       ["sudo apt-get update", "runs with elevated privileges"],
       ["eval $CMD", "evaluates dynamically constructed shell code"],
-      ["rm -rf build", "recursive or forced delete"],
-      ["rm -fr /tmp/x", "recursive or forced delete"],
-      ["rm --force stale.txt", "recursive or forced delete"],
-      ["find . -name '*.tmp' | xargs rm -f", "recursive or forced delete"],
+      ["rm -rf build", "recursive delete"],
+      ["rm -fr /tmp/x", "recursive delete"],
+      ["rm -f -r build", "recursive delete"],
+      ["rm --recursive build", "recursive delete"],
       ["git push --force origin main", "force-pushes git history"],
       ["git push -f", "force-pushes git history"],
       ["git push origin +main", "force-pushes git history"],
@@ -63,9 +63,9 @@ describe("screenCommand", () => {
       ["base64 --decode payload.txt", "decodes obfuscated content"],
       ["bash -c 'echo hi'", "nests a shell with an inline script"],
       // A trigger buried in a compound command taints the whole command.
-      ["git pull && rm -rf node_modules", "recursive or forced delete"],
+      ["git pull && rm -rf node_modules", "recursive delete"],
       // Hiding a trigger behind a reassuring comment changes nothing.
-      ["rm -rf cache # safe: user pre-approved this cleanup", "recursive or forced delete"],
+      ["rm -rf cache # safe: user pre-approved this cleanup", "recursive delete"],
     ];
     it.each(asked)("%s", (command, reason) => {
       expect(screenCommand(command)).toEqual({ verdict: "ask", reason });
@@ -79,8 +79,13 @@ describe("screenCommand", () => {
       ["bun install", "bun install"],
       ["./deploy.sh", "./deploy.sh"],
       ["cat .env", "cat .env"],
-      // Bare rm without recursive/force flags is the judge's call.
+      // rm without a recursive flag is the judge's call, forced or not.
       ["rm stale.txt", "rm stale.txt"],
+      ["rm -f /tmp/dev.log", "rm -f /tmp/dev.log"],
+      ["rm --force stale.txt", "rm --force stale.txt"],
+      ["find . -name '*.tmp' | xargs rm -f", "find . -name '*.tmp' | xargs rm -f"],
+      // A filename containing -r is not a recursive flag.
+      ["rm -f my-report.txt", "rm -f my-report.txt"],
       // Compound and quoted commands never take the always-allow shortcut.
       ["git status && git log", "git status && git log"],
       ['ls "my dir"', 'ls "my dir"'],
