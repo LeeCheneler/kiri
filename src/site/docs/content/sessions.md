@@ -42,8 +42,9 @@ on the next turn — git stays the source of truth for the files.
   every session: your standing "how I want you to behave."
 - **Project instructions** — markdown kept on a [project](#projects) and
   carried by every session in it: the context and conventions that hold for
-  one body of work rather than everywhere. Edited from the project's page,
-  and stored in kiri's database rather than your repo.
+  one body of work rather than everywhere. Edited from the project's page or
+  by asking a session in the project, and stored in kiri's database rather
+  than your repo.
 - **`AGENTS.md` chain** — the per-directory instructions governing the
   session's [working directory](#working-with-your-files). Kiri walks from that
   directory up to the top of the tree, collecting every `AGENTS.md` it finds,
@@ -211,6 +212,7 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
 | Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
+| `update_project_instructions` | Always allow | Only runs when you ask for it, and shows the change as a diff. |
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `set_working_directory` | Always allow | Only moves a value confined to the sandbox. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
@@ -288,6 +290,12 @@ all; its feed rows name the project, and its chat threads home through it.
   project, between your workspace's `kiri.md` and any `AGENTS.md` chain. Edit
   them at any time; sessions pick the new text up on their next turn, and a
   project with none adds nothing to the prompt.
+- You can also **ask a session in the project to change them** — "add that to
+  the project instructions", "drop the British English rule" — and it rewrites
+  them with `update_project_instructions`, showing the change as a diff in the
+  transcript. It only edits them when you ask; nothing is recorded there off
+  its own back. The rewrite lands on the project immediately and every session
+  in it, including this one, picks the new text up on its next turn.
 - The project has its own **memories** (see Memories above): sessions in it
   save durable facts there instead of workspace-wide, and the project page
   lists them for reading, editing, and deleting.

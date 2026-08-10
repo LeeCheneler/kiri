@@ -18,6 +18,7 @@ export {
   memoryNameSchema,
   memoryTools,
 } from "./memory-tools.ts";
+export { projectTools } from "./project-tools.ts";
 export {
   type Message,
   type NewMessage,

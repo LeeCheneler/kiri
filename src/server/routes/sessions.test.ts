@@ -1168,6 +1168,33 @@ describe("sessions routes", () => {
       expect(seen).toContainEqual({ type: "memory.saved", name: "prefers-bun" });
     });
 
+    it("rewrites a project's instructions straight through for a project session", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      const input = JSON.stringify({ instructions_md: "Answer in British English." });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
+      const app = makeApp(
+        fakeClients({ model: toolCallModel("update_project_instructions", input) }),
+        { bus },
+      );
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+
+      const settled = waitForSettled("s1");
+      await (
+        await postMessage(app, "s1", "put British English in the project instructions")
+      ).text();
+      await settled;
+
+      // Allow by default, so the rewrite ran in the same turn, landed on the
+      // project, and was announced for the open project page.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      const row = env.db.select().from(projects).where(eq(projects.id, "p1")).get();
+      expect(row?.instructions).toBe("Answer in British English.");
+      expect(seen).toContainEqual({ type: "project.updated", id: "p1" });
+    });
+
     it("withholds an off article tool and drops its guidance from the prompt", async () => {
       // A built-in tool rides the same standing permissions as an MCP tool:
       // a recorded "off" overrides its allow default, withholding it, and the

@@ -13,6 +13,7 @@ import { delegateTool } from "./delegate-tool.ts";
 import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
 import { memoryTools } from "./memory-tools.ts";
+import { projectTools } from "./project-tools.ts";
 import { shellTools } from "./shell-tools.ts";
 import { skillTools } from "./skill-tools.ts";
 import { workflowTools } from "./workflow-tools.ts";
@@ -56,6 +57,7 @@ describe("BUILTIN_TOOLS", () => {
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
       ...articleTools(db, "session-1", null, () => {}),
       ...memoryTools(db, null, () => {}),
+      ...projectTools(db, "project-1", () => {}),
       ...filesystemTools(() => [dir], { get: () => null, set: () => {} }),
       ...shellTools(() => [dir], { get: () => null, set: () => {} }),
       ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),

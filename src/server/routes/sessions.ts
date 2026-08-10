@@ -51,6 +51,7 @@ import {
   listProjectMemories,
   listSkills,
   memoryTools,
+  projectTools,
   resumeTurn,
   runTurn,
   screenCommand,
@@ -408,6 +409,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...memoryTools(db, getSession(db, sessionId)?.projectId ?? null, (event) =>
         bus?.publish(event),
       ),
+      ...projectTools(db, getSession(db, sessionId)?.projectId ?? null, (event) =>
+        bus?.publish(event),
+      ),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(sandbox.length > 0 ? shellTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
@@ -418,7 +422,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // can't spawn workers, and its deliverable is the report — articles it wrote
   // would ride a hidden session rather than a surface the user sees. Memory
   // writes stay with the user-facing conversation too: a worker recalls
-  // memories but never rewrites the durable record.
+  // memories but never rewrites the durable record, and the project's standing
+  // instructions — which a worker doesn't even carry — are the user's to change
+  // through the conversation they're in.
   const childWithheld = new Set([
     "delegate",
     "create_article",
@@ -427,6 +433,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "delete_article",
     "save_memory",
     "delete_memory",
+    "update_project_instructions",
   ]);
 
   // The tools a delegate-driven child turn runs with: the same catalogue
