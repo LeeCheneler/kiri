@@ -57,21 +57,14 @@ in [Sessions](/docs/sessions). Three invariants hold throughout:
   approved run tool or your own invocation.
 - **The sandbox is declared in git.** The filesystem and shell tools exist
   only when you declare `filesystem:` in `kiri.yaml` — a reviewable opt-in
-  that enables both. File paths must resolve inside the declared directories
-  (symlinks are followed to their real target and checked, even for files
-  that don't exist yet — a relative path resolves against the session's
-  working directory, itself confined to the sandbox and re-checked every
-  turn), and dot-files like `.env` and `.kiri/` are unreachable outright.
-  The sandbox only anchors where a
-  command *runs* — a command can touch anything you can — which is why
-  `run_command` is never blanket pre-authorised: the approval showing the
-  verbatim command is the boundary, with the system prompt holding the model
-  to safe, narrowly-scoped commands as a first line of defence in front of
-  it. The opt-in **Auto** permission moves only the prompting, not the
-  boundary: a deterministic screen (comment-stripping, hard triggers no
-  model can override) and a fail-closed judgement by your utility model
-  decide per command between running and that same approval — its worst
-  case is exactly Ask.
+  that enables both. Every path must resolve inside the declared
+  directories, symlinks included, and secret-bearing files like `.env` and
+  `.kiri/` are unreachable outright. The sandbox only anchors where a shell
+  command *runs* — a command can touch anything you can — so the approval
+  showing the verbatim command is the real boundary. The opt-in **Auto**
+  permission moves only the prompting, not the boundary: dangerous command
+  shapes always ask — no model can override that — and everything else is
+  judged fail-closed, so Auto's worst case is exactly Ask.
 - **Delegated workers can't exceed the chat.** A worker session runs
   unattended, so it only holds tools already set to Always allow — one that
   would ask first isn't offered to it at all — and a worker can't spawn

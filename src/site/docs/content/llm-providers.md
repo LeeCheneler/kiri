@@ -89,10 +89,8 @@ models:
 
 The session model pickers pin shortcuts ahead of the full listing, in config
 order, and every new session starts on the first shortcut of each configured
-modality. Picking a shortcut selects its model — nothing is stored by name.
-Values are ordinary `provider:model` references, resolved when picked, so
-re-pointing a shortcut later changes future picks without rewriting what past
-sessions ran on.
+modality. Re-point a shortcut any time — future picks follow it, and past
+sessions keep the model they ran on.
 
 ## Delegate models
 
@@ -135,10 +133,6 @@ utility model, Auto falls back to asking on every command.
 
 Without a `models:` section, nothing changes: pickers list models as usual
 and new sessions default to the most recent session's model.
-
-Shortcuts, delegates, and a session's [effort level](/docs/sessions) are
-independent levers: they pick *which* model does the work; effort sets *how
-hard* it reasons. Size them independently.
 
 ## Hot reload and health
 
