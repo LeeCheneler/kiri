@@ -2,6 +2,7 @@ import cliReference from "./content/cli-reference.md?raw";
 import gettingStarted from "./content/getting-started.md?raw";
 import llmProviders from "./content/llm-providers.md?raw";
 import overview from "./content/overview.md?raw";
+import projectsAndMemories from "./content/projects-and-memories.md?raw";
 import recipes from "./content/recipes.md?raw";
 import sessions from "./content/sessions.md?raw";
 import troubleshooting from "./content/troubleshooting.md?raw";
@@ -33,6 +34,12 @@ export const DOCS_PAGES: DocsPage[] = [
   { slug: "overview", title: "What is kiri?", section: "Start", content: overview },
   { slug: "getting-started", title: "Quickstart", section: "Start", content: gettingStarted },
   { slug: "sessions", title: "Sessions", section: "Guides", content: sessions },
+  {
+    slug: "projects-and-memories",
+    title: "Projects & memories",
+    section: "Guides",
+    content: projectsAndMemories,
+  },
   { slug: "workflows", title: "Writing workflows", section: "Guides", content: workflows },
   { slug: "recipes", title: "Recipes", section: "Guides", content: recipes },
   { slug: "llm-providers", title: "Models & providers", section: "Guides", content: llmProviders },
