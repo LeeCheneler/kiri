@@ -20,7 +20,12 @@ export type CommandScreenResult =
 const HARD_ASK_TRIGGERS: { pattern: RegExp; reason: string }[] = [
   { pattern: /\bsudo\b/, reason: "runs with elevated privileges" },
   { pattern: /\beval\b/, reason: "evaluates dynamically constructed shell code" },
-  { pattern: /\brm\s+-{1,2}[^\s]*[rf]/, reason: "recursive or forced delete" },
+  // Only recursive deletes hard-ask; `rm -f file` is the judge's call, where
+  // deleting a scratch file the command created can still be allowed.
+  {
+    pattern: /\brm\s+(?:[^\s;|&]+\s+)*(?:-[A-Za-z]*r[A-Za-z]*|--recursive)\b/,
+    reason: "recursive delete",
+  },
   { pattern: /\bgit\s+push\b.*(--force|\s-f\b|\s\+\S)/, reason: "force-pushes git history" },
   { pattern: /\bgit\s+clean\b/, reason: "deletes untracked files" },
   { pattern: /\bgit\s+reset\b.*--hard/, reason: "discards local changes" },
