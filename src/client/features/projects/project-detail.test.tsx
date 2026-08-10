@@ -208,7 +208,7 @@ describe("<ProjectDetail>", () => {
     expect(within(dialog).getByLabelText("Name")).toBeDefined();
   });
 
-  it("renders the project's instructions, or an empty state without them", async () => {
+  it("tucks the project's instructions behind a collapsed disclosure", async () => {
     serveProject(
       detail({
         project: {
@@ -221,7 +221,10 @@ describe("<ProjectDetail>", () => {
     );
     renderDetail();
 
-    expect(await screen.findByText("Cite every source.")).toBeDefined();
+    const trigger = await screen.findByRole("button", { name: /view instructions/ });
+    expect(screen.queryByText("Cite every source.")).toBeNull();
+    await userEvent.click(trigger);
+    expect(screen.getByText("Cite every source.")).toBeDefined();
     expect(screen.queryByText(/no instructions yet/)).toBeNull();
   });
 
@@ -258,7 +261,8 @@ describe("<ProjectDetail>", () => {
       }),
     );
     renderDetail();
-    await userEvent.click(await screen.findByRole("button", { name: "edit instructions" }));
+    await userEvent.click(await screen.findByRole("button", { name: /view instructions/ }));
+    await userEvent.click(screen.getByRole("button", { name: "edit instructions" }));
 
     const dialog = await screen.findByRole("dialog");
     const field = within(dialog).getByLabelText("Instructions");

@@ -87,6 +87,11 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
+    name: "update_project_instructions",
+    description: "Rewrite the standing instructions of the session's project.",
+    defaultPermission: "allow",
+  },
+  {
     name: "list_workflows",
     description: "List the workspace's workflows and their declared inputs.",
     defaultPermission: "allow",

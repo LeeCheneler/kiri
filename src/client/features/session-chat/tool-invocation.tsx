@@ -77,15 +77,19 @@ const summaryDetail = (input: unknown): string | null => {
   return null;
 };
 
-// A settled filesystem write's change as a renderable patch: the unified diff
-// its result carries for an overwrite or edit, or — for a created file, whose
-// result carries none — its content from the call's input, shown as additions.
-const fileChange = (
+// The tools whose settled result carries a unified diff for the transcript.
+const DIFF_TOOLS = new Set(["write_file", "edit_file", "update_project_instructions"]);
+
+// A settled write's change as a renderable patch: the unified diff its result
+// carries for an overwrite, edit, or instructions rewrite, or — for a created
+// file, whose result carries none — its content from the call's input, shown
+// as additions.
+const writtenChange = (
   name: string,
   input: unknown,
   output: unknown,
 ): { patch: string; truncated: boolean } | null => {
-  if (name !== "write_file" && name !== "edit_file") return null;
+  if (!DIFF_TOOLS.has(name)) return null;
   if (output === null || typeof output !== "object") return null;
   const { diff, diffTruncated, created } = output as {
     diff?: unknown;
@@ -234,10 +238,10 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     );
   }
   if (part.state === "output-available") {
-    // A filesystem write's result renders as the change itself — the unified
-    // diff (or a created file's content), still untrusted text shown verbatim,
-    // never markdown.
-    const change = fileChange(name, part.input, part.output);
+    // A write's result renders as the change itself — the unified diff (or a
+    // created file's content), still untrusted text shown verbatim, never
+    // markdown.
+    const change = writtenChange(name, part.input, part.output);
     if (change) return <Diff patch={change.patch} truncated={change.truncated} />;
     // A shell command's result renders as its exit status and output streams
     // rather than JSON.

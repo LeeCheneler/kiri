@@ -4,12 +4,14 @@ import { ApiError, type ProjectSessionSummary } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
+import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
+import { Prose } from "../../design-system/content/prose.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { Modal } from "../../design-system/surfaces/modal.tsx";
@@ -298,55 +300,68 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
             </div>
           )}
         </div>
-        <div>
-          <Eyebrow tone="muted">Memories</Eyebrow>
-          {data.memories.length === 0 ? (
-            <div className="mt-3">
-              <EmptyState>
-                no memories yet. facts saved by this project's sessions land here and reach every
-                session in the project, not the rest of the workspace.
-              </EmptyState>
-            </div>
-          ) : (
-            <div className="mt-1 divide-y divide-rule">
-              {data.memories.map((memory) => (
-                <div key={memory.name} className="py-3">
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <HeadlineLink
-                      href={`/projects/${encodeURIComponent(id)}/memories/${encodeURIComponent(memory.name)}`}
-                    >
-                      {memory.name}
-                    </HeadlineLink>
-                    <Meta>
-                      <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
-                    </Meta>
-                  </div>
-                  <p className="mt-1 font-mono text-sm text-ink-muted">{memory.description}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div>
-          <Eyebrow tone="muted">Instructions</Eyebrow>
-          {data.project.instructions === null ? (
+      </div>
+      <div className="mt-10">
+        <Eyebrow tone="muted">Instructions</Eyebrow>
+        {data.project.instructions === null ? (
+          <>
             <div className="mt-3">
               <EmptyState>
                 no instructions yet. what you write here joins the standing instructions of every
                 session in this project.
               </EmptyState>
             </div>
-          ) : (
-            <div className="mt-3">
-              <Markdown content={data.project.instructions} />
+            <div className="-mx-3 mt-3 flex items-center">
+              <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
+                edit instructions
+              </Button>
             </div>
-          )}
-          <div className="-mx-3 mt-3 flex items-center">
-            <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
-              edit instructions
-            </Button>
+          </>
+        ) : (
+          <div className="mt-3 overflow-hidden rounded-sm border border-rule bg-canvas-2">
+            <Disclosure
+              summary={<span className="font-mono text-ink text-sm">view instructions</span>}
+            >
+              <Prose>
+                <Markdown content={data.project.instructions} />
+              </Prose>
+              <div className="mt-4 flex items-center">
+                <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
+                  edit instructions
+                </Button>
+              </div>
+            </Disclosure>
           </div>
-        </div>
+        )}
+      </div>
+      <div className="mt-10">
+        <Eyebrow tone="muted">Memories</Eyebrow>
+        {data.memories.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState>
+              no memories yet. facts saved by this project's sessions land here and reach every
+              session in the project, not the rest of the workspace.
+            </EmptyState>
+          </div>
+        ) : (
+          <div className="mt-1 divide-y divide-rule">
+            {data.memories.map((memory) => (
+              <div key={memory.name} className="py-3">
+                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                  <HeadlineLink
+                    href={`/projects/${encodeURIComponent(id)}/memories/${encodeURIComponent(memory.name)}`}
+                  >
+                    {memory.name}
+                  </HeadlineLink>
+                  <Meta>
+                    <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
+                  </Meta>
+                </div>
+                <p className="mt-1 font-mono text-sm text-ink-muted">{memory.description}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       {renameOpen ? (
         <RenameProjectModal

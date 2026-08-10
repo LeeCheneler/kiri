@@ -142,6 +142,11 @@ describe("mcp routes", () => {
           { name: "save_memory", description: expect.any(String), permission: "allow" },
           { name: "read_memory", description: expect.any(String), permission: "allow" },
           { name: "delete_memory", description: expect.any(String), permission: "allow" },
+          {
+            name: "update_project_instructions",
+            description: expect.any(String),
+            permission: "allow",
+          },
           { name: "list_workflows", description: expect.any(String), permission: "allow" },
           { name: "read_workflow", description: expect.any(String), permission: "allow" },
           { name: "create_workflow", description: expect.any(String), permission: "ask" },

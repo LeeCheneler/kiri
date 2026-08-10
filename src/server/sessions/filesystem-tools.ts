@@ -14,9 +14,8 @@ import {
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { type JSONValue, type ToolSet, tool } from "ai";
-import { structuredPatch } from "diff";
 import { z } from "zod";
-import { compactWriteOutput } from "./write-tool-diffs.ts";
+import { unifiedDiff as buildUnifiedDiff, compactWriteOutput } from "./write-tool-diffs.ts";
 
 // Byte cap on a returned file body — the same budget as an MCP tool result, so
 // one huge file can't blow the model's context. Larger files return their head
@@ -166,24 +165,10 @@ export function filesystemTools(
     maxDiffLength = MAX_DIFF_LENGTH,
   } = options;
 
-  // A unified diff of a file change — hunk headers and +/-/context lines, no
-  // file-name preamble — for the app's transcript to render. The model never
-  // receives it: toModelOutput and the send-time history transform strip it
-  // (see write-tool-diffs.ts). Cut at the cap on a line boundary and flagged,
-  // so the renderer can say the diff is partial.
-  const unifiedDiff = (before: string, after: string): { diff: string; diffTruncated?: true } => {
-    const { hunks } = structuredPatch("", "", before, after);
-    const text = hunks
-      .map(
-        (hunk) =>
-          `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join("\n")}`,
-      )
-      .join("\n");
-    if (text.length <= maxDiffLength) return { diff: text };
-    const cut = text.slice(0, maxDiffLength);
-    const lastLine = cut.lastIndexOf("\n");
-    return { diff: lastLine > 0 ? cut.slice(0, lastLine) : cut, diffTruncated: true };
-  };
+  // A file change's diff for the app's transcript to render, capped so a
+  // pathological rewrite can't bloat the persisted message.
+  const unifiedDiff = (before: string, after: string) =>
+    buildUnifiedDiff(before, after, maxDiffLength);
 
   // What the model receives in place of a diff-carrying write result: the
   // same object minus the app-only diff fields.

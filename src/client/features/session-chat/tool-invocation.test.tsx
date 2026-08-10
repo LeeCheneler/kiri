@@ -264,6 +264,29 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText("… diff truncated")).toBeDefined();
   });
 
+  it("renders a project-instructions rewrite as a diff", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("update_project_instructions", {
+          state: "output-available",
+          input: { instructions_md: "new rule" },
+          output: {
+            project: "Research",
+            instructions: "updated",
+            diff: "@@ -1,1 +1,1 @@\n-old rule\n+new rule",
+          },
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    expect(
+      screen.getByText("new rule").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+    expect(screen.queryByText(/"project"/)).toBeNull();
+  });
+
   it("renders a created file's content as additions, from the call's input", async () => {
     const user = userEvent.setup();
     render(
