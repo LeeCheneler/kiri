@@ -1,12 +1,10 @@
 import { Eyebrow } from "../../client/design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../../client/design-system/content/headline-link.tsx";
 import { InlineLink } from "../../client/design-system/content/inline-link.tsx";
-import { Card } from "../../client/design-system/surfaces/card.tsx";
 import { SiteFooter } from "../chrome/site-footer.tsx";
 import { SiteHeader } from "../chrome/site-header.tsx";
+import { AppWindow } from "../components/app-window.tsx";
 import { CodeWindow } from "../components/code-window.tsx";
-import { HeroArtifact } from "../components/hero-artifact.tsx";
-import { SessionDiagram } from "../components/session-diagram.tsx";
 
 const INSTALL = `brew install LeeCheneler/kiri/kiri
 cd your-project
@@ -14,43 +12,59 @@ kiri init
 kiri
 `;
 
-type UseCase = { name: string; detail: string };
+type Rung = {
+  eyebrow: string;
+  title: string;
+  body: string;
+  detail: string;
+  href: string;
+  linkLabel: string;
+  screenshot: { src: string; alt: string; title: string };
+};
 
-const USE_CASES: UseCase[] = [
+// The three rungs of the ladder, each proven by a real screenshot of the
+// running app rather than an illustration of it.
+const RUNGS: Rung[] = [
   {
-    name: "Release notes",
+    eyebrow: "01 · Chat",
+    title: "Work it out in chat.",
+    body: "A session is streaming chat with your own models, wired into your files and shell and extended by any MCP server you configure. Every risky action — a file write, a shell command — waits on your approval and shows you exactly what it will do.",
     detail:
-      "git log in, grouped notes out. The article lands in your feed, ready to paste wherever your users read them.",
+      "Ask it to keep what you worked out: it writes articles, saves memories, and cross-links the lot.",
+    href: "/docs/sessions",
+    linkLabel: "Read about sessions",
+    screenshot: {
+      src: "/screenshots/session.png",
+      alt: "A kiri session: the assistant reports it has written an article into the project corpus and saved a memory, with the project's articles listed in the sidebar",
+      title: "session — designing the forecast model",
+    },
   },
   {
-    name: "One-click PR reviews",
-    detail:
-      "One run finds every PR waiting on you and pins a Review button to each. Click one, get a review article.",
+    eyebrow: "02 · Keep",
+    title: "Keep what matters.",
+    body: "Output lands as articles: readable pages with live charts and diagrams, collected in a feed — not scrollback. Facts persist as memories every future session recalls, and related work compounds into a project's shared, wiki-linked corpus.",
+    detail: "Everything is searchable as you type, ⌘K from anywhere.",
+    href: "/docs/sessions",
+    linkLabel: "Articles, memories & projects",
+    screenshot: {
+      src: "/screenshots/article.png",
+      alt: "An article in kiri: display typography, a table of contents, and a live bar chart rendered from an inline spec",
+      title: "article — chart gallery",
+    },
   },
   {
-    name: "Daily briefing",
+    eyebrow: "03 · Automate",
+    title: "Automate the repeats.",
+    body: "Anything worth doing twice hardens into a workflow: a small YAML file in your repo — shell steps piped into model steps — runnable as a one-click button. Release notes from your git log, the PR queue, the morning brief.",
     detail:
-      "Pull the sources you care about and have a model write the morning's brief — charts included.",
-  },
-];
-
-type Step = { title: string; detail: string };
-
-const STEPS: Step[] = [
-  {
-    title: "Write a file",
-    detail:
-      "Steps in YAML, in your repo: sh: for commands, llm: for model calls, piped top to bottom. Diff it, commit it, review it like any other code.",
-  },
-  {
-    title: "Click Run",
-    detail:
-      "Kiri runs the pipeline on your machine, as you — your gh, your ssh, your tools. Watch every step stream on the run page.",
-  },
-  {
-    title: "Read the report",
-    detail:
-      "Articles — markdown with charts and diagrams — land in your feed with a one-line summary. A run can even recommend the next click.",
+      "A session can author the workflow for you, and runs can pin one-click follow-ups to the feed.",
+    href: "/docs/workflows",
+    linkLabel: "Writing workflows",
+    screenshot: {
+      src: "/screenshots/workflows.png",
+      alt: "The kiri workflows page: named workflows with descriptions, last-run status, and a run button on each",
+      title: "workflows — one click each",
+    },
   },
 ];
 
@@ -71,11 +85,12 @@ const ASSURANCES: Assurance[] = [
   },
   {
     term: "No daemons",
-    detail: "Kiri works only while you have it open. No cron, no background agents.",
+    detail: "Kiri works only while you have it open. No cron, nothing in the background.",
   },
   {
     term: "Approval-gated tools",
-    detail: "An MCP tool call runs only after you allow it — every call, unless you say otherwise.",
+    detail:
+      "File writes show as diffs, shell commands show verbatim, MCP calls wait — until you say run.",
   },
   {
     term: "Open source",
@@ -84,12 +99,10 @@ const ASSURANCES: Assurance[] = [
 ];
 
 /**
- * Marketing landing page. Leads with the workspace-where-work-compounds
- * framing (see docs/positioning.md), proven immediately by the input → output
- * hero artifact: a real workflow file and the article it produces. Concrete
- * use cases, the three-beat mechanism, and the trust story follow, then
- * install. Composed from the app's design system so it reads as the same
- * product.
+ * Marketing landing page. One story told top to bottom — the ladder from
+ * docs/positioning.md — with each rung proven by a real screenshot of the
+ * running app. Static by design: no scroll-reveal motion, no illustrations.
+ * Composed from the app's design system so the page reads as the product.
  */
 export function HomePage() {
   return (
@@ -97,8 +110,7 @@ export function HomePage() {
       <SiteHeader />
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 sm:px-8">
         <Hero />
-        <UseCases />
-        <HowItWorks />
+        <Rungs />
         <Assurances />
         <Install />
       </main>
@@ -116,10 +128,9 @@ function Hero() {
           The AI workspace that writes things down.
         </h1>
         <p className="mt-7 max-w-2xl font-mono text-sm text-ink-muted leading-relaxed">
-          Work it out in chat, with models wired into your files and tools. What matters lands as
-          readable pages in a live feed — not scrollback — and what repeats hardens into a one-click
-          workflow: release notes from your git log, a PR review, a morning briefing. Your machine,
-          your repo, your keys — no cloud, no daemons.
+          Chats become readable pages. Facts become memories. Repeated chores become one-click
+          buttons. Kiri runs on your machine, against your own repo, with your own models — and
+          everything it does is something you keep.
         </p>
         <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-3 text-lg">
           <HeadlineLink href="/docs/getting-started">Get started</HeadlineLink>
@@ -130,75 +141,44 @@ function Hero() {
         </p>
       </div>
       <div className="mt-14 lg:mt-16">
-        <HeroArtifact />
+        <AppWindow
+          src="/screenshots/feed.png"
+          alt="The kiri activity feed: workflow runs with one-line summaries and article links, interleaved with chat sessions, grouped by day"
+          title="the feed — everything written down"
+          width={1440}
+          height={900}
+        />
       </div>
     </section>
   );
 }
 
-function UseCases() {
+function Rungs() {
   return (
-    <section className="border-rule border-t py-16 lg:py-20">
-      <Eyebrow tone="muted">What you'd use it for</Eyebrow>
-      <h2 className="mt-3 max-w-2xl font-display text-3xl text-ink leading-tight">
-        Start with a chore you already do.
-      </h2>
-      <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-3">
-        {USE_CASES.map((useCase) => (
-          <Card key={useCase.name}>
-            <Eyebrow>{useCase.name}</Eyebrow>
-            <p className="mt-3 font-mono text-sm text-ink-muted leading-relaxed">
-              {useCase.detail}
-            </p>
-            <p className="mt-5 font-mono text-sm">
-              <InlineLink href="/docs/recipes">See the recipe</InlineLink>
-            </p>
-          </Card>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function HowItWorks() {
-  return (
-    <section className="border-rule border-t py-16 lg:py-20">
-      <Eyebrow tone="muted">How it works</Eyebrow>
-      <h2 className="mt-3 max-w-2xl font-display text-3xl text-ink leading-tight">
-        A file, a button, a report.
-      </h2>
-      <ol className="mt-10 grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-3">
-        {STEPS.map((step, i) => (
-          <li key={step.title}>
-            <span className="font-display text-2xl text-accent italic">{i + 1}</span>
-            <h3 className="mt-2 font-mono text-sm text-ink">{step.title}</h3>
-            <p className="mt-1.5 font-mono text-sm text-ink-muted leading-relaxed">{step.detail}</p>
-          </li>
-        ))}
-      </ol>
-      <div className="mt-12">
-        <Card>
-          <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
-            <div>
-              <Eyebrow>Sessions</Eyebrow>
-              <h3 className="mt-3 font-display text-2xl text-ink leading-tight">
-                No script for it yet? Start where every chore starts: a session.
-              </h3>
-              <p className="mt-3 max-w-xl font-mono text-sm text-ink-muted leading-relaxed">
-                Chat with the same models — wired into your files and shell, extended by any MCP
-                server you configure, every risky action waiting on your approval. Sessions write
-                their findings up as articles, remember durable facts across conversations, and can
-                author the workflow when the work turns out to repeat.
-              </p>
-              <p className="mt-5 font-mono text-sm">
-                <InlineLink href="/docs/sessions">Read about sessions</InlineLink>
+    <div>
+      {RUNGS.map((rung, index) => (
+        <section key={rung.title} className="border-rule border-t py-16 lg:py-20">
+          <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-14">
+            <div className={index % 2 === 1 ? "lg:order-last" : undefined}>
+              <Eyebrow tone="muted">{rung.eyebrow}</Eyebrow>
+              <h2 className="mt-3 font-display text-3xl text-ink leading-tight">{rung.title}</h2>
+              <p className="mt-5 font-mono text-sm text-ink-muted leading-relaxed">{rung.body}</p>
+              <p className="mt-4 font-mono text-sm text-ink-muted leading-relaxed">{rung.detail}</p>
+              <p className="mt-6 font-mono text-sm">
+                <InlineLink href={rung.href}>{rung.linkLabel}</InlineLink>
               </p>
             </div>
-            <SessionDiagram />
+            <AppWindow
+              src={rung.screenshot.src}
+              alt={rung.screenshot.alt}
+              title={rung.screenshot.title}
+              width={1440}
+              height={900}
+            />
           </div>
-        </Card>
-      </div>
-    </section>
+        </section>
+      ))}
+    </div>
   );
 }
 
