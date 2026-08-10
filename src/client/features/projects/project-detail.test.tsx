@@ -14,6 +14,7 @@ const NOW = new Date("2026-08-07T12:00:00.000Z");
 const detail = (over: Record<string, unknown> = {}) => ({
   project: { id: "p1", name: "Research", createdAt: "2026-08-07T10:00:00.000Z" },
   articles: [],
+  memories: [],
   sessions: [],
   ...over,
 });
@@ -64,6 +65,25 @@ describe("<ProjectDetail>", () => {
     expect(screen.getByRole("link", { name: "Headless" })).toBeDefined();
   });
 
+  it("renders the memory index with links into the project's curation pages", async () => {
+    serveProject(
+      detail({
+        memories: [
+          {
+            name: "deploy-window",
+            description: "Deploys land on Tuesdays.",
+            updatedAt: "2026-08-07T10:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    renderDetail();
+
+    const link = await screen.findByRole("link", { name: "deploy-window" });
+    expect(link.getAttribute("href")).toBe("/projects/p1/memories/deploy-window");
+    expect(screen.getByText("Deploys land on Tuesdays.")).toBeDefined();
+  });
+
   it("renders the session index, leading with title then preview then id", async () => {
     serveProject(
       detail({
@@ -82,12 +102,13 @@ describe("<ProjectDetail>", () => {
     expect(byId.getAttribute("href")).toBe("/sessions/eeeeffff-3");
   });
 
-  it("explains both indexes when the container is empty", async () => {
+  it("explains every index when the container is empty", async () => {
     serveProject(detail());
     renderDetail();
 
     expect(await screen.findByText(/no articles yet/i)).toBeDefined();
     expect(screen.getByText(/no sessions yet/i)).toBeDefined();
+    expect(screen.getByText(/no memories yet/i)).toBeDefined();
   });
 
   it("renders not-found for a project that no longer exists", async () => {
@@ -197,7 +218,7 @@ describe("<ProjectDetail>", () => {
     await userEvent.click(await screen.findByRole("button", { name: "delete project" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/1 article and 1 session/)).toBeDefined();
+    expect(within(dialog).getByText(/1 article, 0 memories and 1 session/)).toBeDefined();
     await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
 
     await waitFor(() => expect(history[history.length - 1]).toBe("/projects"));

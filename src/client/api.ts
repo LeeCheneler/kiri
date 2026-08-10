@@ -1266,10 +1266,11 @@ export interface ProjectSessionSummary {
   startedAt: string;
 }
 
-/** A project in full: the container with its article and session indexes. */
+/** A project in full: the container with its article, memory, and session indexes. */
 export interface ProjectDetail {
   project: { id: string; name: string; createdAt: string };
   articles: ArticleSummary[];
+  memories: MemorySummary[];
   sessions: ProjectSessionSummary[];
 }
 
@@ -1360,3 +1361,41 @@ export const fetchProjectArticle = async (
       `/api/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(slug)}`,
     ),
   );
+
+// The curation surface for one project's memory, mirroring the global
+// endpoints a scope up.
+const projectMemoryPath = (projectId: string, name: string) =>
+  `/api/projects/${encodeURIComponent(projectId)}/memories/${encodeURIComponent(name)}`;
+
+/**
+ * Fetch a single project-scoped memory in full. Throws `ApiError` on non-2xx
+ * — 400 for a malformed name, 404 when either the project or the named
+ * memory is missing.
+ */
+export const fetchProjectMemory = async (
+  projectId: string,
+  name: string,
+): Promise<{ memory: MemoryDetail }> =>
+  json<{ memory: MemoryDetail }>(await apiFetch(projectMemoryPath(projectId, name)));
+
+/**
+ * Update a project-scoped memory's summary and/or body, returning the updated
+ * row. Omitted fields keep their current value. Throws `ApiError` on non-2xx.
+ */
+export const patchProjectMemory = async (
+  projectId: string,
+  name: string,
+  patch: { description?: string; contentMd?: string },
+): Promise<{ memory: MemoryDetail }> =>
+  json<{ memory: MemoryDetail }>(
+    await apiFetch(projectMemoryPath(projectId, name), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  );
+
+/** Delete a project-scoped memory permanently. Throws `ApiError` on non-2xx. */
+export const deleteProjectMemory = async (projectId: string, name: string): Promise<void> => {
+  await assertOk(await apiFetch(projectMemoryPath(projectId, name), { method: "DELETE" }));
+};

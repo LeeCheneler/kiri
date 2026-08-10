@@ -112,9 +112,17 @@ by default — saving a fact in response to conversation is the authorisation,
 and prompting on every save would stop the assistant bothering. Any of the
 three can be set to Ask or Off like any other tool.
 
-Memories are per-workspace, and they reach delegated workers read-only: a
-worker can recall your memories while researching, but only the conversation
-you're actually in ever saves or deletes one.
+A memory is either workspace-wide or scoped to a **project**. A session
+outside a project sees and saves workspace memories; a session inside one
+sees those *and* the project's own, and anything it saves belongs to that
+project — the fact reaches every session in the project and nothing else.
+Project memories are curated on the project's page rather than the Memories
+page, and names only have to be unique within their scope, so a project can
+hold its own `deploy-window` without disturbing the workspace's.
+
+Memories reach delegated workers read-only: a worker can recall your
+memories while researching, but only the conversation you're actually in
+ever saves or deletes one.
 
 ## Effort
 
@@ -269,10 +277,13 @@ all; its feed rows name the project, and its chat threads home through it.
   reading view the reference renders as a link to that article, titled by
   its heading, so the corpus browses like a small wiki. The assistant knows
   the syntax and cross-links as it writes.
+- The project has its own **memories** (see Memories above): sessions in it
+  save durable facts there instead of workspace-wide, and the project page
+  lists them for reading, editing, and deleting.
 - Corpus articles outlive the sessions that wrote them — deleting a session
   never touches the corpus. Deleting the **project** deletes everything it
-  contains: its articles, its sessions, and everything those sessions own,
-  behind a confirmation that states the counts.
+  contains: its articles, its memories, its sessions, and everything those
+  sessions own, behind a confirmation that states the counts.
 - Delegated workers inherit the project read-only: a worker consults the
   corpus while researching, but only the conversation you're in writes it.
 

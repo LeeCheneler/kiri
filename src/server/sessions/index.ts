@@ -10,8 +10,11 @@ export {
 } from "./filesystem-tools.ts";
 export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
 export {
+  type Memory,
   type MemorySummary,
+  getScopedMemory,
   listMemories,
+  listProjectMemories,
   memoryNameSchema,
   memoryTools,
 } from "./memory-tools.ts";

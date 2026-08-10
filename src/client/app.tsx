@@ -14,6 +14,7 @@ import { MemoriesPage } from "./routes/memories-page.tsx";
 import { MemoryPage } from "./routes/memory-page.tsx";
 import { NotFoundPage } from "./routes/not-found-page.tsx";
 import { ProjectArticlePage } from "./routes/project-article-page.tsx";
+import { ProjectMemoryPage } from "./routes/project-memory-page.tsx";
 import { ProjectPage } from "./routes/project-page.tsx";
 import { ProjectsPage } from "./routes/projects-page.tsx";
 import { RunPage } from "./routes/run-page.tsx";
@@ -56,6 +57,7 @@ export function App({
             <Route path="/memories/:name" component={MemoryPage} />
             <Route path="/memories" component={MemoriesPage} />
             <Route path="/projects/:id/articles/:slug" component={ProjectArticlePage} />
+            <Route path="/projects/:id/memories/:name" component={ProjectMemoryPage} />
             <Route path="/projects/:id" component={ProjectPage} />
             <Route path="/projects" component={ProjectsPage} />
             <Route path="/sessions/:id/articles/:slug" component={SessionArticlePage} />

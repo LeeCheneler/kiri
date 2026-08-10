@@ -116,6 +116,18 @@ describe("<App>", () => {
     await flushAsync();
   });
 
+  it("routes /projects/:id/memories/:name to the project memory page", async () => {
+    // Stall the memory fetch so the page holds its loading state for the assertion.
+    server.use(
+      http.get("*/api/projects/:id/memories/:name", () => new Promise<Response>(() => {})),
+      http.get("*/api/projects/:id", () => new Promise<Response>(() => {})),
+    );
+    renderAt("/projects/p1/memories/deploy-window");
+    expect(screen.getByText(/loading memory/i)).toBeDefined();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+    await flushAsync();
+  });
+
   it("routes /mcp to the MCP page", async () => {
     // Stall the tools fetch so the page holds its loading state for the assertion.
     server.use(http.get("*/api/mcp/tools", () => new Promise<Response>(() => {})));

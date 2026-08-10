@@ -316,21 +316,30 @@ export const messages = sqliteTable(
 
 /**
  * One row per memory: a small durable fact a session saved for future
- * sessions to recall. `name` is the URL-safe identifier the tools key off
- * (unique across the workspace); `description` is the one-line summary
- * carried in the system prompt's memory index; `contentMd` is the full
- * body, loaded into a conversation only on demand. `updatedAt` bumps on
- * every save so curation can surface fact age.
+ * sessions to recall. `name` is the URL-safe identifier the tools key off,
+ * unique within its scope — across the workspace for a global memory, within
+ * the project for a project-scoped one. `projectId` carries that scope: null
+ * for a memory every session recalls, set for one only the project's sessions
+ * see. `description` is the one-line summary carried in the system prompt's
+ * memory index; `contentMd` is the full body, loaded into a conversation only
+ * on demand. `updatedAt` bumps on every save so curation can surface fact age.
  */
 export const memories = sqliteTable(
   "memories",
   {
     id: text("id").primaryKey(),
+    projectId: text("project_id").references(() => projects.id),
     name: text("name").notNull(),
     description: text("description").notNull(),
     contentMd: text("content_md").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (t) => [uniqueIndex("memories_name_unique").on(t.name)],
+  (t) => [
+    uniqueIndex("memories_name_unique").on(t.name).where(sql`"project_id" is null`),
+    uniqueIndex("memories_project_id_name_unique")
+      .on(t.projectId, t.name)
+      .where(sql`"project_id" is not null`),
+    index("memories_project_id_idx").on(t.projectId),
+  ],
 );

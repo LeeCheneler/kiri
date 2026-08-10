@@ -232,6 +232,13 @@
       "when": 1786259492746,
       "tag": "0032_drop_session_pinned",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1786351531239,
+      "tag": "0033_scope_memories_to_projects",
+      "breakpoints": true
     }
   ]
 }

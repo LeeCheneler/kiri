@@ -42,7 +42,8 @@ article in your feed.
   that reports back just the findings, and remember durable facts across
   sessions as curatable memories. Group related sessions into a **project**
   and they share one corpus of articles — read, kept current, and
-  cross-linked by every session in it. Reach for a session when you don't.
+  cross-linked by every session in it — along with memories of their own.
+  Reach for a session when you don't.
 
 Both land in the same activity feed, filterable to just runs, just sessions,
 or just the **articles** they wrote — the last of these being where a

@@ -9,7 +9,15 @@ import migration0017 from "../../../drizzle/0017_drop_session_token_totals.sql" 
 };
 import { type KiriDb, openDatabase } from "./index.ts";
 import { migrate } from "./migrate.ts";
-import { articles, messages, recommendations, runSteps, runs, sessions } from "./schema.ts";
+import {
+  articles,
+  memories,
+  messages,
+  recommendations,
+  runSteps,
+  runs,
+  sessions,
+} from "./schema.ts";
 
 describe("db", () => {
   let dir: string;
@@ -983,6 +991,20 @@ describe("db", () => {
     for (const ref of refs) {
       expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
     }
+  });
+
+  it("declares memories.project_id as a foreign key to its owning project", () => {
+    const fks = getTableConfig(memories).foreignKeys;
+    expect(fks).toHaveLength(1);
+    const fk = fks[0] as unknown as {
+      reference: () => {
+        columns: { name: string }[];
+        foreignColumns: { name: string }[];
+      };
+    };
+    const ref = fk.reference();
+    expect(ref.columns.map((c) => c.name)).toEqual(["project_id"]);
+    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
   it("adds the sessions + messages tables when migrating a pre-sessions DB", () => {

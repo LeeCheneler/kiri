@@ -6,7 +6,8 @@ import type { ToolExecutionOptions, ToolSet } from "ai";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
-import { listMemories, memoryTools } from "./memory-tools.ts";
+import { createProject } from "../projects/store.ts";
+import { getScopedMemory, listMemories, listProjectMemories, memoryTools } from "./memory-tools.ts";
 
 // Invoke a tool's execute with a minimal ToolExecutionOptions, casting away
 // the union's `never` input so a test can call it plainly.
@@ -27,7 +28,7 @@ describe("memoryTools", () => {
     db = openDatabase(join(dir, "state.db"));
     migrate(db);
     events = [];
-    tools = memoryTools(db, (event) => events.push(event));
+    tools = memoryTools(db, null, (event: KiriEvent) => events.push(event));
   });
 
   afterEach(() => {
@@ -118,6 +119,100 @@ describe("memoryTools", () => {
 
       expect(summaries.map((s) => s.name)).toEqual(["alpha", "zulu"]);
       expect(summaries[0]?.description).toBe("First alphabetically.");
+    });
+  });
+
+  describe("in a project session", () => {
+    let projectTools: ToolSet;
+    const projectId = "project-1";
+
+    beforeEach(() => {
+      createProject(db, "Kiri", { id: projectId });
+      projectTools = memoryTools(db, projectId, (event: KiriEvent) => events.push(event));
+    });
+
+    const saveInProject = (name: string, description = "A project fact.") =>
+      run(projectTools.save_memory, {
+        name,
+        description,
+        content_md: "Project body.\n",
+      });
+
+    it("saves into the project rather than the workspace", async () => {
+      await saveInProject("deploy-window", "Deploys land on Tuesdays.");
+
+      expect(listMemories(db)).toHaveLength(0);
+      expect(listProjectMemories(db, projectId).map((m) => m.name)).toEqual(["deploy-window"]);
+      expect(events).toContainEqual({
+        type: "memory.saved",
+        name: "deploy-window",
+        projectId,
+      });
+    });
+
+    it("saves alongside a global memory of the same name rather than rewriting it", async () => {
+      await save("shared-name", "Global summary.");
+
+      const output = await saveInProject("shared-name", "Project summary.");
+
+      expect(output).toEqual({ name: "shared-name", saved: "created" });
+      expect(listMemories(db)[0]?.description).toBe("Global summary.");
+      expect(listProjectMemories(db, projectId)[0]?.description).toBe("Project summary.");
+    });
+
+    it("reads the project's memory in preference to a global one of the same name", async () => {
+      await save("shared-name", "Global summary.");
+      await saveInProject("shared-name", "Project summary.");
+
+      const output = (await run(projectTools.read_memory, { name: "shared-name" })) as {
+        description: string;
+      };
+
+      expect(output.description).toBe("Project summary.");
+    });
+
+    it("falls back to a global memory the project has no name for", async () => {
+      await save("prefers-bun", "Prefers bun over node.");
+
+      const output = (await run(projectTools.read_memory, { name: "prefers-bun" })) as {
+        description: string;
+      };
+
+      expect(output.description).toBe("Prefers bun over node.");
+    });
+
+    it("deletes the project's memory and leaves the global one of the same name", async () => {
+      await save("shared-name", "Global summary.");
+      await saveInProject("shared-name", "Project summary.");
+
+      await run(projectTools.delete_memory, { name: "shared-name" });
+
+      expect(listProjectMemories(db, projectId)).toHaveLength(0);
+      expect(listMemories(db)).toHaveLength(1);
+      expect(events).toContainEqual({
+        type: "memory.deleted",
+        name: "shared-name",
+        projectId,
+      });
+    });
+
+    it("deletes a global memory it resolved by fallback, announcing it unscoped", async () => {
+      await save("stale-fact");
+
+      await run(projectTools.delete_memory, { name: "stale-fact" });
+
+      expect(listMemories(db)).toHaveLength(0);
+      expect(events).toContainEqual({ type: "memory.deleted", name: "stale-fact" });
+    });
+  });
+
+  describe("getScopedMemory", () => {
+    it("addresses one scope only", async () => {
+      createProject(db, "Kiri", { id: "project-1" });
+      await save("prefers-bun");
+
+      expect(getScopedMemory(db, null, "prefers-bun")?.name).toBe("prefers-bun");
+      expect(getScopedMemory(db, "project-1", "prefers-bun")).toBeUndefined();
     });
   });
 });

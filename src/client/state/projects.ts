@@ -1,21 +1,26 @@
 import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  type MemoryDetail,
   type ProjectArticleDetail,
   type ProjectDetail,
   type ProjectSummary,
   createProject,
   deleteProject,
   deleteProjectArticle,
+  deleteProjectMemory,
   fetchProject,
   fetchProjectArticle,
+  fetchProjectMemory,
   fetchProjects,
   patchProject,
+  patchProjectMemory,
 } from "../api.ts";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 
 const projectsKey = ["projects"] as const;
 const projectKey = (id: string) => ["project", id] as const;
 const projectArticleKey = (id: string, slug: string) => ["project-article", id, slug] as const;
+const projectMemoryKey = (id: string, name: string) => ["project-memory", id, name] as const;
 
 /**
  * Read the project index — every project with its corpus and session
@@ -49,6 +54,18 @@ export function useProjectArticle(id: string, slug: string): UseQueryResult<Proj
   return useQuery({
     queryKey: projectArticleKey(id, slug),
     queryFn: () => fetchProjectArticle(id, slug),
+  });
+}
+
+/**
+ * Read a single project-scoped memory in full. Fetched on first use and
+ * served from cache thereafter; kept current by `useProjectsLive`, since a
+ * session in the project can rewrite it mid-turn.
+ */
+export function useProjectMemory(id: string, name: string): UseQueryResult<MemoryDetail> {
+  return useQuery({
+    queryKey: projectMemoryKey(id, name),
+    queryFn: async () => (await fetchProjectMemory(id, name)).memory,
   });
 }
 
@@ -93,9 +110,23 @@ export function useProjectsLive(): void {
       void queryClient.invalidateQueries({ queryKey: projectsKey });
     },
   });
+  // Project-scoped memory writes announce their project id — the project's
+  // page and the touched memory refresh without a project.* event. Global
+  // memory events carry none and belong to the memories caches.
+  useLiveEvent({
+    on: ["memory.saved", "memory.deleted"],
+    handler: (event) => {
+      if (event.projectId === undefined) return;
+      void queryClient.invalidateQueries({ queryKey: projectKey(event.projectId) });
+      void queryClient.invalidateQueries({
+        queryKey: projectMemoryKey(event.projectId, event.name),
+      });
+    },
+  });
   useLiveReconnect(() => {
     void queryClient.invalidateQueries({ queryKey: ["project"] });
     void queryClient.invalidateQueries({ queryKey: ["project-article"] });
+    void queryClient.invalidateQueries({ queryKey: ["project-memory"] });
     void queryClient.invalidateQueries({ queryKey: projectsKey });
   });
 }
@@ -142,6 +173,37 @@ export function useDeleteProjectArticle(): (projectId: string, slug: string) => 
 }
 
 /**
+ * An updater for a project-scoped memory's summary and/or body: writes the
+ * patch, then invalidates the project's queries so views reflect the
+ * server's truth.
+ */
+export function useUpdateProjectMemory(): (
+  projectId: string,
+  name: string,
+  patch: { description?: string; contentMd?: string },
+) => Promise<void> {
+  const queryClient = useQueryClient();
+  return async (projectId, name, patch) => {
+    await patchProjectMemory(projectId, name, patch);
+    void queryClient.invalidateQueries({ queryKey: projectKey(projectId) });
+    void queryClient.invalidateQueries({ queryKey: projectMemoryKey(projectId, name) });
+  };
+}
+
+/**
+ * A deleter for a project-scoped memory: removes it, then invalidates the
+ * project's queries so its index drops it and the memory's page 404s.
+ */
+export function useDeleteProjectMemory(): (projectId: string, name: string) => Promise<void> {
+  const queryClient = useQueryClient();
+  return async (projectId, name) => {
+    await deleteProjectMemory(projectId, name);
+    void queryClient.invalidateQueries({ queryKey: projectKey(projectId) });
+    void queryClient.invalidateQueries({ queryKey: projectMemoryKey(projectId, name) });
+  };
+}
+
+/**
  * A deleter for a project: removes the whole container, then invalidates
  * the project's queries so the index drops it and its detail page 404s.
  */
@@ -151,6 +213,7 @@ export function useDeleteProject(): (id: string) => Promise<void> {
     await deleteProject(id);
     void queryClient.invalidateQueries({ queryKey: projectKey(id) });
     void queryClient.invalidateQueries({ queryKey: ["project-article", id] });
+    void queryClient.invalidateQueries({ queryKey: ["project-memory", id] });
     void queryClient.invalidateQueries({ queryKey: projectsKey });
   };
 }
