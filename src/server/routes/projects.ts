@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, count, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
@@ -54,7 +54,7 @@ const projectSessions = (db: KiriDb, projectId: string) =>
     .select()
     .from(sessions)
     .where(and(eq(sessions.projectId, projectId), isNull(sessions.parentSessionId)))
-    .orderBy(asc(sessions.startedAt), asc(sessions.id))
+    .orderBy(desc(sessions.startedAt), desc(sessions.id))
     .all();
 
 /**
