@@ -24,7 +24,7 @@ Run `kiri` with no command to start the server (it boots on `:4242`). Open
 
 Scaffolds workflow-authoring assets in the working directory. Existing files are
 **never overwritten** — only missing files are created — and the JSON Schemas are
-always (re)written from the live Zod schemas, so a plain `kiri` launch also keeps
+always regenerated from kiri's own schemas, so a plain `kiri` launch also keeps
 them in sync after a binary upgrade.
 
 ```

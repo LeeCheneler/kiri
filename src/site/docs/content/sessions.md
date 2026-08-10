@@ -1,25 +1,30 @@
 # Sessions
 
-A session is an open-ended chat with your configured models, your workspace's
-context, and tools from MCP servers you choose. Workflows are for chores
-you've scripted; sessions are for the work you haven't. Both land in the same
-activity feed.
+A session is streaming chat with your own models, carrying your workspace's
+context and standing instructions, wired into your files and shell, and
+extended by any MCP server you configure. It's where unscripted work happens
+— and when something you worked out is worth repeating, the session can
+[author it into a workflow](#authoring-workflows) so the next time is one
+click.
 
 Sessions use the same `kiri.yaml` provider registry as `llm:` steps, and you
 can swap a session's model mid-conversation — it applies from the next turn.
 A streaming turn survives a reload: it keeps running on the server, and
 reopening the session rejoins it live.
 
-## Titles
+## Articles
 
-Sessions carry a **title** — the name the session list, activity feed, and
-search results lead with. Kiri names a new session automatically: as your
-first message starts the turn, a small one-off generation against the
-[utility model](/docs/llm-providers#utility-model) (or the session's own
-model when none is configured) titles the session, usually before the reply
-finishes streaming. You can rename a session from its page at any time, or
-clear the title to fall back to the untitled default — the session's first
-message. Titles are searchable alongside message text.
+Ask for a write-up — a report, a digest, a guide — and the session saves it
+as an **article** rather than scrolling it into the chat: the same readable
+pages workflows produce, charts and diagrams included. The chat reply stays a
+short pointer; the piece lives on its own page. Ask for changes and the
+session edits the article in place, and ask for one to go and it deletes it —
+every article page carries the same delete action.
+
+Articles belong to their session — deleting the session deletes them —
+unless the session lives in a project, where they land in the project's
+shared corpus instead: see
+[Projects & memories](/docs/projects-and-memories).
 
 ## Shaping behaviour
 
@@ -40,11 +45,10 @@ on the next turn — git stays the source of truth for the files.
   authoritative, quoted external text is untrusted data.
 - **`kiri.md`** — a plain markdown file at the workspace root, applied to
   every session: your standing "how I want you to behave."
-- **Project instructions** — markdown kept on a [project](#projects) and
-  carried by every session in it: the context and conventions that hold for
-  one body of work rather than everywhere. Edited from the project's page or
-  by asking a session in the project, and stored in kiri's database rather
-  than your repo.
+- **[Project instructions](/docs/projects-and-memories#project-instructions)**
+  — markdown kept on a project and carried by every session in it: the
+  context and conventions that hold for one body of work rather than
+  everywhere.
 - **`AGENTS.md` chain** — the per-directory instructions governing the
   session's [working directory](#working-with-your-files). Kiri walks from that
   directory up to the top of the tree, collecting every `AGENTS.md` it finds,
@@ -100,36 +104,12 @@ The instructions the assistant follows once the skill is loaded…
   inherit it too — skills reach delegated research where `kiri.md`
   deliberately doesn't.
 
-## Memories
+## Memories and projects
 
-A **memory** is a small durable fact the assistant carries across sessions —
-a preference, standing context, or a correction you've given — saved to
-kiri's own database, not your repo. Tell kiri to remember something (or
-correct it in a way worth keeping) and it saves the fact with `save_memory`;
-every later session sees an index of memory names and one-line summaries in
-its instructions and loads the full body with `read_memory` only when a
-memory looks relevant, so recall costs almost nothing until it's used.
-Saving an existing memory's name rewrites it in place, so a misunderstood
-memory is corrected in one step — just explain what it got wrong.
-
-The **Memories page** is where you curate the record: read any memory, edit
-its summary or body, and delete what's wrong or stale. Because that page
-gives you standing oversight, the three memory tools run without prompting
-by default — saving a fact in response to conversation is the authorisation,
-and prompting on every save would stop the assistant bothering. Any of the
-three can be set to Ask or Off like any other tool.
-
-A memory is either workspace-wide or scoped to a **project**. A session
-outside a project sees and saves workspace memories; a session inside one
-sees those *and* the project's own, and anything it saves belongs to that
-project — the fact reaches every session in the project and nothing else.
-Project memories are curated on the project's page rather than the Memories
-page, and names only have to be unique within their scope, so a project can
-hold its own `deploy-window` without disturbing the workspace's.
-
-Memories reach delegated workers read-only: a worker can recall your
-memories while researching, but only the conversation you're actually in
-ever saves or deletes one.
+Sessions save durable facts as **memories** every future session recalls,
+and group related work into **projects**, where articles build a shared,
+wiki-linked corpus with its own instructions and memories. Both have a page
+of their own in these docs: [Projects & memories](/docs/projects-and-memories).
 
 ## Effort
 
@@ -139,19 +119,8 @@ through two layers. The system prompt always states the level with a
 matching expectation — brisk and direct at `low`, deliberate and exhaustive
 at the top — so the assistant calibrates its thoroughness on any model.
 Where kiri recognises native reasoning support, each turn additionally sets
-the provider's own effort parameter: Anthropic's effort setting for Claude
-models, `reasoning_effort` for OpenAI and OpenAI-compatible endpoints. Like
-a model swap, a change applies from the next turn.
-
-The ladder matches Anthropic's exactly, so `max` is distinct from `xhigh`
-only on an `anthropic` provider. OpenAI-style endpoints top out at `xhigh` —
-kiri sends `reasoning_effort` with `max` sent as `xhigh`, and the host
-applies it when the model supports it (other levels pass through as
-requested). Older Claude generations accept fewer levels, and kiri
-clamps to what each takes: the 4.6 family has no `xhigh` (it sends `high`),
-Opus 4.5 takes `low`/`medium`/`high` only, and earlier thinking models
-(Claude 3.7, Sonnet 4.5, Haiku 4.5) predate the parameter entirely — for
-those, effort acts through the prompt alone.
+the provider's own effort parameter, and where a model supports fewer levels
+than the ladder, kiri clamps to the nearest it accepts.
 
 Model and effort are orthogonal levers: the model (or
 [shortcut](/docs/llm-providers)) picks *which* model thinks; effort sets *how
@@ -256,57 +225,6 @@ targeted edits to one, or rewrite one wholesale.
   then reruns that same run after each fix — a single evolving test run
   instead of one per attempt.
 
-## Articles
-
-Ask for a write-up — a report, a digest, a guide — and the session saves it
-as an **article** rather than scrolling it into the chat: the same readable
-pages workflows produce, charts and diagrams included. The chat reply stays a
-short pointer; the piece lives on its own page. Ask for changes and the
-session edits the article in place, and ask for one to go and it deletes it —
-every article page carries the same delete action. Articles belong to their
-session — deleting the session deletes them — unless the session lives in a
-project, where they land in the project's shared corpus instead (see
-Projects below).
-
-## Projects
-
-A **project** is a named container for a body of work: a shared corpus of
-articles and the sessions that build it. Create one from the Projects page,
-start sessions inside it, and every article those sessions write lands in
-the project rather than in any one conversation — each session sees the
-whole corpus, reads any article on demand, and keeps existing ones current,
-whoever wrote them. A session belongs to a project from creation or not at
-all; its feed rows name the project, and its chat threads home through it.
-
-- Each project session's instructions carry the **corpus index** — slugs and
-  titles only. An article's body enters the conversation only when the
-  assistant reads it, so a growing corpus costs nothing until it's used.
-- Articles cross-reference each other with `[[slug]]`: in the project's
-  reading view and in a project session's chat, the reference renders as a
-  link to that article, titled by its heading, so the corpus browses like a
-  small wiki. The assistant knows the syntax and cross-links as it writes —
-  in article bodies and in its replies alike.
-- The project has its own **instructions** (see Shaping behaviour above):
-  markdown written on the project page and layered into every session in the
-  project, between your workspace's `kiri.md` and any `AGENTS.md` chain. Edit
-  them at any time; sessions pick the new text up on their next turn, and a
-  project with none adds nothing to the prompt.
-- You can also **ask a session in the project to change them** — "add that to
-  the project instructions", "drop the British English rule" — and it rewrites
-  them with `update_project_instructions`, showing the change as a diff in the
-  transcript. It only edits them when you ask; nothing is recorded there off
-  its own back. The rewrite lands on the project immediately and every session
-  in it, including this one, picks the new text up on its next turn.
-- The project has its own **memories** (see Memories above): sessions in it
-  save durable facts there instead of workspace-wide, and the project page
-  lists them for reading, editing, and deleting.
-- Corpus articles outlive the sessions that wrote them — deleting a session
-  never touches the corpus. Deleting the **project** deletes everything it
-  contains: its articles, its memories, its sessions, and everything those
-  sessions own, behind a confirmation that states the counts.
-- Delegated workers inherit the project read-only: a worker consults the
-  corpus while researching, but only the conversation you're in writes it.
-
 ## Generating images
 
 Pick an **image model** for the session — offered when a provider reports
@@ -364,13 +282,10 @@ builds, tests, git, your project's own scripts. A command runs in the
 session's working directory unless the call names another directory inside
 the sandbox.
 
-- Be clear about what the sandbox does here: it confines where a command
-  *starts*, not what it can touch — a shell command can reach anything you
-  can. That's
-  why every call asks by default, showing the exact command verbatim with its
-  directory, and why the system prompt holds the model to safe,
-  narrowly-scoped commands as a first line of defence in front of your
-  approval.
+- The sandbox confines where a command *starts*, not what it can touch — so
+  every call asks by default, showing the exact command verbatim with its
+  directory. [Trust & security](/docs/trust-and-security) covers the full
+  reasoning.
 - Commands run non-interactively and are killed at their timeout (120
   seconds unless the call asks for more, capped at ten minutes) — servers
   and watchers aren't supported, and cancelling the turn kills the command
@@ -413,9 +328,8 @@ intermediate results, and your context window stays lean.
   session you can open, and continue, at its own URL. Cancelling a delegated
   task stops just the worker; the assistant is told and carries on.
 - With [delegate models](/docs/llm-providers) configured, the assistant sizes
-  each worker it spawns by naming a role — quick for mechanical legwork,
-  daily as the default, deep where the result depends on reasoning depth.
-  Without them, workers run the same model as the conversation.
+  each worker by naming one of the roles defined there; without them, workers
+  run the same model as the conversation.
 - Every delegation also states the worker's own effort level (above) — low
   for cheap parallel legwork, high for deep synthesis — independent of which
   model runs it, and the worker keeps that level for its whole run.
@@ -431,8 +345,8 @@ OpenRouter, vLLM, DeepInfra, and LM Studio do; OpenAI doesn't), warning as a
 conversation nears the window.
 
 To stretch a session, once context passes halfway kiri trims what it sends
-each turn: the three most recent tool results ride in full, older ones are
-replaced with a short placeholder. The transcript you see never changes.
+each turn: recent tool results ride in full, older ones are replaced with a
+short placeholder. The transcript you see never changes.
 
 ## Attachments
 
@@ -441,6 +355,15 @@ source, JSON, CSV) are sent inline so the model reads the whole file; images
 ride alongside — worth checking your chosen model accepts image input first.
 Attachments are treated as untrusted data and capped to fit the context
 window.
+
+## Titles
+
+Sessions carry a **title** — the name the session list, activity feed, and
+search results lead with. Kiri names a new session automatically off your
+first message, usually before the reply finishes streaming. You can rename a
+session from its page at any time, or clear the title to fall back to the
+untitled default — the session's first message. Titles are searchable
+alongside message text.
 
 ## Desktop notifications
 

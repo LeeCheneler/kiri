@@ -74,6 +74,8 @@ themselves.
   article in five minutes.
 - [Sessions](/docs/sessions) — chat, standing instructions, MCP tools, running
   and authoring workflows, and articles.
+- [Projects & memories](/docs/projects-and-memories) — where work compounds
+  across sessions.
 - [Writing workflows](/docs/workflows) — the golden path, step by step.
 - [Recipes](/docs/recipes) — release notes, one-click PR reviews, a daily
   briefing.

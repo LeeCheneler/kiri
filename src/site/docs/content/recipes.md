@@ -142,10 +142,10 @@ internal API — and the shape holds.
 ## Spawn Claude Code from a step
 
 The `claude-code` bundle used above turns the Claude Code CLI into a workflow
-step: it renders a prompt (inline or from a template file), runs the agent,
+step: it renders a prompt (inline or from a template file), runs Claude Code,
 and puts its final output on stdout. Copy it from
 [`examples/bundles/claude-code`](https://github.com/LeeCheneler/kiri/tree/main/examples/bundles/claude-code)
-into your own `bundles/` and call it anywhere an agent should do the work:
+into your own `bundles/` and call it anywhere an assistant should do the work:
 
 ```yaml
 steps:
@@ -158,7 +158,7 @@ steps:
 ```
 
 Its `README.md` documents the full env contract — the pattern works for any
-agentic CLI you can script.
+AI CLI you can script.
 
 ## Charts in an article
 

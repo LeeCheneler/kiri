@@ -1,7 +1,8 @@
 # Quickstart
 
-Install kiri, run a workflow, and read the article it writes — about five
-minutes, and no API key until the last step.
+Install kiri, work something out in a session, keep the write-up as an
+article, then turn it into a one-click workflow — the whole loop in about
+five minutes.
 
 ## Install
 
@@ -23,48 +24,17 @@ Kiri runs per directory — each working directory is its own workspace:
 
 ```sh
 cd ~/projects/some-repo
-kiri init    # scaffold a starter workflow and config
+kiri init    # scaffold config and a starter workflow
 kiri         # serve on :4242
 ```
 
 Open [local.kiri.build](https://local.kiri.build) — or
-`http://localhost:4242` in Safari and Brave, which block HTTPS→localhost —
-and click **Run** on the starter workflow to see a run land in the feed.
+`http://localhost:4242` in Safari and Brave, which block HTTPS→localhost.
 
-## Write a report
+## Connect a model
 
-Now something worth reading. Drop this in `workflows/standup.yaml` — edits are
-picked up live, no restart:
-
-```yaml
-name: Standup
-steps:
-  - sh: |
-      set -eu
-      cd "$KIRI_REPO_ROOT"
-      git log --since="7 days ago" --format='- %s (%an)'
-    id: commits
-    name: Collect the week's commits
-articles:
-  - slug: standup
-    name: Standup Notes
-    sh: |
-      echo "# This week in $(basename "$KIRI_REPO_ROOT")"
-      echo
-      printf '%s\n' "$COMMITS"
-    env:
-      COMMITS: { step: commits }
-```
-
-Run it. The run page streams each step, and the article — a rendered markdown
-page — lands in your feed. That's the whole loop: **steps produce data,
-articles write it up.**
-
-## Add a model
-
-The write-ups get good when a model does the writing. Declare a provider in
-`kiri.yaml` (workspace root, kept in git — `kiri init` scaffolds a commented
-skeleton):
+Kiri brings no model of its own. Declare a provider in `kiri.yaml`
+(workspace root, kept in git — `kiri init` scaffolds a commented skeleton):
 
 ```yaml
 providers:
@@ -80,24 +50,36 @@ Put the key in a git-ignored `.env` next to it — kiri auto-loads it at boot:
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Then let a model write the article instead:
+No key at all? An OpenAI-compatible local server (LM Studio, Ollama, vLLM)
+works too — see [Models & providers](/docs/llm-providers).
 
-```yaml
-articles:
-  - slug: standup
-    name: Standup Notes
-    llm:
-      model: anthropic:claude-haiku-4-5
-      prompt: |
-        Write these commits up as crisp standup notes,
-        grouped by theme. Open with a # headline.
+## Work it out in chat
 
-        {{COMMITS}}
-    env:
-      COMMITS: { step: commits }
-```
+Click **+ New session** and ask for something you'd normally lose to a chat
+window — say, *"summarise what changed in this repo this week and what's
+still open."* Then ask the session to keep it:
 
-Run it again — same data, but now the article reads like a colleague wrote it.
+> write that up as an article
+
+The write-up lands as an **article**: a readable page in your feed — markdown
+with charts and diagrams if the content calls for them — not scrollback. Ask
+for changes and the session edits the page in place. Everything a session or
+run produces is searchable as you type, ⌘K from anywhere.
+
+## Turn the repeat into a button
+
+That summary is worth having every week — so ask the same session:
+
+> save that as a workflow
+
+The session authors a validated workflow file into `workflows/` (with your
+approval — the write shows as a diff first). It's a plain YAML file: shell
+steps piped into model steps, diffable and committable like any other code.
+From now on it's one click — **Run** on the Workflows page — and each run
+writes a fresh article into your feed.
+
+That's the whole ladder: **work it out in chat, keep what matters as
+articles, automate the repeats as workflows.**
 
 ## Where kiri keeps things
 
@@ -110,6 +92,8 @@ Run it again — same data, but now the article reads like a colleague wrote it.
   is allowed to read.
 - **`skills/`** — on-demand instruction packs for sessions, one
   `<name>/SKILL.md` per skill. Committed.
+- **`workflows/`** — your workflow YAML, hand-written or session-authored.
+  Committed.
 - **`.kiri/`** — editor schemas and run scratch space. Git-ignored by `kiri init`.
 
 Configuration problems never block boot — kiri prints a health report at
@@ -119,9 +103,11 @@ expanded).
 
 ## Next
 
+- [Sessions](/docs/sessions) — instructions, skills, tools, files and shell,
+  delegation.
+- [Projects & memories](/docs/projects-and-memories) — where work compounds
+  across sessions.
 - [Writing workflows](/docs/workflows) — wire steps together, take inputs,
   recommend follow-ups.
 - [Recipes](/docs/recipes) — release notes, one-click PR reviews, a daily
   briefing.
-- [Models & providers](/docs/llm-providers) — OpenAI, local models, and the
-  provider registry.
