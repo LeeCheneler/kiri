@@ -84,11 +84,12 @@ const ASSURANCES: Assurance[] = [
 ];
 
 /**
- * Marketing landing page. Leads with the job — repetitive AI chores as
- * one-click buttons — proven immediately by the input → output hero artifact:
- * a real workflow file and the article it produces. Concrete use cases, the
- * three-beat mechanism, and the trust story follow, then install. Composed
- * from the app's design system so it reads as the same product.
+ * Marketing landing page. Leads with the workspace-where-work-compounds
+ * framing (see docs/positioning.md), proven immediately by the input → output
+ * hero artifact: a real workflow file and the article it produces. Concrete
+ * use cases, the three-beat mechanism, and the trust story follow, then
+ * install. Composed from the app's design system so it reads as the same
+ * product.
  */
 export function HomePage() {
   return (
@@ -112,13 +113,13 @@ function Hero() {
       <div className="max-w-3xl">
         <Eyebrow>Local-first · open source</Eyebrow>
         <h1 className="mt-4 font-display text-5xl text-ink italic leading-[1.04] tracking-tight sm:text-6xl">
-          Turn repetitive AI chores into one-click buttons.
+          The AI workspace that writes things down.
         </h1>
         <p className="mt-7 max-w-2xl font-mono text-sm text-ink-muted leading-relaxed">
-          A workflow is a small YAML file in your repo — shell steps piped into model steps. Kiri
-          runs it on your machine and writes the result up as something you'd actually read: release
-          notes from your git log, a PR review, a morning briefing. Your machine, your repo, your
-          keys — no cloud, no daemons.
+          Work it out in chat, with models wired into your files and tools. What matters lands as
+          readable pages in a live feed — not scrollback — and what repeats hardens into a one-click
+          workflow: release notes from your git log, a PR review, a morning briefing. Your machine,
+          your repo, your keys — no cloud, no daemons.
         </p>
         <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-3 text-lg">
           <HeadlineLink href="/docs/getting-started">Get started</HeadlineLink>
@@ -181,13 +182,13 @@ function HowItWorks() {
             <div>
               <Eyebrow>Sessions</Eyebrow>
               <h3 className="mt-3 font-display text-2xl text-ink leading-tight">
-                No script for it yet? Open a session.
+                No script for it yet? Start where every chore starts: a session.
               </h3>
               <p className="mt-3 max-w-xl font-mono text-sm text-ink-muted leading-relaxed">
-                Chat with the same models, plus tools from MCP servers you configure — web search,
-                your issue tracker, anything that speaks MCP. Every MCP call waits for your
-                approval, sessions write up their findings as articles, and it all lands in the same
-                feed as your runs.
+                Chat with the same models — wired into your files and shell, extended by any MCP
+                server you configure, every risky action waiting on your approval. Sessions write
+                their findings up as articles, remember durable facts across conversations, and can
+                author the workflow when the work turns out to repeat.
               </p>
               <p className="mt-5 font-mono text-sm">
                 <InlineLink href="/docs/sessions">Read about sessions</InlineLink>

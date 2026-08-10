@@ -1,11 +1,17 @@
 # Kiri
 
-> Turn repetitive AI chores into one-click buttons — on your own machine, against your own git repo.
+> An AI workspace that runs on your machine and writes things down — chats become readable pages, facts become memories, and repeated chores become one-click buttons.
 
-Describe a chore — release notes from your git log, a PR review, a morning briefing — as a small YAML file in your repo. Kiri runs it on your machine, shell steps feeding model steps through declared refs, and writes the result up as an **article**: a readable page in a live feed, not scrollback in a terminal. Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. No cloud, no daemons: kiri runs only while the app is open.
+Every AI tool you use forgets. Chats scroll away, context gets re-explained, and the same chore gets re-prompted every week. Kiri is a **local-first AI workspace** built so work compounds instead:
+
+1. **Work it out in chat.** Open a session with your own models — wired into your files, your shell, and any MCP server, every risky action approval-gated.
+2. **Keep what matters.** Output lands as **articles**: readable pages in a live feed, with charts and diagrams, not scrollback. Facts persist as memories; related work compounds into a project's shared, cross-linked corpus.
+3. **Automate the repeats.** Anything worth doing twice hardens into a **workflow** — a YAML file in your repo, runnable as a one-click button. A session can author it for you.
+
+Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint. Nothing leaves your machine except the model calls you configure, and kiri only runs while the app is open.
 
 ```yaml
-# workflows/release-notes.yaml
+# workflows/release-notes.yaml — a chore, hardened into a button
 name: Release Notes
 steps:
   - sh: git log --oneline v1.4.0..HEAD
@@ -35,12 +41,18 @@ articles:
 
 **📖 Full documentation → [kiri.build/docs](https://kiri.build/docs)**
 
-## Two ways to work
+## Highlights
 
-- **Workflows** — scripted chores like the one above. Chain shell commands, reusable script bundles (e.g. one that spawns Claude Code), and first-party model completions. Runs produce articles — markdown with inline charts and diagrams — and can recommend one-click follow-ups. Reach for a workflow when you know the shape of the work.
-- **Sessions** — open-ended, streaming chat with the same models, plus tools from MCP servers you configure (web search, your issue tracker, anything MCP speaks). MCP tool calls are approval-gated, built-in article tools let a session write and revise articles of its own, built-in filesystem tools let it find, read, search, and change your files (confined to directories you allow in `kiri.yaml` — reads run on that authority alone, while every write, edit, or delete asks first and shows the change as a diff), a built-in shell tool lets it run commands — builds, tests, git — inside those same allowed directories, starting from the session's working directory (every command asks first, shown verbatim before it runs), and built-in workflow tools let it run your workflows for you — and author new ones: work something out in chat, then have the session save it as a validated workflow YAML in your repo (writes and runs approval-gated too). It can also delegate multi-step research to a hidden worker session that reports back just the findings — the worker only holds tools you've set to always allow, so delegation never runs anything unprompted that the chat couldn't. Pick an image model in the chat composer and it can generate images inline as well. Built-in memory tools let it save durable facts — preferences, standing context, corrections — that every future session recalls on demand, curated on a Memories page. Group related work into a **project** and its sessions share one corpus of articles — every session in the project reads it, keeps it current, and cross-links entries with `[[slug]]` references, browsable on the project's own page — plus memories of their own, facts that reach every session in the project without cluttering the workspace's, and standing instructions of their own that every session in the project carries. A workspace `kiri.md` shapes the system prompt, with a project's instructions and the `AGENTS.md` files covering the session's working directory layering on top of it. Reach for a session when you don't yet know the shape of the work.
+- **Sessions are the front door.** Streaming chat with your models, extended by any MCP server you configure — web search, your issue tracker, anything MCP speaks.
+- **Hands on your repo, on a leash.** Sessions find, read, and edit files and run builds, tests, and git — confined to directories you allow. Every write shows as a diff and asks first; shell approvals can go **Auto**, where a hard deterministic screen always stops the dangerous stuff and a small judge model waves through the boring stuff.
+- **Everything is written down.** Sessions and runs alike produce articles — markdown with inline charts and diagrams — collected in one live feed with a view for just the writing.
+- **Memories and projects.** Sessions save durable facts every future session recalls. Group work into a project and its sessions share an article corpus with `[[wiki-links]]`, their own memories, and standing instructions.
+- **Chat graduates into automation.** Work something out in a session, then have it author the workflow — validated YAML written into your repo, ready as the next button.
+- **Workflows are buttons.** Shell steps feeding model steps through declared refs; rerun forever with one click, and runs can recommend one-click follow-ups.
+- **Delegated research.** A session can hand legwork to a hidden worker that reports back only its findings — the worker never holds a tool you haven't already set to always-allow.
+- **Search everything.** ⌘K from anywhere, across articles, transcripts, run summaries, and workflow names — results as you type.
 
-Both land in a single activity feed, with an Articles view for just what they wrote — including a project's shared corpus. Everything is searchable as you type (⌘K from anywhere) across articles, session transcripts, run summaries, and workflow names.
+Sessions can also generate images inline, load workspace skills on demand, and layer standing instructions from `kiri.md`, a project, and `AGENTS.md` files — the [sessions docs](https://kiri.build/docs/sessions) cover the lot.
 
 ## Install
 
@@ -83,9 +95,7 @@ Then open **[local.kiri.build](https://local.kiri.build)** — the hosted shell 
 
 From here, the [quickstart](https://kiri.build/docs/getting-started) takes you from install to your first model-written article in about five minutes, and the [recipes](https://kiri.build/docs/recipes) are complete workflows to copy.
 
-## Trust model
-
-Kiri runs `sh:` steps and `bundles/<name>/run.sh` with **your user's permissions** — there's no sandbox, so read scripts before you run them, like any shell script. The defences kiri does provide are external: the HTTP API binds to `127.0.0.1` only and requires an `X-Kiri-Client` header on state-changing requests. More in [Trust & security](https://kiri.build/docs/trust-and-security).
+One thing to know before you run other people's workflows: `sh:` steps and bundle scripts run with **your user's permissions**, like any shell script — read them first. [Trust & security](https://kiri.build/docs/trust-and-security) has the full picture.
 
 ## Learn more
 

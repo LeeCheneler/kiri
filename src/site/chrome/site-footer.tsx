@@ -30,7 +30,7 @@ export function SiteFooter() {
         <div>
           <span className="font-display text-xl text-ink italic leading-none">kiri</span>
           <span className="ml-3 font-mono text-xs text-ink-faint">
-            Repetitive AI chores, one click, on your machine.
+            The AI workspace that writes things down — on your machine.
           </span>
         </div>
         <nav className="flex items-center gap-6">

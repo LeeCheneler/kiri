@@ -32,9 +32,9 @@ export const DOCS_INDEX_SLUG = "overview";
 export const DOCS_PAGES: DocsPage[] = [
   { slug: "overview", title: "What is kiri?", section: "Start", content: overview },
   { slug: "getting-started", title: "Quickstart", section: "Start", content: gettingStarted },
+  { slug: "sessions", title: "Sessions", section: "Guides", content: sessions },
   { slug: "workflows", title: "Writing workflows", section: "Guides", content: workflows },
   { slug: "recipes", title: "Recipes", section: "Guides", content: recipes },
-  { slug: "sessions", title: "Sessions", section: "Guides", content: sessions },
   { slug: "llm-providers", title: "Models & providers", section: "Guides", content: llmProviders },
   {
     slug: "workflow-reference",
