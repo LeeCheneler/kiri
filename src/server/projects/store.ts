@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, memories, messages, projects, sessions } from "../db/schema.ts";
@@ -38,7 +38,7 @@ export function listProjects(db: KiriDb): Project[] {
 }
 
 /**
- * A project's article index, oldest first. The body is read only to derive
+ * A project's article index, newest first. The body is read only to derive
  * each entry's heading, never returned — detail surfaces serve it.
  */
 export function listProjectArticles(db: KiriDb, projectId: string): ProjectArticleSummary[] {
@@ -46,7 +46,7 @@ export function listProjectArticles(db: KiriDb, projectId: string): ProjectArtic
     .select()
     .from(articles)
     .where(eq(articles.projectId, projectId))
-    .orderBy(asc(articles.createdAt))
+    .orderBy(desc(articles.createdAt), desc(articles.id))
     .all()
     .map((article) => ({
       slug: article.slug,

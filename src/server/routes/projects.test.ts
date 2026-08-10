@@ -35,10 +35,11 @@ describe("projects routes", () => {
     projectId: string,
     slug: string,
     contentMd = "# Doc\n\nBody.",
+    createdAt = new Date(),
   ) => {
     env.db
       .insert(articles)
-      .values({ id, projectId, slug, name: "Doc", contentMd, createdAt: new Date() })
+      .values({ id, projectId, slug, name: "Doc", contentMd, createdAt })
       .run();
   };
 
@@ -182,6 +183,23 @@ describe("projects routes", () => {
           status: "idle",
         }),
       ]);
+    });
+
+    it("lists sessions and articles newest first", async () => {
+      seedProject("p1");
+      seedArticle("a1", "p1", "older-doc", "# Older\n\nBody.", new Date(1000));
+      seedArticle("a2", "p1", "newer-doc", "# Newer\n\nBody.", new Date(2000));
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1", startedAt: new Date(1000) });
+      createSession(env.db, MODEL, { id: "s2", projectId: "p1", startedAt: new Date(2000) });
+
+      const res = await buildApp().request("/api/projects/p1");
+
+      const body = (await res.json()) as {
+        articles: { slug: string }[];
+        sessions: { id: string }[];
+      };
+      expect(body.articles.map((article) => article.slug)).toEqual(["newer-doc", "older-doc"]);
+      expect(body.sessions.map((session) => session.id)).toEqual(["s2", "s1"]);
     });
 
     it("serves the project's instructions", async () => {
