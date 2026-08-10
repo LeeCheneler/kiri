@@ -242,26 +242,6 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
       <div className="mt-4">
         <NewSessionButton projectId={id} />
       </div>
-      <div className="mt-10">
-        <Eyebrow tone="muted">Instructions</Eyebrow>
-        {data.project.instructions === null ? (
-          <div className="mt-3">
-            <EmptyState>
-              no instructions yet. what you write here joins the standing instructions of every
-              session in this project.
-            </EmptyState>
-          </div>
-        ) : (
-          <div className="mt-3">
-            <Markdown content={data.project.instructions} />
-          </div>
-        )}
-        <div className="-mx-3 mt-3 flex items-center">
-          <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
-            edit instructions
-          </Button>
-        </div>
-      </div>
       <div className="mt-10 grid gap-10 lg:grid-cols-2">
         <div>
           <Eyebrow tone="muted">Sessions</Eyebrow>
@@ -346,6 +326,26 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
               ))}
             </div>
           )}
+        </div>
+        <div>
+          <Eyebrow tone="muted">Instructions</Eyebrow>
+          {data.project.instructions === null ? (
+            <div className="mt-3">
+              <EmptyState>
+                no instructions yet. what you write here joins the standing instructions of every
+                session in this project.
+              </EmptyState>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <Markdown content={data.project.instructions} />
+            </div>
+          )}
+          <div className="-mx-3 mt-3 flex items-center">
+            <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
+              edit instructions
+            </Button>
+          </div>
         </div>
       </div>
       {renameOpen ? (
