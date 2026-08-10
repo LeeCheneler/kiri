@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { ApiError, type ProjectSessionSummary } from "../../api.ts";
+import { ApiError, type ProjectSessionSummary, type SessionStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
-import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
@@ -12,7 +11,9 @@ import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Prose } from "../../design-system/content/prose.tsx";
+import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
+import { type TabDef, Tabs } from "../../design-system/navigation/tabs.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { Modal } from "../../design-system/surfaces/modal.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
@@ -25,6 +26,15 @@ import {
 import { NewSessionButton } from "../session-chat/new-session-button.tsx";
 
 const BREADCRUMB = [{ label: "Projects", href: "/projects" }];
+
+// Session lifecycle mapped onto the shared status vocabulary: a running turn
+// reads as "working", the resting state as "idle".
+const SESSION_STATUS: Record<SessionStatus, StatusKind> = {
+  idle: "idle",
+  running: "working",
+  failed: "failed",
+  cancelled: "cancelled",
+};
 
 const plural = (count: number, noun: string, plural = `${noun}s`): string =>
   `${count} ${count === 1 ? noun : plural}`;
@@ -213,6 +223,133 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
     navigate("/projects");
   };
 
+  // The container's three panels. Sessions and articles stay side by side on
+  // the default tab; instructions and memories each get their own, so the
+  // instructions body renders in full rather than behind a disclosure.
+  const tabs: TabDef[] = [
+    {
+      id: "sessions",
+      label: "Sessions & articles",
+      content: (
+        <div className="grid gap-10 lg:grid-cols-2">
+          <div>
+            <Eyebrow tone="muted">Sessions</Eyebrow>
+            {data.sessions.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState>
+                  no sessions yet. sessions created in this project appear here and share its
+                  article corpus.
+                </EmptyState>
+              </div>
+            ) : (
+              <div className="mt-1 divide-y divide-rule">
+                {data.sessions.map((session) => (
+                  <div key={session.id} className="py-3">
+                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                      <HeadlineLink href={`/sessions/${encodeURIComponent(session.id)}`}>
+                        {sessionLabel(session)}
+                      </HeadlineLink>
+                      <Meta>
+                        <Status status={SESSION_STATUS[session.status]} />
+                        <span>started {formatRelativeTime(session.startedAt, now)}</span>
+                      </Meta>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <Eyebrow tone="muted">Articles</Eyebrow>
+            {data.articles.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState>
+                  no articles yet. sessions in this project write their articles into this shared
+                  corpus.
+                </EmptyState>
+              </div>
+            ) : (
+              <div className="mt-1 divide-y divide-rule">
+                {data.articles.map((article) => (
+                  <div key={article.slug} className="py-3">
+                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                      <HeadlineLink
+                        href={`/projects/${encodeURIComponent(id)}/articles/${encodeURIComponent(article.slug)}`}
+                      >
+                        {article.heading ?? article.name}
+                      </HeadlineLink>
+                      <Meta>
+                        <span>created {formatRelativeTime(article.createdAt, now)}</span>
+                      </Meta>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "instructions",
+      label: "Instructions",
+      content:
+        data.project.instructions === null ? (
+          <>
+            <EmptyState>
+              no instructions yet. what you write here joins the standing instructions of every
+              session in this project.
+            </EmptyState>
+            <div className="-mx-3 mt-3 flex items-center">
+              <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
+                edit instructions
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Prose>
+              <Markdown content={data.project.instructions} />
+            </Prose>
+            <div className="-mx-3 mt-4 flex items-center">
+              <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
+                edit instructions
+              </Button>
+            </div>
+          </>
+        ),
+    },
+    {
+      id: "memories",
+      label: "Memories",
+      content:
+        data.memories.length === 0 ? (
+          <EmptyState>
+            no memories yet. facts saved by this project's sessions land here and reach every
+            session in the project, not the rest of the workspace.
+          </EmptyState>
+        ) : (
+          <div className="-mt-2 divide-y divide-rule">
+            {data.memories.map((memory) => (
+              <div key={memory.name} className="py-3">
+                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                  <HeadlineLink
+                    href={`/projects/${encodeURIComponent(id)}/memories/${encodeURIComponent(memory.name)}`}
+                  >
+                    {memory.name}
+                  </HeadlineLink>
+                  <Meta>
+                    <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
+                  </Meta>
+                </div>
+                <p className="mt-1 font-mono text-sm text-ink-muted">{memory.description}</p>
+              </div>
+            ))}
+          </div>
+        ),
+    },
+  ];
+
   return (
     <section>
       <Breadcrumb items={BREADCRUMB} current={data.project.name} />
@@ -244,124 +381,8 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
       <div className="mt-4">
         <NewSessionButton projectId={id} />
       </div>
-      <div className="mt-10 grid gap-10 lg:grid-cols-2">
-        <div>
-          <Eyebrow tone="muted">Sessions</Eyebrow>
-          {data.sessions.length === 0 ? (
-            <div className="mt-3">
-              <EmptyState>
-                no sessions yet. sessions created in this project appear here and share its article
-                corpus.
-              </EmptyState>
-            </div>
-          ) : (
-            <div className="mt-1 divide-y divide-rule">
-              {data.sessions.map((session) => (
-                <div key={session.id} className="py-3">
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <HeadlineLink href={`/sessions/${encodeURIComponent(session.id)}`}>
-                      {sessionLabel(session)}
-                    </HeadlineLink>
-                    <Meta>
-                      <span>{session.status}</span>
-                      <span>started {formatRelativeTime(session.startedAt, now)}</span>
-                    </Meta>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div>
-          <Eyebrow tone="muted">Articles</Eyebrow>
-          {data.articles.length === 0 ? (
-            <div className="mt-3">
-              <EmptyState>
-                no articles yet. sessions in this project write their articles into this shared
-                corpus.
-              </EmptyState>
-            </div>
-          ) : (
-            <div className="mt-1 divide-y divide-rule">
-              {data.articles.map((article) => (
-                <div key={article.slug} className="py-3">
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <HeadlineLink
-                      href={`/projects/${encodeURIComponent(id)}/articles/${encodeURIComponent(article.slug)}`}
-                    >
-                      {article.heading ?? article.name}
-                    </HeadlineLink>
-                    <Meta>
-                      <span>created {formatRelativeTime(article.createdAt, now)}</span>
-                    </Meta>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
       <div className="mt-10">
-        <Eyebrow tone="muted">Instructions</Eyebrow>
-        {data.project.instructions === null ? (
-          <>
-            <div className="mt-3">
-              <EmptyState>
-                no instructions yet. what you write here joins the standing instructions of every
-                session in this project.
-              </EmptyState>
-            </div>
-            <div className="-mx-3 mt-3 flex items-center">
-              <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
-                edit instructions
-              </Button>
-            </div>
-          </>
-        ) : (
-          <div className="mt-3 overflow-hidden rounded-sm border border-rule bg-canvas-2">
-            <Disclosure
-              summary={<span className="font-mono text-ink text-sm">view instructions</span>}
-            >
-              <Prose>
-                <Markdown content={data.project.instructions} />
-              </Prose>
-              <div className="mt-4 flex items-center">
-                <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
-                  edit instructions
-                </Button>
-              </div>
-            </Disclosure>
-          </div>
-        )}
-      </div>
-      <div className="mt-10">
-        <Eyebrow tone="muted">Memories</Eyebrow>
-        {data.memories.length === 0 ? (
-          <div className="mt-3">
-            <EmptyState>
-              no memories yet. facts saved by this project's sessions land here and reach every
-              session in the project, not the rest of the workspace.
-            </EmptyState>
-          </div>
-        ) : (
-          <div className="mt-1 divide-y divide-rule">
-            {data.memories.map((memory) => (
-              <div key={memory.name} className="py-3">
-                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                  <HeadlineLink
-                    href={`/projects/${encodeURIComponent(id)}/memories/${encodeURIComponent(memory.name)}`}
-                  >
-                    {memory.name}
-                  </HeadlineLink>
-                  <Meta>
-                    <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
-                  </Meta>
-                </div>
-                <p className="mt-1 font-mono text-sm text-ink-muted">{memory.description}</p>
-              </div>
-            ))}
-          </div>
-        )}
+        <Tabs tabs={tabs} label="Project details" />
       </div>
       {renameOpen ? (
         <RenameProjectModal

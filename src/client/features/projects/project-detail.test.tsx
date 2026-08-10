@@ -83,6 +83,7 @@ describe("<ProjectDetail>", () => {
       }),
     );
     renderDetail();
+    await userEvent.click(await screen.findByRole("tab", { name: "Memories" }));
 
     const link = await screen.findByRole("link", { name: "deploy-window" });
     expect(link.getAttribute("href")).toBe("/projects/p1/memories/deploy-window");
@@ -93,7 +94,7 @@ describe("<ProjectDetail>", () => {
     serveProject(
       detail({
         sessions: [
-          session("aaaabbbb-1", { title: "Titled" }),
+          session("aaaabbbb-1", { title: "Titled", status: "running" }),
           session("ccccdddd-2", { preview: "first message" }),
           session("eeeeffff-3"),
         ],
@@ -105,6 +106,8 @@ describe("<ProjectDetail>", () => {
     expect(screen.getByRole("link", { name: "first message" })).toBeDefined();
     const byId = screen.getByRole("link", { name: "eeeeffff" });
     expect(byId.getAttribute("href")).toBe("/sessions/eeeeffff-3");
+    // A running turn reads as "working" in the shared status vocabulary.
+    expect(screen.getByText("working")).toBeDefined();
   });
 
   it("explains every index when the container is empty", async () => {
@@ -113,6 +116,7 @@ describe("<ProjectDetail>", () => {
 
     expect(await screen.findByText(/no articles yet/i)).toBeDefined();
     expect(screen.getByText(/no sessions yet/i)).toBeDefined();
+    await userEvent.click(screen.getByRole("tab", { name: "Memories" }));
     expect(screen.getByText(/no memories yet/i)).toBeDefined();
   });
 
@@ -208,7 +212,7 @@ describe("<ProjectDetail>", () => {
     expect(within(dialog).getByLabelText("Name")).toBeDefined();
   });
 
-  it("tucks the project's instructions behind a collapsed disclosure", async () => {
+  it("shows the project's instructions on their own tab", async () => {
     serveProject(
       detail({
         project: {
@@ -221,9 +225,9 @@ describe("<ProjectDetail>", () => {
     );
     renderDetail();
 
-    const trigger = await screen.findByRole("button", { name: /view instructions/ });
+    const tab = await screen.findByRole("tab", { name: "Instructions" });
     expect(screen.queryByText("Cite every source.")).toBeNull();
-    await userEvent.click(trigger);
+    await userEvent.click(tab);
     expect(screen.getByText("Cite every source.")).toBeDefined();
     expect(screen.queryByText(/no instructions yet/)).toBeNull();
   });
@@ -231,6 +235,7 @@ describe("<ProjectDetail>", () => {
   it("shows an empty state when the project has no instructions", async () => {
     serveProject(detail());
     renderDetail();
+    await userEvent.click(await screen.findByRole("tab", { name: "Instructions" }));
 
     expect(await screen.findByText(/no instructions yet/)).toBeDefined();
   });
@@ -261,7 +266,7 @@ describe("<ProjectDetail>", () => {
       }),
     );
     renderDetail();
-    await userEvent.click(await screen.findByRole("button", { name: /view instructions/ }));
+    await userEvent.click(await screen.findByRole("tab", { name: "Instructions" }));
     await userEvent.click(screen.getByRole("button", { name: "edit instructions" }));
 
     const dialog = await screen.findByRole("dialog");
@@ -285,7 +290,8 @@ describe("<ProjectDetail>", () => {
       }),
     );
     renderDetail();
-    await userEvent.click(await screen.findByRole("button", { name: "edit instructions" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "Instructions" }));
+    await userEvent.click(screen.getByRole("button", { name: "edit instructions" }));
 
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText("Instructions"), "Discarded.");
@@ -299,7 +305,8 @@ describe("<ProjectDetail>", () => {
     serveProject(detail());
     server.use(http.patch("*/api/projects/:id", () => new HttpResponse("boom", { status: 500 })));
     renderDetail();
-    await userEvent.click(await screen.findByRole("button", { name: "edit instructions" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "Instructions" }));
+    await userEvent.click(screen.getByRole("button", { name: "edit instructions" }));
 
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "save" }));
