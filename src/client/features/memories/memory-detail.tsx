@@ -1,6 +1,7 @@
+import type { UseQueryResult } from "@tanstack/react-query";
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { ApiError } from "../../api.ts";
+import { ApiError, type MemoryDetail as MemoryRecord } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
@@ -15,18 +16,32 @@ import { useDeleteMemory, useMemory, useUpdateMemory } from "../../state/memorie
 const BREADCRUMB = [{ label: "Memories", href: "/memories" }];
 
 /**
- * One memory's curation page: the fact rendered as markdown with its summary
- * and freshness, editable in place (summary and body together), and deletable
- * behind a confirm. Edits persist through the REST surface and re-render from
- * the server's truth; deleting returns to the index. A 404 renders not-found
- * — the memory may have been deleted by a session in another tab. `now` is
+ * One memory's curation view, over whichever scope's queries the caller
+ * binds: the fact rendered as markdown with its summary and freshness,
+ * editable in place (summary and body together), and deletable behind a
+ * confirm. Edits persist through the caller's writer and re-render from the
+ * server's truth; deleting navigates to `returnTo`. A 404 renders not-found —
+ * the memory may have been deleted by a session in another tab. `now` is
  * injectable so tests render deterministic relative times.
  */
-export function MemoryDetail({ name, now }: { name: string; now?: Date }) {
+export function MemoryDetailView({
+  name,
+  memory,
+  onSave,
+  onDelete,
+  breadcrumbItems,
+  returnTo,
+  now,
+}: {
+  name: string;
+  memory: UseQueryResult<MemoryRecord>;
+  onSave: (patch: { description: string; contentMd: string }) => Promise<void>;
+  onDelete: () => Promise<void>;
+  breadcrumbItems: { label: string; href: string }[];
+  returnTo: string;
+  now?: Date;
+}) {
   const [, navigate] = useLocation();
-  const memory = useMemory(name);
-  const update = useUpdateMemory();
-  const remove = useDeleteMemory();
   const [editing, setEditing] = useState(false);
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
@@ -39,7 +54,7 @@ export function MemoryDetail({ name, now }: { name: string; now?: Date }) {
     if (memory.error instanceof ApiError && memory.error.status === 404) {
       return (
         <section>
-          <Breadcrumb items={BREADCRUMB} current="Not found" />
+          <Breadcrumb items={breadcrumbItems} current="Not found" />
           <h2 className="mt-6 font-display text-4xl text-ink leading-tight">Memory not found</h2>
           <p className="mt-3 font-mono text-sm text-ink-muted">
             No memory named <code className="text-ink">{name}</code>.
@@ -67,7 +82,7 @@ export function MemoryDetail({ name, now }: { name: string; now?: Date }) {
     setError(null);
     setPending(true);
     try {
-      await update(name, { description, contentMd: body });
+      await onSave({ description, contentMd: body });
       setEditing(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -81,7 +96,7 @@ export function MemoryDetail({ name, now }: { name: string; now?: Date }) {
     setError(null);
     setPending(true);
     try {
-      await remove(name);
+      await onDelete();
     } catch (cause) {
       // Already gone — intent satisfied, fall through and navigate. Anything
       // else surfaces inline and leaves us on the page.
@@ -91,12 +106,12 @@ export function MemoryDetail({ name, now }: { name: string; now?: Date }) {
         return;
       }
     }
-    navigate("/memories");
+    navigate(returnTo);
   };
 
   return (
     <section>
-      <Breadcrumb items={BREADCRUMB} current={name} />
+      <Breadcrumb items={breadcrumbItems} current={name} />
       <h2 className="mt-6 font-display text-4xl text-ink leading-tight">{name}</h2>
       {editing ? (
         <div className="mt-6 flex flex-col gap-4">
@@ -164,5 +179,26 @@ export function MemoryDetail({ name, now }: { name: string; now?: Date }) {
         />
       ) : null}
     </section>
+  );
+}
+
+/**
+ * One workspace-global memory's curation page, bound to the global memory
+ * queries. `now` is injectable so tests render deterministic relative times.
+ */
+export function MemoryDetail({ name, now }: { name: string; now?: Date }) {
+  const memory = useMemory(name);
+  const update = useUpdateMemory();
+  const remove = useDeleteMemory();
+  return (
+    <MemoryDetailView
+      name={name}
+      memory={memory}
+      onSave={(patch) => update(name, patch)}
+      onDelete={() => remove(name)}
+      breadcrumbItems={BREADCRUMB}
+      returnTo="/memories"
+      now={now}
+    />
   );
 }

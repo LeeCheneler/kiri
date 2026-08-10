@@ -1,7 +1,7 @@
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, messages, projects, sessions } from "../db/schema.ts";
+import { articles, memories, messages, projects, sessions } from "../db/schema.ts";
 
 /** A persisted project row. */
 export type Project = typeof projects.$inferSelect;
@@ -64,10 +64,11 @@ export function updateProjectName(db: KiriDb, id: string, name: string): Project
 
 /**
  * Permanently delete a project and everything in its container: the
- * project's articles, its sessions — including the delegate children those
- * sessions spawned — and those sessions' messages and articles, in one
- * transaction. An in-code cascade matching the rest of the codebase rather
- * than a schema-level ON DELETE. Deleting an absent project removes nothing.
+ * project's articles and memories, its sessions — including the delegate
+ * children those sessions spawned — and those sessions' messages and
+ * articles, in one transaction. An in-code cascade matching the rest of the
+ * codebase rather than a schema-level ON DELETE. Deleting an absent project
+ * removes nothing.
  */
 export function deleteProject(db: KiriDb, id: string): void {
   db.transaction((tx) => {
@@ -92,6 +93,7 @@ export function deleteProject(db: KiriDb, id: string): void {
       tx.delete(messages).where(inArray(messages.sessionId, allSessionIds)).run();
     }
     tx.delete(articles).where(eq(articles.projectId, id)).run();
+    tx.delete(memories).where(eq(memories.projectId, id)).run();
     // Children first: they hold an FK to their parent, and foreign_keys is ON.
     if (childIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, childIds)).run();
     if (sessionIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, sessionIds)).run();

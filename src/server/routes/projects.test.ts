@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { articles, projects, sessions } from "../db/schema.ts";
+import { articles, memories, projects, sessions } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
 import { appendMessage, createSession } from "../sessions/store.ts";
@@ -39,6 +39,26 @@ describe("projects routes", () => {
     env.db
       .insert(articles)
       .values({ id, projectId, slug, name: "Doc", contentMd, createdAt: new Date() })
+      .run();
+  };
+
+  const seedMemory = (
+    id: string,
+    projectId: string | null,
+    name: string,
+    description = "A fact.",
+  ) => {
+    env.db
+      .insert(memories)
+      .values({
+        id,
+        projectId,
+        name,
+        description,
+        contentMd: "Body.",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
       .run();
   };
 
@@ -106,6 +126,8 @@ describe("projects routes", () => {
     it("returns the project with its article and session indexes", async () => {
       seedProject("p1");
       seedArticle("a1", "p1", "corpus-doc", "# Corpus Doc\n\nBody.");
+      seedMemory("m1", "p1", "deploy-window", "Deploys land on Tuesdays.");
+      seedMemory("m2", null, "prefers-bun");
       createSession(env.db, MODEL, { id: "s1", projectId: "p1", title: "Titled" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "hello there" }] });
       createSession(env.db, MODEL, {
@@ -121,11 +143,19 @@ describe("projects routes", () => {
       const body = (await res.json()) as {
         project: { id: string; name: string };
         articles: { slug: string; heading: string | null }[];
+        memories: { name: string; description: string }[];
         sessions: { id: string; title: string | null; preview: string | null; status: string }[];
       };
       expect(body.project).toMatchObject({ id: "p1", name: "Research" });
       expect(body.articles).toEqual([
         expect.objectContaining({ slug: "corpus-doc", heading: "Corpus Doc" }),
+      ]);
+      // The workspace-global memory belongs to the global index, not here.
+      expect(body.memories).toEqual([
+        expect.objectContaining({
+          name: "deploy-window",
+          description: "Deploys land on Tuesdays.",
+        }),
       ]);
       expect(body.sessions).toEqual([
         expect.objectContaining({
@@ -179,6 +209,8 @@ describe("projects routes", () => {
     it("cascades the container and announces the project and its sessions", async () => {
       seedProject("p1");
       seedArticle("a1", "p1", "corpus-doc");
+      seedMemory("m1", "p1", "deploy-window");
+      seedMemory("m2", null, "prefers-bun");
       createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
       createSession(env.db, MODEL, {
         id: "c1",
@@ -199,6 +231,14 @@ describe("projects routes", () => {
       expect(events).not.toContainEqual({ type: "session.deleted", id: "c1" });
       expect(env.db.select().from(sessions).all()).toEqual([]);
       expect(env.db.select().from(articles).all()).toEqual([]);
+      // The project's memories went with it; the workspace's did not.
+      expect(
+        env.db
+          .select()
+          .from(memories)
+          .all()
+          .map((row) => row.name),
+      ).toEqual(["prefers-bun"]);
       const list = await (await buildApp().request("/api/projects")).json();
       expect(list).toEqual({ projects: [] });
     });
@@ -282,6 +322,136 @@ describe("projects routes", () => {
       seedProject("p1");
       const res = await buildApp().request("/api/projects/p1/articles/Not%20A%20Slug");
       expect(res.status).toBe(400);
+    });
+  });
+  describe("GET /api/projects/:id/memories/:name", () => {
+    it("returns the project's memory in full", async () => {
+      seedProject("p1");
+      seedMemory("m1", "p1", "deploy-window", "Deploys land on Tuesdays.");
+
+      const res = await buildApp().request("/api/projects/p1/memories/deploy-window");
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        memory: {
+          name: "deploy-window",
+          description: "Deploys land on Tuesdays.",
+          contentMd: "Body.",
+        },
+      });
+    });
+
+    it("404s a name held only workspace-globally", async () => {
+      seedProject("p1");
+      seedMemory("m1", null, "prefers-bun");
+
+      const res = await buildApp().request("/api/projects/p1/memories/prefers-bun");
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: 'memory "prefers-bun" not found on project "p1"',
+      });
+    });
+
+    it("404s an unknown project", async () => {
+      const res = await buildApp().request("/api/projects/missing/memories/deploy-window");
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'project "missing" not found' });
+    });
+
+    it("400s a name outside the name pattern", async () => {
+      seedProject("p1");
+      const res = await buildApp().request("/api/projects/p1/memories/Not%20A%20Name");
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("PATCH /api/projects/:id/memories/:name", () => {
+    const patch = (name: string, body: unknown) =>
+      buildApp().request(`/api/projects/p1/memories/${name}`, {
+        method: "PATCH",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    it("updates the summary and body, announcing the project", async () => {
+      seedProject("p1");
+      seedMemory("m1", "p1", "deploy-window");
+
+      const res = await patch("deploy-window", {
+        description: "New summary.",
+        contentMd: "New body.\n",
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        memory: { description: "New summary.", contentMd: "New body." },
+      });
+      expect(events).toContainEqual({
+        type: "memory.saved",
+        name: "deploy-window",
+        projectId: "p1",
+      });
+    });
+
+    it("publishes nothing for an empty patch", async () => {
+      seedProject("p1");
+      seedMemory("m1", "p1", "deploy-window");
+
+      const res = await patch("deploy-window", {});
+
+      expect(res.status).toBe(200);
+      expect(events).toEqual([]);
+    });
+
+    it("404s a memory the project doesn't have", async () => {
+      seedProject("p1");
+      const res = await patch("missing", { description: "New summary." });
+      expect(res.status).toBe(404);
+    });
+
+    it("400s an unknown field", async () => {
+      seedProject("p1");
+      seedMemory("m1", "p1", "deploy-window");
+      const res = await patch("deploy-window", { name: "renamed" });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("DELETE /api/projects/:id/memories/:name", () => {
+    it("deletes the project's memory and announces it", async () => {
+      seedProject("p1");
+      seedMemory("m1", "p1", "deploy-window");
+      seedMemory("m2", null, "deploy-window");
+
+      const res = await buildApp().request("/api/projects/p1/memories/deploy-window", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      expect(events).toContainEqual({
+        type: "memory.deleted",
+        name: "deploy-window",
+        projectId: "p1",
+      });
+      // The workspace-global memory of the same name is untouched.
+      expect(
+        env.db
+          .select()
+          .from(memories)
+          .all()
+          .map((row) => row.id),
+      ).toEqual(["m2"]);
+    });
+
+    it("404s a memory the project doesn't have", async () => {
+      seedProject("p1");
+      const res = await buildApp().request("/api/projects/p1/memories/missing", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
     });
   });
 });

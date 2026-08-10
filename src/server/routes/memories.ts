@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import { memories } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
-import { listMemories, memoryNameSchema } from "../sessions/index.ts";
+import { getScopedMemory, listMemories, memoryNameSchema } from "../sessions/index.ts";
 import { onZodFail } from "./shared.ts";
 
 const memoryNameParamSchema = z.object({ name: memoryNameSchema });
@@ -32,7 +32,9 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
   const { db, bus } = deps;
   const app = new Hono();
 
-  const byName = (name: string) => db.select().from(memories).where(eq(memories.name, name)).get();
+  // Workspace-global memories only: a project's memories are curated on the
+  // project's own surface, and a name can exist in both scopes.
+  const byName = (name: string) => getScopedMemory(db, null, name);
 
   app.get("/", (c) => c.json({ memories: listMemories(db) }));
 
@@ -93,8 +95,9 @@ export function memoriesRoutes(deps: MemoriesRoutesDeps): Hono {
     zValidator("param", memoryNameParamSchema, onZodFail("invalid memory name")),
     (c) => {
       const { name } = c.req.valid("param");
-      if (!byName(name)) return c.json({ error: `memory "${name}" not found` }, 404);
-      db.delete(memories).where(eq(memories.name, name)).run();
+      const memory = byName(name);
+      if (!memory) return c.json({ error: `memory "${name}" not found` }, 404);
+      db.delete(memories).where(eq(memories.id, memory.id)).run();
       bus?.publish({ type: "memory.deleted", name });
       return c.body(null, 204);
     },

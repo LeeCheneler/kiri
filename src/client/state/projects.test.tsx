@@ -10,11 +10,14 @@ import { LiveEventsProvider } from "../events/live.tsx";
 import {
   useCreateProject,
   useDeleteProject,
+  useDeleteProjectMemory,
   useProject,
   useProjectArticle,
+  useProjectMemory,
   useProjects,
   useProjectsLive,
   useRenameProject,
+  useUpdateProjectMemory,
 } from "./projects.ts";
 import { createQueryClient } from "./query-client.ts";
 
@@ -29,6 +32,7 @@ const summary = (id: string, name = "Research") => ({
 const detail = (id: string, name = "Research") => ({
   project: { id, name, createdAt: "2026-08-07T10:00:00.000Z" },
   articles: [],
+  memories: [],
   sessions: [],
 });
 
@@ -41,6 +45,35 @@ const article = (projectId: string, contentMd = "# Doc\n\nBody.") => ({
   createdAt: "2026-08-07T10:00:00.000Z",
   heading: "Doc",
 });
+
+const memory = (description = "Deploys land on Tuesdays.") => ({
+  name: "deploy-window",
+  description,
+  contentMd: "Body.",
+  createdAt: "2026-08-07T10:00:00.000Z",
+  updatedAt: "2026-08-07T10:00:00.000Z",
+});
+
+const MemoryProbe = ({ id }: { id: string }) => {
+  useProjectsLive();
+  const data = useProjectMemory(id, "deploy-window").data;
+  const update = useUpdateProjectMemory();
+  const remove = useDeleteProjectMemory();
+  return (
+    <div>
+      <p>summary:{data?.description ?? "none"}</p>
+      <button
+        type="button"
+        onClick={() => void update(id, "deploy-window", { description: "Edited." })}
+      >
+        edit
+      </button>
+      <button type="button" onClick={() => void remove(id, "deploy-window")}>
+        forget
+      </button>
+    </div>
+  );
+};
 
 const ListProbe = () => {
   useProjectsLive();
@@ -200,6 +233,74 @@ describe("projects state", () => {
     });
     await flushAsync();
     expect(fetches).toBe(2);
+  });
+
+  it("refetches a mounted project memory when a session rewrites it", async () => {
+    server.use(
+      http.get("*/api/projects/p1/memories/deploy-window", () =>
+        HttpResponse.json({ memory: memory("Before.") }),
+      ),
+    );
+    const { sources } = renderProbe(<MemoryProbe id="p1" />);
+    expect(await screen.findByText("summary:Before.")).toBeDefined();
+
+    server.use(
+      http.get("*/api/projects/p1/memories/deploy-window", () =>
+        HttpResponse.json({ memory: memory("After.") }),
+      ),
+    );
+    act(() => {
+      sources[0]?.emit({ type: "memory.saved", name: "deploy-window", projectId: "p1" });
+    });
+    expect(await screen.findByText("summary:After.")).toBeDefined();
+  });
+
+  it("ignores a global memory event in the project caches", async () => {
+    let fetches = 0;
+    server.use(
+      http.get("*/api/projects/p1/memories/deploy-window", () => {
+        fetches += 1;
+        return HttpResponse.json({ memory: memory() });
+      }),
+    );
+    const { sources } = renderProbe(<MemoryProbe id="p1" />);
+    expect(await screen.findByText("summary:Deploys land on Tuesdays.")).toBeDefined();
+    expect(fetches).toBe(1);
+
+    // A workspace-global memory carries no project id and belongs to the
+    // memories caches, not this one.
+    act(() => {
+      sources[0]?.emit({ type: "memory.saved", name: "prefers-bun" });
+    });
+    await flushAsync();
+    expect(fetches).toBe(1);
+  });
+
+  it("edits and forgets a project memory, refetching from the server's truth", async () => {
+    let patched: unknown = null;
+    let deleted = false;
+    server.use(
+      http.get("*/api/projects/p1/memories/deploy-window", () =>
+        HttpResponse.json({ memory: memory(patched ? "Edited." : "Deploys land on Tuesdays.") }),
+      ),
+      http.patch("*/api/projects/p1/memories/deploy-window", async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json({ memory: memory("Edited.") });
+      }),
+      http.delete("*/api/projects/p1/memories/deploy-window", () => {
+        deleted = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderProbe(<MemoryProbe id="p1" />);
+    expect(await screen.findByText("summary:Deploys land on Tuesdays.")).toBeDefined();
+
+    await userEvent.click(screen.getByRole("button", { name: "edit" }));
+    expect(await screen.findByText("summary:Edited.")).toBeDefined();
+    expect(patched).toEqual({ description: "Edited." });
+
+    await userEvent.click(screen.getByRole("button", { name: "forget" }));
+    expect(deleted).toBe(true);
   });
 
   it("drops a deleted project from a mounted index", async () => {

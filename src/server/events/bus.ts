@@ -33,8 +33,8 @@ export type KiriEvent =
   | { type: "project.created"; id: string }
   | { type: "project.updated"; id: string }
   | { type: "project.deleted"; id: string }
-  | { type: "memory.saved"; name: string }
-  | { type: "memory.deleted"; name: string }
+  | { type: "memory.saved"; name: string; projectId?: string }
+  | { type: "memory.deleted"; name: string; projectId?: string }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string }

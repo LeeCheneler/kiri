@@ -48,6 +48,7 @@ import {
   imageTools,
   judgeCommand,
   listMemories,
+  listProjectMemories,
   listSkills,
   memoryTools,
   resumeTurn,
@@ -377,9 +378,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     },
   });
 
-  // The prompt-layer context for a session's project: its name plus the
-  // corpus index the prompt map lists — each slug titled by its body's first
-  // heading, falling back to the display name. Null for projectless sessions.
+  // The prompt-layer context for a session's project: its name, the corpus
+  // index the prompt map lists — each slug titled by its body's first heading,
+  // falling back to the display name — and the project's memory index. Null
+  // for projectless sessions.
   const projectContextFor = (sessionId: string) => {
     const projectId = getSession(db, sessionId)?.projectId ?? null;
     const project = projectId !== null ? getProject(db, projectId) : undefined;
@@ -390,6 +392,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         slug: article.slug,
         heading: article.heading ?? article.name,
       })),
+      memories: listProjectMemories(db, project.id),
     };
   };
 
@@ -401,7 +404,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...articleTools(db, sessionId, getSession(db, sessionId)?.projectId ?? null, (event) =>
         bus?.publish(event),
       ),
-      ...memoryTools(db, (event) => bus?.publish(event)),
+      ...memoryTools(db, getSession(db, sessionId)?.projectId ?? null, (event) =>
+        bus?.publish(event),
+      ),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(sandbox.length > 0 ? shellTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),

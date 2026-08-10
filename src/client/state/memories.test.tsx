@@ -4,6 +4,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { captureEventSources } from "../../../tests/setup/fake-event-source.ts";
+import { flushAsync } from "../../../tests/setup/flush-async.ts";
 import { server } from "../../../tests/setup/msw.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import {
@@ -69,6 +70,25 @@ const renderProbe = (ui: React.ReactNode) => {
 };
 
 describe("memories state", () => {
+  it("ignores a project-scoped memory event — it belongs to that project's caches", async () => {
+    let fetches = 0;
+    server.use(
+      http.get("*/api/memories", () => {
+        fetches += 1;
+        return HttpResponse.json({ memories: [summary("alpha")] });
+      }),
+    );
+    const { sources } = renderProbe(<ListProbe />);
+    expect(await screen.findByText("memories:alpha")).toBeDefined();
+    expect(fetches).toBe(1);
+
+    act(() => {
+      sources[0]?.emit({ type: "memory.saved", name: "deploy-window", projectId: "p1" });
+    });
+    await flushAsync();
+    expect(fetches).toBe(1);
+  });
+
   it("refetches the index when a memory is saved", async () => {
     server.use(
       http.get("*/api/memories", () => HttpResponse.json({ memories: [summary("alpha")] })),

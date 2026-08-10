@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, sessions } from "../db/schema.ts";
+import { articles, memories, sessions } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import {
   createProject,
@@ -14,10 +14,24 @@ import {
   listProjects,
   updateProjectName,
 } from "../projects/store.ts";
-import { getSessionPreviews } from "../sessions/index.ts";
+import {
+  getScopedMemory,
+  getSessionPreviews,
+  listProjectMemories,
+  memoryNameSchema,
+} from "../sessions/index.ts";
 import { articleParamSchema, runIdParamSchema as idParamSchema, onZodFail } from "./shared.ts";
 
 const projectBodySchema = z.object({ name: z.string().trim().min(1) }).strict();
+
+const projectMemoryParamSchema = z.object({ id: z.string().min(1), name: memoryNameSchema });
+
+const patchMemoryBodySchema = z
+  .object({
+    description: z.string().min(1).optional(),
+    contentMd: z.string().min(1).optional(),
+  })
+  .strict();
 
 export interface ProjectsRoutesDeps {
   db: KiriDb;
@@ -92,6 +106,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     return c.json({
       project,
       articles: listProjectArticles(db, id),
+      memories: listProjectMemories(db, id),
       sessions: rows.map((row) => ({
         id: row.id,
         title: row.title,
@@ -173,6 +188,74 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
         createdAt: article.createdAt,
         heading: extractFirstHeading(article.contentMd),
       });
+    },
+  );
+
+  // A project's memories mirror the global curation surface, addressed under
+  // their owning project: names are unique per scope, so the same name can
+  // exist globally and in any number of projects.
+  const requireProjectMemory = (projectId: string, name: string) =>
+    getProject(db, projectId) === undefined
+      ? { error: `project "${projectId}" not found` }
+      : (getScopedMemory(db, projectId, name) ?? {
+          error: `memory "${name}" not found on project "${projectId}"`,
+        });
+
+  const memoryBody = (memory: NonNullable<ReturnType<typeof getScopedMemory>>) => ({
+    memory: {
+      name: memory.name,
+      description: memory.description,
+      contentMd: memory.contentMd,
+      createdAt: memory.createdAt,
+      updatedAt: memory.updatedAt,
+    },
+  });
+
+  app.get(
+    "/:id/memories/:name",
+    zValidator("param", projectMemoryParamSchema, onZodFail("invalid memory name")),
+    (c) => {
+      const { id, name } = c.req.valid("param");
+      const found = requireProjectMemory(id, name);
+      if ("error" in found) return c.json(found, 404);
+      return c.json(memoryBody(found));
+    },
+  );
+
+  app.patch(
+    "/:id/memories/:name",
+    zValidator("param", projectMemoryParamSchema, onZodFail("invalid memory name")),
+    zValidator("json", patchMemoryBodySchema, onZodFail("invalid memory")),
+    (c) => {
+      const { id, name } = c.req.valid("param");
+      const { description, contentMd } = c.req.valid("json");
+      const found = requireProjectMemory(id, name);
+      if ("error" in found) return c.json(found, 404);
+      if (description !== undefined || contentMd !== undefined) {
+        db.update(memories)
+          .set({
+            ...(description !== undefined ? { description } : {}),
+            ...(contentMd !== undefined ? { contentMd: contentMd.trimEnd() } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(memories.id, found.id))
+          .run();
+        bus?.publish({ type: "memory.saved", name, projectId: id });
+      }
+      return c.json(memoryBody(getScopedMemory(db, id, name) as typeof found));
+    },
+  );
+
+  app.delete(
+    "/:id/memories/:name",
+    zValidator("param", projectMemoryParamSchema, onZodFail("invalid memory name")),
+    (c) => {
+      const { id, name } = c.req.valid("param");
+      const found = requireProjectMemory(id, name);
+      if ("error" in found) return c.json(found, 404);
+      db.delete(memories).where(eq(memories.id, found.id)).run();
+      bus?.publish({ type: "memory.deleted", name, projectId: id });
+      return c.body(null, 204);
     },
   );
 

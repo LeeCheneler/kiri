@@ -82,34 +82,55 @@ function buildSkillGuidance(tools: string[], skills: readonly SkillSummary[]): s
 // never need one don't pay for its content. Keyed off read_memory, so a
 // worker whose mutations are withheld gets the recall half alone, and omitted
 // entirely when there is nothing to recall and no way to save.
-function buildMemoryGuidance(tools: string[], memories: readonly MemorySummary[]): string | null {
+function buildMemoryGuidance(
+  tools: string[],
+  memories: readonly MemorySummary[],
+  project: ProjectPromptContext | null,
+): string | null {
   if (!tools.includes("read_memory")) return null;
   const canSave = tools.includes("save_memory");
-  if (memories.length === 0 && !canSave) return null;
+  const projectMemories = project?.memories ?? [];
+  if (memories.length === 0 && projectMemories.length === 0 && !canSave) return null;
   const lines: string[] = [];
-  if (memories.length > 0) {
+  const entry = (memory: MemorySummary) => `- ${memory.name}: ${memory.description}`;
+  if (memories.length > 0 || projectMemories.length > 0) {
     lines.push(
-      "You have saved memories: small durable facts carried across this workspace's sessions, indexed below by name and one-line summary. When one looks relevant to the task at hand, load its full body with read_memory before relying on it — the index carries only the summaries.",
-      "Saved memories:",
-      ...memories.map((memory) => `- ${memory.name}: ${memory.description}`),
+      "You have saved memories: small durable facts carried across sessions, indexed below by name and one-line summary. When one looks relevant to the task at hand, load its full body with read_memory before relying on it — the index carries only the summaries.",
     );
+  }
+  if (memories.length > 0) {
+    lines.push("Saved memories, carried by every session in this workspace:");
+    lines.push(...memories.map(entry));
+  }
+  if (project !== null && projectMemories.length > 0) {
+    lines.push(
+      `Saved memories for the project "${project.name}", carried only by this project's sessions — one shadowing a workspace memory's name wins here:`,
+    );
+    lines.push(...projectMemories.map(entry));
   }
   if (canSave) {
     lines.push(
       "Saving memories: when the user states a durable preference or standing context, or corrects you in a way future sessions should remember, save it with save_memory — one fact per memory, written so a future conversation can apply it without this one's context. Save sparingly: every memory rides in each session's instructions, so only facts with lasting value earn a place. Prefer updating an existing memory — saving its name rewrites it in place — over creating a near-duplicate, and use delete_memory on anything wrong, stale, or superseded.",
     );
+    if (project !== null) {
+      lines.push(
+        `Memories you save belong to the project "${project.name}": they reach this project's sessions and no others, which is what a fact specific to this work wants. A memory that should hold everywhere is one to leave to a session outside the project.`,
+      );
+    }
   }
   return lines.join("\n");
 }
 
 /**
  * The project context a project session's prompt carries: the container's
- * name and its article index — each entry's slug with the body's first
- * heading (falling back to the display name), the title the map leads with.
+ * name, its article index — each entry's slug with the body's first heading
+ * (falling back to the display name), the title the map leads with — and its
+ * memory index, the facts only this project's sessions recall.
  */
 export interface ProjectPromptContext {
   name: string;
   articles: readonly { slug: string; heading: string }[];
+  memories: readonly MemorySummary[];
 }
 
 // The project layer of a project session's prompt: what the shared corpus is,
@@ -427,7 +448,7 @@ function buildCorePrompt(
     buildToolGuidance(tools),
     buildDelegateGuidance(tools, delegateRoles),
     buildSkillGuidance(tools, skills),
-    buildMemoryGuidance(tools, memories),
+    buildMemoryGuidance(tools, memories, project),
     buildChartGuidance(),
     buildDiagramGuidance(),
     buildArticleGuidance(tools),
@@ -492,7 +513,7 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
     buildEffortGuidance(opts.effort ?? "medium"),
     buildToolGuidance(tools),
     buildSkillGuidance(tools, opts.skills ?? []),
-    buildMemoryGuidance(tools, opts.memories ?? []),
+    buildMemoryGuidance(tools, opts.memories ?? [], opts.project ?? null),
     buildArticleGuidance(tools),
     buildProjectGuidance(tools, opts.project ?? null),
     buildWorkflowGuidance(tools),

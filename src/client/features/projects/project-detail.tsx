@@ -17,7 +17,8 @@ import { NewSessionButton } from "../session-chat/new-session-button.tsx";
 
 const BREADCRUMB = [{ label: "Projects", href: "/projects" }];
 
-const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`;
+const plural = (count: number, noun: string, plural = `${noun}s`): string =>
+  `${count} ${count === 1 ? noun : plural}`;
 
 // The label a session row leads with: its title, else its first user
 // message, else its short id — the same fallback order as the feed.
@@ -232,6 +233,35 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
             </div>
           )}
         </div>
+        <div>
+          <Eyebrow tone="muted">Memories</Eyebrow>
+          {data.memories.length === 0 ? (
+            <div className="mt-3">
+              <EmptyState>
+                no memories yet. facts saved by this project's sessions land here and reach every
+                session in the project, not the rest of the workspace.
+              </EmptyState>
+            </div>
+          ) : (
+            <div className="mt-1 divide-y divide-rule">
+              {data.memories.map((memory) => (
+                <div key={memory.name} className="py-3">
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <HeadlineLink
+                      href={`/projects/${encodeURIComponent(id)}/memories/${encodeURIComponent(memory.name)}`}
+                    >
+                      {memory.name}
+                    </HeadlineLink>
+                    <Meta>
+                      <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
+                    </Meta>
+                  </div>
+                  <p className="mt-1 font-mono text-sm text-ink-muted">{memory.description}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       {renameOpen ? (
         <RenameProjectModal
@@ -243,7 +273,7 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
       {confirmOpen ? (
         <ConfirmModal
           title="Delete this project?"
-          body={`This deletes the whole container: ${plural(data.articles.length, "article")} and ${plural(data.sessions.length, "session")}, including everything those sessions own. This cannot be undone.`}
+          body={`This deletes the whole container: ${plural(data.articles.length, "article")}, ${plural(data.memories.length, "memory", "memories")} and ${plural(data.sessions.length, "session")}, including everything those sessions own. This cannot be undone.`}
           confirmLabel="delete"
           variant="negative"
           onConfirm={handleDelete}

@@ -275,7 +275,9 @@ describe("buildSystemPrompt", () => {
 
     // read_memory withheld by its permission drops the index with it.
     const withoutTool = buildSystemPrompt({ config, now: FIXED_NOW, tools: [], memories });
-    expect(withoutTool).not.toContain("Saved memories:");
+    expect(withoutTool).not.toContain(
+      "Saved memories, carried by every session in this workspace:",
+    );
   });
 
   it("carries the saving discipline only when save_memory is active", () => {
@@ -288,7 +290,7 @@ describe("buildSystemPrompt", () => {
       tools: ["read_memory"],
       memories,
     });
-    expect(readOnly).toContain("Saved memories:");
+    expect(readOnly).toContain("Saved memories, carried by every session in this workspace:");
     expect(readOnly).not.toContain("Saving memories:");
 
     const writable = buildSystemPrompt({
@@ -308,7 +310,7 @@ describe("buildSystemPrompt", () => {
       memories: [],
     });
     expect(writable).toContain("Saving memories:");
-    expect(writable).not.toContain("Saved memories:");
+    expect(writable).not.toContain("Saved memories, carried by every session in this workspace:");
 
     const readOnly = buildSystemPrompt({
       config,
@@ -319,6 +321,58 @@ describe("buildSystemPrompt", () => {
     expect(readOnly).not.toContain("memories");
   });
 
+  it("indexes a project's memories beside the workspace's, and scopes saving to it", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_memory", "save_memory"],
+      memories: [
+        { name: "prefers-bun", description: "Prefers bun over node.", updatedAt: FIXED_NOW },
+      ],
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [
+          { name: "deploy-window", description: "Deploys land on Tuesdays.", updatedAt: FIXED_NOW },
+        ],
+      },
+    });
+    expect(prompt).toContain("- prefers-bun: Prefers bun over node.");
+    expect(prompt).toContain('Saved memories for the project "Research"');
+    expect(prompt).toContain("- deploy-window: Deploys land on Tuesdays.");
+    expect(prompt).toContain('Memories you save belong to the project "Research"');
+  });
+
+  it("indexes a project's memories when the workspace has none", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_memory"],
+      memories: [],
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [
+          { name: "deploy-window", description: "Deploys land on Tuesdays.", updatedAt: FIXED_NOW },
+        ],
+      },
+    });
+    expect(prompt).toContain("load its full body with read_memory");
+    expect(prompt).toContain("- deploy-window: Deploys land on Tuesdays.");
+    expect(prompt).not.toContain("Saved memories, carried by every session in this workspace:");
+  });
+
+  it("leaves the saving scope unsaid outside a project", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["read_memory", "save_memory"],
+      memories: [],
+    });
+    expect(prompt).toContain("Saving memories:");
+    expect(prompt).not.toContain("Memories you save belong to the project");
+  });
+
   it("maps the project corpus with the curation line when the session can write", () => {
     const prompt = buildSystemPrompt({
       config,
@@ -326,6 +380,7 @@ describe("buildSystemPrompt", () => {
       project: {
         name: "Research",
         articles: [{ slug: "corpus-doc", heading: "Field Notes" }],
+        memories: [],
       },
       now: FIXED_NOW,
     });
@@ -340,7 +395,7 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt({
       config,
       tools: ["read_article", "create_article"],
-      project: { name: "Research", articles: [] },
+      project: { name: "Research", articles: [], memories: [] },
       now: FIXED_NOW,
     });
     expect(prompt).toContain("The corpus is currently empty.");
@@ -357,7 +412,7 @@ describe("buildSystemPrompt", () => {
     const withoutTool = buildSystemPrompt({
       config,
       tools: ["tavily__search"],
-      project: { name: "Research", articles: [] },
+      project: { name: "Research", articles: [], memories: [] },
       now: FIXED_NOW,
     });
     expect(withoutTool).not.toContain("belongs to the project");
@@ -956,6 +1011,7 @@ describe("buildChildSessionPrompt", () => {
       project: {
         name: "Research",
         articles: [{ slug: "corpus-doc", heading: "Field Notes" }],
+        memories: [],
       },
       now: FIXED_NOW,
     });
