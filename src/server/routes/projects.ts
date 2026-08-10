@@ -12,7 +12,7 @@ import {
   getProject,
   listProjectArticles,
   listProjects,
-  updateProjectName,
+  updateProject,
 } from "../projects/store.ts";
 import {
   getScopedMemory,
@@ -23,6 +23,15 @@ import {
 import { articleParamSchema, runIdParamSchema as idParamSchema, onZodFail } from "./shared.ts";
 
 const projectBodySchema = z.object({ name: z.string().trim().min(1) }).strict();
+
+// A patch carries whichever fields are changing. Instructions may be blank —
+// that is how a project's instructions are cleared.
+const patchProjectBodySchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    instructions: z.string().optional(),
+  })
+  .strict();
 
 const projectMemoryParamSchema = z.object({ id: z.string().min(1), name: memoryNameSchema });
 
@@ -50,9 +59,9 @@ const projectSessions = (db: KiriDb, projectId: string) =>
 
 /**
  * HTTP surface for projects: list and create containers, read one with its
- * article and session indexes, rename it, and delete it — which cascades the
- * whole container. Every mutation publishes the matching bus event so open
- * views refresh.
+ * article and session indexes, patch its name or standing instructions, and
+ * delete it — which cascades the whole container. Every mutation publishes the
+ * matching bus event so open views refresh.
  */
 export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
   const { db, bus } = deps;
@@ -79,8 +88,12 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
         .all()
         .map((row) => [row.projectId, row.count]),
     );
+    // The index carries the container's identity and sizes only — a project's
+    // instructions can run long and belong to its own page.
     const rows = listProjects(db).map((project) => ({
-      ...project,
+      id: project.id,
+      name: project.name,
+      createdAt: project.createdAt,
       articleCount: articleCounts.get(project.id) ?? 0,
       sessionCount: sessionCounts.get(project.id) ?? 0,
     }));
@@ -120,12 +133,12 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
   app.patch(
     "/:id",
     zValidator("param", idParamSchema, onZodFail("invalid project id")),
-    zValidator("json", projectBodySchema, onZodFail("invalid project")),
+    zValidator("json", patchProjectBodySchema, onZodFail("invalid project")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { name } = c.req.valid("json");
+      const patch = c.req.valid("json");
       if (!getProject(db, id)) return c.json({ error: `project "${id}" not found` }, 404);
-      const project = updateProjectName(db, id, name);
+      const project = updateProject(db, id, patch);
       bus?.publish({ type: "project.updated", id });
       return c.json({ project });
     },

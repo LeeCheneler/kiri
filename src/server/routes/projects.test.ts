@@ -92,6 +92,23 @@ describe("projects routes", () => {
       expect(body.projects[1]).toMatchObject({ articleCount: 2, sessionCount: 1 });
       expect(body.projects[0]).toMatchObject({ articleCount: 0, sessionCount: 0 });
     });
+
+    it("leaves instructions out of the index", async () => {
+      env.db
+        .insert(projects)
+        .values({
+          id: "p1",
+          name: "Research",
+          instructions: "Answer in British English.",
+          createdAt: new Date(),
+        })
+        .run();
+
+      const res = await buildApp().request("/api/projects");
+
+      const body = (await res.json()) as { projects: Record<string, unknown>[] };
+      expect(body.projects[0]).not.toHaveProperty("instructions");
+    });
   });
 
   describe("POST /api/projects", () => {
@@ -167,6 +184,23 @@ describe("projects routes", () => {
       ]);
     });
 
+    it("serves the project's instructions", async () => {
+      env.db
+        .insert(projects)
+        .values({
+          id: "p1",
+          name: "Research",
+          instructions: "Answer in British English.",
+          createdAt: new Date(),
+        })
+        .run();
+
+      const res = await buildApp().request("/api/projects/p1");
+
+      const body = (await res.json()) as { project: { instructions: string | null } };
+      expect(body.project.instructions).toBe("Answer in British English.");
+    });
+
     it("404s an unknown id", async () => {
       const res = await buildApp().request("/api/projects/missing");
       expect(res.status).toBe(404);
@@ -201,6 +235,33 @@ describe("projects routes", () => {
     it("400s a blank name", async () => {
       seedProject("p1");
       const res = await patch("p1", { name: "" });
+      expect(res.status).toBe(400);
+    });
+
+    it("saves the project's instructions", async () => {
+      seedProject("p1");
+
+      const res = await patch("p1", { instructions: "Answer in British English." });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { project: { instructions: string | null } };
+      expect(body.project.instructions).toBe("Answer in British English.");
+      expect(events).toContainEqual({ type: "project.updated", id: "p1" });
+    });
+
+    it("clears the instructions when the body is blank", async () => {
+      seedProject("p1");
+      await patch("p1", { instructions: "Answer in British English." });
+
+      const res = await patch("p1", { instructions: "" });
+
+      const body = (await res.json()) as { project: { instructions: string | null } };
+      expect(body.project.instructions).toBeNull();
+    });
+
+    it("rejects unknown fields", async () => {
+      seedProject("p1");
+      const res = await patch("p1", { slug: "research" });
       expect(res.status).toBe(400);
     });
   });

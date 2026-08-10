@@ -70,9 +70,10 @@ landing:
 
 - Check the boot report / health banner for a parse error — an invalid
   `kiri.yaml` keeps the previous config.
-- A `kiri.md` or `AGENTS.md` change applies on the **next turn**, not
-  retroactively — and an `AGENTS.md` only counts when it sits in or above the
-  session's working directory, inside the allowed directories.
+- A `kiri.md`, project instructions, or `AGENTS.md` change applies on the
+  **next turn**, not retroactively — and an `AGENTS.md` only counts when it
+  sits in or above the session's working directory, inside the allowed
+  directories.
 - Confirm you're editing files in the active workspace (the launch dir, or
   `KIRI_CONFIG_DIR` if set).
 

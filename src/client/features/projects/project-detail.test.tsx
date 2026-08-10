@@ -12,7 +12,12 @@ import { ProjectDetail } from "./project-detail.tsx";
 const NOW = new Date("2026-08-07T12:00:00.000Z");
 
 const detail = (over: Record<string, unknown> = {}) => ({
-  project: { id: "p1", name: "Research", createdAt: "2026-08-07T10:00:00.000Z" },
+  project: {
+    id: "p1",
+    name: "Research",
+    instructions: null,
+    createdAt: "2026-08-07T10:00:00.000Z",
+  },
   articles: [],
   memories: [],
   sessions: [],
@@ -201,6 +206,102 @@ describe("<ProjectDetail>", () => {
 
     expect(await within(dialog).findByRole("alert")).toBeDefined();
     expect(within(dialog).getByLabelText("Name")).toBeDefined();
+  });
+
+  it("renders the project's instructions, or an empty state without them", async () => {
+    serveProject(
+      detail({
+        project: {
+          id: "p1",
+          name: "Research",
+          instructions: "Cite every source.",
+          createdAt: "2026-08-07T10:00:00.000Z",
+        },
+      }),
+    );
+    renderDetail();
+
+    expect(await screen.findByText("Cite every source.")).toBeDefined();
+    expect(screen.queryByText(/no instructions yet/)).toBeNull();
+  });
+
+  it("shows an empty state when the project has no instructions", async () => {
+    serveProject(detail());
+    renderDetail();
+
+    expect(await screen.findByText(/no instructions yet/)).toBeDefined();
+  });
+
+  it("edits the instructions through the modal: prefills, patches, and closes", async () => {
+    let patched: unknown = null;
+    serveProject(
+      detail({
+        project: {
+          id: "p1",
+          name: "Research",
+          instructions: "Cite every source.",
+          createdAt: "2026-08-07T10:00:00.000Z",
+        },
+      }),
+    );
+    server.use(
+      http.patch("*/api/projects/:id", async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json({
+          project: {
+            id: "p1",
+            name: "Research",
+            instructions: "Cite every source. Twice.",
+            createdAt: "2026-08-07T10:00:00.000Z",
+          },
+        });
+      }),
+    );
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "edit instructions" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const field = within(dialog).getByLabelText("Instructions");
+    expect((field as HTMLTextAreaElement).value).toBe("Cite every source.");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Cite every source. Twice.");
+    await userEvent.click(within(dialog).getByRole("button", { name: "save" }));
+
+    await waitFor(() => expect(patched).toEqual({ instructions: "Cite every source. Twice." }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("cancelling the instructions modal writes nothing", async () => {
+    let patched = false;
+    serveProject(detail());
+    server.use(
+      http.patch("*/api/projects/:id", () => {
+        patched = true;
+        return HttpResponse.json({ project: detail().project });
+      }),
+    );
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "edit instructions" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText("Instructions"), "Discarded.");
+    await userEvent.click(within(dialog).getByRole("button", { name: "cancel" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(patched).toBe(false);
+  });
+
+  it("surfaces a failed instructions save inside the modal and stays open", async () => {
+    serveProject(detail());
+    server.use(http.patch("*/api/projects/:id", () => new HttpResponse("boom", { status: 500 })));
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: "edit instructions" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "save" }));
+
+    expect(await within(dialog).findByRole("alert")).toBeDefined();
+    expect(within(dialog).getByLabelText("Instructions")).toBeDefined();
   });
 
   it("deletes behind a confirm that spells out the cascade", async () => {

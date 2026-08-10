@@ -158,6 +158,19 @@ export function useRenameProject(): (id: string, name: string) => Promise<void> 
 }
 
 /**
+ * A writer for a project's standing instructions: saves the markdown — a
+ * blank body clears them — then invalidates the project's queries so views
+ * reflect the server's truth.
+ */
+export function useSaveProjectInstructions(): (id: string, instructions: string) => Promise<void> {
+  const queryClient = useQueryClient();
+  return async (id, instructions) => {
+    await patchProject(id, { instructions });
+    void queryClient.invalidateQueries({ queryKey: projectKey(id) });
+  };
+}
+
+/**
  * A deleter for a project-owned article: removes it from the corpus, then
  * invalidates the project's queries so its indexes drop it and the article's
  * page 404s.

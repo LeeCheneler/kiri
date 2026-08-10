@@ -124,13 +124,15 @@ function buildMemoryGuidance(
 /**
  * The project context a project session's prompt carries: the container's
  * name, its article index — each entry's slug with the body's first heading
- * (falling back to the display name), the title the map leads with — and its
- * memory index, the facts only this project's sessions recall.
+ * (falling back to the display name), the title the map leads with — its
+ * memory index, the facts only this project's sessions recall, and its
+ * standing instructions when it has any.
  */
 export interface ProjectPromptContext {
   name: string;
   articles: readonly { slug: string; heading: string }[];
   memories: readonly MemorySummary[];
+  instructions?: string | null;
 }
 
 // The project layer of a project session's prompt: what the shared corpus is,
@@ -622,6 +624,19 @@ function buildAgentsLayer(chain: readonly AgentsInstructions[]): string | null {
   ].join("\n\n");
 }
 
+// The project's own standing instructions as one prompt layer, delimited and
+// named so the model can tell them apart from the workspace's `kiri.md` above
+// and the directory instructions below. A project with no instructions — or
+// whose body is blank — contributes nothing.
+function buildProjectInstructionsLayer(project: ProjectPromptContext | null): string | null {
+  const text = project?.instructions?.trim() ?? "";
+  if (project === null || text === "") return null;
+  return [
+    `Standing instructions for the project "${project.name}", applied to every session in it. They sit between the workspace's ${INSTRUCTIONS_FILENAME} instructions and any directory instructions below — where they conflict with the workspace's, these are the more specific and win.`,
+    text,
+  ].join("\n\n");
+}
+
 export interface BuildSystemPromptOptions {
   /** Workspace config; `kiri.md` resolves against it. */
   config: ConfigStore;
@@ -648,12 +663,13 @@ export interface BuildSystemPromptOptions {
 }
 
 /**
- * Compose a session's system prompt: the immutable kiri core layer, then the
- * workspace's `kiri.md` standing instructions when present, then the
- * `AGENTS.md` chain governing the session's working directory. Always returns
- * a non-empty string — the core layer is always included. Every layer is read
- * fresh from disk each turn so edits take effect on the next turn, with git as
- * the source of truth and nothing snapshotted onto the session.
+ * Compose a session's system prompt broadest first: the immutable kiri core
+ * layer, then the workspace's `kiri.md` standing instructions when present,
+ * then the project's own instructions when the session belongs to one, then
+ * the `AGENTS.md` chain governing the session's working directory. Always
+ * returns a non-empty string — the core layer is always included. Every layer
+ * is resolved fresh each turn so edits take effect on the next turn, with
+ * nothing snapshotted onto the session.
  */
 export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   const sections = [
@@ -672,6 +688,8 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   ];
   const instructions = readInstructions(opts.config.instructionsFile());
   if (instructions !== null) sections.push(instructions);
+  const projectInstructions = buildProjectInstructionsLayer(opts.project ?? null);
+  if (projectInstructions !== null) sections.push(projectInstructions);
   const agents = buildAgentsLayer(
     readAgentsChain(opts.workingDirectory ?? null, opts.allowedDirectories ?? []),
   );
@@ -683,8 +701,8 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
  * Build the per-turn system-prompt resolver for a workspace. The returned
  * function composes the prompt for a session, choosing by its lineage: a
  * top-level session gets the layered prompt — core (with tool-use guidance for
- * the active `tools`), then `kiri.md`, then the `AGENTS.md` chain for its
- * working directory — while a child session (one with a parent) gets the
+ * the active `tools`), then `kiri.md`, then its project's instructions, then
+ * the `AGENTS.md` chain for its working directory — while a child session (one with a parent) gets the
  * focused worker prompt with no user layers. Handed to
  * `runTurn`, so a turn streams with its system prompt in place.
  */

@@ -50,6 +50,9 @@ import migration0032 from "../../../drizzle/0032_drop_session_pinned.sql" with {
 import migration0033 from "../../../drizzle/0033_scope_memories_to_projects.sql" with {
   type: "text",
 };
+import migration0034 from "../../../drizzle/0034_add_project_instructions.sql" with {
+  type: "text",
+};
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -114,6 +117,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0031_add_projects", sql: migration0031 },
   { name: "0032_drop_session_pinned", sql: migration0032 },
   { name: "0033_scope_memories_to_projects", sql: migration0033 },
+  { name: "0034_add_project_instructions", sql: migration0034 },
 ];
 
 /**
