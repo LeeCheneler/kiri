@@ -1,7 +1,30 @@
 import { describe, expect, it } from "bun:test";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { resolveConfigDir } from "./config-dir.ts";
+import { DEFAULT_PORT, resolveConfigDir, resolvePort } from "./config-dir.ts";
+
+describe("resolvePort", () => {
+  it("falls back to the default port when KIRI_PORT is unset", () => {
+    expect(resolvePort({})).toBe(DEFAULT_PORT);
+  });
+
+  it("uses a valid KIRI_PORT override", () => {
+    expect(resolvePort({ KIRI_PORT: "4243" })).toBe(4243);
+  });
+
+  it("rejects a non-numeric KIRI_PORT", () => {
+    expect(() => resolvePort({ KIRI_PORT: "dev" })).toThrow(/invalid KIRI_PORT "dev"/);
+  });
+
+  it("rejects a fractional KIRI_PORT", () => {
+    expect(() => resolvePort({ KIRI_PORT: "4242.5" })).toThrow(/invalid KIRI_PORT/);
+  });
+
+  it("rejects an out-of-range KIRI_PORT", () => {
+    expect(() => resolvePort({ KIRI_PORT: "0" })).toThrow(/invalid KIRI_PORT/);
+    expect(() => resolvePort({ KIRI_PORT: "70000" })).toThrow(/invalid KIRI_PORT/);
+  });
+});
 
 describe("resolveConfigDir", () => {
   it("falls back to cwd when KIRI_CONFIG_DIR is unset", () => {

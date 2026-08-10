@@ -50,6 +50,7 @@ current directory, or `KIRI_CONFIG_DIR` if set.
 | Variable | Effect |
 | --- | --- |
 | `KIRI_CONFIG_DIR` | Workspace directory to use instead of the current directory. A leading `~` is expanded to your home. Applies to both `kiri init` and the server. |
+| `KIRI_PORT` | Port to serve on instead of `4242` — for a second kiri alongside a running one. The hosted shell at [local.kiri.build](https://local.kiri.build) only reaches the default port; on any other, open `http://localhost:<port>` directly. |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, … | Secrets referenced by `kiri.yaml` providers and MCP servers via `{ env: <NAME> }`. Read at run time; can live in a git-ignored workspace `.env`. |
 
 Kiri auto-loads a workspace `.env` (from the config dir) at boot, before reading

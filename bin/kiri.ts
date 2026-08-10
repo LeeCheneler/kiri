@@ -2,7 +2,7 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { bootstrap } from "../src/server/bootstrap.ts";
-import { resolveConfigDir } from "../src/server/config-dir.ts";
+import { DEFAULT_PORT, resolveConfigDir, resolvePort } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
 import {
   type ConfigCheckLevel,
@@ -43,6 +43,9 @@ Options:
 Environment:
   KIRI_CONFIG_DIR  Workspace directory to use instead of the current
                    directory. A leading ~ is expanded to your home.
+  KIRI_PORT        Port to serve on instead of 4242. The hosted shell at
+                   local.kiri.build only reaches the default port — on any
+                   other, open http://localhost:<port> directly.
 `;
 
 const INIT_HELP = `Usage: kiri init
@@ -219,8 +222,11 @@ const app = createApp({
   env: process.env,
   getProviderNames,
 });
-const server = startServer({ app, port: 4242 });
-console.log("Visit https://local.kiri.build");
+const port = resolvePort(process.env);
+const server = startServer({ app, port });
+console.log(
+  port === DEFAULT_PORT ? "Visit https://local.kiri.build" : `Visit http://localhost:${port}`,
+);
 
 const shutdown = async () => {
   // Stop the config watcher first so it can't schedule a revalidate after the
