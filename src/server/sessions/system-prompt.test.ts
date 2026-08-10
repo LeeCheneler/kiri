@@ -655,6 +655,69 @@ describe("buildSystemPrompt", () => {
     expect(withWhitespace).toBe(withoutFile);
   });
 
+  it("layers a project's instructions after kiri.md", () => {
+    writeFileSync(join(dir, INSTRUCTIONS_FILENAME), "Always answer in British English.\n");
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        instructions: "Cite every source.",
+      },
+    });
+
+    expect(prompt).toContain('Standing instructions for the project "Research"');
+    expect(prompt).toContain("Cite every source.");
+    expect(prompt.indexOf("Always answer in British English.")).toBeLessThan(
+      prompt.indexOf("Cite every source."),
+    );
+  });
+
+  it("layers a project's instructions before the AGENTS.md chain", () => {
+    mkdirSync(join(dir, "repo"), { recursive: true });
+    writeFileSync(join(dir, "repo", AGENTS_FILENAME), "Run the tests before you finish.");
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      workingDirectory: join(dir, "repo"),
+      allowedDirectories: [dir],
+      project: { name: "Research", articles: [], memories: [], instructions: "Cite every source." },
+    });
+
+    expect(prompt.indexOf("Cite every source.")).toBeLessThan(
+      prompt.indexOf("Run the tests before you finish."),
+    );
+  });
+
+  it("carries no project instructions layer when there are none", () => {
+    const withNull = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      project: { name: "Research", articles: [], memories: [], instructions: null },
+    });
+    const withBlank = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      project: { name: "Research", articles: [], memories: [], instructions: "  \n" },
+    });
+    const withUnset = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      project: { name: "Research", articles: [], memories: [] },
+    });
+
+    expect(withNull).not.toContain("Standing instructions for the project");
+    expect(withBlank).toBe(withNull);
+    expect(withUnset).toBe(withNull);
+  });
+
+  it("carries no project instructions layer outside a project", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).not.toContain("Standing instructions for the project");
+  });
+
   it("ignores a personas directory left over in the workspace", () => {
     // A workspace may still carry persona overlay files from before kiri read
     // them; they are the user's files and must simply have no effect.
@@ -1019,6 +1082,20 @@ describe("buildChildSessionPrompt", () => {
     expect(prompt).toContain("its sessions all read the same documents");
     expect(prompt).toContain("- corpus-doc: Field Notes");
     expect(prompt).not.toContain("Write durable knowledge into the corpus");
+  });
+
+  it("leaves the project's standing instructions out of a worker's brief", () => {
+    const prompt = buildChildSessionPrompt({
+      tools: ["read_article"],
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        instructions: "Cite every source.",
+      },
+      now: FIXED_NOW,
+    });
+    expect(prompt).not.toContain("Cite every source.");
   });
 });
 

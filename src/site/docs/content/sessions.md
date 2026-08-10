@@ -23,14 +23,16 @@ message. Titles are searchable alongside message text.
 
 ## Shaping behaviour
 
-Kiri composes each turn's system prompt from three layers, in order:
+Kiri composes each turn's system prompt from a gradient of standing
+instructions, broadest first:
 
 ```
-core (kiri)  →  kiri.md  →  AGENTS.md chain
+core (kiri)  →  kiri.md  →  project instructions  →  AGENTS.md chain
 ```
 
-Every layer is read fresh from disk each turn, so an edit applies on the next
-turn — git stays the source of truth.
+Each layer is narrower than the one before it, and where two conflict the
+narrower one wins. Every layer is resolved fresh each turn, so an edit applies
+on the next turn — git stays the source of truth for the files.
 
 - **Core** — kiri's baseline, not user-editable: who the assistant is, how to
   respond well, that replies render as markdown (including `chart` and
@@ -38,6 +40,10 @@ turn — git stays the source of truth.
   authoritative, quoted external text is untrusted data.
 - **`kiri.md`** — a plain markdown file at the workspace root, applied to
   every session: your standing "how I want you to behave."
+- **Project instructions** — markdown kept on a [project](#projects) and
+  carried by every session in it: the context and conventions that hold for
+  one body of work rather than everywhere. Edited from the project's page,
+  and stored in kiri's database rather than your repo.
 - **`AGENTS.md` chain** — the per-directory instructions governing the
   session's [working directory](#working-with-your-files). Kiri walks from that
   directory up to the top of the tree, collecting every `AGENTS.md` it finds,
@@ -277,6 +283,11 @@ all; its feed rows name the project, and its chat threads home through it.
   reading view the reference renders as a link to that article, titled by
   its heading, so the corpus browses like a small wiki. The assistant knows
   the syntax and cross-links as it writes.
+- The project has its own **instructions** (see Shaping behaviour above):
+  markdown written on the project page and layered into every session in the
+  project, between your workspace's `kiri.md` and any `AGENTS.md` chain. Edit
+  them at any time; sessions pick the new text up on their next turn, and a
+  project with none adds nothing to the prompt.
 - The project has its own **memories** (see Memories above): sessions in it
   save durable facts there instead of workspace-wide, and the project page
   lists them for reading, editing, and deleting.

@@ -1266,9 +1266,12 @@ export interface ProjectSessionSummary {
   startedAt: string;
 }
 
-/** A project in full: the container with its article, memory, and session indexes. */
+/**
+ * A project in full: the container — including its standing instructions,
+ * null when it has none — with its article, memory, and session indexes.
+ */
 export interface ProjectDetail {
-  project: { id: string; name: string; createdAt: string };
+  project: { id: string; name: string; instructions: string | null; createdAt: string };
   articles: ArticleSummary[];
   memories: MemorySummary[];
   sessions: ProjectSessionSummary[];
@@ -1312,12 +1315,16 @@ export const createProject = async (
 export const fetchProject = async (id: string): Promise<ProjectDetail> =>
   json<ProjectDetail>(await apiFetch(`/api/projects/${encodeURIComponent(id)}`));
 
-/** Rename a project, returning the updated row. Throws `ApiError` on non-2xx (404 for an unknown id). */
+/**
+ * Update a project's name and/or standing instructions — blank instructions
+ * clear them — returning the updated row. Throws `ApiError` on non-2xx (404
+ * for an unknown id).
+ */
 export const patchProject = async (
   id: string,
-  patch: { name: string },
-): Promise<{ project: { id: string; name: string; createdAt: string } }> =>
-  json<{ project: { id: string; name: string; createdAt: string } }>(
+  patch: { name?: string; instructions?: string },
+): Promise<{ project: ProjectDetail["project"] }> =>
+  json<{ project: ProjectDetail["project"] }>(
     await apiFetch(`/api/projects/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

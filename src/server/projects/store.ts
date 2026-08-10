@@ -56,9 +56,26 @@ export function listProjectArticles(db: KiriDb, projectId: string): ProjectArtic
     }));
 }
 
-/** Rename a project. A display change only — nothing keys off the name. Returns the updated row. */
-export function updateProjectName(db: KiriDb, id: string, name: string): Project {
-  db.update(projects).set({ name }).where(eq(projects.id, id)).run();
+/**
+ * Update a project's name and/or standing instructions, leaving anything the
+ * patch omits untouched. The name is a display change only — nothing keys off
+ * it — while instructions are normalised: a blank body is stored as null, the
+ * project simply having none. Returns the updated row.
+ */
+export function updateProject(
+  db: KiriDb,
+  id: string,
+  patch: { name?: string; instructions?: string },
+): Project {
+  const changes = {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.instructions !== undefined
+      ? { instructions: patch.instructions.trim() === "" ? null : patch.instructions.trim() }
+      : {}),
+  };
+  if (Object.keys(changes).length > 0) {
+    db.update(projects).set(changes).where(eq(projects.id, id)).run();
+  }
   return getProject(db, id) as Project;
 }
 

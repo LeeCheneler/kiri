@@ -126,6 +126,12 @@ export const runSteps = sqliteTable(
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  /**
+   * The project's standing instructions in markdown, layered into the system
+   * prompt of every session in the project, or null when it has none — an
+   * empty body is stored as null so the prompt layer is simply absent.
+   */
+  instructions: text("instructions"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 

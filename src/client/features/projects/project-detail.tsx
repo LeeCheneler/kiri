@@ -3,16 +3,23 @@ import { useLocation } from "wouter";
 import { ApiError, type ProjectSessionSummary } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
+import { Textarea } from "../../design-system/actions/textarea.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
+import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { Modal } from "../../design-system/surfaces/modal.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
-import { useDeleteProject, useProject, useRenameProject } from "../../state/projects.ts";
+import {
+  useDeleteProject,
+  useProject,
+  useRenameProject,
+  useSaveProjectInstructions,
+} from "../../state/projects.ts";
 import { NewSessionButton } from "../session-chat/new-session-button.tsx";
 
 const BREADCRUMB = [{ label: "Projects", href: "/projects" }];
@@ -90,6 +97,63 @@ function RenameProjectModal({
   );
 }
 
+// The instructions editor behind the edit action: a roomy markdown field in a
+// wide dialog, prefilled from the stored body each time it opens. Saving a
+// blank body clears the project's instructions.
+function EditInstructionsModal({
+  id,
+  initialInstructions,
+  onClose,
+}: {
+  id: string;
+  initialInstructions: string;
+  onClose: () => void;
+}) {
+  const save = useSaveProjectInstructions();
+  const [instructions, setInstructions] = useState(initialInstructions);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setError(null);
+    setPending(true);
+    try {
+      await save(id, instructions);
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setPending(false);
+    }
+  };
+
+  return (
+    <Modal title="Project instructions" size="lg" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Textarea
+          value={instructions}
+          onChange={setInstructions}
+          label="Instructions"
+          description="Markdown. Carried by every session in this project, from its next turn. Leave empty for none."
+          rows={18}
+        />
+        <div className="flex items-center justify-end gap-3">
+          <Button variant="dismissive" disabled={pending} onClick={onClose}>
+            cancel
+          </Button>
+          <Button variant="primary" pending={pending} pendingLabel="saving…" onClick={handleSave}>
+            save
+          </Button>
+        </div>
+        {error ? (
+          <p role="alert" className="font-mono text-xs text-status-failed">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 /**
  * One project's page: the container's session and article indexes side by
  * side, its name renameable through a modal, and the whole container
@@ -103,6 +167,7 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
   const remove = useDeleteProject();
   const [pending, setPending] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -262,12 +327,39 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
             </div>
           )}
         </div>
+        <div>
+          <Eyebrow tone="muted">Instructions</Eyebrow>
+          {data.project.instructions === null ? (
+            <div className="mt-3">
+              <EmptyState>
+                no instructions yet. what you write here joins the standing instructions of every
+                session in this project.
+              </EmptyState>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <Markdown content={data.project.instructions} />
+            </div>
+          )}
+          <div className="-mx-3 mt-3 flex items-center">
+            <Button variant="dismissive" onClick={() => setInstructionsOpen(true)}>
+              edit instructions
+            </Button>
+          </div>
+        </div>
       </div>
       {renameOpen ? (
         <RenameProjectModal
           id={id}
           initialName={data.project.name}
           onClose={() => setRenameOpen(false)}
+        />
+      ) : null}
+      {instructionsOpen ? (
+        <EditInstructionsModal
+          id={id}
+          initialInstructions={data.project.instructions ?? ""}
+          onClose={() => setInstructionsOpen(false)}
         />
       ) : null}
       {confirmOpen ? (

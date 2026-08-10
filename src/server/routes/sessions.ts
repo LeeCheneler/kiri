@@ -380,8 +380,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   // The prompt-layer context for a session's project: its name, the corpus
   // index the prompt map lists — each slug titled by its body's first heading,
-  // falling back to the display name — and the project's memory index. Null
-  // for projectless sessions.
+  // falling back to the display name — the project's memory index, and its
+  // standing instructions. Null for projectless sessions.
   const projectContextFor = (sessionId: string) => {
     const projectId = getSession(db, sessionId)?.projectId ?? null;
     const project = projectId !== null ? getProject(db, projectId) : undefined;
@@ -393,6 +393,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         heading: article.heading ?? article.name,
       })),
       memories: listProjectMemories(db, project.id),
+      instructions: project.instructions,
     };
   };
 
