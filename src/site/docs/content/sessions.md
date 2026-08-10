@@ -282,9 +282,10 @@ all; its feed rows name the project, and its chat threads home through it.
   titles only. An article's body enters the conversation only when the
   assistant reads it, so a growing corpus costs nothing until it's used.
 - Articles cross-reference each other with `[[slug]]`: in the project's
-  reading view the reference renders as a link to that article, titled by
-  its heading, so the corpus browses like a small wiki. The assistant knows
-  the syntax and cross-links as it writes.
+  reading view and in a project session's chat, the reference renders as a
+  link to that article, titled by its heading, so the corpus browses like a
+  small wiki. The assistant knows the syntax and cross-links as it writes —
+  in article bodies and in its replies alike.
 - The project has its own **instructions** (see Shaping behaviour above):
   markdown written on the project page and layered into every session in the
   project, between your workspace's `kiri.md` and any `AGENTS.md` chain. Edit

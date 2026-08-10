@@ -2,6 +2,9 @@ import { describe, expect, it, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
+import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { wrapAttachedFile } from "./attachments.ts";
 import { ChatMessage, type ResubmitHandler } from "./chat-message.tsx";
 import type { ToolDecisionHandler } from "./tool-invocation.tsx";
@@ -13,17 +16,27 @@ const renderMessage = (
   msg: UIMessage,
   {
     busy = false,
+    wikiLinkResolver,
     onResubmit = () => {},
     onToolDecision,
-  }: { busy?: boolean; onResubmit?: ResubmitHandler; onToolDecision?: ToolDecisionHandler } = {},
+  }: {
+    busy?: boolean;
+    wikiLinkResolver?: WikiLinkResolver;
+    onResubmit?: ResubmitHandler;
+    onToolDecision?: ToolDecisionHandler;
+  } = {},
 ) =>
   render(
-    <ChatMessage
-      message={msg}
-      busy={busy}
-      onResubmit={onResubmit}
-      onToolDecision={onToolDecision}
-    />,
+    // Routed so wiki links (internal hrefs) can render as client-side links.
+    <Router hook={memoryLocation({ path: "/" }).hook}>
+      <ChatMessage
+        message={msg}
+        busy={busy}
+        wikiLinkResolver={wikiLinkResolver}
+        onResubmit={onResubmit}
+        onToolDecision={onToolDecision}
+      />
+    </Router>,
   );
 
 const editField = () =>
@@ -84,6 +97,32 @@ describe("<ChatMessage>", () => {
     renderMessage(message("assistant", [{ type: "text", text: "Hello there" }]));
     expect(screen.getByText("Assistant")).toBeDefined();
     expect(screen.getByText("Hello there")).toBeDefined();
+  });
+
+  it("links [[slug]] references in assistant prose through the resolver", () => {
+    const resolver: WikiLinkResolver = (slug) =>
+      slug === "game-engine-choice"
+        ? { href: "/projects/p1/articles/game-engine-choice", label: "Game Engine Choice" }
+        : null;
+    renderMessage(
+      message("assistant", [
+        { type: "text", text: "This validates [[game-engine-choice]], but [[unknown-doc]] stays." },
+      ]),
+      { wikiLinkResolver: resolver },
+    );
+
+    const link = screen.getByRole("link", { name: "Game Engine Choice" });
+    expect(link.getAttribute("href")).toBe("/projects/p1/articles/game-engine-choice");
+    // A slug the resolver disowns stays as written.
+    expect(screen.getByText(/\[\[unknown-doc\]\] stays/)).toBeDefined();
+  });
+
+  it("leaves [[slug]] references literal without a resolver", () => {
+    renderMessage(
+      message("assistant", [{ type: "text", text: "See [[game-engine-choice]] for the call." }]),
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText(/\[\[game-engine-choice\]\]/)).toBeDefined();
   });
 
   it("interleaves tool calls with the assistant's prose, in order", () => {

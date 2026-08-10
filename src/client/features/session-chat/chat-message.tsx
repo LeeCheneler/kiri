@@ -2,6 +2,7 @@ import type { FileUIPart, UIMessage } from "ai";
 import { memo, useEffect, useId, useState } from "react";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
+import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
 import { ChildSession } from "./child-session.tsx";
@@ -148,10 +149,12 @@ function UserMessage({
 function AssistantMessage({
   segments,
   sessionId,
+  wikiLinkResolver,
   onToolDecision,
 }: {
   segments: Segment[];
   sessionId?: string;
+  wikiLinkResolver?: WikiLinkResolver;
   onToolDecision?: ToolDecisionHandler;
 }) {
   return (
@@ -160,7 +163,13 @@ function AssistantMessage({
       <div className="mt-2 space-y-3">
         {segments.map((segment) => {
           if (segment.kind === "text") {
-            return <Markdown key={segment.index} content={segment.text} />;
+            return (
+              <Markdown
+                key={segment.index}
+                content={segment.text}
+                wikiLinkResolver={wikiLinkResolver}
+              />
+            );
           }
           if (segment.kind === "approval") {
             return (
@@ -211,13 +220,14 @@ function AssistantMessage({
  *
  * Memoised: a streamed delta replaces only the streaming message's object, so
  * every settled message skips re-rendering (and re-parsing its markdown)
- * throughout the turn. Callers must pass referentially stable handlers or the
- * memo never holds.
+ * throughout the turn. Callers must pass referentially stable handlers (and a
+ * stable `wikiLinkResolver`) or the memo never holds.
  */
 export const ChatMessage = memo(function ChatMessage({
   message,
   busy,
   sessionId,
+  wikiLinkResolver,
   onResubmit,
   onToolDecision,
 }: {
@@ -225,6 +235,8 @@ export const ChatMessage = memo(function ChatMessage({
   busy: boolean;
   /** The owning session; lets a delegate call render its embedded child session. */
   sessionId?: string;
+  /** Turns `[[slug]]` references in assistant prose into corpus links when set. */
+  wikiLinkResolver?: WikiLinkResolver;
   onResubmit: ResubmitHandler;
   onToolDecision?: ToolDecisionHandler;
 }) {
@@ -233,6 +245,11 @@ export const ChatMessage = memo(function ChatMessage({
   const segments = segmentParts(message.parts);
   if (segments.length === 0) return null;
   return (
-    <AssistantMessage segments={segments} sessionId={sessionId} onToolDecision={onToolDecision} />
+    <AssistantMessage
+      segments={segments}
+      sessionId={sessionId}
+      wikiLinkResolver={wikiLinkResolver}
+      onToolDecision={onToolDecision}
+    />
   );
 });
