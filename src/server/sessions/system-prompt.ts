@@ -159,7 +159,7 @@ function buildProjectGuidance(
   ];
   if (canWrite) {
     lines.push(
-      "Write durable knowledge into the corpus: create_article for a new document, edit_article or replace_article to keep an existing one current — including articles other sessions wrote; the corpus is shared, and improving it is normal curation. Cross-reference corpus articles by writing [[slug]] in a body — kiri renders it as a link to that article.",
+      "Write durable knowledge into the corpus: create_article for a new document, edit_article or replace_article to keep an existing one current — including articles other sessions wrote; the corpus is shared, and improving it is normal curation. Cross-reference corpus articles by writing [[slug]] in an article body or in your replies — kiri renders it as a link to that article.",
     );
   }
   return lines.join("\n");

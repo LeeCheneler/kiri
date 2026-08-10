@@ -281,7 +281,7 @@ export const Markdown = memo(function Markdown({
   withSectionOrdinals?: boolean;
   downgradeHeaderLevels?: number;
   sectionLevel?: HeadingLevel;
-  /** Turns `[[slug]]` references into links when set — the project corpus reader's affordance; other surfaces leave the syntax literal. */
+  /** Turns `[[slug]]` references into links when set — the corpus-aware surfaces' affordance (project reading view, project session chat); other surfaces leave the syntax literal. */
   wikiLinkResolver?: WikiLinkResolver;
 }) {
   const resolvedComponents = buildMarkdownComponents({

@@ -4,6 +4,7 @@ import { ApiError, type Session, type SessionDetail } from "../../api.ts";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
+import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
@@ -96,7 +97,44 @@ function ProjectChatBreadcrumb({ projectId, current }: { projectId: string; curr
   );
 }
 
+// A project session's chat also renders the model's `[[slug]]` references as
+// corpus links, matching the project reading view — the assistant cross-links
+// articles in its replies the same way it does in article bodies. Split so the
+// corpus query mounts only for project sessions; a projectless chat has no
+// corpus to resolve against, so the syntax stays literal there.
 function Chat({ detail }: { detail: SessionDetail }) {
+  const { projectId } = detail.session;
+  if (projectId === null) return <ChatView detail={detail} />;
+  return <ProjectChat detail={detail} projectId={projectId} />;
+}
+
+function ProjectChat({ detail, projectId }: { detail: SessionDetail; projectId: string }) {
+  // `[[slug]]` references resolve against the corpus index, linking by the
+  // target's title. Memoised so the ChatMessage memo holds between renders;
+  // unresolved slugs (and everything until the index loads) stay literal.
+  const corpus = useProject(projectId).data?.articles;
+  const wikiLinkResolver = useMemo<WikiLinkResolver>(() => {
+    const targets = new Map(
+      (corpus ?? []).map((entry) => [
+        entry.slug,
+        {
+          href: `/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(entry.slug)}`,
+          label: entry.heading ?? entry.name,
+        },
+      ]),
+    );
+    return (slug) => targets.get(slug) ?? null;
+  }, [corpus, projectId]);
+  return <ChatView detail={detail} wikiLinkResolver={wikiLinkResolver} />;
+}
+
+function ChatView({
+  detail,
+  wikiLinkResolver,
+}: {
+  detail: SessionDetail;
+  wikiLinkResolver?: WikiLinkResolver;
+}) {
   const { session } = detail;
   const modelsData = useModels().data;
   const models = modelsData?.models ?? [];
@@ -245,6 +283,7 @@ function Chat({ detail }: { detail: SessionDetail }) {
               message={message}
               busy={busy}
               sessionId={session.id}
+              wikiLinkResolver={wikiLinkResolver}
               onResubmit={handleResubmit}
               onToolDecision={onToolDecision}
             />

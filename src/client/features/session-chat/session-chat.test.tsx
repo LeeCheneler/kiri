@@ -299,6 +299,78 @@ describe("<SessionChat>", () => {
     expect(screen.queryByRole("link", { name: "Sessions" })).toBeNull();
   });
 
+  it("links a project session's [[slug]] references to their corpus articles", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail(
+            [
+              {
+                ...message("m1", "assistant", ""),
+                parts: [
+                  {
+                    type: "text",
+                    text: "The call in [[game-engine-choice]] holds per [[roadmap]]; [[unknown-doc]] does not exist.",
+                  },
+                ],
+              },
+            ],
+            { projectId: "p1" },
+          ),
+        ),
+      ),
+      http.get("*/api/projects/:id", () =>
+        HttpResponse.json({
+          project: { id: "p1", name: "Research", createdAt: "2026-05-09T10:00:00.000Z" },
+          articles: [
+            {
+              slug: "game-engine-choice",
+              name: "game-engine-choice",
+              heading: "Game Engine Choice",
+              createdAt: "2026-05-09T11:00:00.000Z",
+            },
+            // No heading — the link falls back to the article's name.
+            {
+              slug: "roadmap",
+              name: "roadmap",
+              heading: null,
+              createdAt: "2026-05-09T11:00:00.000Z",
+            },
+          ],
+          sessions: [],
+        }),
+      ),
+    );
+    renderChat();
+
+    const link = await screen.findByRole("link", { name: "Game Engine Choice" });
+    expect(link.getAttribute("href")).toBe("/projects/p1/articles/game-engine-choice");
+    // A headingless article links by its name instead.
+    expect(screen.getByRole("link", { name: "roadmap" }).getAttribute("href")).toBe(
+      "/projects/p1/articles/roadmap",
+    );
+    // A slug the corpus doesn't own stays as the literal text it was.
+    expect(screen.getByText(/\[\[unknown-doc\]\] does not exist/)).toBeDefined();
+  });
+
+  it("leaves [[slug]] references literal in a projectless session's chat", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([
+            {
+              ...message("m1", "assistant", ""),
+              parts: [{ type: "text", text: "See [[game-engine-choice]] for the call." }],
+            },
+          ]),
+        ),
+      ),
+    );
+    renderChat();
+
+    expect(await screen.findByText(/\[\[game-engine-choice\]\]/)).toBeDefined();
+  });
+
   it("warns when the conversation nears the model's context window", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
