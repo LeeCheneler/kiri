@@ -54,7 +54,8 @@ export function AppWindow({
 // Full-size screenshot viewer on the native `<dialog>` element, mounted-as-open
 // like the app's `Modal`: the browser supplies the inert background, focus
 // trap, Escape-fires-cancel, and focus-restore to the trigger. The image
-// renders at its intrinsic size and the dialog scrolls, so detail is 1:1.
+// scales down to fit within the viewport (never up past 1:1) and the dialog
+// shrink-wraps it, centered — nothing scrolls.
 function Lightbox({
   src,
   alt,
@@ -93,14 +94,17 @@ function Lightbox({
       }}
       // A lightbox dismisses on any click — backdrop or image alike.
       onClick={close}
-      className="m-auto max-h-[94vh] max-w-[96vw] overflow-auto border border-rule bg-paper shadow-xl backdrop:bg-canvas/80"
+      // `max-*-none` + `overflow-hidden` undo the UA dialog sheet (`max-width:
+      // calc(100% - 38px); overflow: auto`), which would otherwise cap the
+      // dialog narrower than the image and scroll it on small screens.
+      className="m-auto max-h-none max-w-none overflow-hidden border border-rule bg-paper shadow-xl backdrop:bg-canvas/80"
     >
       <img
         src={src}
         alt={alt}
         width={width}
         height={height}
-        className="block max-w-none cursor-zoom-out"
+        className="block h-auto max-h-[94vh] w-auto max-w-[96vw] cursor-zoom-out"
       />
     </dialog>
   );
