@@ -111,6 +111,7 @@ export function HomePage() {
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 sm:px-8">
         <Hero />
         <Rungs />
+        <Projects />
         <Assurances />
         <Install />
       </main>
@@ -179,6 +180,40 @@ function Rungs() {
         </section>
       ))}
     </div>
+  );
+}
+
+function Projects() {
+  return (
+    <section className="border-rule border-t py-16 lg:py-20">
+      <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-14">
+        <div className="lg:order-last">
+          <Eyebrow tone="muted">Projects</Eyebrow>
+          <h2 className="mt-3 font-display text-3xl text-ink leading-tight">
+            Give a body of work a home.
+          </h2>
+          <p className="mt-5 font-mono text-sm text-ink-muted leading-relaxed">
+            A project collects one stream of work in a named place: the sessions that build it and
+            the articles they produce, side by side. Articles wiki-link into a shared corpus, so the
+            tenth session builds on the nine before it instead of starting from zero.
+          </p>
+          <p className="mt-4 font-mono text-sm text-ink-muted leading-relaxed">
+            Standing instructions steer every session in the project, and project memories keep its
+            facts scoped to where they belong.
+          </p>
+          <p className="mt-6 font-mono text-sm">
+            <InlineLink href="/docs/projects-and-memories">Projects & memories</InlineLink>
+          </p>
+        </div>
+        <AppWindow
+          src="/screenshots/project.png"
+          alt="A kiri project page: the project's sessions and the articles they produced listed side by side, with tabs for its standing instructions and memories"
+          title="project — aurora"
+          width={1440}
+          height={900}
+        />
+      </div>
+    </section>
   );
 }
 
