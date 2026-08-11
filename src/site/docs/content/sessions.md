@@ -1,85 +1,62 @@
 # Sessions
 
-A session is streaming chat with any model you configure, carrying your workspace's
-context and standing instructions, wired into your files and shell, and
-extended by any MCP server you configure. It's where unscripted work happens
-— and when something you worked out is worth repeating, the session can
+A session is streaming chat with any model you configure, carrying your
+workspace's standing instructions, wired into your files and shell, and
+extended by any MCP server you add. When something you worked out is worth
+repeating, the session can
 [author it into a workflow](#authoring-workflows) so the next time is one
 click.
 
-Sessions use the same `kiri.yaml` provider registry as `llm:` steps, and you
-can swap a session's model mid-conversation — it applies from the next turn.
-A streaming turn survives a reload: it keeps running on the server, and
-reopening the session rejoins it live.
+You can swap a session's model mid-conversation — it applies from the next
+turn — and a streaming turn survives a page reload: reopening the session
+rejoins it live.
 
 ## Articles
 
 Ask for a write-up — a report, a digest, a guide — and the session saves it
-as an **article** rather than scrolling it into the chat: the same readable
-pages workflows produce, charts and diagrams included. The chat reply stays a
-short pointer; the piece lives on its own page. Ask for changes and the
-session edits the article in place, and ask for one to go and it deletes it —
-every article page carries the same delete action.
+as an **article**: a readable page in your feed, charts and diagrams
+included, rather than scrollback. Ask for changes and it edits the page in
+place; ask for it to go and it deletes it.
 
-Articles belong to their session — deleting the session deletes them —
-unless the session lives in a project, where they land in the project's
-shared corpus instead: see
+Articles belong to their session — unless the session lives in a project,
+where they land in the project's shared corpus instead: see
 [Projects & memories](/docs/projects-and-memories).
 
 ## Shaping behaviour
 
-Kiri composes each turn's system prompt from a gradient of standing
-instructions, broadest first:
+Each turn's system prompt layers your standing instructions, broadest
+first — and where two conflict, the narrower wins:
 
 ```
 core (kiri)  →  kiri.md  →  project instructions  →  AGENTS.md chain
 ```
 
-Each layer is narrower than the one before it, and where two conflict the
-narrower one wins. Every layer is resolved fresh each turn, so an edit applies
-on the next turn — git stays the source of truth for the files.
-
-- **Core** — kiri's baseline, not user-editable: who the assistant is, how to
-  respond well, that replies render as markdown (including `chart` and
-  `mermaid` blocks), and the trust boundary — your instructions are
-  authoritative, quoted external text is untrusted data.
-- **`kiri.md`** — a plain markdown file at the workspace root, applied to
-  every session: your standing "how I want you to behave."
+- **`kiri.md`** — markdown at the workspace root, applied to every session:
+  your standing "how I want you to behave."
 - **[Project instructions](/docs/projects-and-memories#project-instructions)**
-  — markdown kept on a project and carried by every session in it: the
-  context and conventions that hold for one body of work rather than
-  everywhere.
-- **`AGENTS.md` chain** — the per-directory instructions governing the
-  session's [working directory](#working-with-your-files). Kiri walks from that
-  directory up to the top of the tree, collecting every `AGENTS.md` it finds,
-  and layers them in most-general-first: a file applies to its own directory
-  and everything below it, and where two conflict the nearer one wins. This
-  is the same `AGENTS.md` convention other coding assistants follow, so a
-  repo that already has one needs no kiri-specific setup.
+  — carried by every session in a project.
+- **`AGENTS.md` chain** — per-directory instructions collected from the
+  session's [working directory](#working-with-your-files) up the tree,
+  nearer files winning. It's the same `AGENTS.md` convention other coding
+  assistants follow, so an existing repo needs no kiri-specific setup. Only
+  files inside your allowed directories are read, and kiri never writes one.
 
 ```
 Answer in British English. Be direct, lead with the answer, and cite
 file:line when you reference code.
 ```
 
-Only `AGENTS.md` files inside the directories you allow in `kiri.yaml` are
-read — one above that boundary is never opened, even when the session's
-working directory sits below it. Sessions without a working directory, or
-with no allowed directories declared, load no chain at all. Kiri reads
-`AGENTS.md`; it never writes one.
+Every layer is read fresh each turn, so an edit applies on the next turn.
 
 ## Skills
 
-A **skill** is a named pack of instructions the assistant pulls in only when
-its task comes up — the middle ground between the two you already have:
-standing instructions are always-on, skills load on demand, and workflows are
-executable.
-Task-specific guidance — how you like release notes drafted, your code-review
-checklist — belongs in a skill, not padded into every conversation via
-`kiri.md`.
+A **skill** is a named pack of instructions loaded only when its task comes
+up — standing instructions are always-on, skills are on-demand. Your
+release-notes format or code-review checklist belongs in a skill, not padded
+into every conversation via `kiri.md`.
 
-Keep each skill in your workspace as `skills/<name>/SKILL.md` (sibling of
-`workflows/`, committed like the rest of your config):
+Keep each one at `skills/<name>/SKILL.md`, committed like the rest of your
+config:
 
 ```markdown
 ---
@@ -90,48 +67,29 @@ description: Draft release notes in this project's format.
 The instructions the assistant follows once the skill is loaded…
 ```
 
-- The system prompt carries only each skill's name and description; the body
-  loads into the conversation through the `use_skill` tool when the assistant
-  matches a task to it. Unknown frontmatter fields are ignored, so skills
-  written for other tools drop in unmodified.
-- Everything is read fresh — edit a skill and the change applies from the
-  next turn. Supporting files can sit alongside `SKILL.md`; the assistant
-  reads them with the filesystem tools if your sandbox covers the workspace.
-- Kiri ships first-party skills listed alongside yours — the
-  workflow-authoring reference is the first. Name a skill the same as a
-  first-party one and yours wins.
-- Loading a skill is read-only and pre-allowed, so delegated workers (below)
-  inherit it too — skills reach delegated research where `kiri.md`
-  deliberately doesn't.
+Unknown frontmatter fields are ignored, so skills written for other tools
+drop in unmodified. Edits apply from the next turn. Kiri ships a few
+first-party skills alongside yours — name a skill the same as one and yours
+wins.
 
 ## Memories and projects
 
 Sessions save durable facts as **memories** every future session recalls,
-and group related work into **projects**, where articles build a shared,
-wiki-linked corpus with its own instructions and memories. Both have a page
-of their own in these docs: [Projects & memories](/docs/projects-and-memories).
+and group related work into **projects**:
+[Projects & memories](/docs/projects-and-memories).
 
 ## Effort
 
-Every session carries an **effort level** — `low`, `medium` (the default),
-`high`, `xhigh`, or `max` — setting how hard the assistant works. It acts
-through two layers. The system prompt always states the level with a
-matching expectation — brisk and direct at `low`, deliberate and exhaustive
-at the top — so the assistant calibrates its thoroughness on any model.
-Where kiri recognises native reasoning support, each turn additionally sets
-the provider's own effort parameter, and where a model supports fewer levels
-than the ladder, kiri clamps to the nearest it accepts.
-
-Model and effort are orthogonal levers: the model (or
-[shortcut](/docs/llm-providers)) picks *which* model thinks; effort sets *how
-hard* it thinks. Size them independently — a large model can answer briskly
-at `low`, and a small one can take its time at `high`.
+Every session has an **effort level** — `low`, `medium` (the default),
+`high`, `xhigh`, or `max` — setting how hard the assistant works, using the
+provider's native reasoning controls where the model has them. Model and
+effort are independent levers: a large model can answer briskly at `low`, a
+small one can take its time at `high`.
 
 ## Tools from MCP servers
 
-Beyond the built-in tools (below), a session's tools come from **MCP
-servers** you declare under `mcp:` in `kiri.yaml`. Web search, for example,
-via Tavily's remote server:
+Beyond the built-in tools, a session's tools come from **MCP servers**
+declared under `mcp:` in `kiri.yaml`. Web search, for example, via Tavily:
 
 ```yaml
 mcp:
@@ -141,39 +99,28 @@ mcp:
     auth: oauth
 ```
 
-- A server is either local (`type: stdio` with a `command` — kiri runs it as a
-  subprocess) or remote (`type: http`, Streamable HTTP).
-- An `http` server authenticates with `auth: oauth` — a browser sign-in kiri
-  runs on demand, storing and refreshing tokens in a mode-0600 file under
-  `.kiri/`, never in git — or with a static header:
-  `headers: { Authorization: { env: <NAME> } }`, always an env reference,
-  never a literal.
-- Kiri connects on boot and on every `kiri.yaml` edit, discovers each server's
-  tools, and namespaces them `<server>__<tool>`. A server that can't connect
-  is simply absent, with the reason surfaced in the config-health checks.
-- Tool results are untrusted data and capped in size; a call that runs too
-  long is reported back to the model as an error. Stopping a turn cancels any
-  call in flight.
+- A server is local (`type: stdio` with a `command`) or remote
+  (`type: http`).
+- Remote auth is `auth: oauth` — a browser sign-in kiri runs on demand,
+  tokens stored outside git — or a static header:
+  `headers: { Authorization: { env: <NAME> } }`, always an env reference.
+- Servers connect on boot and on every `kiri.yaml` edit; tools are named
+  `<server>__<tool>`. One that can't connect shows up in the config-health
+  checks with the reason.
+
+Every field is listed in the [kiri.yaml reference](/docs/kiri-yaml).
 
 ## Tool permissions
 
-Configuring a server is the standing decision to trust it; each call still
-clears you first. Before a tool runs, the session pauses and shows the call
-and its input — **Allow** runs it once, **Always allow** never asks again for
-that tool, **Deny** skips it and tells the model, which carries on. A pending
-approval survives a reload.
+Every tool has a standing permission — **Always allow**, **Ask** (default),
+or **Off**, which withholds it from the model entirely. A tool on Ask pauses
+before running and shows the call: **Allow** runs it once, **Always allow**
+stops asking, **Deny** skips it and the model carries on. Decisions persist
+to a gitignored `.kiri/tool-permissions.json` and apply immediately.
 
-Each tool also has a standing permission — **Always allow**, **Ask**
-(default), or **Off**, which withholds the tool from the model entirely.
-The shell tool alone adds **Auto**, which decides each command as it's
-called — see [Running shell commands](#running-shell-commands).
-Decisions persist to a gitignored `.kiri/tool-permissions.json` (manage them
-in the app, or hand-edit the file) and apply on the next call, no restart.
-
-Kiri's built-in tools carry the same controls, with defaults set by blast
-radius: tools that only touch kiri's own data are pre-allowed — asking in
-chat is the authorisation — while anything that executes or writes asks
-first. Any default can be tightened, or the tool switched off entirely.
+Built-in defaults follow blast radius — touching kiri's own data is
+pre-allowed, executing or writing asks first — and any default can be
+tightened or switched off:
 
 | Built-in tool(s) | Default | Why |
 | --- | --- | --- |
@@ -181,7 +128,7 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
 | Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
-| `update_project_instructions` | Always allow | Only runs when you ask for it, and shows the change as a diff. |
+| `update_project_instructions` | Always allow | Only runs when you ask, and shows the change as a diff. |
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `set_working_directory` | Always allow | Only moves a value confined to the sandbox. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
@@ -191,55 +138,41 @@ first. Any default can be tightened, or the tool switched off entirely.
 | Filesystem writes / deletes | Ask | Change your files. |
 | `run_command` | Ask | Runs shell commands as you. |
 
+The shell tool alone adds **Auto** — see
+[Running shell commands](#running-shell-commands).
+
 ## Running workflows
 
-Sessions can run the workflows you've defined. Ask in chat — "run my dev news
-round-up" — and the session finds the workflow, fills its declared inputs,
-and invokes it. The run is a normal kiri run, with full step output and
-traces; the session waits for it to finish and reports the outcome — status,
-summary, and any articles produced. A failed run hands the session the
-failing step's output, so it can tell you what broke.
-
-Repeat the request and the session reruns the *same* run in place — one feed
-entry that updates, not a new one per attempt — executing the workflow as it
-is now, so any edits since the last run apply. Stopping the turn cancels the
-run too.
+Ask in chat — "run my dev news round-up" — and the session finds the
+workflow, fills its inputs, and runs it, reporting status, summary, and any
+articles produced. A failed run hands the session the failing step's output
+so it can tell you what broke. Repeat the request and it reruns the same run
+in place — one feed entry that updates, not a new one per attempt.
 
 ## Authoring workflows
 
-Sessions can also write workflows. Work something out in conversation — a
-data pull, a report format, a check you'd repeat — then ask the session to
-"save that as a workflow" and it authors the YAML into your `workflows/`
-directory. It can read your existing workflows to match their style, make
-targeted edits to one, or rewrite one wholesale.
+Work something out in conversation, then ask the session to "save that as a
+workflow" and it authors the YAML into `workflows/` — validated before it
+lands, so a broken file never reaches your repo, and a normal git change you
+review like any other. It can also edit existing workflows, match their
+style, and — asked to test — run one and iterate on the same run after each
+fix.
 
-- Every write is validated first — YAML, schema, referenced bundles, llm
-  providers — so a broken file never lands in your repo; the session is told
-  exactly what was wrong and fixes it itself. The saved workflow is a normal
-  git change you can review and commit.
-- For `llm:` steps the session won't invent a model — it uses what your
-  existing workflows use, or asks. Name a preference in `kiri.md` (e.g. "for
-  workflow llm steps, prefer `anthropic:claude-haiku-4-5`") if you author
-  often.
-- Have the session test what it's authoring and it runs the workflow once,
-  then reruns that same run after each fix — a single evolving test run
-  instead of one per attempt.
+For `llm:` steps the session won't invent a model: it follows your existing
+workflows, or asks. Name a preference in `kiri.md` if you author often.
 
 ## Generating images
 
 Pick an **image model** for the session — offered when a provider reports
-image-capable models — and it can generate images on request. Selecting the
-model is the authorisation, so `generate_image` runs without prompting by
-default; each generation is a normal provider-billed call. Generated images
-stay in the transcript but are never sent back to the chat model on later
-turns, so generating doesn't eat your context window.
+image-capable models — and it generates images on request. Generated images
+stay in the transcript without being resent to the chat model later, so they
+don't eat your context window.
 
 ## Working with your files
 
 Declare `filesystem:` in `kiri.yaml` and sessions gain file tools over the
-directories you list — find files by glob, list a directory, read a file,
-search contents by regex, and, with your approval per change, write and edit
-files, create directories, and delete files or directories:
+directories you list — find, list, read, and search pre-allowed; writes,
+edits, and deletes asking first with the exact change previewed as a diff:
 
 ```yaml
 filesystem:
@@ -249,133 +182,80 @@ filesystem:
   default_working_directory: ~/projects # optional — where sessions start
 ```
 
-- The list is the entire boundary, and declaring it is what turns the tools
-  on — without the section they aren't offered at all. Every path the model
-  supplies is checked against it — including through symlinks, and including
-  paths it's about to create. Entries resolve relative to the workspace
-  root; a leading `~` expands to your home directory (granting the whole
-  home directory needs the quoted `"~"` form — a bare `~` is YAML null).
-- Hidden (dot-prefixed) files are reachable like any other, with two
-  exceptions that are never listed, read, searched, or written: `.git`
-  internals, and secret-bearing files — `.env*` and kiri's own credential
-  store. Binary files aren't read or written, and oversized results are
-  truncated so one big file can't swamp the conversation.
-- Reads are pre-allowed — declaring the sandbox is the authorisation. Writes
-  and deletes ask, previewing the exact change as a diff. Deleting a
-  non-empty directory takes an explicit recursive opt-in, and an allowed
-  directory itself can never be deleted.
-- Every session has a **working directory** inside the sandbox. It starts at
-  `default_working_directory` (the first allowed directory when that's
-  unset), relative paths resolve against it, and the assistant moves it —
-  within the sandbox — with a `set_working_directory` tool when the work
-  settles somewhere else; delegated workers start where their parent is.
-  The directory is checked before every turn: if a `kiri.yaml` edit or a
-  deletion has invalidated it, the turn refuses to play and says so rather
-  than silently working elsewhere — the stale value is cleared as part of
-  the announcement, and the next message picks the configured default back
-  up on its own.
+- The list is the entire boundary — without the section the tools aren't
+  offered at all, and every path is checked against it, symlinks included.
+  A leading `~` expands to your home (the whole home directory needs the
+  quoted `"~"` form).
+- `.git` internals and secret-bearing files — `.env*`, kiri's credential
+  store — are never listed, read, or written.
+- Every session has a **working directory** inside the sandbox — where
+  relative paths resolve and commands run. It starts at
+  `default_working_directory` (or the first allowed directory) and the
+  assistant can move it within the sandbox as the work settles somewhere
+  else.
 
 ## Running shell commands
 
 The same `filesystem:` declaration gives sessions a `run_command` tool —
-builds, tests, git, your project's own scripts. A command runs in the
-session's working directory unless the call names another directory inside
-the sandbox.
+builds, tests, git, your own scripts — run in the session's working
+directory. The sandbox confines where a command *starts*, not what it can
+touch, so every call asks by default, showing the exact command verbatim.
+Commands run non-interactively with a timeout; servers and watchers aren't
+supported.
 
-- The sandbox confines where a command *starts*, not what it can touch — so
-  every call asks by default, showing the exact command verbatim with its
-  directory. [Trust & security](/docs/trust-and-security) covers the full
-  reasoning.
-- Commands run non-interactively and are killed at their timeout (120
-  seconds unless the call asks for more, capped at ten minutes) — servers
-  and watchers aren't supported, and cancelling the turn kills the command
-  with it.
-- Prefer this for *executing* things; reading and editing files is the
-  filesystem tools' job, with its tighter boundary and diff previews.
-
-If asking on every `git status` wears thin, set the tool's permission to
-**Auto** and each command is decided as it's called. A deterministic screen
-rules first: commands like `sudo`, recursive deletes, force-pushes, or
-anything piped into a shell always ask — no model can override that — while
-a short list of exactly-matched read-only commands (`git status`, `ls`)
-runs straight away. Everything in between is judged by your
-[utility model](/docs/llm-providers#utility-model), which sees only the
-command and its directory, and asks whenever it errs, times out, or is
-unsure — an asked command lands in the normal approval prompt, and every
-decision is logged with its reason. Auto needs `models.utility` configured
-in `kiri.yaml`; without it, Auto behaves exactly like Ask. Answering
-**Always allow** on an approval prompt switches the tool to Always allow —
-set it back to Auto afterwards if that's not what you meant.
+If asking on every `git status` wears thin, set the tool to **Auto**:
+obviously safe read-only commands run straight away, dangerous shapes
+(`sudo`, recursive deletes, force-pushes, anything piped into a shell)
+always ask — no model can override that — and everything in between is
+judged by your [utility model](/docs/llm-providers#utility-model), asking
+whenever it's unsure. Auto needs `models.utility` configured; without it,
+Auto behaves exactly like Ask.
 
 ## Delegating research
 
 For a task that would take a pile of searching and reading — "compare these
-three libraries", "what changed in X this year" — the assistant can hand the
-legwork to a **delegated worker**: a separate session that runs the task in
-its own context and reports back. Only the written report returns to your
-conversation, so the transcript holds the findings rather than pages of
-intermediate results, and your context window stays lean.
+three libraries" — the assistant can hand the legwork to a **delegated
+worker**: a separate session that runs the task in its own context and
+reports back. Only the written report returns to your conversation, so your
+context window stays lean.
 
-- The worker only holds tools set to **Always allow** — a tool that would ask
-  first is simply not offered to it, so delegation never runs anything you
-  haven't already allowed to run unprompted. If a research worker comes back
-  empty-handed, check that first: your search tool probably needs **Always
-  allow**.
-- Every delegated task gets a short title from the assistant, naming the work
-  wherever it surfaces — so a batch of parallel workers is easy to tell apart.
-- Workers don't appear in the activity feed, the session list, or search —
-  they belong to the conversation that spawned them — but each is a real
-  session you can open, and continue, at its own URL. Cancelling a delegated
-  task stops just the worker; the assistant is told and carries on.
-- With [delegate models](/docs/llm-providers) configured, the assistant sizes
-  each worker by naming one of the roles defined there; without them, workers
-  run the same model as the conversation.
-- Every delegation also states the worker's own effort level (above) — low
-  for cheap parallel legwork, high for deep synthesis — independent of which
-  model runs it, and the worker keeps that level for its whole run.
+- A worker only holds tools set to **Always allow** — anything that would
+  ask isn't offered to it, so delegation never runs what you haven't already
+  allowed. A research worker coming back empty-handed usually means your
+  search tool needs **Always allow**.
+- Workers don't appear in the feed, session list, or search — but each is a
+  real session you can open at its own URL. Cancelling one stops just that
+  worker.
+- With [delegate models](/docs/llm-providers) configured, the assistant
+  sizes each worker's model per task; each delegation also sets the worker's
+  own effort level.
 
 Delegation is on by default; set `delegate` to **Ask** or **Off** like any
 other tool.
 
 ## Context and cost
 
-Kiri tracks a session's running input/output token spend, and context as
-`current / limit` when the provider reports the model's window (Anthropic,
-OpenRouter, vLLM, DeepInfra, and LM Studio do; OpenAI doesn't), warning as a
-conversation nears the window.
-
-To stretch a session, once context passes halfway kiri trims what it sends
-each turn: recent tool results ride in full, older ones are replaced with a
-short placeholder. The transcript you see never changes.
+Kiri tracks a session's token spend, and context as `current / limit` when
+the provider reports the model's window, warning as a conversation nears it.
+Long sessions are stretched automatically — older tool results are trimmed
+from what's sent each turn; the transcript you see never changes.
 
 ## Attachments
 
-Sessions take file attachments and pasted images. Text files (markdown,
-source, JSON, CSV) are sent inline so the model reads the whole file; images
-ride alongside — worth checking your chosen model accepts image input first.
-Attachments are treated as untrusted data and capped to fit the context
-window.
+Sessions take file attachments and pasted images. Text files are sent inline
+so the model reads the whole file; images ride alongside — check your model
+accepts image input. Attachments are capped to fit the context window.
 
 ## Titles
 
-Sessions carry a **title** — the name the session list, activity feed, and
-search results lead with. Kiri names a new session automatically off your
-first message, usually before the reply finishes streaming. You can rename a
-session from its page at any time, or clear the title to fall back to the
-untitled default — the session's first message. Titles are searchable
-alongside message text.
+Kiri names a new session automatically off your first message. Rename or
+clear it from the session page any time; titles are searchable alongside
+message text.
 
 ## Desktop notifications
 
-Switch **Desktop notifications** on and kiri tells you when work finishes
-while you're looking elsewhere: a workflow run landing or a session finishing
-a turn pops a system notification that opens the run or session when clicked.
-Whatever you're actively watching stays quiet — nothing fires for a run or
-session whose page you have focused — and delegated workers never notify;
-they report back to their conversation instead.
-
-Notifications come from the browser, so switching them on prompts for browser
-permission, and they arrive only while kiri is open in a tab — backgrounded
-is fine, closed is not, since kiri never runs in the background. A disabled
-switch means the browser has notifications blocked for kiri; re-enable them
-in the browser's site settings.
+Switch **Desktop notifications** on and kiri notifies you when a run lands
+or a session finishes a turn while you're looking elsewhere — clicking opens
+the work. The page you're actively watching stays quiet. Notifications come
+from the browser (so switching them on prompts for permission) and arrive
+only while kiri is open in a tab — kiri never runs in the background.

@@ -83,18 +83,15 @@ articles, automate the repeats as workflows.**
 
 ## Where kiri keeps things
 
-- **`kiri.yaml`** — structured config: model providers, MCP servers, the
-  session file sandbox. Committed.
-- **`.env`** — secrets, auto-loaded at boot. Git-ignored.
-- **`kiri.md`** — standing instructions for [sessions](/docs/sessions).
-- **`AGENTS.md`** — per-directory instructions, picked up from the tree a
-  session is working in. Not kiri-specific, and can live in any directory kiri
-  is allowed to read.
-- **`skills/`** — on-demand instruction packs for sessions, one
-  `<name>/SKILL.md` per skill. Committed.
-- **`workflows/`** — your workflow YAML, hand-written or session-authored.
-  Committed.
-- **`.kiri/`** — editor schemas and run scratch space. Git-ignored by `kiri init`.
+| File | What it holds | In git? |
+| --- | --- | --- |
+| [`kiri.yaml`](/docs/kiri-yaml) | Structured config: model providers, MCP servers, the session file sandbox. | Yes |
+| `.env` | Secrets, auto-loaded at boot. | No |
+| `kiri.md` | Standing instructions for [sessions](/docs/sessions). | Yes |
+| `AGENTS.md` | Per-directory instructions, picked up from the tree a session works in. Not kiri-specific. | Yes |
+| `skills/` | On-demand instruction packs, one `<name>/SKILL.md` per skill. | Yes |
+| `workflows/` | Your workflow YAML, hand-written or session-authored. | Yes |
+| `.kiri/` | Editor schemas and run scratch space. | No — `kiri init` gitignores it |
 
 Configuration problems never block boot — kiri prints a health report at
 startup and shows the same checks as a banner in the app. To pin a workspace
