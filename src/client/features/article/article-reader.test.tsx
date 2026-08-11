@@ -91,17 +91,17 @@ describe("<ArticleReader>", () => {
     expect(screen.getByText("1 min read")).toBeDefined();
   });
 
-  it("renders body `## section` markdown as h2 with section-NN ids and § NN eyebrows", () => {
+  it("renders body `## section` markdown as h2 with slugged ids and § NN eyebrows", () => {
     const { container } = renderReader({
       contentMd: "# The headline\n\n## First section\n\nBody.\n\n## Second section\n\nMore.\n",
       name: "Sectioned",
     });
 
     // The headline is the page h1; the `##` headings are the sections that the
-    // table of contents reads, each stamped with a section-NN id and § eyebrow.
+    // table of contents reads, each stamped with a slugged id and § eyebrow.
     expect(screen.getByRole("heading", { level: 1, name: "The headline" })).toBeDefined();
-    const bodyH2s = Array.from(container.querySelectorAll("h2[id^='section-']"));
-    expect(bodyH2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+    const bodyH2s = Array.from(container.querySelectorAll("h2[data-section]"));
+    expect(bodyH2s.map((h) => h.id)).toEqual(["first-section", "second-section"]);
     expect(bodyH2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
     expect(bodyH2s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
   });

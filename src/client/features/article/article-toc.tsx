@@ -1,19 +1,17 @@
 import { useEffect, useState } from "react";
 import { Toc, type TocEntry } from "../../design-system/navigation/toc.tsx";
 
-const SECTION_ID_PREFIX = "section-";
 const EYEBROW_PREFIX = /^§\s*\d+\s*/;
 
 const collectEntries = (): TocEntry[] => {
-  const headings = document.querySelectorAll<HTMLElement>(`[id^="${SECTION_ID_PREFIX}"]`);
+  const headings = document.querySelectorAll<HTMLElement>("[data-section]");
   return Array.from(headings).map((heading) => {
-    const id = heading.id;
-    const ordinal = id.slice(SECTION_ID_PREFIX.length);
+    const ordinal = heading.getAttribute("data-section") ?? "";
     // The heading's text content includes the aria-hidden `§ NN` eyebrow span
     // as its first child — strip it so the label is just the section's prose
     // title.
     const label = (heading.textContent ?? "").replace(EYEBROW_PREFIX, "").trim();
-    return { id, ordinal, label };
+    return { id: heading.id, ordinal, label };
   });
 };
 
@@ -27,9 +25,10 @@ const sameEntries = (a: TocEntry[], b: TocEntry[]): boolean => {
 
 /**
  * The article reading view's right-rail table of contents. Collects the
- * `section-NN` anchors that `<Markdown withSectionOrdinals>` stamps onto the
- * rendered body, strips their `§ NN` eyebrow to recover each section's title,
- * and feeds the design-system `Toc`, which owns presentation and scroll-spy.
+ * `data-section` headings that `<Markdown withSectionOrdinals>` stamps onto
+ * the rendered body, strips their `§ NN` eyebrow to recover each section's
+ * title, and feeds the design-system `Toc`, which owns presentation and
+ * scroll-spy.
  *
  * Collection reads off the live document, and a `<main>`-scoped
  * MutationObserver re-syncs when the body arrives after mount (an article

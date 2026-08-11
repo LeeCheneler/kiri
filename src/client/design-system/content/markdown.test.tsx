@@ -246,10 +246,11 @@ describe("<Markdown>", () => {
       "\n",
     );
 
-    it("stamps section-NN ids and § NN eyebrows on authored # headings", () => {
+    it("stamps slugged ids, data-section ordinals, and § NN eyebrows on authored # headings", () => {
       const { container } = renderMd(<Markdown content={source} withSectionOrdinals />);
       const h1s = Array.from(container.querySelectorAll("h1"));
-      expect(h1s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+      expect(h1s.map((h) => h.id)).toEqual(["what-stood-out", "why-it-matters"]);
+      expect(h1s.map((h) => h.getAttribute("data-section"))).toEqual(["01", "02"]);
       expect(h1s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
       expect(h1s[1]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 02");
       expect(screen.getByRole("heading", { level: 1, name: "What stood out" })).toBeDefined();
@@ -262,6 +263,26 @@ describe("<Markdown>", () => {
       expect(h1s[0]?.querySelector("span[aria-hidden]")).toBeNull();
     });
 
+    it("resolves an authored anchor link against the heading it names", () => {
+      renderMd(
+        <Markdown
+          content={"# Running shell commands\n\nSee [above](#running-shell-commands)."}
+          withSectionOrdinals
+        />,
+      );
+      const link = screen.getByRole("link", { name: "above" });
+      expect(link.getAttribute("href")).toBe("#running-shell-commands");
+      expect(document.getElementById("running-shell-commands")).not.toBeNull();
+    });
+
+    it("suffixes repeated heading texts so ids stay unique", () => {
+      const { container } = renderMd(
+        <Markdown content={"# Notes\n\nBody.\n\n# Notes\n\nMore."} withSectionOrdinals />,
+      );
+      const h1s = Array.from(container.querySelectorAll("h1"));
+      expect(h1s.map((h) => h.id)).toEqual(["notes", "notes-1"]);
+    });
+
     it("does not double-count under React.StrictMode's double-render", () => {
       const { container } = renderMd(
         <StrictMode>
@@ -270,7 +291,7 @@ describe("<Markdown>", () => {
       );
       const h1s = Array.from(container.querySelectorAll("h1"));
       expect(h1s).toHaveLength(1);
-      expect(h1s[0]?.id).toBe("section-01");
+      expect(h1s[0]?.id).toBe("only-heading");
     });
 
     it("attaches the ordinals to the authored level named by sectionLevel", () => {
@@ -282,10 +303,13 @@ describe("<Markdown>", () => {
         />,
       );
       const h2s = Array.from(container.querySelectorAll("h2"));
-      expect(h2s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+      expect(h2s.map((h) => h.id)).toEqual(["first", "second"]);
+      expect(h2s.map((h) => h.getAttribute("data-section"))).toEqual(["01", "02"]);
       expect(h2s[0]?.querySelector("span[aria-hidden]")?.textContent).toBe("§ 01");
-      // The authored `#` headline is left un-sectioned.
-      expect(container.querySelector("h1")?.id).toBe("");
+      // The authored `#` headline is anchor-addressable but not sectioned —
+      // no ordinal, no eyebrow.
+      expect(container.querySelector("h1")?.id).toBe("headline");
+      expect(container.querySelector("h1")?.getAttribute("data-section")).toBeNull();
       expect(container.querySelector("h1")?.querySelector("span[aria-hidden]")).toBeNull();
     });
   });
@@ -315,7 +339,7 @@ describe("<Markdown>", () => {
         />,
       );
       const h3s = Array.from(container.querySelectorAll("h3"));
-      expect(h3s.map((h) => h.id)).toEqual(["section-01", "section-02"]);
+      expect(h3s.map((h) => h.id)).toEqual(["first", "second"]);
       expect(container.querySelector("h4")?.querySelector("span[aria-hidden]")).toBeNull();
     });
   });

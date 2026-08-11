@@ -11,8 +11,9 @@ const LINK_CLASS =
  * to ink on hover and focus. Internal hrefs thread through wouter's
  * `<Link>` for client-side navigation; an href that resolves off-app opens
  * in a new tab with a safe `rel` and a trailing ↗ to mark that it leaves the
- * app — detected from the href, not a flag. A fragment href (`#…`) threads
- * through `<Link>` like any internal href and renders the same in-page anchor.
+ * app — detected from the href, not a flag. A fragment href (`#…`) renders a
+ * plain in-page anchor: the browser owns the jump to the target heading,
+ * which wouter's pushState navigation would swallow.
  *
  * This is the in-flow link. Standalone navigation entries — the side rail,
  * a back link — carry their own affordances and are not this component.
@@ -31,6 +32,13 @@ export function InlineLink({
         <span aria-hidden="true" className="font-mono">
           ↗
         </span>
+      </a>
+    );
+  }
+  if (href.startsWith("#")) {
+    return (
+      <a href={href} className={LINK_CLASS}>
+        {children}
       </a>
     );
   }

@@ -6,12 +6,12 @@ import { ArticleToc } from "./article-toc.tsx";
 // Render the TOC alongside a fake <main> body that owns the section headings —
 // production-ish layout where the TOC reads headings from the live document.
 // The TOC sits outside <main> so it isn't caught by its own observer scope.
-const renderWithBody = (sections: Array<{ ordinal: string; label: string }>) =>
+const renderWithBody = (sections: Array<{ ordinal: string; id: string; label: string }>) =>
   render(
     <>
       <main>
         {sections.map((s) => (
-          <h3 key={s.ordinal} id={`section-${s.ordinal}`}>
+          <h3 key={s.ordinal} id={s.id} data-section={s.ordinal}>
             <span aria-hidden="true">§ {s.ordinal}</span>
             {s.label}
           </h3>
@@ -27,7 +27,7 @@ describe("<ArticleToc>", () => {
     expect(container.querySelector("nav")).toBeNull();
   });
 
-  it("renders nothing when the document has no section anchors", () => {
+  it("renders nothing when the document has no section headings", () => {
     const { container } = render(
       <>
         <main>
@@ -41,16 +41,16 @@ describe("<ArticleToc>", () => {
 
   it("renders one TOC link per section heading, eyebrow stripped from the label", () => {
     renderWithBody([
-      { ordinal: "01", label: "What stood out" },
-      { ordinal: "02", label: "Top stories" },
-      { ordinal: "03", label: "Quick takes" },
+      { ordinal: "01", id: "what-stood-out", label: "What stood out" },
+      { ordinal: "02", id: "top-stories", label: "Top stories" },
+      { ordinal: "03", id: "quick-takes", label: "Quick takes" },
     ]);
 
     const links = screen.getAllByRole("link");
     expect(links.map((l) => l.getAttribute("href"))).toEqual([
-      "#section-01",
-      "#section-02",
-      "#section-03",
+      "#what-stood-out",
+      "#top-stories",
+      "#quick-takes",
     ]);
     // The `§ NN` eyebrow is dropped — the label is just the prose title (the
     // ordinal renders as its own column inside the link).
@@ -73,26 +73,29 @@ describe("<ArticleToc>", () => {
       const main = container.querySelector("main");
       if (main === null) throw new Error("main not in DOM");
       const h = document.createElement("h3");
-      h.id = "section-01";
+      h.id = "late-arrival";
+      h.setAttribute("data-section", "01");
       h.textContent = "§ 01Late Arrival";
       main.appendChild(h);
       await flushAsync();
     });
 
     expect(screen.getByRole("link", { name: /late arrival/i }).getAttribute("href")).toBe(
-      "#section-01",
+      "#late-arrival",
     );
   });
 
   it("re-syncs the labels when a section's title changes in place", async () => {
-    const { container } = renderWithBody([{ ordinal: "01", label: "Draft title" }]);
+    const { container } = renderWithBody([
+      { ordinal: "01", id: "draft-title", label: "Draft title" },
+    ]);
     expect(screen.getByRole("link", { name: /draft title/i })).toBeDefined();
 
     // Same heading count, different label — the unchanged-set short-circuit
     // must not swallow it.
     await act(async () => {
-      const heading = container.querySelector("#section-01");
-      if (heading === null) throw new Error("section-01 not in DOM");
+      const heading = container.querySelector("#draft-title");
+      if (heading === null) throw new Error("draft-title not in DOM");
       heading.textContent = "§ 01Final title";
       await flushAsync();
     });
@@ -102,7 +105,7 @@ describe("<ArticleToc>", () => {
   });
 
   it("ignores mutations under <main> that leave the heading set unchanged", async () => {
-    const { container } = renderWithBody([{ ordinal: "01", label: "Stable" }]);
+    const { container } = renderWithBody([{ ordinal: "01", id: "stable", label: "Stable" }]);
     expect(screen.getAllByRole("link")).toHaveLength(1);
 
     // A non-heading mutation — e.g. a lazy chart mounting after the headings
@@ -116,6 +119,6 @@ describe("<ArticleToc>", () => {
     });
 
     expect(screen.getAllByRole("link")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /stable/i }).getAttribute("href")).toBe("#section-01");
+    expect(screen.getByRole("link", { name: /stable/i }).getAttribute("href")).toBe("#stable");
   });
 });
