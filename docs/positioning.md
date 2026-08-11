@@ -8,7 +8,7 @@ or this document is wrong, and the mismatch is a defect to fix, not ignore.
 ## One-liner
 
 > Kiri is an AI workspace that runs on your machine and writes things down —
-> chats become readable pages, facts become memories, and repeated chores
+> sessions become readable pages, facts become memories, and repeated chores
 > become one-click buttons.
 
 Short form (taglines, descriptions): **A local-first AI workspace where work
@@ -23,8 +23,8 @@ one-liner sells it. Never lead with the category alone.
 Kiri's shape is a progression, and copy should present it in this order:
 
 1. **Work it out in chat.** Sessions are the front door: streaming chat with
-   your own models, wired into your files, your shell, and any MCP server —
-   with every risky action approval-gated.
+   any model you configure, wired into your files, your shell, and any MCP
+   server, with tool permissions you set: allow, ask, or off.
 2. **Keep what matters.** Output lands as articles — readable pages in a live
    feed — not scrollback. Facts persist as memories. Related work compounds
    into a project's shared corpus with wiki-links and standing instructions.
@@ -44,7 +44,8 @@ mature work ends up.
 3. **Assistants have amnesia.** Re-explaining context and preferences every
    time. (memories, standing instructions, projects)
 4. **Cloud tools can't touch the real repo safely.** Privacy and blast-radius
-   worries. (local-first, allowed directories, approval-gated diffs)
+   worries. (local-first, allowed directories, per-tool permissions, diffs
+   before writes)
 
 ## Competitive frames
 
@@ -72,8 +73,12 @@ Avoid: "powerful", "seamless", feature soup, unverifiable claims.
 
 ## Vocabulary
 
-- "assistant", never "agent", in user-facing copy.
+- "assistant", never "agent", for the actor in user-facing copy. "Agentic"
+  as an adjective for the capability (e.g. "agentic sessions") is fine.
 - "instructions", never "prompt", for standing instruction layers.
 - "article" for the written artifact; "feed" for where it lands.
+- "local workflows" when naming the workflow feature — never "one-click
+  workflows"; the one-click part describes how a workflow runs ("a button"),
+  not what it is.
 - Sessions "write things down"; workflows are "buttons"; the workspace
   "compounds" or "accumulates" — ephemerality is the enemy named in copy.

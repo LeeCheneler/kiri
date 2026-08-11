@@ -1,10 +1,10 @@
 # Kiri
 
-> An AI workspace that runs on your machine and writes things down — chats become readable pages, facts become memories, and repeated chores become one-click buttons.
+> An AI workspace that runs on your machine and writes things down — sessions become readable pages, facts become memories, and repeated chores become one-click buttons.
 
 Every AI tool you use forgets. Chats scroll away, context gets re-explained, and the same chore gets re-prompted every week. Kiri is a **local-first AI workspace** built so work compounds instead:
 
-1. **Work it out in chat.** Open a session with your own models — wired into your files, your shell, and any MCP server, every risky action approval-gated.
+1. **Work it out in chat.** Open a session with any model you configure — wired into your files, your shell, and any MCP server, with tool permissions you set: allow, ask, or off.
 2. **Keep what matters.** Output lands as **articles**: readable pages in a live feed, with charts and diagrams, not scrollback. Facts persist as memories; related work compounds into a project's shared, cross-linked corpus.
 3. **Automate the repeats.** Anything worth doing twice hardens into a **workflow** — a YAML file in your repo, runnable as a one-click button. A session can author it for you.
 

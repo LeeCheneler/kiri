@@ -1,16 +1,16 @@
 # What is kiri?
 
 Kiri is an AI workspace that runs on your machine and writes things down —
-chats become readable pages, facts become memories, and repeated chores become
-one-click buttons.
+sessions become readable pages, facts become memories, and repeated chores
+become one-click buttons.
 
 Most AI tools forget: chats scroll away, context gets re-explained, the same
 chore gets re-prompted every week. Kiri is built so work compounds instead,
 and its shape is a ladder:
 
-1. **Work it out in chat.** A **session** is streaming chat with your own
-   models, wired into your files and shell and extended by any MCP server you
-   configure — every risky action waiting on your approval.
+1. **Work it out in chat.** A **session** is streaming chat with any model
+   you configure, wired into your files and shell and extended by any MCP
+   server you add, with tool permissions you set: allow, ask, or off.
 2. **Keep what matters.** Output lands as **articles** — readable pages in a
    live feed, with charts and diagrams — not scrollback. Facts persist as
    curatable **memories**, and related work groups into a **project**: a

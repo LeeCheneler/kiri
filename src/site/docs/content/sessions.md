@@ -1,6 +1,6 @@
 # Sessions
 
-A session is streaming chat with your own models, carrying your workspace's
+A session is streaming chat with any model you configure, carrying your workspace's
 context and standing instructions, wired into your files and shell, and
 extended by any MCP server you configure. It's where unscripted work happens
 — and when something you worked out is worth repeating, the session can

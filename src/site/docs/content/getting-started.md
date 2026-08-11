@@ -1,8 +1,8 @@
 # Quickstart
 
 Install kiri, work something out in a session, keep the write-up as an
-article, then turn it into a one-click workflow — the whole loop in about
-five minutes.
+article, then turn it into a local workflow you run with one click — the
+whole loop in about five minutes.
 
 ## Install
 
