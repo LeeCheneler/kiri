@@ -30,9 +30,9 @@ test("clicking an article navigates to a page rendering its markdown body", asyn
   // ("Daily Digest") rides in the eyebrow as the series label.
   await expect(page.getByRole("heading", { level: 1, name: /this week in review/i })).toBeVisible();
   // The body's `##` headings are the article's sections, rendered as h2 with
-  // the section-NN anchors the table of contents reads.
+  // the data-section anchors the table of contents reads.
   await expect(page.getByRole("heading", { level: 2, name: /first section/i })).toBeVisible();
-  await expect(page.locator('article h2[id^="section-"]')).toHaveCount(2);
+  await expect(page.locator("article h2[data-section]")).toHaveCount(2);
   await expect(page.locator("article p").first()).toBeVisible();
 
   // The breadcrumb's run crumb — the run named by when it ran — returns to it.

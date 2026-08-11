@@ -270,14 +270,11 @@ set -eu
 # Required from kiri
 : "${KIRI_REPO_ROOT:?required (kiri injects this)}"
 
-# Required from the workflow's env: block
+# Required from the workflow's env: block — wire data in with env refs
 : "${TARGET:?TARGET env var is required}"
 
-# Read previous step's output (empty for first step)
-input="$(cat)"
-
-# Do the thing; stdout goes to the next step / article / summary
-printf 'processed %s for %s\n' "$TARGET" "$input"
+# Do the thing; stdout is the step's output, addressable via { step: <id> }
+printf 'processed %s\n' "$TARGET"
 ```
 
 Exit `0` on success, non-zero on failure. Resolve file reads against

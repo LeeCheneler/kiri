@@ -33,9 +33,8 @@ providers:
 ```
 
 A bare `model: claude-haiku` with no prefix is a load-time error. The
-`providers:` map is optional — a workspace with only `sh:`/`use:` steps needs
-none. (`kiri.yaml` is canonical; `kiri.yml` also works, and if both exist
-`kiri.yaml` wins, with a warning.)
+`providers:` map is optional — a workspace with only `sh:`/`use:` steps
+needs none.
 
 ## Provider types
 
@@ -87,10 +86,9 @@ models:
       images: openai:gpt-image-1
 ```
 
-The session model pickers pin shortcuts ahead of the full listing, in config
-order, and every new session starts on the first shortcut of each configured
-modality. Re-point a shortcut any time — future picks follow it, and past
-sessions keep the model they ran on.
+Shortcuts are offered first when picking a model, and every new session
+starts on the first shortcut of each modality. Re-point a shortcut any time
+— future picks follow it; past sessions keep the model they ran on.
 
 ## Delegate models
 
@@ -127,22 +125,18 @@ models:
 
 These calls are tiny, so a fast, cheap model is the right fit — a
 [local model](#local-models) works well and keeps them off the meter
-entirely. Unset, session titling falls back to the model of the session it
-serves; the shell tool's Auto judgement deliberately doesn't — without a
-utility model, Auto falls back to asking on every command.
-
-Without a `models:` section, nothing changes: pickers list models as usual
-and new sessions default to the most recent session's model.
+entirely. Unset, session titling falls back to the session's own model,
+while the shell tool's Auto permission falls back to asking on every
+command.
 
 ## Hot reload and health
 
-Edits to `kiri.yaml` apply live: kiri swaps the registry on a valid change and
-re-validates every workflow's `llm:` references, keeping the last-known-good
-config on an invalid edit. A declared provider whose key env var is unset is
-flagged in the boot report and the in-app health banner — it never blocks
-boot. So is a `models:` reference to an undeclared provider, or to a model
-its provider doesn't currently list. See
-[Troubleshooting](/docs/troubleshooting).
+Edits to `kiri.yaml` apply live; an invalid edit keeps the last-known-good
+config. Problems — an unset key variable, a reference to an undeclared
+provider — never block boot: they're flagged in the boot report and the
+in-app health banner. See [Troubleshooting](/docs/troubleshooting).
 
-For the full `llm:` step contract — prompts, templating, data flow — see the
+Every `kiri.yaml` field is listed in the
+[kiri.yaml reference](/docs/kiri-yaml); the full `llm:` step contract —
+prompts, templating, data flow — is in the
 [workflow reference](/docs/workflow-reference).

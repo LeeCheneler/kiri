@@ -78,6 +78,75 @@ const buildHeading = (source: HeadingLevel, target: HeadingLevel): Components["h
   };
 };
 
+/**
+ * The url-fragment slug for a heading's text, GitHub-style: lowercased,
+ * punctuation dropped, whitespace collapsed to hyphens. Authored anchor
+ * links (`[…](#running-shell-commands)`) resolve against ids produced by
+ * this same rule.
+ */
+export const headingSlug = (text: string): string =>
+  text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .replace(/\s+/g, "-");
+
+// The rendered text of a hast node — heading children flattened to the
+// plain string the slug derives from.
+type TextNode = { value?: unknown; children?: TextNode[] };
+const nodeText = (node: TextNode | undefined): string => {
+  if (node === undefined) return "";
+  if (typeof node.value === "string") return node.value;
+  return (node.children ?? []).map(nodeText).join("");
+};
+
+type Slugger = (node: unknown, text: string) => string;
+
+/**
+ * Build a document-scoped slug assigner. Ids are keyed by AST node identity
+ * so StrictMode's double-render reuses the first answer, and repeated
+ * heading texts get a `-1`, `-2`, … suffix so every id stays unique within
+ * the document.
+ */
+const buildSlugger = (): Slugger => {
+  const assigned = new Map<unknown, string>();
+  const counts = new Map<string, number>();
+  return (node, text) => {
+    const existing = assigned.get(node);
+    if (existing !== undefined) return existing;
+    const base = headingSlug(text) || "section";
+    const count = counts.get(base) ?? 0;
+    counts.set(base, count + 1);
+    const slug = count === 0 ? base : `${base}-${count}`;
+    assigned.set(node, slug);
+    return slug;
+  };
+};
+
+// A heading outside the sectioned level on an anchor-bearing surface: no
+// ordinal eyebrow, but still a slugged id so authored links can target it.
+const buildAnchoredHeading = (
+  source: HeadingLevel,
+  target: HeadingLevel,
+  slugger: Slugger,
+): Components["h1"] => {
+  return function AnchoredHeading({
+    node,
+    children,
+    ...rest
+  }: HTMLAttributes<HTMLHeadingElement> & ExtraProps) {
+    return createElement(
+      `h${target}`,
+      {
+        id: slugger(node, nodeText(node as TextNode)),
+        className: HEADING_CLASSES[source],
+        ...rest,
+      },
+      children,
+    );
+  };
+};
+
 function Paragraph({
   node: _node,
   children,
@@ -256,9 +325,11 @@ const baseComponents: Components = {
  * the rendered output, clamped at h6 — for surfaces whose route owns an
  * outer heading and needs body `# section` to slot in beneath it.
  *
- * `withSectionOrdinals` stamps each authored heading at `sectionLevel` with a
- * deterministic id (`section-01`, …) and a leading `§ NN` mono eyebrow, at
- * whatever rendered level the downgrade lands it on. Ordinals key off AST
+ * `withSectionOrdinals` stamps every authored heading with an id slugged
+ * from its text (see `headingSlug`), so authored anchor links
+ * (`[…](#some-heading)`) resolve. Headings at `sectionLevel` additionally
+ * carry a `data-section="NN"` ordinal and a leading `§ NN` mono eyebrow, at
+ * whatever rendered level the downgrade lands them on. Ordinals key off AST
  * node identity so React StrictMode's double-render doesn't double-count.
  *
  * `sectionLevel` chooses which authored heading level the section ordinals
@@ -317,6 +388,9 @@ const buildMarkdownComponents = ({
 }): Components => {
   if (downgrade === 0 && !withSectionOrdinals) return baseComponents;
   const result: Components = { ...baseComponents };
+  // One slugger spans every heading level so ids stay unique across the
+  // whole document, not just within a level.
+  const slugger = withSectionOrdinals ? buildSlugger() : null;
   // Ordinals follow the authored heading at `sectionLevel` wherever the
   // downgrade lands it. The rendered element shifts; the source slot we
   // override stays the authored level.
@@ -324,22 +398,28 @@ const buildMarkdownComponents = ({
     const target = clampLevel(source + downgrade);
     const key = `h${source}` as const;
     result[key] =
-      withSectionOrdinals && source === sectionLevel
-        ? buildOrdinalHeading(source, target)
-        : buildHeading(source, target);
+      slugger === null
+        ? buildHeading(source, target)
+        : source === sectionLevel
+          ? buildOrdinalHeading(source, target, slugger)
+          : buildAnchoredHeading(source, target, slugger);
   }
   return result;
 };
 
 /**
- * Build a stateful heading renderer that assigns each heading an
- * `id="section-NN"` and a `§ NN` mono eyebrow in document order. The counter
- * is keyed by AST `node` identity rather than a plain increment: when
- * react-markdown invokes the same heading twice (StrictMode's double-render)
- * the second invocation finds its node in the Map and returns the same
- * ordinal instead of bumping the count.
+ * Build a stateful heading renderer that assigns each sectioned heading its
+ * slugged id, a `data-section="NN"` ordinal, and a leading `§ NN` mono
+ * eyebrow in document order. The counter is keyed by AST `node` identity
+ * rather than a plain increment: when react-markdown invokes the same
+ * heading twice (StrictMode's double-render) the second invocation finds its
+ * node in the Map and returns the same ordinal instead of bumping the count.
  */
-const buildOrdinalHeading = (source: HeadingLevel, target: HeadingLevel): Components["h1"] => {
+const buildOrdinalHeading = (
+  source: HeadingLevel,
+  target: HeadingLevel,
+  slugger: Slugger,
+): Components["h1"] => {
   const ordinals = new Map<unknown, number>();
   return function OrdinalHeading({
     node,
@@ -354,7 +434,12 @@ const buildOrdinalHeading = (source: HeadingLevel, target: HeadingLevel): Compon
     const nn = String(ordinal).padStart(2, "0");
     return createElement(
       `h${target}`,
-      { id: `section-${nn}`, className: HEADING_CLASSES[source], ...rest },
+      {
+        id: slugger(node, nodeText(node as TextNode)),
+        "data-section": nn,
+        className: HEADING_CLASSES[source],
+        ...rest,
+      },
       <span
         key="eyebrow"
         aria-hidden="true"

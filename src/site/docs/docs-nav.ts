@@ -1,5 +1,6 @@
 import cliReference from "./content/cli-reference.md?raw";
 import gettingStarted from "./content/getting-started.md?raw";
+import kiriYamlReference from "./content/kiri-yaml-reference.md?raw";
 import llmProviders from "./content/llm-providers.md?raw";
 import overview from "./content/overview.md?raw";
 import projectsAndMemories from "./content/projects-and-memories.md?raw";
@@ -41,8 +42,14 @@ export const DOCS_PAGES: DocsPage[] = [
     content: projectsAndMemories,
   },
   { slug: "workflows", title: "Writing workflows", section: "Guides", content: workflows },
-  { slug: "recipes", title: "Recipes", section: "Guides", content: recipes },
   { slug: "llm-providers", title: "Models & providers", section: "Guides", content: llmProviders },
+  { slug: "recipes", title: "Recipes", section: "Guides", content: recipes },
+  {
+    slug: "kiri-yaml",
+    title: "kiri.yaml",
+    section: "Reference",
+    content: kiriYamlReference,
+  },
   {
     slug: "workflow-reference",
     title: "Workflow reference",

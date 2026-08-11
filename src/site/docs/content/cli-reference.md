@@ -17,7 +17,7 @@ Options:
   -v, --version  Show kiri version
 ```
 
-Run `kiri` with no command to start the server (it boots on `:4242`). Open
+The server boots on `:4242` — open
 [local.kiri.build](https://local.kiri.build) or `http://localhost:4242`.
 
 ## kiri init
@@ -37,13 +37,6 @@ kiri.yaml                        Structured config (LLM providers, …) — comm
 
 It also adds `.kiri/` to `.gitignore` if needed. The working directory is the
 current directory, or `KIRI_CONFIG_DIR` if set.
-
-## Options
-
-| Flag | Effect |
-| --- | --- |
-| `-h`, `--help` | Show help text. `kiri init --help` shows the init-specific help. |
-| `-v`, `--version` | Print the kiri version. |
 
 ## Environment
 

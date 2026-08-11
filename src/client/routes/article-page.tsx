@@ -24,7 +24,7 @@ export function ArticlePage({
 }) {
   // The right-rail TOC reads the rendered body straight from the document. Remount
   // it once the article resolves so its initial collect runs with the body — and
-  // its `section-NN` anchors — already committed, rather than depending on a
+  // its `data-section` headings — already committed, rather than depending on a
   // mutation observer to catch the load transition.
   const article = useArticle(params.id, params.slug);
   return (
