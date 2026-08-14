@@ -270,11 +270,12 @@ function ToggleChipDemo() {
 // tapping one records it as the sent reply.
 function ChipDemo() {
   const [sent, setSent] = useState<string | null>(null);
+  const send = (reply: string) => () => setSent(reply);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        <Chip onClick={() => setSent("Yes, proceed")}>Yes, proceed</Chip>
-        <Chip onClick={() => setSent("No, hold off")}>No, hold off</Chip>
+        <Chip onClick={send("Yes, proceed")}>Yes, proceed</Chip>
+        <Chip onClick={send("No, hold off")}>No, hold off</Chip>
         <Chip disabled>Unavailable</Chip>
       </div>
       <p className="font-mono text-xs text-ink-muted">

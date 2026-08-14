@@ -1207,6 +1207,19 @@ describe("<SessionChat>", () => {
       );
     });
 
+    it("shows no chips when the server offers none", async () => {
+      // No suggested-replies override: the fetch rides the msw default's
+      // empty answer, the same shape a real "not now" response takes.
+      server.use(
+        http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(settledTranscript()))),
+      );
+      renderChat();
+
+      await screen.findByText("Shall I go ahead?");
+      await settle();
+      expect(screen.queryByRole("group", { name: "Suggested replies" })).toBeNull();
+    });
+
     it("serves a cached answer without asking again", async () => {
       writeSuggestedReplies("m2", ["Yes, proceed"]);
       const { calls, handler } = countingRepliesHandler(["Never served"]);

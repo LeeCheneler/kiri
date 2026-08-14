@@ -124,4 +124,19 @@ describe("<DesignSystemPage>", () => {
     await user.click(science);
     expect(science.checked).toBe(true);
   });
+
+  it("records the tapped suggestion in the Chip demo", async () => {
+    const user = userEvent.setup();
+    const { hook } = memoryLocation({ path: "/dev/design-system" });
+    render(
+      <Router hook={hook}>
+        <DesignSystemContent />
+      </Router>,
+    );
+    await screen.findAllByRole("figure");
+
+    expect(screen.getByText("Nothing sent yet.")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "Yes, proceed" }));
+    expect(screen.getByText("Sent: Yes, proceed")).toBeDefined();
+  });
 });
