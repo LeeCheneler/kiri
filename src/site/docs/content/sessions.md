@@ -192,7 +192,8 @@ filesystem:
   relative paths resolve and commands run. It starts at
   `default_working_directory` (or the first allowed directory) and the
   assistant can move it within the sandbox as the work settles somewhere
-  else.
+  else. If it disappears — a deleted checkout, a narrowed sandbox — the
+  session falls back to the default and the assistant lets you know.
 
 ## Running shell commands
 
