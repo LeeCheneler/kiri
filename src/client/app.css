@@ -68,6 +68,16 @@
     min-height: 100vh;
   }
 
+  /* JetBrains Mono's contextual ligatures (e.g. `...`) render as spacer
+     glyphs plus one spanning glyph; Chrome's incremental repaint around a
+     live caret clips that spanning ink, visually swallowing characters as
+     the user types. Rendered text elsewhere repaints fine, so ligatures
+     stay on outside editable controls. */
+  textarea,
+  input {
+    font-variant-ligatures: none;
+  }
+
   ::selection {
     background: var(--color-accent);
     color: var(--color-canvas);
