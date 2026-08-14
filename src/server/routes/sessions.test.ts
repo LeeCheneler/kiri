@@ -1426,20 +1426,85 @@ describe("sessions routes", () => {
       expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
     });
 
-    it("fails the turn before anything persists when the working directory left the disk", async () => {
+    it("heals a working directory that left the disk and announces the move to the model", async () => {
       writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
-      const app = makeApp(fakeClients());
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const events: KiriEvent[] = [];
+      const { bus, waitForSettled } = createSessionWaiter();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients({ model }), {
+        bus,
+        getDefaultWorkingDirectory: () => env.cwd,
+      });
       createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
 
+      const settled = waitForSettled("s1");
       const res = await postMessage(app, "s1", "hello");
+      expect(res.status).toBe(200);
+      await res.text();
+      await settled;
 
-      expect(res.status).toBe(409);
-      expect(((await res.json()) as { error: string }).error).toContain("no longer exists");
-      // Nothing persisted: the message was rejected before the turn started.
-      expect(getSessionMessages(env.db, "s1")).toEqual([]);
-      // The announcement also cleared the stale value, so the next message
-      // self-heals from the configured default instead of failing again.
+      // The stale value was swapped for the configured default before the
+      // turn ran, and the swap was announced so the app can refresh.
+      expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
+      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
+      // The turn's system prompt told the model about the move.
+      expect(systemText).toContain(`"${join(env.cwd, "gone")}" no longer exists`);
+      expect(systemText).toContain(
+        `moved to the configured default working directory, "${env.cwd}"`,
+      );
+    });
+
+    it("clears a stale working directory outright when no usable default exists", async () => {
+      // A declared default inside the sandbox but absent from disk: the
+      // config loads, yet there is nothing usable to heal onto.
+      writeFileSync(
+        join(env.cwd, "kiri.yaml"),
+        "filesystem:\n  allowed_directories: [.]\n  default_working_directory: missing-default\n",
+      );
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
+
+      const settled = waitForSettled("s1");
+      const res = await postMessage(app, "s1", "hello");
+      expect(res.status).toBe(200);
+      await res.text();
+      await settled;
+
+      // With no default to fall back to the session ends up with none, and
+      // the model hears that relative paths won't resolve until one is set.
       expect(getSession(env.db, "s1")?.cwd).toBeNull();
+      expect(systemText).toContain("the session now has none");
     });
 
     it("heals a session without a working directory from the live default", async () => {
@@ -1463,19 +1528,40 @@ describe("sessions routes", () => {
       expect(getSession(env.db, "s1")?.cwd).toBeNull();
     });
 
-    it("fails the turn when a config edit moved the sandbox out from under the session", async () => {
+    it("heals a working directory a config edit moved the sandbox out from under", async () => {
       mkdirSync(join(env.cwd, "inner"));
       writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [inner]\n");
-      const app = makeApp(fakeClients());
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          const system = options.prompt.find((m) => m.role === "system");
+          systemText = typeof system?.content === "string" ? system.content : "";
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "hi" },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), {
+        bus,
+        getDefaultWorkingDirectory: () => join(env.cwd, "inner"),
+      });
       // A directory that exists but now sits outside the narrowed sandbox.
       createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
 
+      const settled = waitForSettled("s1");
       const res = await postMessage(app, "s1", "hello");
+      expect(res.status).toBe(200);
+      await res.text();
+      await settled;
 
-      expect(res.status).toBe(409);
-      expect(((await res.json()) as { error: string }).error).toContain(
-        "outside the allowed directories",
-      );
+      expect(getSession(env.db, "s1")?.cwd).toBe(join(env.cwd, "inner"));
+      expect(systemText).toContain(`"${env.cwd}" is outside the allowed directories`);
     });
 
     it("plays the turn despite a stale working directory when no sandbox is declared", async () => {
