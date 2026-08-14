@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../design-system/actions/button.tsx";
 import { Checkbox } from "../design-system/actions/checkbox.tsx";
+import { Chip } from "../design-system/actions/chip.tsx";
 import { Combobox } from "../design-system/actions/combobox.tsx";
 import { CopyButton } from "../design-system/actions/copy-button.tsx";
 import { SegmentedControl } from "../design-system/actions/segmented-control.tsx";
@@ -261,6 +262,24 @@ function ToggleChipDemo() {
         onChange={toggle("archived")}
         disabled
       />
+    </div>
+  );
+}
+
+// Interactive specimen for the Chip — a wrap-flow row of one-shot suggestions;
+// tapping one records it as the sent reply.
+function ChipDemo() {
+  const [sent, setSent] = useState<string | null>(null);
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <Chip onClick={() => setSent("Yes, proceed")}>Yes, proceed</Chip>
+        <Chip onClick={() => setSent("No, hold off")}>No, hold off</Chip>
+        <Chip disabled>Unavailable</Chip>
+      </div>
+      <p className="font-mono text-xs text-ink-muted">
+        {sent === null ? "Nothing sent yet." : `Sent: ${sent}`}
+      </p>
     </div>
   );
 }
@@ -1578,6 +1597,29 @@ export function DesignSystemContent() {
             <div className="mt-5">
               <Card>
                 <ToggleChipDemo />
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Chip</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Chip</span> · design-system/actions/chip.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A pill-shaped one-shot action — the chip form on a plain button, driven by{" "}
+                <Code>onClick</Code>. Where <Code>ToggleChip</Code> is a checkbox holding on/off
+                state, this fires once and holds nothing: reach for it when a compact tappable
+                suggestion acts immediately — a suggested reply above a composer, a ready-made
+                refinement. Same wrap-inline layout as <Code>ToggleChip</Code> (
+                <Code>flex flex-wrap</Code>); <Code>disabled</Code> dims and blocks it. For a
+                standalone action with button weight use <Code>Button</Code>.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <ChipDemo />
               </Card>
             </div>
           </article>
