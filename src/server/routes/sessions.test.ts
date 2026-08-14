@@ -773,6 +773,180 @@ describe("sessions routes", () => {
     });
   });
 
+  describe("GET /api/sessions/:id/suggested-replies", () => {
+    const UTILITY = "local:tiny";
+
+    // Clients whose generateText answers with a fixed suggestion block,
+    // recording each call so a guard case can assert nothing was generated.
+    const suggestingClients = () => {
+      const calls: { model: string; prompt: string }[] = [];
+      const clients = fakeClients();
+      clients.generateText = async ({ model, prompt }) => {
+        calls.push({ model, prompt });
+        return { text: "ENDING: confirmation\nYes, proceed\nNo, hold off", usage: {} };
+      };
+      return { clients, calls };
+    };
+
+    const withUtility = () => ({ shortcuts: {}, delegates: {}, utility: UTILITY });
+
+    // An idle session whose last message is a plain assistant reply — the one
+    // shape that generates.
+    const seedSettledTurn = (id: string, assistantText = "Shall I go ahead?") => {
+      createSession(env.db, MODEL, { id });
+      appendMessage(env.db, id, { role: "user", parts: [{ type: "text", text: "Do the thing" }] });
+      appendMessage(env.db, id, {
+        role: "assistant",
+        parts: [{ type: "text", text: assistantText }],
+      });
+    };
+
+    const getReplies = (app: ReturnType<typeof createApp>, id: string) =>
+      app.request(`/api/sessions/${id}/suggested-replies`);
+
+    it("404s for an unknown session", async () => {
+      const app = makeApp(fakeClients(), { getModelsConfig: withUtility });
+
+      const res = await getReplies(app, "nope");
+
+      expect(res.status).toBe(404);
+    });
+
+    it("generates replies for a settled assistant turn with the utility model", async () => {
+      const { clients, calls } = suggestingClients();
+      const app = makeApp(clients, { getModelsConfig: withUtility });
+      seedSettledTurn("s1", "Shall I go ahead with the rename?");
+
+      const res = await getReplies(app, "s1");
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ replies: ["Yes, proceed", "No, hold off"] });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.model).toBe(UTILITY);
+      expect(calls[0]?.prompt).toContain("Shall I go ahead with the rename?");
+    });
+
+    it("returns no replies without generating when no utility model is configured", async () => {
+      const { clients, calls } = suggestingClients();
+      const app = makeApp(clients);
+      seedSettledTurn("s1");
+
+      const res = await getReplies(app, "s1");
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ replies: [] });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("returns no replies for a delegated child session", async () => {
+      const { clients, calls } = suggestingClients();
+      const app = makeApp(clients, { getModelsConfig: withUtility });
+      createSession(env.db, MODEL, { id: "parent" });
+      createSession(env.db, MODEL, {
+        id: "child",
+        parentSessionId: "parent",
+        parentToolCallId: "c1",
+      });
+      appendMessage(env.db, "child", { role: "user", parts: [{ type: "text", text: "Task" }] });
+      appendMessage(env.db, "child", {
+        role: "assistant",
+        parts: [{ type: "text", text: "Shall I go ahead?" }],
+      });
+
+      const res = await getReplies(app, "child");
+
+      expect(await res.json()).toEqual({ replies: [] });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("returns no replies while a turn is in flight", async () => {
+      const { clients, calls } = suggestingClients();
+      const app = makeApp(clients, { getModelsConfig: withUtility });
+      seedSettledTurn("s1");
+      setSessionStatus(env.db, "s1", "running");
+
+      const res = await getReplies(app, "s1");
+
+      expect(await res.json()).toEqual({ replies: [] });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("returns no replies when the last message is not an assistant reply", async () => {
+      const { clients, calls } = suggestingClients();
+      const app = makeApp(clients, { getModelsConfig: withUtility });
+      createSession(env.db, MODEL, { id: "empty" });
+      createSession(env.db, MODEL, { id: "s1" });
+      appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Hello?" }] });
+
+      expect(await (await getReplies(app, "empty")).json()).toEqual({ replies: [] });
+      expect(await (await getReplies(app, "s1")).json()).toEqual({ replies: [] });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("returns no replies while a tool approval is pending", async () => {
+      const { clients, calls } = suggestingClients();
+      const app = makeApp(clients, { getModelsConfig: withUtility });
+      createSession(env.db, MODEL, { id: "s1" });
+      appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Create it" }] });
+      appendMessage(env.db, "s1", {
+        role: "assistant",
+        parts: [
+          { type: "text", text: "I'd like to run this — allow it?" },
+          {
+            type: "tool-create_issue",
+            state: "approval-requested",
+            toolCallId: "c1",
+            input: { title: "Bug" },
+            approval: { id: "a1" },
+          },
+        ],
+      });
+
+      const res = await getReplies(app, "s1");
+
+      expect(await res.json()).toEqual({ replies: [] });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("returns no replies for an assistant message with no text", async () => {
+      const { clients, calls } = suggestingClients();
+      const app = makeApp(clients, { getModelsConfig: withUtility });
+      createSession(env.db, MODEL, { id: "s1" });
+      appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Run it" }] });
+      appendMessage(env.db, "s1", {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-create_issue",
+            state: "output-available",
+            toolCallId: "c1",
+            input: { title: "Bug" },
+            output: "created",
+          },
+        ],
+      });
+
+      const res = await getReplies(app, "s1");
+
+      expect(await res.json()).toEqual({ replies: [] });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("returns no replies when generation fails", async () => {
+      const clients = fakeClients();
+      clients.generateText = async () => {
+        throw new Error("provider down");
+      };
+      const app = makeApp(clients, { getModelsConfig: withUtility });
+      seedSettledTurn("s1");
+
+      const res = await getReplies(app, "s1");
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ replies: [] });
+    });
+  });
+
   describe("PATCH /api/sessions/:id", () => {
     const patchModel = (app: ReturnType<typeof createApp>, id: string, model: string) =>
       app.request(`/api/sessions/${id}`, {

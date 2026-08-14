@@ -991,6 +991,19 @@ export const fetchSessionChildren = async (id: string): Promise<Session[]> =>
   ).children;
 
 /**
+ * Fetch tap-to-send suggested replies to the session's settled last turn,
+ * generated on demand against the workspace's utility model. Empty for every
+ * "not now" case — no utility model configured, a turn in flight or awaiting
+ * approval, a last message a short reply can't answer. Throws on non-2xx.
+ */
+export const fetchSuggestedReplies = async (id: string): Promise<string[]> =>
+  (
+    await json<{ replies: string[] }>(
+      await apiFetch(`/api/sessions/${encodeURIComponent(id)}/suggested-replies`),
+    )
+  ).replies;
+
+/**
  * Create a session against `model` (a `provider:model` id), returning the new
  * row — navigate to it to start chatting. Pass `imageModel` to start with image
  * generation on, and `projectId` to create the session within a project —

@@ -40,6 +40,7 @@ import {
   deleteSession,
   filesystemTools,
   generateSessionTitle,
+  generateSuggestedReplies,
   getSession,
   getSessionChildren,
   getSessionLabels,
@@ -793,6 +794,39 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const body = streamRegistry.subscribe(c.req.valid("param").id);
       if (!body) return c.body(null, 204);
       return new Response(body, { headers: UI_MESSAGE_STREAM_HEADERS });
+    },
+  );
+
+  // Tap-to-send replies to the session's settled last turn, generated on
+  // demand against the utility model. Nothing is persisted or pushed — the
+  // chips are the requesting client's affair, so a moment nobody is looking
+  // at costs nothing. Every "not now" case is a plain empty list rather than
+  // an error: no utility model configured (the feature's off switch), a
+  // delegated child, a turn in flight or awaiting approval (the approval
+  // prompt is the reply surface), or a last message a chip can't answer —
+  // absence of chips is the common, first-class outcome.
+  app.get(
+    "/sessions/:id/suggested-replies",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const session = getSession(db, id);
+      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      const none = { replies: [] as string[] };
+      const model = deps.getModelsConfig?.().utility;
+      if (model === undefined) return c.json(none);
+      if (session.parentSessionId !== null || session.status !== "idle") return c.json(none);
+      const last = getSessionMessages(db, id).at(-1);
+      if (!last || last.role !== "assistant") return c.json(none);
+      const parts = last.parts as UIMessage["parts"];
+      if (hasPendingApproval(parts)) return c.json(none);
+      const assistantText = parts
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("\n")
+        .trim();
+      if (assistantText === "") return c.json(none);
+      const replies = await generateSuggestedReplies({ llmClients, model, assistantText });
+      return c.json({ replies });
     },
   );
 

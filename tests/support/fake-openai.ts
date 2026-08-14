@@ -222,6 +222,18 @@ const TITLE_PROMPT_PREFIX = "Name the conversation";
 /** The title the stub answers every session-title generation with. */
 export const STUB_SESSION_TITLE = "Kiri e2e session";
 
+// Kiri's suggested-replies generation opens its prompt with this phrase. The
+// stub abstains unless the embedded assistant text carries the opt-in marker,
+// so chips appear only in tests that ask for them and every other session
+// flow stays chip-free.
+const SUGGESTED_REPLIES_PROMPT_PREFIX = "Suggest tap-to-send replies";
+
+/** Marker a test embeds in a message to make the stub suggest replies for it. */
+export const SUGGESTED_REPLIES_MARKER = "[chips]";
+
+/** The replies the stub suggests when the marker is present. */
+export const STUB_SUGGESTED_REPLIES = ["Yes, proceed", "No, hold off"] as const;
+
 // A 400 (not 5xx) so the AI SDK treats it as non-retryable and fails fast,
 // rather than burning its retry/backoff budget before surfacing the error.
 const errorResponse = (): Response =>
@@ -267,8 +279,14 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
     };
     const model = body.model ?? "echo";
     const messages = body.messages ?? [];
-    let reply = fakeReply(lastUserText(messages));
-    if (lastUserText(messages).startsWith(TITLE_PROMPT_PREFIX)) reply = STUB_SESSION_TITLE;
+    const userText = lastUserText(messages);
+    let reply = fakeReply(userText);
+    if (userText.startsWith(TITLE_PROMPT_PREFIX)) reply = STUB_SESSION_TITLE;
+    if (userText.startsWith(SUGGESTED_REPLIES_PROMPT_PREFIX)) {
+      reply = userText.includes(SUGGESTED_REPLIES_MARKER)
+        ? ["ENDING: confirmation", ...STUB_SUGGESTED_REPLIES].join("\n")
+        : "ENDING: none";
+    }
 
     if (model === "boom") return errorResponse();
 

@@ -115,8 +115,9 @@ at spawn. Without them, workers run the same model as the conversation.
 ## Utility model
 
 Optionally set the model kiri itself uses for small internal generations —
-naming a new session off its opening message, or judging shell commands
-under the Auto permission — under `models.utility:`:
+naming a new session off its opening message, judging shell commands under
+the Auto permission, or suggesting tap-to-send replies after a turn — under
+`models.utility:`:
 
 ```yaml
 models:
@@ -126,8 +127,8 @@ models:
 These calls are tiny, so a fast, cheap model is the right fit — a
 [local model](#local-models) works well and keeps them off the meter
 entirely. Unset, session titling falls back to the session's own model,
-while the shell tool's Auto permission falls back to asking on every
-command.
+the shell tool's Auto permission falls back to asking on every command,
+and suggested replies stay off.
 
 ## Hot reload and health
 

@@ -10,6 +10,7 @@ import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionChat } from "./session-chat.tsx";
+import { writeSuggestedReplies } from "./suggested-replies-cache.ts";
 
 const sessionDetail = (messages: unknown[] = [], overrides: Record<string, unknown> = {}) => ({
   session: {
@@ -1145,5 +1146,174 @@ describe("<SessionChat>", () => {
     } finally {
       scroll.restore();
     }
+  });
+
+  describe("suggested replies", () => {
+    // The freshness gate only asks about a recently settled turn, so these
+    // fixtures carry a live timestamp where the shared ones are dated.
+    const recentMessage = (id: string, role: "user" | "assistant", text: string) => ({
+      ...message(id, role, text),
+      createdAt: new Date().toISOString(),
+    });
+
+    const settledTranscript = () => [
+      recentMessage("m1", "user", "Rename the module?"),
+      recentMessage("m2", "assistant", "Shall I go ahead?"),
+    ];
+
+    // Count requests to the suggested-replies endpoint, answering `replies`.
+    const countingRepliesHandler = (replies: string[]) => {
+      const calls = { count: 0 };
+      const handler = http.get("*/api/sessions/:id/suggested-replies", () => {
+        calls.count += 1;
+        return HttpResponse.json({ replies });
+      });
+      return { calls, handler };
+    };
+
+    // Let any wrongly-eligible fetch reach the counting handler before
+    // asserting none did — absence needs a beat, presence is awaited.
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+    it("offers replies for a settled turn and sends the tapped one", async () => {
+      const user = userEvent.setup();
+      let sentText: string | null = null;
+      server.use(
+        http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(settledTranscript()))),
+        http.get("*/api/sessions/:id/suggested-replies", () =>
+          HttpResponse.json({ replies: ["Yes, proceed", "No, hold off"] }),
+        ),
+        http.post("*/api/sessions/:id/messages", async ({ request }) => {
+          const body = (await request.json()) as {
+            message: { parts: { type: string; text?: string }[] };
+          };
+          sentText = body.message.parts.find((p) => p.type === "text")?.text ?? null;
+          return parkedReply();
+        }),
+      );
+      renderChat();
+
+      const chip = await screen.findByRole("button", { name: "Yes, proceed" });
+      expect(screen.getByRole("group", { name: "Suggested replies" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "No, hold off" })).toBeDefined();
+
+      await user.click(chip);
+
+      // The chip's text went down the ordinary send path, and the row hides
+      // the moment the turn is in flight.
+      await waitFor(() => expect(sentText).toBe("Yes, proceed"));
+      await waitFor(() =>
+        expect(screen.queryByRole("group", { name: "Suggested replies" })).toBeNull(),
+      );
+    });
+
+    it("shows no chips when the server offers none", async () => {
+      // No suggested-replies override: the fetch rides the msw default's
+      // empty answer, the same shape a real "not now" response takes.
+      server.use(
+        http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(settledTranscript()))),
+      );
+      renderChat();
+
+      await screen.findByText("Shall I go ahead?");
+      await settle();
+      expect(screen.queryByRole("group", { name: "Suggested replies" })).toBeNull();
+    });
+
+    it("serves a cached answer without asking again", async () => {
+      writeSuggestedReplies("m2", ["Yes, proceed"]);
+      const { calls, handler } = countingRepliesHandler(["Never served"]);
+      server.use(
+        http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(settledTranscript()))),
+        handler,
+      );
+      renderChat();
+
+      expect(await screen.findByRole("button", { name: "Yes, proceed" })).toBeDefined();
+      await settle();
+      expect(calls.count).toBe(0);
+    });
+
+    it("holds a cached empty answer as answered, not unasked", async () => {
+      writeSuggestedReplies("m2", []);
+      const { calls, handler } = countingRepliesHandler(["Never served"]);
+      server.use(
+        http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(settledTranscript()))),
+        handler,
+      );
+      renderChat();
+
+      await screen.findByText("Shall I go ahead?");
+      await settle();
+      expect(calls.count).toBe(0);
+      expect(screen.queryByRole("group", { name: "Suggested replies" })).toBeNull();
+    });
+
+    it("does not ask about a turn older than the freshness window", async () => {
+      const { calls, handler } = countingRepliesHandler(["Never served"]);
+      server.use(
+        http.get("*/api/sessions/:id", () =>
+          HttpResponse.json(
+            sessionDetail([
+              message("m1", "user", "Rename the module?"),
+              message("m2", "assistant", "Shall I go ahead?"),
+            ]),
+          ),
+        ),
+        handler,
+      );
+      renderChat();
+
+      await screen.findByText("Shall I go ahead?");
+      await settle();
+      expect(calls.count).toBe(0);
+      expect(screen.queryByRole("group", { name: "Suggested replies" })).toBeNull();
+    });
+
+    it("does not ask while a tool approval is pending", async () => {
+      const { calls, handler } = countingRepliesHandler(["Never served"]);
+      server.use(
+        http.get("*/api/sessions/:id", () =>
+          HttpResponse.json(
+            sessionDetail([
+              recentMessage("m1", "user", "open an issue"),
+              {
+                ...recentMessage("m2", "assistant", "I'd like to open this issue — allow it?"),
+                parts: [
+                  { type: "text", text: "I'd like to open this issue — allow it?" },
+                  {
+                    type: "tool-linear__create_issue",
+                    toolCallId: "c1",
+                    state: "approval-requested",
+                    input: { title: "Bug" },
+                    approval: { id: "a1" },
+                  },
+                ],
+              },
+            ]),
+          ),
+        ),
+        handler,
+      );
+      renderChat();
+
+      await screen.findByText(/allow it\?/);
+      await settle();
+      expect(calls.count).toBe(0);
+    });
+
+    it("shows nothing when the request fails", async () => {
+      server.use(
+        http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(settledTranscript()))),
+        http.get("*/api/sessions/:id/suggested-replies", () =>
+          HttpResponse.json({ error: "boom" }, { status: 500 }),
+        ),
+      );
+      renderChat();
+
+      await screen.findByText("Shall I go ahead?");
+      await settle();
+      expect(screen.queryByRole("group", { name: "Suggested replies" })).toBeNull();
+    });
   });
 });

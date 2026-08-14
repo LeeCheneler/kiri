@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   FAKE_IMAGE_B64,
   FAKE_USAGE,
+  STUB_SUGGESTED_REPLIES,
+  SUGGESTED_REPLIES_MARKER,
   fakeOpenAiFetch,
   startFakeOpenAi,
 } from "../support/fake-openai.ts";
@@ -49,6 +51,37 @@ describe("fake openai stub handler", () => {
     const json = (await res.json()) as { choices: { message: { content: string } }[] };
 
     expect(json.choices[0].message.content).toBe("You said: from parts");
+  });
+
+  it("suggests its fixed replies when the prompt's assistant text carries the marker", async () => {
+    const res = await fakeOpenAiFetch(
+      post({
+        messages: [
+          {
+            role: "user",
+            content: `Suggest tap-to-send replies…\n\nAssistant message:\nShall I? ${SUGGESTED_REPLIES_MARKER}`,
+          },
+        ],
+      }),
+    );
+    const json = (await res.json()) as { choices: { message: { content: string } }[] };
+
+    expect(json.choices[0].message.content).toBe(
+      ["ENDING: confirmation", ...STUB_SUGGESTED_REPLIES].join("\n"),
+    );
+  });
+
+  it("abstains from suggesting replies without the marker", async () => {
+    const res = await fakeOpenAiFetch(
+      post({
+        messages: [
+          { role: "user", content: "Suggest tap-to-send replies…\n\nAssistant message:\nHello." },
+        ],
+      }),
+    );
+    const json = (await res.json()) as { choices: { message: { content: string } }[] };
+
+    expect(json.choices[0].message.content).toBe("ENDING: none");
   });
 
   it("aborting a streamed turn closes it before the final sentinel", async () => {
