@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { ApiError, type Session, type SessionDetail } from "../../api.ts";
+import { Chip } from "../../design-system/actions/chip.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
@@ -21,6 +22,7 @@ import { modelLabel } from "./model-options.ts";
 import { useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
 import { useSessionConversation } from "./use-session-conversation.ts";
+import { useSuggestedReplies } from "./use-suggested-replies.ts";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
 // out so a turn that failed while this view was away still surfaces its error on
@@ -153,6 +155,16 @@ function ChatView({
   );
   const { messages, error, busy, awaitingApproval, sendMessage, resubmit, cancel, onToolDecision } =
     useSessionConversation({ session, initialMessages });
+  // Chips above the composer for a settled turn a short reply answers. Driven
+  // by the persisted transcript rather than the live one: it refetches in the
+  // same query as the `busy` status, so a settled turn's suggestions are only
+  // asked for once its message is stored.
+  const suggestedReplies = useSuggestedReplies({
+    sessionId: session.id,
+    messages: detail.messages,
+    busy,
+    awaitingApproval,
+  });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
   const inputId = useId();
 
@@ -325,6 +337,22 @@ function ChatView({
               )} tokens used — start a new session soon to avoid hitting the model's context window.`}
             </Notice>
           </div>
+        ) : null}
+        {/* Tap-to-send replies for the settled turn above — tapping one sends
+            it as an ordinary user message through the same path as the
+            composer, and the row hides the moment a turn is in flight. */}
+        {suggestedReplies.length > 0 ? (
+          /* A fieldset for the group semantics; the flex row lives on an inner
+             div because browsers don't lay fieldsets out as flex containers. */
+          <fieldset className="mb-4" aria-label="Suggested replies">
+            <div className="flex flex-wrap gap-2">
+              {suggestedReplies.map((reply) => (
+                <Chip key={reply} onClick={() => handleSend([{ type: "text", text: reply }])}>
+                  {reply}
+                </Chip>
+              ))}
+            </div>
+          </fieldset>
         ) : null}
         {/* Keyed by session so switching sessions remounts a fresh composer,
             clearing any staged images (the draft text is per-session already).

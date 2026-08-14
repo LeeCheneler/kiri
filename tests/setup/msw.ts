@@ -12,6 +12,8 @@ const defaultHandlers = [
   http.get("*/api/sessions", () => HttpResponse.json({ sessions: [], nextCursor: null })),
   // `useChat`'s resume polls this on mount; default to "no live turn to rejoin".
   http.get("*/api/sessions/:id/stream", () => new HttpResponse(null, { status: 204 })),
+  // The chat asks this for a settled turn; default to "no suggestions".
+  http.get("*/api/sessions/:id/suggested-replies", () => HttpResponse.json({ replies: [] })),
   http.get("*/api/version", () => HttpResponse.json({ version: "dev" })),
   http.post("*/api/workflows/:name/runs", ({ params }) =>
     HttpResponse.json({ runId: `run-${String(params.name)}`, status: "running" }, { status: 202 }),

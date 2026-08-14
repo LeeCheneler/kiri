@@ -8,3 +8,10 @@ providers:
   fake:
     type: openai-compatible
     base_url: http://127.0.0.1:4243/v1
+
+# The utility model turns on kiri's own small generations (suggested replies;
+# titling would use it too but the stub titles identically either way). The
+# stub abstains from suggesting unless a message carries its opt-in marker,
+# so only the specs that ask for chips see them.
+models:
+  utility: fake:echo
