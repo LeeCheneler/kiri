@@ -253,6 +253,15 @@ Kiri names a new session automatically off your first message. Rename or
 clear it from the session page any time; titles are searchable alongside
 message text.
 
+## Suggested replies
+
+When a turn ends with something a short answer settles — "shall I go
+ahead?", an either-or choice — kiri offers those answers as tap-to-send
+replies. Tapping one sends it as an ordinary message. Most replies are
+open-ended and get no suggestions; that's by design. Suggestions come from
+your [utility model](/docs/llm-providers#utility-model), so without one
+configured they're off.
+
 ## Desktop notifications
 
 Switch **Desktop notifications** on and kiri notifies you when a run lands
