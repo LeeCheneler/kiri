@@ -1030,6 +1030,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (!deleteMessagesFrom(db, id, messageId)) {
         return c.json({ error: `message "${messageId}" not found in session "${id}"` }, 404);
       }
+      // Other views only learn of transcript changes from the bus, and a plain
+      // delete — unlike an edit-and-resend — has no follow-up turn to announce
+      // one, so publish the change here.
+      bus?.publish({ type: "session.updated", id, status: session.status as SessionStatus });
       return c.body(null, 204);
     },
   );

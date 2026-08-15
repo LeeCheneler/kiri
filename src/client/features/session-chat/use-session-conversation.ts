@@ -15,6 +15,7 @@ import {
   setToolPermission,
   truncateSessionMessages,
 } from "../../api.ts";
+import { useTruncateSessionDetail } from "../../state/sessions.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
 
 // Tool-call states that mean a call is still running.
@@ -68,6 +69,8 @@ export interface SessionConversation {
   setMessages: ReturnType<typeof useChat<UIMessage>>["setMessages"];
   /** Resend an edited user message, truncating the transcript back to it first. */
   resubmit: (messageId: string, parts: UIMessage["parts"]) => Promise<void>;
+  /** Delete a user message — and everything after it — without resending. */
+  deleteMessage: (messageId: string) => Promise<void>;
   /** Cancel the in-flight turn and mark any running tool call cancelled. */
   cancel: () => void;
   /** Resolve a pending tool approval (Allow / Always allow / Deny). */
@@ -163,8 +166,20 @@ export function useSessionConversation(opts: {
   // shows up here. "Pulled ahead" is more messages or more parts: an approval
   // answered elsewhere extends the paused assistant message in place, so a
   // message-count check alone would never re-sync it.
+  // A local delete leaves `initialMessages` one commit behind: useChat's store
+  // notifies synchronously while the query cache batches its notification into
+  // a microtask, so the fold-in below would resurrect the dropped turns from
+  // the stale snapshot. Remember the cut message and skip folding in any
+  // snapshot that still carries it; the ref clears once a fresh one arrives.
+  const truncatedAt = useRef<string | null>(null);
+
   useEffect(() => {
     if (streaming) return;
+    if (truncatedAt.current !== null) {
+      const id = truncatedAt.current;
+      if (initialMessages.some((message) => message.id === id)) return;
+      truncatedAt.current = null;
+    }
     if (
       initialMessages.length > messages.length ||
       totalParts(initialMessages) > totalParts(messages)
@@ -188,6 +203,26 @@ export function useSessionConversation(opts: {
       void sendMessage({ parts });
     },
     [busy, messages, session.id, setMessages, sendMessage],
+  );
+
+  // Delete a message without resending: truncate the stored transcript from it,
+  // mirror the cut into the cached session detail, then drop the local messages
+  // from that point. Unlike resubmit, nothing flips `streaming` here, so the
+  // cached (longer) transcript must shrink before the fold-in effect above
+  // could re-expand the dropped turns from it. A failed truncate aborts,
+  // leaving the transcript intact.
+  const truncateDetail = useTruncateSessionDetail(session.id);
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (busy) return;
+      const index = messages.findIndex((message) => message.id === messageId);
+      if (index === -1) return;
+      await truncateSessionMessages(session.id, messageId);
+      truncatedAt.current = messageId;
+      truncateDetail(messageId);
+      setMessages(messages.slice(0, index));
+    },
+    [busy, messages, session.id, truncateDetail, setMessages],
   );
 
   // Resolve a pending tool approval. Allow runs it once; Always allow also sets
@@ -225,6 +260,7 @@ export function useSessionConversation(opts: {
     sendMessage,
     setMessages,
     resubmit,
+    deleteMessage,
     cancel,
     onToolDecision,
   };

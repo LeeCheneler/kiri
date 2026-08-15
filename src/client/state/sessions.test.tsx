@@ -8,7 +8,13 @@ import { server } from "../../../tests/setup/msw.ts";
 import { cancelSession, createSession, fetchSessionsPage } from "../api.ts";
 import { LiveEventsProvider } from "../events/live.tsx";
 import { createQueryClient } from "./query-client.ts";
-import { useModels, useSession, useSessionsFeed, useSessionsLive } from "./sessions.ts";
+import {
+  useModels,
+  useSession,
+  useSessionsFeed,
+  useSessionsLive,
+  useTruncateSessionDetail,
+} from "./sessions.ts";
 
 const sessionRow = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
@@ -40,6 +46,21 @@ const SessionProbe = ({ id }: { id: string }) => {
   useSessionsLive();
   const { data } = useSession(id);
   return <p>{data ? data.session.model : "loading"}</p>;
+};
+
+// Probe whose rendered text is the cached transcript's message ids, with a
+// button that truncates the cached detail from a given message.
+const TruncateProbe = ({ id, messageId }: { id: string; messageId: string }) => {
+  const { data } = useSession(id);
+  const truncate = useTruncateSessionDetail(id);
+  return (
+    <div>
+      <p>{data ? data.messages.map((m) => m.id).join(",") || "empty" : "loading"}</p>
+      <button type="button" onClick={() => truncate(messageId)}>
+        truncate
+      </button>
+    </div>
+  );
 };
 
 const FeedProbe = () => {
@@ -136,6 +157,45 @@ describe("sessions state", () => {
       sources[0]?.triggerOpen();
     });
     await screen.findByText("m-2");
+  });
+
+  it("truncates the cached detail from a message", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({
+          session: sessionRow("s1"),
+          messages: [
+            { id: "m1", role: "user", parts: [] },
+            { id: "m2", role: "assistant", parts: [] },
+            { id: "m3", role: "user", parts: [] },
+          ],
+        }),
+      ),
+    );
+    renderProbe(<TruncateProbe id="s1" messageId="m2" />);
+    await screen.findByText("m1,m2,m3");
+
+    act(() => screen.getByRole("button", { name: "truncate" }).click());
+
+    // The message and everything after it leave the cached transcript.
+    expect(await screen.findByText("m1")).toBeDefined();
+  });
+
+  it("leaves the cached detail alone for an unknown message", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({
+          session: sessionRow("s1"),
+          messages: [{ id: "m1", role: "user", parts: [] }],
+        }),
+      ),
+    );
+    renderProbe(<TruncateProbe id="s1" messageId="ghost" />);
+    await screen.findByText("m1");
+
+    act(() => screen.getByRole("button", { name: "truncate" }).click());
+
+    expect(screen.getByText("m1")).toBeDefined();
   });
 
   it("fetches the session feed newest-first", async () => {

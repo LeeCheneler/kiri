@@ -159,6 +159,7 @@ describe("<ChildSession>", () => {
             busy={false}
             sessionId="parent-1"
             onResubmit={() => {}}
+            onDelete={() => {}}
           />
         </Router>
       </QueryClientProvider>,

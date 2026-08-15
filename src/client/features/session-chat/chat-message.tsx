@@ -4,6 +4,7 @@ import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Card } from "../../design-system/surfaces/card.tsx";
+import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
 import { ChildSession } from "./child-session.tsx";
 import { PreviewableFile } from "./file-thumb.tsx";
@@ -14,6 +15,9 @@ import { type ToolDecisionHandler, ToolInvocation } from "./tool-invocation.tsx"
 
 /** Resend an edited user message, re-running the conversation from that point. */
 export type ResubmitHandler = (messageId: string, parts: UIMessage["parts"]) => void;
+
+/** Delete a user message — and everything after it — from the conversation. */
+export type DeleteMessageHandler = (messageId: string) => void;
 
 // Join the message's typed text parts. Non-text parts (tool calls, files) and
 // attached-file text parts are skipped here — images render as thumbnails and
@@ -42,22 +46,26 @@ const attachedFiles = (message: UIMessage): { filename: string; content: string 
 // A user message: image thumbnails above its text, the text rendered verbatim
 // (whitespace preserved) since it's exactly what the user typed. Boxed in a card
 // so the user's turn reads as visually distinct from the assistant's open prose,
-// with a corner control to edit it. Editing swaps the body for the shared
-// composer (seeded with this turn's text and images); resending discards this
-// turn and everything after it and re-runs from here.
+// with corner controls to edit or delete it. Editing swaps the body for the
+// shared composer (seeded with this turn's text and images); resending discards
+// this turn and everything after it and re-runs from here. Deleting confirms
+// in-app first, then discards this turn and everything after it outright.
 function UserMessage({
   message,
   busy,
   onResubmit,
+  onDelete,
 }: {
   message: UIMessage;
   busy: boolean;
   onResubmit: ResubmitHandler;
+  onDelete: DeleteMessageHandler;
 }) {
   const text = messageText(message);
   const images = imageParts(message);
   const files = attachedFiles(message);
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(text);
   const fieldId = useId();
 
@@ -125,16 +133,42 @@ function UserMessage({
         )}
       </Card>
       {editing ? null : (
-        <button
-          type="button"
-          onClick={startEditing}
-          disabled={busy}
-          title="Edit message"
-          className="absolute top-3 right-3 cursor-pointer font-mono text-ink-muted text-xs hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          edit
-        </button>
+        <div className="absolute top-3 right-3 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={startEditing}
+            disabled={busy}
+            title="Edit message"
+            className="cursor-pointer font-mono text-ink-muted text-xs hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            edit
+          </button>
+          {/* A quiet control that only shows its red on approach, like the
+              rail's delete-session action. */}
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(true)}
+            disabled={busy}
+            title="Delete message"
+            className="cursor-pointer font-mono text-ink-muted text-xs hover:text-status-failed disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            delete
+          </button>
+        </div>
       )}
+      {confirmingDelete ? (
+        <ConfirmModal
+          title="Delete this message?"
+          body="This removes the message and every turn after it. This cannot be undone."
+          confirmLabel="delete"
+          variant="negative"
+          onConfirm={() => {
+            setConfirmingDelete(false);
+            onDelete(message.id);
+          }}
+          onCancel={() => setConfirmingDelete(false)}
+        />
+      ) : null}
     </article>
   );
 }
@@ -210,8 +244,10 @@ function AssistantMessage({
 
 /**
  * One chat message. A user message renders its text verbatim with any image
- * attachments as thumbnails, boxed in a card with an edit control — editing and
- * resending it (`onResubmit`) re-runs the conversation from that point. An
+ * attachments as thumbnails, boxed in a card with edit and delete controls —
+ * editing and resending it (`onResubmit`) re-runs the conversation from that
+ * point, while deleting it (`onDelete`, behind an in-app confirm) drops it and
+ * everything after it without re-running. An
  * assistant message renders its parts in order — markdown prose interleaved with
  * collapsible tool-call blocks, with a run of consecutive calls folded into one
  * collapsible chain panel. Labelled with who spoke so the transcript reads as a
@@ -229,6 +265,7 @@ export const ChatMessage = memo(function ChatMessage({
   sessionId,
   wikiLinkResolver,
   onResubmit,
+  onDelete,
   onToolDecision,
 }: {
   message: UIMessage;
@@ -238,10 +275,13 @@ export const ChatMessage = memo(function ChatMessage({
   /** Turns `[[slug]]` references in assistant prose into corpus links when set. */
   wikiLinkResolver?: WikiLinkResolver;
   onResubmit: ResubmitHandler;
+  onDelete: DeleteMessageHandler;
   onToolDecision?: ToolDecisionHandler;
 }) {
   if (message.role === "user")
-    return <UserMessage message={message} busy={busy} onResubmit={onResubmit} />;
+    return (
+      <UserMessage message={message} busy={busy} onResubmit={onResubmit} onDelete={onDelete} />
+    );
   const segments = segmentParts(message.parts);
   if (segments.length === 0) return null;
   return (

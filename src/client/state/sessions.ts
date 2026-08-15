@@ -5,6 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useCallback } from "react";
 import {
   type ModelsResult,
   type Session,
@@ -87,6 +88,26 @@ export function useUpdateSession(id: string): {
     setEffort: async (effort) => apply((await patchSessionEffort(id, effort)).session),
     setTitle: async (title) => apply((await patchSessionTitle(id, title)).session),
   };
+}
+
+/**
+ * Mirror a server-side transcript truncation into the cached session detail:
+ * drop the message — and everything after it — from the cached `messages`.
+ * The live transcript is owned by `useChat`; shrinking the cached copy in the
+ * same breath stops the seeded history from re-expanding the dropped turns
+ * before the next refetch lands. A message absent from the cache is a no-op.
+ */
+export function useTruncateSessionDetail(id: string): (messageId: string) => void {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (messageId: string) => {
+      queryClient.setQueryData<SessionDetail>(sessionKey(id), (prev) => {
+        const index = prev ? prev.messages.findIndex((m) => m.id === messageId) : -1;
+        return prev && index !== -1 ? { ...prev, messages: prev.messages.slice(0, index) } : prev;
+      });
+    },
+    [queryClient, id],
+  );
 }
 
 /**

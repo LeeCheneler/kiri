@@ -1,12 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { wrapAttachedFile } from "./attachments.ts";
-import { ChatMessage, type ResubmitHandler } from "./chat-message.tsx";
+import { ChatMessage, type DeleteMessageHandler, type ResubmitHandler } from "./chat-message.tsx";
 import type { ToolDecisionHandler } from "./tool-invocation.tsx";
 
 const message = (role: "user" | "assistant", parts: unknown[]): UIMessage =>
@@ -18,11 +18,13 @@ const renderMessage = (
     busy = false,
     wikiLinkResolver,
     onResubmit = () => {},
+    onDelete = () => {},
     onToolDecision,
   }: {
     busy?: boolean;
     wikiLinkResolver?: WikiLinkResolver;
     onResubmit?: ResubmitHandler;
+    onDelete?: DeleteMessageHandler;
     onToolDecision?: ToolDecisionHandler;
   } = {},
 ) =>
@@ -34,6 +36,7 @@ const renderMessage = (
         busy={busy}
         wikiLinkResolver={wikiLinkResolver}
         onResubmit={onResubmit}
+        onDelete={onDelete}
         onToolDecision={onToolDecision}
       />
     </Router>,
@@ -42,6 +45,7 @@ const renderMessage = (
 const editField = () =>
   screen.queryByRole("textbox", { name: "Edit message" }) as HTMLTextAreaElement | null;
 const editButton = () => screen.getByRole("button", { name: "edit" });
+const deleteButton = () => screen.getByRole("button", { name: "delete" });
 
 describe("<ChatMessage>", () => {
   it("renders a delegate call as a plain tool block when no session id is supplied", () => {
@@ -316,8 +320,36 @@ describe("<ChatMessage>", () => {
     expect(editField()).not.toBeNull();
   });
 
-  it("disables the edit control while a turn is in flight", () => {
+  it("disables the edit and delete controls while a turn is in flight", () => {
     renderMessage(message("user", [{ type: "text", text: "x" }]), { busy: true });
     expect((editButton() as HTMLButtonElement).disabled).toBe(true);
+    expect((deleteButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("deletes a user message once the confirm is accepted", async () => {
+    const onDelete = mock((_id: string) => {});
+    renderMessage(message("user", [{ type: "text", text: "goodbye" }]), { onDelete });
+
+    await userEvent.click(deleteButton());
+    // Nothing happens until the in-app confirm is accepted.
+    expect(onDelete.mock.calls).toHaveLength(0);
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    expect(onDelete.mock.calls).toEqual([["m1"]]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("cancelling the delete confirm leaves the message alone", async () => {
+    const onDelete = mock((_id: string) => {});
+    renderMessage(message("user", [{ type: "text", text: "keep me" }]), { onDelete });
+
+    await userEvent.click(deleteButton());
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+
+    expect(onDelete.mock.calls).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("keep me")).toBeDefined();
   });
 });
