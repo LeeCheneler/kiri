@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { http, HttpResponse } from "msw";
@@ -555,6 +555,39 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText("A better answer")).toBeDefined();
     await waitFor(() => expect(screen.queryByText("An answer")).toBeNull());
     expect(screen.queryByText("First question")).toBeNull();
+  });
+
+  it("deletes a user message and the turns after it once confirmed", async () => {
+    const user = userEvent.setup();
+    let truncatedId: string | undefined;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([
+            message("m1", "user", "First question"),
+            message("m2", "assistant", "An answer"),
+          ]),
+        ),
+      ),
+      http.delete("*/api/sessions/:id/messages/:messageId", ({ params }) => {
+        truncatedId = String(params.messageId);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderChat();
+
+    await screen.findByText("First question");
+    await user.click(screen.getByRole("button", { name: "delete" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    // The message truncated the transcript server-side — no resend follows.
+    await waitFor(() => expect(truncatedId).toBe("m1"));
+    // The deleted turn leaves the transcript and stays gone (the cached detail
+    // shrinks with it, so the seeded history can't re-expand the dropped turn).
+    expect(await screen.findByText(/no messages yet/i)).toBeDefined();
+    expect(screen.queryByText("First question")).toBeNull();
+    expect(screen.queryByText("An answer")).toBeNull();
   });
 
   it("holds the assistant label until its reply streams", async () => {

@@ -2199,8 +2199,11 @@ describe("sessions routes", () => {
   });
 
   describe("DELETE /api/sessions/:id/messages/:messageId", () => {
-    it("truncates the transcript from the message and 204s", async () => {
-      const app = makeApp(fakeClients());
+    it("truncates the transcript from the message, 204s and publishes session.updated", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
       createSession(env.db, MODEL, { id: "s1" });
       appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Q1" }] });
       appendMessage(env.db, "s1", { role: "assistant", parts: [{ type: "text", text: "A1" }] });
@@ -2218,6 +2221,8 @@ describe("sessions routes", () => {
       expect(res.status).toBe(204);
       // The edited message and the turn after it are gone; the prior turn stays.
       expect(getSessionMessages(env.db, "s1").map((m) => m.index)).toEqual([0, 1]);
+      // A truncate has no follow-up turn to announce it, so the route publishes.
+      expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
     });
 
     it("404s an unknown session", async () => {

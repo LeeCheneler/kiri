@@ -153,8 +153,17 @@ function ChatView({
     () => detail.messages.map((m) => ({ id: m.id, role: m.role, parts: m.parts })),
     [detail.messages],
   );
-  const { messages, error, busy, awaitingApproval, sendMessage, resubmit, cancel, onToolDecision } =
-    useSessionConversation({ session, initialMessages });
+  const {
+    messages,
+    error,
+    busy,
+    awaitingApproval,
+    sendMessage,
+    resubmit,
+    deleteMessage,
+    cancel,
+    onToolDecision,
+  } = useSessionConversation({ session, initialMessages });
   // Chips above the composer for a settled turn a short reply answers. Driven
   // by the persisted transcript rather than the live one: it refetches in the
   // same query as the `busy` status, so a settled turn's suggestions are only
@@ -265,6 +274,14 @@ function ChatView({
     await resubmitRef.current(messageId, parts);
   }, []);
 
+  // Delete a user message (and the turns after it) via the conversation engine,
+  // routed through a ref for the same stable-handler reason as resubmit.
+  const deleteMessageRef = useRef(deleteMessage);
+  deleteMessageRef.current = deleteMessage;
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    await deleteMessageRef.current(messageId);
+  }, []);
+
   // Esc cancels an in-flight turn. The composer has no `onCancel` in this view,
   // so it leaves Escape alone; catch it on the window while a turn is busy.
   useEffect(() => {
@@ -297,6 +314,7 @@ function ChatView({
               sessionId={session.id}
               wikiLinkResolver={wikiLinkResolver}
               onResubmit={handleResubmit}
+              onDelete={handleDeleteMessage}
               onToolDecision={onToolDecision}
             />
           ))
