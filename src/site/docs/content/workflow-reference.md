@@ -108,8 +108,13 @@ invokes immediately.
   places.
 - `{ article: <slug> }` resolves to an earlier article's markdown. Valid on
   later `articles:` entries and `summarize:`.
+- `{ env: <NAME> }` resolves to a variable in the kiri process environment —
+  your workspace `.env` or the shell kiri was launched from. Valid anywhere.
+  The way to hand a step a secret without a literal in git-tracked YAML; the
+  value is read at spawn and never stored on the run.
 - Refs are validated at load: unknown ids or slugs, duplicate ids, refs to
-  undeclared output names, and self/forward references are errors.
+  undeclared output names, self/forward references, and env refs naming a
+  variable that isn't set are errors.
 - For an `llm:` consumer the resolved value is a prompt template var; for
   `sh:`/`use:` it's an env var — a very large output can hit the OS exec size
   limit, failing the step with an error naming the entry.
@@ -145,8 +150,9 @@ emit each one by name, instead of making every consumer re-parse its stdout:
 ## Step environment
 
 Steps run in a fresh per-run scratch directory (`.kiri/runs/<run-id>/`) with a
-scoped env — nothing from the parent shell is inherited. User `env:` values
-apply first; these overwrite on collision:
+scoped env — nothing from the parent shell is inherited; pull a specific
+variable in with `{ env: <NAME> }`. User `env:` values apply first; these
+overwrite on collision:
 
 | Variable | Set on | Description |
 | --- | --- | --- |

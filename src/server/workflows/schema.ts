@@ -20,6 +20,14 @@ const envValueSchema = z.union([
     .describe(
       "Reference to an article's markdown by its `slug`. Valid on articles entries (earlier siblings only, by list order) and summarize.",
     ),
+  z
+    .object({
+      env: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "must be an environment variable name"),
+    })
+    .strict()
+    .describe(
+      "Reference to a variable in the kiri process environment (the workspace `.env` or the shell kiri was launched from) by name. The variable must be set when the workflow loads; its value is read at spawn time and never persisted. The way to hand a step a secret without a literal in the YAML.",
+    ),
 ]);
 
 const envSchema = z
@@ -390,7 +398,9 @@ export const workflowSchema = baseWorkflowSchema.superRefine((wf, ctx) => {
   ): void => {
     if (!env) return;
     for (const [key, value] of Object.entries(env)) {
-      if (typeof value === "string") continue;
+      // `{ env: <NAME> }` names a process variable — nothing in the workflow
+      // graph to check here; the loader checks it is set.
+      if (typeof value === "string" || "env" in value) continue;
       if ("input" in value) {
         if (!declared.has(value.input)) {
           ctx.addIssue({

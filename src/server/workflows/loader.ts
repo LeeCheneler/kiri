@@ -76,6 +76,26 @@ const validateLlmSteps = (
   return { unknownProviders, missingPromptFiles };
 };
 
+// Same posture as a provider `api_key` ref in kiri.yaml: a `{ env: <NAME> }`
+// ref naming a variable absent from the kiri process env is a per-file load
+// failure — the run would only fail later, at spawn, with less context. Only
+// the *name* is checked here; the value is read at spawn and never stored.
+const unsetEnvRefs = (
+  def: WorkflowDefinition,
+  env: Record<string, string | undefined>,
+): string[] => {
+  const entries: (WorkflowStep | ArticleEntry)[] = [...def.steps, ...(def.articles ?? [])];
+  if (def.summarize) entries.push(def.summarize);
+  const unset = new Set<string>();
+  for (const entry of entries) {
+    for (const value of Object.values(entry.env ?? {})) {
+      if (typeof value === "string" || !("env" in value)) continue;
+      if (env[value.env] === undefined) unset.add(value.env);
+    }
+  }
+  return Array.from(unset);
+};
+
 /**
  * Result of validating one workflow's raw YAML source: the parsed definition
  * when it is valid, or the human-readable reason it is not.
@@ -87,15 +107,17 @@ export type ParseWorkflowSourceResult =
 /**
  * Validate one workflow's raw YAML source against everything the loader
  * checks per file: YAML parse, the workflow schema, `use:` bundle existence,
- * `llm:` provider registration against `providerNames`, and prompt-file
- * existence. The single validation gate for workflow sources — the directory
- * loader runs every file through it, and any other writer must too, so
- * nothing invalid is ever treated as loadable.
+ * `llm:` provider registration against `providerNames`, prompt-file
+ * existence, and `{ env: <NAME> }` refs naming a variable set in `env`. The
+ * single validation gate for workflow sources — the directory loader runs
+ * every file through it, and any other writer must too, so nothing invalid
+ * is ever treated as loadable.
  */
 export function parseWorkflowSource(
   raw: string,
   config: ConfigStore,
   providerNames: ReadonlySet<string>,
+  env: Record<string, string | undefined> = process.env,
 ): ParseWorkflowSourceResult {
   let parsed: unknown;
   try {
@@ -141,6 +163,15 @@ export function parseWorkflowSource(
     };
   }
 
+  const unsetEnv = unsetEnvRefs(wf, env);
+  if (unsetEnv.length > 0) {
+    const noun = unsetEnv.length === 1 ? "var" : "vars";
+    return {
+      ok: false,
+      reason: `unresolved env ${noun} ${unsetEnv.join(", ")}: not set in the kiri process environment (export it, or add it to the workspace .env)`,
+    };
+  }
+
   return { ok: true, workflow: wf };
 }
 
@@ -155,6 +186,7 @@ export function parseWorkflowSource(
 export async function loadWorkflows(
   config: ConfigStore,
   providerNames: ReadonlySet<string> = new Set(),
+  env: Record<string, string | undefined> = process.env,
 ): Promise<LoadResult> {
   const dir = config.workflowsDir();
   const files = readdirSync(dir)
@@ -175,7 +207,7 @@ export async function loadWorkflows(
       continue;
     }
 
-    const parsed = parseWorkflowSource(raw, config, providerNames);
+    const parsed = parseWorkflowSource(raw, config, providerNames, env);
     if (!parsed.ok) {
       failures.push({ path: file, reason: parsed.reason });
       continue;

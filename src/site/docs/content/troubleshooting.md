@@ -84,7 +84,7 @@ landing:
 | `MAX_TURNS: 50` (YAML number) | `MAX_TURNS: "50"` — `env:` values must be strings. |
 | `env: { KIRI_MODE: "x" }` | Don't prefix `env:` keys with `KIRI_`. Reserved. |
 | Relative path read from inside a step | Resolve against `$KIRI_REPO_ROOT` — the step's cwd is the scratch dir, not the repo root. |
-| Reading the parent shell's `MY_TOKEN` | Won't work. Set it under the step's `env:`, or read a mode-600 file in the script. |
+| Reading the parent shell's `MY_TOKEN` | Steps don't inherit it. Pull it in under the step's `env:` with `MY_TOKEN: { env: MY_TOKEN }`. |
 | Two `articles:` entries with the same `slug` | Slugs must be unique within a workflow. |
 | Any step reading data via stdin | Every phase gets empty stdin. Wire data in with `{ step: <id> }` / `{ step, output }` / `{ article: <slug> }` env refs. |
 | `llm: { model: claude-haiku }` (no prefix) | Use `provider:model`, e.g. `anthropic:claude-haiku-4-5`. The prefix names a `kiri.yaml` entry. |

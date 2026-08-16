@@ -386,6 +386,81 @@ steps:
     expect(result.failures[0].reason).toContain("undeclared input");
   });
 
+  it("loads a workflow whose env refs name variables set in the supplied env", async () => {
+    writeBundle(cwd, "fetch");
+    writeFileSync(
+      join(dir, "env-ref.yaml"),
+      `name: env-ref
+steps:
+  - use: fetch
+    env:
+      TOKEN:
+        env: MY_TOKEN
+`,
+    );
+
+    const result = await loadWorkflows(config, new Set(), { MY_TOKEN: "" });
+    expect(result.failures).toEqual([]);
+    expect(result.workflows.get("env-ref")?.steps[0].env).toEqual({ TOKEN: { env: "MY_TOKEN" } });
+  });
+
+  it("records a failure naming every unset env ref across steps, articles, and summarize", async () => {
+    writeBundle(cwd, "fetch");
+    writeFileSync(
+      join(dir, "unset-env.yaml"),
+      `name: unset-env
+steps:
+  - use: fetch
+    env:
+      TOKEN:
+        env: MY_TOKEN
+      OTHER:
+        env: SET_VAR
+articles:
+  - slug: report
+    sh: echo hi
+    env:
+      KEY:
+        env: MY_TOKEN
+summarize:
+  sh: echo done
+  env:
+    KEY:
+      env: ANOTHER
+`,
+    );
+
+    const result = await loadWorkflows(config, new Set(), { SET_VAR: "1" });
+    expect(result.workflows.size).toBe(0);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].path).toBe(join(dir, "unset-env.yaml"));
+    expect(result.failures[0].reason).toBe(
+      "unresolved env vars MY_TOKEN, ANOTHER: not set in the kiri process environment (export it, or add it to the workspace .env)",
+    );
+  });
+
+  it("checks env refs against process.env by default", async () => {
+    writeBundle(cwd, "fetch");
+    const source = (name: string) => `name: env-ref
+steps:
+  - use: fetch
+    env:
+      TOKEN:
+        env: ${name}
+`;
+
+    writeFileSync(join(dir, "env-ref.yaml"), source("KIRI_TEST_LOADER_ENV_REF_UNSET"));
+    const unset = await loadWorkflows(config);
+    expect(unset.failures.length).toBe(1);
+    expect(unset.failures[0].reason).toContain("unresolved env var KIRI_TEST_LOADER_ENV_REF_UNSET");
+
+    // Test-only name; nothing else reads it, so it can stay set for the process.
+    process.env.KIRI_TEST_LOADER_ENV_REF = "x";
+    writeFileSync(join(dir, "env-ref.yaml"), source("KIRI_TEST_LOADER_ENV_REF"));
+    const set = await loadWorkflows(config);
+    expect(set.failures).toEqual([]);
+  });
+
   it("loads a workflow whose llm step names a registered provider", async () => {
     writeFileSync(
       join(dir, "llm.yaml"),

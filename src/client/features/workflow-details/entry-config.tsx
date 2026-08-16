@@ -38,12 +38,14 @@ const hasEnv = (env: Record<string, EnvValue> | undefined): env is Record<string
   env !== undefined && Object.keys(env).length > 0;
 
 // Literal strings pass through; structured refs — `{ input: <name> }`,
-// `{ step: <id> }`, `{ step: <id>, output: <name> }`, `{ article: <slug> }` —
-// render in YAML-flavoured form so the reader sees the shape they wrote in
-// the workflow.
+// `{ step: <id> }`, `{ step: <id>, output: <name> }`, `{ article: <slug> }`,
+// `{ env: <NAME> }` — render in YAML-flavoured form so the reader sees the
+// shape they wrote in the workflow. An env ref renders as its *name* only:
+// the value is a process secret and never reaches the client.
 const renderEnvValue = (value: EnvValue): string => {
   if (typeof value === "string") return value;
   if ("input" in value) return `{ input: ${value.input} }`;
+  if ("env" in value) return `{ env: ${value.env} }`;
   if ("step" in value) {
     return value.output !== undefined
       ? `{ step: ${value.step}, output: ${value.output} }`
@@ -52,7 +54,13 @@ const renderEnvValue = (value: EnvValue): string => {
   return `{ article: ${value.article} }`;
 };
 
-function LabelledBlock({ label, children }: { label: string; children: ReactNode }) {
+function LabelledBlock({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="font-mono text-xs tracking-widest text-ink-muted uppercase">{label}</span>
@@ -74,7 +82,8 @@ type EntryShape = { description?: string; env?: Record<string, EnvValue> } & (
  * only when populated. The whole entry already sits behind a disclosure, so the
  * source renders in full rather than collapsing again. Env keys sort
  * alphabetically and structured references render in the YAML-flavoured form
- * they were written in: `{ input: <name> }`, `{ step: <id> }`, `{ article: <slug> }`.
+ * they were written in: `{ input: <name> }`, `{ step: <id> }`, `{ article: <slug> }`,
+ * `{ env: <NAME> }`.
  */
 export function EntryConfig({ entry }: { entry: EntryShape }) {
   const showReference = "use" in entry;

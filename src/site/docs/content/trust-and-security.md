@@ -84,6 +84,8 @@ git**:
   environment variables — a literal key is rejected. Put the value in your
   git-ignored workspace `.env` (kiri auto-loads it) or your environment. See
   [Models & providers](/docs/llm-providers).
-- **Other secrets** a step needs (a webhook URL, a token) should come from the
-  environment or a mode-600 file you read inside the step — never hard-coded in
-  the workflow YAML.
+- **Other secrets** a step needs (a webhook URL, a token) reach it the same
+  way: an `{ env: <NAME> }` ref under the step's `env:` pulls one variable
+  from the environment or workspace `.env` at spawn — the name lives in git,
+  the value never does, and it isn't stored on the run. Never hard-code a
+  secret in workflow YAML.
