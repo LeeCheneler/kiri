@@ -349,3 +349,52 @@ export const memories = sqliteTable(
     index("memories_project_id_idx").on(t.projectId),
   ],
 );
+
+/**
+ * One row per task group — a named section of a project's task list, the
+ * unit tasks are filed under. Groups are flat (no nesting) and required: a
+ * task always belongs to exactly one. `position` orders groups within the
+ * project; renumbered wholesale on reorder rather than kept sparse. Deleting
+ * the group deletes its tasks — an in-code cascade like the rest of the
+ * schema.
+ */
+export const taskGroups = sqliteTable(
+  "task_groups",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id),
+    name: text("name").notNull(),
+    position: integer("position").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("task_groups_project_id_name_unique").on(t.projectId, t.name),
+    index("task_groups_project_id_idx").on(t.projectId),
+  ],
+);
+
+/**
+ * One row per task: a checklist item within a group. `done` is the whole
+ * status model — no assignees, priorities, or due dates. `note` is an
+ * optional markdown body for context a title can't carry ("blocked on X"),
+ * null when absent. `position` orders tasks within their group.
+ * `updatedAt` bumps on every change, including a completion toggle.
+ */
+export const tasks = sqliteTable(
+  "tasks",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => taskGroups.id),
+    title: text("title").notNull(),
+    done: integer("done", { mode: "boolean" }).notNull().default(false),
+    note: text("note"),
+    position: integer("position").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("tasks_group_id_idx").on(t.groupId)],
+);
