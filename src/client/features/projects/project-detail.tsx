@@ -226,9 +226,10 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
   };
 
   // The container's four panels. Sessions and articles stay side by side on
-  // the default tab; instructions, memories, and tasks each get their own, so
-  // the instructions body renders in full rather than behind a disclosure and
-  // the task list only fetches once its tab is opened.
+  // the default tab; tasks, instructions, and memories each get their own —
+  // tasks first, as the day-to-day surface — so the instructions body renders
+  // in full rather than behind a disclosure and the task list only fetches
+  // once its tab is opened.
   const tabs: TabDef[] = [
     {
       id: "sessions",
@@ -293,6 +294,7 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
         </div>
       ),
     },
+    { id: "tasks", label: "Tasks", content: <ProjectTasks projectId={id} /> },
     {
       id: "instructions",
       label: "Instructions",
@@ -351,7 +353,6 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
           </div>
         ),
     },
-    { id: "tasks", label: "Tasks", content: <ProjectTasks projectId={id} /> },
   ];
 
   return (
