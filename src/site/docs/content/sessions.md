@@ -212,6 +212,11 @@ judged by your [utility model](/docs/llm-providers#utility-model), asking
 whenever it's unsure. Auto needs `models.utility` configured; without it,
 Auto behaves exactly like Ask.
 
+Auto also learns from your decisions. Approvals and denials are distilled
+into precedent the judge reads on later commands, so a script you've
+approved a few times stops asking — and a command shape you've denied keeps
+asking.
+
 ## Delegating research
 
 For a task that would take a pile of searching and reading — "compare these

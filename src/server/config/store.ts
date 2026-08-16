@@ -7,6 +7,8 @@ const DATA_DIRNAME = ".kiri";
 const RUNS_DIRNAME = "runs";
 const MCP_CREDENTIALS_FILENAME = "mcp-credentials.json";
 const TOOL_PERMISSIONS_FILENAME = "tool-permissions.json";
+const COMMAND_JUDGEMENTS_FILENAME = "command-judgements.jsonl";
+const COMMAND_GUIDANCE_FILENAME = "command-guidance.md";
 const INSTRUCTIONS_FILENAME = "kiri.md";
 // Canonical first: the loader reads whichever exists, preferring `kiri.yaml`.
 const CONFIG_FILENAMES = ["kiri.yaml", "kiri.yml"] as const;
@@ -39,6 +41,10 @@ export interface ConfigStore {
   mcpCredentialsFile(): string;
   /** `<cwd>/.kiri/tool-permissions.json` — persisted standing tool permissions (allow/off) for agentic sessions; an "off" tool is withheld from the model (plain JSON; tool names aren't secrets). */
   toolPermissionsFile(): string;
+  /** `<cwd>/.kiri/command-judgements.jsonl` — rolling log of auto shell-permission decisions and the user's verdicts on asked commands. */
+  commandJudgementsFile(): string;
+  /** `<cwd>/.kiri/command-guidance.md` — approve/deny precedent distilled from the judgement log, read by the shell judge. */
+  commandGuidanceFile(): string;
   /** `<cwd>/kiri.md` — the workspace's session standing instructions. */
   instructionsFile(): string;
   /** `<cwd>/kiri.yaml` — kiri's structured config file, canonical name (the write target for scaffolding). */
@@ -67,6 +73,8 @@ export function createConfigStore(cwd: string): ConfigStore {
     runDir: (runId) => join(dataDir, RUNS_DIRNAME, runId),
     mcpCredentialsFile: () => join(dataDir, MCP_CREDENTIALS_FILENAME),
     toolPermissionsFile: () => join(dataDir, TOOL_PERMISSIONS_FILENAME),
+    commandJudgementsFile: () => join(dataDir, COMMAND_JUDGEMENTS_FILENAME),
+    commandGuidanceFile: () => join(dataDir, COMMAND_GUIDANCE_FILENAME),
     instructionsFile: () => join(cwd, INSTRUCTIONS_FILENAME),
     configFile: () => join(cwd, CONFIG_FILENAMES[0]),
     configFiles: () => CONFIG_FILENAMES.map((name) => join(cwd, name)),

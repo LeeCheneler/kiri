@@ -116,8 +116,9 @@ at spawn. Without them, workers run the same model as the conversation.
 
 Optionally set the model kiri itself uses for small internal generations —
 naming a new session off its opening message, judging shell commands under
-the Auto permission, or suggesting tap-to-send replies after a turn — under
-`models.utility:`:
+the Auto permission and distilling your approval decisions into the
+precedent that judgement reads, or suggesting tap-to-send replies after a
+turn — under `models.utility:`:
 
 ```yaml
 models:

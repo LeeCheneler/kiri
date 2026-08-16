@@ -77,7 +77,7 @@ const modelsSchema = z
     utility: modelRef
       .optional()
       .describe(
-        "The model kiri itself uses for small internal one-off generations, such as naming a new session, judging shell commands under the Auto permission, or suggesting tap-to-send replies after a turn. A `provider:model` reference — point it at a fast, cheap model (a local one works well). Unset, session titling falls back to the session's model; the Auto shell permission falls back to asking; suggested replies stay off.",
+        "The model kiri itself uses for small internal one-off generations, such as naming a new session, judging shell commands under the Auto permission (and distilling your approve/deny decisions into the precedent that judgement reads), or suggesting tap-to-send replies after a turn. A `provider:model` reference — point it at a fast, cheap model (a local one works well). Unset, session titling falls back to the session's model; the Auto shell permission falls back to asking; suggested replies stay off.",
       ),
   })
   .strict()

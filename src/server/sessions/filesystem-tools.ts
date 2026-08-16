@@ -140,9 +140,11 @@ const withTrailingNewline = (content: string): string =>
  * applies on the next call. Hidden (dot-prefixed) paths are reachable like any
  * other, bar a narrow denylist that stays outside the tool surface entirely:
  * `.git` internals (thousands of object files that would drown every broad
- * find) and secret-bearing files (`.env*`, kiri's own MCP credential store) —
+ * find), secret-bearing files (`.env*`), and kiri's own `.kiri` state
+ * directory (credentials, tool permissions, distilled shell precedent) —
  * reads run on the sandbox's authority alone, with no per-call approval to
- * catch a secret entering the transcript. Broad walks (find_files,
+ * catch a secret entering the transcript, and a session must not author the
+ * permission or precedent state that governs it. Broad walks (find_files,
  * search_files) skip dependency, cache, and build-output directories
  * (node_modules, dist, target, .venv, …) unless the call names one, run
  * asynchronously so a big sandbox can't starve the server's event loop, and
@@ -195,11 +197,12 @@ export function filesystemTools(
     dirs.find((dir) => real === dir || real.startsWith(dir + sep));
 
   // Entry names the tools never touch, even though hidden (dot-prefixed)
-  // paths are otherwise reachable: `.git` internals, and the files that hold
-  // secrets — `.env*` and kiri's MCP credential store — because reads carry no
-  // per-call approval to catch a secret entering the transcript.
+  // paths are otherwise reachable: `.git` internals, files that hold secrets
+  // (`.env*`) — reads carry no per-call approval to catch a secret entering
+  // the transcript — and kiri's own `.kiri` state directory, whose credential,
+  // permission, and shell-precedent files a session must not read or author.
   const isBlockedName = (name: string): boolean =>
-    name === ".git" || name.startsWith(".env") || name === "mcp-credentials.json";
+    name === ".git" || name.startsWith(".env") || name === ".kiri";
 
   // Whether `real` sits under a blocked segment inside `root`. Also true for
   // a path that escapes `root` (its relative form starts with ".."), which
@@ -238,7 +241,7 @@ export function filesystemTools(
     }
     if (isBlockedWithin(root, real)) {
       throw new Error(
-        `"${userPath}" is off-limits — .git internals and secret-bearing files (.env*, mcp-credentials.json) are outside the filesystem tools' reach.`,
+        `"${userPath}" is off-limits — .git internals, secret-bearing files (.env*), and kiri's own .kiri state are outside the filesystem tools' reach.`,
       );
     }
   };
@@ -364,7 +367,7 @@ export function filesystemTools(
   return {
     find_files: tool({
       description:
-        'Find files by name in the directories kiri may access: give a glob pattern (e.g. "**/*.md", "*.yaml") and get back the matching files\' absolute paths. Searches every allowed directory unless directory narrows it. Hidden (dot-prefixed) files are included; .git internals and secret-bearing files (.env*, credential stores) never are, and dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) are skipped unless the pattern names them. Call it to discover what exists before read_file, or to check a path; a result that notes truncation means the scope was too broad — narrow it with directory or a tighter pattern.',
+        'Find files by name in the directories kiri may access: give a glob pattern (e.g. "**/*.md", "*.yaml") and get back the matching files\' absolute paths. Searches every allowed directory unless directory narrows it. Hidden (dot-prefixed) files are included; .git internals and secret-bearing files (.env*, credential stores, the .kiri state directory) never are, and dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) are skipped unless the pattern names them. Call it to discover what exists before read_file, or to check a path; a result that notes truncation means the scope was too broad — narrow it with directory or a tighter pattern.',
       inputSchema: z.object({
         pattern: z
           .string()
@@ -407,7 +410,7 @@ export function filesystemTools(
 
     list_directory: tool({
       description:
-        'List a directory\'s immediate entries in the directories kiri may access, by absolute or working-directory-relative path; directories in the result end with "/". Use it to orient in an unfamiliar directory one level at a time — reach for find_files when you already know a name pattern, and search_files for contents. Hidden (dot-prefixed) entries are included; .git and secret-bearing entries (.env*, credential stores) never are.',
+        'List a directory\'s immediate entries in the directories kiri may access, by absolute or working-directory-relative path; directories in the result end with "/". Use it to orient in an unfamiliar directory one level at a time — reach for find_files when you already know a name pattern, and search_files for contents. Hidden (dot-prefixed) entries are included; .git and secret-bearing entries (.env*, credential stores, the .kiri state directory) never are.',
       inputSchema: z.object({
         path: z
           .string()
@@ -454,7 +457,7 @@ export function filesystemTools(
 
     read_file: tool({
       description:
-        "Read a text file from the directories kiri may access — by absolute path (exactly as find_files reports it) or one relative to the working directory. Binary files, .git internals, secret-bearing files (.env*, credential stores), and paths outside the allowed directories are rejected. A file too large to return in full comes back truncated with a note — reach for search_files to pinpoint the relevant part of a big file instead of reading it whole.",
+        "Read a text file from the directories kiri may access — by absolute path (exactly as find_files reports it) or one relative to the working directory. Binary files, .git internals, secret-bearing files (.env*, credential stores, the .kiri state directory), and paths outside the allowed directories are rejected. A file too large to return in full comes back truncated with a note — reach for search_files to pinpoint the relevant part of a big file instead of reading it whole.",
       inputSchema: z.object({
         path: z
           .string()
@@ -489,7 +492,7 @@ export function filesystemTools(
 
     search_files: tool({
       description:
-        'Search file contents in the directories kiri may access: a regular expression (JavaScript syntax) matched against each line, returning the absolute file path, line number, and line text of every match. Prefer a tight scope: narrow with directory and an include glob (e.g. "**/*.yaml") rather than searching everything. Binary files, very large files, .git internals, and secret-bearing files (.env*, credential stores) are skipped, along with dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) unless the include glob names one or directory points inside one. A result that notes truncation means the scope was too broad — tighten the pattern, directory, or include.',
+        'Search file contents in the directories kiri may access: a regular expression (JavaScript syntax) matched against each line, returning the absolute file path, line number, and line text of every match. Prefer a tight scope: narrow with directory and an include glob (e.g. "**/*.yaml") rather than searching everything. Binary files, very large files, .git internals, and secret-bearing files (.env*, credential stores, the .kiri state directory) are skipped, along with dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) unless the include glob names one or directory points inside one. A result that notes truncation means the scope was too broad — tighten the pattern, directory, or include.',
       inputSchema: z.object({
         pattern: z
           .string()
@@ -585,7 +588,7 @@ export function filesystemTools(
 
     write_file: tool({
       description:
-        "Write a text file in the directories kiri may access, by absolute or working-directory-relative path — creating it (missing parent directories are created too) or overwriting it wholesale. Prefer edit_file for a targeted change to an existing file, and read_file first so an overwrite starts from the file's current contents. Binary files, .git internals, secret-bearing paths (.env*, credential stores), and paths outside the allowed directories are rejected.",
+        "Write a text file in the directories kiri may access, by absolute or working-directory-relative path — creating it (missing parent directories are created too) or overwriting it wholesale. Prefer edit_file for a targeted change to an existing file, and read_file first so an overwrite starts from the file's current contents. Binary files, .git internals, secret-bearing paths (.env*, credential stores, the .kiri state directory), and paths outside the allowed directories are rejected.",
       inputSchema: z.object({
         path: z
           .string()

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type Tool, type ToolSet, tool } from "ai";
@@ -14,6 +14,9 @@ import type { LlmClients, LlmModel } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import {
+  type CommandJudgementEvent,
+  type CommandLearning,
+  type CommandResolutionEvent,
   type StreamRegistry,
   appendMessage,
   createSession,
@@ -163,6 +166,7 @@ describe("sessions routes", () => {
       streamRegistry?: StreamRegistry;
       getModelsConfig?: () => ModelsConfig;
       getDefaultWorkingDirectory?: () => string | undefined;
+      commandLearning?: CommandLearning;
     } = {},
   ) =>
     createApp({
@@ -1971,21 +1975,45 @@ describe("sessions routes", () => {
         return { calls, generateText };
       };
 
+      // Records the learning loop's inputs and serves a scripted guidance —
+      // route tests assert the wiring, not the file-backed loop itself.
+      const fakeLearning = (guidance = "") => {
+        const judgements: Omit<CommandJudgementEvent, "type" | "at">[] = [];
+        const resolutions: Omit<CommandResolutionEvent, "type" | "at">[] = [];
+        const learning: CommandLearning = {
+          recordJudgement: (event) => {
+            judgements.push(event);
+          },
+          recordResolution: (event) => {
+            resolutions.push(event);
+          },
+          guidance: () => guidance,
+          flush: async () => {},
+        };
+        return { judgements, resolutions, learning };
+      };
+
       const startAutoTurn = async (opts: {
         input: string;
         judgeReply?: string;
         modelsConfig?: () => ModelsConfig;
+        learning?: ReturnType<typeof fakeLearning>;
       }) => {
         writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
         createToolPermissionStore(env.config.toolPermissionsFile()).set("run_command", "auto");
         const judge = scriptedJudge(opts.judgeReply ?? "");
+        const learning = opts.learning ?? fakeLearning();
         const { bus, waitForSettled } = createSessionWaiter();
         const app = makeApp(
           fakeClients({
             model: toolCallModel("run_command", opts.input),
             generateText: judge.generateText,
           }),
-          { bus, getModelsConfig: opts.modelsConfig ?? UTILITY_MODELS },
+          {
+            bus,
+            getModelsConfig: opts.modelsConfig ?? UTILITY_MODELS,
+            commandLearning: learning.learning,
+          },
         );
         // Pre-titled so first-turn title generation doesn't also call the
         // scripted generateText and muddy the judge-call assertions.
@@ -1993,7 +2021,30 @@ describe("sessions routes", () => {
         const settled = waitForSettled("s1");
         await (await postMessage(app, "s1", "run it")).text();
         await settled;
-        return { app, judge, waitForSettled };
+        return { app, judge, learning, waitForSettled };
+      };
+
+      // Flip a paused message's approval requests to responses and resume.
+      const resumeWithVerdict = async (
+        app: ReturnType<typeof createApp>,
+        waitForSettled: (id: string) => Promise<void>,
+        approved: boolean,
+      ) => {
+        const paused = getSessionMessages(env.db, "s1");
+        const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
+          part.state === "approval-requested"
+            ? { ...part, state: "approval-responded", approval: { ...part.approval, approved } }
+            : part,
+        );
+        const resumed = waitForSettled("s1");
+        const res = await app.request("/api/sessions/s1/messages", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: { role: "assistant", parts: respondedParts } }),
+        });
+        expect(res.status).toBe(200);
+        await res.text();
+        await resumed;
       };
 
       it("runs a screen-allowed command without consulting the judge", async () => {
@@ -2033,39 +2084,132 @@ describe("sessions routes", () => {
       });
 
       it("pauses a command the judge asks about, then honours an approval", async () => {
-        const { app, judge, waitForSettled } = await startAutoTurn({
+        const { app, judge, learning, waitForSettled } = await startAutoTurn({
           input: JSON.stringify({ command: "echo judged" }),
           judgeReply: "EFFECTS: unclear\nVERDICT: ask\nREASON: unsure",
         });
 
-        const paused = getSessionMessages(env.db, "s1");
-        const pendingTool = toolPartOf(paused[1]);
+        const pendingTool = toolPartOf(getSessionMessages(env.db, "s1")[1]);
         expect(pendingTool.state).toBe("approval-requested");
         expect(judge.calls).toHaveLength(1);
 
         // Approving resumes and runs the call: the prior approval request is
         // honoured rather than the command being re-judged.
-        const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>
-          part.state === "approval-requested"
-            ? {
-                ...part,
-                state: "approval-responded",
-                approval: { ...part.approval, approved: true },
-              }
-            : part,
-        );
-        const resumed = waitForSettled("s1");
-        const res = await app.request("/api/sessions/s1/messages", {
-          method: "POST",
-          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-          body: JSON.stringify({ message: { role: "assistant", parts: respondedParts } }),
-        });
-        expect(res.status).toBe(200);
-        await res.text();
-        await resumed;
+        await resumeWithVerdict(app, waitForSettled, true);
 
         expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-available");
         expect(judge.calls).toHaveLength(1);
+        // The verdict fed the learning loop, correlated to the judgement it
+        // answers — and honouring the prior request logged no second judgement.
+        expect(learning.judgements).toHaveLength(1);
+        expect(learning.resolutions).toEqual([
+          {
+            toolCallId: learning.judgements[0]?.toolCallId,
+            command: "echo judged",
+            approved: true,
+          },
+        ]);
+      });
+
+      it("records a denial against the judgement it answers", async () => {
+        const { app, learning, waitForSettled } = await startAutoTurn({
+          input: JSON.stringify({ command: "echo judged" }),
+          judgeReply: "EFFECTS: unclear\nVERDICT: ask\nREASON: unsure",
+        });
+
+        await resumeWithVerdict(app, waitForSettled, false);
+
+        expect(learning.judgements).toHaveLength(1);
+        expect(learning.resolutions).toEqual([
+          {
+            toolCallId: learning.judgements[0]?.toolCallId,
+            command: "echo judged",
+            approved: false,
+          },
+        ]);
+      });
+
+      it("records screen decisions with the tool call id", async () => {
+        const { learning } = await startAutoTurn({ input: JSON.stringify({ command: "pwd" }) });
+
+        expect(learning.judgements).toEqual([
+          {
+            toolCallId: "c1",
+            command: "pwd",
+            cwd: expect.any(String),
+            verdict: "allow",
+            reason: expect.any(String),
+            source: "screen",
+          },
+        ]);
+      });
+
+      it("records a screen-triggered ask", async () => {
+        const { learning } = await startAutoTurn({
+          input: JSON.stringify({ command: "rm -rf build" }),
+        });
+
+        expect(learning.judgements).toEqual([
+          expect.objectContaining({ command: "rm -rf build", verdict: "ask", source: "screen" }),
+        ]);
+      });
+
+      it("records the judge's verdict and reason for a judged command", async () => {
+        const { judge, learning } = await startAutoTurn({
+          input: JSON.stringify({ command: "echo judged", cwd: env.cwd }),
+          judgeReply: "EFFECTS: prints text\nVERDICT: allow\nREASON: harmless echo",
+        });
+
+        expect(learning.judgements).toEqual([
+          {
+            toolCallId: "c1",
+            command: "echo judged",
+            cwd: env.cwd,
+            verdict: "allow",
+            reason: "harmless echo",
+            source: "judge",
+          },
+        ]);
+        // No distilled guidance yet, so no precedent section rides the prompt.
+        expect(judge.calls[0]?.prompt).not.toContain("USER PRECEDENT");
+      });
+
+      it("feeds distilled guidance into the judgement prompt", async () => {
+        const { judge } = await startAutoTurn({
+          input: JSON.stringify({ command: "echo judged" }),
+          judgeReply: "EFFECTS: prints text\nVERDICT: allow\nREASON: precedented",
+          learning: fakeLearning("- always approves echo commands"),
+        });
+
+        expect(judge.calls[0]?.prompt).toContain(
+          "BEGIN USER PRECEDENT\n- always approves echo commands\nEND USER PRECEDENT",
+        );
+      });
+
+      it("persists judgements under .kiri by default", async () => {
+        // No injected learning loop: the route builds its own file-backed one
+        // against the workspace config store.
+        writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+        createToolPermissionStore(env.config.toolPermissionsFile()).set("run_command", "auto");
+        const { bus, waitForSettled } = createSessionWaiter();
+        const app = makeApp(
+          fakeClients({
+            model: toolCallModel("run_command", JSON.stringify({ command: "pwd" })),
+          }),
+          { bus, getModelsConfig: UTILITY_MODELS },
+        );
+        createSession(env.db, MODEL, { id: "s1", title: "auto shell" });
+        const settled = waitForSettled("s1");
+        await (await postMessage(app, "s1", "run it")).text();
+        await settled;
+
+        const line = readFileSync(env.config.commandJudgementsFile(), "utf8").trim();
+        expect(JSON.parse(line)).toMatchObject({
+          type: "judgement",
+          command: "pwd",
+          verdict: "allow",
+          source: "screen",
+        });
       });
 
       it("degrades to ask wholesale when no utility model is configured", async () => {
