@@ -93,7 +93,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   },
   {
     name: "list_tasks",
-    description: "List the session's project task list: its groups and tasks.",
+    description: "List the session's project task list: its visible groups and tasks.",
     defaultPermission: "allow",
   },
   {

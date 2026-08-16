@@ -168,24 +168,21 @@ function buildProjectGuidance(
 }
 
 // The task-list layer of a project session's prompt: that the project keeps
-// a grouped checklist the user also edits, its size (counts only — the list
-// itself enters the conversation solely through list_tasks), and, when the
+// a grouped checklist the user also edits, its size (counts only, over the
+// visible groups — the list itself enters the conversation solely through
+// list_tasks, and hidden groups never do), and, when the
 // write tools ride along, the discipline of keeping it current. Keyed off
 // list_tasks, so a worker whose task writes are withheld still knows the
 // list exists; a session outside any project gets nothing.
 function buildTaskGuidance(tools: string[], project: ProjectPromptContext | null): string | null {
   if (project === null || project.tasks === undefined || !tools.includes("list_tasks")) return null;
-  const { groups, open, hidden } = project.tasks;
+  const { groups, open } = project.tasks;
   const size =
     groups === 0
       ? "It is currently empty."
       : `It currently has ${open} open task${open === 1 ? "" : "s"} across ${groups} group${groups === 1 ? "" : "s"}.`;
-  const tucked =
-    hidden > 0
-      ? ` ${hidden} further group${hidden === 1 ? " is" : "s are"} hidden — finished or parked work, left out of list_tasks unless you ask for it.`
-      : "";
   const lines = [
-    `The project keeps a task list: a checklist of tasks filed under named groups, which the user edits on the project page and you manage through the task tools. ${size}${tucked} Load it with list_tasks when the user asks what's outstanding, before changing a task, or when a request may already be tracked there — the counts above are all your instructions carry.`,
+    `The project keeps a task list: a checklist of tasks filed under named groups, which the user edits on the project page and you manage through the task tools. ${size} Load it with list_tasks when the user asks what's outstanding, before changing a task, or when a request may already be tracked there — the counts above are all your instructions carry.`,
   ];
   if (tools.includes("add_task")) {
     lines.push(

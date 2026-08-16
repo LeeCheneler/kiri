@@ -11,6 +11,7 @@ import {
   deleteTaskGroup,
   ensureTaskGroup,
   getProjectTask,
+  getTaskGroup,
   getTaskGroupByName,
   listTaskGroups,
   reorderTaskGroups,
@@ -20,27 +21,24 @@ import {
 } from "../projects/tasks.ts";
 
 /**
- * Counts of a project's task list carried by the system prompt: visible
- * groups, their open tasks, and how many groups are hidden — enough for the
- * model to know the list's shape without the list itself.
+ * Counts of a project's task list carried by the system prompt: groups and
+ * their open tasks — hidden groups excluded, as they are from every session
+ * view — enough for the model to know the list's shape without the list.
  */
 export interface TaskListSummary {
   groups: number;
   open: number;
-  hidden: number;
 }
 
-/** Group, open-task, and hidden-group counts for `projectId` — the prompt's task-list line. */
+/** Visible group and open-task counts for `projectId` — the prompt's task-list line. */
 export function summariseTaskList(db: KiriDb, projectId: string): TaskListSummary {
-  const groups = listTaskGroups(db, projectId);
-  const visible = groups.filter((group) => !group.hidden);
+  const groups = listTaskGroups(db, projectId, { includeHidden: false });
   return {
-    groups: visible.length,
-    open: visible.reduce(
+    groups: groups.length,
+    open: groups.reduce(
       (total, group) => total + group.tasks.filter((task) => !task.done).length,
       0,
     ),
-    hidden: groups.length - visible.length,
   };
 }
 
@@ -66,9 +64,10 @@ const moveTo = (ids: string[], id: string, index: number): string[] => {
  * First-party tools that let a project session manage the project's task
  * list — the same grouped checklist the user edits on the project page, with
  * full parity: list it, add and update and delete tasks, and create, rename,
- * reorder, hide, and delete the groups they sit in. Hidden groups — finished
- * or dormant, tucked away on the page — stay out of the list until asked for.
- * Groups are addressed by name
+ * reorder, hide, and delete the groups they sit in. A hidden group — finished
+ * or dormant, tucked away on the page — is invisible here: it never lists,
+ * its name and its tasks read as absent, and only the page brings it back;
+ * the tools can hide, not unhide. Groups are addressed by name
  * (unique within the project; `add_task` creates a missing group on the fly),
  * tasks by the id `list_tasks` returns. Offered only to a session inside a
  * project; a projectless session gets nothing. Every write publishes
@@ -86,9 +85,20 @@ export function taskTools(
 
   const announce = (): void => publish({ type: "task.changed", projectId });
 
+  // A hidden group is out of the session's reach: its tasks and its name
+  // resolve as absent, and a name that collides with one is refused rather
+  // than quietly reviving it.
+  const hiddenGroupError = (name: string) =>
+    new Error(
+      `The task group "${name}" is hidden — it's out of reach here; the user can unhide it on the project page.`,
+    );
+
   const requireTask = (id: string): Task => {
     const task = getProjectTask(db, projectId, id);
     if (!task) throw new Error(`No task with id "${id}" — call list_tasks to see the current ids.`);
+    if (getTaskGroup(db, task.groupId)?.hidden) {
+      throw new Error(`Task "${id}" is in a hidden group — it's out of reach here.`);
+    }
     return task;
   };
 
@@ -97,27 +107,28 @@ export function taskTools(
     if (!group) {
       throw new Error(`No task group named "${name}" — call list_tasks to see the current groups.`);
     }
+    if (group.hidden) throw hiddenGroupError(name);
     return group;
+  };
+
+  // The group a task is filed into: an existing visible one, or a fresh one —
+  // never a hidden one under the same name.
+  const ensureVisibleGroup = (name: string): TaskGroup => {
+    const existing = getTaskGroupByName(db, projectId, name.trim());
+    if (existing?.hidden) throw hiddenGroupError(name);
+    return existing ?? ensureTaskGroup(db, projectId, name);
   };
 
   return {
     list_tasks: tool({
       description:
-        "List the project's task list: every group in order, each with its tasks in order — id, title, whether it's done, and any note. Call it before updating or deleting a task to get current ids, and whenever the user asks what's outstanding. Hidden groups (finished or dormant ones the user tucked away) are left out unless you pass include_hidden — do so only when the user asks about past or hidden work.",
-      inputSchema: z.object({
-        include_hidden: z
-          .boolean()
-          .optional()
-          .describe("Also list hidden groups, marked as such. Default false."),
-      }),
-      execute: async ({ include_hidden }) => ({
-        groups: listTaskGroups(db, projectId, { includeHidden: include_hidden ?? false }).map(
-          (group) => ({
-            name: group.name,
-            ...(group.hidden ? { hidden: true } : {}),
-            tasks: group.tasks.map(presentTask),
-          }),
-        ),
+        "List the project's task list: every group in order, each with its tasks in order — id, title, whether it's done, and any note. Call it before updating or deleting a task to get current ids, and whenever the user asks what's outstanding. Groups the user has hidden on the project page don't appear here.",
+      inputSchema: z.object({}),
+      execute: async () => ({
+        groups: listTaskGroups(db, projectId, { includeHidden: false }).map((group) => ({
+          name: group.name,
+          tasks: group.tasks.map(presentTask),
+        })),
       }),
     }),
 
@@ -135,7 +146,7 @@ export function taskTools(
           .describe("Optional markdown context — why it matters, links, what's blocking it."),
       }),
       execute: async ({ group, title, note }) => {
-        const target = ensureTaskGroup(db, projectId, group);
+        const target = ensureVisibleGroup(group);
         const task = createTask(db, target.id, { title, note });
         announce();
         return { group: target.name, task: presentTask(task) };
@@ -166,7 +177,7 @@ export function taskTools(
       }),
       execute: async ({ id, done, title, note, group, position }) => {
         requireTask(id);
-        const targetGroup = group !== undefined ? ensureTaskGroup(db, projectId, group) : undefined;
+        const targetGroup = group !== undefined ? ensureVisibleGroup(group) : undefined;
         let task = updateTask(db, id, {
           ...(done !== undefined ? { done } : {}),
           ...(title !== undefined ? { title } : {}),
@@ -204,8 +215,11 @@ export function taskTools(
         name: groupNameSchema.describe("Group name, unique within the project."),
       }),
       execute: async ({ name }) => {
-        if (getTaskGroupByName(db, projectId, name.trim())) {
-          throw new Error(`A task group named "${name}" already exists.`);
+        const clash = getTaskGroupByName(db, projectId, name.trim());
+        if (clash) {
+          throw clash.hidden
+            ? hiddenGroupError(name)
+            : new Error(`A task group named "${name}" already exists.`);
         }
         const group = createTaskGroup(db, projectId, name);
         announce();
@@ -215,7 +229,7 @@ export function taskTools(
 
     update_task_group: tool({
       description:
-        "Rename a task group, move it to another position in the list, or hide/unhide it. Hide a group when the user says its work is finished or parked — it stays on the project page behind a toggle but leaves the default list and your instructions' counts. Only the fields you pass change.",
+        "Rename a task group, move it to another position in the list, or hide it. Hide a group when the user says its work is finished or parked — it stays on the project page behind a toggle, but leaves your view entirely; only the user can bring it back, from the page. Only the fields you pass change.",
       inputSchema: z.object({
         name: groupNameSchema.describe("Current group name."),
         new_name: groupNameSchema.optional().describe("New name, unique within the project."),
@@ -225,17 +239,16 @@ export function taskTools(
           .min(0)
           .optional()
           .describe("Zero-based index to move the group to."),
-        hidden: z
-          .boolean()
-          .optional()
-          .describe("true to tuck the group away, false to bring it back."),
+        hidden: z.literal(true).optional().describe("Pass true to tuck the group away."),
       }),
       execute: async ({ name, new_name, position, hidden }) => {
         let group = requireGroup(name);
         if (new_name !== undefined) {
           const clash = getTaskGroupByName(db, projectId, new_name.trim());
           if (clash && clash.id !== group.id) {
-            throw new Error(`A task group named "${new_name}" already exists.`);
+            throw clash.hidden
+              ? hiddenGroupError(new_name)
+              : new Error(`A task group named "${new_name}" already exists.`);
           }
         }
         if (new_name !== undefined || hidden !== undefined) {

@@ -426,7 +426,7 @@ describe("buildSystemPrompt", () => {
         name: "Research",
         articles: [],
         memories: [],
-        tasks: { groups: 2, open: 3, hidden: 0 },
+        tasks: { groups: 2, open: 3 },
       },
       now: FIXED_NOW,
     });
@@ -443,7 +443,7 @@ describe("buildSystemPrompt", () => {
         name: "Research",
         articles: [],
         memories: [],
-        tasks: { groups: 0, open: 0, hidden: 0 },
+        tasks: { groups: 0, open: 0 },
       },
       now: FIXED_NOW,
     });
@@ -456,38 +456,11 @@ describe("buildSystemPrompt", () => {
         name: "Research",
         articles: [],
         memories: [],
-        tasks: { groups: 1, open: 1, hidden: 0 },
+        tasks: { groups: 1, open: 1 },
       },
       now: FIXED_NOW,
     });
     expect(one).toContain("It currently has 1 open task across 1 group.");
-  });
-
-  it("mentions hidden groups so the model knows to ask for them", () => {
-    const one = buildSystemPrompt({
-      config,
-      tools: ["list_tasks"],
-      project: {
-        name: "Research",
-        articles: [],
-        memories: [],
-        tasks: { groups: 1, open: 1, hidden: 1 },
-      },
-      now: FIXED_NOW,
-    });
-    expect(one).toContain("1 further group is hidden");
-    const many = buildSystemPrompt({
-      config,
-      tools: ["list_tasks"],
-      project: {
-        name: "Research",
-        articles: [],
-        memories: [],
-        tasks: { groups: 1, open: 1, hidden: 3 },
-      },
-      now: FIXED_NOW,
-    });
-    expect(many).toContain("3 further groups are hidden");
   });
 
   it("carries no task layer without a project, task counts, or list_tasks", () => {
@@ -505,7 +478,7 @@ describe("buildSystemPrompt", () => {
         name: "Research",
         articles: [],
         memories: [],
-        tasks: { groups: 1, open: 1, hidden: 0 },
+        tasks: { groups: 1, open: 1 },
       },
       now: FIXED_NOW,
     });
@@ -1187,7 +1160,7 @@ describe("buildChildSessionPrompt", () => {
         name: "Research",
         articles: [],
         memories: [],
-        tasks: { groups: 1, open: 2, hidden: 0 },
+        tasks: { groups: 1, open: 2 },
       },
       now: FIXED_NOW,
     });
