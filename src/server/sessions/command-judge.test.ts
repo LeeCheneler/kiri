@@ -108,6 +108,46 @@ describe("judgeCommand", () => {
     expect(called).toBe(false);
   });
 
+  it("renders guidance as a delimited precedent section before the working directory", async () => {
+    let prompt = "";
+    const clients = fakeClients((options) => {
+      prompt = options.prompt;
+      return "VERDICT: allow\nREASON: precedented";
+    });
+    await judgeCommand({
+      llmClients: clients,
+      model: "openai:gpt-mini",
+      command: "python3 fire_mc.py",
+      cwd: "/work",
+      guidance: "- always approves running fire_mc.py",
+    });
+    expect(prompt).toContain(
+      "BEGIN USER PRECEDENT\n- always approves running fire_mc.py\nEND USER PRECEDENT",
+    );
+    expect(prompt.indexOf("END USER PRECEDENT")).toBeLessThan(prompt.indexOf("Working directory:"));
+  });
+
+  it("builds an identical prompt for absent and empty guidance", async () => {
+    const promptFor = async (guidance?: string) => {
+      let prompt = "";
+      await judgeCommand({
+        llmClients: fakeClients((options) => {
+          prompt = options.prompt;
+          return "VERDICT: ask\nREASON: unsure";
+        }),
+        model: "openai:gpt-mini",
+        command: "git pull",
+        cwd: "/repo",
+        guidance,
+      });
+      return prompt;
+    };
+    const absent = await promptFor(undefined);
+    expect(await promptFor("")).toBe(absent);
+    expect(await promptFor("  \n")).toBe(absent);
+    expect(absent).not.toContain("USER PRECEDENT");
+  });
+
   it("sends the command and working directory to the model", async () => {
     let prompt = "";
     const clients = fakeClients((options) => {
