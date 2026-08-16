@@ -354,9 +354,12 @@ export const memories = sqliteTable(
  * One row per task group — a named section of a project's task list, the
  * unit tasks are filed under. Groups are flat (no nesting) and required: a
  * task always belongs to exactly one. `position` orders groups within the
- * project; renumbered wholesale on reorder rather than kept sparse. Deleting
- * the group deletes its tasks — an in-code cascade like the rest of the
- * schema.
+ * project; renumbered wholesale on reorder rather than kept sparse. `hidden`
+ * tucks a finished or dormant group away: it stays in the list behind a
+ * toggle, but drops out of the counts sessions carry and the default view
+ * of the list, so a long-lived project's history doesn't crowd its prompt.
+ * Deleting the group deletes its tasks — an in-code cascade like the rest of
+ * the schema.
  */
 export const taskGroups = sqliteTable(
   "task_groups",
@@ -367,6 +370,7 @@ export const taskGroups = sqliteTable(
       .references(() => projects.id),
     name: text("name").notNull(),
     position: integer("position").notNull(),
+    hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [

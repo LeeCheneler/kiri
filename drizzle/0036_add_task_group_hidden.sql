@@ -1,0 +1,1 @@
+ALTER TABLE `task_groups` ADD `hidden` integer DEFAULT false NOT NULL;

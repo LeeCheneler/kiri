@@ -54,6 +54,7 @@ import migration0034 from "../../../drizzle/0034_add_project_instructions.sql" w
   type: "text",
 };
 import migration0035 from "../../../drizzle/0035_add_tasks.sql" with { type: "text" };
+import migration0036 from "../../../drizzle/0036_add_task_group_hidden.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -120,6 +121,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0033_scope_memories_to_projects", sql: migration0033 },
   { name: "0034_add_project_instructions", sql: migration0034 },
   { name: "0035_add_tasks", sql: migration0035 },
+  { name: "0036_add_task_group_hidden", sql: migration0036 },
 ];
 
 /**
