@@ -24,6 +24,7 @@ const group = (id: string, name: string, tasks: unknown[] = []) => ({
   projectId: "p1",
   name,
   position: 0,
+  hidden: false,
   createdAt: "2026-08-16T10:00:00.000Z",
   tasks,
 });
@@ -293,6 +294,63 @@ describe("<ProjectTasks>", () => {
     dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "delete" }));
     expect(await screen.findByText(/no tasks yet/)).toBeDefined();
+  });
+
+  it("collapses hidden groups behind a toggle and lets a group be hidden or unhidden", async () => {
+    const patches: unknown[] = [];
+    const hiddenState: Record<string, boolean> = { g1: false, g2: true };
+    const serveState = () =>
+      serveTasks([
+        { ...group("g1", "Now"), hidden: hiddenState.g1 },
+        { ...group("g2", "Old"), hidden: hiddenState.g2 },
+      ]);
+    serveState();
+    server.use(
+      http.patch("*/api/projects/p1/task-groups/:groupId", async ({ request, params }) => {
+        const body = (await request.json()) as { hidden: boolean };
+        patches.push([params.groupId, body]);
+        hiddenState[String(params.groupId)] = body.hidden;
+        serveState();
+        return HttpResponse.json({ group: group(String(params.groupId), "x") });
+      }),
+    );
+    renderTasks();
+
+    expect(await screen.findByRole("region", { name: "Now" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "Old" })).toBeNull();
+
+    const toggle = screen.getByRole("button", { name: "show 1 hidden group" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(toggle);
+    const old = await screen.findByRole("region", { name: "Old" });
+    expect(screen.getByRole("button", { name: "hide hidden groups" })).toBeDefined();
+
+    await userEvent.click(within(old).getByRole("button", { name: "unhide group" }));
+    await waitFor(() => expect(patches).toEqual([["g2", { hidden: false }]]));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /hidden group/ })).toBeNull());
+
+    const now = screen.getByRole("region", { name: "Now" });
+    await userEvent.click(within(now).getByRole("button", { name: "hide group" }));
+    await waitFor(() => expect(patches).toHaveLength(2));
+    // The toggle was left expanded, so the freshly hidden group shows in the
+    // hidden section straight away; collapsing hides it.
+    expect(await screen.findByRole("button", { name: "hide hidden groups" })).toBeDefined();
+    expect(screen.getByRole("region", { name: "Now" })).toBeDefined();
+    await userEvent.click(screen.getByRole("button", { name: "hide hidden groups" }));
+    expect(screen.queryByRole("region", { name: "Now" })).toBeNull();
+    expect(screen.getByRole("button", { name: "show 1 hidden group" })).toBeDefined();
+  });
+
+  it("surfaces a failed hide inline", async () => {
+    serveTasks([group("g1", "Now")]);
+    server.use(
+      http.patch("*/api/projects/p1/task-groups/g1", () =>
+        HttpResponse.json({ error: "nope" }, { status: 500 }),
+      ),
+    );
+    renderTasks();
+    await userEvent.click(await screen.findByRole("button", { name: "hide group" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("nope");
   });
 
   it("reports a failed load", async () => {

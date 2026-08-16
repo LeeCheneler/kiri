@@ -16,6 +16,7 @@ const group = (id: string, name: string, titles: string[] = []) => ({
   projectId: "p1",
   name,
   position: 0,
+  hidden: false,
   createdAt: "2026-08-16T10:00:00.000Z",
   tasks: titles.map((title, index) => ({
     id: `${id}-${index}`,
@@ -50,7 +51,7 @@ const MutateProbe = () => {
       <button type="button" onClick={() => void m.createGroup("Later")}>
         create group
       </button>
-      <button type="button" onClick={() => void m.renameGroup("g1", "Today")}>
+      <button type="button" onClick={() => void m.updateGroup("g1", { name: "Today" })}>
         rename group
       </button>
       <button type="button" onClick={() => void m.reorderGroups(["g1"])}>

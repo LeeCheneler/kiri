@@ -7,7 +7,7 @@ import {
   deleteProjectTaskGroup,
   fetchProjectTasks,
   patchProjectTask,
-  renameProjectTaskGroup,
+  patchProjectTaskGroup,
   reorderProjectTaskGroups,
   reorderProjectTasks,
 } from "../api.ts";
@@ -55,7 +55,7 @@ export function useProjectTasksLive(): void {
  */
 export function useProjectTaskMutations(projectId: string): {
   createGroup: (name: string) => Promise<void>;
-  renameGroup: (groupId: string, name: string) => Promise<void>;
+  updateGroup: (groupId: string, patch: { name?: string; hidden?: boolean }) => Promise<void>;
   reorderGroups: (orderedIds: string[]) => Promise<void>;
   deleteGroup: (groupId: string) => Promise<void>;
   createTask: (groupId: string, input: { title: string; note?: string | null }) => Promise<void>;
@@ -76,8 +76,8 @@ export function useProjectTaskMutations(projectId: string): {
       await createProjectTaskGroup(projectId, name);
       settle();
     },
-    renameGroup: async (groupId, name) => {
-      await renameProjectTaskGroup(projectId, groupId, name);
+    updateGroup: async (groupId, patch) => {
+      await patchProjectTaskGroup(projectId, groupId, patch);
       settle();
     },
     reorderGroups: async (orderedIds) => {

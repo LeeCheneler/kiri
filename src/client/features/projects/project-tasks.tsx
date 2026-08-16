@@ -226,7 +226,7 @@ function RenameGroupModal({
           if (pending || name.trim() === "") return;
           setError(null);
           setPending(true);
-          mutations.renameGroup(group.id, name.trim()).then(onClose, (cause: unknown) => {
+          mutations.updateGroup(group.id, { name: name.trim() }).then(onClose, (cause: unknown) => {
             setError(describeError(cause));
             setPending(false);
           });
@@ -300,7 +300,7 @@ function TaskRow({
 }
 
 // One group: its name as the section eyebrow with its progress and actions
-// trailing, then its task rows.
+// trailing — add, rename, hide/unhide, delete — then its task rows.
 function TaskGroupSection({
   group,
   mutations,
@@ -315,6 +315,19 @@ function TaskGroupSection({
   const [renaming, setRenaming] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [toggling, setToggling] = useState(false);
+
+  const handleToggleHidden = async () => {
+    onError(null);
+    setToggling(true);
+    try {
+      await mutations.updateGroup(group.id, { hidden: !group.hidden });
+    } catch (cause) {
+      onError(describeError(cause));
+    } finally {
+      setToggling(false);
+    }
+  };
 
   const handleDelete = async () => {
     setConfirmDelete(false);
@@ -342,6 +355,15 @@ function TaskGroupSection({
           </Button>
           <Button variant="dismissive" size="inline" onClick={() => setRenaming(true)}>
             rename group
+          </Button>
+          <Button
+            variant="dismissive"
+            size="inline"
+            pending={toggling}
+            pendingLabel={group.hidden ? "showing…" : "hiding…"}
+            onClick={() => void handleToggleHidden()}
+          >
+            {group.hidden ? "unhide group" : "hide group"}
           </Button>
           <Button
             variant="negative-quiet"
@@ -394,15 +416,16 @@ function TaskGroupSection({
  * A project's task list — the Tasks tab of its page. Each group is a section
  * of checkbox rows with its progress and actions trailing the title — add a
  * task (a dialog for title and note), rename, delete — and a task editor
- * (title, note, delete) behind each row's edit action; the new-group action
- * closes the list. Kept live by the shared task queries, so a session's
- * changes appear as they land.
+ * (title, note, delete) behind each row's edit action. Hidden groups collapse
+ * behind a show/hide toggle; the new-group action closes the list. Kept live
+ * by the shared task queries, so a session's changes appear as they land.
  */
 export function ProjectTasks({ projectId }: { projectId: string }) {
   const tasks = useProjectTasks(projectId);
   const mutations = useProjectTaskMutations(projectId);
   const [error, setError] = useState<string | null>(null);
   const [newGroup, setNewGroup] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
 
   if (tasks.isPending) return <LoadingState>Loading tasks…</LoadingState>;
   if (tasks.isError) {
@@ -413,6 +436,12 @@ export function ProjectTasks({ projectId }: { projectId: string }) {
     );
   }
 
+  const visible = tasks.data.filter((group) => !group.hidden);
+  const hidden = tasks.data.filter((group) => group.hidden);
+  const section = (group: ProjectTaskGroup) => (
+    <TaskGroupSection key={group.id} group={group} mutations={mutations} onError={setError} />
+  );
+
   return (
     <div className="flex flex-col gap-8">
       {tasks.data.length === 0 ? (
@@ -421,10 +450,27 @@ export function ProjectTasks({ projectId }: { projectId: string }) {
           off, and reorganise tasks too.
         </EmptyState>
       ) : (
-        tasks.data.map((group) => (
-          <TaskGroupSection key={group.id} group={group} mutations={mutations} onError={setError} />
-        ))
+        visible.map(section)
       )}
+      {/* Hidden groups collapse behind one line: finished or parked work the
+          user tucked away, kept out of sight — and out of sessions' prompts —
+          until asked for. */}
+      {hidden.length > 0 ? (
+        <div className="flex flex-col gap-8">
+          <div>
+            <Button
+              variant="dismissive"
+              aria-expanded={showHidden}
+              onClick={() => setShowHidden((value) => !value)}
+            >
+              {showHidden
+                ? "hide hidden groups"
+                : `show ${hidden.length} hidden group${hidden.length === 1 ? "" : "s"}`}
+            </Button>
+          </div>
+          {showHidden ? hidden.map(section) : null}
+        </div>
+      ) : null}
       <ErrorLine error={error} />
       <div>
         <Button onClick={() => setNewGroup(true)}>+ New group</Button>

@@ -1434,12 +1434,13 @@ export interface ProjectTask {
   updatedAt: string;
 }
 
-/** One group of a project's task list with its tasks in order. */
+/** One group of a project's task list with its tasks in order. `hidden` tucks a finished group behind the page's toggle and out of sessions' default view. */
 export interface ProjectTaskGroup {
   id: string;
   projectId: string;
   name: string;
   position: number;
+  hidden: boolean;
   createdAt: string;
   tasks: ProjectTask[];
 }
@@ -1468,16 +1469,16 @@ export const createProjectTaskGroup = async (
     await apiFetch(projectTasksPath(projectId, "/task-groups"), jsonInit("POST", { name })),
   );
 
-/** Rename a task group. Throws `ApiError` on non-2xx (409 on a name clash). */
-export const renameProjectTaskGroup = async (
+/** Rename and/or hide a task group. Omitted fields keep their value. Throws `ApiError` on non-2xx (409 on a name clash). */
+export const patchProjectTaskGroup = async (
   projectId: string,
   groupId: string,
-  name: string,
+  patch: { name?: string; hidden?: boolean },
 ): Promise<{ group: Omit<ProjectTaskGroup, "tasks"> }> =>
   json<{ group: Omit<ProjectTaskGroup, "tasks"> }>(
     await apiFetch(
       projectTasksPath(projectId, `/task-groups/${encodeURIComponent(groupId)}`),
-      jsonInit("PATCH", { name }),
+      jsonInit("PATCH", patch),
     ),
   );
 
