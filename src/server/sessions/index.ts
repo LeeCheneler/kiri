@@ -1,6 +1,15 @@
 export { articleTools } from "./article-tools.ts";
 export { BUILTIN_TOOLS, type BuiltinTool } from "./builtin-tools.ts";
 export { type CommandJudgement, judgeCommand } from "./command-judge.ts";
+export {
+  type CommandEvent,
+  type CommandJudgementEvent,
+  type CommandResolutionEvent,
+  appendCommandEvent,
+  commandEventSchema,
+  readRecentCommandEvents,
+  trimCommandLog,
+} from "./command-judgement-log.ts";
 export { type CommandScreenResult, screenCommand } from "./command-screen.ts";
 export { DELEGATE_TOOL_NAME, type DelegateToolDeps, delegateTool } from "./delegate-tool.ts";
 export {

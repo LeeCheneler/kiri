@@ -33,6 +33,11 @@ describe("createConfigStore", () => {
     expect(config.toolPermissionsFile()).toBe(join(root, ".kiri", "tool-permissions.json"));
   });
 
+  it("derives the command judgement and guidance files under the data dir", () => {
+    expect(config.commandJudgementsFile()).toBe(join(root, ".kiri", "command-judgements.jsonl"));
+    expect(config.commandGuidanceFile()).toBe(join(root, ".kiri", "command-guidance.md"));
+  });
+
   it("derives the instructions and config files", () => {
     expect(config.instructionsFile()).toBe(join(root, "kiri.md"));
     expect(config.configFile()).toBe(join(root, "kiri.yaml"));
