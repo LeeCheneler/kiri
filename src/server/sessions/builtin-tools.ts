@@ -92,6 +92,41 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
+    name: "list_tasks",
+    description: "List the session's project task list: its groups and tasks.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "add_task",
+    description: "Add a task to the session's project task list.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "update_task",
+    description: "Mark a project task done, retitle it, edit its note, or move it.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "delete_task",
+    description: "Delete a task from the session's project task list.",
+    defaultPermission: "ask",
+  },
+  {
+    name: "create_task_group",
+    description: "Create a group in the session's project task list.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "update_task_group",
+    description: "Rename or reorder a group in the session's project task list.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "delete_task_group",
+    description: "Delete a group and its tasks from the session's project task list.",
+    defaultPermission: "ask",
+  },
+  {
     name: "list_workflows",
     description: "List the workspace's workflows and their declared inputs.",
     defaultPermission: "allow",

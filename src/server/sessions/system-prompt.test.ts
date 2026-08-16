@@ -418,6 +418,55 @@ describe("buildSystemPrompt", () => {
     expect(withoutTool).not.toContain("belongs to the project");
   });
 
+  it("carries the task list's size and upkeep discipline when the task tools ride", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      tools: ["list_tasks", "add_task"],
+      project: { name: "Research", articles: [], memories: [], tasks: { groups: 2, open: 3 } },
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain("The project keeps a task list");
+    expect(prompt).toContain("It currently has 3 open tasks across 2 groups.");
+    expect(prompt).toContain("Keep the list current as a matter of course");
+  });
+
+  it("states an empty task list, singular counts, and read-only guidance without add_task", () => {
+    const empty = buildSystemPrompt({
+      config,
+      tools: ["list_tasks"],
+      project: { name: "Research", articles: [], memories: [], tasks: { groups: 0, open: 0 } },
+      now: FIXED_NOW,
+    });
+    expect(empty).toContain("It is currently empty.");
+    expect(empty).not.toContain("Keep the list current");
+    const one = buildSystemPrompt({
+      config,
+      tools: ["list_tasks"],
+      project: { name: "Research", articles: [], memories: [], tasks: { groups: 1, open: 1 } },
+      now: FIXED_NOW,
+    });
+    expect(one).toContain("It currently has 1 open task across 1 group.");
+  });
+
+  it("carries no task layer without a project, task counts, or list_tasks", () => {
+    const withoutTasks = buildSystemPrompt({
+      config,
+      tools: ["list_tasks"],
+      project: { name: "Research", articles: [], memories: [] },
+      now: FIXED_NOW,
+    });
+    expect(withoutTasks).not.toContain("task list");
+    const withoutTool = buildSystemPrompt({
+      config,
+      tools: ["read_article"],
+      project: { name: "Research", articles: [], memories: [], tasks: { groups: 1, open: 1 } },
+      now: FIXED_NOW,
+    });
+    expect(withoutTool).not.toContain("task list");
+    const withoutProject = buildSystemPrompt({ config, tools: ["list_tasks"], now: FIXED_NOW });
+    expect(withoutProject).not.toContain("task list");
+  });
+
   it("lists a skill without a description as its bare name", () => {
     const prompt = buildSystemPrompt({
       config,
@@ -1082,6 +1131,16 @@ describe("buildChildSessionPrompt", () => {
     expect(prompt).toContain("its sessions all read the same documents");
     expect(prompt).toContain("- corpus-doc: Field Notes");
     expect(prompt).not.toContain("Write durable knowledge into the corpus");
+  });
+
+  it("tells a worker the task list exists without the upkeep line", () => {
+    const prompt = buildChildSessionPrompt({
+      tools: ["list_tasks"],
+      project: { name: "Research", articles: [], memories: [], tasks: { groups: 1, open: 2 } },
+      now: FIXED_NOW,
+    });
+    expect(prompt).toContain("It currently has 2 open tasks across 1 group.");
+    expect(prompt).not.toContain("Keep the list current");
   });
 
   it("leaves the project's standing instructions out of a worker's brief", () => {
