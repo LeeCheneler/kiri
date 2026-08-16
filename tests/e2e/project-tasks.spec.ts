@@ -1,11 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { createProject, openTasksTab } from "./support/projects.ts";
+import {
+  createProject,
+  openTasksTab,
+  startProjectSession,
+  uniqueName,
+} from "./support/projects.ts";
 import { sendMessage, useModel } from "./support/session.ts";
 
 test("a project's task list: groups, tasks, ticking off, editing, hiding, deleting", async ({
   page,
 }) => {
-  const id = await createProject(page, "E2E Tasks");
+  const id = await createProject(page, uniqueName("E2E Tasks"));
   await openTasksTab(page);
   await expect(page.getByText(/no tasks yet/)).toBeVisible();
 
@@ -30,14 +35,16 @@ test("a project's task list: groups, tasks, ticking off, editing, hiding, deleti
   await expect(now.getByText("blocked on review")).toBeVisible();
   await expect(now.getByText("1 open")).toBeVisible();
 
-  // The index card counts the open task.
+  // The index card counts the open task (other runs' projects may too).
   await page.goto("/projects");
-  await expect(page.getByText("1 open task")).toBeVisible();
+  await expect(page.getByText("1 open task").first()).toBeVisible();
   await page.goto(`/projects/${id}`);
   await openTasksTab(page);
 
-  // Tick it off — the group reads as all done and the card drops the fact.
-  await now.getByRole("checkbox", { name: "Write the docs" }).check();
+  // Tick it off — the box reflects the server's truth once the write lands,
+  // and the group reads as all done.
+  await now.getByRole("checkbox", { name: "Write the docs" }).click();
+  await expect(now.getByRole("checkbox", { name: "Write the docs" })).toBeChecked();
   await expect(now.getByText("all done")).toBeVisible();
 
   // Edit the title through the modal.
@@ -71,11 +78,8 @@ test("a project's task list: groups, tasks, ticking off, editing, hiding, deleti
 });
 
 test("a session in the project files a task that appears on the page live", async ({ page }) => {
-  const id = await createProject(page, "E2E Task Session");
-
-  // Start a session inside the project from its page.
-  await page.getByRole("button", { name: /new session/i }).click();
-  await expect(page).toHaveURL(/\/sessions\/[0-9a-f-]+$/);
+  const id = await createProject(page, uniqueName("E2E Task Session"));
+  await startProjectSession(page);
   await useModel(page, "fake:tool");
   await sendMessage(
     page,
