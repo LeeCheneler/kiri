@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { articles, memories, projects, sessions } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
+import { createTask, createTaskGroup, updateTask } from "../projects/tasks.ts";
 import { appendMessage, createSession } from "../sessions/store.ts";
 import { CLIENT_HEADERS, type TestEnv, createTestEnv } from "./test-helpers.ts";
 
@@ -92,6 +93,20 @@ describe("projects routes", () => {
       expect(body.projects.map((project) => project.id)).toEqual(["p2", "p1"]);
       expect(body.projects[1]).toMatchObject({ articleCount: 2, sessionCount: 1 });
       expect(body.projects[0]).toMatchObject({ articleCount: 0, sessionCount: 0 });
+    });
+
+    it("carries each project's open task count", async () => {
+      seedProject("p1");
+      seedProject("p2");
+      createTaskGroup(env.db, "p1", "Now", { id: "g1" });
+      createTask(env.db, "g1", { title: "open" }, { id: "t1" });
+      createTask(env.db, "g1", { title: "done" }, { id: "t2" });
+      updateTask(env.db, "t2", { done: true });
+
+      const res = await buildApp().request("/api/projects");
+      const body = (await res.json()) as { projects: { id: string; openTaskCount: number }[] };
+      expect(body.projects.find((project) => project.id === "p1")?.openTaskCount).toBe(1);
+      expect(body.projects.find((project) => project.id === "p2")?.openTaskCount).toBe(0);
     });
 
     it("leaves instructions out of the index", async () => {
