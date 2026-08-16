@@ -231,6 +231,10 @@ const SUGGESTED_REPLIES_PROMPT_PREFIX = "Suggest tap-to-send replies";
 /** Marker a test embeds in a message to make the stub suggest replies for it. */
 export const SUGGESTED_REPLIES_MARKER = "[chips]";
 
+// Kiri's shell-guidance distiller opens its prompt with this phrase. The stub
+// abstains so e2e runs never write stub prose into .kiri/command-guidance.md.
+const COMMAND_GUIDANCE_PROMPT_PREFIX = "Distill shell-command approval guidance";
+
 /** The replies the stub suggests when the marker is present. */
 export const STUB_SUGGESTED_REPLIES = ["Yes, proceed", "No, hold off"] as const;
 
@@ -287,6 +291,7 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
         ? ["ENDING: confirmation", ...STUB_SUGGESTED_REPLIES].join("\n")
         : "ENDING: none";
     }
+    if (userText.startsWith(COMMAND_GUIDANCE_PROMPT_PREFIX)) reply = "NONE";
 
     if (model === "boom") return errorResponse();
 

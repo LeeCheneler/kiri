@@ -23,7 +23,11 @@ import { mountStaticRoutes } from "./routes/static.ts";
 import { systemRoutes } from "./routes/system.ts";
 import { workflowsRoutes } from "./routes/workflows.ts";
 import type { CancelRegistry } from "./runner/cancel-registry.ts";
-import { type StreamRegistry, createToolPermissionStore } from "./sessions/index.ts";
+import {
+  type CommandLearning,
+  type StreamRegistry,
+  createToolPermissionStore,
+} from "./sessions/index.ts";
 import type { Registry } from "./workflows/index.ts";
 
 /**
@@ -62,6 +66,12 @@ export interface AppDeps {
    * the session surface owns; supplied mainly for tests.
    */
   streamRegistry?: StreamRegistry;
+  /**
+   * The auto shell permission's learning loop. Defaults to a file-backed
+   * instance the session surface owns, persisting under `.kiri`; supplied
+   * mainly for tests.
+   */
+  commandLearning?: CommandLearning;
   /**
    * Completion client forwarded to the runner so `llm:` steps can execute.
    * Without it, llm steps fail cleanly with a not-configured error.
@@ -256,6 +266,7 @@ export function createApp(deps: AppDeps): Hono {
         mcpRegistry,
         toolPermissions,
         streamRegistry: deps.streamRegistry,
+        commandLearning: deps.commandLearning,
         getProviderNames: deps.getProviderNames,
         getAllowedDirectories:
           deps.getAllowedDirectories ?? (() => loadKiriConfig(config, env).allowedDirectories),

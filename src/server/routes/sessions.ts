@@ -23,6 +23,7 @@ import { getProject, listProjectArticles } from "../projects/store.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   BUILTIN_TOOLS,
+  type CommandLearning,
   type RunTurnDeps,
   SESSION_TITLE_MAX_LENGTH,
   type Session,
@@ -32,6 +33,7 @@ import {
   type ToolPermission,
   type ToolPermissionStore,
   articleTools,
+  createCommandLearning,
   createSession,
   createStreamRegistry,
   createSystemPromptBuilder,
@@ -125,6 +127,13 @@ export interface SessionsRoutesDeps {
    * spawns. Empty (or omitted) means none are configured.
    */
   getModelsConfig?: () => ModelsConfig;
+  /**
+   * The auto shell permission's learning loop: decisions and user verdicts
+   * feed the judgement log, and distilled precedent feeds back into the
+   * judge. Defaults to a file-backed instance under `.kiri`; injectable for
+   * tests.
+   */
+  commandLearning?: CommandLearning;
 }
 
 const DEFAULT_SESSION_LIMIT = 25;
@@ -308,13 +317,25 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // rejoins the live response. A caller may inject one to share it.
   const streamRegistry = deps.streamRegistry ?? createStreamRegistry();
 
+  // The learning loop around the auto shell permission: every decision and
+  // user verdict lands in the judgement log, and the distilled precedent is
+  // read back into each judgement.
+  const commandLearning =
+    deps.commandLearning ??
+    createCommandLearning({
+      llmClients,
+      getModel: () => deps.getModelsConfig?.().utility,
+      logFile: config.commandJudgementsFile(),
+      guidanceFile: config.commandGuidanceFile(),
+    });
+
   // Decide a run_command call under the "auto" permission: the deterministic
   // screen rules first, and only a screen deferral consults the utility
   // model. No configured utility model means no judgement at all — auto
   // degrades to ask wholesale, screen included, so what the permissions page
   // states holds exactly. Every decision is logged: a command that runs
   // unprompted must stay auditable.
-  const shellAutoNeedsApproval = async (input: unknown): Promise<boolean> => {
+  const shellAutoNeedsApproval = async (input: unknown, toolCallId: string): Promise<boolean> => {
     // The SDK validates the call against the tool's input schema before any
     // approval gating, so `command` is present and string-typed here.
     const { command, cwd } = input as { command: string; cwd?: string };
@@ -328,11 +349,22 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             model,
             command: screened.command,
             cwd: cwd ?? sandboxDirectories().join(", "),
+            guidance: commandLearning.guidance(),
           })
         : screened;
     console.log(
       `run_command auto: ${decision.verdict} (${decision.reason}): ${JSON.stringify(command)}`,
     );
+    // The raw command, not the screened form — precedent is about what the
+    // user saw asked.
+    commandLearning.recordJudgement({
+      toolCallId,
+      command,
+      cwd: cwd ?? sandboxDirectories().join(", "),
+      verdict: decision.verdict,
+      reason: decision.reason,
+      source: screened.verdict === "judge" ? "judge" : "screen",
+    });
     return decision.verdict === "ask";
   };
 
@@ -363,7 +395,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ) => {
         if (hasPriorApprovalRequest(messages, toolCallId)) return true;
         if (permission === "allow") return false;
-        if (permission === "auto" && name === "run_command") return shellAutoNeedsApproval(input);
+        if (permission === "auto" && name === "run_command") {
+          return shellAutoNeedsApproval(input, toolCallId);
+        }
         return true;
       },
     };
@@ -952,6 +986,21 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (message.role === "assistant") {
         if (!pending) {
           return c.json({ error: `session "${id}" has no pending tool approval to resolve` }, 409);
+        }
+        // Every answered run_command feeds the learning loop — under "ask" as
+        // much as "auto", since an approval is precedent either way.
+        for (const part of parts) {
+          if (
+            isToolUIPart(part) &&
+            part.state === "approval-responded" &&
+            part.type === "tool-run_command"
+          ) {
+            commandLearning.recordResolution({
+              toolCallId: part.toolCallId,
+              command: (part.input as { command?: string })?.command ?? "",
+              approved: part.approval.approved,
+            });
+          }
         }
         const { response } = await resumeTurn(turnDeps, {
           session,
