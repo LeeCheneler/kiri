@@ -97,6 +97,25 @@ describe("project task routes", () => {
       ).toBe(404);
     });
 
+    it("hides and unhides a group, keeping it in the listing", async () => {
+      const res = await app.request(
+        "/api/projects/p1/task-groups/g2",
+        json("PATCH", { hidden: true }),
+      );
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { group: { hidden: boolean } }).group.hidden).toBe(true);
+      const list = (await (await app.request("/api/projects/p1/tasks")).json()) as {
+        groups: { id: string; hidden: boolean }[];
+      };
+      expect(list.groups.map((group) => [group.id, group.hidden])).toEqual([
+        ["g1", false],
+        ["g2", true],
+      ]);
+      expect((await app.request("/api/projects/p1/task-groups/g2", json("PATCH", {}))).status).toBe(
+        200,
+      );
+    });
+
     it("renames a group, refusing a clash with another group", async () => {
       const res = await app.request(
         "/api/projects/p1/task-groups/g1",

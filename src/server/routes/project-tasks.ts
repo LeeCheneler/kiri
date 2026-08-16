@@ -13,10 +13,10 @@ import {
   getTaskGroup,
   getTaskGroupByName,
   listTaskGroups,
-  renameTaskGroup,
   reorderTaskGroups,
   reorderTasks,
   updateTask,
+  updateTaskGroup,
 } from "../projects/tasks.ts";
 import { runIdParamSchema as idParamSchema, onZodFail } from "./shared.ts";
 
@@ -24,6 +24,11 @@ const groupParamSchema = z.object({ id: z.string().min(1), groupId: z.string().m
 const taskParamSchema = z.object({ id: z.string().min(1), taskId: z.string().min(1) });
 
 const groupBodySchema = z.object({ name: z.string().trim().min(1) }).strict();
+// A group patch carries whichever fields are changing: a new name, or the
+// hidden flag that tucks it behind the page's toggle and out of prompts.
+const patchGroupBodySchema = z
+  .object({ name: z.string().trim().min(1).optional(), hidden: z.boolean().optional() })
+  .strict();
 const orderBodySchema = z.object({ orderedIds: z.array(z.string().min(1)) }).strict();
 const taskBodySchema = z
   .object({ title: z.string().trim().min(1), note: z.string().nullable().optional() })
@@ -45,7 +50,8 @@ export interface ProjectTasksRoutesDeps {
 
 /**
  * HTTP surface for a project's task list, mounted under the projects routes:
- * read the whole list, create/rename/reorder/delete groups, and
+ * read the whole list (hidden groups included — the page decides how to show
+ * them), create/rename/hide/reorder/delete groups, and
  * create/edit/reorder/delete the tasks within them. Every mutation publishes
  * `task.changed` for the project so open views refetch the list — one event
  * for the whole surface, since the list is small and always read wholesale.
@@ -107,19 +113,19 @@ export function projectTasksRoutes(deps: ProjectTasksRoutesDeps): Hono {
   app.patch(
     "/:id/task-groups/:groupId",
     zValidator("param", groupParamSchema, onZodFail("invalid task group id")),
-    zValidator("json", groupBodySchema, onZodFail("invalid task group")),
+    zValidator("json", patchGroupBodySchema, onZodFail("invalid task group")),
     (c) => {
       const { id, groupId } = c.req.valid("param");
-      const { name } = c.req.valid("json");
+      const patch = c.req.valid("json");
       const group = projectGroup(id, groupId);
       if (!group) return c.json(notFound(`task group "${groupId}"`), 404);
-      const clash = getTaskGroupByName(db, id, name);
+      const clash = patch.name !== undefined ? getTaskGroupByName(db, id, patch.name) : undefined;
       if (clash && clash.id !== groupId) {
-        return c.json({ error: `task group "${name}" already exists` }, 409);
+        return c.json({ error: `task group "${patch.name}" already exists` }, 409);
       }
-      const renamed = renameTaskGroup(db, groupId, name);
+      const updated = updateTaskGroup(db, groupId, patch);
       changed(id);
-      return c.json({ group: renamed });
+      return c.json({ group: updated });
     },
   );
 

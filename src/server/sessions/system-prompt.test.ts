@@ -422,7 +422,12 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt({
       config,
       tools: ["list_tasks", "add_task"],
-      project: { name: "Research", articles: [], memories: [], tasks: { groups: 2, open: 3 } },
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        tasks: { groups: 2, open: 3, hidden: 0 },
+      },
       now: FIXED_NOW,
     });
     expect(prompt).toContain("The project keeps a task list");
@@ -434,7 +439,12 @@ describe("buildSystemPrompt", () => {
     const empty = buildSystemPrompt({
       config,
       tools: ["list_tasks"],
-      project: { name: "Research", articles: [], memories: [], tasks: { groups: 0, open: 0 } },
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        tasks: { groups: 0, open: 0, hidden: 0 },
+      },
       now: FIXED_NOW,
     });
     expect(empty).toContain("It is currently empty.");
@@ -442,10 +452,42 @@ describe("buildSystemPrompt", () => {
     const one = buildSystemPrompt({
       config,
       tools: ["list_tasks"],
-      project: { name: "Research", articles: [], memories: [], tasks: { groups: 1, open: 1 } },
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        tasks: { groups: 1, open: 1, hidden: 0 },
+      },
       now: FIXED_NOW,
     });
     expect(one).toContain("It currently has 1 open task across 1 group.");
+  });
+
+  it("mentions hidden groups so the model knows to ask for them", () => {
+    const one = buildSystemPrompt({
+      config,
+      tools: ["list_tasks"],
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        tasks: { groups: 1, open: 1, hidden: 1 },
+      },
+      now: FIXED_NOW,
+    });
+    expect(one).toContain("1 further group is hidden");
+    const many = buildSystemPrompt({
+      config,
+      tools: ["list_tasks"],
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        tasks: { groups: 1, open: 1, hidden: 3 },
+      },
+      now: FIXED_NOW,
+    });
+    expect(many).toContain("3 further groups are hidden");
   });
 
   it("carries no task layer without a project, task counts, or list_tasks", () => {
@@ -459,7 +501,12 @@ describe("buildSystemPrompt", () => {
     const withoutTool = buildSystemPrompt({
       config,
       tools: ["read_article"],
-      project: { name: "Research", articles: [], memories: [], tasks: { groups: 1, open: 1 } },
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        tasks: { groups: 1, open: 1, hidden: 0 },
+      },
       now: FIXED_NOW,
     });
     expect(withoutTool).not.toContain("task list");
@@ -1136,7 +1183,12 @@ describe("buildChildSessionPrompt", () => {
   it("tells a worker the task list exists without the upkeep line", () => {
     const prompt = buildChildSessionPrompt({
       tools: ["list_tasks"],
-      project: { name: "Research", articles: [], memories: [], tasks: { groups: 1, open: 2 } },
+      project: {
+        name: "Research",
+        articles: [],
+        memories: [],
+        tasks: { groups: 1, open: 2, hidden: 0 },
+      },
       now: FIXED_NOW,
     });
     expect(prompt).toContain("It currently has 2 open tasks across 1 group.");

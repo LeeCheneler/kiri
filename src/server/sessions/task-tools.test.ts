@@ -7,7 +7,13 @@ import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import { createProject } from "../projects/store.ts";
-import { createTask, createTaskGroup, getTask, listTaskGroups } from "../projects/tasks.ts";
+import {
+  createTask,
+  createTaskGroup,
+  getTask,
+  listTaskGroups,
+  updateTaskGroup,
+} from "../projects/tasks.ts";
 import { summariseTaskList, taskTools } from "./task-tools.ts";
 
 // Invoke a tool's execute with a minimal ToolExecutionOptions, casting away
@@ -54,9 +60,34 @@ describe("taskTools", () => {
     expect(taskTools(db, null, () => {})).toEqual({});
   });
 
-  it("summarises a project's list as group and open counts", () => {
-    expect(summariseTaskList(db, "p1")).toEqual({ groups: 2, open: 2 });
-    expect(summariseTaskList(db, "missing")).toEqual({ groups: 0, open: 0 });
+  it("summarises a project's list as visible group, open, and hidden counts", () => {
+    expect(summariseTaskList(db, "p1")).toEqual({ groups: 2, open: 2, hidden: 0 });
+    updateTaskGroup(db, "g1", { hidden: true });
+    expect(summariseTaskList(db, "p1")).toEqual({ groups: 1, open: 0, hidden: 1 });
+    expect(summariseTaskList(db, "missing")).toEqual({ groups: 0, open: 0, hidden: 0 });
+  });
+
+  it("leaves hidden groups out of list_tasks unless asked, marking them when included", async () => {
+    updateTaskGroup(db, "g2", { hidden: true });
+    const visible = (await run(tools.list_tasks, {})) as { groups: { name: string }[] };
+    expect(visible.groups.map((group) => group.name)).toEqual(["Now"]);
+    const all = (await run(tools.list_tasks, { include_hidden: true })) as {
+      groups: { name: string; hidden?: boolean }[];
+    };
+    expect(all.groups).toMatchObject([{ name: "Now" }, { name: "Later", hidden: true }]);
+  });
+
+  it("hides and unhides a group through update_task_group", async () => {
+    expect(await run(tools.update_task_group, { name: "Later", hidden: true })).toEqual({
+      group: "Later",
+      hidden: true,
+      updated: true,
+    });
+    expect(listTaskGroups(db, "p1").find((group) => group.id === "g2")?.hidden).toBe(true);
+    expect(await run(tools.update_task_group, { name: "Later", hidden: false })).toEqual({
+      group: "Later",
+      updated: true,
+    });
   });
 
   it("lists groups with tasks by id, carrying notes only when present", async () => {

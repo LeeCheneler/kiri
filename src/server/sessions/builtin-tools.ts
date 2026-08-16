@@ -118,7 +118,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   },
   {
     name: "update_task_group",
-    description: "Rename or reorder a group in the session's project task list.",
+    description: "Rename, reorder, or hide a group in the session's project task list.",
     defaultPermission: "allow",
   },
   {

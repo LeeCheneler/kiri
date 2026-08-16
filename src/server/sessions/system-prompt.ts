@@ -175,13 +175,17 @@ function buildProjectGuidance(
 // list exists; a session outside any project gets nothing.
 function buildTaskGuidance(tools: string[], project: ProjectPromptContext | null): string | null {
   if (project === null || project.tasks === undefined || !tools.includes("list_tasks")) return null;
-  const { groups, open } = project.tasks;
+  const { groups, open, hidden } = project.tasks;
   const size =
     groups === 0
       ? "It is currently empty."
       : `It currently has ${open} open task${open === 1 ? "" : "s"} across ${groups} group${groups === 1 ? "" : "s"}.`;
+  const tucked =
+    hidden > 0
+      ? ` ${hidden} further group${hidden === 1 ? " is" : "s are"} hidden — finished or parked work, left out of list_tasks unless you ask for it.`
+      : "";
   const lines = [
-    `The project keeps a task list: a checklist of tasks filed under named groups, which the user edits on the project page and you manage through the task tools. ${size} Load it with list_tasks when the user asks what's outstanding, before changing a task, or when a request may already be tracked there — the counts above are all your instructions carry.`,
+    `The project keeps a task list: a checklist of tasks filed under named groups, which the user edits on the project page and you manage through the task tools. ${size}${tucked} Load it with list_tasks when the user asks what's outstanding, before changing a task, or when a request may already be tracked there — the counts above are all your instructions carry.`,
   ];
   if (tools.includes("add_task")) {
     lines.push(

@@ -17,10 +17,10 @@ import {
   getTaskGroup,
   getTaskGroupByName,
   listTaskGroups,
-  renameTaskGroup,
   reorderTaskGroups,
   reorderTasks,
   updateTask,
+  updateTaskGroup,
 } from "./tasks.ts";
 
 describe("project tasks store", () => {
@@ -147,7 +147,8 @@ describe("project tasks store", () => {
 
     reorderTaskGroups(db, "p1", ["g3", "g1"]);
     expect(listTaskGroups(db, "p1").map((group) => group.id)).toEqual(["g3", "g1", "g2"]);
-    expect(renameTaskGroup(db, "g1", " Today ").name).toBe("Today");
+    expect(updateTaskGroup(db, "g1", { name: " Today " }).name).toBe("Today");
+    expect(updateTaskGroup(db, "g1", {}).name).toBe("Today");
   });
 
   it("deletes a task, and a group with its tasks", () => {
@@ -163,16 +164,31 @@ describe("project tasks store", () => {
     deleteTaskGroup(db, "g1");
   });
 
-  it("counts open tasks per project", () => {
+  it("counts open tasks per project, ignoring hidden groups", () => {
     createTaskGroup(db, "p1", "Now", { id: "g1" });
     createTask(db, "g1", { title: "one" }, { id: "t1" });
     createTask(db, "g1", { title: "two" }, { id: "t2" });
     updateTask(db, "t2", { done: true });
+    createTaskGroup(db, "p1", "Old", { id: "g3" });
+    createTask(db, "g3", { title: "stale" }, { id: "t3" });
+    updateTaskGroup(db, "g3", { hidden: true });
     createTaskGroup(db, "p2", "Now", { id: "g2" });
 
     const counts = countOpenTasksByProject(db);
     expect(counts.get("p1")).toBe(1);
     expect(counts.has("p2")).toBe(false);
+  });
+
+  it("hides a group and leaves it out of the visible-only listing", () => {
+    createTaskGroup(db, "p1", "Now", { id: "g1" });
+    createTaskGroup(db, "p1", "Old", { id: "g2" });
+
+    expect(updateTaskGroup(db, "g2", { hidden: true }).hidden).toBe(true);
+    expect(listTaskGroups(db, "p1").map((group) => group.id)).toEqual(["g1", "g2"]);
+    expect(listTaskGroups(db, "p1", { includeHidden: false }).map((group) => group.id)).toEqual([
+      "g1",
+    ]);
+    expect(updateTaskGroup(db, "g2", { hidden: false }).hidden).toBe(false);
   });
 
   it("is removed by the project cascade", () => {

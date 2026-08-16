@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, isNotNull, max } from "drizzle-orm";
+import { and, asc, count, eq, inArray, max } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { taskGroups, tasks } from "../db/schema.ts";
 
@@ -50,14 +50,26 @@ export function getProjectTask(db: KiriDb, projectId: string, taskId: string): T
 }
 
 /**
- * A project's whole task list: its groups in position order, each carrying
- * its tasks in position order. Two queries regardless of size.
+ * A project's task list: its groups in position order, each carrying its
+ * tasks in position order. Hidden groups are included by default — the
+ * page shows them behind a toggle — and left out with `includeHidden:
+ * false`, the view a session's tools and prompt use. Two queries regardless
+ * of size.
  */
-export function listTaskGroups(db: KiriDb, projectId: string): TaskGroupWithTasks[] {
+export function listTaskGroups(
+  db: KiriDb,
+  projectId: string,
+  opts: { includeHidden?: boolean } = {},
+): TaskGroupWithTasks[] {
+  const includeHidden = opts.includeHidden ?? true;
   const groups = db
     .select()
     .from(taskGroups)
-    .where(eq(taskGroups.projectId, projectId))
+    .where(
+      includeHidden
+        ? eq(taskGroups.projectId, projectId)
+        : and(eq(taskGroups.projectId, projectId), eq(taskGroups.hidden, false)),
+    )
     .orderBy(asc(taskGroups.position), asc(taskGroups.createdAt))
     .all();
   if (groups.length === 0) return [];
@@ -79,8 +91,9 @@ export function listTaskGroups(db: KiriDb, projectId: string): TaskGroupWithTask
 
 /**
  * Open-task counts across every project that has any, keyed by project id —
- * a project with no open tasks is simply absent. One grouped query for the
- * projects index.
+ * a project with no open tasks is simply absent. Tasks in hidden groups
+ * don't count: the index reads the same list a session's prompt does. One
+ * grouped query for the projects index.
  */
 export function countOpenTasksByProject(db: KiriDb): OpenTaskCounts {
   return new Map(
@@ -88,7 +101,7 @@ export function countOpenTasksByProject(db: KiriDb): OpenTaskCounts {
       .select({ projectId: taskGroups.projectId, count: count() })
       .from(tasks)
       .innerJoin(taskGroups, eq(tasks.groupId, taskGroups.id))
-      .where(and(eq(tasks.done, false), isNotNull(taskGroups.projectId)))
+      .where(and(eq(tasks.done, false), eq(taskGroups.hidden, false)))
       .groupBy(taskGroups.projectId)
       .all()
       .map((row) => [row.projectId, row.count]),
@@ -144,9 +157,23 @@ export function ensureTaskGroup(db: KiriDb, projectId: string, name: string): Ta
   return getTaskGroupByName(db, projectId, name.trim()) ?? createTaskGroup(db, projectId, name);
 }
 
-/** Rename a group. A display change only — nothing keys off the name. Returns the updated row. */
-export function renameTaskGroup(db: KiriDb, id: string, name: string): TaskGroup {
-  db.update(taskGroups).set({ name: name.trim() }).where(eq(taskGroups.id, id)).run();
+/**
+ * Update a group's name and/or hidden flag, leaving anything the patch omits
+ * untouched. The name is a display change only — nothing keys off it.
+ * Returns the updated row.
+ */
+export function updateTaskGroup(
+  db: KiriDb,
+  id: string,
+  patch: { name?: string; hidden?: boolean },
+): TaskGroup {
+  const changes = {
+    ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+    ...(patch.hidden !== undefined ? { hidden: patch.hidden } : {}),
+  };
+  if (Object.keys(changes).length > 0) {
+    db.update(taskGroups).set(changes).where(eq(taskGroups.id, id)).run();
+  }
   return getTaskGroup(db, id) as TaskGroup;
 }
 
