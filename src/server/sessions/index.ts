@@ -1,5 +1,10 @@
 export { articleTools } from "./article-tools.ts";
 export { BUILTIN_TOOLS, type BuiltinTool } from "./builtin-tools.ts";
+export {
+  COMMAND_GUIDANCE_PROMPT_PREFIX,
+  distillCommandGuidance,
+  readCommandGuidance,
+} from "./command-guidance.ts";
 export { type CommandJudgement, judgeCommand } from "./command-judge.ts";
 export {
   type CommandEvent,
