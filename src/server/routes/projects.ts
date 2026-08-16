@@ -14,12 +14,14 @@ import {
   listProjects,
   updateProject,
 } from "../projects/store.ts";
+import { countOpenTasksByProject } from "../projects/tasks.ts";
 import {
   getScopedMemory,
   getSessionPreviews,
   listProjectMemories,
   memoryNameSchema,
 } from "../sessions/index.ts";
+import { projectTasksRoutes } from "./project-tasks.ts";
 import { articleParamSchema, runIdParamSchema as idParamSchema, onZodFail } from "./shared.ts";
 
 const projectBodySchema = z.object({ name: z.string().trim().min(1) }).strict();
@@ -60,12 +62,14 @@ const projectSessions = (db: KiriDb, projectId: string) =>
 /**
  * HTTP surface for projects: list and create containers, read one with its
  * article and session indexes, patch its name or standing instructions, and
- * delete it — which cascades the whole container. Every mutation publishes the
+ * delete it — which cascades the whole container. Each project's task list
+ * rides along under the same prefix (see `projectTasksRoutes`). Every mutation publishes the
  * matching bus event so open views refresh.
  */
 export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
   const { db, bus } = deps;
   const app = new Hono();
+  app.route("/", projectTasksRoutes(deps));
 
   app.get("/", (c) => {
     // Corpus and session sizes, batched across the page in two grouped
@@ -88,6 +92,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
         .all()
         .map((row) => [row.projectId, row.count]),
     );
+    const openTaskCounts = countOpenTasksByProject(db);
     // The index carries the container's identity and sizes only — a project's
     // instructions can run long and belong to its own page.
     const rows = listProjects(db).map((project) => ({
@@ -96,6 +101,7 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
       createdAt: project.createdAt,
       articleCount: articleCounts.get(project.id) ?? 0,
       sessionCount: sessionCounts.get(project.id) ?? 0,
+      openTaskCount: openTaskCounts.get(project.id) ?? 0,
     }));
     return c.json({ projects: rows });
   });

@@ -17,6 +17,7 @@ const summary = (id: string, name: string, over: Record<string, unknown> = {}) =
   createdAt: "2026-08-07T10:00:00.000Z",
   articleCount: 0,
   sessionCount: 0,
+  openTaskCount: 0,
   ...over,
 });
 
@@ -43,7 +44,7 @@ const openCreateModal = async () => {
 describe("<ProjectsList>", () => {
   it("lists each project as a link with its counts", async () => {
     serveProjects([
-      summary("p1", "Research", { articleCount: 2, sessionCount: 1 }),
+      summary("p1", "Research", { articleCount: 2, sessionCount: 1, openTaskCount: 3 }),
       summary("p2", "Gardening"),
     ]);
     renderList();
@@ -52,7 +53,10 @@ describe("<ProjectsList>", () => {
     expect(link.getAttribute("href")).toBe("/projects/p1");
     expect(screen.getByText("2 articles")).toBeDefined();
     expect(screen.getByText("1 session")).toBeDefined();
+    expect(screen.getByText("3 open tasks")).toBeDefined();
     expect(screen.getByRole("link", { name: "Gardening" })).toBeDefined();
+    // A project with nothing outstanding carries no task fact at all.
+    expect(screen.queryAllByText(/open task/)).toHaveLength(1);
   });
 
   it("filters by name client-side", async () => {

@@ -7,6 +7,7 @@ import { type HostEnvironment, describeHost, detectHostEnvironment } from "./hos
 import type { MemorySummary } from "./memory-tools.ts";
 import type { SkillSummary } from "./skills.ts";
 import type { Session } from "./store.ts";
+import type { TaskListSummary } from "./task-tools.ts";
 
 /** Workspace-root file holding the user's standing instructions, applied to every session. */
 export const INSTRUCTIONS_FILENAME = "kiri.md";
@@ -125,14 +126,15 @@ function buildMemoryGuidance(
  * The project context a project session's prompt carries: the container's
  * name, its article index — each entry's slug with the body's first heading
  * (falling back to the display name), the title the map leads with — its
- * memory index, the facts only this project's sessions recall, and its
- * standing instructions when it has any.
+ * memory index, the facts only this project's sessions recall, its
+ * standing instructions when it has any, and the size of its task list.
  */
 export interface ProjectPromptContext {
   name: string;
   articles: readonly { slug: string; heading: string }[];
   memories: readonly MemorySummary[];
   instructions?: string | null;
+  tasks?: TaskListSummary;
 }
 
 // The project layer of a project session's prompt: what the shared corpus is,
@@ -160,6 +162,31 @@ function buildProjectGuidance(
   if (canWrite) {
     lines.push(
       "Write durable knowledge into the corpus: create_article for a new document, edit_article or replace_article to keep an existing one current — including articles other sessions wrote; the corpus is shared, and improving it is normal curation. Cross-reference corpus articles by writing [[slug]] in an article body or in your replies — kiri renders it as a link to that article.",
+    );
+  }
+  return lines.join("\n");
+}
+
+// The task-list layer of a project session's prompt: that the project keeps
+// a grouped checklist the user also edits, its size (counts only, over the
+// visible groups — the list itself enters the conversation solely through
+// list_tasks, and hidden groups never do), and, when the
+// write tools ride along, the discipline of keeping it current. Keyed off
+// list_tasks, so a worker whose task writes are withheld still knows the
+// list exists; a session outside any project gets nothing.
+function buildTaskGuidance(tools: string[], project: ProjectPromptContext | null): string | null {
+  if (project === null || project.tasks === undefined || !tools.includes("list_tasks")) return null;
+  const { groups, open } = project.tasks;
+  const size =
+    groups === 0
+      ? "It is currently empty."
+      : `It currently has ${open} open task${open === 1 ? "" : "s"} across ${groups} group${groups === 1 ? "" : "s"}.`;
+  const lines = [
+    `The project keeps a task list: a checklist of tasks filed under named groups, which the user edits on the project page and you manage through the task tools. ${size} Load it with list_tasks when the user asks what's outstanding, before changing a task, or when a request may already be tracked there — the counts above are all your instructions carry.`,
+  ];
+  if (tools.includes("add_task")) {
+    lines.push(
+      "Keep the list current as a matter of course: when the user asks for something to be tracked, add it with add_task; when work is finished — by them or by you — mark it done with update_task straight away; when the user reorganises out loud (rename a group, move a task), do it with the group and task tools rather than describing what they should click. Don't add tasks for work you're doing right now in the conversation unless the user asks — the list is for what outlives the chat.",
     );
   }
   return lines.join("\n");
@@ -455,6 +482,7 @@ function buildCorePrompt(
     buildDiagramGuidance(),
     buildArticleGuidance(tools),
     buildProjectGuidance(tools, project),
+    buildTaskGuidance(tools, project),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, allowedDirectories),
     buildShellGuidance(tools, allowedDirectories),
@@ -518,6 +546,7 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
     buildMemoryGuidance(tools, opts.memories ?? [], opts.project ?? null),
     buildArticleGuidance(tools),
     buildProjectGuidance(tools, opts.project ?? null),
+    buildTaskGuidance(tools, opts.project ?? null),
     buildWorkflowGuidance(tools),
     buildFilesystemGuidance(tools, opts.allowedDirectories ?? []),
     buildShellGuidance(tools, opts.allowedDirectories ?? []),

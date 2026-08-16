@@ -34,6 +34,7 @@ export {
   memoryTools,
 } from "./memory-tools.ts";
 export { projectTools } from "./project-tools.ts";
+export { type TaskListSummary, summariseTaskList, taskTools } from "./task-tools.ts";
 export {
   type Message,
   type NewMessage,

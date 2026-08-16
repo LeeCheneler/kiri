@@ -129,6 +129,8 @@ tightened or switched off:
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
 | Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
 | `update_project_instructions` | Always allow | Only runs when you ask, and shows the change as a diff. |
+| Task list / add / update, group create / update | Always allow | Only touch kiri's own data; the project page is the curation surface. |
+| Task delete, group delete | Ask | Remove tracked work. |
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `set_working_directory` | Always allow | Only moves a value confined to the sandbox. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |

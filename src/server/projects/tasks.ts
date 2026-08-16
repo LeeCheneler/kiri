@@ -1,0 +1,258 @@
+import { and, asc, count, eq, inArray, max } from "drizzle-orm";
+import type { KiriDb } from "../db/index.ts";
+import { taskGroups, tasks } from "../db/schema.ts";
+
+/** A persisted task group row. */
+export type TaskGroup = typeof taskGroups.$inferSelect;
+/** A persisted task row. */
+export type Task = typeof tasks.$inferSelect;
+
+/** One group of a project's task list with its tasks in position order. */
+export interface TaskGroupWithTasks extends TaskGroup {
+  tasks: Task[];
+}
+
+/** Open (not done) task counts per project, for listing surfaces. */
+export type OpenTaskCounts = Map<string, number>;
+
+/** Read one group by id, or `undefined` if none exists. */
+export function getTaskGroup(db: KiriDb, id: string): TaskGroup | undefined {
+  return db.select().from(taskGroups).where(eq(taskGroups.id, id)).get();
+}
+
+/** Read one group of `projectId` by name, or `undefined` if none exists. */
+export function getTaskGroupByName(
+  db: KiriDb,
+  projectId: string,
+  name: string,
+): TaskGroup | undefined {
+  return db
+    .select()
+    .from(taskGroups)
+    .where(and(eq(taskGroups.projectId, projectId), eq(taskGroups.name, name)))
+    .get();
+}
+
+/** Read one task by id, or `undefined` if none exists. */
+export function getTask(db: KiriDb, id: string): Task | undefined {
+  return db.select().from(tasks).where(eq(tasks.id, id)).get();
+}
+
+/**
+ * Read one task by id, but only when it belongs to `projectId` — the check
+ * every project-addressed surface needs so an id can't reach across projects.
+ */
+export function getProjectTask(db: KiriDb, projectId: string, taskId: string): Task | undefined {
+  const task = getTask(db, taskId);
+  if (!task) return undefined;
+  const group = getTaskGroup(db, task.groupId);
+  return group?.projectId === projectId ? task : undefined;
+}
+
+/**
+ * A project's task list: its groups in position order, each carrying its
+ * tasks in creation order. Hidden groups are included by default — the
+ * page shows them behind a toggle — and left out with `includeHidden:
+ * false`, the view a session's tools and prompt use. Two queries regardless
+ * of size.
+ */
+export function listTaskGroups(
+  db: KiriDb,
+  projectId: string,
+  opts: { includeHidden?: boolean } = {},
+): TaskGroupWithTasks[] {
+  const includeHidden = opts.includeHidden ?? true;
+  const groups = db
+    .select()
+    .from(taskGroups)
+    .where(
+      includeHidden
+        ? eq(taskGroups.projectId, projectId)
+        : and(eq(taskGroups.projectId, projectId), eq(taskGroups.hidden, false)),
+    )
+    .orderBy(asc(taskGroups.position), asc(taskGroups.createdAt))
+    .all();
+  if (groups.length === 0) return [];
+  const rows = db
+    .select()
+    .from(tasks)
+    .where(
+      inArray(
+        tasks.groupId,
+        groups.map((group) => group.id),
+      ),
+    )
+    .orderBy(asc(tasks.createdAt), asc(tasks.id))
+    .all();
+  const byGroup = new Map<string, Task[]>(groups.map((group) => [group.id, []]));
+  for (const row of rows) byGroup.get(row.groupId)?.push(row);
+  return groups.map((group) => ({ ...group, tasks: byGroup.get(group.id) ?? [] }));
+}
+
+/**
+ * Open-task counts across every project that has any, keyed by project id —
+ * a project with no open tasks is simply absent. Tasks in hidden groups
+ * don't count: the index reads the same list a session's prompt does. One
+ * grouped query for the projects index.
+ */
+export function countOpenTasksByProject(db: KiriDb): OpenTaskCounts {
+  return new Map(
+    db
+      .select({ projectId: taskGroups.projectId, count: count() })
+      .from(tasks)
+      .innerJoin(taskGroups, eq(tasks.groupId, taskGroups.id))
+      .where(and(eq(tasks.done, false), eq(taskGroups.hidden, false)))
+      .groupBy(taskGroups.projectId)
+      .all()
+      .map((row) => [row.projectId, row.count]),
+  );
+}
+
+// Next free position among a project's groups: one past the current maximum,
+// so a new group lands at the end.
+const nextGroupPosition = (db: KiriDb, projectId: string): number => {
+  const row = db
+    .select({ max: max(taskGroups.position) })
+    .from(taskGroups)
+    .where(eq(taskGroups.projectId, projectId))
+    .get();
+  return (row?.max ?? -1) + 1;
+};
+
+/**
+ * Create a group named `name` at the end of the project's list. Names are
+ * unique per project; creating a duplicate throws from the unique index.
+ * Returns the persisted row.
+ */
+export function createTaskGroup(
+  db: KiriDb,
+  projectId: string,
+  name: string,
+  opts: { id?: string; createdAt?: Date } = {},
+): TaskGroup {
+  const id = opts.id ?? crypto.randomUUID();
+  db.insert(taskGroups)
+    .values({
+      id,
+      projectId,
+      name: name.trim(),
+      position: nextGroupPosition(db, projectId),
+      createdAt: opts.createdAt ?? new Date(),
+    })
+    .run();
+  return getTaskGroup(db, id) as TaskGroup;
+}
+
+/** The group named `name` in `projectId`, created at the end of the list if absent. */
+export function ensureTaskGroup(db: KiriDb, projectId: string, name: string): TaskGroup {
+  return getTaskGroupByName(db, projectId, name.trim()) ?? createTaskGroup(db, projectId, name);
+}
+
+/**
+ * Update a group's name and/or hidden flag, leaving anything the patch omits
+ * untouched. The name is a display change only — nothing keys off it.
+ * Returns the updated row.
+ */
+export function updateTaskGroup(
+  db: KiriDb,
+  id: string,
+  patch: { name?: string; hidden?: boolean },
+): TaskGroup {
+  const changes = {
+    ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+    ...(patch.hidden !== undefined ? { hidden: patch.hidden } : {}),
+  };
+  if (Object.keys(changes).length > 0) {
+    db.update(taskGroups).set(changes).where(eq(taskGroups.id, id)).run();
+  }
+  return getTaskGroup(db, id) as TaskGroup;
+}
+
+/**
+ * Reorder a project's groups to match `orderedIds`, renumbering positions
+ * from zero. Ids missing from the list keep their relative order after the
+ * listed ones; ids that aren't the project's groups are ignored. Groups are
+ * the only manually ordered thing — tasks list by creation.
+ */
+export function reorderTaskGroups(db: KiriDb, projectId: string, orderedIds: string[]): void {
+  const current = listTaskGroups(db, projectId).map((group) => group.id);
+  const known = new Set(current);
+  const ordered = [
+    ...orderedIds.filter((id) => known.has(id)),
+    ...current.filter((id) => !orderedIds.includes(id)),
+  ];
+  db.transaction((tx) => {
+    ordered.forEach((id, position) => {
+      tx.update(taskGroups).set({ position }).where(eq(taskGroups.id, id)).run();
+    });
+  });
+}
+
+/** Permanently delete a group and every task in it. Deleting an absent group removes nothing. */
+export function deleteTaskGroup(db: KiriDb, id: string): void {
+  db.transaction((tx) => {
+    tx.delete(tasks).where(eq(tasks.groupId, id)).run();
+    tx.delete(taskGroups).where(eq(taskGroups.id, id)).run();
+  });
+}
+
+/** Create a task in `groupId`. Returns the persisted row. */
+export function createTask(
+  db: KiriDb,
+  groupId: string,
+  input: { title: string; note?: string | null },
+  opts: { id?: string; createdAt?: Date } = {},
+): Task {
+  const id = opts.id ?? crypto.randomUUID();
+  const now = opts.createdAt ?? new Date();
+  db.insert(tasks)
+    .values({
+      id,
+      groupId,
+      title: input.title.trim(),
+      note: normaliseNote(input.note),
+      done: false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  return getTask(db, id) as Task;
+}
+
+/**
+ * Update a task's title, note, completion, or group, leaving anything the
+ * patch omits untouched. `updatedAt` bumps whenever anything changes.
+ * Returns the updated row.
+ */
+export function updateTask(
+  db: KiriDb,
+  id: string,
+  patch: { title?: string; note?: string | null; done?: boolean; groupId?: string },
+): Task {
+  const changes = {
+    ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
+    ...(patch.note !== undefined ? { note: normaliseNote(patch.note) } : {}),
+    ...(patch.done !== undefined ? { done: patch.done } : {}),
+    ...(patch.groupId !== undefined ? { groupId: patch.groupId } : {}),
+  };
+  if (Object.keys(changes).length > 0) {
+    db.update(tasks)
+      .set({ ...changes, updatedAt: new Date() })
+      .where(eq(tasks.id, id))
+      .run();
+  }
+  return getTask(db, id) as Task;
+}
+
+/** Permanently delete a task. Deleting an absent task removes nothing. */
+export function deleteTask(db: KiriDb, id: string): void {
+  db.delete(tasks).where(eq(tasks.id, id)).run();
+}
+
+// A note is markdown or nothing: blank bodies are stored as null so "no note"
+// has one representation.
+function normaliseNote(note: string | null | undefined): string | null {
+  if (note === undefined || note === null) return null;
+  const trimmed = note.trim();
+  return trimmed === "" ? null : trimmed;
+}

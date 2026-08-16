@@ -34,6 +34,9 @@ function ProjectRow({ project, now }: { project: ProjectSummary; now?: Date }) {
         <Meta>
           <span>{plural(project.articleCount, "article")}</span>
           <span>{plural(project.sessionCount, "session")}</span>
+          {project.openTaskCount > 0 ? (
+            <span>{plural(project.openTaskCount, "open task")}</span>
+          ) : null}
           <span>created {formatRelativeTime(project.createdAt, now)}</span>
         </Meta>
       </div>

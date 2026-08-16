@@ -53,6 +53,9 @@ import migration0033 from "../../../drizzle/0033_scope_memories_to_projects.sql"
 import migration0034 from "../../../drizzle/0034_add_project_instructions.sql" with {
   type: "text",
 };
+import migration0035 from "../../../drizzle/0035_add_tasks.sql" with { type: "text" };
+import migration0036 from "../../../drizzle/0036_add_task_group_hidden.sql" with { type: "text" };
+import migration0037 from "../../../drizzle/0037_drop_task_position.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -118,6 +121,9 @@ const MIGRATIONS: Migration[] = [
   { name: "0032_drop_session_pinned", sql: migration0032 },
   { name: "0033_scope_memories_to_projects", sql: migration0033 },
   { name: "0034_add_project_instructions", sql: migration0034 },
+  { name: "0035_add_tasks", sql: migration0035 },
+  { name: "0036_add_task_group_hidden", sql: migration0036 },
+  { name: "0037_drop_task_position", sql: migration0037 },
 ];
 
 /**

@@ -60,7 +60,7 @@ page of its own: see [Writing workflows](/docs/workflows).
 - **[Local workflows](/docs/workflows)** — repeated chores as YAML in your
   repo, runnable as a button.
 - **[Projects](/docs/projects-and-memories)** — a home for one body of work:
-  its sessions, articles, and memories, cross-linked into a corpus.
+  its sessions, articles, memories, and task list, cross-linked into a corpus.
 - **[MCP servers](/docs/sessions)** — extend sessions with any MCP server's
   tools.
 - **[Any model](/docs/llm-providers)** — Anthropic, OpenAI, or any

@@ -60,6 +60,8 @@ import {
   screenCommand,
   shellTools,
   skillTools,
+  summariseTaskList,
+  taskTools,
   updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
@@ -439,6 +441,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       })),
       memories: listProjectMemories(db, project.id),
       instructions: project.instructions,
+      tasks: summariseTaskList(db, project.id),
     };
   };
 
@@ -456,6 +459,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...projectTools(db, getSession(db, sessionId)?.projectId ?? null, (event) =>
         bus?.publish(event),
       ),
+      ...taskTools(db, getSession(db, sessionId)?.projectId ?? null, (event) =>
+        bus?.publish(event),
+      ),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(sandbox.length > 0 ? shellTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
@@ -468,7 +474,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // writes stay with the user-facing conversation too: a worker recalls
   // memories but never rewrites the durable record, and the project's standing
   // instructions — which a worker doesn't even carry — are the user's to change
-  // through the conversation they're in.
+  // through the conversation they're in. The task list follows the same rule:
+  // a worker reads it but leaves its upkeep to the conversation.
   const childWithheld = new Set([
     "delegate",
     "create_article",
@@ -478,6 +485,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "save_memory",
     "delete_memory",
     "update_project_instructions",
+    "add_task",
+    "update_task",
+    "delete_task",
+    "create_task_group",
+    "update_task_group",
+    "delete_task_group",
   ]);
 
   // The tools a delegate-driven child turn runs with: the same catalogue
