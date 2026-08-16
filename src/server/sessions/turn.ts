@@ -11,6 +11,7 @@ import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { cullToolHistory, currentContextTokens } from "./cull-tool-results.ts";
+import { finaliseCancelledParts } from "./finalise-cancelled-parts.ts";
 import { stripImageToolResults } from "./image-tool-results.ts";
 import {
   type Message,
@@ -230,6 +231,30 @@ function applyApprovals(
   return { parts: next, applied };
 }
 
+// Persist a turn's assistant message. A continuation extends the assistant
+// message that paused for approval — update it in place with this turn's
+// footprint. Otherwise it's a new assistant message, persisted under the id the
+// stream assigned it.
+function persistAssistantMessage(
+  db: KiriDb,
+  sessionId: string,
+  id: string,
+  parts: UIMessage["parts"],
+  isContinuation: boolean,
+  contextTokens?: number,
+): void {
+  if (isContinuation) {
+    // Leave the footprint alone when this turn has none (a cancel), so the
+    // paused message keeps the one its earlier steps recorded.
+    updateMessage(db, sessionId, id, {
+      parts,
+      ...(contextTokens !== undefined ? { contextTokens } : {}),
+    });
+  } else {
+    appendMessage(db, sessionId, { role: "assistant", parts, contextTokens }, { id });
+  }
+}
+
 // Stream the model's response for an already-prepared turn (the user message
 // appended, or the pending approvals applied) and persist it on completion.
 // Shared by a fresh turn and an approval resume — the only difference is the
@@ -332,10 +357,22 @@ async function streamCore(
         const aborted = isAborted || controller.signal.aborted;
         if (aborted || streamError !== undefined) {
           const status = aborted ? "cancelled" : "failed";
+          // A cancelled turn keeps what it got through: the partial assistant
+          // message — text, finished tool calls and their results — is
+          // persisted so the next turn (and a reload) still has the work the
+          // user interrupted, rather than the model starting over blind. The
+          // parts are finalised first so every issued tool call carries a
+          // result. Token usage is skipped: the aborted stream never settles
+          // it. A failed turn persists nothing, as before.
+          const kept = aborted ? finaliseCancelledParts(responseMessage.parts) : null;
+          if (kept !== null) {
+            persistAssistantMessage(db, session.id, responseMessage.id, kept, isContinuation);
+          }
           setSessionStatus(db, session.id, status, {
             finishedAt: new Date(),
             error: streamError === undefined ? undefined : { message: errorMessage(streamError) },
           });
+          if (kept !== null) bus?.publish({ type: "session.message.added", sessionId: session.id });
           bus?.publish({ type: "session.finished", id: session.id, status });
           return;
         }
@@ -344,22 +381,14 @@ async function streamCore(
         // turn (each step re-sends the history).
         const lastStep = await result.usage;
         const contextTokens = lastStep.totalTokens;
-        // A continuation extends the assistant message that paused for approval;
-        // update it in place with this turn's footprint. Otherwise it's a new
-        // assistant message, persisted under the id the stream assigned it.
-        if (isContinuation) {
-          updateMessage(db, session.id, responseMessage.id, {
-            parts: responseMessage.parts,
-            contextTokens,
-          });
-        } else {
-          appendMessage(
-            db,
-            session.id,
-            { role: "assistant", parts: responseMessage.parts, contextTokens },
-            { id: responseMessage.id },
-          );
-        }
+        persistAssistantMessage(
+          db,
+          session.id,
+          responseMessage.id,
+          responseMessage.parts,
+          isContinuation,
+          contextTokens,
+        );
         setSessionStatus(db, session.id, "idle");
         bus?.publish({ type: "session.message.added", sessionId: session.id });
         bus?.publish({ type: "session.updated", id: session.id, status: "idle" });

@@ -1,5 +1,6 @@
 import { type DynamicToolUIPart, type FileUIPart, type ToolUIPart, getToolName } from "ai";
 import type { ReactNode } from "react";
+import { CANCELLED_ERROR_TEXT } from "../../../shared/cancelled-tool-call.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { CodeBlock } from "../../design-system/content/code.tsx";
 import { Diff, patchFromStrings } from "../../design-system/content/diff.tsx";
@@ -11,11 +12,7 @@ import { FullWidthImage } from "./image-thumb.tsx";
 /** A tool-call part of an assistant message, static or dynamic. */
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
-// Marker carried as a cancelled tool call's `errorText`. Cancelling a turn
-// stops an in-flight call mid-flight (the AI SDK has no terminal "cancelled"
-// tool state of its own), so the transcript records it as an `output-error`
-// tagged with this text and renders it as cancelled rather than failed.
-export const CANCELLED_ERROR_TEXT = "Cancelled.";
+export { CANCELLED_ERROR_TEXT };
 
 /** A user's verdict on a tool the assistant wants to run. */
 export type ToolDecision = "allow" | "always" | "deny";

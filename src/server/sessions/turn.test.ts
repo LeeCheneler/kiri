@@ -6,6 +6,7 @@ import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type UIMessage, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
+import { CANCELLED_ERROR_TEXT } from "../../shared/cancelled-tool-call.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
@@ -50,7 +51,7 @@ const recordingBus = (sink: KiriEvent[]) => ({
   subscribe: () => () => {},
 });
 
-const textParts = (parts: unknown): { type: string; text?: string }[] =>
+const textParts = (parts: unknown): { type: string; text?: string; state?: string }[] =>
   parts as { type: string; text?: string }[];
 
 // Provider-level (v3) usage carries token sub-totals; the SDK rolls these up
@@ -84,17 +85,35 @@ const capturingModel = (capture: { prompt?: unknown }): LlmModel =>
     },
   }) as unknown as LlmModel;
 
-// A model whose stream emits a little then stays open: only an abort ends it,
-// so a turn against it parks until cancelled — making cancellation deterministic.
+// A stream that emits `parts` then stays open until the turn's abort signal
+// fires — then errors like a provider's aborted fetch would. A turn against it
+// parks until cancelled, making cancellation deterministic.
+const parkedStream = (
+  parts: LanguageModelV3StreamPart[],
+  abortSignal: AbortSignal | undefined,
+): ReadableStream<LanguageModelV3StreamPart> =>
+  new ReadableStream<LanguageModelV3StreamPart>({
+    start(controller) {
+      for (const part of parts) controller.enqueue(part);
+      abortSignal?.addEventListener(
+        "abort",
+        () => controller.error(new DOMException("The operation was aborted.", "AbortError")),
+        { once: true },
+      );
+    },
+  });
+
+// A model whose stream emits a little then stays open: only an abort ends it.
 const pendingModel = (): LlmModel =>
   new MockLanguageModelV3({
-    doStream: async () => ({
-      stream: new ReadableStream<LanguageModelV3StreamPart>({
-        start(controller) {
-          controller.enqueue({ type: "text-start", id: "t1" });
-          controller.enqueue({ type: "text-delta", id: "t1", delta: "Hel" });
-        },
-      }),
+    doStream: async ({ abortSignal }) => ({
+      stream: parkedStream(
+        [
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "Hel" },
+        ],
+        abortSignal,
+      ),
     }),
   }) as unknown as LlmModel;
 
@@ -529,6 +548,9 @@ describe("runTurn", () => {
       { session, userMessage: USER_MESSAGE },
     );
     // The stream never closes on its own; the cancel aborts it, ending the turn.
+    // Let the opening delta flow through first — as it has by the time a user
+    // reaches for cancel.
+    await new Promise((resolve) => setTimeout(resolve, 20));
     cancelRegistry.requestCancel("s1");
     await response.text();
     await done;
@@ -536,7 +558,17 @@ describe("runTurn", () => {
     const settled = getSession(db, "s1");
     expect(settled?.status).toBe("cancelled");
     expect(settled?.finishedAt).toBeInstanceOf(Date);
-    expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
+    // The text streamed before the cancel is kept, so the interrupted turn is
+    // still there for the next one (and a reload) rather than vanishing.
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    expect(textParts(rows[1]?.parts)).toEqual([
+      { type: "step-start" },
+      { type: "text", text: "Hel", state: "streaming" },
+    ]);
+    // No footprint: the aborted stream never settles its usage.
+    expect(rows[1]?.contextTokens).toBeNull();
+    expect(events).toContainEqual({ type: "session.message.added", sessionId: "s1" });
     expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
   });
 
@@ -892,5 +924,182 @@ describe("runTurn", () => {
 
     const roles = (captured as { role: string }[]).map((m) => m.role);
     expect(roles).not.toContain("system");
+  });
+});
+
+describe("cancelled turns keep their progress", () => {
+  let dir: string;
+  let db: KiriDb;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-turn-cancel-"));
+    db = openDatabase(join(dir, "kiri.db"));
+    migrate(db);
+  });
+  afterEach(() => {
+    db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // A model that calls `slow` on its first step. The tool parks until the turn's
+  // abort signal fires, so a cancel lands mid-execution — the shape of stopping
+  // an assistant partway through a long command.
+  const slowCallModel = (): LlmModel =>
+    streamingModel([
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Running it now." },
+      { type: "text-end", id: "t1" },
+      { type: "tool-call", toolCallId: "c1", toolName: "slow", input: '{"value":"hi"}' },
+      { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+    ]);
+  const slowTools = {
+    slow: tool({
+      description: "Take a while.",
+      inputSchema: z.object({ value: z.string() }),
+      execute: (_input: { value: string }, { abortSignal }) =>
+        new Promise<{ echoed: string }>((_resolve, reject) => {
+          abortSignal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
+    }),
+  };
+  const slowPartOf = (row: Message | undefined): ToolPart & { errorText?: string } =>
+    (row?.parts as (ToolPart & { errorText?: string })[]).find(
+      (p) => p.type === "tool-slow",
+    ) as ToolPart & { errorText?: string };
+
+  it("persists a tool call cancelled mid-execution as a cancelled result", async () => {
+    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(slowCallModel()), cancelRegistry, tools: slowTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    // Give the loop a tick to issue the call and start the tool before cancelling.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    cancelRegistry.requestCancel("s1");
+    await response.text();
+    await done;
+
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    // The text before the call survives, and the call itself is closed out as
+    // cancelled — every issued call carries a result the model can be re-sent.
+    expect(textParts(rows[1]?.parts)).toContainEqual({
+      type: "text",
+      text: "Running it now.",
+      state: "done",
+    });
+    const part = slowPartOf(rows[1]);
+    expect(part.state).toBe("output-error");
+    expect(part.errorText).toBe(CANCELLED_ERROR_TEXT);
+  });
+
+  it("sends the interrupted work back to the model on the next turn", async () => {
+    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const first = await runTurn(
+      { db, llmClients: clientsFor(slowCallModel()), cancelRegistry, tools: slowTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    cancelRegistry.requestCancel("s1");
+    await first.response.text();
+    await first.done;
+
+    const capture: { prompt?: unknown } = {};
+    const second = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)), tools: slowTools },
+      {
+        session,
+        userMessage: { id: "u2", role: "user", parts: [{ type: "text", text: "no, stop" }] },
+      },
+    );
+    await second.response.text();
+    await second.done;
+
+    // The model sees its own partial turn — the text, the call it issued, and a
+    // result telling it the call was cancelled — then the correction. Every
+    // tool call is paired with a result, so the provider accepts the history.
+    const prompt = capture.prompt as { role: string; content: unknown[] }[];
+    expect(prompt.map((m) => m.role)).toEqual(["user", "assistant", "tool", "user"]);
+    const assistant = prompt[1]?.content as { type: string; text?: string; toolCallId?: string }[];
+    expect(assistant).toContainEqual({ type: "text", text: "Running it now." });
+    expect(assistant.some((c) => c.type === "tool-call" && c.toolCallId === "c1")).toBe(true);
+    const result = (prompt[2]?.content as { toolCallId: string; output: { value: string } }[])[0];
+    expect(result?.toolCallId).toBe("c1");
+    expect(result?.output.value).toBe(CANCELLED_ERROR_TEXT);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it("persists nothing when the cancel lands before the model produced anything", async () => {
+    // A stream that opens a text part and parks before any of it arrives:
+    // nothing worth keeping.
+    const silentModel = new MockLanguageModelV3({
+      doStream: async ({ abortSignal }) => ({
+        stream: parkedStream([{ type: "text-start", id: "t1" }], abortSignal),
+      }),
+    }) as unknown as LlmModel;
+    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(silentModel), bus: recordingBus(events), cancelRegistry },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    cancelRegistry.requestCancel("s1");
+    await response.text();
+    await done;
+
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
+    expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
+    // Only the user message's own added-event; no second one for a kept reply.
+    expect(events.filter((e) => e.type === "session.message.added")).toHaveLength(1);
+  });
+
+  it("updates the paused message in place when an approval resume is cancelled", async () => {
+    // First step: the model calls a gated `slow` tool, so the turn pauses for
+    // approval. Allowing it starts the tool; cancelling mid-run must land on
+    // the same assistant row the pause left, keeping its recorded footprint.
+    const gatedSlowTools = {
+      slow: tool({ ...slowTools.slow, needsApproval: true }),
+    };
+    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const session = createSession(db, MODEL, { id: "s1" });
+    const clients = clientsFor(slowCallModel());
+
+    const first = await runTurn(
+      { db, llmClients: clients, cancelRegistry, tools: gatedSlowTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await first.response.text();
+    await first.done;
+    const paused = getSessionMessages(db, "s1")[1];
+    expect(slowPartOf(paused).state).toBe("approval-requested");
+    expect(paused?.contextTokens).toBe(6);
+
+    const second = await resumeTurn(
+      { db, llmClients: clients, cancelRegistry, tools: gatedSlowTools },
+      { session, approvals: [{ toolCallId: "c1", approved: true }] },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    cancelRegistry.requestCancel("s1");
+    await second.response.text();
+    await second.done;
+
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    expect(rows[1]?.id).toBe(paused?.id);
+    expect(slowPartOf(rows[1]).state).toBe("output-error");
+    expect(slowPartOf(rows[1]).errorText).toBe(CANCELLED_ERROR_TEXT);
+    // The footprint the pause recorded is left alone — a cancel has none.
+    expect(rows[1]?.contextTokens).toBe(6);
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
   });
 });
