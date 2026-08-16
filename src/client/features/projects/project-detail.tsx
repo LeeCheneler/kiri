@@ -24,6 +24,7 @@ import {
   useSaveProjectInstructions,
 } from "../../state/projects.ts";
 import { NewSessionButton } from "../session-chat/new-session-button.tsx";
+import { ProjectTasks } from "./project-tasks.tsx";
 
 const BREADCRUMB = [{ label: "Projects", href: "/projects" }];
 
@@ -168,7 +169,8 @@ function EditInstructionsModal({
 
 /**
  * One project's page: the container's session and article indexes side by
- * side, its name renameable through a modal, and the whole container
+ * side, with its instructions, memories, and task list on their own tabs, its
+ * name renameable through a modal, and the whole container
  * deletable behind a confirm that spells out the cascade. A 404 renders
  * not-found — the project may have been deleted in another tab. `now` is
  * injectable so tests render deterministic relative times.
@@ -223,9 +225,10 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
     navigate("/projects");
   };
 
-  // The container's three panels. Sessions and articles stay side by side on
-  // the default tab; instructions and memories each get their own, so the
-  // instructions body renders in full rather than behind a disclosure.
+  // The container's four panels. Sessions and articles stay side by side on
+  // the default tab; instructions, memories, and tasks each get their own, so
+  // the instructions body renders in full rather than behind a disclosure and
+  // the task list only fetches once its tab is opened.
   const tabs: TabDef[] = [
     {
       id: "sessions",
@@ -348,6 +351,7 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
           </div>
         ),
     },
+    { id: "tasks", label: "Tasks", content: <ProjectTasks projectId={id} /> },
   ];
 
   return (

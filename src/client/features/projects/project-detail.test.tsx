@@ -212,6 +212,16 @@ describe("<ProjectDetail>", () => {
     expect(within(dialog).getByLabelText("Name")).toBeDefined();
   });
 
+  it("mounts the task list on its own tab", async () => {
+    serveProject(detail());
+    server.use(http.get("*/api/projects/p1/tasks", () => HttpResponse.json({ groups: [] })));
+    renderDetail();
+
+    expect(screen.queryByRole("button", { name: "+ New group" })).toBeNull();
+    await userEvent.click(await screen.findByRole("tab", { name: "Tasks" }));
+    expect(await screen.findByRole("button", { name: "+ New group" })).toBeDefined();
+  });
+
   it("shows the project's instructions on their own tab", async () => {
     serveProject(
       detail({
