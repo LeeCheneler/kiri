@@ -21,6 +21,7 @@ export type KiriEventType =
   | "project.deleted"
   | "memory.saved"
   | "memory.deleted"
+  | "task.changed"
   | "workflow.added"
   | "workflow.updated"
   | "workflow.removed"
@@ -67,6 +68,7 @@ export type KiriEvent =
   | { type: "project.deleted"; id: string }
   | { type: "memory.saved"; name: string; projectId?: string }
   | { type: "memory.deleted"; name: string; projectId?: string }
+  | { type: "task.changed"; projectId: string }
   | { type: "workflow.added"; name: string }
   | { type: "workflow.updated"; name: string }
   | { type: "workflow.removed"; name: string }
@@ -106,6 +108,7 @@ const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
   "project.deleted",
   "memory.saved",
   "memory.deleted",
+  "task.changed",
   "workflow.added",
   "workflow.updated",
   "workflow.removed",

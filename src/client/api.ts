@@ -1262,13 +1262,14 @@ export const deleteMemory = async (name: string): Promise<void> => {
   await assertOk(await apiFetch(`/api/memories/${encodeURIComponent(name)}`, { method: "DELETE" }));
 };
 
-/** One project's index entry: the container plus its corpus and session sizes. */
+/** One project's index entry: the container plus its corpus, session, and open-task sizes. */
 export interface ProjectSummary {
   id: string;
   name: string;
   createdAt: string;
   articleCount: number;
   sessionCount: number;
+  openTaskCount: number;
 }
 
 /** One of a project's sessions, as listed on its project page. */
@@ -1419,4 +1420,134 @@ export const patchProjectMemory = async (
 /** Delete a project-scoped memory permanently. Throws `ApiError` on non-2xx. */
 export const deleteProjectMemory = async (projectId: string, name: string): Promise<void> => {
   await assertOk(await apiFetch(projectMemoryPath(projectId, name), { method: "DELETE" }));
+};
+
+/** One task of a project's task list. `note` is markdown, null when absent. */
+export interface ProjectTask {
+  id: string;
+  groupId: string;
+  title: string;
+  done: boolean;
+  note: string | null;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One group of a project's task list with its tasks in order. */
+export interface ProjectTaskGroup {
+  id: string;
+  projectId: string;
+  name: string;
+  position: number;
+  createdAt: string;
+  tasks: ProjectTask[];
+}
+
+const projectTasksPath = (projectId: string, rest = "") =>
+  `/api/projects/${encodeURIComponent(projectId)}${rest}`;
+
+const jsonInit = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+/** Fetch a project's whole task list: groups in order, each with its tasks in order. Throws on non-2xx. */
+export const fetchProjectTasks = async (
+  projectId: string,
+): Promise<{ groups: ProjectTaskGroup[] }> =>
+  json<{ groups: ProjectTaskGroup[] }>(await apiFetch(projectTasksPath(projectId, "/tasks")));
+
+/** Create a task group at the end of the project's list. Throws `ApiError` on non-2xx (409 on a name clash). */
+export const createProjectTaskGroup = async (
+  projectId: string,
+  name: string,
+): Promise<{ group: Omit<ProjectTaskGroup, "tasks"> }> =>
+  json<{ group: Omit<ProjectTaskGroup, "tasks"> }>(
+    await apiFetch(projectTasksPath(projectId, "/task-groups"), jsonInit("POST", { name })),
+  );
+
+/** Rename a task group. Throws `ApiError` on non-2xx (409 on a name clash). */
+export const renameProjectTaskGroup = async (
+  projectId: string,
+  groupId: string,
+  name: string,
+): Promise<{ group: Omit<ProjectTaskGroup, "tasks"> }> =>
+  json<{ group: Omit<ProjectTaskGroup, "tasks"> }>(
+    await apiFetch(
+      projectTasksPath(projectId, `/task-groups/${encodeURIComponent(groupId)}`),
+      jsonInit("PATCH", { name }),
+    ),
+  );
+
+/** Reorder a project's task groups to `orderedIds`. Throws `ApiError` on non-2xx. */
+export const reorderProjectTaskGroups = async (
+  projectId: string,
+  orderedIds: string[],
+): Promise<void> => {
+  await assertOk(
+    await apiFetch(projectTasksPath(projectId, "/task-groups"), jsonInit("PUT", { orderedIds })),
+  );
+};
+
+/** Delete a task group and every task in it. Throws `ApiError` on non-2xx. */
+export const deleteProjectTaskGroup = async (projectId: string, groupId: string): Promise<void> => {
+  await assertOk(
+    await apiFetch(projectTasksPath(projectId, `/task-groups/${encodeURIComponent(groupId)}`), {
+      method: "DELETE",
+    }),
+  );
+};
+
+/** Create a task at the end of a group. Throws `ApiError` on non-2xx. */
+export const createProjectTask = async (
+  projectId: string,
+  groupId: string,
+  input: { title: string; note?: string | null },
+): Promise<{ task: ProjectTask }> =>
+  json<{ task: ProjectTask }>(
+    await apiFetch(
+      projectTasksPath(projectId, `/task-groups/${encodeURIComponent(groupId)}/tasks`),
+      jsonInit("POST", input),
+    ),
+  );
+
+/** Reorder a group's tasks to `orderedIds`. Throws `ApiError` on non-2xx. */
+export const reorderProjectTasks = async (
+  projectId: string,
+  groupId: string,
+  orderedIds: string[],
+): Promise<void> => {
+  await assertOk(
+    await apiFetch(
+      projectTasksPath(projectId, `/task-groups/${encodeURIComponent(groupId)}/tasks`),
+      jsonInit("PUT", { orderedIds }),
+    ),
+  );
+};
+
+/**
+ * Update a task's title, note (null clears), completion, or group. Omitted
+ * fields keep their value. Throws `ApiError` on non-2xx.
+ */
+export const patchProjectTask = async (
+  projectId: string,
+  taskId: string,
+  patch: { title?: string; note?: string | null; done?: boolean; groupId?: string },
+): Promise<{ task: ProjectTask }> =>
+  json<{ task: ProjectTask }>(
+    await apiFetch(
+      projectTasksPath(projectId, `/tasks/${encodeURIComponent(taskId)}`),
+      jsonInit("PATCH", patch),
+    ),
+  );
+
+/** Delete a task permanently. Throws `ApiError` on non-2xx. */
+export const deleteProjectTask = async (projectId: string, taskId: string): Promise<void> => {
+  await assertOk(
+    await apiFetch(projectTasksPath(projectId, `/tasks/${encodeURIComponent(taskId)}`), {
+      method: "DELETE",
+    }),
+  );
 };
