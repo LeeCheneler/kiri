@@ -24,7 +24,6 @@ const group = (id: string, name: string, titles: string[] = []) => ({
     title,
     done: false,
     note: null,
-    position: index,
     createdAt: "2026-08-16T10:00:00.000Z",
     updatedAt: "2026-08-16T10:00:00.000Z",
   })),
@@ -65,9 +64,6 @@ const MutateProbe = () => {
       </button>
       <button type="button" onClick={() => void m.updateTask("g1-0", { done: true })}>
         update task
-      </button>
-      <button type="button" onClick={() => void m.reorderTasks("g1", ["g1-0"])}>
-        reorder tasks
       </button>
       <button type="button" onClick={() => void m.deleteTask("g1-0")}>
         delete task
@@ -169,7 +165,6 @@ describe("project tasks state", () => {
       http.patch("*/api/projects/p1/task-groups/g1", record("rename-group")),
       http.delete("*/api/projects/p1/task-groups/g1", record("delete-group")),
       http.post("*/api/projects/p1/task-groups/g1/tasks", record("create-task")),
-      http.put("*/api/projects/p1/task-groups/g1/tasks", record("reorder-tasks")),
       http.patch("*/api/projects/p1/tasks/g1-0", record("update-task")),
       http.delete("*/api/projects/p1/tasks/g1-0", record("delete-task")),
     );
@@ -183,7 +178,6 @@ describe("project tasks state", () => {
       "delete group",
       "create task",
       "update task",
-      "reorder tasks",
       "delete task",
     ]) {
       await user.click(screen.getByRole("button", { name: label }));
@@ -196,9 +190,8 @@ describe("project tasks state", () => {
       "delete-group",
       "create-task",
       "update-task",
-      "reorder-tasks",
       "delete-task",
     ]);
-    expect(listFetches).toBe(9);
+    expect(listFetches).toBe(8);
   });
 });

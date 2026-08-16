@@ -14,7 +14,6 @@ import {
   getTaskGroupByName,
   listTaskGroups,
   reorderTaskGroups,
-  reorderTasks,
   updateTask,
   updateTaskGroup,
 } from "../projects/tasks.ts";
@@ -52,7 +51,7 @@ export interface ProjectTasksRoutesDeps {
  * HTTP surface for a project's task list, mounted under the projects routes:
  * read the whole list (hidden groups included — the page decides how to show
  * them), create/rename/hide/reorder/delete groups, and
- * create/edit/reorder/delete the tasks within them. Every mutation publishes
+ * create/edit/delete the tasks within them (tasks list by creation). Every mutation publishes
  * `task.changed` for the project so open views refetch the list — one event
  * for the whole surface, since the list is small and always read wholesale.
  */
@@ -151,19 +150,6 @@ export function projectTasksRoutes(deps: ProjectTasksRoutesDeps): Hono {
       const task = createTask(db, groupId, c.req.valid("json"));
       changed(id);
       return c.json({ task }, 201);
-    },
-  );
-
-  app.put(
-    "/:id/task-groups/:groupId/tasks",
-    zValidator("param", groupParamSchema, onZodFail("invalid task group id")),
-    zValidator("json", orderBodySchema, onZodFail("invalid order")),
-    (c) => {
-      const { id, groupId } = c.req.valid("param");
-      if (!projectGroup(id, groupId)) return c.json(notFound(`task group "${groupId}"`), 404);
-      reorderTasks(db, groupId, c.req.valid("json").orderedIds);
-      changed(id);
-      return c.body(null, 204);
     },
   );
 

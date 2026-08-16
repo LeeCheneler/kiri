@@ -15,7 +15,6 @@ import {
   getTaskGroupByName,
   listTaskGroups,
   reorderTaskGroups,
-  reorderTasks,
   updateTask,
   updateTaskGroup,
 } from "../projects/tasks.ts";
@@ -45,7 +44,7 @@ export function summariseTaskList(db: KiriDb, projectId: string): TaskListSummar
 const groupNameSchema = z.string().trim().min(1);
 
 // The task shape the model sees: id, title, done, and the note when there is
-// one. Positions are implied by order, timestamps are noise.
+// one. Timestamps are noise.
 const presentTask = (task: Task) => ({
   id: task.id,
   title: task.title,
@@ -53,7 +52,7 @@ const presentTask = (task: Task) => ({
   ...(task.note !== null ? { note: task.note } : {}),
 });
 
-// Move `id` to `index` within `ids`, clamping to the ends.
+// Move `id` to `index` within `ids`, clamping to the ends — group ordering.
 const moveTo = (ids: string[], id: string, index: number): string[] => {
   const rest = ids.filter((other) => other !== id);
   const at = Math.max(0, Math.min(index, rest.length));
@@ -155,7 +154,7 @@ export function taskTools(
 
     update_task: tool({
       description:
-        "Update a task: mark it done or not done, retitle it, change its note, move it to another group, or reposition it within its group. Mark a task done as soon as the user says it's finished, or when you've completed it yourself. Only the fields you pass change.",
+        "Update a task: mark it done or not done, retitle it, change its note, or move it to another group. Mark a task done as soon as the user says it's finished, or when you've completed it yourself. Only the fields you pass change.",
       inputSchema: z.object({
         id: z.string().min(1).describe("Task id from list_tasks."),
         done: z.boolean().optional().describe("Completion state."),
@@ -165,32 +164,17 @@ export function taskTools(
           .nullable()
           .optional()
           .describe("New markdown note; pass null to clear it."),
-        group: groupNameSchema
-          .optional()
-          .describe("Move to this group (created if missing); the task lands at that group's end."),
-        position: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe("Zero-based index to move the task to within its group."),
+        group: groupNameSchema.optional().describe("Move to this group (created if missing)."),
       }),
-      execute: async ({ id, done, title, note, group, position }) => {
+      execute: async ({ id, done, title, note, group }) => {
         requireTask(id);
         const targetGroup = group !== undefined ? ensureVisibleGroup(group) : undefined;
-        let task = updateTask(db, id, {
+        const task = updateTask(db, id, {
           ...(done !== undefined ? { done } : {}),
           ...(title !== undefined ? { title } : {}),
           ...(note !== undefined ? { note } : {}),
           ...(targetGroup !== undefined ? { groupId: targetGroup.id } : {}),
         });
-        if (position !== undefined) {
-          const siblings = listTaskGroups(db, projectId)
-            .find((candidate) => candidate.id === task.groupId)
-            ?.tasks.map((sibling) => sibling.id) as string[];
-          reorderTasks(db, task.groupId, moveTo(siblings, id, position));
-          task = requireTask(id);
-        }
         announce();
         return { task: presentTask(task) };
       },

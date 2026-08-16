@@ -51,7 +51,7 @@ export function getProjectTask(db: KiriDb, projectId: string, taskId: string): T
 
 /**
  * A project's task list: its groups in position order, each carrying its
- * tasks in position order. Hidden groups are included by default — the
+ * tasks in creation order. Hidden groups are included by default — the
  * page shows them behind a toggle — and left out with `includeHidden:
  * false`, the view a session's tools and prompt use. Two queries regardless
  * of size.
@@ -82,7 +82,7 @@ export function listTaskGroups(
         groups.map((group) => group.id),
       ),
     )
-    .orderBy(asc(tasks.position), asc(tasks.createdAt))
+    .orderBy(asc(tasks.createdAt), asc(tasks.id))
     .all();
   const byGroup = new Map<string, Task[]>(groups.map((group) => [group.id, []]));
   for (const row of rows) byGroup.get(row.groupId)?.push(row);
@@ -108,22 +108,13 @@ export function countOpenTasksByProject(db: KiriDb): OpenTaskCounts {
   );
 }
 
-// Next free position within a group's tasks / a project's groups: one past
-// the current maximum, so a new item lands at the end.
+// Next free position among a project's groups: one past the current maximum,
+// so a new group lands at the end.
 const nextGroupPosition = (db: KiriDb, projectId: string): number => {
   const row = db
     .select({ max: max(taskGroups.position) })
     .from(taskGroups)
     .where(eq(taskGroups.projectId, projectId))
-    .get();
-  return (row?.max ?? -1) + 1;
-};
-
-const nextTaskPosition = (db: KiriDb, groupId: string): number => {
-  const row = db
-    .select({ max: max(tasks.position) })
-    .from(tasks)
-    .where(eq(tasks.groupId, groupId))
     .get();
   return (row?.max ?? -1) + 1;
 };
@@ -180,7 +171,8 @@ export function updateTaskGroup(
 /**
  * Reorder a project's groups to match `orderedIds`, renumbering positions
  * from zero. Ids missing from the list keep their relative order after the
- * listed ones; ids that aren't the project's groups are ignored.
+ * listed ones; ids that aren't the project's groups are ignored. Groups are
+ * the only manually ordered thing — tasks list by creation.
  */
 export function reorderTaskGroups(db: KiriDb, projectId: string, orderedIds: string[]): void {
   const current = listTaskGroups(db, projectId).map((group) => group.id);
@@ -204,7 +196,7 @@ export function deleteTaskGroup(db: KiriDb, id: string): void {
   });
 }
 
-/** Create a task at the end of `groupId`. Returns the persisted row. */
+/** Create a task in `groupId`. Returns the persisted row. */
 export function createTask(
   db: KiriDb,
   groupId: string,
@@ -220,7 +212,6 @@ export function createTask(
       title: input.title.trim(),
       note: normaliseNote(input.note),
       done: false,
-      position: nextTaskPosition(db, groupId),
       createdAt: now,
       updatedAt: now,
     })
@@ -230,24 +221,19 @@ export function createTask(
 
 /**
  * Update a task's title, note, completion, or group, leaving anything the
- * patch omits untouched. Moving to another group appends the task to that
- * group's end. `updatedAt` bumps whenever anything changes. Returns the
- * updated row.
+ * patch omits untouched. `updatedAt` bumps whenever anything changes.
+ * Returns the updated row.
  */
 export function updateTask(
   db: KiriDb,
   id: string,
   patch: { title?: string; note?: string | null; done?: boolean; groupId?: string },
 ): Task {
-  const current = getTask(db, id) as Task;
-  const moving = patch.groupId !== undefined && patch.groupId !== current.groupId;
   const changes = {
     ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
     ...(patch.note !== undefined ? { note: normaliseNote(patch.note) } : {}),
     ...(patch.done !== undefined ? { done: patch.done } : {}),
-    ...(moving
-      ? { groupId: patch.groupId, position: nextTaskPosition(db, patch.groupId as string) }
-      : {}),
+    ...(patch.groupId !== undefined ? { groupId: patch.groupId } : {}),
   };
   if (Object.keys(changes).length > 0) {
     db.update(tasks)
@@ -256,31 +242,6 @@ export function updateTask(
       .run();
   }
   return getTask(db, id) as Task;
-}
-
-/**
- * Reorder a group's tasks to match `orderedIds`, renumbering positions from
- * zero. Same tolerance as group reordering: unlisted tasks trail in their
- * existing order, foreign ids are ignored.
- */
-export function reorderTasks(db: KiriDb, groupId: string, orderedIds: string[]): void {
-  const current = db
-    .select({ id: tasks.id })
-    .from(tasks)
-    .where(eq(tasks.groupId, groupId))
-    .orderBy(asc(tasks.position), asc(tasks.createdAt))
-    .all()
-    .map((row) => row.id);
-  const known = new Set(current);
-  const ordered = [
-    ...orderedIds.filter((id) => known.has(id)),
-    ...current.filter((id) => !orderedIds.includes(id)),
-  ];
-  db.transaction((tx) => {
-    ordered.forEach((id, position) => {
-      tx.update(tasks).set({ position }).where(eq(tasks.id, id)).run();
-    });
-  });
 }
 
 /** Permanently delete a task. Deleting an absent task removes nothing. */

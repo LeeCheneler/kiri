@@ -178,23 +178,6 @@ describe("project task routes", () => {
       expect(changedEvents()).toHaveLength(1);
     });
 
-    it("reorders a group's tasks", async () => {
-      const res = await app.request(
-        "/api/projects/p1/task-groups/g1/tasks",
-        json("PUT", { orderedIds: ["t2", "t1"] }),
-      );
-      expect(res.status).toBe(204);
-      expect(listTaskGroups(env.db, "p1")[0]?.tasks.map((task) => task.id)).toEqual(["t2", "t1"]);
-      expect(
-        (
-          await app.request(
-            "/api/projects/p1/task-groups/g9/tasks",
-            json("PUT", { orderedIds: [] }),
-          )
-        ).status,
-      ).toBe(404);
-    });
-
     it("patches a task's fields and moves it between groups", async () => {
       const res = await app.request(
         "/api/projects/p1/tasks/t1",

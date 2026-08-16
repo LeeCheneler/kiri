@@ -51,11 +51,6 @@ describe("taskTools", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  const order = (groupId: string) =>
-    listTaskGroups(db, "p1")
-      .find((group) => group.id === groupId)
-      ?.tasks.map((task) => task.id);
-
   it("offers no tools to a projectless session", () => {
     expect(taskTools(db, null, () => {})).toEqual({});
   });
@@ -122,7 +117,7 @@ describe("taskTools", () => {
     expect(events).toEqual([{ type: "task.changed", projectId: "p1" }]);
   });
 
-  it("updates a task's fields, moves it between groups, and repositions it", async () => {
+  it("updates a task's fields and moves it between groups", async () => {
     const done = (await run(tools.update_task, { id: "t1", done: true, note: null })) as {
       task: { done: boolean; note?: string };
     };
@@ -131,13 +126,7 @@ describe("taskTools", () => {
 
     await run(tools.update_task, { id: "t1", group: "Later", title: "renamed" });
     expect(getTask(db, "t1")).toMatchObject({ groupId: "g2", title: "renamed" });
-
-    createTask(db, "g2", { title: "tail" }, { id: "t3" });
-    await run(tools.update_task, { id: "t3", position: 0 });
-    expect(order("g2")).toEqual(["t3", "t1"]);
-    await run(tools.update_task, { id: "t3", position: 99 });
-    expect(order("g2")).toEqual(["t1", "t3"]);
-    expect(events).toHaveLength(4);
+    expect(events).toHaveLength(2);
   });
 
   it("refuses unknown and cross-project task ids", async () => {

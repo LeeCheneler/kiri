@@ -13,7 +13,6 @@ const task = (id: string, title: string, over: Record<string, unknown> = {}) => 
   title,
   done: false,
   note: null,
-  position: 0,
   createdAt: "2026-08-16T10:00:00.000Z",
   updatedAt: "2026-08-16T10:00:00.000Z",
   ...over,

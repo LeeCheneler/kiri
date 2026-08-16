@@ -12,6 +12,7 @@ import { type EventBus, type KiriEvent, createEventBus } from "../events/index.t
 import { createApp } from "../index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
+import { listTaskGroups } from "../projects/tasks.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
 import {
   type CommandJudgementEvent,
@@ -1371,6 +1372,29 @@ describe("sessions routes", () => {
       const row = env.db.select().from(projects).where(eq(projects.id, "p1")).get();
       expect(row?.instructions).toBe("Answer in British English.");
       expect(seen).toContainEqual({ type: "project.updated", id: "p1" });
+    });
+
+    it("files a task into the project's list straight through for a project session", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      const input = JSON.stringify({ group: "Now", title: "Write the docs" });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
+      const app = makeApp(fakeClients({ model: toolCallModel("add_task", input) }), { bus });
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "track writing the docs")).text();
+      await settled;
+
+      // Allow by default, so the add ran in the same turn, created the group
+      // on the fly, and was announced for the open project page.
+      const rows = getSessionMessages(env.db, "s1");
+      expect(toolPartOf(rows[1]).state).toBe("output-available");
+      const groups = listTaskGroups(env.db, "p1");
+      expect(groups.map((group) => group.name)).toEqual(["Now"]);
+      expect(groups[0]?.tasks.map((task) => task.title)).toEqual(["Write the docs"]);
+      expect(seen).toContainEqual({ type: "task.changed", projectId: "p1" });
     });
 
     it("withholds an off article tool and drops its guidance from the prompt", async () => {

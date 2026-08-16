@@ -9,7 +9,6 @@ import {
   patchProjectTask,
   patchProjectTaskGroup,
   reorderProjectTaskGroups,
-  reorderProjectTasks,
 } from "../api.ts";
 import { useLiveEvent, useLiveReconnect } from "../events/live.tsx";
 
@@ -63,7 +62,6 @@ export function useProjectTaskMutations(projectId: string): {
     taskId: string,
     patch: { title?: string; note?: string | null; done?: boolean; groupId?: string },
   ) => Promise<void>;
-  reorderTasks: (groupId: string, orderedIds: string[]) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
 } {
   const queryClient = useQueryClient();
@@ -94,10 +92,6 @@ export function useProjectTaskMutations(projectId: string): {
     },
     updateTask: async (taskId, patch) => {
       await patchProjectTask(projectId, taskId, patch);
-      settle();
-    },
-    reorderTasks: async (groupId, orderedIds) => {
-      await reorderProjectTasks(projectId, groupId, orderedIds);
       settle();
     },
     deleteTask: async (taskId) => {

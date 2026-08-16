@@ -1429,7 +1429,6 @@ export interface ProjectTask {
   title: string;
   done: boolean;
   note: string | null;
-  position: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -1501,7 +1500,7 @@ export const deleteProjectTaskGroup = async (projectId: string, groupId: string)
   );
 };
 
-/** Create a task at the end of a group. Throws `ApiError` on non-2xx. */
+/** Create a task in a group. Throws `ApiError` on non-2xx. */
 export const createProjectTask = async (
   projectId: string,
   groupId: string,
@@ -1513,20 +1512,6 @@ export const createProjectTask = async (
       jsonInit("POST", input),
     ),
   );
-
-/** Reorder a group's tasks to `orderedIds`. Throws `ApiError` on non-2xx. */
-export const reorderProjectTasks = async (
-  projectId: string,
-  groupId: string,
-  orderedIds: string[],
-): Promise<void> => {
-  await assertOk(
-    await apiFetch(
-      projectTasksPath(projectId, `/task-groups/${encodeURIComponent(groupId)}/tasks`),
-      jsonInit("PUT", { orderedIds }),
-    ),
-  );
-};
 
 /**
  * Update a task's title, note (null clears), completion, or group. Omitted

@@ -18,7 +18,6 @@ import {
   getTaskGroupByName,
   listTaskGroups,
   reorderTaskGroups,
-  reorderTasks,
   updateTask,
   updateTaskGroup,
 } from "./tasks.ts";
@@ -65,7 +64,7 @@ describe("project tasks store", () => {
     expect(listTaskGroups(db, "p1")).toHaveLength(1);
   });
 
-  it("creates tasks at the end of their group with a normalised note", () => {
+  it("creates tasks with a normalised note", () => {
     createTaskGroup(db, "p1", "Now", { id: "g1" });
     const a = createTask(db, "g1", { title: " Write docs ", note: "  " }, { id: "t1" });
     const b = createTask(db, "g1", { title: "Ship", note: " blocked on review " }, { id: "t2" });
@@ -73,16 +72,14 @@ describe("project tasks store", () => {
     expect(a.title).toBe("Write docs");
     expect(a.note).toBeNull();
     expect(a.done).toBe(false);
-    expect(a.position).toBe(0);
     expect(b.note).toBe("blocked on review");
-    expect(b.position).toBe(1);
   });
 
-  it("lists groups in position order, each with its tasks in position order", () => {
+  it("lists groups in position order, each with its tasks in creation order", () => {
     createTaskGroup(db, "p1", "Now", { id: "g1" });
     createTaskGroup(db, "p1", "Later", { id: "g2" });
-    createTask(db, "g1", { title: "one" }, { id: "t1" });
-    createTask(db, "g1", { title: "two" }, { id: "t2" });
+    createTask(db, "g1", { title: "one" }, { id: "t1", createdAt: new Date(1000) });
+    createTask(db, "g1", { title: "two" }, { id: "t2", createdAt: new Date(2000) });
     createTask(db, "g2", { title: "three" }, { id: "t3" });
     createTaskGroup(db, "p2", "Elsewhere", { id: "g9" });
 
@@ -118,26 +115,13 @@ describe("project tasks store", () => {
     expect(updateTask(db, "t1", {}).title).toBe("renamed");
   });
 
-  it("moves a task to the end of another group", () => {
+  it("moves a task to another group", () => {
     createTaskGroup(db, "p1", "Now", { id: "g1" });
     createTaskGroup(db, "p1", "Later", { id: "g2" });
     createTask(db, "g1", { title: "one" }, { id: "t1" });
-    createTask(db, "g2", { title: "two" }, { id: "t2" });
 
-    const moved = updateTask(db, "t1", { groupId: "g2" });
-    expect(moved.groupId).toBe("g2");
-    expect(moved.position).toBe(1);
-    expect(updateTask(db, "t1", { groupId: "g2" }).position).toBe(1);
-  });
-
-  it("reorders tasks within a group, tolerating partial and foreign ids", () => {
-    createTaskGroup(db, "p1", "Now", { id: "g1" });
-    createTask(db, "g1", { title: "one" }, { id: "t1" });
-    createTask(db, "g1", { title: "two" }, { id: "t2" });
-    createTask(db, "g1", { title: "three" }, { id: "t3" });
-
-    reorderTasks(db, "g1", ["t3", "bogus", "t1"]);
-    expect(listTaskGroups(db, "p1")[0]?.tasks.map((task) => task.id)).toEqual(["t3", "t1", "t2"]);
+    expect(updateTask(db, "t1", { groupId: "g2" }).groupId).toBe("g2");
+    expect(listTaskGroups(db, "p1")[1]?.tasks.map((task) => task.id)).toEqual(["t1"]);
   });
 
   it("reorders and renames groups", () => {

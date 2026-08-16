@@ -17,6 +17,8 @@ import {
   runSteps,
   runs,
   sessions,
+  taskGroups,
+  tasks,
 } from "./schema.ts";
 
 describe("db", () => {
@@ -1005,6 +1007,23 @@ describe("db", () => {
     const ref = fk.reference();
     expect(ref.columns.map((c) => c.name)).toEqual(["project_id"]);
     expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+  });
+
+  it("declares the task tables' foreign keys: group → project, task → group", () => {
+    const reference = (table: typeof taskGroups | typeof tasks) => {
+      const fks = getTableConfig(table).foreignKeys;
+      expect(fks).toHaveLength(1);
+      const fk = fks[0] as unknown as {
+        reference: () => { columns: { name: string }[]; foreignColumns: { name: string }[] };
+      };
+      return fk.reference();
+    };
+    const groupRef = reference(taskGroups);
+    expect(groupRef.columns.map((c) => c.name)).toEqual(["project_id"]);
+    expect(groupRef.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+    const taskRef = reference(tasks);
+    expect(taskRef.columns.map((c) => c.name)).toEqual(["group_id"]);
+    expect(taskRef.foreignColumns.map((c) => c.name)).toEqual(["id"]);
   });
 
   it("adds the sessions + messages tables when migrating a pre-sessions DB", () => {

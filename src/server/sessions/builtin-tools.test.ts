@@ -16,6 +16,7 @@ import { memoryTools } from "./memory-tools.ts";
 import { projectTools } from "./project-tools.ts";
 import { shellTools } from "./shell-tools.ts";
 import { skillTools } from "./skill-tools.ts";
+import { taskTools } from "./task-tools.ts";
 import { workflowTools } from "./workflow-tools.ts";
 
 // The merged-set check only reads tool names; no client method ever runs.
@@ -58,6 +59,7 @@ describe("BUILTIN_TOOLS", () => {
       ...articleTools(db, "session-1", null, () => {}),
       ...memoryTools(db, null, () => {}),
       ...projectTools(db, "project-1", () => {}),
+      ...taskTools(db, "project-1", () => {}),
       ...filesystemTools(() => [dir], { get: () => null, set: () => {} }),
       ...shellTools(() => [dir], { get: () => null, set: () => {} }),
       ...imageTools({ db, sessionId: "session-1", llmClients: stubClients }),

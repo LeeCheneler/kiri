@@ -383,8 +383,8 @@ export const taskGroups = sqliteTable(
  * One row per task: a checklist item within a group. `done` is the whole
  * status model — no assignees, priorities, or due dates. `note` is an
  * optional markdown body for context a title can't carry ("blocked on X"),
- * null when absent. `position` orders tasks within their group.
- * `updatedAt` bumps on every change, including a completion toggle.
+ * null when absent. Tasks list in creation order — there is no manual
+ * ordering. `updatedAt` bumps on every change, including a completion toggle.
  */
 export const tasks = sqliteTable(
   "tasks",
@@ -396,7 +396,6 @@ export const tasks = sqliteTable(
     title: text("title").notNull(),
     done: integer("done", { mode: "boolean" }).notNull().default(false),
     note: text("note"),
-    position: integer("position").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },

@@ -260,6 +260,13 @@
       "when": 1786912341496,
       "tag": "0036_add_task_group_hidden",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1786913568236,
+      "tag": "0037_drop_task_position",
+      "breakpoints": true
     }
   ]
 }
