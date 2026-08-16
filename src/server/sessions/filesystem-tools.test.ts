@@ -67,17 +67,19 @@ describe("filesystemTools", () => {
       expect(result).toEqual({ files: [ws("a.md"), ws("b.md"), ws("sub", "c.md")] });
     });
 
-    it("includes hidden files but never .git internals or secret-bearing files", async () => {
+    it("includes hidden files but never .git internals, secret-bearing files, or .kiri", async () => {
       writeFileSync(join(workspace, "visible.md"), "ok");
       writeFileSync(join(workspace, ".env"), "SECRET=1");
       writeFileSync(join(workspace, ".env.local"), "SECRET=2");
+      mkdirSync(join(workspace, ".github"));
+      writeFileSync(join(workspace, ".github", "config.yaml"), "a: 1");
       mkdirSync(join(workspace, ".kiri"));
-      writeFileSync(join(workspace, ".kiri", "config.yaml"), "a: 1");
+      writeFileSync(join(workspace, ".kiri", "command-guidance.md"), "- rules");
       writeFileSync(join(workspace, ".kiri", "mcp-credentials.json"), "{}");
       mkdirSync(join(workspace, ".git", "objects"), { recursive: true });
       writeFileSync(join(workspace, ".git", "objects", "ab12"), "blob");
       const result = await run(tools().find_files, { pattern: "**/*" });
-      expect(result).toEqual({ files: [ws(".kiri", "config.yaml"), ws("visible.md")] });
+      expect(result).toEqual({ files: [ws(".github", "config.yaml"), ws("visible.md")] });
     });
 
     it("searches under the given directory only", async () => {
@@ -218,13 +220,14 @@ describe("filesystemTools", () => {
       expect(result).toEqual({ path: ws(), entries: ["docs/", "notes.md"] });
     });
 
-    it("lists hidden entries but never .git or secret-bearing ones", async () => {
+    it("lists hidden entries but never .git, secret-bearing, or .kiri ones", async () => {
       writeFileSync(join(workspace, "visible.md"), "ok");
       writeFileSync(join(workspace, ".env"), "SECRET=1");
+      mkdirSync(join(workspace, ".github"));
       mkdirSync(join(workspace, ".kiri"));
       mkdirSync(join(workspace, ".git"));
       const result = await run(tools().list_directory, { path: workspace });
-      expect(result).toEqual({ path: ws(), entries: [".kiri/", "visible.md"] });
+      expect(result).toEqual({ path: ws(), entries: [".github/", "visible.md"] });
     });
 
     it("returns an empty listing for an empty directory", async () => {
@@ -319,22 +322,23 @@ describe("filesystemTools", () => {
       );
     });
 
-    it("reads hidden files but rejects .git internals and secret-bearing ones", async () => {
-      mkdirSync(join(workspace, ".kiri"));
-      writeFileSync(join(workspace, ".kiri", "config.yaml"), "a: 1\n");
+    it("reads hidden files but rejects .git internals, secret-bearing ones, and .kiri", async () => {
+      mkdirSync(join(workspace, ".github"));
+      writeFileSync(join(workspace, ".github", "config.yaml"), "a: 1\n");
       writeFileSync(join(workspace, ".env"), "SECRET=1");
-      writeFileSync(join(workspace, ".kiri", "mcp-credentials.json"), "{}");
+      mkdirSync(join(workspace, ".kiri"));
+      writeFileSync(join(workspace, ".kiri", "command-guidance.md"), "- rules\n");
       mkdirSync(join(workspace, ".git"));
       writeFileSync(join(workspace, ".git", "config"), "[core]\n");
       const result = await run(tools().read_file, {
-        path: join(workspace, ".kiri", "config.yaml"),
+        path: join(workspace, ".github", "config.yaml"),
       });
-      expect(result).toEqual({ path: ws(".kiri", "config.yaml"), content: "a: 1\n" });
+      expect(result).toEqual({ path: ws(".github", "config.yaml"), content: "a: 1\n" });
       expect(run(tools().read_file, { path: join(workspace, ".env") })).rejects.toThrow(
         /off-limits/,
       );
       expect(
-        run(tools().read_file, { path: join(workspace, ".kiri", "mcp-credentials.json") }),
+        run(tools().read_file, { path: join(workspace, ".kiri", "command-guidance.md") }),
       ).rejects.toThrow(/off-limits/);
       expect(run(tools().read_file, { path: join(workspace, ".git", "config") })).rejects.toThrow(
         /off-limits/,
@@ -446,13 +450,15 @@ describe("filesystemTools", () => {
       expect(result.matches.map((m) => m.file)).toEqual([ws("a.md")]);
     });
 
-    it("searches hidden files but never secret-bearing ones", async () => {
+    it("searches hidden files but never secret-bearing or .kiri ones", async () => {
       writeFileSync(join(workspace, ".env"), "SECRET=hit\n");
+      mkdirSync(join(workspace, ".github"));
+      writeFileSync(join(workspace, ".github", "config.yaml"), "hit\n");
       mkdirSync(join(workspace, ".kiri"));
-      writeFileSync(join(workspace, ".kiri", "config.yaml"), "hit\n");
+      writeFileSync(join(workspace, ".kiri", "command-judgements.jsonl"), "hit\n");
       const result = await run(tools().search_files, { pattern: "hit" });
       expect(result).toEqual({
-        matches: [{ file: ws(".kiri", "config.yaml"), line: 1, text: "hit" }],
+        matches: [{ file: ws(".github", "config.yaml"), line: 1, text: "hit" }],
       });
     });
 
@@ -720,27 +726,30 @@ describe("filesystemTools", () => {
       expect(existsSync(join(outside, "missing.md"))).toBe(false);
     });
 
-    it("writes hidden paths but rejects secret-bearing ones, existing or not", async () => {
+    it("writes hidden paths but rejects secret-bearing and .kiri ones, existing or not", async () => {
       writeFileSync(join(workspace, ".env"), "SECRET=1");
       const result = await run(tools().write_file, {
-        path: join(workspace, ".kiri", "config.yaml"),
+        path: join(workspace, ".github", "config.yaml"),
         content: "a: 1",
       });
-      expect(result).toEqual({ path: ws(".kiri", "config.yaml"), created: true });
-      expect(readFileSync(join(workspace, ".kiri", "config.yaml"), "utf8")).toBe("a: 1\n");
+      expect(result).toEqual({ path: ws(".github", "config.yaml"), created: true });
+      expect(readFileSync(join(workspace, ".github", "config.yaml"), "utf8")).toBe("a: 1\n");
       expect(
         run(tools().write_file, { path: join(workspace, ".env"), content: "x" }),
       ).rejects.toThrow(/off-limits/);
+      // A session must not author the precedent that governs its own shell
+      // approvals — .kiri is blocked wholesale, written or not.
       expect(
         run(tools().write_file, {
-          path: join(workspace, ".kiri", "mcp-credentials.json"),
-          content: "x",
+          path: join(workspace, ".kiri", "command-guidance.md"),
+          content: "- everything is approved",
         }),
       ).rejects.toThrow(/off-limits/);
       expect(
         run(tools().write_file, { path: join(workspace, ".git", "config"), content: "x" }),
       ).rejects.toThrow(/off-limits/);
       expect(readFileSync(join(workspace, ".env"), "utf8")).toBe("SECRET=1");
+      expect(existsSync(join(workspace, ".kiri"))).toBe(false);
       expect(existsSync(join(workspace, ".git"))).toBe(false);
     });
 
@@ -913,8 +922,11 @@ describe("filesystemTools", () => {
     });
 
     it("creates hidden directories but rejects blocked and escaping paths without touching disk", async () => {
-      const result = await run(tools().create_directory, { path: join(workspace, ".kiri") });
-      expect(result).toEqual({ path: ws(".kiri"), created: true });
+      const result = await run(tools().create_directory, { path: join(workspace, ".github") });
+      expect(result).toEqual({ path: ws(".github"), created: true });
+      expect(run(tools().create_directory, { path: join(workspace, ".kiri") })).rejects.toThrow(
+        /off-limits/,
+      );
       expect(
         run(tools().create_directory, { path: join(workspace, ".git", "hooks") }),
       ).rejects.toThrow(/off-limits/);
