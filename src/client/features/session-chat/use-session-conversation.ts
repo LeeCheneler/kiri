@@ -32,6 +32,10 @@ const totalParts = (messages: UIMessage[]): number =>
 // Rewrite any still-running tool call to a terminal cancelled state. Cancelling
 // a turn stops a call mid-flight, which otherwise leaves its part on "working"
 // in the transcript; this marks it cancelled instead. Other parts pass through.
+// The server persists the cancelled turn the same way (a call still streaming
+// its input is dropped there rather than marked — the model never finished
+// issuing it — but it stays marked here: shrinking the local transcript would
+// let the fold-in below re-expand it from the stale snapshot).
 function cancelInFlightTools(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) =>
     message.role === "assistant"
