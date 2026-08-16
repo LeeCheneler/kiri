@@ -15,6 +15,7 @@ export {
   readRecentCommandEvents,
   trimCommandLog,
 } from "./command-judgement-log.ts";
+export { type CommandLearning, createCommandLearning } from "./command-learning.ts";
 export { type CommandScreenResult, screenCommand } from "./command-screen.ts";
 export { DELEGATE_TOOL_NAME, type DelegateToolDeps, delegateTool } from "./delegate-tool.ts";
 export {
