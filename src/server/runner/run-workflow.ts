@@ -145,6 +145,19 @@ const buildEnv = (
       env[key] = value;
       continue;
     }
+    if ("env" in value) {
+      // The loader refuses a workflow whose `{ env: <NAME> }` ref names a
+      // variable unset in the kiri process, and process env doesn't change
+      // under a running server, so a miss here is an invariant violation.
+      const resolved = process.env[value.env];
+      if (resolved === undefined) {
+        throw new Error(
+          `env "${key}" references environment variable "${value.env}", which is not set in the kiri process`,
+        );
+      }
+      env[key] = resolved;
+      continue;
+    }
     if ("input" in value) {
       // The schema guarantees every `{ input: <name> }` ref points at a
       // declared input, and run-start snapshots every declared input that

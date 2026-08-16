@@ -819,6 +819,39 @@ describe("workflowSchema", () => {
     });
   });
 
+  it("parses env refs to process environment variables on steps, articles, and summarize", () => {
+    const result = workflowSchema.parse({
+      name: "env-ref",
+      steps: [{ use: "x", env: { TOKEN: { env: "MY_TOKEN" } } }],
+      articles: [{ slug: "report", sh: "echo hi", env: { TOKEN: { env: "_TOKEN2" } } }],
+      summarize: { sh: "echo done", env: { TOKEN: { env: "my_token" } } },
+    });
+    expect(result.steps[0].env).toEqual({ TOKEN: { env: "MY_TOKEN" } });
+    expect(result.articles?.[0].env).toEqual({ TOKEN: { env: "_TOKEN2" } });
+    expect(result.summarize?.env).toEqual({ TOKEN: { env: "my_token" } });
+  });
+
+  it("rejects an env ref whose name is not an environment variable name", () => {
+    for (const env of ["", "$MY_TOKEN", "1TOKEN", "MY-TOKEN", "MY TOKEN"]) {
+      expect(() =>
+        workflowSchema.parse({
+          name: "bad-env-ref",
+          steps: [{ use: "x", env: { TOKEN: { env } } }],
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("rejects an env ref combined with another ref key", () => {
+    expect(() =>
+      workflowSchema.parse({
+        name: "mixed-ref",
+        inputs: [{ name: "pr" }],
+        steps: [{ use: "x", env: { TOKEN: { env: "MY_TOKEN", input: "pr" } } }],
+      }),
+    ).toThrow();
+  });
+
   it("rejects an env input ref with an empty name", () => {
     expect(() =>
       workflowSchema.parse({

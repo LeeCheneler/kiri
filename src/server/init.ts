@@ -105,10 +105,13 @@ expanded.
 a literal string or a structured reference: \`{ input: <name> }\` to a
 declared workflow input, \`{ step: <id> }\` to an earlier step's stdout
 (give that step an \`id:\`), \`{ step: <id>, output: <name> }\` to one of
-its named outputs (see *Named outputs* below), or \`{ article: <slug> }\`
+its named outputs (see *Named outputs* below), \`{ article: <slug> }\`
 to an already-produced article — valid on \`articles:\` entries and
-\`summarize:\` only. References are validated at load time and resolved
-at spawn. Each bundle defines its own contract for the keys it
+\`summarize:\` only — or \`{ env: <NAME> }\` to a variable in the kiri
+process environment (your workspace \`.env\` or the shell kiri was
+launched from), the way to hand a step a secret without a literal in
+git-tracked YAML. References are validated at load time (an env ref
+naming an unset variable rejects the workflow) and resolved at spawn. Each bundle defines its own contract for the keys it
 expects; kiri doesn't validate values.
 
 Kiri injects its own scoped vars on every step — \`KIRI_RUN_ID\`,

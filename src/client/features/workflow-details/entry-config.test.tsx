@@ -50,17 +50,22 @@ describe("<EntryConfig>", () => {
     expect(screen.getByText("kiri")).toBeDefined();
   });
 
-  it("renders step and article env refs in their YAML form", () => {
+  it("renders step, article, and env refs in their YAML form", () => {
     render(
       <EntryConfig
         entry={{
           sh: "echo hi",
-          env: { EDITION: { step: "fetch" }, DIGEST: { article: "edition" } },
+          env: {
+            EDITION: { step: "fetch" },
+            DIGEST: { article: "edition" },
+            TOKEN: { env: "MY_TOKEN" },
+          },
         }}
       />,
     );
     expect(screen.getByText("{ step: fetch }")).toBeDefined();
     expect(screen.getByText("{ article: edition }")).toBeDefined();
+    expect(screen.getByText("{ env: MY_TOKEN }")).toBeDefined();
   });
 
   it("renders a named-output ref with its output field", () => {

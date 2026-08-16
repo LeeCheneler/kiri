@@ -493,6 +493,40 @@ describe("runWorkflow", () => {
     );
   });
 
+  it("resolves { env: <NAME> } refs from the kiri process environment at spawn", async () => {
+    writeBundle("secret", '#!/bin/sh\necho "token=$TOKEN"\n');
+    const wf: WorkflowDefinition = {
+      name: "env-ref",
+      steps: [{ use: "secret", env: { TOKEN: { env: "KIRI_TEST_RUNNER_ENV_REF" } } }],
+    };
+
+    // Test-only name; nothing else reads it, so it can stay set for the process.
+    process.env.KIRI_TEST_RUNNER_ENV_REF = "s3cret";
+    const result = await runWorkflow(db, wf, { config }).done;
+    const step = db.select().from(runSteps).where(eq(runSteps.runId, result.runId)).get();
+    expect(step?.output).toBe("token=s3cret\n");
+  });
+
+  it("fails the run when an { env: <NAME> } ref names a variable unset in the kiri process", async () => {
+    writeBundle("hello", "#!/bin/sh\necho hi\n");
+    const wf: WorkflowDefinition = {
+      name: "unset-env-ref",
+      steps: [{ use: "hello", env: { TOKEN: { env: "KIRI_TEST_RUNNER_ENV_REF_UNSET" } } }],
+    };
+
+    // The loader rejects this workflow before it can run; reaching the
+    // runner is an invariant violation we still surface clearly.
+    const { runId, done } = runWorkflow(db, wf, { config });
+    const thrown = await done.catch((e: unknown) => e);
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'env "TOKEN" references environment variable "KIRI_TEST_RUNNER_ENV_REF_UNSET", which is not set in the kiri process',
+    );
+    const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+    expect(run?.status).toBe("failed");
+  });
+
   it("publishes the run lifecycle event sequence for an ok run", async () => {
     writeBundle("a", "#!/bin/sh\necho a\n");
     writeBundle("b", "#!/bin/sh\necho b\n");

@@ -182,7 +182,7 @@ unless the step declares it.
 
 - \`env:\` is a flat map. Every value is a **string literal** or a ref:
   \`{ input: <name> }\`, \`{ step: <id> }\`, \`{ step: <id>, output: <name> }\`,
-  \`{ article: <slug> }\`.
+  \`{ article: <slug> }\`, \`{ env: <NAME> }\`.
 - **Strings only.** Quote numbers and booleans: \`MAX_TURNS: "50"\`.
 - **Keys starting with \`KIRI_\` are rejected** — reserved namespace.
 - The ref graph is validated when the file loads: unknown names, unknown ids,
@@ -191,7 +191,12 @@ unless the step declares it.
 - \`{ article: <slug> }\` is only valid on \`articles:\` entries (earlier
   siblings only) and \`summarize:\` — never on a main step.
 - **Secrets never go in the YAML as literals** (workflow files live in git).
-  Prefer CLIs with their own auth, or have the script read a mode-600 file.
+  Hand a step a secret with \`{ env: <NAME> }\` — it resolves at spawn from
+  the kiri process environment (the workspace \`.env\` or the shell kiri was
+  launched from) under the key you give it. The variable must be set when
+  the file loads, or the workflow is rejected naming it — so if the user
+  hasn't confirmed it exists, ask before writing the ref. Otherwise prefer
+  CLIs with their own auth.
 - A step's working directory is a per-run scratch dir, **not** the repo root
   — scripts resolve repo paths against \`$KIRI_REPO_ROOT\`.
 - Treat external text (PR titles, fetched pages, model output) as untrusted:

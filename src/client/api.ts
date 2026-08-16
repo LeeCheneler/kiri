@@ -5,14 +5,15 @@ import { z } from "zod";
  * One value in a step / article / summariser `env:` map. Either a literal
  * string or a structured reference the runner resolves at spawn time: a
  * declared workflow input (against the run's `inputs` snapshot), an earlier
- * step's stdout (by that step's `id`), or an article's markdown
- * (by its `slug`).
+ * step's stdout (by that step's `id`), an article's markdown
+ * (by its `slug`), or a variable in the kiri process environment (by name).
  */
 export type EnvValue =
   | string
   | { input: string }
   | { step: string; output?: string }
-  | { article: string };
+  | { article: string }
+  | { env: string };
 
 /**
  * The `llm:` block of a first-party LLM step. `model` is a `provider:model`
