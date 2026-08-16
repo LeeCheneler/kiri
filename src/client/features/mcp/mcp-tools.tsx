@@ -133,7 +133,7 @@ const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly s
   {
     title: "Shell",
     blurb:
-      "Auto judges each command as it's called: clearly safe commands run unprompted, anything else asks. It needs a utility model under models in kiri.yaml — without one, Auto falls back to Ask.",
+      "Auto judges each command as it's called: clearly safe commands run unprompted, anything else asks — and it learns from your decisions, so commands you repeatedly approve stop asking. It needs a utility model under models in kiri.yaml — without one, Auto falls back to Ask.",
     tools: ["run_command"],
   },
   {

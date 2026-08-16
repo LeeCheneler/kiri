@@ -64,7 +64,11 @@ in [Sessions](/docs/sessions). Three invariants hold throughout:
   showing the verbatim command is the real boundary. The opt-in **Auto**
   permission moves only the prompting, not the boundary: dangerous command
   shapes always ask — no model can override that — and everything else is
-  judged fail-closed, so Auto's worst case is exactly Ask.
+  judged fail-closed, so Auto's worst case is exactly Ask. The precedent
+  Auto learns from your decisions lives under `.kiri/`, written only by kiri
+  from your own approvals and denials — session tools can't reach it and a
+  shell write into it always asks, so a session can never author its own
+  approval rules.
 - **Delegated workers can't exceed the chat.** A worker session runs
   unattended, so it only holds tools already set to Always allow — one that
   would ask first isn't offered to it at all — and a worker can't spawn
