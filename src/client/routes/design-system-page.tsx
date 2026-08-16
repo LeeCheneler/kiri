@@ -11,6 +11,7 @@ import { Textarea } from "../design-system/actions/textarea.tsx";
 import { ToggleChip } from "../design-system/actions/toggle-chip.tsx";
 import { Meter } from "../design-system/charts/meter.tsx";
 import { Sparkline, type SparklineBar } from "../design-system/charts/sparkline.tsx";
+import { Clamp } from "../design-system/content/clamp.tsx";
 import { Code, CodeBlock } from "../design-system/content/code.tsx";
 import { Diff } from "../design-system/content/diff.tsx";
 import { Disclosure } from "../design-system/content/disclosure.tsx";
@@ -1234,6 +1235,39 @@ export function DesignSystemContent() {
                   >
                     <CodeBlock>{'echo "rendering $TITLE"\nkiri render --draft'}</CodeBlock>
                   </Disclosure>
+                </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Clamp</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Clamp</span> · design-system/content/clamp.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A block of text held to a few lines until the reader asks for the rest. Use it where
+                a run of secondary text (a note, a description, a long summary) sits inside a list
+                and mustn't push its neighbours off the screen. Pass <Code>lines</Code> for the
+                budget (default 3); content that fits shows nothing extra, content that overflows is
+                cut at the last visible line with a <em>show more</em> action beneath, swapping for{" "}
+                <em>show less</em> once expanded. Overflow is measured, not guessed, so the action
+                never appears on text that already fits. Reach for Disclosure instead when the whole
+                block should start hidden.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="max-w-md">
+                  <Clamp lines={2}>
+                    <p className="font-mono text-xs text-ink-muted">
+                      Blocked on the design review — the copy in the header still says "agent" in
+                      two places, and the review notes ask for the tri-state permission wording to
+                      match the docs. Once that lands, rebase, re-run the visual checks against the
+                      mock workspace, and re-request review from the same two people.
+                    </p>
+                  </Clamp>
                 </div>
               </Card>
             </div>
