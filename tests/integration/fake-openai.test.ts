@@ -84,6 +84,22 @@ describe("fake openai stub handler", () => {
     expect(json.choices[0].message.content).toBe("ENDING: none");
   });
 
+  it("tidies a draft by upper-casing it under the decisions-then-message shape", async () => {
+    const res = await fakeOpenAiFetch(
+      post({
+        messages: [
+          {
+            role: "user",
+            content: "Tidy the draft message below…\n\nDraft message:\nso um postgres",
+          },
+        ],
+      }),
+    );
+    const json = (await res.json()) as { choices: { message: { content: string } }[] };
+
+    expect(json.choices[0].message.content).toBe("DECISIONS:\n- stub\nMESSAGE:\nSO UM POSTGRES");
+  });
+
   it("aborting a streamed turn closes it before the final sentinel", async () => {
     const ac = new AbortController();
     const res = await fakeOpenAiFetch(

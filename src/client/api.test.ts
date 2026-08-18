@@ -11,6 +11,7 @@ import {
   fetchRunsPage,
   fetchWorkflows,
   rerunRun,
+  tidyDraft,
   triggerRun,
   truncateSessionMessages,
 } from "./api.ts";
@@ -422,6 +423,38 @@ describe("api client", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0].contentType).toBe("application/json");
     expect(JSON.parse(seen[0].body)).toEqual({ inputs: { pr_number: "42" } });
+  });
+
+  it("posts the draft to the tidy endpoint and returns the rewritten text", async () => {
+    let seen: unknown;
+    server.use(
+      http.post("*/api/tidy", async ({ request }) => {
+        seen = await request.json();
+        return HttpResponse.json({ text: "I think we should use Postgres." });
+      }),
+    );
+
+    const text = await tidyDraft("so um postgres");
+
+    expect(seen).toEqual({ text: "so um postgres" });
+    expect(text).toBe("I think we should use Postgres.");
+  });
+
+  it("throws an ApiError carrying 400 when no utility model is configured", async () => {
+    server.use(
+      http.post("*/api/tidy", () =>
+        HttpResponse.json({ error: "no utility model configured" }, { status: 400 }),
+      ),
+    );
+
+    try {
+      await tidyDraft("anything");
+      throw new Error("expected tidyDraft to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(400);
+      expect((err as ApiError).message).toBe("no utility model configured");
+    }
   });
 
   it("throws an ApiError carrying 409 when the recommendation has already been actioned", async () => {

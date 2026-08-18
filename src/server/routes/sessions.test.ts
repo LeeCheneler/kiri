@@ -236,6 +236,73 @@ describe("sessions routes", () => {
         shortcuts,
       );
     });
+
+    it("carries the configured utility model alongside the listing", async () => {
+      const app = makeApp(fakeClients(), {
+        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
+      });
+
+      const res = await app.request("/api/models");
+
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { utility?: string }).utility).toBe("local:tiny");
+    });
+  });
+
+  describe("POST /api/tidy", () => {
+    const UTILITY = "local:tiny";
+    const withUtility = () => ({ shortcuts: {}, delegates: {}, utility: UTILITY });
+
+    // Clients whose generateText answers with a fixed rewrite, recording each
+    // call so a guard case can assert nothing was generated.
+    const tidyingClients = () => {
+      const calls: { model: string; prompt: string }[] = [];
+      const clients = fakeClients();
+      clients.generateText = async ({ model, prompt }) => {
+        calls.push({ model, prompt });
+        return { text: "I think we should use Postgres.", usage: {} };
+      };
+      return { clients, calls };
+    };
+
+    const postTidy = (app: ReturnType<typeof createApp>, body: unknown) =>
+      app.request("/api/tidy", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    it("rewrites the draft with the utility model", async () => {
+      const { clients, calls } = tidyingClients();
+      const app = makeApp(clients, { getModelsConfig: withUtility });
+
+      const res = await postTidy(app, { text: "so um i think we should uh use postgres" });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ text: "I think we should use Postgres." });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.model).toBe(UTILITY);
+      expect(calls[0]?.prompt).toContain("so um i think we should uh use postgres");
+    });
+
+    it("400s without generating when no utility model is configured", async () => {
+      const { clients, calls } = tidyingClients();
+      const app = makeApp(clients);
+
+      const res = await postTidy(app, { text: "anything" });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "no utility model configured" });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("400s on an empty draft", async () => {
+      const app = makeApp(tidyingClients().clients, { getModelsConfig: withUtility });
+
+      const res = await postTidy(app, { text: "" });
+
+      expect(res.status).toBe(400);
+    });
   });
 
   describe("POST /api/sessions", () => {

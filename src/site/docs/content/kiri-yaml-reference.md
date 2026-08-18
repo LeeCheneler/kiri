@@ -59,7 +59,7 @@ resolved at use.
 | `delegates.quick` | Worker model for mechanical, fully-specified tasks. |
 | `delegates.daily` | Worker model for ordinary work — the default role. |
 | `delegates.deep` | Worker model for work that hinges on reasoning depth. |
-| `utility` | The model kiri itself uses for small internal generations — session titles, Auto shell judgement and its learned precedent, suggested replies. |
+| `utility` | The model kiri itself uses for small internal generations — session titles, Auto shell judgement and its learned precedent, suggested replies, tidying a draft. |
 
 ## `mcp:`
 

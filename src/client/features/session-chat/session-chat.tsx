@@ -21,8 +21,10 @@ import { MessageComposer } from "./message-composer.tsx";
 import { modelLabel } from "./model-options.ts";
 import { useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
+import { TidyDraft } from "./tidy-draft.tsx";
 import { useSessionConversation } from "./use-session-conversation.ts";
 import { useSuggestedReplies } from "./use-suggested-replies.ts";
+import { useTidyDraft } from "./use-tidy-draft.ts";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
 // out so a turn that failed while this view was away still surfaces its error on
@@ -175,6 +177,7 @@ function ChatView({
     awaitingApproval,
   });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
+  const tidyState = useTidyDraft({ value: draft, onChange: setDraft });
   const inputId = useId();
 
   // A failure to surface at the transcript foot: this view's own turn errored,
@@ -376,19 +379,39 @@ function ChatView({
             clearing any staged images (the draft text is per-session already).
             Enter-only submit — the key instructions ride in the placeholder,
             visible exactly when there's nothing typed to send. */}
-        <MessageComposer
-          key={session.id}
-          id={inputId}
-          label="Message"
-          labelHidden
-          value={draft}
-          onChange={setDraft}
-          placeholder="Send a message… enter to send · shift+enter for newline"
-          busy={busy || awaitingApproval}
-          acceptsImages={acceptsImages}
-          controls={<SessionModelControls id={session.id} />}
-          onSubmit={handleSend}
-        />
+        {/* The tidy shortcut listens on a wrapper rather than the composer's
+            own key handling, so the composer primitive stays unaware of it. */}
+        <div
+          onKeyDown={(event) => {
+            if (
+              (event.metaKey || event.ctrlKey) &&
+              event.shiftKey &&
+              event.key.toLowerCase() === "f"
+            ) {
+              event.preventDefault();
+              tidyState.tidy();
+            }
+          }}
+        >
+          <MessageComposer
+            key={session.id}
+            id={inputId}
+            label="Message"
+            labelHidden
+            value={draft}
+            onChange={setDraft}
+            placeholder="Send a message… enter to send · shift+enter for newline"
+            busy={busy || awaitingApproval}
+            acceptsImages={acceptsImages}
+            controls={
+              <>
+                <TidyDraft state={tidyState} empty={draft.trim() === ""} />
+                <SessionModelControls id={session.id} />
+              </>
+            }
+            onSubmit={handleSend}
+          />
+        </div>
         {/* A quiet readout of what the next turn runs with, labelled the way
             the picker labels it — the shortcut's name when one points at the
             session's model. */}

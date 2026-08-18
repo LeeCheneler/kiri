@@ -231,6 +231,13 @@ const SUGGESTED_REPLIES_PROMPT_PREFIX = "Suggest tap-to-send replies";
 /** Marker a test embeds in a message to make the stub suggest replies for it. */
 export const SUGGESTED_REPLIES_MARKER = "[chips]";
 
+// Kiri's draft-tidy generation opens its prompt with this phrase. The stub
+// answers in the generation's decisions-then-message shape, with the draft's
+// own text upper-cased as the message, so a test can tell a tidied draft from
+// the original without depending on any real rewrite.
+const TIDY_DRAFT_PROMPT_PREFIX = "Tidy the draft message";
+const TIDY_DRAFT_MARKER = "\nDraft message:\n";
+
 // Kiri's shell-guidance distiller opens its prompt with this phrase. The stub
 // abstains so e2e runs never write stub prose into .kiri/command-guidance.md.
 const COMMAND_GUIDANCE_PROMPT_PREFIX = "Distill shell-command approval guidance";
@@ -292,6 +299,10 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
         : "ENDING: none";
     }
     if (userText.startsWith(COMMAND_GUIDANCE_PROMPT_PREFIX)) reply = "NONE";
+    if (userText.startsWith(TIDY_DRAFT_PROMPT_PREFIX)) {
+      const draft = userText.slice(userText.indexOf(TIDY_DRAFT_MARKER) + TIDY_DRAFT_MARKER.length);
+      reply = `DECISIONS:\n- stub\nMESSAGE:\n${draft.toUpperCase()}`;
+    }
 
     if (model === "boom") return errorResponse();
 
