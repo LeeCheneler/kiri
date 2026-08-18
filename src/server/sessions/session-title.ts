@@ -1,7 +1,10 @@
 import type { KiriDb } from "../db/index.ts";
 import type { KiriEvent, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
+import { createLogger } from "../log.ts";
 import { getSession, updateSessionTitle } from "./store.ts";
+
+const log = createLogger("sessions");
 
 /** Length cap for a session title; shared by title generation and the PATCH route. */
 export const SESSION_TITLE_MAX_LENGTH = 120;
@@ -59,6 +62,6 @@ export async function generateSessionTitle(opts: {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`session ${sessionId}: title generation failed: ${message}`);
+    log.warn(`session ${sessionId}: title generation failed: ${message}`);
   }
 }

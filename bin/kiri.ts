@@ -1,22 +1,26 @@
 #!/usr/bin/env bun
+import { relative } from "node:path";
 import { createMCPClient } from "@ai-sdk/mcp";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { DEFAULT_PORT, resolveConfigDir, resolvePort } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
-import {
-  type ConfigCheckLevel,
-  type ConfigHealth,
-  evaluateConfigHealth,
-} from "../src/server/config/health.ts";
+import { evaluateConfigHealth } from "../src/server/config/health.ts";
 import { loadKiriConfig } from "../src/server/config/loader.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { watchKiriConfig } from "../src/server/config/watcher.ts";
 import { createEventBus } from "../src/server/events/index.ts";
 import { createApp } from "../src/server/index.ts";
 import { initRepo } from "../src/server/init.ts";
+import {
+  displayPath,
+  renderHeader,
+  renderHealth,
+  renderReady,
+} from "../src/server/launch-screen.ts";
 import { startServer } from "../src/server/listen.ts";
 import { createLlmClients, createLlmProviderRegistry } from "../src/server/llm/index.ts";
+import { createLogger, printRows } from "../src/server/log.ts";
 import { type CreateMcpClient, connectMcpServer } from "../src/server/mcp/connect.ts";
 import { createMcpCredentialStore } from "../src/server/mcp/oauth-store.ts";
 import { createMcpRegistry } from "../src/server/mcp/registry.ts";
@@ -46,6 +50,8 @@ Environment:
   KIRI_PORT        Port to serve on instead of 4242. The hosted shell at
                    local.kiri.build only reaches the default port — on any
                    other, open http://localhost:<port> directly.
+  NO_COLOR         Disable coloured console output. FORCE_COLOR enables it
+                   when stdout is not a terminal.
 `;
 
 const INIT_HELP = `Usage: kiri init
@@ -62,22 +68,6 @@ Existing files are never overwritten; only missing files are created.
 The schema files are always (re)written from the live Zod schemas, so a
 plain \`kiri\` launch also keeps them in sync after a binary upgrade.
 `;
-
-// Boot-time console stream per severity, so errors land on stderr.
-const HEALTH_STREAM: Record<ConfigCheckLevel, (line: string) => void> = {
-  ok: console.log,
-  degraded: console.warn,
-  error: console.error,
-};
-
-/** Print the configuration-health report at boot, one aligned line per check. */
-function printConfigHealth(health: ConfigHealth): void {
-  if (health.checks.length === 0) return;
-  console.log("Config health:");
-  for (const check of health.checks) {
-    HEALTH_STREAM[check.level](`  ${check.level.padEnd(8)} ${check.title} — ${check.detail}`);
-  }
-}
 
 const args = process.argv.slice(2);
 const config = createConfigStore(resolveConfigDir(process.env, process.cwd()));
@@ -129,10 +119,9 @@ if (args.length > 0) {
 // Load the workspace's own .env before anything reads process.env, so a
 // workspace pinned via KIRI_CONFIG_DIR resolves its `{ env: }` refs from there
 // rather than from the directory kiri happened to be launched from.
+printRows(renderHeader(VERSION));
+const log = { mcp: createLogger("mcp"), workflows: createLogger("workflows") };
 const loadedEnv = loadWorkspaceEnv(config);
-if (loadedEnv.length > 0) {
-  console.log(`Loaded ${loadedEnv.length} variable(s) from ${config.envFile()}`);
-}
 
 const db = bootstrap(config);
 const registry = createRegistry();
@@ -174,21 +163,19 @@ const mcpRegistry = createMcpRegistry(
 );
 await mcpRegistry.replace(kiriConfig.mcp, process.env);
 const mcpStatuses = mcpRegistry.status();
-if (mcpStatuses.length > 0) {
-  const connected = mcpStatuses.filter((s) => s.state === "connected").length;
-  console.log(`mcp: connected ${connected}/${mcpStatuses.length} server(s)`);
-  for (const status of mcpStatuses) {
-    if (status.state === "failed") {
-      console.error(`mcp: ${status.name} failed to connect: ${status.error}`);
-    } else if (status.state === "needs-sign-in") {
-      console.warn(`mcp: ${status.name} needs sign-in — connect it from the app`);
-    }
+const mcpConnected = mcpStatuses.filter((s) => s.state === "connected").length;
+for (const status of mcpStatuses) {
+  if (status.state === "failed") {
+    log.mcp.error(`${status.name} failed to connect: ${status.error}`);
+  } else if (status.state === "needs-sign-in") {
+    log.mcp.warn(`${status.name} needs sign-in — connect it from the app`);
   }
 }
 
 // Surface configuration health at boot — warn-and-continue, never blocking the
 // server from starting. The same report is served at GET /api/config/health.
-printConfigHealth(evaluateConfigHealth({ kiriConfig, env: process.env }));
+const health = evaluateConfigHealth({ kiriConfig, env: process.env });
+printRows(renderHealth(health));
 // Provider names come live off the registry so a kiri.yaml reload re-validates
 // workflows against the new set (see the config watcher below).
 const getProviderNames = () => new Set(llmRegistry.listProviders().map((p) => p.name));
@@ -197,7 +184,7 @@ const llmClients = createLlmClients(llmRegistry, process.env);
 const initial = await loadWorkflows(config, getProviderNames());
 registry.replace(initial.workflows, initial.sources);
 for (const failure of initial.failures) {
-  console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
+  log.workflows.error(`failed to load ${failure.path}: ${failure.reason}`);
 }
 
 const watcher = watchWorkflows(config, registry, initial, { bus, getProviderNames });
@@ -224,8 +211,17 @@ const app = createApp({
 });
 const port = resolvePort(process.env);
 const server = startServer({ app, port });
-console.log(
-  port === DEFAULT_PORT ? "Visit https://local.kiri.build" : `Visit http://localhost:${port}`,
+printRows(
+  renderReady({
+    workspace: displayPath(config.cwd()),
+    url: port === DEFAULT_PORT ? "https://local.kiri.build" : `http://localhost:${port}`,
+    envLoaded: loadedEnv.length,
+    envFile: relative(config.cwd(), config.envFile()),
+    providers: llmRegistry.listProviders().map((p) => p.name),
+    mcp: { connected: mcpConnected, total: mcpStatuses.length },
+    workflows: registry.listWorkflows().length,
+    health,
+  }),
 );
 
 const shutdown = async () => {

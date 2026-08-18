@@ -2,9 +2,12 @@ import { type FSWatcher, watch } from "node:fs";
 import { basename } from "node:path";
 import type { EventBus } from "../events/index.ts";
 import type { LlmProviderRegistry } from "../llm/index.ts";
+import { createLogger } from "../log.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { loadKiriConfig } from "./loader.ts";
 import type { ConfigStore } from "./store.ts";
+
+const log = createLogger("config");
 
 export interface WatchConfigOptions {
   debounceMs?: number;
@@ -59,16 +62,16 @@ export function watchKiriConfig(
   const reload = async () => {
     timer = null;
     const result = loadKiriConfig(config, env);
-    if (result.warning) console.warn(`kiri.yaml: ${result.warning}`);
+    if (result.warning) log.warn(`kiri.yaml: ${result.warning}`);
     if (result.failure) {
       // Keep the last-known-good registries on an invalid edit; just surface why.
-      console.error(`kiri.yaml: failed to load ${result.failure.path}: ${result.failure.reason}`);
+      log.error(`kiri.yaml: failed to load ${result.failure.path}: ${result.failure.reason}`);
     } else {
       registry.replace(result.providers);
-      console.log(`kiri.yaml: reloaded ${result.providers.size} provider(s)`);
+      log.info(`kiri.yaml: reloaded ${result.providers.size} provider(s)`);
       if (mcpRegistry) {
         await mcpRegistry.replace(result.mcp, env);
-        console.log(`kiri.yaml: reloaded ${result.mcp.size} mcp server(s)`);
+        log.info(`kiri.yaml: reloaded ${result.mcp.size} mcp server(s)`);
       }
       onReload?.();
     }
@@ -90,7 +93,7 @@ export function watchKiriConfig(
   });
 
   fsWatcher.on("error", (cause) => {
-    console.error(
+    log.error(
       `kiri.yaml: watcher error: ${cause instanceof Error ? cause.message : String(cause)}`,
     );
     schedule();

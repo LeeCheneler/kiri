@@ -9,6 +9,7 @@ import type { KiriDb } from "./db/index.ts";
 import { EMBEDDED_FILES } from "./embedded-assets.ts";
 import { type EventBus, mountEventsRoute, mountRecommendationReflector } from "./events/index.ts";
 import type { LlmClients } from "./llm/index.ts";
+import { createLogger } from "./log.ts";
 import type { McpCredentialStore } from "./mcp/oauth-store.ts";
 import type { McpRegistry } from "./mcp/registry.ts";
 import { activityRoutes } from "./routes/activity.ts";
@@ -29,6 +30,8 @@ import {
   createToolPermissionStore,
 } from "./sessions/index.ts";
 import type { Registry } from "./workflows/index.ts";
+
+const log = createLogger("http");
 
 /**
  * Dependencies the HTTP API needs to do real work: the state DB, the live
@@ -231,7 +234,7 @@ export function createApp(deps: AppDeps): Hono {
     if (err instanceof HTTPException) {
       return c.json({ error: err.message }, err.status);
     }
-    console.error(err);
+    log.error("unhandled request error", err);
     return c.json({ error: "internal server error" }, 500);
   });
 

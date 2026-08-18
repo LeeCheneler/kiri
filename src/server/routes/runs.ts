@@ -10,6 +10,7 @@ import type { KiriDb } from "../db/index.ts";
 import { articles, recommendations, runSteps, runs } from "../db/schema.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
+import { createLogger } from "../log.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow, wipeRunForRerun } from "../runner/index.ts";
 import { type Registry, buildInputSchema } from "../workflows/index.ts";
@@ -20,6 +21,8 @@ import {
   runIdParamSchema,
   zodErrorBody,
 } from "./shared.ts";
+
+const log = createLogger("runs");
 
 export interface RunsRoutesDeps {
   db: KiriDb;
@@ -326,7 +329,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         llmClients,
       });
       done.catch((cause) => {
-        console.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);
+        log.error(`run ${id} crashed: ${cause instanceof Error ? cause.message : cause}`);
       });
       return c.json({ runId: id, status: "running" }, 202);
     },
@@ -369,7 +372,7 @@ export function runsRoutes(deps: RunsRoutesDeps): Hono {
         llmClients,
       });
       done.catch((cause) => {
-        console.error(
+        log.error(
           `run ${actionedRunId} crashed: ${cause instanceof Error ? cause.message : cause}`,
         );
       });

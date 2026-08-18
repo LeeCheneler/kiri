@@ -133,7 +133,9 @@ describe("distillCommandGuidance", () => {
         events,
       });
       expect(result).toBeNull();
-      expect(warn).toHaveBeenCalledWith("command guidance distillation failed: provider down");
+      expect(warn.mock.calls[0]?.[0]).toContain(
+        "command guidance distillation failed: provider down",
+      );
     } finally {
       warn.mockRestore();
     }

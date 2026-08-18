@@ -2,6 +2,9 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import { recommendations } from "../db/schema.ts";
+import { createLogger } from "../log.ts";
+
+const log = createLogger("runs");
 
 /**
  * Per-line shape of the recommendations file a main step writes. Each
@@ -141,15 +144,13 @@ export function ingestStepRecommendations(
       parsed = JSON.parse(line);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      console.warn(`run ${runId}: skipping malformed recommendation line: ${message}`);
+      log.warn(`run ${runId}: skipping malformed recommendation line: ${message}`);
       continue;
     }
 
     const check = recommendationLineSchema.safeParse(parsed);
     if (!check.success) {
-      console.warn(
-        `run ${runId}: skipping recommendation line failing schema: ${check.error.message}`,
-      );
+      log.warn(`run ${runId}: skipping recommendation line failing schema: ${check.error.message}`);
       continue;
     }
 
