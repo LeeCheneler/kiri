@@ -636,6 +636,8 @@ export interface ModelsResult {
   models: ModelInfo[];
   failures: ModelsFailure[];
   shortcuts?: ModelShortcutsConfig;
+  /** The configured utility model, `provider:model`; absent when none is set. */
+  utility?: string;
 }
 
 /** Fetch the models every configured provider offers. Throws on non-2xx. */
@@ -1003,6 +1005,15 @@ export const fetchSuggestedReplies = async (id: string): Promise<string[]> =>
       await apiFetch(`/api/sessions/${encodeURIComponent(id)}/suggested-replies`),
     )
   ).replies;
+
+/**
+ * Rewrite a composer draft as the clean message its writer meant — errors,
+ * filler, and mid-flow corrections resolved — against the workspace's utility
+ * model. Throws `ApiError` on non-2xx, notably 400 when no utility model is
+ * configured.
+ */
+export const tidyDraft = async (text: string): Promise<string> =>
+  (await json<{ text: string }>(await apiFetch("/api/tidy", jsonInit("POST", { text })))).text;
 
 /**
  * Create a session against `model` (a `provider:model` id), returning the new
