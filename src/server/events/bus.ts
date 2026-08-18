@@ -1,3 +1,6 @@
+import { createLogger } from "../log.ts";
+
+const log = createLogger("events");
 /**
  * Discriminated union of every event the in-process bus carries. Consumers
  * narrow on `type` to get a typed payload. Payloads stay thin — an ID plus,
@@ -71,8 +74,8 @@ export function createEventBus(): EventBus {
         try {
           listener(event);
         } catch (cause) {
-          console.error(
-            `events: listener threw on ${event.type}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          log.error(
+            `listener threw on ${event.type}: ${cause instanceof Error ? cause.message : String(cause)}`,
           );
         }
       }

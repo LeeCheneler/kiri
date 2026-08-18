@@ -1,5 +1,8 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
+import { createLogger } from "../log.ts";
+
+const log = createLogger("runs");
 
 // Grammar for a named output, matching the step-id grammar so the two
 // reference namespaces read alike in workflow YAML.
@@ -87,18 +90,18 @@ export function ingestStepOutputs(
         parsed = JSON.parse(line);
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
-        console.warn(`run ${runId}: skipping malformed output line: ${message}`);
+        log.warn(`run ${runId}: skipping malformed output line: ${message}`);
         continue;
       }
 
       const check = outputLineSchema.safeParse(parsed);
       if (!check.success) {
-        console.warn(`run ${runId}: skipping output line failing schema: ${check.error.message}`);
+        log.warn(`run ${runId}: skipping output line failing schema: ${check.error.message}`);
         continue;
       }
 
       if (!declaredSet.has(check.data.name)) {
-        console.warn(
+        log.warn(
           `run ${runId}: skipping undeclared output "${check.data.name}" — declare it in the step's outputs: to keep it`,
         );
         continue;

@@ -8,7 +8,7 @@
     "kiri": "./bin/kiri.ts"
   },
   "scripts": {
-    "dev": "concurrently -n vite,server -c blue,green 'vite' 'bun --watch bin/kiri.ts'",
+    "dev": "concurrently -n vite,server -c blue,green 'vite' 'FORCE_COLOR=1 bun --watch bin/kiri.ts'",
     "build": "vite build",
     "build:embed": "vite build && bun bin/generate-embedded-assets.ts",
     "dev:site": "vite --config vite.site.config.ts",

@@ -5,10 +5,13 @@ import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
 import type { EventBus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
+import { createLogger } from "../log.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { runWorkflow } from "../runner/index.ts";
 import { type Registry, type WorkflowDefinition, buildInputSchema } from "../workflows/index.ts";
 import { onZodFail, optionalInvokeBody, workflowNameParamSchema, zodErrorBody } from "./shared.ts";
+
+const log = createLogger("runs");
 
 export interface WorkflowsRoutesDeps {
   db: KiriDb;
@@ -79,7 +82,7 @@ export function workflowsRoutes(deps: WorkflowsRoutesDeps): Hono {
       // process-wide handler. The run row is finalised inside `done` before any
       // re-throw, so the DB stays consistent regardless.
       done.catch((cause) => {
-        console.error(`run ${runId} crashed: ${cause instanceof Error ? cause.message : cause}`);
+        log.error(`run ${runId} crashed: ${cause instanceof Error ? cause.message : cause}`);
       });
       return c.json({ runId, status: "running" }, 202);
     },

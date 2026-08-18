@@ -18,6 +18,7 @@ import type { KiriDb } from "../db/index.ts";
 import { articles, projects, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import { EFFORT_LEVELS, type LlmClients } from "../llm/index.ts";
+import { c, createLogger } from "../log.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { getProject, listProjectArticles } from "../projects/store.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
@@ -72,6 +73,8 @@ import {
 } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
 import { articleParamSchema, onZodFail } from "./shared.ts";
+
+const log = createLogger("shell");
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
@@ -357,9 +360,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
             guidance: commandLearning.guidance(),
           })
         : screened;
-    console.log(
-      `run_command auto: ${decision.verdict} (${decision.reason}): ${JSON.stringify(command)}`,
-    );
+    const verdict = decision.verdict === "allow" ? c.green("allow") : c.yellow("ask");
+    log.info(`run_command auto ${c.bold(verdict)} ${c.cyan(command)}`);
+    log.info(`  ${c.dim(decision.reason)}`);
     // The raw command, not the screened form — precedent is about what the
     // user saw asked.
     commandLearning.recordJudgement({

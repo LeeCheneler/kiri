@@ -1,6 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
+import { createLogger } from "../log.ts";
+
+const log = createLogger("shell");
 
 // One decision by the auto shell permission — the deterministic screen or the
 // utility-model judge — on a single run_command call.
@@ -56,13 +59,13 @@ function readValidEvents(filePath: string): CommandEvent[] {
       parsed = JSON.parse(line);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      console.warn(`command judgement log: skipping malformed line: ${message}`);
+      log.warn(`command judgement log: skipping malformed line: ${message}`);
       continue;
     }
 
     const check = commandEventSchema.safeParse(parsed);
     if (!check.success) {
-      console.warn(`command judgement log: skipping line failing schema: ${check.error.message}`);
+      log.warn(`command judgement log: skipping line failing schema: ${check.error.message}`);
       continue;
     }
 

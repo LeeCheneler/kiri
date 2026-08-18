@@ -1,4 +1,7 @@
 import type { LlmClients } from "../llm/index.ts";
+import { createLogger } from "../log.ts";
+
+const log = createLogger("sessions");
 
 /** The most replies a generation returns; extra candidate lines are dropped. */
 export const MAX_SUGGESTED_REPLIES = 3;
@@ -99,7 +102,7 @@ export async function generateSuggestedReplies(opts: {
     return parseReplies(lines.slice(endingAt + 1));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`suggested replies generation failed: ${message}`);
+    log.warn(`suggested replies generation failed: ${message}`);
     return [];
   }
 }

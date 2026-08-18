@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { LlmClients } from "../llm/index.ts";
+import { createLogger } from "../log.ts";
 import type { CommandEvent } from "./command-judgement-log.ts";
+
+const log = createLogger("shell");
 
 /** Opens the distillation prompt; the test stub keys its canned answer off this prefix. */
 export const COMMAND_GUIDANCE_PROMPT_PREFIX = "Distill shell-command approval guidance";
@@ -72,7 +75,7 @@ export async function distillCommandGuidance(opts: {
     return unfenced.slice(0, GUIDANCE_MAX_LENGTH);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`command guidance distillation failed: ${message}`);
+    log.warn(`command guidance distillation failed: ${message}`);
     return null;
   }
 }

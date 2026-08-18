@@ -1,8 +1,11 @@
 import { type FSWatcher, statSync, watch } from "node:fs";
 import type { ConfigStore } from "../config/store.ts";
 import type { EventBus } from "../events/index.ts";
+import { createLogger } from "../log.ts";
 import { type LoadResult, loadWorkflows } from "./loader.ts";
 import type { Registry } from "./registry.ts";
+
+const log = createLogger("workflows");
 
 export interface WatchOptions {
   debounceMs?: number;
@@ -82,36 +85,34 @@ export function watchWorkflows(
       // Directory disappeared between an fs.watch event and the debounced
       // rebuild — usually a teardown race. Log and bail; if it's transient
       // the next event reschedules a rebuild that succeeds.
-      console.error(
-        `workflows: rebuild failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      );
+      log.error(`rebuild failed: ${cause instanceof Error ? cause.message : String(cause)}`);
       return;
     }
     const next = buildSnapshot(result);
     for (const [name, info] of next.byName) {
       const prev = snapshot.byName.get(name);
       if (!prev) {
-        console.log(`workflows: added "${name}"`);
+        log.info(`added "${name}"`);
         bus?.publish({ type: "workflow.added", name });
       } else if (prev.mtimeMs !== info.mtimeMs) {
-        console.log(`workflows: changed "${name}"`);
+        log.info(`changed "${name}"`);
         bus?.publish({ type: "workflow.updated", name });
       }
     }
     for (const name of snapshot.byName.keys()) {
       if (!next.byName.has(name)) {
-        console.log(`workflows: removed "${name}"`);
+        log.info(`removed "${name}"`);
         bus?.publish({ type: "workflow.removed", name });
       }
     }
     for (const failure of result.failures) {
       if (!snapshot.failingPaths.has(failure.path)) {
-        console.error(`workflows: failed to load ${failure.path}: ${failure.reason}`);
+        log.error(`failed to load ${failure.path}: ${failure.reason}`);
       }
     }
     for (const path of snapshot.failingPaths) {
       if (!next.failingPaths.has(path)) {
-        console.log(`workflows: ${path} no longer failing`);
+        log.info(`${path} no longer failing`);
       }
     }
     snapshot = next;
@@ -133,9 +134,7 @@ export function watchWorkflows(
   // and schedule a rebuild — if the error is real, the rebuild surfaces
   // it via loadWorkflows; if it's transient, the rebuild reconciles state.
   fsWatcher.on("error", (cause) => {
-    console.error(
-      `workflows: watcher error: ${cause instanceof Error ? cause.message : String(cause)}`,
-    );
+    log.error(`watcher error: ${cause instanceof Error ? cause.message : String(cause)}`);
     schedule();
   });
 
