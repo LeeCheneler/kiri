@@ -1,8 +1,10 @@
 # Sessions
 
-A session is streaming chat with any model you configure, carrying your
-workspace's standing instructions, wired into your files and shell, and
-extended by any MCP server you add. When something you worked out is worth
+A session is a general-purpose agentic assistant with any model you
+configure — a conversation, a piece of research, a review, a write-up, or a
+code change. It carries your workspace's standing instructions, reads and
+edits your files, runs your shell, delegates legwork, and is extended by any
+MCP server you add. When something you worked out is worth
 repeating, the session can
 [author it into a workflow](#authoring-workflows) so the next time is one
 click.

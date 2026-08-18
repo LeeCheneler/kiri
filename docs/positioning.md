@@ -22,9 +22,13 @@ one-liner sells it. Never lead with the category alone.
 
 Kiri's shape is a progression, and copy should present it in this order:
 
-1. **Work it out in chat.** Sessions are the front door: streaming chat with
-   any model you configure, wired into your files, your shell, and any MCP
-   server, with tool permissions you set: allow, ask, or off.
+1. **Work it out in a session.** Sessions are the front door: a
+   general-purpose agentic assistant with any model you configure — a
+   conversation, a piece of research, a review, a write-up, or a code change
+   — that reads and edits your files, runs your shell, delegates legwork, and
+   reaches any MCP server, with tool permissions you set: allow, ask, or off.
+   Always name the range (chat, research, writing, code); never anchor a
+   session to the repo alone.
 2. **Keep what matters.** Output lands as articles — readable pages in a live
    feed — not scrollback. Facts persist as memories. Related work compounds
    into a project's shared corpus with wiki-links and standing instructions.
@@ -52,9 +56,11 @@ mature work ends up.
 - **vs chat apps (ChatGPT, Claude.ai):** like your chat app, but it lives in
   your repo and writes things down — pages, memories, and buttons instead of
   scrollback.
-- **vs coding agents (Claude Code, terminal agents):** not a coding agent — a
-  workspace for the knowledge work around your repos: briefings, reviews,
-  release notes, research, standing docs.
+- **vs coding agents (Claude Code, terminal agents):** a session can do
+  that job — edit the repo, run the shell, ship the change — but it isn't
+  built around it: the same session researches, reviews, and writes, and it
+  keeps what it learned as pages and memories. Never say "not a coding
+  agent" (it can be one) and never pitch it as one (it's more).
 - **vs automation platforms (n8n, Zapier, cron):** AI-native automation as
   YAML in your own git repo — diffable, reviewable, local, no cloud.
 - **vs doing nothing:** stop pasting `git log` into a chat window every
@@ -62,10 +68,15 @@ mature work ends up.
 
 ## Proof points (show, don't claim)
 
-1. The release-notes YAML on the first screen — a real, runnable workflow.
-2. A screenshot of the product — the feed, a session, an article. The UI is
-   the proof of polish; adjectives are not.
-3. The five-minute quickstart whose golden path *is* the ladder: ask a
+1. A minimal `kiri.yaml` before any workflow — providers (Anthropic and an
+   OpenAI-compatible gateway like OpenRouter), allowed directories, one MCP
+   server — so the reader sees the whole on-ramp in a dozen lines.
+2. The release-notes YAML — a real, runnable workflow — after the config, and
+   on the site hero.
+3. A screenshot of the product — a session first (worked out in chat, kept
+   as an article and a memory), then the feed and an article. The UI is the
+   proof of polish; adjectives are not.
+4. The five-minute quickstart whose golden path *is* the ladder: ask a
    session for something → it writes an article → save it as a workflow →
    click the button.
 
