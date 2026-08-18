@@ -22,6 +22,16 @@ export default defineConfig({
   build: {
     outDir: "../../dist/client",
     emptyOutDir: true,
+    // Every stylesheet in the app is folded into the single entry CSS, app.css,
+    // which each shell loads itself. Without this, Vite's per-chunk CSS
+    // tracking lists app.css as a preload dep of lazy chunks (mermaid, charts)
+    // that share modules with the entry, and its preload helper only recognises
+    // it as loaded by matching `link[href="/app.css"]` — which the hosted shell
+    // at local.kiri.build fails, since it links the stylesheet by the local
+    // instance's absolute URL. The helper then injects `/app.css` on the shell's
+    // own origin, 404s, and the first diagram render fails with "Unable to
+    // preload CSS". Emitting one un-split stylesheet leaves no CSS dep to preload.
+    cssCodeSplit: false,
     rollupOptions: {
       output: {
         // Stable, root-served paths for the entry chunk and entry CSS so
