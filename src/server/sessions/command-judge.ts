@@ -11,7 +11,7 @@ const COMMAND_MAX_LENGTH = 4000;
 
 // Generous because a timeout degrades to asking: routed providers can take
 // tens of seconds on a cold path, and a stale ask wastes the whole feature.
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 20_000;
 
 // Effects first, verdict second: stating what the command does before ruling
 // on it measurably reduces snap verdicts, and the reason line is what gets

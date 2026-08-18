@@ -14,11 +14,12 @@ export const SUGGESTED_REPLIES_PROMPT_PREFIX = "Suggest tap-to-send replies";
 // article-sized reply from ballooning the call.
 const ASSISTANT_TEXT_MAX_LENGTH = 2000;
 
-// Much tighter than the shell judge's budget: a timed-out judgement there
-// degrades to asking the user, so waiting is worth it, while a timed-out
-// suggestion degrades to no chips — and a chip that arrives after the user
-// has read the reply and started typing is dead weight anyway.
-const DEFAULT_TIMEOUT_MS = 8_000;
+// A timed-out suggestion degrades to no chips, so this doesn't need the
+// patience of background work like guidance distillation. Still generous —
+// routed utility providers regularly take 10+ seconds on a cold path, and a
+// chip that lands while the user is still reading a long reply is worth far
+// more than none at all.
+const DEFAULT_TIMEOUT_MS = 20_000;
 
 // Classification before emission: a small model asked for suggestions loves to
 // produce them, so the abstaining path is a positive output (an ENDING line)

@@ -11,7 +11,7 @@ const GUIDANCE_MAX_LENGTH = 4000;
 
 // Background work with no one waiting on it: the bound only exists so a hung
 // provider can't pin the single-in-flight distillation slot forever.
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 // Abstention is a positive output (NONE) the model must choose against, not
 // an absence it has to resist — the same trick as suggested replies.
