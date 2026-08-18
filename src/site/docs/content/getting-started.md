@@ -53,7 +53,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 No key at all? An OpenAI-compatible local server (LM Studio, Ollama, vLLM)
 works too — see [Models & providers](/docs/llm-providers).
 
-## Work it out in chat
+## Work it out in a session
 
 Click **+ New session** and ask for something you'd normally lose to a chat
 window — say, *"summarise what changed in this repo this week and what's

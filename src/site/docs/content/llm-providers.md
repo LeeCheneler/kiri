@@ -56,20 +56,26 @@ a missing var fails the step cleanly.
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-## Local models
+## Gateways and local models
 
-Run against LM Studio, Ollama, or vLLM with an `openai-compatible` entry
-pointing at the local server — no key needed when the server has no auth:
+Any OpenAI-compatible endpoint is one `openai-compatible` entry with a
+`base_url`. A hosted gateway like OpenRouter takes a key; a local server —
+LM Studio, Ollama, vLLM — needs none when it has no auth:
 
 ```yaml
 providers:
+  openrouter:
+    type: openai-compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key: { env: OPENROUTER_API_KEY }
   local:
     type: openai-compatible
     base_url: http://localhost:1234/v1
 ```
 
 Everything that takes a `model:` — pipeline steps, articles, summarisers,
-sessions — accepts `local:<model-id>` the same as a hosted provider.
+sessions — accepts `openrouter:google/gemini-3.7-flash` or
+`local:<model-id>` the same as a hosted first-party provider.
 
 ## Model shortcuts
 
@@ -126,7 +132,7 @@ models:
 ```
 
 These calls are tiny, so a fast, cheap model is the right fit — a
-[local model](#local-models) works well and keeps them off the meter
+[local model](#gateways-and-local-models) works well and keeps them off the meter
 entirely. Unset, session titling falls back to the session's own model,
 the shell tool's Auto permission falls back to asking on every command,
 and suggested replies and draft tidying stay off.

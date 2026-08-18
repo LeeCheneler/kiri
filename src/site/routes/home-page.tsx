@@ -19,7 +19,7 @@ const FEATURES: Feature[] = [
   {
     term: "Agentic sessions",
     detail:
-      "Streaming chat wired into your files and shell. Short-lived by design: open one, work it out, keep what matters.",
+      "Chat, research, review, write, code — one assistant with any model, wired into your files, shell, and tools, permissions yours. Open one, work it out, keep what matters.",
   },
   {
     term: "Local workflows",
@@ -61,10 +61,10 @@ type Focus = {
 const FOCUSES: Focus[] = [
   {
     eyebrow: "Agentic sessions",
-    title: "Short-lived collaboration.",
-    body: "A session is streaming chat with any model you configure, wired into your files and shell and extended by any MCP server you add. Open one to work something out — a review, a decision, a piece of research — with every tool's permission yours to set: allow, ask, or off.",
+    title: "Whatever the work is, then written down.",
+    body: "A session is a general-purpose agentic assistant with any model you configure — a conversation, a piece of research, a review, a draft, a bug fix. It finds, reads, and edits your files, runs builds, tests, and git, searches the web and your tools through MCP, and hands legwork to a delegated worker. Every write shows as a diff; every tool's permission is yours to set — allow, ask, or off — with an Auto mode for the shell that screens the dangerous and waves through the boring.",
     detail:
-      "Then ask it to keep what you worked out: output lands as readable articles in a live feed — not scrollback — and facts persist as memories every future session recalls.",
+      "Then ask it to keep what you worked out: the review, the decision, the release notes land as readable articles in a live feed — not scrollback — and facts persist as memories every future session recalls.",
     href: "/docs/sessions",
     linkLabel: "Read about sessions",
   },

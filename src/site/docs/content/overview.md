@@ -7,9 +7,11 @@ become one-click buttons.
 Most AI tools forget: chats scroll away, context gets re-explained, the same
 chore gets re-prompted every week. Kiri is built so work compounds instead:
 
-1. **Work it out in chat.** A **session** is streaming chat with any model
-   you configure, wired into your files and shell and extended by any MCP
-   server you add.
+1. **Work it out in a session.** A **session** is a general-purpose agentic
+   assistant with any model you configure — a conversation, a piece of
+   research, a review, a write-up, or a code change. It reads and edits your
+   files, runs your shell, delegates legwork, and reaches any MCP server you
+   add, with every tool's permission yours to set.
 2. **Keep what matters.** Output lands as **articles** — readable pages in a
    live feed — facts persist as **memories**, and related work groups into a
    **project** with its own shared, cross-linked corpus.
@@ -20,7 +22,9 @@ chore gets re-prompted every week. Kiri is built so work compounds instead:
 ## Two files and you're working
 
 Configuration is a single `kiri.yaml` at the workspace root. The lightest
-useful one names a model provider:
+useful one names a model provider — Anthropic, OpenAI, or any
+OpenAI-compatible endpoint such as OpenRouter — and the directories sessions
+may work in:
 
 ```yaml
 # kiri.yaml
@@ -28,9 +32,15 @@ providers:
   anthropic:
     type: anthropic
     api_key: { env: ANTHROPIC_API_KEY }
+  openrouter:
+    type: openai-compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key: { env: OPENROUTER_API_KEY }
+filesystem:
+  allowed_directories: [.]
 ```
 
-Key in a git-ignored `.env`, and sessions work. A workflow is one more small
+Keys in a git-ignored `.env`, and sessions work. A workflow is one more small
 file:
 
 ```yaml
@@ -55,8 +65,9 @@ page of its own: see [Writing workflows](/docs/workflows).
 
 ## The feature set
 
-- **[Agentic sessions](/docs/sessions)** — chat wired into your files and
-  shell, with per-tool permissions you set: allow, ask, or off.
+- **[Agentic sessions](/docs/sessions)** — chat, research, review, write,
+  or code with any model, wired into your files, shell, and tools, with
+  per-tool permissions you set: allow, ask, or off.
 - **[Local workflows](/docs/workflows)** — repeated chores as YAML in your
   repo, runnable as a button.
 - **[Projects](/docs/projects-and-memories)** — a home for one body of work:
