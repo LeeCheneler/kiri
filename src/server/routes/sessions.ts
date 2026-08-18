@@ -62,6 +62,7 @@ import {
   skillTools,
   summariseTaskList,
   taskTools,
+  tidyDraft,
   updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
@@ -156,6 +157,8 @@ const createSessionBodySchema = z
     projectId: z.string().min(1).optional(),
   })
   .strict();
+
+const tidyBodySchema = z.object({ text: z.string().min(1) });
 
 // Any field may be set independently: the aside swaps the models and the
 // rename control sets `title` (`null` clears it), both through this one
@@ -585,8 +588,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   };
 
   // The listing carries the configured model shortcuts alongside the models,
-  // so the pickers can pin them and new sessions can start on the first one.
-  // Read live, so a kiri.yaml edit is reflected on the next fetch. The
+  // so the pickers can pin them and new sessions can start on the first one,
+  // and the utility model, so the client knows which utility-driven actions
+  // to offer. Read live, so a kiri.yaml edit is reflected on the next fetch. The
   // reasoning flag stays server-side: it drives whether a turn sends provider
   // reasoning parameters, and nothing client-side consumes it.
   app.get("/models", async (c) => {
@@ -595,7 +599,20 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       models: models.map(({ reasoning: _reasoning, ...model }) => model),
       failures,
       shortcuts: deps.getModelsConfig?.().shortcuts ?? {},
+      utility: deps.getModelsConfig?.().utility,
     });
+  });
+
+  // Rewrite a composer draft as the clean message its writer meant, against
+  // the utility model. Nothing is persisted: the tidied text goes back to the
+  // requesting client, which decides whether to keep it. No utility model
+  // configured is the feature's off switch — the client hides the action, so
+  // a request without one is a plain 400 rather than a session-model spend.
+  app.post("/tidy", zValidator("json", tidyBodySchema, onZodFail("invalid draft")), async (c) => {
+    const model = deps.getModelsConfig?.().utility;
+    if (model === undefined) return c.json({ error: "no utility model configured" }, 400);
+    const { text } = c.req.valid("json");
+    return c.json({ text: await tidyDraft({ llmClients, model, text }) });
   });
 
   app.post(
