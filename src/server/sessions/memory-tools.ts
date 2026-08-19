@@ -1,9 +1,10 @@
-import { type ToolSet, tool } from "ai";
+import { type JSONValue, type ToolSet, tool } from "ai";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import { memories } from "../db/schema.ts";
 import type { KiriEvent } from "../events/index.ts";
+import { MAX_DIFF_LENGTH, compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
 
 /** A persisted memory row. */
 export type Memory = typeof memories.$inferSelect;
@@ -141,12 +142,13 @@ export function memoryTools(
       }),
       execute: async ({ name, description, content_md }) => {
         const now = new Date();
+        const after = content_md.trimEnd();
         // Writes stay in the session's own scope: a project session never
         // rewrites a global memory of the same name, it saves alongside it.
         const existing = getScopedMemory(db, projectId, name);
         if (existing) {
           db.update(memories)
-            .set({ description, contentMd: content_md.trimEnd(), updatedAt: now })
+            .set({ description, contentMd: after, updatedAt: now })
             .where(eq(memories.id, existing.id))
             .run();
         } else {
@@ -156,15 +158,26 @@ export function memoryTools(
               projectId,
               name,
               description,
-              contentMd: content_md.trimEnd(),
+              contentMd: after,
               createdAt: now,
               updatedAt: now,
             })
             .run();
         }
         announce("memory.saved", name, projectId);
-        return { name, saved: existing ? "updated" : "created" };
+        // The diff is app-only — a create diffs against nothing, so the body
+        // renders as additions; toModelOutput and the send-time strip keep it
+        // out of what the model is paid for.
+        return {
+          name,
+          saved: existing ? "updated" : "created",
+          ...unifiedDiff(existing?.contentMd ?? "", after, MAX_DIFF_LENGTH),
+        };
       },
+      toModelOutput: ({ output }) => ({
+        type: "json" as const,
+        value: compactWriteOutput(output) as JSONValue,
+      }),
     }),
 
     read_memory: tool({

@@ -76,8 +76,16 @@ const summaryDetail = (input: unknown): string | null => {
   return null;
 };
 
-// The tools whose settled result carries a unified diff for the transcript.
-const DIFF_TOOLS = new Set(["write_file", "edit_file", "update_project_instructions"]);
+// The tools whose settled result carries a unified diff for the transcript —
+// the writes whose before-text only the server knows.
+const DIFF_TOOLS = new Set([
+  "write_file",
+  "edit_file",
+  "update_project_instructions",
+  "replace_article",
+  "replace_workflow",
+  "save_memory",
+]);
 
 // The exact-string edit tools: the input's old/new pair is the whole change,
 // for the file, article, and workflow variants alike.

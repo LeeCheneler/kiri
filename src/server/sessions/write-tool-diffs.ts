@@ -2,7 +2,21 @@ import { type UIMessage, getToolName, isToolUIPart } from "ai";
 import { structuredPatch } from "diff";
 
 // The tools whose results carry an app-only unified diff.
-const DIFF_TOOLS = new Set(["write_file", "edit_file", "update_project_instructions"]);
+const DIFF_TOOLS = new Set([
+  "write_file",
+  "edit_file",
+  "update_project_instructions",
+  "replace_article",
+  "replace_workflow",
+  "save_memory",
+]);
+
+/**
+ * Default cap on the unified diff a write result carries. The diff feeds the
+ * app's transcript rendering — never the model — but it is persisted per
+ * message, so a wholesale rewrite mustn't bloat the session store.
+ */
+export const MAX_DIFF_LENGTH = 64 * 1024;
 
 /**
  * A unified diff of a text change — hunk headers and +/-/context lines, no
@@ -43,7 +57,7 @@ export function compactWriteOutput(output: unknown): unknown {
 
 /**
  * Reshape a session's history for sending to the model: drop the diff from
- * each settled write_file / edit_file result. A send-time transform like
+ * each settled diff-carrying write result. A send-time transform like
  * culling and TOON re-encoding — the untouched history still feeds
  * persistence, so the stored transcript keeps its diffs for the app to
  * render. Pure: a reshaped message is a fresh object, so the caller's array

@@ -15,7 +15,11 @@ import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { type JSONValue, type ToolSet, tool } from "ai";
 import { z } from "zod";
-import { unifiedDiff as buildUnifiedDiff, compactWriteOutput } from "./write-tool-diffs.ts";
+import {
+  MAX_DIFF_LENGTH,
+  unifiedDiff as buildUnifiedDiff,
+  compactWriteOutput,
+} from "./write-tool-diffs.ts";
 
 // Byte cap on a returned file body — the same budget as an MCP tool result, so
 // one huge file can't blow the model's context. Larger files return their head
@@ -84,11 +88,6 @@ const PRUNED_DIR_NAMES = new Set([
 // Cap on a single reported match line, so one minified line can't dominate the
 // result.
 const MAX_MATCH_TEXT = 500;
-
-// Cap on the unified diff a write result carries. The diff feeds the app's
-// transcript rendering — never the model — but it is persisted per message,
-// so a pathological rewrite mustn't bloat the session store.
-const MAX_DIFF_LENGTH = 64 * 1024;
 
 // Non-fatal so a multi-byte character split at the byte cap is dropped rather
 // than decoded to an invalid fragment.

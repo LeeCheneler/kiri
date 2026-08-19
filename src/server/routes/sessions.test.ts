@@ -1409,7 +1409,7 @@ describe("sessions routes", () => {
       // turn, with the write announced on the bus.
       const rows = getSessionMessages(env.db, "s1");
       expect(toolPartOf(rows[1]).state).toBe("output-available");
-      expect(toolPartOf(rows[1]).output).toEqual({ name: "prefers-bun", saved: "created" });
+      expect(toolPartOf(rows[1]).output).toMatchObject({ name: "prefers-bun", saved: "created" });
 
       const row = env.db.select().from(memories).where(eq(memories.name, "prefers-bun")).get();
       expect(row?.contentMd).toBe("Always reach for bun.");

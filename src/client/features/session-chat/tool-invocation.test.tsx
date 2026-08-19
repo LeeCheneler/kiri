@@ -304,6 +304,28 @@ describe("<ToolInvocation>", () => {
     ).toBe("added");
   });
 
+  it("renders an article rewrite's server diff as toned rows", async () => {
+    // replace_article's before-text only the server knows, so its result
+    // carries the diff — same pipeline as the filesystem writes.
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("replace_article", {
+          state: "output-available",
+          input: { slug: "notes", content_md: "# New" },
+          output: { slug: "notes", name: "Notes", diff: "@@ -1,1 +1,1 @@\n-# Old\n+# New" },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(
+      screen.getByText("# Old").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("removed");
+    expect(
+      screen.getByText("# New").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+  });
+
   it("renders a settled article edit as a diff from its input", async () => {
     // The article and workflow edits carry no server diff — the old/new pair
     // in the input is the whole change.
