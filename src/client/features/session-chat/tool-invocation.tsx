@@ -6,6 +6,7 @@ import { CodeBlock } from "../../design-system/content/code.tsx";
 import { Diff, patchFromStrings } from "../../design-system/content/diff.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
+import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { FullWidthImage } from "./image-thumb.tsx";
 
@@ -203,6 +204,98 @@ const commandResult = (name: string, output: unknown): ReactNode | null => {
   );
 };
 
+// The statuses a run or step outcome can carry, all in the shared vocabulary.
+const RUN_STATUSES = new Set<StatusKind>(["running", "ok", "failed", "cancelled"]);
+
+const runStatus = (value: unknown): StatusKind | null =>
+  typeof value === "string" && RUN_STATUSES.has(value as StatusKind) ? (value as StatusKind) : null;
+
+// A settled run_workflow / rerun_workflow outcome as a small run report: the
+// run's status and summary (or error) linking to its run page, each step with
+// its status — a failed one with its error and captured stream tails, like a
+// shell result — and the slugs of articles produced. Null for other tools and
+// results not in the outcome's shape, which stay JSON.
+const workflowResult = (name: string, output: unknown): ReactNode | null => {
+  if (name !== "run_workflow" && name !== "rerun_workflow") return null;
+  if (output === null || typeof output !== "object") return null;
+  const { run_id, status, summary, error, steps, articles } = output as {
+    run_id?: unknown;
+    status?: unknown;
+    summary?: unknown;
+    error?: unknown;
+    steps?: unknown;
+    articles?: unknown;
+  };
+  const overall = runStatus(status);
+  if (typeof run_id !== "string" || overall === null || !Array.isArray(steps)) return null;
+  const stepRows: {
+    name: string;
+    status: StatusKind;
+    error: string | null;
+    stdout: string;
+    stderr: string;
+  }[] = [];
+  for (const step of steps) {
+    if (step === null || typeof step !== "object") return null;
+    const row = step as {
+      name?: unknown;
+      status?: unknown;
+      error?: unknown;
+      stdout?: unknown;
+      stderr?: unknown;
+    };
+    const stepState = runStatus(row.status);
+    if (typeof row.name !== "string" || stepState === null) return null;
+    stepRows.push({
+      name: row.name,
+      status: stepState,
+      error: typeof row.error === "string" ? row.error : null,
+      stdout: typeof row.stdout === "string" ? row.stdout : "",
+      stderr: typeof row.stderr === "string" ? row.stderr : "",
+    });
+  }
+  const slugs = Array.isArray(articles)
+    ? articles.flatMap((article) => {
+        const { slug } = (article ?? {}) as { slug?: unknown };
+        return typeof slug === "string" ? [slug] : [];
+      })
+    : [];
+  const headline = typeof error === "string" ? error : typeof summary === "string" ? summary : null;
+  return (
+    <div className="space-y-2 font-mono text-xs">
+      <div className="flex items-baseline gap-3">
+        <Status status={overall} />
+        {headline !== null && <span className="min-w-0 text-ink">{headline}</span>}
+        <span className="ml-auto shrink-0">
+          <InlineLink href={`/runs/${encodeURIComponent(run_id)}`}>open run</InlineLink>
+        </span>
+      </div>
+      {stepRows.map((step, index) => (
+        <div key={`${step.name}-${index}`} className="space-y-1">
+          <div className="flex items-baseline gap-3">
+            <span className="text-ink-muted">{step.name}</span>
+            <Status status={step.status} />
+          </div>
+          {step.error !== null && <p className="text-status-failed">{step.error}</p>}
+          {step.stdout !== "" && (
+            <div className="space-y-1">
+              <Eyebrow tone="muted">stdout</Eyebrow>
+              <CodeBlock>{step.stdout}</CodeBlock>
+            </div>
+          )}
+          {step.stderr !== "" && (
+            <div className="space-y-1">
+              <Eyebrow tone="muted">stderr</Eyebrow>
+              <CodeBlock>{step.stderr}</CodeBlock>
+            </div>
+          )}
+        </div>
+      ))}
+      {slugs.length > 0 && <p className="text-ink-muted">articles: {slugs.join(", ")}</p>}
+    </div>
+  );
+};
+
 /**
  * A settled generate_image result's image as a file part for the shared
  * click-to-preview thumbnail — the result carries it as a data URL. Null for
@@ -371,6 +464,9 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
         </div>
       );
     }
+    // A workflow run's outcome renders as a small run report rather than JSON.
+    const run = workflowResult(name, part.output);
+    if (run) return run;
     // A search or listing renders as plain lines rather than a JSON array.
     const list = listResult(name, part.output);
     if (list) {

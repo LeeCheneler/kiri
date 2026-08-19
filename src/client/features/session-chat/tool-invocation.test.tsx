@@ -460,6 +460,102 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText(/"matches"/)).toBeDefined();
   });
 
+  it("renders a failed workflow run as a report with step outcomes and stream tails", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("run_workflow", {
+          state: "output-available",
+          input: { name: "digest", inputs: {} },
+          output: {
+            run_id: "r1",
+            status: "failed",
+            error: 'step "fetch" failed',
+            summary: null,
+            steps: [
+              {
+                name: "fetch",
+                status: "failed",
+                error: "exit code 1",
+                stdout: "",
+                stderr: "boom\n",
+              },
+              { name: "draft", status: "cancelled" },
+            ],
+            articles: [],
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText('step "fetch" failed')).toBeDefined();
+    expect(screen.getByText("exit code 1")).toBeDefined();
+    expect(screen.getByText("stderr")).toBeDefined();
+    expect(screen.getByText(/boom/).closest("pre")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "open run" }).getAttribute("href")).toBe("/runs/r1");
+    expect(screen.queryByText(/"steps"/)).toBeNull();
+  });
+
+  it("renders a settled rerun's summary, articles, and step statuses", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ToolInvocation
+        part={writePart("rerun_workflow", {
+          state: "output-available",
+          input: { run_id: "r1" },
+          output: {
+            run_id: "r1",
+            status: "ok",
+            summary: "Drafted notes from 4 PRs.",
+            steps: [
+              { name: "fetch", status: "ok", stdout: "fetched 4 PRs\n" },
+              { name: "draft", status: "ok" },
+            ],
+            articles: [{ slug: "standup", name: "Standup" }],
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Drafted notes from 4 PRs.")).toBeDefined();
+    expect(screen.getByText("articles: standup")).toBeDefined();
+    expect(screen.getByText("fetch")).toBeDefined();
+    // An ok step's stdout tail still shows, labeled like a shell result's.
+    expect(screen.getByText(/fetched 4 PRs/).closest("pre")).not.toBeNull();
+    // Panel statuses: the run's plus one per step, beside the row's own.
+    expect(container.querySelectorAll('[data-status="ok"]').length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("falls back to JSON for a run outcome with an unknown status", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("run_workflow", {
+          state: "output-available",
+          input: { name: "digest" },
+          output: { run_id: "r1", status: "exploded", steps: [] },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"exploded"/)).toBeDefined();
+  });
+
+  it("falls back to JSON for a run outcome with a malformed step", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("run_workflow", {
+          state: "output-available",
+          input: { name: "digest" },
+          output: { run_id: "r1", status: "ok", steps: [{ status: "ok" }] },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"steps"/)).toBeDefined();
+  });
+
   it("renders an article rewrite's server diff as toned rows", async () => {
     // replace_article's before-text only the server knows, so its result
     // carries the diff — same pipeline as the filesystem writes.
