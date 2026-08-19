@@ -389,9 +389,17 @@ async function streamCore(
           isContinuation,
           contextTokens,
         );
-        setSessionStatus(db, session.id, "idle");
+        // A turn that stopped on tool-approval requests hasn't settled: the
+        // session is blocked on the user's verdicts, and lists surface that
+        // as `waiting` rather than the resting `idle`.
+        const settled = responseMessage.parts.some(
+          (part) => isToolUIPart(part) && part.state === "approval-requested",
+        )
+          ? ("waiting" as const)
+          : ("idle" as const);
+        setSessionStatus(db, session.id, settled);
         bus?.publish({ type: "session.message.added", sessionId: session.id });
-        bus?.publish({ type: "session.updated", id: session.id, status: "idle" });
+        bus?.publish({ type: "session.updated", id: session.id, status: settled });
       } finally {
         // Close the resumable stream as the turn settles, in step with persisting
         // the message above, so a client reconnecting now replays nothing.

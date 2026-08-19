@@ -24,9 +24,12 @@
      so pending and skipped rows read distinctly. */
   --color-status-pending: #555048;
   /* Session vocabulary, sharing the run hues: `working` is the session's
-     in-flight blue (a turn streaming), `idle` its green resting state. */
+     in-flight blue (a turn streaming), `idle` its green resting state, and
+     `waiting` the interrupted amber — a turn paused on tool approval, the
+     "needs you" cue when scanning a list. */
   --color-status-working: #7aaedb;
   --color-status-idle: #88a579;
+  --color-status-waiting: #c99858;
 
   /* Advisory tones for Notice callouts — escalating concern, on the same
      palette as the run hues but a separate vocabulary (config health,

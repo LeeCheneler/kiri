@@ -752,8 +752,11 @@ export const setToolPermission = async (
   );
 };
 
-/** Session lifecycle status. `idle` is the resting state between turns. */
-export type SessionStatus = "running" | "idle" | "failed" | "cancelled";
+/**
+ * Session lifecycle status. `idle` is the resting state between turns;
+ * `waiting` is a turn paused on tool-approval requests, blocked on the user.
+ */
+export type SessionStatus = "running" | "waiting" | "idle" | "failed" | "cancelled";
 
 /** How hard a session's model reasons, lowest to highest. */
 export type SessionEffort = "low" | "medium" | "high" | "xhigh" | "max";
