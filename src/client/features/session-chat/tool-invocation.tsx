@@ -50,16 +50,17 @@ export const toolStatus = (part: ToolPart): StatusKind =>
 
 // A short input detail for the collapsed summary, when the call carries an
 // obvious one — a string `query`, a `path` (the filesystem tools), a `command`
-// (run_command), a `prompt` (generate_image), a `name` (use_skill), or a list
-// of `urls`; nothing otherwise.
+// (run_command), a `prompt` (generate_image), a `name` (use_skill), a `slug`
+// (the article tools), or a list of `urls`; nothing otherwise.
 const summaryDetail = (input: unknown): string | null => {
   if (input === null || typeof input !== "object") return null;
-  const { query, path, command, prompt, name, urls } = input as {
+  const { query, path, command, prompt, name, slug, urls } = input as {
     query?: unknown;
     path?: unknown;
     command?: unknown;
     prompt?: unknown;
     name?: unknown;
+    slug?: unknown;
     urls?: unknown;
   };
   if (typeof query === "string") return query;
@@ -67,6 +68,7 @@ const summaryDetail = (input: unknown): string | null => {
   if (typeof command === "string") return command;
   if (typeof prompt === "string") return prompt;
   if (typeof name === "string") return name;
+  if (typeof slug === "string") return slug;
   if (Array.isArray(urls)) {
     const list = urls.filter((url): url is string => typeof url === "string").join(", ");
     return list === "" ? null : list;
@@ -77,27 +79,68 @@ const summaryDetail = (input: unknown): string | null => {
 // The tools whose settled result carries a unified diff for the transcript.
 const DIFF_TOOLS = new Set(["write_file", "edit_file", "update_project_instructions"]);
 
+// The exact-string edit tools: the input's old/new pair is the whole change,
+// for the file, article, and workflow variants alike.
+const EDIT_TOOLS = new Set(["edit_file", "edit_article", "edit_workflow"]);
+
+// The tools that create a document whole, keyed to the input field carrying
+// its body. create_article and create_workflow refuse to overwrite, so the
+// body shown as additions is the entire change; write_file can overwrite too,
+// so it renders this way only when its result says it created the file.
+const CREATED_CONTENT_FIELDS: Record<string, string> = {
+  write_file: "content",
+  create_article: "content_md",
+  create_workflow: "content_yaml",
+};
+
+// A creation's body from the call's input, or null for other tools and
+// malformed inputs.
+const createdContent = (name: string, input: unknown): string | null => {
+  const field = CREATED_CONTENT_FIELDS[name];
+  if (field === undefined || input === null || typeof input !== "object") return null;
+  const body = (input as Record<string, unknown>)[field];
+  return typeof body === "string" ? body : null;
+};
+
+// An exact-string edit's input as a renderable patch, with its replace-all
+// flag; null when the input doesn't carry the old/new pair.
+const editChange = (input: unknown): { patch: string; replaceAll: boolean } | null => {
+  if (input === null || typeof input !== "object") return null;
+  const { old_string, new_string, replace_all } = input as {
+    old_string?: unknown;
+    new_string?: unknown;
+    replace_all?: unknown;
+  };
+  if (typeof old_string !== "string" || typeof new_string !== "string") return null;
+  return { patch: patchFromStrings(old_string, new_string), replaceAll: replace_all === true };
+};
+
 // A settled write's change as a renderable patch: the unified diff its result
-// carries for an overwrite, edit, or instructions rewrite, or — for a created
-// file, whose result carries none — its content from the call's input, shown
-// as additions.
+// carries for an overwrite, edit, or instructions rewrite; a created
+// document's body from the call's input, shown as additions; or an
+// exact-string edit's old/new pair when the result carries no diff of its own
+// (the article and workflow edits — the server computes diffs only for the
+// filesystem-shaped writes).
 const writtenChange = (
   name: string,
   input: unknown,
   output: unknown,
 ): { patch: string; truncated: boolean } | null => {
-  if (!DIFF_TOOLS.has(name)) return null;
   if (output === null || typeof output !== "object") return null;
   const { diff, diffTruncated, created } = output as {
     diff?: unknown;
     diffTruncated?: unknown;
     created?: unknown;
   };
-  if (typeof diff === "string") return { patch: diff, truncated: diffTruncated === true };
-  if (created === true && input !== null && typeof input === "object") {
-    const { content } = input as { content?: unknown };
-    if (typeof content === "string")
-      return { patch: patchFromStrings("", content), truncated: false };
+  if (DIFF_TOOLS.has(name) && typeof diff === "string") {
+    return { patch: diff, truncated: diffTruncated === true };
+  }
+  if (name === "write_file" && created !== true) return null;
+  const content = createdContent(name, input);
+  if (content !== null) return { patch: patchFromStrings("", content), truncated: false };
+  if (EDIT_TOOLS.has(name)) {
+    const change = editChange(input);
+    if (change !== null) return { patch: change.patch, truncated: false };
   }
   return null;
 };
@@ -171,11 +214,11 @@ export const generatedImage = (part: ToolPart): FileUIPart | null => {
 };
 
 // A change preview for a call awaiting approval, derived from its input
-// alone: a filesystem edit as its old lines removed and new lines added, a
-// write as its full content added, and a shell command shown verbatim (with
-// its directory when named) — the decision the user is making is precisely
-// "run this". Null for calls with nothing better than the JSON input to show
-// (deletes, directories).
+// alone: an exact-string edit (file, article, or workflow) as its old lines
+// removed and new lines added, a created document's full body as additions,
+// and a shell command shown verbatim (with its directory when named) — the
+// decision the user is making is precisely "run this". Null for calls with
+// nothing better than the JSON input to show (deletes, directories).
 const approvalPreview = (name: string, input: unknown): ReactNode | null => {
   if (input === null || typeof input !== "object") return null;
   if (name === "run_command") {
@@ -190,27 +233,20 @@ const approvalPreview = (name: string, input: unknown): ReactNode | null => {
       </div>
     );
   }
-  if (name === "edit_file") {
-    const { old_string, new_string, replace_all } = input as {
-      old_string?: unknown;
-      new_string?: unknown;
-      replace_all?: unknown;
-    };
-    if (typeof old_string !== "string" || typeof new_string !== "string") return null;
+  if (EDIT_TOOLS.has(name)) {
+    const change = editChange(input);
+    if (change === null) return null;
     return (
       <div className="space-y-2">
-        <Diff patch={patchFromStrings(old_string, new_string)} />
-        {replace_all === true && (
+        <Diff patch={change.patch} />
+        {change.replaceAll && (
           <p className="font-mono text-ink-muted text-xs">Applies to every occurrence.</p>
         )}
       </div>
     );
   }
-  if (name === "write_file") {
-    const { content } = input as { content?: unknown };
-    if (typeof content !== "string") return null;
-    return <Diff patch={patchFromStrings("", content)} />;
-  }
+  const content = createdContent(name, input);
+  if (content !== null) return <Diff patch={patchFromStrings("", content)} />;
   return null;
 };
 
@@ -235,9 +271,9 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     );
   }
   if (part.state === "output-available") {
-    // A write's result renders as the change itself — the unified diff (or a
-    // created file's content), still untrusted text shown verbatim, never
-    // markdown.
+    // A write's result renders as the change itself — the unified diff, a
+    // created document's content, or an edit's old/new pair — still untrusted
+    // text shown verbatim, never markdown.
     const change = writtenChange(name, part.input, part.output);
     if (change) return <Diff patch={change.patch} truncated={change.truncated} />;
     // A shell command's result renders as its exit status and output streams
@@ -266,9 +302,9 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
  * so the decision is informed, with Allow (run once), Always allow (run and stop
  * prompting for this tool), and Deny (refuse and let the assistant continue). Shown
  * expanded rather than collapsed — it needs a response before the turn resumes.
- * A filesystem write shows the change it would make as a diff-style preview in
- * place of the raw JSON input; a shell command shows the command it would run,
- * verbatim.
+ * A write — file, article, or workflow — shows the change it would make as a
+ * diff-style preview in place of the raw JSON input; a shell command shows the
+ * command it would run, verbatim.
  */
 function ToolApproval({
   part,

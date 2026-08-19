@@ -304,6 +304,118 @@ describe("<ToolInvocation>", () => {
     ).toBe("added");
   });
 
+  it("renders a settled article edit as a diff from its input", async () => {
+    // The article and workflow edits carry no server diff — the old/new pair
+    // in the input is the whole change.
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("edit_article", {
+          state: "output-available",
+          input: { slug: "release-notes", old_string: "shipped", new_string: "released" },
+          output: { slug: "release-notes", replacements: 1 },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(
+      screen.getByText("shipped").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("removed");
+    expect(
+      screen.getByText("released").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+    // The slug doubles as the collapsed summary detail.
+    expect(screen.getByText("release-notes")).toBeDefined();
+  });
+
+  it("renders a created article's body as additions, from the call's input", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("create_article", {
+          state: "output-available",
+          input: { slug: "notes", name: "Notes", content_md: "fresh article line" },
+          output: { slug: "notes", name: "Notes" },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(
+      screen
+        .getByText("fresh article line")
+        .closest("[data-diff-line]")
+        ?.getAttribute("data-diff-line"),
+    ).toBe("added");
+  });
+
+  it("renders a created workflow's YAML as additions, from the call's input", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("create_workflow", {
+          state: "output-available",
+          input: { slug: "digest", content_yaml: "name: digest" },
+          output: { name: "digest", file: "workflows/digest.yaml" },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(
+      screen.getByText("name: digest").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+  });
+
+  it("falls back to JSON for an article edit whose input lacks the old/new pair", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("edit_article", {
+          state: "output-available",
+          input: { slug: "notes" },
+          output: { slug: "notes", replacements: 0 },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"replacements"/)).toBeDefined();
+  });
+
+  it("previews a workflow edit awaiting approval as a change, not JSON", () => {
+    render(
+      <ToolInvocation
+        part={writePart("edit_workflow", {
+          state: "approval-requested",
+          input: { name: "digest", old_string: "cron: daily", new_string: "cron: weekly" },
+          approval: { id: "a1" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+    expect(
+      screen.getByText("cron: daily").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("removed");
+    expect(
+      screen.getByText("cron: weekly").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+    expect(screen.queryByText(/"old_string"/)).toBeNull();
+  });
+
+  it("previews a workflow creation awaiting approval as its YAML added", () => {
+    render(
+      <ToolInvocation
+        part={writePart("create_workflow", {
+          state: "approval-requested",
+          input: { slug: "digest", content_yaml: "name: digest" },
+          approval: { id: "a1" },
+        })}
+        onDecision={() => {}}
+      />,
+    );
+    expect(
+      screen.getByText("name: digest").closest("[data-diff-line]")?.getAttribute("data-diff-line"),
+    ).toBe("added");
+  });
+
   it("previews an edit awaiting approval as a change, not JSON", () => {
     render(
       <ToolInvocation
