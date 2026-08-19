@@ -258,6 +258,33 @@ const approvalPreview = (name: string, input: unknown): ReactNode | null => {
   return null;
 };
 
+// The tools whose result is one document the user reads, keyed to the field
+// carrying its body. The body renders verbatim in a code block instead of a
+// JSON-escaped string; the collapsed summary already names the source.
+const READ_CONTENT_FIELDS: Record<string, string> = {
+  read_file: "content",
+  read_article: "content_md",
+  read_memory: "content_md",
+  read_workflow: "content_yaml",
+};
+
+// A settled read's document, with the note a truncated read_file carries.
+// use_skill returns its instructions as a bare string; the rest carry the
+// body in a per-tool field. Null for other tools and malformed results.
+const readContent = (
+  name: string,
+  output: unknown,
+): { content: string; note: string | null } | null => {
+  if (name === "use_skill") {
+    return typeof output === "string" ? { content: output, note: null } : null;
+  }
+  const field = READ_CONTENT_FIELDS[name];
+  if (field === undefined || output === null || typeof output !== "object") return null;
+  const { [field]: body, note } = output as Record<string, unknown>;
+  if (typeof body !== "string") return null;
+  return { content: body, note: typeof note === "string" ? note : null };
+};
+
 // The call's input rendered as formatted JSON — untrusted data, shown verbatim.
 function ToolInput({ input }: { input: unknown }) {
   return (
@@ -288,6 +315,17 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     // rather than JSON.
     const command = commandResult(name, part.output);
     if (command) return command;
+    // A read's document renders verbatim — untrusted text in a code block,
+    // never markdown — instead of a JSON-escaped string.
+    const read = readContent(name, part.output);
+    if (read) {
+      return (
+        <div className="space-y-2 font-mono text-xs">
+          {read.note !== null && <p className="text-ink-muted">{read.note}</p>}
+          <CodeBlock>{read.content}</CodeBlock>
+        </div>
+      );
+    }
     // A generated image renders below the block; the expanded panel shows the
     // call's metadata without dumping the data URL's base64 as JSON.
     if (generatedImage(part)) {

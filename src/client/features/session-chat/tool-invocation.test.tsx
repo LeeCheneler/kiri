@@ -304,6 +304,75 @@ describe("<ToolInvocation>", () => {
     ).toBe("added");
   });
 
+  it("renders a read file's content verbatim, with its truncation note", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("read_file", {
+          state: "output-available",
+          input: { path: "/ws/index.ts" },
+          output: {
+            path: "/ws/index.ts",
+            content: 'const x = "one line";',
+            note: "truncated — first 65536 bytes of 90000",
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    // Verbatim in a code block, not a JSON-escaped string.
+    expect(screen.getByText('const x = "one line";')).toBeDefined();
+    expect(screen.queryByText(/\\"one line\\"/)).toBeNull();
+    expect(screen.getByText("truncated — first 65536 bytes of 90000")).toBeDefined();
+  });
+
+  it("renders a read article's markdown verbatim, never interpreted", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("read_article", {
+          state: "output-available",
+          input: { slug: "notes" },
+          output: { slug: "notes", name: "Notes", content_md: "# Heading stays literal" },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    const body = screen.getByText("# Heading stays literal");
+    expect(body.closest("pre")).not.toBeNull();
+    expect(body.closest("h1")).toBeNull();
+  });
+
+  it("renders a skill's bare-string instructions verbatim", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("use_skill", {
+          state: "output-available",
+          input: { name: "workflow-authoring" },
+          output: "Follow these steps.",
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Follow these steps.").closest("pre")).not.toBeNull();
+  });
+
+  it("falls back to JSON for a read result missing its body", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("read_memory", {
+          state: "output-available",
+          input: { name: "fact" },
+          output: { name: "fact", deleted: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"deleted"/)).toBeDefined();
+  });
+
   it("renders an article rewrite's server diff as toned rows", async () => {
     // replace_article's before-text only the server knows, so its result
     // carries the diff — same pipeline as the filesystem writes.
