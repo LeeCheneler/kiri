@@ -373,6 +373,93 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText(/"deleted"/)).toBeDefined();
   });
 
+  it("renders search matches as grep-style lines with the result's note", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("search_files", {
+          state: "output-available",
+          input: { pattern: "TODO" },
+          output: {
+            matches: [
+              { file: "/ws/a.ts", line: 3, text: "// TODO: one" },
+              { file: "/ws/b.ts", line: 9, text: "// TODO: two" },
+            ],
+            note: "stopped at 200 matches — tighten the pattern or include filter",
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/\/ws\/a\.ts:3: \/\/ TODO: one/)).toBeDefined();
+    expect(
+      screen.getByText("stopped at 200 matches — tighten the pattern or include filter"),
+    ).toBeDefined();
+    expect(screen.queryByText(/"matches"/)).toBeNull();
+  });
+
+  it("renders found files one per line, noting a capped result", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("find_files", {
+          state: "output-available",
+          input: { pattern: "**/*.md" },
+          output: { files: ["/ws/README.md", "/ws/docs/setup.md"], capped: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/\/ws\/README\.md/).closest("pre")).not.toBeNull();
+    expect(screen.getByText("capped — narrow the pattern or directory")).toBeDefined();
+  });
+
+  it("renders a directory listing one entry per line", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_directory", {
+          state: "output-available",
+          input: { path: "." },
+          output: { path: "/ws", entries: ["docs/", "src/", "README.md"] },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/docs\//).closest("pre")).not.toBeNull();
+    expect(screen.queryByText(/"entries"/)).toBeNull();
+  });
+
+  it("says so when a directory listing is empty", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_directory", {
+          state: "output-available",
+          input: { path: "empty" },
+          output: { path: "/ws/empty", entries: [] },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Empty directory.")).toBeDefined();
+  });
+
+  it("falls back to JSON for a malformed search result", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("search_files", {
+          state: "output-available",
+          input: { pattern: "TODO" },
+          output: { matches: [{ file: "/ws/a.ts" }] },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"matches"/)).toBeDefined();
+  });
+
   it("renders an article rewrite's server diff as toned rows", async () => {
     // replace_article's before-text only the server knows, so its result
     // carries the diff — same pipeline as the filesystem writes.

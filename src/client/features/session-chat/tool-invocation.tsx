@@ -285,6 +285,51 @@ const readContent = (
   return { content: body, note: typeof note === "string" ? note : null };
 };
 
+// A settled filesystem search or listing as plain lines — matches in grep's
+// file:line: text shape, file and directory listings one entry per line —
+// with any note (a cap or truncation) above and a quiet message when nothing
+// matched. Null for other tools and malformed results, which stay JSON.
+const listResult = (
+  name: string,
+  output: unknown,
+): { lines: string[]; note: string | null; empty: string } | null => {
+  if (output === null || typeof output !== "object") return null;
+  const { files, entries, matches, capped, note } = output as {
+    files?: unknown;
+    entries?: unknown;
+    matches?: unknown;
+    capped?: unknown;
+    note?: unknown;
+  };
+  const stringNote = typeof note === "string" ? note : null;
+  if (name === "find_files" && Array.isArray(files)) {
+    return {
+      lines: files.filter((file): file is string => typeof file === "string"),
+      note: capped === true ? "capped — narrow the pattern or directory" : stringNote,
+      empty: "No files matched.",
+    };
+  }
+  if (name === "list_directory" && Array.isArray(entries)) {
+    return {
+      lines: entries.filter((entry): entry is string => typeof entry === "string"),
+      note: stringNote,
+      empty: "Empty directory.",
+    };
+  }
+  if (name === "search_files" && Array.isArray(matches)) {
+    const lines: string[] = [];
+    for (const match of matches) {
+      if (match === null || typeof match !== "object") return null;
+      const { file, line, text } = match as { file?: unknown; line?: unknown; text?: unknown };
+      if (typeof file !== "string" || typeof line !== "number" || typeof text !== "string")
+        return null;
+      lines.push(`${file}:${line}: ${text}`);
+    }
+    return { lines, note: stringNote, empty: "No matches." };
+  }
+  return null;
+};
+
 // The call's input rendered as formatted JSON — untrusted data, shown verbatim.
 function ToolInput({ input }: { input: unknown }) {
   return (
@@ -323,6 +368,20 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
         <div className="space-y-2 font-mono text-xs">
           {read.note !== null && <p className="text-ink-muted">{read.note}</p>}
           <CodeBlock>{read.content}</CodeBlock>
+        </div>
+      );
+    }
+    // A search or listing renders as plain lines rather than a JSON array.
+    const list = listResult(name, part.output);
+    if (list) {
+      return (
+        <div className="space-y-2 font-mono text-xs">
+          {list.note !== null && <p className="text-ink-muted">{list.note}</p>}
+          {list.lines.length === 0 ? (
+            <p className="text-ink-muted">{list.empty}</p>
+          ) : (
+            <CodeBlock>{list.lines.join("\n")}</CodeBlock>
+          )}
         </div>
       );
     }
