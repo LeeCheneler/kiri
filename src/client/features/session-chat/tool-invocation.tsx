@@ -378,10 +378,11 @@ const readContent = (
   return { content: body, note: typeof note === "string" ? note : null };
 };
 
-// A settled filesystem search or listing as plain lines — matches in grep's
-// file:line: text shape, file and directory listings one entry per line —
-// with any note (a cap or truncation) above and a quiet message when nothing
-// matched. Null for other tools and malformed results, which stay JSON.
+// A settled search or listing as plain lines — search matches in grep's
+// file:line: text shape, file and directory listings one entry per line, the
+// article and workflow catalogues as slug/name — description rows — with any
+// note (a cap or truncation) above and a quiet message when nothing matched.
+// Null for other tools and malformed results, which stay JSON.
 const listResult = (
   name: string,
   output: unknown,
@@ -420,7 +421,56 @@ const listResult = (
     }
     return { lines, note: stringNote, empty: "No matches." };
   }
+  if (name === "list_articles" && Array.isArray(output)) {
+    const lines: string[] = [];
+    for (const article of output) {
+      if (article === null || typeof article !== "object") return null;
+      const { slug, name: label } = article as { slug?: unknown; name?: unknown };
+      if (typeof slug !== "string" || typeof label !== "string") return null;
+      lines.push(`${slug} — ${label}`);
+    }
+    return { lines, note: null, empty: "No articles yet." };
+  }
+  if (name === "list_workflows" && Array.isArray(output)) {
+    const lines: string[] = [];
+    for (const workflow of output) {
+      if (workflow === null || typeof workflow !== "object") return null;
+      const { name: label, description } = workflow as { name?: unknown; description?: unknown };
+      if (typeof label !== "string") return null;
+      lines.push(typeof description === "string" ? `${label} — ${description}` : label);
+    }
+    return { lines, note: null, empty: "No workflows defined." };
+  }
   return null;
+};
+
+// The delete tools whose settled result reads as one sentence, keyed to the
+// result field naming what was deleted.
+const DELETE_TARGET_FIELDS: Record<string, string> = {
+  delete_file: "path",
+  delete_directory: "path",
+  delete_article: "slug",
+  delete_memory: "name",
+  delete_task: "title",
+  delete_task_group: "group",
+};
+
+// A settled deletion as a plain sentence — the result carries only the
+// confirmation and its target's identifier, so a JSON dump earns nothing.
+const deletedResult = (name: string, output: unknown): string | null => {
+  const field = DELETE_TARGET_FIELDS[name];
+  if (field === undefined || output === null || typeof output !== "object") return null;
+  const { [field]: target, deleted } = output as Record<string, unknown>;
+  if (deleted !== true || typeof target !== "string") return null;
+  return `Deleted ${target}.`;
+};
+
+// A settled working-directory move as a plain sentence naming the new cwd.
+const movedCwd = (name: string, output: unknown): string | null => {
+  if (name !== "set_working_directory" || output === null || typeof output !== "object")
+    return null;
+  const { cwd } = output as { cwd?: unknown };
+  return typeof cwd === "string" ? `Now working in ${cwd}.` : null;
 };
 
 // The call's input rendered as formatted JSON — untrusted data, shown verbatim.
@@ -480,6 +530,11 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
           )}
         </div>
       );
+    }
+    // A deletion or working-directory move confirms in one plain sentence.
+    const sentence = deletedResult(name, part.output) ?? movedCwd(name, part.output);
+    if (sentence !== null) {
+      return <p className="font-mono text-ink-muted text-sm">{sentence}</p>;
     }
     // A generated image renders below the block; the expanded panel shows the
     // call's metadata without dumping the data URL's base64 as JSON.

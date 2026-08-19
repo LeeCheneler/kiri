@@ -445,6 +445,130 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText("Empty directory.")).toBeDefined();
   });
 
+  it("renders the article catalogue as slug — name lines", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_articles", {
+          state: "output-available",
+          input: {},
+          output: [
+            { slug: "release-notes", name: "Release notes", created_at: "2026-08-19T08:00:00Z" },
+            { slug: "standup", name: "Standup", created_at: "2026-08-19T09:00:00Z" },
+          ],
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/release-notes — Release notes/).closest("pre")).not.toBeNull();
+    expect(screen.queryByText(/"slug"/)).toBeNull();
+  });
+
+  it("says so when the article catalogue is empty", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_articles", { state: "output-available", input: {}, output: [] })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("No articles yet.")).toBeDefined();
+  });
+
+  it("renders the workflow catalogue as name — description lines", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_workflows", {
+          state: "output-available",
+          input: {},
+          output: [
+            { name: "digest", description: "Daily digest.", group: "reporting", inputs: {} },
+            { name: "bare" },
+          ],
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/digest — Daily digest\./).closest("pre")).not.toBeNull();
+    expect(screen.getByText(/bare/)).toBeDefined();
+  });
+
+  it("confirms a deletion in one sentence", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("delete_article", {
+          state: "output-available",
+          input: { slug: "scratch" },
+          output: { slug: "scratch", deleted: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Deleted scratch.")).toBeDefined();
+  });
+
+  it("confirms a task deletion by its title", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("delete_task", {
+          state: "output-available",
+          input: { id: "t1" },
+          output: { id: "t1", title: "Ship it", deleted: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Deleted Ship it.")).toBeDefined();
+  });
+
+  it("confirms a working-directory move in one sentence", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("set_working_directory", {
+          state: "output-available",
+          input: { path: "docs" },
+          output: { cwd: "/ws/docs" },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Now working in /ws/docs.")).toBeDefined();
+  });
+
+  it("keeps JSON for a delete result that did not confirm", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("delete_memory", {
+          state: "output-available",
+          input: { name: "fact" },
+          output: { name: "fact", deleted: false },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"deleted": false/)).toBeDefined();
+  });
+
+  it("falls back to JSON for a malformed article catalogue", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_articles", {
+          state: "output-available",
+          input: {},
+          output: [{ slug: 42 }],
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"slug": 42/)).toBeDefined();
+  });
+
   it("falls back to JSON for a malformed search result", async () => {
     const user = userEvent.setup();
     render(
