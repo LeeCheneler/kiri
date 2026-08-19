@@ -63,23 +63,25 @@ export function segmentParts(parts: UIMessage["parts"]): Segment[] {
   return segments;
 }
 
-// The chain's rolled-up status: the most urgent of its calls' statuses. A call
-// still running outranks a settled failure, which outranks a cancellation;
-// all-ok reads as ok. Approvals never join a chain, so pending can't occur.
-const STATUS_PRECEDENCE: StatusKind[] = ["working", "failed", "cancelled"];
-const chainStatus = (parts: ToolPart[]): StatusKind => {
-  const statuses = new Set(parts.map(toolStatus));
-  return STATUS_PRECEDENCE.find((status) => statuses.has(status)) ?? "ok";
-};
+// The chain's live cue: `working` while any call is still resolving, nothing
+// once every call has settled. A settled chain deliberately rolls up no
+// outcome — a failed call is routinely recovered by the model within the same
+// chain (a retry, another approach), so branding the whole panel `failed`
+// would misread self-recovery; each call's own row carries its outcome when
+// the panel is expanded.
+const chainStatus = (parts: ToolPart[]): StatusKind | null =>
+  parts.some((part) => toolStatus(part) === "working") ? "working" : null;
 
 /**
  * A run of consecutive tool calls folded into one collapsible panel: the call
- * count, the distinct tools used, and a rolled-up status, expanding to the
- * individual calls as their own collapsible rows. Expects at least two calls —
- * a lone call renders as a plain `ToolInvocation` instead.
+ * count, the distinct tools used, and a `working` cue while a call is still
+ * resolving, expanding to the individual calls as their own collapsible rows.
+ * Expects at least two calls — a lone call renders as a plain `ToolInvocation`
+ * instead.
  */
 export function ToolChain({ parts }: { parts: ToolPart[] }) {
   const names = [...new Set(parts.map((part) => humanizeName(getToolName(part))))].join(", ");
+  const status = chainStatus(parts);
   return (
     <div className="border border-rule">
       <Disclosure
@@ -89,9 +91,11 @@ export function ToolChain({ parts }: { parts: ToolPart[] }) {
               {parts.length} tool calls
             </span>
             <span className="min-w-0 truncate text-ink">{names}</span>
-            <span className="ml-auto shrink-0">
-              <Status status={chainStatus(parts)} />
-            </span>
+            {status !== null ? (
+              <span className="ml-auto shrink-0">
+                <Status status={status} />
+              </span>
+            ) : null}
           </span>
         }
       >
