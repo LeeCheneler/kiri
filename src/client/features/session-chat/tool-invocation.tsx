@@ -378,11 +378,10 @@ const readContent = (
   return { content: body, note: typeof note === "string" ? note : null };
 };
 
-// A settled search or listing as plain lines — search matches in grep's
-// file:line: text shape, file and directory listings one entry per line, the
-// article and workflow catalogues as slug/name — description rows — with any
-// note (a cap or truncation) above and a quiet message when nothing matched.
-// Null for other tools and malformed results, which stay JSON.
+// A settled filesystem search or listing as plain lines — matches in grep's
+// file:line: text shape, file and directory listings one entry per line —
+// with any note (a cap or truncation) above and a quiet message when nothing
+// matched. Null for other tools and malformed results, which stay JSON.
 const listResult = (
   name: string,
   output: unknown,
@@ -421,25 +420,156 @@ const listResult = (
     }
     return { lines, note: stringNote, empty: "No matches." };
   }
-  if (name === "list_articles" && Array.isArray(output)) {
-    const lines: string[] = [];
+  return null;
+};
+
+/**
+ * Where the owning container's pages live, for linking tool results to what
+ * they touched: the article base (`/sessions/<id>/articles`, or the project
+ * corpus), the memory base (`/memories`, or the project's), and — for a
+ * project session — the project page itself. Callers must keep the object
+ * referentially stable or the transcript's message memo never holds.
+ */
+export interface ToolPageLinks {
+  articleBase: string;
+  memoryBase: string;
+  projectHref?: string;
+}
+
+// The tools whose settled result names a document with its own page, keyed by
+// kind. The link line lets the user step from the call to what it touched.
+const ARTICLE_LINK_TOOLS = new Set([
+  "create_article",
+  "edit_article",
+  "replace_article",
+  "read_article",
+]);
+const WORKFLOW_LINK_TOOLS = new Set([
+  "create_workflow",
+  "edit_workflow",
+  "replace_workflow",
+  "read_workflow",
+]);
+const MEMORY_LINK_TOOLS = new Set(["save_memory", "read_memory"]);
+
+// A string field from the call's output, falling back to its input — a
+// settled result names its target authoritatively, but an older or partial
+// one may only carry it in the input.
+const callField = (input: unknown, output: unknown, key: string): string | null => {
+  for (const source of [output, input]) {
+    if (source !== null && typeof source === "object") {
+      const value = (source as Record<string, unknown>)[key];
+      if (typeof value === "string") return value;
+    }
+  }
+  return null;
+};
+
+// The page a settled call links to. A workflow's page is global; an article
+// or memory lives under its owning container, which `links` names — except a
+// run's article (read_article with run_id), which addresses the run instead —
+// and a project-instructions rewrite links to the project page itself. Null
+// when the target can't be named, or a container-owned page has no base to
+// resolve against.
+const resultLink = (
+  name: string,
+  input: unknown,
+  output: unknown,
+  links?: ToolPageLinks,
+): { href: string; label: string } | null => {
+  if (ARTICLE_LINK_TOOLS.has(name)) {
+    const slug = callField(input, output, "slug");
+    if (slug === null) return null;
+    const runId =
+      input !== null && typeof input === "object"
+        ? (input as { run_id?: unknown }).run_id
+        : undefined;
+    if (typeof runId === "string") {
+      return {
+        href: `/runs/${encodeURIComponent(runId)}/articles/${encodeURIComponent(slug)}`,
+        label: "open article",
+      };
+    }
+    if (links === undefined) return null;
+    return { href: `${links.articleBase}/${encodeURIComponent(slug)}`, label: "open article" };
+  }
+  if (WORKFLOW_LINK_TOOLS.has(name)) {
+    const workflow = callField(input, output, "name");
+    if (workflow === null) return null;
+    return { href: `/workflows/${encodeURIComponent(workflow)}`, label: "open workflow" };
+  }
+  if (MEMORY_LINK_TOOLS.has(name)) {
+    const memory = callField(input, output, "name");
+    if (memory === null || links === undefined) return null;
+    return { href: `${links.memoryBase}/${encodeURIComponent(memory)}`, label: "open memory" };
+  }
+  if (name === "update_project_instructions" && links?.projectHref !== undefined) {
+    return { href: links.projectHref, label: "open project" };
+  }
+  return null;
+};
+
+// The article and workflow catalogues as rows linking to each entry's page.
+// An article row resolves against the owning container's article base and
+// falls back to plain text without one; a workflow's page is global. Null
+// for other tools and malformed results, which stay JSON.
+const catalogueResult = (
+  name: string,
+  output: unknown,
+  links?: ToolPageLinks,
+): ReactNode | null => {
+  if (!Array.isArray(output)) return null;
+  if (name === "list_articles") {
+    const rows: { slug: string; label: string }[] = [];
     for (const article of output) {
       if (article === null || typeof article !== "object") return null;
       const { slug, name: label } = article as { slug?: unknown; name?: unknown };
       if (typeof slug !== "string" || typeof label !== "string") return null;
-      lines.push(`${slug} — ${label}`);
+      rows.push({ slug, label });
     }
-    return { lines, note: null, empty: "No articles yet." };
+    if (rows.length === 0) {
+      return <p className="font-mono text-ink-muted text-xs">No articles yet.</p>;
+    }
+    return (
+      <ul className="space-y-1 font-mono text-xs">
+        {rows.map((row) => (
+          <li key={row.slug} className="text-ink">
+            {links !== undefined ? (
+              <InlineLink href={`${links.articleBase}/${encodeURIComponent(row.slug)}`}>
+                {row.slug}
+              </InlineLink>
+            ) : (
+              row.slug
+            )}
+            <span className="text-ink-muted"> — {row.label}</span>
+          </li>
+        ))}
+      </ul>
+    );
   }
-  if (name === "list_workflows" && Array.isArray(output)) {
-    const lines: string[] = [];
+  if (name === "list_workflows") {
+    const rows: { name: string; description: string | null }[] = [];
     for (const workflow of output) {
       if (workflow === null || typeof workflow !== "object") return null;
       const { name: label, description } = workflow as { name?: unknown; description?: unknown };
       if (typeof label !== "string") return null;
-      lines.push(typeof description === "string" ? `${label} — ${description}` : label);
+      rows.push({ name: label, description: typeof description === "string" ? description : null });
     }
-    return { lines, note: null, empty: "No workflows defined." };
+    if (rows.length === 0) {
+      return <p className="font-mono text-ink-muted text-xs">No workflows defined.</p>;
+    }
+    return (
+      <ul className="space-y-1 font-mono text-xs">
+        {rows.map((row) => (
+          <li key={row.name} className="text-ink">
+            <InlineLink href={`/workflows/${encodeURIComponent(row.name)}`}>{row.name}</InlineLink>
+            {row.description !== null && (
+              <span className="text-ink-muted"> — {row.description}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    );
   }
   return null;
 };
@@ -482,7 +612,15 @@ function ToolInput({ input }: { input: unknown }) {
   );
 }
 
-function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
+function ToolPanel({
+  part,
+  name,
+  pageLinks,
+}: {
+  part: ToolPart;
+  name: string;
+  pageLinks?: ToolPageLinks;
+}) {
   if (part.state === "output-error") {
     if (part.errorText === CANCELLED_ERROR_TEXT) {
       return <p className="font-mono text-ink-muted text-sm">You cancelled this call.</p>;
@@ -494,11 +632,29 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     );
   }
   if (part.state === "output-available") {
+    // A settled call that touched a document with its own page leads with a
+    // link to it, above whatever the result renders as.
+    const link = resultLink(name, part.input, part.output, pageLinks);
+    const linkLine =
+      link !== null ? (
+        <p className="font-mono text-xs">
+          <InlineLink href={link.href}>{link.label}</InlineLink>
+        </p>
+      ) : null;
     // A write's result renders as the change itself — the unified diff, a
     // created document's content, or an edit's old/new pair — still untrusted
     // text shown verbatim, never markdown.
     const change = writtenChange(name, part.input, part.output);
-    if (change) return <Diff patch={change.patch} truncated={change.truncated} />;
+    if (change) {
+      const diff = <Diff patch={change.patch} truncated={change.truncated} />;
+      if (linkLine === null) return diff;
+      return (
+        <div className="space-y-2">
+          {linkLine}
+          {diff}
+        </div>
+      );
+    }
     // A shell command's result renders as its exit status and output streams
     // rather than JSON.
     const command = commandResult(name, part.output);
@@ -509,6 +665,7 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     if (read) {
       return (
         <div className="space-y-2 font-mono text-xs">
+          {linkLine}
           {read.note !== null && <p className="text-ink-muted">{read.note}</p>}
           <CodeBlock>{read.content}</CodeBlock>
         </div>
@@ -517,6 +674,10 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     // A workflow run's outcome renders as a small run report rather than JSON.
     const run = workflowResult(name, part.output);
     if (run) return run;
+    // The article and workflow catalogues render as rows linking to each
+    // entry's page.
+    const catalogue = catalogueResult(name, part.output, pageLinks);
+    if (catalogue) return catalogue;
     // A search or listing renders as plain lines rather than a JSON array.
     const list = listResult(name, part.output);
     if (list) {
@@ -621,10 +782,17 @@ export function ToolInvocation({
   part,
   onDecision,
   framed = true,
+  pageLinks,
 }: {
   part: ToolPart;
   onDecision?: ToolDecisionHandler;
   framed?: boolean;
+  /**
+   * Where the owning container's article, memory, and project pages live;
+   * results link through it. Omitted, those links are dropped while workflow
+   * and run links still render.
+   */
+  pageLinks?: ToolPageLinks;
 }) {
   const name = getToolName(part);
   if (part.state === "approval-requested" && onDecision) {
@@ -651,7 +819,7 @@ export function ToolInvocation({
         {/* Cap the expanded result at ~14 lines (of text-sm) and scroll past
             that, so a long result stays contained in the box. */}
         <div className="max-h-[17.5rem] overflow-y-auto">
-          <ToolPanel part={part} name={name} />
+          <ToolPanel part={part} name={name} pageLinks={pageLinks} />
         </div>
       </Disclosure>
       {/* The generated image is the call's product for the user — always

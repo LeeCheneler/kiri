@@ -3,6 +3,7 @@ import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import {
   ToolInvocation,
+  type ToolPageLinks,
   type ToolPart,
   generatedImage,
   humanizeName,
@@ -79,7 +80,13 @@ const chainStatus = (parts: ToolPart[]): StatusKind | null =>
  * Expects at least two calls — a lone call renders as a plain `ToolInvocation`
  * instead.
  */
-export function ToolChain({ parts }: { parts: ToolPart[] }) {
+export function ToolChain({
+  parts,
+  pageLinks,
+}: {
+  parts: ToolPart[];
+  pageLinks?: ToolPageLinks;
+}) {
   const names = [...new Set(parts.map((part) => humanizeName(getToolName(part))))].join(", ");
   const status = chainStatus(parts);
   return (
@@ -101,7 +108,12 @@ export function ToolChain({ parts }: { parts: ToolPart[] }) {
       >
         <div className="divide-y divide-rule border border-rule">
           {parts.map((part) => (
-            <ToolInvocation key={part.toolCallId} part={part} framed={false} />
+            <ToolInvocation
+              key={part.toolCallId}
+              part={part}
+              framed={false}
+              pageLinks={pageLinks}
+            />
           ))}
         </div>
       </Disclosure>

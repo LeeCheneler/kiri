@@ -22,6 +22,7 @@ import { modelLabel } from "./model-options.ts";
 import { useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
 import { TidyDraft } from "./tidy-draft.tsx";
+import type { ToolPageLinks } from "./tool-invocation.tsx";
 import { useSessionConversation } from "./use-session-conversation.ts";
 import { useSuggestedReplies } from "./use-suggested-replies.ts";
 import { useTidyDraft } from "./use-tidy-draft.ts";
@@ -140,6 +141,23 @@ function ChatView({
   wikiLinkResolver?: WikiLinkResolver;
 }) {
   const { session } = detail;
+  // Where this session's articles, memories, and project pages live — its
+  // project's container when it has one, the workspace surfaces otherwise.
+  // Memoised so the ChatMessage memo holds.
+  const pageLinks = useMemo<ToolPageLinks>(() => {
+    if (session.projectId === null) {
+      return {
+        articleBase: `/sessions/${encodeURIComponent(session.id)}/articles`,
+        memoryBase: "/memories",
+      };
+    }
+    const project = `/projects/${encodeURIComponent(session.projectId)}`;
+    return {
+      articleBase: `${project}/articles`,
+      memoryBase: `${project}/memories`,
+      projectHref: project,
+    };
+  }, [session.id, session.projectId]);
   const modelsData = useModels().data;
   const models = modelsData?.models ?? [];
   // Whether the session's model reads images, per its provider's listing. Only
@@ -315,6 +333,7 @@ function ChatView({
               message={message}
               busy={busy}
               sessionId={session.id}
+              pageLinks={pageLinks}
               wikiLinkResolver={wikiLinkResolver}
               onResubmit={handleResubmit}
               onDelete={handleDeleteMessage}

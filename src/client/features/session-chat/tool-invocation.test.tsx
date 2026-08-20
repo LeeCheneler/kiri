@@ -445,7 +445,7 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText("Empty directory.")).toBeDefined();
   });
 
-  it("renders the article catalogue as slug — name lines", async () => {
+  it("renders the article catalogue as rows linking each article's page", async () => {
     const user = userEvent.setup();
     render(
       <ToolInvocation
@@ -457,11 +457,31 @@ describe("<ToolInvocation>", () => {
             { slug: "standup", name: "Standup", created_at: "2026-08-19T09:00:00Z" },
           ],
         })}
+        pageLinks={{ articleBase: "/sessions/s1/articles", memoryBase: "/memories" }}
       />,
     );
     await user.click(screen.getByRole("button"));
-    expect(screen.getByText(/release-notes — Release notes/).closest("pre")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "release-notes" }).getAttribute("href")).toBe(
+      "/sessions/s1/articles/release-notes",
+    );
+    expect(screen.getByText("— Release notes")).toBeDefined();
     expect(screen.queryByText(/"slug"/)).toBeNull();
+  });
+
+  it("renders article catalogue rows as plain text without an article base", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_articles", {
+          state: "output-available",
+          input: {},
+          output: [{ slug: "release-notes", name: "Release notes" }],
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("release-notes")).toBeDefined();
   });
 
   it("says so when the article catalogue is empty", async () => {
@@ -475,7 +495,7 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText("No articles yet.")).toBeDefined();
   });
 
-  it("renders the workflow catalogue as name — description lines", async () => {
+  it("renders the workflow catalogue as rows linking each workflow's page", async () => {
     const user = userEvent.setup();
     render(
       <ToolInvocation
@@ -490,8 +510,156 @@ describe("<ToolInvocation>", () => {
       />,
     );
     await user.click(screen.getByRole("button"));
-    expect(screen.getByText(/digest — Daily digest\./).closest("pre")).not.toBeNull();
-    expect(screen.getByText(/bare/)).toBeDefined();
+    expect(screen.getByRole("link", { name: "digest" }).getAttribute("href")).toBe(
+      "/workflows/digest",
+    );
+    expect(screen.getByText("— Daily digest.")).toBeDefined();
+    expect(screen.getByRole("link", { name: "bare" })).toBeDefined();
+  });
+
+  it("links a settled article write to its article page above the diff", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("create_article", {
+          state: "output-available",
+          input: { slug: "notes", name: "Notes", content_md: "body" },
+          output: { slug: "notes", name: "Notes" },
+        })}
+        pageLinks={{ articleBase: "/projects/p1/articles", memoryBase: "/projects/p1/memories" }}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByRole("link", { name: "open article" }).getAttribute("href")).toBe(
+      "/projects/p1/articles/notes",
+    );
+  });
+
+  it("drops the article link without a base, keeping the diff", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("create_article", {
+          state: "output-available",
+          input: { slug: "notes", name: "Notes", content_md: "body" },
+          output: { slug: "notes", name: "Notes" },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("body").closest("[data-diff-line]")).not.toBeNull();
+  });
+
+  it("links a run's article read through the run page, needing no base", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("read_article", {
+          state: "output-available",
+          input: { slug: "digest", run_id: "r1" },
+          output: { slug: "digest", name: "Digest", content_md: "body" },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByRole("link", { name: "open article" }).getAttribute("href")).toBe(
+      "/runs/r1/articles/digest",
+    );
+  });
+
+  it("links a settled workflow write to its workflow page", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("edit_workflow", {
+          state: "output-available",
+          input: { name: "digest", old_string: "a", new_string: "b" },
+          output: { name: "digest", file: "workflows/digest.yaml", replacements: 1 },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByRole("link", { name: "open workflow" }).getAttribute("href")).toBe(
+      "/workflows/digest",
+    );
+  });
+
+  it("links a settled memory save to its memory page above the diff", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("save_memory", {
+          state: "output-available",
+          input: { name: "prefers-bun", description: "d", content_md: "body" },
+          output: { name: "prefers-bun", saved: "updated", diff: "@@ -1,1 +1,1 @@\n-a\n+body" },
+        })}
+        pageLinks={{ articleBase: "/sessions/s1/articles", memoryBase: "/memories" }}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByRole("link", { name: "open memory" }).getAttribute("href")).toBe(
+      "/memories/prefers-bun",
+    );
+  });
+
+  it("drops the memory link when the result names no memory", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("read_memory", {
+          state: "output-available",
+          input: {},
+          output: { content_md: "body" },
+        })}
+        pageLinks={{ articleBase: "/sessions/s1/articles", memoryBase: "/memories" }}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("body").closest("pre")).not.toBeNull();
+  });
+
+  it("links a project-instructions rewrite to the project page", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("update_project_instructions", {
+          state: "output-available",
+          input: { instructions_md: "b" },
+          output: { project: "Atlas", instructions: "updated", diff: "@@ -1,1 +1,1 @@\n-a\n+b" },
+        })}
+        pageLinks={{
+          articleBase: "/projects/p1/articles",
+          memoryBase: "/projects/p1/memories",
+          projectHref: "/projects/p1",
+        }}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByRole("link", { name: "open project" }).getAttribute("href")).toBe(
+      "/projects/p1",
+    );
+  });
+
+  it("keeps JSON for an array result from a non-catalogue tool", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation part={part({ state: "output-available", input: {}, output: ["a", "b"] })} />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"a",/)).toBeDefined();
+  });
+
+  it("says so when the workflow catalogue is empty", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_workflows", { state: "output-available", input: {}, output: [] })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("No workflows defined.")).toBeDefined();
   });
 
   it("confirms a deletion in one sentence", async () => {
