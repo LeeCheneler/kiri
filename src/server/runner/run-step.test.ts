@@ -45,6 +45,7 @@ describe("runStep", () => {
       expect(envelope.output).toBe("hello\n");
       expect(envelope.traces.stdout).toBe("hello\n");
       expect(envelope.traces.stderr).toBe("");
+      expect(envelope.traces.console).toBe("hello\n");
       expect(envelope.error).toBeUndefined();
       expect(envelope.traces.durationMs).toBeGreaterThanOrEqual(0);
     });
@@ -152,6 +153,47 @@ describe("runStep", () => {
       expect(captured).toHaveLength(1);
       // ChildHandle shape: a `kill` method the cancel registry will call.
       expect(typeof captured[0].kill).toBe("function");
+    });
+  });
+
+  describe("onOutput callback", () => {
+    it("surfaces stdout and stderr chunks as they arrive, without touching the split traces", async () => {
+      const chunks: string[] = [];
+      const envelope = await runStep({
+        step: { sh: "printf out; printf err 1>&2" },
+        config,
+        scratchDir,
+        env: {},
+        onOutput: (chunk) => chunks.push(chunk),
+      });
+
+      expect(envelope.status).toBe("ok");
+      const merged = chunks.join("");
+      expect(merged).toContain("out");
+      expect(merged).toContain("err");
+      // The envelope accumulates the same merge the callback saw.
+      expect(envelope.traces.console).toBe(merged);
+      expect(envelope.traces.stdout).toBe("out");
+      expect(envelope.traces.stderr).toBe("err");
+    });
+
+    it("holds a multibyte character split across pipe chunks until it completes", async () => {
+      const chunks: string[] = [];
+      // ✓ (U+2713) emitted byte-by-byte with a pause, so the pipe delivers
+      // it across separate reads.
+      const envelope = await runStep({
+        step: { sh: "printf '\\342'; sleep 0.05; printf '\\234\\223'" },
+        config,
+        scratchDir,
+        env: {},
+        onOutput: (chunk) => chunks.push(chunk),
+      });
+
+      expect(envelope.status).toBe("ok");
+      expect(chunks.join("")).toBe("✓");
+      for (const chunk of chunks) expect(chunk.isWellFormed()).toBe(true);
+      expect(envelope.traces.stdout).toBe("✓");
+      expect(envelope.traces.console).toBe("✓");
     });
   });
 

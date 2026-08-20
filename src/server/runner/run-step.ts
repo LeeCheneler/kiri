@@ -7,14 +7,21 @@ import { runLlmStep } from "./run-llm-step.ts";
 /**
  * Standard envelope for a step, matching the shape every step variant
  * returns. `output` is the captured stdout; later phases reach it through
- * `{ step: <id> }` env refs. `traces.usage` carries token counts and is
- * only present on `llm:` steps.
+ * `{ step: <id> }` env refs. `traces.console` is stdout and stderr merged
+ * in arrival order — the step's output as a terminal would have shown it.
+ * `traces.usage` carries token counts and is only present on `llm:` steps.
  */
 export interface StepEnvelope {
   status: "ok" | "failed";
   output: string;
   error?: { message: string; stack?: string };
-  traces: { stdout: string; stderr: string; durationMs: number; usage?: LlmUsage };
+  traces: {
+    stdout: string;
+    stderr: string;
+    console: string;
+    durationMs: number;
+    usage?: LlmUsage;
+  };
 }
 
 export interface RunStepArgs {
@@ -40,6 +47,13 @@ export interface RunStepArgs {
    * cancel can stop the work.
    */
   onSpawn?: (handle: ChildHandle) => void;
+  /**
+   * Invoked with each decoded chunk of the child's output as it arrives,
+   * stdout and stderr interleaved by arrival order — the same merge the
+   * envelope accumulates as `traces.console`, surfaced incrementally.
+   * Never called for `llm:` steps (they spawn nothing).
+   */
+  onOutput?: (chunk: string) => void;
 }
 
 /**
@@ -51,6 +65,32 @@ export interface RunStepArgs {
  * the error names the largest entries so it points back at the ref.
  */
 const ENV_BYTE_LIMIT = 900 * 1024;
+
+/**
+ * Drain one pipe to a string, surfacing each chunk as it arrives. A per-pipe
+ * streaming decoder keeps multibyte characters split across chunk boundaries
+ * intact.
+ */
+const readPipe = async (
+  pipe: ReadableStream<Uint8Array<ArrayBuffer>>,
+  onChunk?: (chunk: string) => void,
+): Promise<string> => {
+  const decoder = new TextDecoder();
+  const reader = pipe.getReader();
+  let text = "";
+  const push = (chunk: string): void => {
+    if (!chunk) return;
+    text += chunk;
+    onChunk?.(chunk);
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    push(decoder.decode(value, { stream: true }));
+  }
+  push(decoder.decode());
+  return text;
+};
 
 const envByteSize = (env: Record<string, string>): number =>
   Object.entries(env).reduce(
@@ -72,7 +112,7 @@ const envByteSize = (env: Record<string, string>): number =>
  * env size guard doesn't apply to them.
  */
 export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
-  const { step, config, scratchDir, env, llmClients, onSpawn } = args;
+  const { step, config, scratchDir, env, llmClients, onSpawn, onOutput } = args;
   if (isLlmStep(step)) {
     return runLlmStep({ step, config, env, llmClients, onSpawn });
   }
@@ -95,12 +135,13 @@ export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
           `step env is ${Math.round(envBytes / 1024)} KB, over the ${Math.round(ENV_BYTE_LIMIT / 1024)} KB exec limit — ` +
           `largest entries: ${largest}. Trim the referenced output or move the data to a file.`,
       },
-      traces: { stdout: "", stderr: "", durationMs: performance.now() - startedAt },
+      traces: { stdout: "", stderr: "", console: "", durationMs: performance.now() - startedAt },
     };
   }
 
   let stdout: string;
   let stderr: string;
+  let consoleText = "";
   let exitCode: number;
   try {
     // stdin is /dev/null: data reaches a step only through its declared
@@ -114,9 +155,13 @@ export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
       stderr: "pipe",
     });
     onSpawn?.(proc);
+    const emit = (chunk: string): void => {
+      consoleText += chunk;
+      onOutput?.(chunk);
+    };
     [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      readPipe(proc.stdout, emit),
+      readPipe(proc.stderr, emit),
       proc.exited,
     ]);
   } catch (cause) {
@@ -127,18 +172,22 @@ export async function runStep(args: RunStepArgs): Promise<StepEnvelope> {
         cause instanceof Error
           ? { message: cause.message, stack: cause.stack }
           : { message: String(cause) },
-      traces: { stdout: "", stderr: "", durationMs: performance.now() - startedAt },
+      traces: { stdout: "", stderr: "", console: "", durationMs: performance.now() - startedAt },
     };
   }
 
   const durationMs = performance.now() - startedAt;
   if (exitCode === 0) {
-    return { status: "ok", output: stdout, traces: { stdout, stderr, durationMs } };
+    return {
+      status: "ok",
+      output: stdout,
+      traces: { stdout, stderr, console: consoleText, durationMs },
+    };
   }
   return {
     status: "failed",
     output: stdout,
     error: { message: `step exited with code ${exitCode}` },
-    traces: { stdout, stderr, durationMs },
+    traces: { stdout, stderr, console: consoleText, durationMs },
   };
 }

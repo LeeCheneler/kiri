@@ -47,6 +47,25 @@ export interface RunWorkflowResult {
 const CANCELLED_ERROR = { message: "run cancelled" } as const;
 
 /**
+ * Cadence and ceiling for the live console: while a step runs, its merged
+ * output is flushed to the step row at most once per interval, keeping only
+ * the tail so a firehose step neither bloats the row nor floods the bus.
+ * The tail cap is live-only — the terminal step update replaces these
+ * traces with the envelope's, whose `console` is the full merge.
+ */
+const LIVE_CONSOLE_FLUSH_MS = 300;
+const LIVE_CONSOLE_TAIL_CHARS = 64 * 1024;
+
+const consoleTail = (text: string): string => {
+  if (text.length <= LIVE_CONSOLE_TAIL_CHARS) return text;
+  let start = text.length - LIVE_CONSOLE_TAIL_CHARS;
+  // Never start on a low surrogate — step past a pair the cap split.
+  const lead = text.charCodeAt(start);
+  if (lead >= 0xdc00 && lead <= 0xdfff) start += 1;
+  return text.slice(start);
+};
+
+/**
  * Handle on a started run. `runId` is generated and the `runs` row is
  * inserted synchronously, so it can be returned to API callers right away;
  * `done` resolves once the workflow has reached a terminal status (or
@@ -364,14 +383,50 @@ export function runWorkflow(
     });
     if (opts.envExtras) Object.assign(env, opts.envExtras);
 
-    const envelope = await runStep({
-      step: opts.step,
-      config: args.config,
-      scratchDir,
-      env,
-      llmClients: args.llmClients,
-      onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
-    });
+    // Live console: merged output accumulates as chunks arrive, and a
+    // coalescing interval writes the tail onto the running row — only when
+    // new bytes landed since the last flush. Consumers hear the same thin
+    // `run.step.updated` event and refetch; no output rides the bus.
+    const stepStartedAt = performance.now();
+    let liveConsole = "";
+    let liveDirty = false;
+    const flushConsole = (): void => {
+      if (!liveDirty) return;
+      liveDirty = false;
+      db.update(runSteps)
+        .set({
+          traces: {
+            stdout: "",
+            stderr: "",
+            durationMs: performance.now() - stepStartedAt,
+            console: liveConsole,
+          },
+        })
+        .where(eq(runSteps.id, stepId))
+        .run();
+      args.bus?.publish({ type: "run.step.updated", runId, step: opts.index, status: "running" });
+    };
+    const consoleFlusher = setInterval(flushConsole, LIVE_CONSOLE_FLUSH_MS);
+
+    let envelope: StepEnvelope;
+    try {
+      envelope = await runStep({
+        step: opts.step,
+        config: args.config,
+        scratchDir,
+        env,
+        llmClients: args.llmClients,
+        onSpawn: (proc) => args.cancelRegistry?.setChild(runId, proc),
+        onOutput: (chunk) => {
+          liveConsole = consoleTail(liveConsole + chunk);
+          liveDirty = true;
+        },
+      });
+    } finally {
+      // Stop flushing before the terminal update below so a late tick can
+      // never resurrect live traces over the envelope's final ones.
+      clearInterval(consoleFlusher);
+    }
 
     // An ok envelope only settles as ok once the outputs contract holds:
     // every declared name must have been emitted. A miss fails the step —
