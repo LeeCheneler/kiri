@@ -25,6 +25,12 @@ export {
 } from "./filesystem-tools.ts";
 export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
 export {
+  type LiveConsoleEmitter,
+  type LiveConsoleOptions,
+  type LiveConsoleSnapshot,
+  liveConsoleEmitter,
+} from "./live-console.ts";
+export {
   type Memory,
   type MemorySummary,
   getScopedMemory,

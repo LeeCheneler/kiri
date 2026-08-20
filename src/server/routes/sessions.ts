@@ -5,6 +5,7 @@ import {
   type ModelMessage,
   type ToolSet,
   type UIMessage,
+  type UIMessageStreamWriter,
   UI_MESSAGE_STREAM_HEADERS,
   isToolUIPart,
 } from "ai";
@@ -54,6 +55,7 @@ import {
   listMemories,
   listProjectMemories,
   listSkills,
+  liveConsoleEmitter,
   memoryTools,
   projectTools,
   resumeTurn,
@@ -451,7 +453,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     };
   };
 
-  const builtinToolsFor = (sessionId: string): ToolSet => {
+  // `writer` is the owning turn's stream writer, threaded here — the one
+  // tool-assembly point — so any tool can emit live progress parts while it
+  // runs; today only run_command's live console does. Absent (a writer-less
+  // construction, used to enumerate tool names for the system prompt), the
+  // tools run without a live feed.
+  const builtinToolsFor = (sessionId: string, writer?: UIMessageStreamWriter): ToolSet => {
     const sandbox = sandboxDirectories();
     return {
       ...skillTools(config),
@@ -469,7 +476,15 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         bus?.publish(event),
       ),
       ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
-      ...(sandbox.length > 0 ? shellTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
+      ...(sandbox.length > 0
+        ? shellTools(
+            () => sandbox,
+            cwdBindingFor(sessionId),
+            writer === undefined
+              ? {}
+              : { liveConsole: (toolCallId) => liveConsoleEmitter(writer, toolCallId) },
+          )
+        : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
     };
   };
@@ -506,12 +521,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // absent. An "auto" tool is likewise absent: its judgement can ask, and a
   // worker has no one to ask. Delegation therefore never widens what runs
   // without asking.
-  const childActiveTools = (childSessionId: string): ToolSet => {
+  const childActiveTools = (childSessionId: string, writer?: UIMessageStreamWriter): ToolSet => {
     const tools: ToolSet = {};
     for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
       if (toolPermissions.get(name, "ask") === "allow") tools[name] = mcpTool;
     }
-    const builtin = builtinToolsFor(childSessionId);
+    const builtin = builtinToolsFor(childSessionId, writer);
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
       const builtinTool = builtin[name];
       if (builtinTool === undefined || childWithheld.has(name)) continue;
@@ -526,7 +541,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // this surface's stream registry and cancel registry, so a reconnecting
   // client can rejoin the child's live stream and a cancel reaches its turn.
   const childTurnDeps = (childSessionId: string): RunTurnDeps => {
-    const tools = childActiveTools(childSessionId);
+    // The prompt needs the tool names before the turn's stream (and so its
+    // writer) exists; the set the model runs with is rebuilt against the
+    // writer when the stream starts. Both constructions gate identically, so
+    // the names always match.
+    const toolNames = Object.keys(childActiveTools(childSessionId));
     return {
       db,
       llmClients,
@@ -535,14 +554,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       streamRegistry,
       buildSystemPrompt: createSystemPromptBuilder(
         config,
-        Object.keys(tools),
+        toolNames,
         sandboxDirectories(),
         [],
         listSkills(config),
         listMemories(db),
         projectContextFor(childSessionId),
       ),
-      tools,
+      tools: ({ writer }) => childActiveTools(childSessionId, writer),
     };
   };
 
@@ -558,14 +577,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // The filesystem and shell tools self-gate on configuration like an MCP
   // server: no declared directories, no tools — a BUILTIN_TOOLS entry absent
   // from the merged set is simply withheld.
-  const activeTools = (sessionId: string): ToolSet => {
+  const activeTools = (sessionId: string, writer?: UIMessageStreamWriter): ToolSet => {
     const tools: ToolSet = {};
     for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
       const offered = gate(name, mcpTool, "ask");
       if (offered !== null) tools[name] = offered;
     }
     const builtin: ToolSet = {
-      ...builtinToolsFor(sessionId),
+      ...builtinToolsFor(sessionId, writer),
       // A worker can't spawn workers: delegate is offered only to a session
       // with no parent. Delegate models, when configured, make the worker's
       // model a required role choice, read live so a kiri.yaml edit applies
@@ -979,21 +998,24 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const pending =
         last?.role === "assistant" && hasPendingApproval(last.parts as UIMessage["parts"]);
 
-      // Resolve the live, approval-gated tools for this turn and compose the
-      // system prompt from their names so the core layer's tool guidance matches
+      // Resolve the live, approval-gated tool names for this turn and compose
+      // the system prompt from them so the core layer's tool guidance matches
       // what the model is actually offered; the sandbox rides along so the
-      // filesystem and shell guidance can enumerate the reachable roots.
-      const tools = activeTools(id);
+      // filesystem and shell guidance can enumerate the reachable roots. The
+      // set the model runs with is rebuilt against the turn's stream writer
+      // when the stream starts, so a tool can emit live progress parts; both
+      // constructions gate identically, so the names always match.
+      const toolNames = Object.keys(activeTools(id));
       const buildSystemPrompt = createSystemPromptBuilder(
         config,
-        Object.keys(tools),
+        toolNames,
         sandboxDirectories(),
         configuredDelegateRoles(deps.getModelsConfig?.().delegates),
         listSkills(config),
         listMemories(db),
         projectContextFor(id),
       );
-      const turnDeps = {
+      const turnDeps: RunTurnDeps = {
         db,
         llmClients,
         bus,
@@ -1006,7 +1028,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           cwdNotice === undefined
             ? buildSystemPrompt
             : (s: Session) => `${buildSystemPrompt(s)}\n\n${cwdNotice}`,
-        tools,
+        tools: ({ writer }) => activeTools(id, writer),
       };
 
       // Persistence rides the stream's completion (the turn's `onFinish`), so the

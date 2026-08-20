@@ -22,7 +22,9 @@ import {
   getSession,
   getSessionMessages,
   imageTools,
+  liveConsoleEmitter,
   runTurn,
+  shellTools,
   updateSessionImageModel,
 } from "../../src/server/sessions/index.ts";
 import { FAKE_IMAGE_B64, type FakeOpenAi, startFakeOpenAi } from "../support/fake-openai.ts";
@@ -167,6 +169,45 @@ describe("session turn streaming", () => {
     for (const request of fake.requests) {
       expect(JSON.stringify(request)).not.toContain(FAKE_IMAGE_B64);
     }
+  });
+
+  it("streams a run_command's live console as transient data parts, persisting none of them", async () => {
+    const session = createSession(db, "fake:tool");
+    const sessionCwd = { get: () => null, set: () => {} };
+
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients,
+        // The route threads the turn's writer into the shell tool the same way;
+        // this exercises the full path: tool output → coalesced snapshots →
+        // the streamed SSE response.
+        tools: ({ writer }) =>
+          shellTools(() => [cwd], sessionCwd, {
+            liveConsole: (toolCallId) => liveConsoleEmitter(writer, toolCallId, { flushMs: 20 }),
+          }),
+      },
+      {
+        session,
+        userMessage: userMessage(
+          `call:run_command ${JSON.stringify({ command: "echo alpha; sleep 0.1; echo beta" })}`,
+        ),
+      },
+    );
+    const sse = await response.text();
+    await done;
+
+    // Live snapshots rode the wire as transient data parts carrying the
+    // growing merge…
+    expect(sse).toContain('"type":"data-tool-console"');
+    expect(sse).toContain("alpha");
+    // …while the persisted assistant message carries only the call and its
+    // settled result — the live feed left no trace in storage.
+    const messages = getSessionMessages(db, session.id);
+    const parts = messages[1].parts as Array<{ type: string; output?: { stdout?: string } }>;
+    expect(parts.map((p) => p.type)).not.toContain("data-tool-console");
+    expect(parts.find((p) => p.type === "tool-run_command")?.output?.stdout).toBe("alpha\nbeta\n");
+    expect(getSession(db, session.id)?.status).toBe("idle");
   });
 
   it("composes the layered system prompt — core then kiri.md — and sends it to the model", async () => {

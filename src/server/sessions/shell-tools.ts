@@ -3,6 +3,7 @@ import { isAbsolute, join, sep } from "node:path";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import type { SessionCwd } from "./filesystem-tools.ts";
+import type { LiveConsoleEmitter } from "./live-console.ts";
 
 // Cap on each returned output stream (stdout and stderr independently). The
 // tail is kept — a failing build or test run prints its cause last — and the
@@ -17,7 +18,37 @@ const DEFAULT_TIMEOUT_SECONDS = 120;
 /** Tunable bounds, defaulting to the module constants. Tests pass tiny values. */
 export interface ShellToolsOptions {
   maxOutputLength?: number;
+  /**
+   * Builds the live feed a call streams its merged output through while it
+   * runs — stdout and stderr interleaved by arrival — ended when the command
+   * settles. Omitted, output is captured only for the result.
+   */
+  liveConsole?: (toolCallId: string) => LiveConsoleEmitter;
 }
+
+// Drain one pipe to a string, surfacing each decoded chunk as it arrives. A
+// per-pipe streaming decoder keeps multibyte characters split across chunk
+// boundaries intact.
+const readPipe = async (
+  pipe: ReadableStream<Uint8Array<ArrayBuffer>>,
+  onChunk: (chunk: string) => void,
+): Promise<string> => {
+  const decoder = new TextDecoder();
+  const reader = pipe.getReader();
+  let text = "";
+  const push = (chunk: string): void => {
+    if (!chunk) return;
+    text += chunk;
+    onChunk(chunk);
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    push(decoder.decode(value, { stream: true }));
+  }
+  push(decoder.decode());
+  return text;
+};
 
 // Keep a stream's tail within `max` characters. A tail starting with a low
 // surrogate (0xdc00–0xdfff) carries an orphan half of a split pair; drop it
@@ -44,14 +75,16 @@ const tailCap = (value: string, max: number): { text: string; truncated: boolean
  * otherwise), and dies with the turn when a cancel aborts it. A non-zero exit
  * is a *result* — exit code, stdout, and stderr, each stream tail-capped —
  * not a tool error; only a call that can't start (bad cwd, no configured
- * directories) throws, with a message naming what recovers.
+ * directories) throws, with a message naming what recovers. While a command
+ * runs, its merged output streams through the `liveConsole` feed when one is
+ * wired; the settled result is unaffected either way.
  */
 export function shellTools(
   getAllowedDirectories: () => readonly string[],
   cwd: SessionCwd,
   options: ShellToolsOptions = {},
 ): ToolSet {
-  const { maxOutputLength = MAX_OUTPUT_LENGTH } = options;
+  const { maxOutputLength = MAX_OUTPUT_LENGTH, liveConsole } = options;
 
   // The sandbox as real paths, deduplicated; an entry that doesn't exist on
   // disk can't be run in and is skipped.
@@ -145,7 +178,7 @@ export function shellTools(
             "Seconds the command may run before it is killed. Defaults to 120; raise it only for genuinely long work like a full build.",
           ),
       }),
-      execute: async ({ command, cwd, timeout_seconds }, { abortSignal }) => {
+      execute: async ({ command, cwd, timeout_seconds }, { toolCallId, abortSignal }) => {
         const real = confineCwd(cwd);
         const timeoutMs = (timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000;
         const startedAt = performance.now();
@@ -168,17 +201,23 @@ export function shellTools(
         }, timeoutMs);
         const onAbort = () => proc.kill("SIGKILL");
         abortSignal?.addEventListener("abort", onAbort, { once: true });
+        // Both pipes feed one live console in arrival order — the output as a
+        // terminal would show it — while each stream still accumulates whole
+        // for the capped result.
+        const live = liveConsole?.(toolCallId);
+        const emit = (chunk: string): void => live?.append(chunk);
         let stdout: string;
         let stderr: string;
         try {
           [stdout, stderr] = await Promise.all([
-            new Response(proc.stdout).text(),
-            new Response(proc.stderr).text(),
+            readPipe(proc.stdout, emit),
+            readPipe(proc.stderr, emit),
           ]);
           await proc.exited;
         } finally {
           clearTimeout(timer);
           abortSignal?.removeEventListener("abort", onAbort);
+          live?.end();
         }
         const durationMs = Math.round(performance.now() - startedAt);
         const out = tailCap(stdout, maxOutputLength);

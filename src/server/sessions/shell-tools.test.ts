@@ -199,4 +199,48 @@ describe("shellTools", () => {
     expect(result.timedOut).toBeUndefined();
     expect(result.durationMs as number).toBeLessThan(5_000);
   });
+
+  // A fake live feed capturing what the tool streams through it.
+  const fakeConsole = () => {
+    const feed = { toolCallId: "", chunks: [] as string[], ended: false };
+    const factory = (toolCallId: string) => {
+      feed.toolCallId = toolCallId;
+      return {
+        append: (chunk: string) => {
+          feed.chunks.push(chunk);
+        },
+        end: () => {
+          feed.ended = true;
+        },
+      };
+    };
+    return { feed, factory };
+  };
+
+  it("streams output through the live console for its call, ending the feed on settle", async () => {
+    const { feed, factory } = fakeConsole();
+    const result = await run(tool([workspace], { liveConsole: factory }), {
+      command: "echo one; echo two >&2",
+    });
+    expect(feed.toolCallId).toBe("call-1");
+    // Both streams reached the one feed; the settled result still splits them.
+    expect(feed.chunks.join("")).toContain("one\n");
+    expect(feed.chunks.join("")).toContain("two\n");
+    expect(feed.ended).toBe(true);
+    expect(result.stdout).toBe("one\n");
+    expect(result.stderr).toBe("two\n");
+  });
+
+  it("ends the live console even when the command is killed", async () => {
+    const { feed, factory } = fakeConsole();
+    // `exec` so the kill hits the sleep itself — a forked child would survive
+    // bash's SIGKILL holding the pipes open until it exits on its own.
+    const result = await run(tool([workspace], { liveConsole: factory }), {
+      command: "echo started; exec sleep 30",
+      timeout_seconds: 0.2,
+    });
+    expect(result.timedOut).toBe(true);
+    expect(feed.chunks.join("")).toBe("started\n");
+    expect(feed.ended).toBe(true);
+  });
 });
