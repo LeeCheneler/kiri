@@ -25,6 +25,12 @@ export {
 } from "./filesystem-tools.ts";
 export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
 export {
+  type InboxItem,
+  deleteInboxItems,
+  enqueueInboxItem,
+  pendingInboxItems,
+} from "./inbox.ts";
+export {
   type LiveConsoleEmitter,
   type LiveConsoleOptions,
   type LiveConsoleSnapshot,

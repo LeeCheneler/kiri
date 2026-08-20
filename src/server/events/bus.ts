@@ -28,6 +28,8 @@ export type KiriEvent =
     }
   | { type: "session.started"; id: string }
   | { type: "session.message.added"; sessionId: string }
+  | { type: "session.inbox.queued"; sessionId: string }
+  | { type: "session.inbox.delivered"; sessionId: string }
   | { type: "session.updated"; id: string; status: SessionStatus }
   | { type: "session.finished"; id: string; status: SessionStatus }
   | { type: "session.deleted"; id: string }

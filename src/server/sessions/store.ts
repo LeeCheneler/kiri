@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 import { and, asc, eq, gte, inArray } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
-import { articles, messages, sessions } from "../db/schema.ts";
+import { articles, messages, sessionInbox, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
 
 /** A persisted session row. */
@@ -344,6 +344,7 @@ export function deleteSession(db: KiriDb, id: string): void {
     const ids = [...childIds, id];
     tx.delete(articles).where(inArray(articles.sessionId, ids)).run();
     tx.delete(messages).where(inArray(messages.sessionId, ids)).run();
+    tx.delete(sessionInbox).where(inArray(sessionInbox.sessionId, ids)).run();
     // Children first: they hold an FK to the parent, and foreign_keys is ON.
     if (childIds.length > 0) tx.delete(sessions).where(inArray(sessions.id, childIds)).run();
     tx.delete(sessions).where(eq(sessions.id, id)).run();

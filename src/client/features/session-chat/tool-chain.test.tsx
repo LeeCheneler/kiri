@@ -180,3 +180,21 @@ describe("<ToolChain>", () => {
     expect(screen.getByText(/"lines": 42/)).toBeDefined();
   });
 });
+
+describe("segmentParts inbox deliveries", () => {
+  it("keeps a delivered inbox message out of any chain, at its woven position", () => {
+    const [a, b] = [tool("a"), tool("b")];
+    const inbox = {
+      type: "data-inbox",
+      id: "i1",
+      data: { source: "user", text: "also check X", queuedAt: 1 },
+    };
+    const segments = segmentParts(parts(a, inbox, b));
+
+    expect(segments).toEqual([
+      { kind: "chain", parts: [a] as ToolPart[] },
+      { kind: "inbox", part: inbox as never },
+      { kind: "chain", parts: [b] as ToolPart[] },
+    ]);
+  });
+});

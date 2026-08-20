@@ -127,6 +127,20 @@ describe("<MessageComposer>", () => {
     await waitFor(() => expect(screen.queryByAltText("gone.png")).toBeNull());
   });
 
+  it("keeps staged attachments when the caller refuses the submit", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => false);
+    const { container } = composer(onSubmit);
+
+    await userEvent.upload(fileInput(container), pngFile("kept.png"));
+    await screen.findByAltText("kept.png");
+    await userEvent.type(textbox(), "queue this{Enter}");
+
+    // The refusal (`false`) leaves the image staged for a later, accepted
+    // submit, rather than clearing it as an accepted one would.
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByAltText("kept.png")).toBeDefined();
+  });
+
   it("stages an image pasted into the textarea", async () => {
     const onSubmit = mock((_parts: UIMessage["parts"]) => {});
     composer(onSubmit);

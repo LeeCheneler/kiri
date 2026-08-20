@@ -16,6 +16,7 @@ import {
   recommendations,
   runSteps,
   runs,
+  sessionInbox,
   sessions,
   taskGroups,
   tasks,
@@ -993,6 +994,21 @@ describe("db", () => {
     for (const ref of refs) {
       expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
     }
+  });
+
+  it("declares session_inbox.session_id → sessions.id, indexed for the backlog read", () => {
+    const config = getTableConfig(sessionInbox);
+    expect(config.foreignKeys).toHaveLength(1);
+    const fk = config.foreignKeys[0] as unknown as {
+      reference: () => {
+        columns: { name: string }[];
+        foreignColumns: { name: string }[];
+      };
+    };
+    const ref = fk.reference();
+    expect(ref.columns.map((c) => c.name)).toEqual(["session_id"]);
+    expect(ref.foreignColumns.map((c) => c.name)).toEqual(["id"]);
+    expect(config.indexes.map((i) => i.config.name)).toEqual(["session_inbox_session_id_idx"]);
   });
 
   it("declares memories.project_id as a foreign key to its owning project", () => {

@@ -10,10 +10,12 @@ import {
   fetchRun,
   fetchRunsPage,
   fetchWorkflows,
+  queueSessionMessage,
   rerunRun,
   tidyDraft,
   triggerRun,
   truncateSessionMessages,
+  withdrawQueuedMessage,
 } from "./api.ts";
 
 describe("api client", () => {
@@ -309,6 +311,73 @@ describe("api client", () => {
       expect((err as ApiError).status).toBe(409);
       expect((err as ApiError).message).toBe('session "s1" has a turn in flight; cancel it first');
     }
+  });
+
+  it("queues a message for an in-flight turn and returns the queued row", async () => {
+    const seen: { method: string; header: string | null; id: string; body: unknown }[] = [];
+    const item = { id: "q1", source: "user", text: "also check X", createdAt: "2026-08-20" };
+    server.use(
+      http.post("*/api/sessions/:id/inbox", async ({ request, params }) => {
+        seen.push({
+          method: request.method,
+          header: request.headers.get("X-Kiri-Client"),
+          id: String(params.id),
+          body: await request.json(),
+        });
+        return HttpResponse.json({ item }, { status: 201 });
+      }),
+    );
+
+    expect(await queueSessionMessage("s1", "also check X")).toEqual({
+      item: { ...item, source: "user" },
+    });
+    expect(seen).toEqual([
+      { method: "POST", header: "kiri-ui", id: "s1", body: { text: "also check X" } },
+    ]);
+  });
+
+  it("throws an ApiError carrying 409 when the queue races the turn settling", async () => {
+    server.use(
+      http.post("*/api/sessions/:id/inbox", () =>
+        HttpResponse.json(
+          { error: 'session "s1" has no turn in flight to queue for' },
+          {
+            status: 409,
+          },
+        ),
+      ),
+    );
+
+    try {
+      await queueSessionMessage("s1", "too late");
+      throw new Error("expected queueSessionMessage to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(409);
+    }
+  });
+
+  it("withdraws a still-queued message, resolving true", async () => {
+    const seen: { id: string; itemId: string }[] = [];
+    server.use(
+      http.delete("*/api/sessions/:id/inbox/:itemId", ({ params }) => {
+        seen.push({ id: String(params.id), itemId: String(params.itemId) });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    expect(await withdrawQueuedMessage("s1", "q1")).toBe(true);
+    expect(seen).toEqual([{ id: "s1", itemId: "q1" }]);
+  });
+
+  it("resolves false when the withdrawn message was already delivered", async () => {
+    server.use(
+      http.delete("*/api/sessions/:id/inbox/:itemId", () =>
+        HttpResponse.json({ error: "not queued" }, { status: 404 }),
+      ),
+    );
+
+    expect(await withdrawQueuedMessage("s1", "q1")).toBe(false);
   });
 
   it("reruns a terminal run and returns the existing runId with running status", async () => {

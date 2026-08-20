@@ -5,12 +5,13 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   type ModelsResult,
   type Session,
   type SessionDetail,
   type SessionEffort,
+  type SessionInboxItem,
   type SessionListEntry,
   fetchModels,
   fetchSession,
@@ -111,6 +112,34 @@ export function useTruncateSessionDetail(id: string): (messageId: string) => voi
 }
 
 /**
+ * Patch a session's cached inbox — the undelivered backlog riding its detail —
+ * so a queue or withdraw shows at once instead of waiting for the SSE echo's
+ * refetch. The server row is the source of truth; the next refetch replaces
+ * these optimistic edits with it. A memoised pair, safe in effect deps.
+ */
+export function usePatchSessionInbox(id: string): {
+  append: (item: SessionInboxItem) => void;
+  remove: (itemId: string) => void;
+} {
+  const queryClient = useQueryClient();
+  return useMemo(
+    () => ({
+      append: (item: SessionInboxItem) => {
+        queryClient.setQueryData<SessionDetail>(sessionKey(id), (prev) =>
+          prev ? { ...prev, inbox: [...prev.inbox, item] } : prev,
+        );
+      },
+      remove: (itemId: string) => {
+        queryClient.setQueryData<SessionDetail>(sessionKey(id), (prev) =>
+          prev ? { ...prev, inbox: prev.inbox.filter((item) => item.id !== itemId) } : prev,
+        );
+      },
+    }),
+    [queryClient, id],
+  );
+}
+
+/**
  * Read the full session history as an infinite, cursor-paginated feed, newest
  * first. The first page fetches on mount; `fetchNextPage` advances by the
  * previous page's `nextCursor` until it runs dry. `data` is the loaded pages
@@ -142,6 +171,8 @@ export function useSessionsLive(): void {
     on: [
       "session.started",
       "session.message.added",
+      "session.inbox.queued",
+      "session.inbox.delivered",
       "session.updated",
       "session.finished",
       "session.deleted",

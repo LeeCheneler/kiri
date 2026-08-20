@@ -23,9 +23,11 @@ import {
   createSession,
   createStreamRegistry,
   createToolPermissionStore,
+  enqueueInboxItem,
   findChildByToolCall,
   getSession,
   getSessionMessages,
+  pendingInboxItems,
   setSessionStatus,
   updateSessionImageModel,
 } from "../sessions/index.ts";
@@ -2498,6 +2500,105 @@ describe("sessions routes", () => {
       expect(res.status).toBe(409);
       // A rejected truncate leaves the transcript in place.
       expect(getSessionMessages(env.db, "s1")).toHaveLength(1);
+    });
+  });
+
+  describe("POST /api/sessions/:id/inbox", () => {
+    it("queues a message for a running turn, 201s with the item id, and publishes", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((e) => events.push(e));
+      const app = makeApp(fakeClients(), { bus });
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "running");
+
+      const res = await app.request("/api/sessions/s1/inbox", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "also check X" }),
+      });
+
+      expect(res.status).toBe(201);
+      const { item } = (await res.json()) as { item: { id: string; text: string } };
+      expect(item.text).toBe("also check X");
+      expect(pendingInboxItems(env.db, "s1").map((row) => row.id)).toEqual([item.id]);
+      expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "s1" });
+    });
+
+    it("accepts a queue for a turn paused on tool approval", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      setSessionStatus(env.db, "s1", "waiting");
+
+      const res = await app.request("/api/sessions/s1/inbox", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "and while you're paused" }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(pendingInboxItems(env.db, "s1")).toHaveLength(1);
+    });
+
+    it("409s a session with no turn in flight — the message should be sent instead", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1/inbox", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "too late" }),
+      });
+
+      expect(res.status).toBe(409);
+      expect(pendingInboxItems(env.db, "s1")).toEqual([]);
+    });
+
+    it("404s an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost/inbox", {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "hello" }),
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("DELETE /api/sessions/:id/inbox/:itemId", () => {
+    it("withdraws a still-queued message with a 204", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      const item = enqueueInboxItem(env.db, "s1", { source: "user", text: "on second thought" });
+
+      const res = await app.request(`/api/sessions/s1/inbox/${item.id}`, {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(204);
+      expect(pendingInboxItems(env.db, "s1")).toEqual([]);
+    });
+
+    it("404s an item that is no longer queued — the already-delivered signal", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+
+      const res = await app.request("/api/sessions/s1/inbox/ghost", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+
+      expect(res.status).toBe(404);
+    });
+
+    it("404s an unknown session", async () => {
+      const app = makeApp(fakeClients());
+      const res = await app.request("/api/sessions/ghost/inbox/i1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(res.status).toBe(404);
     });
   });
 

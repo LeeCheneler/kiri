@@ -56,6 +56,7 @@ import migration0034 from "../../../drizzle/0034_add_project_instructions.sql" w
 import migration0035 from "../../../drizzle/0035_add_tasks.sql" with { type: "text" };
 import migration0036 from "../../../drizzle/0036_add_task_group_hidden.sql" with { type: "text" };
 import migration0037 from "../../../drizzle/0037_drop_task_position.sql" with { type: "text" };
+import migration0038 from "../../../drizzle/0038_add_session_inbox.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -124,6 +125,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0035_add_tasks", sql: migration0035 },
   { name: "0036_add_task_group_hidden", sql: migration0036 },
   { name: "0037_drop_task_position", sql: migration0037 },
+  { name: "0038_add_session_inbox", sql: migration0038 },
 ];
 
 /**

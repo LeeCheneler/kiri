@@ -980,10 +980,19 @@ export const fetchSearch = async (q: string): Promise<SearchResults> => {
   return json<SearchResults>(await apiFetch(`/api/search?${params}`));
 };
 
-/** A session with its ordered messages, as returned by `GET /api/sessions/:id`. */
+/** A message queued in a session's inbox, awaiting delivery at a turn boundary. */
+export interface SessionInboxItem {
+  id: string;
+  source: "user";
+  text: string;
+  createdAt: string;
+}
+
+/** A session with its ordered messages and undelivered inbox, as returned by `GET /api/sessions/:id`. */
 export interface SessionDetail {
   session: Session;
   messages: SessionMessage[];
+  inbox: SessionInboxItem[];
 }
 
 /** Fetch a single session with its messages. Throws on non-2xx (404 for unknown ids). */
@@ -1154,6 +1163,44 @@ export const truncateSessionMessages = async (id: string, messageId: string): Pr
       { method: "DELETE" },
     ),
   );
+};
+
+/**
+ * Queue a message for a session whose turn is in flight; the turn delivers it
+ * at its next step boundary. Resolves with the queued row — its `id` is the
+ * handle `withdrawQueuedMessage` takes, and the id its delivered `data-inbox`
+ * part carries in the transcript. Throws `ApiError` on non-2xx — 404 (unknown
+ * session), 409 (no turn in flight to queue for; send it as a normal message
+ * instead — the caller's race with the turn settling).
+ */
+export const queueSessionMessage = async (
+  id: string,
+  text: string,
+): Promise<{ item: SessionInboxItem }> =>
+  json<{ item: SessionInboxItem }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}/inbox`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }),
+  );
+
+/**
+ * Withdraw a queued message that hasn't been delivered. Resolves `true` when
+ * the item was still queued and is now removed, `false` when it no longer is —
+ * the turn consumed it (or the session is gone). Auto-promotion keys off this:
+ * a turn that settled without delivering the message hands it back here, and
+ * the caller resends it as a normal turn without double-delivering. Throws
+ * `ApiError` on other non-2xx.
+ */
+export const withdrawQueuedMessage = async (id: string, itemId: string): Promise<boolean> => {
+  const res = await apiFetch(
+    `/api/sessions/${encodeURIComponent(id)}/inbox/${encodeURIComponent(itemId)}`,
+    { method: "DELETE" },
+  );
+  if (res.status === 404) return false;
+  await assertOk(res);
+  return true;
 };
 
 /**

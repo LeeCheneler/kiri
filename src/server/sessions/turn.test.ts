@@ -13,6 +13,7 @@ import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
 import { CULLED_RESULT_NOTICE } from "./cull-tool-results.ts";
+import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
   type Message,
   appendMessage,
@@ -1155,5 +1156,328 @@ describe("cancelled turns keep their progress", () => {
     // The footprint the pause recorded is left alone — a cancel has none.
     expect(rows[1]?.contextTokens).toBe(6);
     expect(getSession(db, "s1")?.status).toBe("cancelled");
+  });
+});
+
+describe("session inbox in turns", () => {
+  let dir: string;
+  let db: KiriDb;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-turn-inbox-"));
+    db = openDatabase(join(dir, "kiri.db"));
+    migrate(db);
+  });
+  afterEach(() => {
+    db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const MID_TURN_TEXT = "also check X";
+
+  // An echo tool that queues an inbox message during its first execution — the
+  // shape of a user sending a message while a tool call is in flight.
+  const enqueueingTools = (sessionId: string) => {
+    let calls = 0;
+    return {
+      echo: tool({
+        description: "Echo the value back.",
+        inputSchema: z.object({ value: z.string() }),
+        execute: async ({ value }: { value: string }) => {
+          calls += 1;
+          if (calls === 1) {
+            enqueueInboxItem(db, sessionId, { source: "user", text: MID_TURN_TEXT });
+          }
+          return { echoed: value };
+        },
+      }),
+    };
+  };
+
+  // A model that runs two tool steps then answers, capturing each step's
+  // prompt so the injection point (and its re-insertion) can be asserted.
+  const threeStepModel = (prompts: unknown[]): LlmModel =>
+    new MockLanguageModelV3({
+      doStream: async (options) => {
+        prompts.push(options.prompt);
+        if (prompts.length === 1) {
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "tool-call", toolCallId: "c1", toolName: "echo", input: '{"value":"one"}' },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        }
+        if (prompts.length === 2) {
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "tool-call", toolCallId: "c2", toolName: "echo", input: '{"value":"two"}' },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        }
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "Done" },
+            { type: "text-end", id: "t1" },
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 4) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+
+  const occurrences = (haystack: string, needle: string): number =>
+    haystack.split(needle).length - 1;
+
+  it("delivers a mid-turn message at the next step boundary, into stream and transcript", async () => {
+    const prompts: unknown[] = [];
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(threeStepModel(prompts)),
+        bus: recordingBus(events),
+        tools: enqueueingTools("s1"),
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    const streamed = await response.text();
+    await done;
+
+    // Step 1 ran before the message existed; steps 2 and 3 both carry it —
+    // re-inserted each step, delivered (and framed) exactly once per prompt.
+    expect(occurrences(JSON.stringify(prompts[0]), MID_TURN_TEXT)).toBe(0);
+    expect(occurrences(JSON.stringify(prompts[1]), MID_TURN_TEXT)).toBe(1);
+    expect(occurrences(JSON.stringify(prompts[2]), MID_TURN_TEXT)).toBe(1);
+
+    // The delivery rides the live response stream as its data part — a
+    // watching client renders the interjection mid-turn at the boundary it
+    // happened, not only after a reload of the persisted turn.
+    expect(streamed).toContain('"type":"data-inbox"');
+    expect(streamed).toContain(MID_TURN_TEXT);
+    const stepTwo = prompts[1] as { role: string; content: unknown }[];
+    const injected = stepTwo.find((m) => JSON.stringify(m.content).includes(MID_TURN_TEXT));
+    expect(injected?.role).toBe("user");
+    // Injected after the tool result it interrupted — the end of the step-two
+    // prompt, not somewhere back in history.
+    expect(stepTwo.at(-1)).toBe(injected as (typeof stepTwo)[number]);
+
+    // The persisted turn carries the delivery where the model saw it: after
+    // step one's tool call, before step two begins.
+    const rows = getSessionMessages(db, "s1");
+    const types = (rows[1]?.parts as { type: string }[]).map((p) => p.type);
+    const inboxIndex = types.indexOf("data-inbox");
+    expect(inboxIndex).toBeGreaterThan(types.indexOf("tool-echo"));
+    expect(inboxIndex).toBeLessThan(types.indexOf("step-start", inboxIndex));
+    expect(types.filter((t) => t === "data-inbox")).toHaveLength(1);
+
+    // Delivered means delivered: the backlog is empty and the bus said so.
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it("replays a woven delivery to later turns as the user message the live turn saw", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "start" }] });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [
+        { type: "step-start" },
+        { type: "text", text: "before the interjection" },
+        {
+          type: "data-inbox",
+          id: "i1",
+          data: { source: "user", text: MID_TURN_TEXT, queuedAt: 1 },
+        },
+        { type: "step-start" },
+        { type: "text", text: "after the interjection" },
+      ] as UIMessage["parts"],
+    });
+
+    const capture: { prompt?: unknown } = {};
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    // The stored assistant message splits around the delivery: what streamed
+    // before it, the framed user message, then what streamed after.
+    const messages = capture.prompt as { role: string; content: unknown }[];
+    const interjection = messages.findIndex((m) =>
+      JSON.stringify(m.content).includes(MID_TURN_TEXT),
+    );
+    const before = messages.findIndex((m) =>
+      JSON.stringify(m.content).includes("before the interjection"),
+    );
+    const after = messages.findIndex((m) =>
+      JSON.stringify(m.content).includes("after the interjection"),
+    );
+    expect(messages[interjection]?.role).toBe("user");
+    expect(JSON.stringify(messages[interjection]?.content)).toContain("while you were working");
+    expect(before).toBeLessThan(interjection);
+    expect(interjection).toBeLessThan(after);
+    expect(messages[before]?.role).toBe("assistant");
+    expect(messages[after]?.role).toBe("assistant");
+  });
+
+  it("drains messages queued while the session was idle ahead of the next turn", async () => {
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+    enqueueInboxItem(db, "s1", { source: "user", text: "first while idle" });
+    enqueueInboxItem(db, "s1", { source: "user", text: "second while idle" });
+
+    const capture: { prompt?: unknown } = {};
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)), bus: recordingBus(events) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    // Each queued message becomes its own user row, in arrival order, ahead of
+    // the message that started the turn.
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "user", "user", "assistant"]);
+    expect((rows[0]?.parts as { type: string }[])[0]?.type).toBe("data-inbox");
+    expect(JSON.stringify(rows[0]?.parts)).toContain("first while idle");
+    expect(JSON.stringify(rows[1]?.parts)).toContain("second while idle");
+    expect(JSON.stringify(rows[2]?.parts)).toContain("Hi there");
+
+    // The model reads them framed as queued-while-idle, before the new message.
+    const prompt = JSON.stringify(capture.prompt);
+    expect(prompt).toContain("while no turn was running");
+    expect(prompt.indexOf("first while idle")).toBeLessThan(prompt.indexOf("second while idle"));
+    expect(prompt.indexOf("second while idle")).toBeLessThan(prompt.indexOf("Hi there"));
+
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+  });
+
+  it("keeps a mid-turn message queued when the turn fails before persisting", async () => {
+    let step = 0;
+    const failingSecondStep = new MockLanguageModelV3({
+      doStream: async () => {
+        step += 1;
+        if (step === 1) {
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "tool-call", toolCallId: "c1", toolName: "echo", input: '{"value":"one"}' },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        }
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "error", error: "rate limited" },
+            { type: "finish", finishReason: finishReason("error"), usage: usage(1, 0) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(failingSecondStep),
+        bus: recordingBus(events),
+        tools: enqueueingTools("s1"),
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    // The failed turn persisted nothing, so the delivery is rolled back to the
+    // backlog for the next turn rather than lost with the discarded work.
+    expect(getSession(db, "s1")?.status).toBe("failed");
+    expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
+    expect(pendingInboxItems(db, "s1").map((i) => i.text)).toEqual([MID_TURN_TEXT]);
+    expect(events).not.toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+  });
+
+  it("keeps a delivery in a cancelled turn's kept parts", async () => {
+    let step = 0;
+    const cancelledSecondStep = new MockLanguageModelV3({
+      doStream: async ({ abortSignal }) => {
+        step += 1;
+        if (step === 1) {
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "tool-call", toolCallId: "c1", toolName: "echo", input: '{"value":"one"}' },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        }
+        return { stream: parkedStream([], abortSignal) };
+      },
+    }) as unknown as LlmModel;
+    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(cancelledSecondStep),
+        bus: recordingBus(events),
+        cancelRegistry,
+        tools: enqueueingTools("s1"),
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    cancelRegistry.requestCancel("s1");
+    await response.text();
+    await done;
+
+    // The kept partial turn still carries the delivery, and the backlog is
+    // cleared — the message is in the transcript, not lost with the cancel.
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    expect(JSON.stringify(rows[1]?.parts)).toContain(MID_TURN_TEXT);
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+  });
+
+  it("delivers into an approval resume after the paused step's tool call", async () => {
+    const clients = clientsFor(toolLoopModel());
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const first = await runTurn(
+      { db, llmClients: clients, tools: gatedEchoTools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await first.response.text();
+    await first.done;
+    // While the turn waits on the approval, a message queues.
+    enqueueInboxItem(db, "s1", { source: "user", text: MID_TURN_TEXT });
+    const paused = toolPartOf(getSessionMessages(db, "s1")[1]);
+
+    const second = await resumeTurn(
+      { db, llmClients: clients, tools: gatedEchoTools },
+      { session, approvals: [{ toolCallId: paused.toolCallId as string, approved: true }] },
+    );
+    await second.response.text();
+    await second.done;
+
+    // The continuation extended the paused message; the delivery is woven in
+    // after the paused step's tool call rather than ahead of the whole turn.
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    const types = (rows[1]?.parts as { type: string }[]).map((p) => p.type);
+    const inboxIndex = types.indexOf("data-inbox");
+    expect(inboxIndex).toBeGreaterThan(types.indexOf("tool-echo"));
+    expect(types.filter((t) => t === "data-inbox")).toHaveLength(1);
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(getSession(db, "s1")?.status).toBe("idle");
   });
 });

@@ -12,7 +12,11 @@ import { createQueryClient } from "../../state/query-client.ts";
 import { SessionChat } from "./session-chat.tsx";
 import { writeSuggestedReplies } from "./suggested-replies-cache.ts";
 
-const sessionDetail = (messages: unknown[] = [], overrides: Record<string, unknown> = {}) => ({
+const sessionDetail = (
+  messages: unknown[] = [],
+  overrides: Record<string, unknown> = {},
+  inbox: unknown[] = [],
+) => ({
   session: {
     id: "s1",
     status: "idle",
@@ -25,6 +29,16 @@ const sessionDetail = (messages: unknown[] = [], overrides: Record<string, unkno
     ...overrides,
   },
   messages,
+  inbox,
+});
+
+// A queued inbox row as the server returns it — from the enqueue endpoint and
+// in the detail payload's `inbox`.
+const inboxItem = (id: string, text: string) => ({
+  id,
+  source: "user",
+  text,
+  createdAt: "2026-05-09T12:00:00.000Z",
 });
 
 const message = (id: string, role: "user" | "assistant", text: string) => ({
@@ -508,6 +522,255 @@ describe("<SessionChat>", () => {
     // panel reads the stored outcome instead.
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByText(/2 pass/)).toBeNull());
+  });
+
+  it("queues a message sent while a turn is in flight and shows it queued", async () => {
+    const user = userEvent.setup();
+    const queued: unknown[] = [];
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", async ({ request }) => {
+        queued.push(await request.json());
+        return HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 });
+      }),
+    );
+    renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
+    await user.keyboard("{Enter}");
+
+    // The message rides the inbox, not the turn endpoint, and renders queued.
+    expect(await screen.findByText("also check the docs")).toBeDefined();
+    expect(screen.getByText("queued")).toBeDefined();
+    expect(queued).toEqual([{ text: "also check the docs" }]);
+  });
+
+  it("hides a chip once its delivery has streamed into the transcript", async () => {
+    // Mid-turn after delivery: the transcript carries the interjection part
+    // under the queue id, while the backlog row (cleared only at settle)
+    // still lists the item.
+    const midTurn = [
+      message("m1", "user", "search the readme"),
+      {
+        ...message("m2", "assistant", ""),
+        parts: [
+          { type: "step-start" },
+          {
+            type: "tool-filesystem__search_files",
+            toolCallId: "c1",
+            state: "output-available",
+            input: { query: "readme" },
+            output: {},
+          },
+          {
+            type: "data-inbox",
+            id: "q1",
+            data: { source: "user", text: "also check the docs", queuedAt: 1 },
+          },
+          { type: "step-start" },
+          {
+            type: "tool-filesystem__search_files",
+            toolCallId: "c2",
+            state: "input-available",
+            input: { query: "docs" },
+          },
+        ],
+      },
+    ];
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail(midTurn, { status: "running" }, [inboxItem("q1", "also check the docs")]),
+        ),
+      ),
+    );
+    renderChat();
+
+    // The delivery renders as the interjection inside the turn, once — not
+    // additionally as a queued chip below it.
+    expect(await screen.findByText("also check the docs")).toBeDefined();
+    expect(screen.queryByText("queued")).toBeNull();
+  });
+
+  it("promotes an undelivered queued message to its own turn when the session settles", async () => {
+    const user = userEvent.setup();
+    let withdrawn = 0;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", () =>
+        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
+      ),
+      http.post("*/api/sessions/:id/messages", () => assistantReply("On the docs: all good")),
+    );
+    const { queryClient } = renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+
+    // The turn settles without delivering the message: the withdraw wins the
+    // race (204) and the message is promoted to its own turn.
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([], {}, [inboxItem("q1", "also check the docs")])),
+      ),
+      // Like the real server: the first withdraw deletes the row, a repeat 404s.
+      http.delete("*/api/sessions/:id/inbox/:itemId", () => {
+        withdrawn += 1;
+        return withdrawn === 1
+          ? new HttpResponse(null, { status: 204 })
+          : HttpResponse.json({ error: "not queued" }, { status: 404 });
+      }),
+    );
+    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+
+    expect(await screen.findByText("On the docs: all good")).toBeDefined();
+    expect(withdrawn).toBe(1);
+    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
+  });
+
+  it("clears a queued message the settled transcript shows delivered, without withdrawing", async () => {
+    const user = userEvent.setup();
+    let withdrawn = 0;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", () =>
+        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
+      ),
+      http.delete("*/api/sessions/:id/inbox/:itemId", () => {
+        withdrawn += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const { queryClient } = renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+
+    // The settled transcript carries the delivery as a woven data-inbox part
+    // under the queue id — proof it reached the turn, so nothing to withdraw.
+    const delivered = [
+      message("m1", "user", "search the readme"),
+      {
+        ...message("m2", "assistant", "Checked the docs too."),
+        parts: [
+          { type: "step-start" },
+          {
+            type: "data-inbox",
+            id: "q1",
+            data: { source: "user", text: "also check the docs", queuedAt: 1 },
+          },
+          { type: "step-start" },
+          { type: "text", text: "Checked the docs too." },
+        ],
+      },
+    ];
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail(delivered))));
+    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+
+    // The chip resolves into the woven interjection; the message text stays.
+    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
+    expect(screen.getByText("also check the docs")).toBeDefined();
+    expect(withdrawn).toBe(0);
+  });
+
+  it("clears the queue without promoting when the withdraw itself fails", async () => {
+    const user = userEvent.setup();
+    let promoted = 0;
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", () =>
+        HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 }),
+      ),
+      http.post("*/api/sessions/:id/messages", () => {
+        promoted += 1;
+        return assistantReply("should not happen");
+      }),
+    );
+    const { queryClient } = renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
+    await user.keyboard("{Enter}");
+    await screen.findByText("queued");
+
+    // A failed withdraw can't prove the message wasn't delivered, so it is not
+    // promoted — resending would risk a double delivery.
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail([], {}, [inboxItem("q1", "also check the docs")])),
+      ),
+      http.delete("*/api/sessions/:id/inbox/:itemId", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+    await queryClient.invalidateQueries({ queryKey: ["session", "s1"] });
+
+    // Yield past the refetch → reconcile → withdraw round-trip before polling:
+    // waitFor's timer can starve while the query retryer occupies the loop.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await waitFor(() => expect(screen.queryByText("queued")).toBeNull());
+    expect(promoted).toBe(0);
+  });
+
+  it("falls back to a normal send when the queue races the turn settling", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", () =>
+        HttpResponse.json({ error: "no turn in flight" }, { status: 409 }),
+      ),
+      http.post("*/api/sessions/:id/messages", () => assistantReply("Fresh turn reply")),
+    );
+    renderChat();
+
+    await screen.findByText("search the readme");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "also check the docs");
+    await user.keyboard("{Enter}");
+
+    // The 409 said the turn was over; the message went out as its own turn.
+    expect(await screen.findByText("Fresh turn reply")).toBeDefined();
+  });
+
+  it("refuses to queue a message carrying images, keeping them staged", async () => {
+    const user = userEvent.setup();
+    const queued: unknown[] = [];
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", async ({ request }) => {
+        queued.push(await request.json());
+        return HttpResponse.json({ item: inboxItem("q1", "also check the docs") }, { status: 201 });
+      }),
+    );
+    const { container } = renderChat();
+
+    await screen.findByText("search the readme");
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, new File(["img"], "shot.png", { type: "image/png" }));
+    await screen.findByAltText("shot.png");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "with a screenshot");
+    await user.keyboard("{Enter}");
+
+    // Refused with the image kept staged — nothing was queued or dropped.
+    expect(await screen.findByText(/can't be queued while a turn is running/i)).toBeDefined();
+    expect(screen.getByAltText("shot.png")).toBeDefined();
+    expect(queued).toEqual([]);
   });
 
   it("allows a paused tool once, sending the verdict back to resume the turn", async () => {

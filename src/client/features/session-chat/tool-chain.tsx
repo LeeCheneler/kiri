@@ -1,4 +1,5 @@
 import { type UIMessage, getToolName, isToolUIPart } from "ai";
+import { type InboxUIPart, isInboxPart } from "../../../shared/inbox-part.ts";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import type { LiveConsoleStore } from "./live-console.ts";
@@ -23,6 +24,7 @@ export type Segment =
   | { kind: "approval"; part: ToolPart }
   | { kind: "image"; part: ToolPart }
   | { kind: "delegate"; part: ToolPart }
+  | { kind: "inbox"; part: InboxUIPart }
   | { kind: "chain"; parts: ToolPart[] };
 
 /**
@@ -32,7 +34,9 @@ export type Segment =
  * does. A call awaiting approval always stands alone, so its Allow / Deny
  * prompt can't be folded out of sight; a settled generated image stands alone
  * the same way — it is content like prose, not plumbing to fold up — as does a
- * delegate call, which renders as an embedded child-session box.
+ * delegate call, which renders as an embedded child-session box, and a
+ * delivered inbox message, which renders as the user's interjection at the
+ * point the turn saw it.
  */
 export function segmentParts(parts: UIMessage["parts"]): Segment[] {
   const segments: Segment[] = [];
@@ -45,6 +49,9 @@ export function segmentParts(parts: UIMessage["parts"]): Segment[] {
     if (part.type === "text" && part.text !== "") {
       flush();
       segments.push({ kind: "text", index, text: part.text });
+    } else if (isInboxPart(part)) {
+      flush();
+      segments.push({ kind: "inbox", part });
     } else if (isToolUIPart(part)) {
       if (part.state === "approval-requested") {
         flush();

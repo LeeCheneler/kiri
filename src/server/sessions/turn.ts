@@ -17,6 +17,14 @@ import { cullToolHistory, currentContextTokens } from "./cull-tool-results.ts";
 import { finaliseCancelledParts } from "./finalise-cancelled-parts.ts";
 import { stripImageToolResults } from "./image-tool-results.ts";
 import {
+  type InboxDelivery,
+  deleteInboxItems,
+  expandInboxMessages,
+  inboxUIPart,
+  insertInboxModelMessages,
+  pendingInboxItems,
+} from "./inbox.ts";
+import {
   type Message,
   type Session,
   appendMessage,
@@ -66,6 +74,11 @@ export interface RunTurnDeps {
 // extended tool work: many search-and-reason cycles, or a long series of
 // document edits, in one turn.
 const MAX_TURN_STEPS = 32;
+
+// The chunk union `UIMessageStreamWriter.write` accepts. A delivered inbox
+// part is written verbatim — its shape is a data chunk — but the union types
+// data parts by inferred name, so the literal part needs re-establishing.
+type InboxChunk = Parameters<UIMessageStreamWriter["write"]>[0];
 
 export interface RunTurnArgs {
   /** The target session; must not have a turn in flight (the caller rejects a concurrent turn). */
@@ -158,6 +171,24 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
 
   // Resolve before any writes so a bad id rejects with nothing half-persisted.
   const model = llmClients.resolveModel(session.model);
+
+  // Anything queued while the session was idle drains ahead of the turn: each
+  // item becomes its own user-role message before the one that starts the
+  // turn, so the model reads the backlog in arrival order. Rows are deleted
+  // only after their messages are appended — a crash between the two
+  // redelivers rather than loses.
+  const backlog = pendingInboxItems(db, session.id);
+  for (const item of backlog) {
+    appendMessage(db, session.id, {
+      role: "user",
+      parts: [inboxUIPart(item) as UIMessage["parts"][number]],
+    });
+  }
+  deleteInboxItems(
+    db,
+    backlog.map((item) => item.id),
+  );
+  if (backlog.length > 0) bus?.publish({ type: "session.inbox.delivered", sessionId: session.id });
 
   // Persist under the message's own id so the client and server agree on it —
   // edit-and-resend truncates the transcript by this id, which only works if the
@@ -299,7 +330,9 @@ async function streamCore(
   const modelHistory = toonEncodeToolResults(
     stripWriteToolDiffs(stripImageToolResults(culledHistory)),
   );
-  const modelMessages = await convertToModelMessages(modelHistory);
+  // Expand delivered inbox parts back into the framed user messages the live
+  // turn saw, so a later turn replays the interleaving faithfully.
+  const modelMessages = await convertToModelMessages(expandInboxMessages(modelHistory));
 
   // Compose the turn's system prompt — the kiri core layer, the workspace's
   // `kiri.md`, and the `AGENTS.md` chain covering the session's working
@@ -312,6 +345,18 @@ async function streamCore(
   // without provider options rather than sending parameters blind. Resolved
   // per turn like the model, so a mid-session change applies next turn.
   const providerOptions = await llmClients.reasoningOptionsFor(session.model, session.effort);
+  // Inbox items that arrive while the turn runs are delivered at the next
+  // step boundary: `prepareStep` (inside `execute` below) injects them into
+  // the step's model messages and mirrors each one into the UI stream as its
+  // `data-inbox` part — so the live transcript and the persisted message,
+  // both assembled from that same stream, carry the delivery at the boundary
+  // the model saw it. Insert positions are recorded against the SDK's own
+  // step input, which is rebuilt each step without our injections, so every
+  // step re-inserts the whole list at positions that stay valid as the turn
+  // grows.
+  const deliveries: InboxDelivery[] = [];
+  const deliveredIds = new Set<string>();
+
   // Assigned synchronously by the executor below, before any await can run.
   let settle!: () => void;
   const done = new Promise<void>((resolve) => {
@@ -361,6 +406,23 @@ async function streamCore(
           messages: modelMessages,
           ...(providerOptions !== undefined ? { providerOptions } : {}),
           ...(hasTools ? { tools: turnTools, stopWhen: stepCountIs(MAX_TURN_STEPS) } : {}),
+          // Deliver anything queued since the last boundary: inject it into
+          // this step's model messages, and write its part into the UI stream
+          // so the client shows the interjection mid-turn — at this boundary,
+          // where the persisted message will carry it too. Items are delivered
+          // once (the backlog row survives until `onFinish` proves persistence,
+          // so later boundaries would re-read it) and re-inserted every step,
+          // because the SDK rebuilds the step input without our injections.
+          prepareStep: ({ messages }) => {
+            for (const item of pendingInboxItems(db, session.id)) {
+              if (deliveredIds.has(item.id)) continue;
+              deliveredIds.add(item.id);
+              deliveries.push({ item, insertIndex: messages.length });
+              writer.write(inboxUIPart(item) as InboxChunk);
+            }
+            if (deliveries.length === 0) return undefined;
+            return { messages: insertInboxModelMessages(messages, deliveries) };
+          },
           abortSignal: controller.signal,
           onError: ({ error }) => {
             streamError = error;
@@ -376,6 +438,17 @@ async function streamCore(
       }
     },
     onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
+      // Delivered items leave the inbox only once their streamed parts are
+      // persisted; a turn that persists nothing (a failure, or a cancel that
+      // kept nothing) leaves them queued for redelivery instead.
+      const settleDeliveries = () => {
+        if (deliveries.length === 0) return;
+        deleteInboxItems(
+          db,
+          deliveries.map((delivery) => delivery.item.id),
+        );
+        bus?.publish({ type: "session.inbox.delivered", sessionId: session.id });
+      };
       try {
         const aborted = isAborted || controller.signal.aborted;
         if (aborted || streamError !== undefined) {
@@ -390,6 +463,7 @@ async function streamCore(
           const kept = aborted ? finaliseCancelledParts(responseMessage.parts) : null;
           if (kept !== null) {
             persistAssistantMessage(db, session.id, responseMessage.id, kept, isContinuation);
+            settleDeliveries();
           }
           setSessionStatus(db, session.id, status, {
             finishedAt: new Date(),
@@ -414,6 +488,7 @@ async function streamCore(
           isContinuation,
           contextTokens,
         );
+        settleDeliveries();
         // A turn that stopped on tool-approval requests hasn't settled: the
         // session is blocked on the user's verdicts, and lists surface that
         // as `waiting` rather than the resting `idle`.

@@ -1,5 +1,6 @@
 import type { FileUIPart, UIMessage } from "ai";
 import { memo, useEffect, useId, useState } from "react";
+import { type InboxUIPart, isInboxPart } from "../../../shared/inbox-part.ts";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
@@ -178,6 +179,44 @@ function UserMessage({
   );
 }
 
+/**
+ * A message accepted for the in-flight turn but not yet delivered to it. Boxed
+ * like a user message so it reads as part of the conversation, with a quiet
+ * "queued" tag and muted text for its pending state. It resolves out of this
+ * view when the turn absorbs it (it reappears as the woven interjection) or
+ * the turn settles first (it promotes to an ordinary sent message).
+ */
+export function QueuedMessage({ text }: { text: string }) {
+  return (
+    <article>
+      <Card>
+        <div className="flex items-baseline justify-between">
+          <Eyebrow tone="muted">You</Eyebrow>
+          <span className="font-mono text-ink-muted text-xs">queued</span>
+        </div>
+        <p className="mt-2 whitespace-pre-wrap font-mono text-ink-muted text-sm">{text}</p>
+      </Card>
+    </article>
+  );
+}
+
+// A delivered inbox message — something the user sent that was queued and
+// drained at a turn boundary: woven into the assistant message at the point
+// the model saw it, or its own user-role row when it drained ahead of a fresh
+// turn. Boxed like a user message so the transcript still reads as a
+// conversation, but with no edit or delete controls — it belongs to the turn
+// that absorbed it.
+function InboxInterjection({ part }: { part: InboxUIPart }) {
+  return (
+    <article>
+      <Card>
+        <Eyebrow tone="muted">You</Eyebrow>
+        <p className="mt-2 whitespace-pre-wrap font-mono text-sm text-ink">{part.data.text}</p>
+      </Card>
+    </article>
+  );
+}
+
 // An assistant message: its segments rendered in order so tool activity sits
 // inline with the prose — a lead-in line, the tool block, then the answer that
 // follows. Text renders as markdown; a lone tool call renders as a collapsible
@@ -239,6 +278,9 @@ function AssistantMessage({
           }
           if (segment.kind === "image") {
             return <ToolInvocation key={segment.part.toolCallId} part={segment.part} />;
+          }
+          if (segment.kind === "inbox") {
+            return <InboxInterjection key={segment.part.id} part={segment.part} />;
           }
           return segment.parts.length === 1 ? (
             <ToolInvocation
@@ -303,10 +345,23 @@ export const ChatMessage = memo(function ChatMessage({
   onDelete: DeleteMessageHandler;
   onToolDecision?: ToolDecisionHandler;
 }) {
-  if (message.role === "user")
+  if (message.role === "user") {
+    // A row drained from the inbox ahead of this turn renders as the
+    // interjection it is, not as an editable user message — resending or
+    // deleting it would re-run a conversation it never started.
+    if (message.parts.length > 0 && message.parts.every(isInboxPart)) {
+      return (
+        <>
+          {message.parts.filter(isInboxPart).map((part) => (
+            <InboxInterjection key={part.id} part={part} />
+          ))}
+        </>
+      );
+    }
     return (
       <UserMessage message={message} busy={busy} onResubmit={onResubmit} onDelete={onDelete} />
     );
+  }
   const segments = segmentParts(message.parts);
   if (segments.length === 0) return null;
   return (
