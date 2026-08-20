@@ -178,6 +178,7 @@ function ChatView({
     error,
     busy,
     awaitingApproval,
+    liveConsoles,
     sendMessage,
     resubmit,
     deleteMessage,
@@ -334,6 +335,7 @@ function ChatView({
               busy={busy}
               sessionId={session.id}
               pageLinks={pageLinks}
+              liveConsoles={liveConsoles}
               wikiLinkResolver={wikiLinkResolver}
               onResubmit={handleResubmit}
               onDelete={handleDeleteMessage}

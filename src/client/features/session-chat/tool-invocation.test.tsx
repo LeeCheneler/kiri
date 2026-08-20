@@ -1,7 +1,8 @@
 import { describe, expect, it, mock } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ToolUIPart } from "ai";
+import { createLiveConsoleStore } from "./live-console.ts";
 import {
   CANCELLED_ERROR_TEXT,
   type ToolDecisionHandler,
@@ -138,6 +139,51 @@ describe("<ToolInvocation>", () => {
 
     expect(container.querySelector('[data-status="working"]')).not.toBeNull();
     await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Running…")).toBeDefined();
+  });
+
+  it("streams an in-flight call's live console in place of Running…", async () => {
+    const user = userEvent.setup();
+    const store = createLiveConsoleStore();
+    render(
+      <ToolInvocation
+        part={part({
+          type: "tool-run_command",
+          state: "input-available",
+          input: { command: "bun test" },
+        })}
+        liveConsoles={store}
+      />,
+    );
+
+    // No output yet: the panel still reads Running….
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Running…")).toBeDefined();
+
+    // Snapshots replace it with the growing console…
+    act(() => {
+      store.set("c1", { text: "1 pass\n", truncated: false });
+    });
+    expect(screen.queryByText("Running…")).toBeNull();
+    expect(screen.getByText(/1 pass/)).toBeDefined();
+
+    act(() => {
+      store.set("c1", { text: "1 pass\n2 pass\n", truncated: false });
+    });
+    expect(screen.getByText(/2 pass/)).toBeDefined();
+
+    // …a capped console names the cut…
+    act(() => {
+      store.set("c1", { text: "…later output", truncated: true });
+    });
+    expect(screen.getByText("[truncated — tail shown]")).toBeDefined();
+
+    // …and another call's snapshots are not ours to show.
+    act(() => {
+      store.clear();
+      store.set("other-call", { text: "not ours", truncated: false });
+    });
+    expect(screen.queryByText("not ours")).toBeNull();
     expect(screen.getByText("Running…")).toBeDefined();
   });
 

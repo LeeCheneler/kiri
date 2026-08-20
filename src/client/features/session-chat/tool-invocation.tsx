@@ -9,6 +9,7 @@ import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { FullWidthImage } from "./image-thumb.tsx";
+import { type LiveConsoleStore, useLiveConsole } from "./live-console.ts";
 
 /** A tool-call part of an assistant message, static or dynamic. */
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
@@ -712,11 +713,16 @@ function ToolPanel({
   part,
   name,
   pageLinks,
+  liveConsoles,
 }: {
   part: ToolPart;
   name: string;
   pageLinks?: ToolPageLinks;
+  liveConsoles?: LiveConsoleStore;
 }) {
+  // Subscribed unconditionally (hooks can't sit behind the state branches);
+  // only a call that is still in flight renders what it holds.
+  const live = useLiveConsole(liveConsoles, part.toolCallId);
   if (part.state === "output-error") {
     if (part.errorText === CANCELLED_ERROR_TEXT) {
       return <p className="font-mono text-ink-muted text-sm">You cancelled this call.</p>;
@@ -809,7 +815,22 @@ function ToolPanel({
   if (part.state === "output-denied") {
     return <p className="font-mono text-ink-muted text-sm">You denied this call.</p>;
   }
-  // No result yet — the call is still in flight.
+  // No result yet — the call is still in flight. A call streaming its output
+  // (run_command's merged console) shows it growing live in place of the
+  // static Running…; the snapshots are ephemeral, so once the call settles
+  // the panel renders the stored result above instead.
+  if (live !== undefined && live.text !== "") {
+    return (
+      // column-reverse pins the scroll to the foot, so the console follows
+      // its newest output with no scroll bookkeeping.
+      <div className="flex max-h-[17.5rem] flex-col-reverse overflow-y-auto">
+        <div className="space-y-2 font-mono text-xs">
+          {live.truncated ? <p className="text-ink-muted">[truncated — tail shown]</p> : null}
+          <CodeBlock>{live.text}</CodeBlock>
+        </div>
+      </div>
+    );
+  }
   return <p className="font-mono text-ink-muted text-sm">Running…</p>;
 }
 
@@ -882,6 +903,7 @@ export function ToolInvocation({
   onDecision,
   framed = true,
   pageLinks,
+  liveConsoles,
 }: {
   part: ToolPart;
   onDecision?: ToolDecisionHandler;
@@ -892,6 +914,12 @@ export function ToolInvocation({
    * and run links still render.
    */
   pageLinks?: ToolPageLinks;
+  /**
+   * Where an in-flight call's live console snapshots land, keyed by tool call;
+   * the expanded panel shows the call's console growing while it runs. Must be
+   * referentially stable. Omitted, an in-flight call just reads Running….
+   */
+  liveConsoles?: LiveConsoleStore;
 }) {
   const name = getToolName(part);
   if (part.state === "approval-requested" && onDecision) {
@@ -918,7 +946,7 @@ export function ToolInvocation({
         {/* Cap the expanded result at ~14 lines (of text-sm) and scroll past
             that, so a long result stays contained in the box. */}
         <div className="max-h-[17.5rem] overflow-y-auto">
-          <ToolPanel part={part} name={name} pageLinks={pageLinks} />
+          <ToolPanel part={part} name={name} pageLinks={pageLinks} liveConsoles={liveConsoles} />
         </div>
       </Disclosure>
       {/* The generated image is the call's product for the user — always

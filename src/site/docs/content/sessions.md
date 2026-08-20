@@ -206,7 +206,10 @@ builds, tests, git, your own scripts — run in the session's working
 directory. The sandbox confines where a command *starts*, not what it can
 touch, so every call asks by default, showing the exact command verbatim.
 Commands run non-interactively with a timeout; servers and watchers aren't
-supported.
+supported. While a command runs, expanding its block in the chat shows the
+output streaming live — stdout and stderr merged, as a terminal would show
+it — so a long build or test run shows progress instead of an opaque
+"Running…" until it exits.
 
 If asking on every `git status` wears thin, set the tool to **Auto**:
 obviously safe read-only commands run straight away, dangerous shapes

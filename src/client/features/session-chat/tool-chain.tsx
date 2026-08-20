@@ -1,6 +1,7 @@
 import { type UIMessage, getToolName, isToolUIPart } from "ai";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
+import type { LiveConsoleStore } from "./live-console.ts";
 import {
   ToolInvocation,
   type ToolPageLinks,
@@ -83,9 +84,11 @@ const chainStatus = (parts: ToolPart[]): StatusKind | null =>
 export function ToolChain({
   parts,
   pageLinks,
+  liveConsoles,
 }: {
   parts: ToolPart[];
   pageLinks?: ToolPageLinks;
+  liveConsoles?: LiveConsoleStore;
 }) {
   const names = [...new Set(parts.map((part) => humanizeName(getToolName(part))))].join(", ");
   const status = chainStatus(parts);
@@ -113,6 +116,7 @@ export function ToolChain({
               part={part}
               framed={false}
               pageLinks={pageLinks}
+              liveConsoles={liveConsoles}
             />
           ))}
         </div>

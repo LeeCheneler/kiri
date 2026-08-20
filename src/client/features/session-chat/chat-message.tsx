@@ -9,6 +9,7 @@ import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./at
 import { ChildSession } from "./child-session.tsx";
 import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
+import type { LiveConsoleStore } from "./live-console.ts";
 import { MessageComposer } from "./message-composer.tsx";
 import { type Segment, ToolChain, segmentParts } from "./tool-chain.tsx";
 import {
@@ -188,12 +189,14 @@ function AssistantMessage({
   segments,
   sessionId,
   pageLinks,
+  liveConsoles,
   wikiLinkResolver,
   onToolDecision,
 }: {
   segments: Segment[];
   sessionId?: string;
   pageLinks?: ToolPageLinks;
+  liveConsoles?: LiveConsoleStore;
   wikiLinkResolver?: WikiLinkResolver;
   onToolDecision?: ToolDecisionHandler;
 }) {
@@ -242,12 +245,14 @@ function AssistantMessage({
               key={segment.parts[0].toolCallId}
               part={segment.parts[0]}
               pageLinks={pageLinks}
+              liveConsoles={liveConsoles}
             />
           ) : (
             <ToolChain
               key={segment.parts[0].toolCallId}
               parts={segment.parts}
               pageLinks={pageLinks}
+              liveConsoles={liveConsoles}
             />
           );
         })}
@@ -278,6 +283,7 @@ export const ChatMessage = memo(function ChatMessage({
   busy,
   sessionId,
   pageLinks,
+  liveConsoles,
   wikiLinkResolver,
   onResubmit,
   onDelete,
@@ -289,6 +295,8 @@ export const ChatMessage = memo(function ChatMessage({
   sessionId?: string;
   /** Where the session's article, memory, and project pages live; tool results link through it. */
   pageLinks?: ToolPageLinks;
+  /** Where an executing command's live console snapshots land; must be referentially stable. */
+  liveConsoles?: LiveConsoleStore;
   /** Turns `[[slug]]` references in assistant prose into corpus links when set. */
   wikiLinkResolver?: WikiLinkResolver;
   onResubmit: ResubmitHandler;
@@ -306,6 +314,7 @@ export const ChatMessage = memo(function ChatMessage({
       segments={segments}
       sessionId={sessionId}
       pageLinks={pageLinks}
+      liveConsoles={liveConsoles}
       wikiLinkResolver={wikiLinkResolver}
       onToolDecision={onToolDecision}
     />
