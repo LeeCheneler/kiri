@@ -93,9 +93,15 @@ describe("articleTools", () => {
       await run(tools.create_article, { slug: "notes", content_md: "# Old" });
       events = [];
 
-      const output = await run(tools.replace_article, { slug: "notes", content_md: "# New\n" });
+      const output = (await run(tools.replace_article, {
+        slug: "notes",
+        content_md: "# New\n",
+      })) as { slug: string; name: string; diff: string };
 
-      expect(output).toEqual({ slug: "notes", name: "Notes" });
+      expect(output).toMatchObject({ slug: "notes", name: "Notes" });
+      // The rewrite's diff rides the result for the transcript to render.
+      expect(output.diff).toContain("-# Old");
+      expect(output.diff).toContain("+# New");
       expect(await readBody("notes")).toBe("# New");
       expect(events).toContainEqual({ type: "article.written", sessionId: "s1", slug: "notes" });
     });
@@ -107,7 +113,19 @@ describe("articleTools", () => {
         name: "Meeting Notes",
         content_md: "# New",
       });
-      expect(output).toEqual({ slug: "notes", name: "Meeting Notes" });
+      expect(output).toMatchObject({ slug: "notes", name: "Meeting Notes" });
+    });
+
+    it("strips the diff from what the model receives via toModelOutput", async () => {
+      const result = await tools.replace_article.toModelOutput?.({
+        toolCallId: "c1",
+        input: { slug: "notes", content_md: "# New" },
+        output: { slug: "notes", name: "Notes", diff: "-# Old\n+# New" },
+      });
+      expect(result).toEqual({
+        type: "json",
+        value: { slug: "notes", name: "Notes" },
+      });
     });
 
     it("rejects an unknown slug", () => {

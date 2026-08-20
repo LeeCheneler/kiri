@@ -141,6 +141,14 @@ describe("<DesktopNotifications>", () => {
     expect(history).toContain("/sessions/s1");
   });
 
+  it("notifies when a session pauses waiting on tool approval", async () => {
+    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionPayload("s1"))));
+    const { emit, shown } = renderNotifications();
+    await emit({ type: "session.updated", id: "s1", status: "waiting" });
+    expect(shown).toHaveLength(1);
+    expect((shown[0] as DesktopNotificationSpec).body).toBe("Waiting for tool approval");
+  });
+
   it("ignores mid-turn session updates", async () => {
     const { emit, shown } = renderNotifications();
     await emit({ type: "session.updated", id: "s1", status: "running" });

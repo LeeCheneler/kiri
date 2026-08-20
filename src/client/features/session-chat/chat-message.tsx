@@ -11,7 +11,11 @@ import { PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import { MessageComposer } from "./message-composer.tsx";
 import { type Segment, ToolChain, segmentParts } from "./tool-chain.tsx";
-import { type ToolDecisionHandler, ToolInvocation } from "./tool-invocation.tsx";
+import {
+  type ToolDecisionHandler,
+  ToolInvocation,
+  type ToolPageLinks,
+} from "./tool-invocation.tsx";
 
 /** Resend an edited user message, re-running the conversation from that point. */
 export type ResubmitHandler = (messageId: string, parts: UIMessage["parts"]) => void;
@@ -183,11 +187,13 @@ function UserMessage({
 function AssistantMessage({
   segments,
   sessionId,
+  pageLinks,
   wikiLinkResolver,
   onToolDecision,
 }: {
   segments: Segment[];
   sessionId?: string;
+  pageLinks?: ToolPageLinks;
   wikiLinkResolver?: WikiLinkResolver;
   onToolDecision?: ToolDecisionHandler;
 }) {
@@ -232,9 +238,17 @@ function AssistantMessage({
             return <ToolInvocation key={segment.part.toolCallId} part={segment.part} />;
           }
           return segment.parts.length === 1 ? (
-            <ToolInvocation key={segment.parts[0].toolCallId} part={segment.parts[0]} />
+            <ToolInvocation
+              key={segment.parts[0].toolCallId}
+              part={segment.parts[0]}
+              pageLinks={pageLinks}
+            />
           ) : (
-            <ToolChain key={segment.parts[0].toolCallId} parts={segment.parts} />
+            <ToolChain
+              key={segment.parts[0].toolCallId}
+              parts={segment.parts}
+              pageLinks={pageLinks}
+            />
           );
         })}
       </div>
@@ -263,6 +277,7 @@ export const ChatMessage = memo(function ChatMessage({
   message,
   busy,
   sessionId,
+  pageLinks,
   wikiLinkResolver,
   onResubmit,
   onDelete,
@@ -272,6 +287,8 @@ export const ChatMessage = memo(function ChatMessage({
   busy: boolean;
   /** The owning session; lets a delegate call render its embedded child session. */
   sessionId?: string;
+  /** Where the session's article, memory, and project pages live; tool results link through it. */
+  pageLinks?: ToolPageLinks;
   /** Turns `[[slug]]` references in assistant prose into corpus links when set. */
   wikiLinkResolver?: WikiLinkResolver;
   onResubmit: ResubmitHandler;
@@ -288,6 +305,7 @@ export const ChatMessage = memo(function ChatMessage({
     <AssistantMessage
       segments={segments}
       sessionId={sessionId}
+      pageLinks={pageLinks}
       wikiLinkResolver={wikiLinkResolver}
       onToolDecision={onToolDecision}
     />

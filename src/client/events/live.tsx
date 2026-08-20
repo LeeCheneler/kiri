@@ -28,8 +28,11 @@ export type KiriEventType =
   | "tool.permission.updated"
   | "config.changed";
 
-/** Session lifecycle states; `idle` is the between-turns resting state, replacing a run's terminal `ok`. */
-type SessionStatus = "running" | "idle" | "failed" | "cancelled";
+/**
+ * Session lifecycle states; `idle` is the between-turns resting state,
+ * replacing a run's terminal `ok`; `waiting` is a turn paused on tool approval.
+ */
+type SessionStatus = "running" | "waiting" | "idle" | "failed" | "cancelled";
 
 /** Mirrors the server's discriminated union; payloads are thin invalidation signals. */
 export type KiriEvent =

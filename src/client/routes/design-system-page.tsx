@@ -450,6 +450,7 @@ const STATUSES: StatusKind[] = [
   "pending",
   "running",
   "working",
+  "waiting",
   "idle",
   "ok",
   "failed",
@@ -1947,11 +1948,13 @@ export function DesignSystemContent() {
                 The status word for a run, step, or session, tinted in its state's colour. Pass{" "}
                 <Code>status</Code> — runs use <Code>pending</Code>, <Code>running</Code>,{" "}
                 <Code>ok</Code>, <Code>interrupted</Code>; sessions use <Code>idle</Code> (resting
-                between turns) and <Code>working</Code> (a turn streaming); <Code>failed</Code> and{" "}
-                <Code>cancelled</Code> are shared. The in-flight states (<Code>running</Code>,{" "}
-                <Code>working</Code>) add a pulsing dot as a live cue. It exposes the state as{" "}
-                <Code>data-status</Code> for containers to anchor on, and upper-cases the word and
-                stays mono — leaving size to the caller, so it drops cleanly into a row's chrome.
+                between turns), <Code>working</Code> (a turn streaming), and <Code>waiting</Code>{" "}
+                (paused on tool approval, blocked on the user); <Code>failed</Code> and{" "}
+                <Code>cancelled</Code> are shared. The live states (<Code>running</Code>,{" "}
+                <Code>working</Code>, <Code>waiting</Code>) add a pulsing dot as a cue. It exposes
+                the state as <Code>data-status</Code> for containers to anchor on, and upper-cases
+                the word and stays mono — leaving size to the caller, so it drops cleanly into a
+                row's chrome.
               </p>
             </Prose>
             <div className="mt-5">

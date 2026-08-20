@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { type ToolSet, tool } from "ai";
+import { type JSONValue, type ToolSet, tool } from "ai";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { ConfigStore } from "../config/store.ts";
@@ -17,6 +17,7 @@ import {
   parseWorkflowSource,
   stepLabel,
 } from "../workflows/index.ts";
+import { MAX_DIFF_LENGTH, compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
 export interface WorkflowToolsDeps {
   db: KiriDb;
   /** Workflow definitions, read live so a file change is reflected on the next call. */
@@ -421,9 +422,22 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
         const source = requireSource(name);
         const definition = validateSource(content_yaml);
         requireRenameFree(definition.name, name);
-        writeFileSync(source, withTrailingNewline(content_yaml));
-        return { name: definition.name, file: workspaceRelative(source) };
+        const before = readFileSync(source, "utf8");
+        const after = withTrailingNewline(content_yaml);
+        writeFileSync(source, after);
+        // The diff is app-only: the transcript renders the rewrite as the
+        // change it made, while toModelOutput and the send-time strip keep it
+        // out of what the model is paid for.
+        return {
+          name: definition.name,
+          file: workspaceRelative(source),
+          ...unifiedDiff(before, after, MAX_DIFF_LENGTH),
+        };
       },
+      toModelOutput: ({ output }) => ({
+        type: "json" as const,
+        value: compactWriteOutput(output) as JSONValue,
+      }),
     }),
   };
 }

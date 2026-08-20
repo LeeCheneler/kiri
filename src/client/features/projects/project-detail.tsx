@@ -29,10 +29,12 @@ import { ProjectTasks } from "./project-tasks.tsx";
 const BREADCRUMB = [{ label: "Projects", href: "/projects" }];
 
 // Session lifecycle mapped onto the shared status vocabulary: a running turn
-// reads as "working", the resting state as "idle".
+// reads as "working", the resting state as "idle", a turn paused on tool
+// approval as "waiting".
 const SESSION_STATUS: Record<SessionStatus, StatusKind> = {
   idle: "idle",
   running: "working",
+  waiting: "waiting",
   failed: "failed",
   cancelled: "cancelled",
 };

@@ -51,6 +51,39 @@ describe("stripWriteToolDiffs", () => {
     expect(history[0].parts[0]).toMatchObject({ output: { diff: "-a\n+b" } });
   });
 
+  it("covers the article, workflow, and memory writes", () => {
+    const history = [
+      message([
+        {
+          type: "tool-replace_article",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { slug: "notes", content_md: "b" },
+          output: { slug: "notes", name: "Notes", diff: "-a\n+b" },
+        },
+        {
+          type: "tool-replace_workflow",
+          toolCallId: "c2",
+          state: "output-available",
+          input: { name: "greet", content_yaml: "b" },
+          output: { name: "greet", file: "workflows/greet.yaml", diff: "-a\n+b" },
+        },
+        {
+          type: "tool-save_memory",
+          toolCallId: "c3",
+          state: "output-available",
+          input: { name: "fact", description: "d", content_md: "b" },
+          output: { name: "fact", saved: "updated", diff: "-a\n+b" },
+        },
+      ] as UIMessage["parts"]),
+    ];
+
+    const [stripped] = stripWriteToolDiffs(history);
+    for (const part of stripped.parts) {
+      expect("diff" in (part as { output: object }).output).toBe(false);
+    }
+  });
+
   it("leaves other tools, unsettled calls, and diff-less results as they are", () => {
     const parts = [
       { type: "text", text: "done" },

@@ -697,7 +697,7 @@ describe("runTurn", () => {
     expect(getSession(db, "s1")?.status).toBe("idle");
   });
 
-  it("pauses for tool approval instead of running the tool, settling idle", async () => {
+  it("pauses for tool approval instead of running the tool, settling waiting", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
     const events: KiriEvent[] = [];
 
@@ -720,8 +720,10 @@ describe("runTurn", () => {
     expect(toolPart.state).toBe("approval-requested");
     expect(toolPart.output).toBeUndefined();
     expect(typeof toolPart.approval?.id).toBe("string");
-    // The session is back to idle, awaiting the user's decision.
-    expect(getSession(db, "s1")?.status).toBe("idle");
+    // The session is waiting — blocked on the user's decision, not resting —
+    // and the bus said so, so lists flip amber live.
+    expect(getSession(db, "s1")?.status).toBe("waiting");
+    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "waiting" });
   });
 
   it("runs the tool and answers when a paused turn is resumed with approval", async () => {

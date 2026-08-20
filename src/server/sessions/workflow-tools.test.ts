@@ -606,15 +606,29 @@ describe("workflowTools", () => {
       const path = writeWorkflowFile("greet.yaml", GREET_YAML);
       await syncFromDisk();
 
-      const output = await run(tools().replace_workflow, {
+      const output = (await run(tools().replace_workflow, {
         name: "greet",
         content_yaml: "name: greet\ndescription: says hi\nsteps:\n  - sh: printf hi",
-      });
+      })) as { name: string; file: string; diff: string };
 
-      expect(output).toEqual({ name: "greet", file: "workflows/greet.yaml" });
+      expect(output).toMatchObject({ name: "greet", file: "workflows/greet.yaml" });
+      // The rewrite's diff rides the result for the transcript to render.
+      expect(output.diff).toContain("+description: says hi");
       expect(readFileSync(path, "utf8")).toBe(
         "name: greet\ndescription: says hi\nsteps:\n  - sh: printf hi\n",
       );
+    });
+
+    it("strips the diff from what the model receives via toModelOutput", async () => {
+      const result = await tools().replace_workflow.toModelOutput?.({
+        toolCallId: "c1",
+        input: { name: "greet", content_yaml: "name: greet" },
+        output: { name: "greet", file: "workflows/greet.yaml", diff: "-a\n+b" },
+      });
+      expect(result).toEqual({
+        type: "json",
+        value: { name: "greet", file: "workflows/greet.yaml" },
+      });
     });
 
     it("rejects invalid content, leaving the file unchanged", async () => {

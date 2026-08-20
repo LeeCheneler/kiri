@@ -43,9 +43,11 @@ export function DesktopNotifications({
   useLiveEvent({
     on: ["session.updated", "session.finished"],
     handler: (event) => {
-      // A turn ending normally is `session.updated` → idle; `session.finished`
-      // carries the terminal failed/cancelled. Other statuses are mid-turn.
-      const settled = event.type === "session.finished" || event.status === "idle";
+      // A turn ending normally is `session.updated` → idle, or → waiting when
+      // it paused on tool approval; `session.finished` carries the terminal
+      // failed/cancelled. Other statuses are mid-turn.
+      const settled =
+        event.type === "session.finished" || event.status === "idle" || event.status === "waiting";
       if (!settled) return;
       const path = `/sessions/${event.id}`;
       if (suppressed(path)) return;
@@ -54,7 +56,12 @@ export function DesktopNotifications({
         if (session.parentSessionId !== null) return;
         notifier.show({
           title: session.title ?? "Session",
-          body: event.status === "idle" ? "Finished working" : `Session ${event.status}`,
+          body:
+            event.status === "idle"
+              ? "Finished working"
+              : event.status === "waiting"
+                ? "Waiting for tool approval"
+                : `Session ${event.status}`,
           tag: event.id,
           onClick: () => navigate(path),
         });

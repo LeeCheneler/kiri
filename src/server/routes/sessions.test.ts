@@ -128,14 +128,16 @@ const fakeClients = (
 });
 
 // Bus paired with a `waitForSettled(id)` that resolves when a session returns
-// to idle or reaches a terminal state. Register the waiter before draining a
-// turn's streamed response so the settle event is never missed.
+// to idle, pauses waiting on tool approval, or reaches a terminal state.
+// Register the waiter before draining a turn's streamed response so the settle
+// event is never missed.
 const createSessionWaiter = () => {
   const bus = createEventBus();
   const pending = new Map<string, () => void>();
   bus.subscribe((e: KiriEvent) => {
     const settledId =
-      (e.type === "session.updated" && e.status === "idle") || e.type === "session.finished"
+      (e.type === "session.updated" && (e.status === "idle" || e.status === "waiting")) ||
+      e.type === "session.finished"
         ? e.id
         : undefined;
     if (settledId === undefined) return;
@@ -1407,7 +1409,7 @@ describe("sessions routes", () => {
       // turn, with the write announced on the bus.
       const rows = getSessionMessages(env.db, "s1");
       expect(toolPartOf(rows[1]).state).toBe("output-available");
-      expect(toolPartOf(rows[1]).output).toEqual({ name: "prefers-bun", saved: "created" });
+      expect(toolPartOf(rows[1]).output).toMatchObject({ name: "prefers-bun", saved: "created" });
 
       const row = env.db.select().from(memories).where(eq(memories.name, "prefers-bun")).get();
       expect(row?.contentMd).toBe("Always reach for bun.");
@@ -2737,7 +2739,7 @@ describe("sessions routes", () => {
       const pendingTool = toolPartOf(paused[1]);
       expect(pendingTool.state).toBe("approval-requested");
       expect(pendingTool.output).toBeUndefined();
-      expect(getSession(env.db, "s1")?.status).toBe("idle");
+      expect(getSession(env.db, "s1")?.status).toBe("waiting");
 
       // The client re-sends the paused assistant message with the verdict applied.
       const respondedParts = (paused[1]?.parts as ToolPart[]).map((part) =>

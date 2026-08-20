@@ -5,6 +5,7 @@ const STATUS_BORDER: Record<StatusKind, string> = {
   pending: "border-status-pending",
   running: "border-status-running",
   working: "border-status-working",
+  waiting: "border-status-waiting",
   idle: "border-status-idle",
   ok: "border-status-ok",
   failed: "border-status-failed",

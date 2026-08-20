@@ -135,23 +135,7 @@ describe("<ToolChain>", () => {
     expect(screen.getByText("Read file, Create issue")).toBeDefined();
   });
 
-  it("rolls the chain's status up to the most urgent call", () => {
-    const ok = render(<ToolChain parts={[tool("a"), tool("b")]} />);
-    expect(ok.container.querySelector('[data-status="ok"]')).not.toBeNull();
-
-    const failed = render(
-      <ToolChain parts={[tool("a"), tool("b", { state: "output-error", errorText: "boom" })]} />,
-    );
-    expect(failed.container.querySelector('[data-status="failed"]')).not.toBeNull();
-
-    const cancelled = render(
-      <ToolChain
-        parts={[tool("a"), tool("b", { state: "output-error", errorText: CANCELLED_ERROR_TEXT })]}
-      />,
-    );
-    expect(cancelled.container.querySelector('[data-status="cancelled"]')).not.toBeNull();
-
-    // A call still running outranks a settled failure.
+  it("shows a working cue while any call is still resolving", () => {
     const working = render(
       <ToolChain
         parts={[
@@ -161,6 +145,23 @@ describe("<ToolChain>", () => {
       />,
     );
     expect(working.container.querySelector('[data-status="working"]')).not.toBeNull();
+  });
+
+  it("rolls up no outcome once every call has settled", () => {
+    // A settled chain shows no status even when a call failed or was
+    // cancelled: the model routinely recovers from a failed call within the
+    // same chain, so a rolled-up outcome would misread self-recovery. The
+    // outcomes live on the individual rows when expanded.
+    const settled = render(
+      <ToolChain
+        parts={[
+          tool("a"),
+          tool("b", { state: "output-error", errorText: "boom" }),
+          tool("c", { state: "output-error", errorText: CANCELLED_ERROR_TEXT }),
+        ]}
+      />,
+    );
+    expect(settled.container.querySelector("[data-status]")).toBeNull();
   });
 
   it("expands to the individual calls, each expandable in turn to its result", async () => {

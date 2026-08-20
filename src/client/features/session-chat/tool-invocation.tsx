@@ -6,6 +6,7 @@ import { CodeBlock } from "../../design-system/content/code.tsx";
 import { Diff, patchFromStrings } from "../../design-system/content/diff.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
+import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { FullWidthImage } from "./image-thumb.tsx";
 
@@ -50,16 +51,17 @@ export const toolStatus = (part: ToolPart): StatusKind =>
 
 // A short input detail for the collapsed summary, when the call carries an
 // obvious one — a string `query`, a `path` (the filesystem tools), a `command`
-// (run_command), a `prompt` (generate_image), a `name` (use_skill), or a list
-// of `urls`; nothing otherwise.
+// (run_command), a `prompt` (generate_image), a `name` (use_skill), a `slug`
+// (the article tools), or a list of `urls`; nothing otherwise.
 const summaryDetail = (input: unknown): string | null => {
   if (input === null || typeof input !== "object") return null;
-  const { query, path, command, prompt, name, urls } = input as {
+  const { query, path, command, prompt, name, slug, urls } = input as {
     query?: unknown;
     path?: unknown;
     command?: unknown;
     prompt?: unknown;
     name?: unknown;
+    slug?: unknown;
     urls?: unknown;
   };
   if (typeof query === "string") return query;
@@ -67,6 +69,7 @@ const summaryDetail = (input: unknown): string | null => {
   if (typeof command === "string") return command;
   if (typeof prompt === "string") return prompt;
   if (typeof name === "string") return name;
+  if (typeof slug === "string") return slug;
   if (Array.isArray(urls)) {
     const list = urls.filter((url): url is string => typeof url === "string").join(", ");
     return list === "" ? null : list;
@@ -74,30 +77,79 @@ const summaryDetail = (input: unknown): string | null => {
   return null;
 };
 
-// The tools whose settled result carries a unified diff for the transcript.
-const DIFF_TOOLS = new Set(["write_file", "edit_file", "update_project_instructions"]);
+// The tools whose settled result carries a unified diff for the transcript —
+// the writes whose before-text only the server knows.
+const DIFF_TOOLS = new Set([
+  "write_file",
+  "edit_file",
+  "update_project_instructions",
+  "replace_article",
+  "replace_workflow",
+  "save_memory",
+]);
+
+// The exact-string edit tools: the input's old/new pair is the whole change,
+// for the file, article, and workflow variants alike.
+const EDIT_TOOLS = new Set(["edit_file", "edit_article", "edit_workflow"]);
+
+// The tools that create a document whole, keyed to the input field carrying
+// its body. create_article and create_workflow refuse to overwrite, so the
+// body shown as additions is the entire change; write_file can overwrite too,
+// so it renders this way only when its result says it created the file.
+const CREATED_CONTENT_FIELDS: Record<string, string> = {
+  write_file: "content",
+  create_article: "content_md",
+  create_workflow: "content_yaml",
+};
+
+// A creation's body from the call's input, or null for other tools and
+// malformed inputs.
+const createdContent = (name: string, input: unknown): string | null => {
+  const field = CREATED_CONTENT_FIELDS[name];
+  if (field === undefined || input === null || typeof input !== "object") return null;
+  const body = (input as Record<string, unknown>)[field];
+  return typeof body === "string" ? body : null;
+};
+
+// An exact-string edit's input as a renderable patch, with its replace-all
+// flag; null when the input doesn't carry the old/new pair.
+const editChange = (input: unknown): { patch: string; replaceAll: boolean } | null => {
+  if (input === null || typeof input !== "object") return null;
+  const { old_string, new_string, replace_all } = input as {
+    old_string?: unknown;
+    new_string?: unknown;
+    replace_all?: unknown;
+  };
+  if (typeof old_string !== "string" || typeof new_string !== "string") return null;
+  return { patch: patchFromStrings(old_string, new_string), replaceAll: replace_all === true };
+};
 
 // A settled write's change as a renderable patch: the unified diff its result
-// carries for an overwrite, edit, or instructions rewrite, or — for a created
-// file, whose result carries none — its content from the call's input, shown
-// as additions.
+// carries for an overwrite, edit, or instructions rewrite; a created
+// document's body from the call's input, shown as additions; or an
+// exact-string edit's old/new pair when the result carries no diff of its own
+// (the article and workflow edits — the server computes diffs only for the
+// filesystem-shaped writes).
 const writtenChange = (
   name: string,
   input: unknown,
   output: unknown,
 ): { patch: string; truncated: boolean } | null => {
-  if (!DIFF_TOOLS.has(name)) return null;
   if (output === null || typeof output !== "object") return null;
   const { diff, diffTruncated, created } = output as {
     diff?: unknown;
     diffTruncated?: unknown;
     created?: unknown;
   };
-  if (typeof diff === "string") return { patch: diff, truncated: diffTruncated === true };
-  if (created === true && input !== null && typeof input === "object") {
-    const { content } = input as { content?: unknown };
-    if (typeof content === "string")
-      return { patch: patchFromStrings("", content), truncated: false };
+  if (DIFF_TOOLS.has(name) && typeof diff === "string") {
+    return { patch: diff, truncated: diffTruncated === true };
+  }
+  if (name === "write_file" && created !== true) return null;
+  const content = createdContent(name, input);
+  if (content !== null) return { patch: patchFromStrings("", content), truncated: false };
+  if (EDIT_TOOLS.has(name)) {
+    const change = editChange(input);
+    if (change !== null) return { patch: change.patch, truncated: false };
   }
   return null;
 };
@@ -152,6 +204,98 @@ const commandResult = (name: string, output: unknown): ReactNode | null => {
   );
 };
 
+// The statuses a run or step outcome can carry, all in the shared vocabulary.
+const RUN_STATUSES = new Set<StatusKind>(["running", "ok", "failed", "cancelled"]);
+
+const runStatus = (value: unknown): StatusKind | null =>
+  typeof value === "string" && RUN_STATUSES.has(value as StatusKind) ? (value as StatusKind) : null;
+
+// A settled run_workflow / rerun_workflow outcome as a small run report: the
+// run's status and summary (or error) linking to its run page, each step with
+// its status — a failed one with its error and captured stream tails, like a
+// shell result — and the slugs of articles produced. Null for other tools and
+// results not in the outcome's shape, which stay JSON.
+const workflowResult = (name: string, output: unknown): ReactNode | null => {
+  if (name !== "run_workflow" && name !== "rerun_workflow") return null;
+  if (output === null || typeof output !== "object") return null;
+  const { run_id, status, summary, error, steps, articles } = output as {
+    run_id?: unknown;
+    status?: unknown;
+    summary?: unknown;
+    error?: unknown;
+    steps?: unknown;
+    articles?: unknown;
+  };
+  const overall = runStatus(status);
+  if (typeof run_id !== "string" || overall === null || !Array.isArray(steps)) return null;
+  const stepRows: {
+    name: string;
+    status: StatusKind;
+    error: string | null;
+    stdout: string;
+    stderr: string;
+  }[] = [];
+  for (const step of steps) {
+    if (step === null || typeof step !== "object") return null;
+    const row = step as {
+      name?: unknown;
+      status?: unknown;
+      error?: unknown;
+      stdout?: unknown;
+      stderr?: unknown;
+    };
+    const stepState = runStatus(row.status);
+    if (typeof row.name !== "string" || stepState === null) return null;
+    stepRows.push({
+      name: row.name,
+      status: stepState,
+      error: typeof row.error === "string" ? row.error : null,
+      stdout: typeof row.stdout === "string" ? row.stdout : "",
+      stderr: typeof row.stderr === "string" ? row.stderr : "",
+    });
+  }
+  const slugs = Array.isArray(articles)
+    ? articles.flatMap((article) => {
+        const { slug } = (article ?? {}) as { slug?: unknown };
+        return typeof slug === "string" ? [slug] : [];
+      })
+    : [];
+  const headline = typeof error === "string" ? error : typeof summary === "string" ? summary : null;
+  return (
+    <div className="space-y-2 font-mono text-xs">
+      <div className="flex items-baseline gap-3">
+        <Status status={overall} />
+        {headline !== null && <span className="min-w-0 text-ink">{headline}</span>}
+        <span className="ml-auto shrink-0">
+          <InlineLink href={`/runs/${encodeURIComponent(run_id)}`}>open run</InlineLink>
+        </span>
+      </div>
+      {stepRows.map((step, index) => (
+        <div key={`${step.name}-${index}`} className="space-y-1">
+          <div className="flex items-baseline gap-3">
+            <span className="text-ink-muted">{step.name}</span>
+            <Status status={step.status} />
+          </div>
+          {step.error !== null && <p className="text-status-failed">{step.error}</p>}
+          {step.stdout !== "" && (
+            <div className="space-y-1">
+              <Eyebrow tone="muted">stdout</Eyebrow>
+              <CodeBlock>{step.stdout}</CodeBlock>
+            </div>
+          )}
+          {step.stderr !== "" && (
+            <div className="space-y-1">
+              <Eyebrow tone="muted">stderr</Eyebrow>
+              <CodeBlock>{step.stderr}</CodeBlock>
+            </div>
+          )}
+        </div>
+      ))}
+      {slugs.length > 0 && <p className="text-ink-muted">articles: {slugs.join(", ")}</p>}
+    </div>
+  );
+};
+
 /**
  * A settled generate_image result's image as a file part for the shared
  * click-to-preview thumbnail — the result carries it as a data URL. Null for
@@ -171,11 +315,11 @@ export const generatedImage = (part: ToolPart): FileUIPart | null => {
 };
 
 // A change preview for a call awaiting approval, derived from its input
-// alone: a filesystem edit as its old lines removed and new lines added, a
-// write as its full content added, and a shell command shown verbatim (with
-// its directory when named) — the decision the user is making is precisely
-// "run this". Null for calls with nothing better than the JSON input to show
-// (deletes, directories).
+// alone: an exact-string edit (file, article, or workflow) as its old lines
+// removed and new lines added, a created document's full body as additions,
+// and a shell command shown verbatim (with its directory when named) — the
+// decision the user is making is precisely "run this". Null for calls with
+// nothing better than the JSON input to show (deletes, directories).
 const approvalPreview = (name: string, input: unknown): ReactNode | null => {
   if (input === null || typeof input !== "object") return null;
   if (name === "run_command") {
@@ -190,28 +334,273 @@ const approvalPreview = (name: string, input: unknown): ReactNode | null => {
       </div>
     );
   }
-  if (name === "edit_file") {
-    const { old_string, new_string, replace_all } = input as {
-      old_string?: unknown;
-      new_string?: unknown;
-      replace_all?: unknown;
-    };
-    if (typeof old_string !== "string" || typeof new_string !== "string") return null;
+  if (EDIT_TOOLS.has(name)) {
+    const change = editChange(input);
+    if (change === null) return null;
     return (
       <div className="space-y-2">
-        <Diff patch={patchFromStrings(old_string, new_string)} />
-        {replace_all === true && (
+        <Diff patch={change.patch} />
+        {change.replaceAll && (
           <p className="font-mono text-ink-muted text-xs">Applies to every occurrence.</p>
         )}
       </div>
     );
   }
-  if (name === "write_file") {
-    const { content } = input as { content?: unknown };
-    if (typeof content !== "string") return null;
-    return <Diff patch={patchFromStrings("", content)} />;
+  const content = createdContent(name, input);
+  if (content !== null) return <Diff patch={patchFromStrings("", content)} />;
+  return null;
+};
+
+// The tools whose result is one document the user reads, keyed to the field
+// carrying its body. The body renders verbatim in a code block instead of a
+// JSON-escaped string; the collapsed summary already names the source.
+const READ_CONTENT_FIELDS: Record<string, string> = {
+  read_file: "content",
+  read_article: "content_md",
+  read_memory: "content_md",
+  read_workflow: "content_yaml",
+};
+
+// A settled read's document, with the note a truncated read_file carries.
+// use_skill returns its instructions as a bare string; the rest carry the
+// body in a per-tool field. Null for other tools and malformed results.
+const readContent = (
+  name: string,
+  output: unknown,
+): { content: string; note: string | null } | null => {
+  if (name === "use_skill") {
+    return typeof output === "string" ? { content: output, note: null } : null;
+  }
+  const field = READ_CONTENT_FIELDS[name];
+  if (field === undefined || output === null || typeof output !== "object") return null;
+  const { [field]: body, note } = output as Record<string, unknown>;
+  if (typeof body !== "string") return null;
+  return { content: body, note: typeof note === "string" ? note : null };
+};
+
+// A settled filesystem search or listing as plain lines — matches in grep's
+// file:line: text shape, file and directory listings one entry per line —
+// with any note (a cap or truncation) above and a quiet message when nothing
+// matched. Null for other tools and malformed results, which stay JSON.
+const listResult = (
+  name: string,
+  output: unknown,
+): { lines: string[]; note: string | null; empty: string } | null => {
+  if (output === null || typeof output !== "object") return null;
+  const { files, entries, matches, capped, note } = output as {
+    files?: unknown;
+    entries?: unknown;
+    matches?: unknown;
+    capped?: unknown;
+    note?: unknown;
+  };
+  const stringNote = typeof note === "string" ? note : null;
+  if (name === "find_files" && Array.isArray(files)) {
+    return {
+      lines: files.filter((file): file is string => typeof file === "string"),
+      note: capped === true ? "capped — narrow the pattern or directory" : stringNote,
+      empty: "No files matched.",
+    };
+  }
+  if (name === "list_directory" && Array.isArray(entries)) {
+    return {
+      lines: entries.filter((entry): entry is string => typeof entry === "string"),
+      note: stringNote,
+      empty: "Empty directory.",
+    };
+  }
+  if (name === "search_files" && Array.isArray(matches)) {
+    const lines: string[] = [];
+    for (const match of matches) {
+      if (match === null || typeof match !== "object") return null;
+      const { file, line, text } = match as { file?: unknown; line?: unknown; text?: unknown };
+      if (typeof file !== "string" || typeof line !== "number" || typeof text !== "string")
+        return null;
+      lines.push(`${file}:${line}: ${text}`);
+    }
+    return { lines, note: stringNote, empty: "No matches." };
   }
   return null;
+};
+
+/**
+ * Where the owning container's pages live, for linking tool results to what
+ * they touched: the article base (`/sessions/<id>/articles`, or the project
+ * corpus), the memory base (`/memories`, or the project's), and — for a
+ * project session — the project page itself. Callers must keep the object
+ * referentially stable or the transcript's message memo never holds.
+ */
+export interface ToolPageLinks {
+  articleBase: string;
+  memoryBase: string;
+  projectHref?: string;
+}
+
+// The tools whose settled result names a document with its own page, keyed by
+// kind. The link line lets the user step from the call to what it touched.
+const ARTICLE_LINK_TOOLS = new Set([
+  "create_article",
+  "edit_article",
+  "replace_article",
+  "read_article",
+]);
+const WORKFLOW_LINK_TOOLS = new Set([
+  "create_workflow",
+  "edit_workflow",
+  "replace_workflow",
+  "read_workflow",
+]);
+const MEMORY_LINK_TOOLS = new Set(["save_memory", "read_memory"]);
+
+// A string field from the call's output, falling back to its input — a
+// settled result names its target authoritatively, but an older or partial
+// one may only carry it in the input.
+const callField = (input: unknown, output: unknown, key: string): string | null => {
+  for (const source of [output, input]) {
+    if (source !== null && typeof source === "object") {
+      const value = (source as Record<string, unknown>)[key];
+      if (typeof value === "string") return value;
+    }
+  }
+  return null;
+};
+
+// The page a settled call links to. A workflow's page is global; an article
+// or memory lives under its owning container, which `links` names — except a
+// run's article (read_article with run_id), which addresses the run instead —
+// and a project-instructions rewrite links to the project page itself. Null
+// when the target can't be named, or a container-owned page has no base to
+// resolve against.
+const resultLink = (
+  name: string,
+  input: unknown,
+  output: unknown,
+  links?: ToolPageLinks,
+): { href: string; label: string } | null => {
+  if (ARTICLE_LINK_TOOLS.has(name)) {
+    const slug = callField(input, output, "slug");
+    if (slug === null) return null;
+    const runId =
+      input !== null && typeof input === "object"
+        ? (input as { run_id?: unknown }).run_id
+        : undefined;
+    if (typeof runId === "string") {
+      return {
+        href: `/runs/${encodeURIComponent(runId)}/articles/${encodeURIComponent(slug)}`,
+        label: "open article",
+      };
+    }
+    if (links === undefined) return null;
+    return { href: `${links.articleBase}/${encodeURIComponent(slug)}`, label: "open article" };
+  }
+  if (WORKFLOW_LINK_TOOLS.has(name)) {
+    const workflow = callField(input, output, "name");
+    if (workflow === null) return null;
+    return { href: `/workflows/${encodeURIComponent(workflow)}`, label: "open workflow" };
+  }
+  if (MEMORY_LINK_TOOLS.has(name)) {
+    const memory = callField(input, output, "name");
+    if (memory === null || links === undefined) return null;
+    return { href: `${links.memoryBase}/${encodeURIComponent(memory)}`, label: "open memory" };
+  }
+  if (name === "update_project_instructions" && links?.projectHref !== undefined) {
+    return { href: links.projectHref, label: "open project" };
+  }
+  return null;
+};
+
+// The article and workflow catalogues as rows linking to each entry's page.
+// An article row resolves against the owning container's article base and
+// falls back to plain text without one; a workflow's page is global. Null
+// for other tools and malformed results, which stay JSON.
+const catalogueResult = (
+  name: string,
+  output: unknown,
+  links?: ToolPageLinks,
+): ReactNode | null => {
+  if (!Array.isArray(output)) return null;
+  if (name === "list_articles") {
+    const rows: { slug: string; label: string }[] = [];
+    for (const article of output) {
+      if (article === null || typeof article !== "object") return null;
+      const { slug, name: label } = article as { slug?: unknown; name?: unknown };
+      if (typeof slug !== "string" || typeof label !== "string") return null;
+      rows.push({ slug, label });
+    }
+    if (rows.length === 0) {
+      return <p className="font-mono text-ink-muted text-xs">No articles yet.</p>;
+    }
+    return (
+      <ul className="space-y-1 font-mono text-xs">
+        {rows.map((row) => (
+          <li key={row.slug} className="text-ink">
+            {links !== undefined ? (
+              <InlineLink href={`${links.articleBase}/${encodeURIComponent(row.slug)}`}>
+                {row.slug}
+              </InlineLink>
+            ) : (
+              row.slug
+            )}
+            <span className="text-ink-muted"> — {row.label}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (name === "list_workflows") {
+    const rows: { name: string; description: string | null }[] = [];
+    for (const workflow of output) {
+      if (workflow === null || typeof workflow !== "object") return null;
+      const { name: label, description } = workflow as { name?: unknown; description?: unknown };
+      if (typeof label !== "string") return null;
+      rows.push({ name: label, description: typeof description === "string" ? description : null });
+    }
+    if (rows.length === 0) {
+      return <p className="font-mono text-ink-muted text-xs">No workflows defined.</p>;
+    }
+    return (
+      <ul className="space-y-1 font-mono text-xs">
+        {rows.map((row) => (
+          <li key={row.name} className="text-ink">
+            <InlineLink href={`/workflows/${encodeURIComponent(row.name)}`}>{row.name}</InlineLink>
+            {row.description !== null && (
+              <span className="text-ink-muted"> — {row.description}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return null;
+};
+
+// The delete tools whose settled result reads as one sentence, keyed to the
+// result field naming what was deleted.
+const DELETE_TARGET_FIELDS: Record<string, string> = {
+  delete_file: "path",
+  delete_directory: "path",
+  delete_article: "slug",
+  delete_memory: "name",
+  delete_task: "title",
+  delete_task_group: "group",
+};
+
+// A settled deletion as a plain sentence — the result carries only the
+// confirmation and its target's identifier, so a JSON dump earns nothing.
+const deletedResult = (name: string, output: unknown): string | null => {
+  const field = DELETE_TARGET_FIELDS[name];
+  if (field === undefined || output === null || typeof output !== "object") return null;
+  const { [field]: target, deleted } = output as Record<string, unknown>;
+  if (deleted !== true || typeof target !== "string") return null;
+  return `Deleted ${target}.`;
+};
+
+// A settled working-directory move as a plain sentence naming the new cwd.
+const movedCwd = (name: string, output: unknown): string | null => {
+  if (name !== "set_working_directory" || output === null || typeof output !== "object")
+    return null;
+  const { cwd } = output as { cwd?: unknown };
+  return typeof cwd === "string" ? `Now working in ${cwd}.` : null;
 };
 
 // The call's input rendered as formatted JSON — untrusted data, shown verbatim.
@@ -223,7 +612,15 @@ function ToolInput({ input }: { input: unknown }) {
   );
 }
 
-function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
+function ToolPanel({
+  part,
+  name,
+  pageLinks,
+}: {
+  part: ToolPart;
+  name: string;
+  pageLinks?: ToolPageLinks;
+}) {
   if (part.state === "output-error") {
     if (part.errorText === CANCELLED_ERROR_TEXT) {
       return <p className="font-mono text-ink-muted text-sm">You cancelled this call.</p>;
@@ -235,15 +632,71 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
     );
   }
   if (part.state === "output-available") {
-    // A write's result renders as the change itself — the unified diff (or a
-    // created file's content), still untrusted text shown verbatim, never
-    // markdown.
+    // A settled call that touched a document with its own page leads with a
+    // link to it, above whatever the result renders as.
+    const link = resultLink(name, part.input, part.output, pageLinks);
+    const linkLine =
+      link !== null ? (
+        <p className="font-mono text-xs">
+          <InlineLink href={link.href}>{link.label}</InlineLink>
+        </p>
+      ) : null;
+    // A write's result renders as the change itself — the unified diff, a
+    // created document's content, or an edit's old/new pair — still untrusted
+    // text shown verbatim, never markdown.
     const change = writtenChange(name, part.input, part.output);
-    if (change) return <Diff patch={change.patch} truncated={change.truncated} />;
+    if (change) {
+      const diff = <Diff patch={change.patch} truncated={change.truncated} />;
+      if (linkLine === null) return diff;
+      return (
+        <div className="space-y-2">
+          {linkLine}
+          {diff}
+        </div>
+      );
+    }
     // A shell command's result renders as its exit status and output streams
     // rather than JSON.
     const command = commandResult(name, part.output);
     if (command) return command;
+    // A read's document renders verbatim — untrusted text in a code block,
+    // never markdown — instead of a JSON-escaped string.
+    const read = readContent(name, part.output);
+    if (read) {
+      return (
+        <div className="space-y-2 font-mono text-xs">
+          {linkLine}
+          {read.note !== null && <p className="text-ink-muted">{read.note}</p>}
+          <CodeBlock>{read.content}</CodeBlock>
+        </div>
+      );
+    }
+    // A workflow run's outcome renders as a small run report rather than JSON.
+    const run = workflowResult(name, part.output);
+    if (run) return run;
+    // The article and workflow catalogues render as rows linking to each
+    // entry's page.
+    const catalogue = catalogueResult(name, part.output, pageLinks);
+    if (catalogue) return catalogue;
+    // A search or listing renders as plain lines rather than a JSON array.
+    const list = listResult(name, part.output);
+    if (list) {
+      return (
+        <div className="space-y-2 font-mono text-xs">
+          {list.note !== null && <p className="text-ink-muted">{list.note}</p>}
+          {list.lines.length === 0 ? (
+            <p className="text-ink-muted">{list.empty}</p>
+          ) : (
+            <CodeBlock>{list.lines.join("\n")}</CodeBlock>
+          )}
+        </div>
+      );
+    }
+    // A deletion or working-directory move confirms in one plain sentence.
+    const sentence = deletedResult(name, part.output) ?? movedCwd(name, part.output);
+    if (sentence !== null) {
+      return <p className="font-mono text-ink-muted text-sm">{sentence}</p>;
+    }
     // A generated image renders below the block; the expanded panel shows the
     // call's metadata without dumping the data URL's base64 as JSON.
     if (generatedImage(part)) {
@@ -266,9 +719,9 @@ function ToolPanel({ part, name }: { part: ToolPart; name: string }) {
  * so the decision is informed, with Allow (run once), Always allow (run and stop
  * prompting for this tool), and Deny (refuse and let the assistant continue). Shown
  * expanded rather than collapsed — it needs a response before the turn resumes.
- * A filesystem write shows the change it would make as a diff-style preview in
- * place of the raw JSON input; a shell command shows the command it would run,
- * verbatim.
+ * A write — file, article, or workflow — shows the change it would make as a
+ * diff-style preview in place of the raw JSON input; a shell command shows the
+ * command it would run, verbatim.
  */
 function ToolApproval({
   part,
@@ -329,10 +782,17 @@ export function ToolInvocation({
   part,
   onDecision,
   framed = true,
+  pageLinks,
 }: {
   part: ToolPart;
   onDecision?: ToolDecisionHandler;
   framed?: boolean;
+  /**
+   * Where the owning container's article, memory, and project pages live;
+   * results link through it. Omitted, those links are dropped while workflow
+   * and run links still render.
+   */
+  pageLinks?: ToolPageLinks;
 }) {
   const name = getToolName(part);
   if (part.state === "approval-requested" && onDecision) {
@@ -359,7 +819,7 @@ export function ToolInvocation({
         {/* Cap the expanded result at ~14 lines (of text-sm) and scroll past
             that, so a long result stays contained in the box. */}
         <div className="max-h-[17.5rem] overflow-y-auto">
-          <ToolPanel part={part} name={name} />
+          <ToolPanel part={part} name={name} pageLinks={pageLinks} />
         </div>
       </Disclosure>
       {/* The generated image is the call's product for the user — always

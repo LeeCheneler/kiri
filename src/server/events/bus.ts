@@ -47,8 +47,12 @@ export type KiriEvent =
 
 export type RunStatus = "running" | "ok" | "failed" | "cancelled";
 export type StepStatus = "running" | "ok" | "failed" | "cancelled";
-/** Session lifecycle states. `idle` replaces a run's terminal `ok`: a session returns to it between turns rather than ending. */
-export type SessionStatus = "running" | "idle" | "failed" | "cancelled";
+/**
+ * Session lifecycle states. `idle` replaces a run's terminal `ok`: a session
+ * returns to it between turns rather than ending. `waiting` is a turn paused on
+ * tool-approval requests — blocked on the user's verdicts rather than resting.
+ */
+export type SessionStatus = "running" | "waiting" | "idle" | "failed" | "cancelled";
 
 export type EventListener = (event: KiriEvent) => void;
 

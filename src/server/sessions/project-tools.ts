@@ -3,12 +3,7 @@ import { z } from "zod";
 import type { KiriDb } from "../db/index.ts";
 import type { KiriEvent } from "../events/index.ts";
 import { getProject, updateProject } from "../projects/store.ts";
-import { compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
-
-// Cap on the unified diff the result carries. The diff feeds the app's
-// transcript rendering — never the model — but it is persisted per message, so
-// a wholesale rewrite mustn't bloat the session store.
-const MAX_DIFF_LENGTH = 64 * 1024;
+import { MAX_DIFF_LENGTH, compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
 
 /**
  * The first-party tool that lets a project session rewrite its project's

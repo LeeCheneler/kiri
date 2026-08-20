@@ -41,9 +41,15 @@ describe("memoryTools", () => {
 
   describe("save_memory", () => {
     it("creates a memory and publishes memory.saved", async () => {
-      const output = await save("prefers-bun", "Prefers bun over node.");
+      const output = (await save("prefers-bun", "Prefers bun over node.")) as {
+        name: string;
+        saved: string;
+        diff: string;
+      };
 
-      expect(output).toEqual({ name: "prefers-bun", saved: "created" });
+      expect(output).toMatchObject({ name: "prefers-bun", saved: "created" });
+      // A create diffs against nothing, so the body renders as additions.
+      expect(output.diff).toContain("+# Fact");
       expect(events).toContainEqual({ type: "memory.saved", name: "prefers-bun" });
       const read = (await run(tools.read_memory, { name: "prefers-bun" })) as {
         description: string;
@@ -58,9 +64,16 @@ describe("memoryTools", () => {
       const before = listMemories(db)[0]?.updatedAt.getTime() ?? 0;
       await Bun.sleep(2);
 
-      const output = await save("prefers-bun", "New summary.", "New body.\n");
+      const output = (await save("prefers-bun", "New summary.", "New body.\n")) as {
+        name: string;
+        saved: string;
+        diff: string;
+      };
 
-      expect(output).toEqual({ name: "prefers-bun", saved: "updated" });
+      expect(output).toMatchObject({ name: "prefers-bun", saved: "updated" });
+      // The update's diff rides the result for the transcript to render.
+      expect(output.diff).toContain("-Old body.");
+      expect(output.diff).toContain("+New body.");
       const summaries = listMemories(db);
       expect(summaries).toHaveLength(1);
       expect(summaries[0]?.description).toBe("New summary.");
@@ -69,6 +82,18 @@ describe("memoryTools", () => {
         content_md: string;
       };
       expect(read.content_md).toBe("New body.");
+    });
+
+    it("strips the diff from what the model receives via toModelOutput", async () => {
+      const result = await tools.save_memory.toModelOutput?.({
+        toolCallId: "c1",
+        input: { name: "prefers-bun", description: "d", content_md: "b" },
+        output: { name: "prefers-bun", saved: "updated", diff: "-a\n+b" },
+      });
+      expect(result).toEqual({
+        type: "json",
+        value: { name: "prefers-bun", saved: "updated" },
+      });
     });
   });
 
@@ -155,7 +180,7 @@ describe("memoryTools", () => {
 
       const output = await saveInProject("shared-name", "Project summary.");
 
-      expect(output).toEqual({ name: "shared-name", saved: "created" });
+      expect(output).toMatchObject({ name: "shared-name", saved: "created" });
       expect(listMemories(db)[0]?.description).toBe("Global summary.");
       expect(listProjectMemories(db, projectId)[0]?.description).toBe("Project summary.");
     });

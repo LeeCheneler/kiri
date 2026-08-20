@@ -1,12 +1,14 @@
 /**
  * The states a run, run step, or session can be in. Runs use
  * `pending`/`running`/`ok`/`interrupted`; sessions use `idle` (resting between
- * turns) and `working` (a turn streaming); `failed` and `cancelled` are shared.
+ * turns), `working` (a turn streaming), and `waiting` (paused on tool approval,
+ * blocked on the user); `failed` and `cancelled` are shared.
  */
 export type StatusKind =
   | "pending"
   | "running"
   | "working"
+  | "waiting"
   | "idle"
   | "ok"
   | "failed"
@@ -17,6 +19,7 @@ const STATUS_TEXT: Record<StatusKind, string> = {
   pending: "text-status-pending",
   running: "text-status-running",
   working: "text-status-working",
+  waiting: "text-status-waiting",
   idle: "text-status-idle",
   ok: "text-status-ok",
   failed: "text-status-failed",
@@ -24,17 +27,20 @@ const STATUS_TEXT: Record<StatusKind, string> = {
   interrupted: "text-status-interrupted",
 };
 
-// The in-flight states: each renders a pulsing dot beside the word as a live
-// cue. Listed as full class names (not interpolated) so Tailwind keeps them.
+// The live states: each renders a pulsing dot beside the word as a cue that
+// the entity needs watching — in-flight (`running`, `working`) or blocked on
+// the user (`waiting`). Listed as full class names (not interpolated) so
+// Tailwind keeps them.
 const STATUS_DOT: Partial<Record<StatusKind, string>> = {
   running: "bg-status-running",
   working: "bg-status-working",
+  waiting: "bg-status-waiting",
 };
 
 /**
- * The status word, tinted in its `text-status-*` token. The in-flight states
- * (`running`, `working`) also render a small pulsing dot beside the word as a
- * live cue (the dot is decorative — the word already conveys the state). Exposes
+ * The status word, tinted in its `text-status-*` token. The live states
+ * (`running`, `working`, `waiting`) also render a small pulsing dot beside the
+ * word as a cue (the dot is decorative — the word already conveys the state). Exposes
  * the state as `data-status` so containers and tests can anchor on it without
  * reading styles. Upper-cases the word centrally (its canonical machine-layer
  * form) and stays `font-mono`, leaving size to the caller.
