@@ -1,7 +1,10 @@
 import {
   type ToolSet,
   type UIMessage,
+  type UIMessageStreamWriter,
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   isToolUIPart,
   stepCountIs,
   streamText,
@@ -50,9 +53,11 @@ export interface RunTurnDeps {
    * Tools offered to the model this turn. When non-empty, the turn runs as a
    * multi-step loop — the model can call a tool, read its result, and continue —
    * capped at `MAX_TURN_STEPS`. An empty set (the default) is a plain chat:
-   * `streamText` runs a single step with no tools.
+   * `streamText` runs a single step with no tools. A factory is called with the
+   * turn's stream writer as the stream starts, so a tool can emit live progress
+   * parts into the response while it runs.
    */
-  tools?: ToolSet;
+  tools?: ToolSet | ((context: { writer: UIMessageStreamWriter }) => ToolSet);
 }
 
 // Upper bound on model⇄tool round-trips in a single turn. With tools, a turn
@@ -307,23 +312,6 @@ async function streamCore(
   // without provider options rather than sending parameters blind. Resolved
   // per turn like the model, so a mid-session change applies next turn.
   const providerOptions = await llmClients.reasoningOptionsFor(session.model, session.effort);
-  // With tools, the turn runs as a multi-step loop (call a tool, feed the
-  // result back, continue) capped at MAX_TURN_STEPS. An empty set leaves the
-  // call tool-less, a single-step plain chat — byte-identical to before.
-  const hasTools = tools !== undefined && Object.keys(tools).length > 0;
-  let streamError: unknown;
-  const result = streamText({
-    model,
-    system,
-    messages: modelMessages,
-    ...(providerOptions !== undefined ? { providerOptions } : {}),
-    ...(hasTools ? { tools, stopWhen: stepCountIs(MAX_TURN_STEPS) } : {}),
-    abortSignal: controller.signal,
-    onError: ({ error }) => {
-      streamError = error;
-    },
-  });
-
   // Assigned synchronously by the executor below, before any await can run.
   let settle!: () => void;
   const done = new Promise<void>((resolve) => {
@@ -336,7 +324,13 @@ async function streamCore(
   // 204 on resume and never replays it into a duplicate.
   const sink = streamRegistry?.open(session.id);
 
-  const response = result.toUIMessageStreamResponse({
+  // Assigned synchronously by `execute` below (the SDK invokes it as the stream
+  // is created); `onFinish` reads the settled usage off it. Left unassigned only
+  // when a tools factory throws, which lands the turn as failed.
+  let result: ReturnType<typeof streamText> | undefined;
+  let streamError: unknown;
+
+  const stream = createUIMessageStream<UIMessage>({
     // Surface real error text in the stream and transcript instead of the
     // SDK's masked "An error occurred." default. The masking keeps server
     // internals from leaking to remote clients; kiri is single-user and
@@ -351,7 +345,36 @@ async function streamCore(
     // A fresh assistant message gets a unique id here rather than defaulting to
     // the provider's stream id, which some providers reuse across requests and
     // would collide on the message primary key from one turn to the next.
-    generateMessageId: () => crypto.randomUUID(),
+    generateId: () => crypto.randomUUID(),
+    execute: ({ writer }) => {
+      try {
+        // Tools may be supplied ready-made or built against this turn's stream
+        // writer, so a tool can emit live progress parts while it runs. With
+        // tools, the turn runs as a multi-step loop (call a tool, feed the
+        // result back, continue) capped at MAX_TURN_STEPS. An empty set leaves
+        // the call tool-less, a single-step plain chat.
+        const turnTools = typeof tools === "function" ? tools({ writer }) : tools;
+        const hasTools = turnTools !== undefined && Object.keys(turnTools).length > 0;
+        result = streamText({
+          model,
+          system,
+          messages: modelMessages,
+          ...(providerOptions !== undefined ? { providerOptions } : {}),
+          ...(hasTools ? { tools: turnTools, stopWhen: stepCountIs(MAX_TURN_STEPS) } : {}),
+          abortSignal: controller.signal,
+          onError: ({ error }) => {
+            streamError = error;
+          },
+        });
+        writer.merge(result.toUIMessageStream({ onError: errorMessage }));
+      } catch (cause) {
+        // A tools factory that throws fails the turn like a provider error:
+        // recorded here so `onFinish` lands it as failed, and rethrown so the
+        // SDK streams the real error text to the client.
+        streamError = cause;
+        throw cause;
+      }
+    },
     onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
       try {
         const aborted = isAborted || controller.signal.aborted;
@@ -378,9 +401,11 @@ async function streamCore(
         }
         // The context fill the gauge reads is the last model call's total
         // tokens — not the per-step sum, which over-counts a multi-step tool
-        // turn (each step re-sends the history).
-        const lastStep = await result.usage;
-        const contextTokens = lastStep.totalTokens;
+        // turn (each step re-sends the history). `result` is always assigned
+        // on this path: only a tools-factory throw leaves it unset, and that
+        // records a `streamError` handled above.
+        const lastStep = await result?.usage;
+        const contextTokens = lastStep?.totalTokens;
         persistAssistantMessage(
           db,
           session.id,
@@ -408,6 +433,10 @@ async function streamCore(
         settle();
       }
     },
+  });
+
+  const response = createUIMessageStreamResponse({
+    stream,
     // Drive the stream server-side so the turn always reaches `onFinish` —
     // persisting and settling — even if the client never reads the response — and
     // mirror its frames into the stream registry so a client that reconnects

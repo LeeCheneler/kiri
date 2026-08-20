@@ -675,6 +675,58 @@ describe("runTurn", () => {
     expect(getSession(db, "s1")?.status).toBe("idle");
   });
 
+  it("builds a tools factory against the turn's stream writer", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    let writer: unknown;
+
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(toolLoopModel()),
+        tools: (context) => {
+          writer = context.writer;
+          return echoTools;
+        },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    // The factory ran with a live writer, and its tools drove the loop as a
+    // plain set would.
+    expect(typeof (writer as { write?: unknown })?.write).toBe("function");
+    const rows = getSessionMessages(db, "s1");
+    expect(toolPartOf(rows[1]).output).toEqual({ echoed: "hi" });
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it("marks the session failed when the tools factory throws", async () => {
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(toolLoopModel()),
+        bus: recordingBus(events),
+        tools: () => {
+          throw new Error("tool construction broke");
+        },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+
+    const settled = getSession(db, "s1");
+    expect(settled?.status).toBe("failed");
+    expect(settled?.error).toEqual({ message: "tool construction broke" });
+    // The user message persisted; no assistant message was appended.
+    expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
+    expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "failed" });
+  });
+
   it("persists a failed tool call's real message as its errorText", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
 
