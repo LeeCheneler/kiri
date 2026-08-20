@@ -637,8 +637,8 @@ describe("<ToolInvocation>", () => {
       />,
     );
     await user.click(screen.getByRole("button"));
-    expect(screen.getByRole("link", { name: "open project" }).getAttribute("href")).toBe(
-      "/projects/p1",
+    expect(screen.getByRole("link", { name: "open instructions" }).getAttribute("href")).toBe(
+      "/projects/p1?tab=instructions",
     );
   });
 
@@ -660,6 +660,130 @@ describe("<ToolInvocation>", () => {
     );
     await user.click(screen.getByRole("button"));
     expect(screen.getByText("No workflows defined.")).toBeDefined();
+  });
+
+  it("renders the task list as a grouped checklist", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_tasks", {
+          state: "output-available",
+          input: {},
+          output: {
+            groups: [
+              {
+                name: "Launch",
+                tasks: [
+                  { id: "t1", title: "Ship the release", done: true },
+                  { id: "t2", title: "Write the announcement", done: false, note: "keep it short" },
+                ],
+              },
+              { name: "Later", tasks: [] },
+            ],
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Launch")).toBeDefined();
+    expect(screen.getByText(/Ship the release/)).toBeDefined();
+    expect(screen.getByText("[x]")).toBeDefined();
+    expect(screen.getByText("— keep it short")).toBeDefined();
+    expect(screen.getByText("No tasks in this group.")).toBeDefined();
+    expect(screen.queryByText(/"groups"/)).toBeNull();
+  });
+
+  it("says so when the task list has no groups", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_tasks", {
+          state: "output-available",
+          input: {},
+          output: { groups: [] },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("No tasks yet.")).toBeDefined();
+  });
+
+  it("renders an added task as its checklist line under its group", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("add_task", {
+          state: "output-available",
+          input: { group: "Launch", title: "Tag the release" },
+          output: { group: "Launch", task: { id: "t3", title: "Tag the release", done: false } },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Added to Launch:")).toBeDefined();
+    expect(screen.getByText(/Tag the release/)).toBeDefined();
+    expect(screen.getByText("[ ]")).toBeDefined();
+  });
+
+  it("renders an updated task as its resulting checklist line", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("update_task", {
+          state: "output-available",
+          input: { id: "t1", done: true },
+          output: { task: { id: "t1", title: "Ship the release", done: true } },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("[x]")).toBeDefined();
+    expect(screen.queryByText(/Added to/)).toBeNull();
+  });
+
+  it("confirms a task-group creation in one sentence", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("create_task_group", {
+          state: "output-available",
+          input: { name: "Launch" },
+          output: { group: "Launch", created: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Created group Launch.")).toBeDefined();
+  });
+
+  it("confirms a task-group update in one sentence, noting a hide", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("update_task_group", {
+          state: "output-available",
+          input: { name: "Later", hidden: true },
+          output: { group: "Later", hidden: true, updated: true },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("Updated group Later. Now hidden from sessions.")).toBeDefined();
+  });
+
+  it("falls back to JSON for a malformed task list", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("list_tasks", {
+          state: "output-available",
+          input: {},
+          output: { groups: [{ name: "Launch", tasks: [{ id: "t1" }] }] },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"t1"/)).toBeDefined();
   });
 
   it("confirms a deletion in one sentence", async () => {

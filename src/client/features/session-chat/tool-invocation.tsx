@@ -504,7 +504,9 @@ const resultLink = (
     return { href: `${links.memoryBase}/${encodeURIComponent(memory)}`, label: "open memory" };
   }
   if (name === "update_project_instructions" && links?.projectHref !== undefined) {
-    return { href: links.projectHref, label: "open project" };
+    // Straight to the Instructions tab — the project page's tabs deep-link on
+    // the `tab` query param.
+    return { href: `${links.projectHref}?tab=instructions`, label: "open instructions" };
   }
   return null;
 };
@@ -593,6 +595,100 @@ const deletedResult = (name: string, output: unknown): string | null => {
   const { [field]: target, deleted } = output as Record<string, unknown>;
   if (deleted !== true || typeof target !== "string") return null;
   return `Deleted ${target}.`;
+};
+
+// A task as the tools return it, validated out of an untrusted result.
+const parseTask = (
+  value: unknown,
+): { title: string; done: boolean; note: string | null } | null => {
+  if (value === null || typeof value !== "object") return null;
+  const { title, done, note } = value as { title?: unknown; done?: unknown; note?: unknown };
+  if (typeof title !== "string" || typeof done !== "boolean") return null;
+  return { title, done, note: typeof note === "string" ? note : null };
+};
+
+// One task as a checklist line: a ticked box for a done task, the title, and
+// the note (untrusted text, shown inline verbatim) when there is one.
+function TaskLine({ task }: { task: { title: string; done: boolean; note: string | null } }) {
+  return (
+    <p className="text-ink">
+      <span className={task.done ? "text-status-ok" : "text-ink-muted"}>
+        [{task.done ? "x" : " "}]
+      </span>{" "}
+      {task.title}
+      {task.note !== null && <span className="text-ink-muted"> — {task.note}</span>}
+    </p>
+  );
+}
+
+// A settled task-tool result as a checklist rather than JSON: the full list
+// grouped with its tasks, a single added or updated task as its resulting
+// line, and the group writes as one-sentence confirmations. Null for other
+// tools and malformed results, which stay JSON.
+const taskResult = (name: string, output: unknown): ReactNode | null => {
+  if (output === null || typeof output !== "object") return null;
+  if (name === "list_tasks") {
+    const { groups } = output as { groups?: unknown };
+    if (!Array.isArray(groups)) return null;
+    const parsed: {
+      name: string;
+      tasks: { title: string; done: boolean; note: string | null }[];
+    }[] = [];
+    for (const group of groups) {
+      if (group === null || typeof group !== "object") return null;
+      const { name: label, tasks } = group as { name?: unknown; tasks?: unknown };
+      if (typeof label !== "string" || !Array.isArray(tasks)) return null;
+      const rows: { title: string; done: boolean; note: string | null }[] = [];
+      for (const task of tasks) {
+        const row = parseTask(task);
+        if (row === null) return null;
+        rows.push(row);
+      }
+      parsed.push({ name: label, tasks: rows });
+    }
+    if (parsed.length === 0) {
+      return <p className="font-mono text-ink-muted text-xs">No tasks yet.</p>;
+    }
+    return (
+      <div className="space-y-3 font-mono text-xs">
+        {parsed.map((group) => (
+          <div key={group.name} className="space-y-1">
+            <p className="uppercase tracking-widest text-ink-muted">{group.name}</p>
+            {group.tasks.length === 0 ? (
+              <p className="text-ink-muted">No tasks in this group.</p>
+            ) : (
+              group.tasks.map((task, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a settled result's rows are fixed and never reorder, so the index is a stable key.
+                <TaskLine key={index} task={task} />
+              ))
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (name === "add_task" || name === "update_task") {
+    const { group, task } = output as { group?: unknown; task?: unknown };
+    const row = parseTask(task);
+    if (row === null) return null;
+    return (
+      <div className="space-y-1 font-mono text-xs">
+        {typeof group === "string" && <p className="text-ink-muted">Added to {group}:</p>}
+        <TaskLine task={row} />
+      </div>
+    );
+  }
+  if (name === "create_task_group" || name === "update_task_group") {
+    const { group, hidden } = output as { group?: unknown; hidden?: unknown };
+    if (typeof group !== "string") return null;
+    const verb = name === "create_task_group" ? "Created" : "Updated";
+    return (
+      <p className="font-mono text-ink-muted text-sm">
+        {verb} group {group}.{hidden === true ? " Now hidden from sessions." : ""}
+      </p>
+    );
+  }
+  return null;
 };
 
 // A settled working-directory move as a plain sentence naming the new cwd.
@@ -692,6 +788,9 @@ function ToolPanel({
         </div>
       );
     }
+    // A task-tool result renders as a checklist rather than JSON.
+    const tasks = taskResult(name, part.output);
+    if (tasks) return tasks;
     // A deletion or working-directory move confirms in one plain sentence.
     const sentence = deletedResult(name, part.output) ?? movedCwd(name, part.output);
     if (sentence !== null) {
