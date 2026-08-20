@@ -95,6 +95,36 @@ const parkedReply = () =>
     }),
   });
 
+// A turn that starts a shell command and streams its live console as transient
+// data parts — the frames the real server emits while the command runs — then
+// parks, holding the live view on screen until the turn is cancelled.
+const liveCommandReply = () =>
+  createUIMessageStreamResponse({
+    stream: createUIMessageStream({
+      execute: ({ writer }) => {
+        writer.write({
+          type: "tool-input-available",
+          toolCallId: "c1",
+          toolName: "run_command",
+          input: { command: "bun test" },
+        });
+        writer.write({
+          type: "data-tool-console",
+          id: "c1",
+          data: { text: "1 pass\n", truncated: false },
+          transient: true,
+        });
+        writer.write({
+          type: "data-tool-console",
+          id: "c1",
+          data: { text: "1 pass\n2 pass\n", truncated: false },
+          transient: true,
+        });
+        return new Promise<void>(() => {});
+      },
+    }),
+  });
+
 // An assistant turn paused awaiting approval for a tool call — the shape the
 // transcript seeds from when a turn stopped to ask the user.
 const pausedToolTranscript = () => [
@@ -452,6 +482,32 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText("Hi back")).toBeDefined();
     // The reply has content, so the turn is labelled.
     expect(screen.getByText("Assistant")).toBeDefined();
+  });
+
+  it("streams an executing command's live console, dropping it when the turn ends", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.post("*/api/sessions/:id/messages", () => liveCommandReply()),
+      http.post("*/api/sessions/:id/cancel", () =>
+        HttpResponse.json({ error: "not in flight" }, { status: 409 }),
+      ),
+    );
+    renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "run the tests");
+    await user.keyboard("{Enter}");
+
+    // The call renders as the ordinary collapsed tool block; expanding it
+    // shows the console grown to the latest snapshot in place of Running….
+    await user.click(await screen.findByRole("button", { name: /run command/i }));
+    expect(await screen.findByText(/2 pass/)).toBeDefined();
+
+    // Ending the turn (here by cancelling) drops the ephemeral console; the
+    // panel reads the stored outcome instead.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText(/2 pass/)).toBeNull());
   });
 
   it("allows a paused tool once, sending the verdict back to resume the turn", async () => {

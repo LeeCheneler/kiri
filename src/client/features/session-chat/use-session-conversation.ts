@@ -16,6 +16,7 @@ import {
   truncateSessionMessages,
 } from "../../api.ts";
 import { useTruncateSessionDetail } from "../../state/sessions.ts";
+import { type LiveConsoleStore, createLiveConsoleStore, liveConsoleOf } from "./live-console.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
 
 // Tool-call states that mean a call is still running.
@@ -67,6 +68,12 @@ export interface SessionConversation {
   busy: boolean;
   /** A tool call on the latest turn is awaiting the user's Allow / Deny verdict. */
   awaitingApproval: boolean;
+  /**
+   * Live consoles of the turn's executing tool calls, fed by the stream's
+   * transient data parts and cleared when the turn settles. Referentially
+   * stable, so passing it to the transcript never defeats the message memo.
+   */
+  liveConsoles: LiveConsoleStore;
   /** Start a turn from composed parts. */
   sendMessage: ReturnType<typeof useChat<UIMessage>>["sendMessage"];
   /** Replace the local transcript (used by cancel and resubmit). */
@@ -110,6 +117,11 @@ export function useSessionConversation(opts: {
     });
   }, [session.id]);
 
+  // Live tool consoles for the in-flight turn. One store per mounted engine,
+  // cleared on session entry (below) and again when a turn settles, so a
+  // session switch or a settled call never shows a stale console.
+  const liveConsoles = useMemo(() => createLiveConsoleStore(), []);
+
   const {
     messages,
     sendMessage,
@@ -128,6 +140,14 @@ export function useSessionConversation(opts: {
     // pins the main thread until the tab freezes; 60 ms still reads as live
     // streaming.
     experimental_throttle: 60,
+    // Live progress (an executing command's console) rides the stream as
+    // transient data parts: they never join the transcript, so they land in
+    // the side store the tool blocks read — only the block showing a console
+    // re-renders per snapshot.
+    onData: (dataPart) => {
+      const update = liveConsoleOf(dataPart);
+      if (update !== null) liveConsoles.set(update.toolCallId, update.snapshot);
+    },
     // Once every pending tool approval on the latest turn has a verdict, send it
     // straight back so the turn resumes without another user action.
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -143,14 +163,24 @@ export function useSessionConversation(opts: {
   useEffect(() => {
     if (resumedFor.current === session.id) return;
     resumedFor.current = session.id;
+    // A newly-entered session starts with no live consoles; rejoining its
+    // in-flight stream below replays any current ones straight back in.
+    liveConsoles.clear();
     void resumeStream();
-  }, [session.id, resumeStream]);
+  }, [session.id, resumeStream, liveConsoles]);
 
   // `streaming` is this view driving the turn. `busy` is a turn in flight at all
   // — including one started elsewhere, or left running when we navigated away:
   // the session row reports `running` while `useChat` sits idle here.
   const streaming = status === "submitted" || status === "streaming";
   const busy = streaming || session.status === "running";
+
+  // Live consoles are turn-scoped: once this view stops streaming, drop them —
+  // every call has settled (or been cancelled), and its block reads the stored
+  // result instead.
+  useEffect(() => {
+    if (!streaming) liveConsoles.clear();
+  }, [streaming, liveConsoles]);
 
   // A tool call on the latest turn is waiting on the user's Allow / Deny verdict.
   // The turn is idle (not `busy`) meanwhile, but a new message can't be sent
@@ -261,6 +291,7 @@ export function useSessionConversation(opts: {
     streaming,
     busy,
     awaitingApproval,
+    liveConsoles,
     sendMessage,
     setMessages,
     resubmit,

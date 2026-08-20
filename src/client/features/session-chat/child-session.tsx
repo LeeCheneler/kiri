@@ -52,7 +52,7 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
     () => detail.messages.map((m) => ({ id: m.id, role: m.role, parts: m.parts })),
     [detail.messages],
   );
-  const { messages, busy, cancel } = useSessionConversation({
+  const { messages, busy, cancel, liveConsoles } = useSessionConversation({
     session: detail.session,
     initialMessages,
   });
@@ -67,7 +67,13 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
                 if (part.type === "text" && part.text !== "")
                   // biome-ignore lint/suspicious/noArrayIndexKey: assistant parts are append-only within a turn and never reorder.
                   return <Markdown key={index} content={part.text} />;
-                if (isToolUIPart(part)) return <ToolInvocation key={part.toolCallId} part={part} />;
+                // The worker's tool calls render as the usual blocks; an
+                // in-flight command's expanded panel streams its console here
+                // just as it would in the child's own page.
+                if (isToolUIPart(part))
+                  return (
+                    <ToolInvocation key={part.toolCallId} part={part} liveConsoles={liveConsoles} />
+                  );
                 return null;
               })}
             </div>

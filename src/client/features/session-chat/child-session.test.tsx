@@ -130,6 +130,30 @@ describe("<ChildSession>", () => {
     expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
   });
 
+  it("renders a worker's in-flight shell command as the usual collapsible block", async () => {
+    withChildren([child("running")]);
+    withChildDetail("running", [
+      childMessage("m1", "user", [{ type: "text", text: "Research pelicans" }]),
+      childMessage("m2", "assistant", [
+        {
+          type: "tool-run_command",
+          toolCallId: "t1",
+          state: "input-available",
+          input: { command: "bun test" },
+        },
+      ]),
+    ]);
+    renderBox();
+
+    await userEvent.click(await screen.findByRole("button", { name: /delegate/i }));
+
+    // The worker's executing command is a normal collapsed tool row that
+    // expands to its (so far empty) live panel.
+    await userEvent.click(await screen.findByRole("button", { name: /run command/i }));
+    expect(await screen.findByText("Running…")).toBeDefined();
+    expect(screen.getAllByText("bun test").length).toBeGreaterThan(0);
+  });
+
   it("surfaces a transcript that fails to load", async () => {
     withChildren([child("idle")]);
     server.use(http.get("*/api/sessions/child-1", () => new HttpResponse(null, { status: 404 })));
