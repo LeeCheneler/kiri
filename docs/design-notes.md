@@ -119,11 +119,13 @@ Every step returns the same shape. Designed in early — painful to retrofit.
   status: "ok" | "failed",
   output: string,          // captured stdout — what { step: <id> } refs resolve to
   error?: { message, stack? },
-  traces: { stdout, stderr, durationMs, usage? },
+  traces: { stdout, stderr, console, durationMs, usage? },
 }
 ```
 
 Full I/O captured at every step. Linked from the corresponding feed entry for debugging and replay. `traces.usage` carries token counts and is present only on `llm:` steps (see *AI integration → LLM step execution*).
+
+`traces.console` is stdout and stderr merged in arrival order — the step's output as a terminal would have shown it, and what the run page renders (the split streams stay persisted for `output` refs and failed-step tails, not for display). While a step runs, the runner flushes a tail-capped live console onto the running row on a coalescing interval, announced through the same thin `run.step.updated` event, so an open run page refetches and watches the output grow; the terminal update replaces it with the envelope's full merge. No output payload ever rides the event bus.
 
 ### Execution semantics
 

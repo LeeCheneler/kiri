@@ -214,6 +214,7 @@ describe("runWorkflow", () => {
       expect(steps[0].traces).toEqual({
         stdout: "done",
         stderr: "",
+        console: "done",
         durationMs: expect.any(Number),
         usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
       });
@@ -570,6 +571,82 @@ describe("runWorkflow", () => {
       { type: "run.updated", id: result.runId, status: "failed" },
       { type: "run.finished", id: result.runId, status: "failed" },
     ]);
+  });
+
+  describe("live console", () => {
+    /**
+     * Poll the run's single step row until its traces carry a live console
+     * tail satisfying `ready` — flushes are periodic, so an early one may
+     * hold only a prefix of the step's output.
+     */
+    const waitForLiveConsole = async (
+      runId: string,
+      ready: (live: string) => boolean,
+    ): Promise<string> => {
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        const row = db.select().from(runSteps).where(eq(runSteps.runId, runId)).get();
+        const traces = row?.traces as { console?: string } | null;
+        if (traces?.console !== undefined && ready(traces.console)) return traces.console;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      throw new Error("no live console flush observed before the deadline");
+    };
+
+    it("flushes a running step's merged output onto its row and republishes running", async () => {
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((e) => seen.push(e));
+      const wf = makeWorkflow("live", [{ sh: "printf hello; printf ' world' 1>&2; sleep 1" }]);
+
+      const started = runWorkflow(db, wf, { config, bus });
+      const live = await waitForLiveConsole(
+        started.runId,
+        (c) => c.includes("hello") && c.includes("world"),
+      );
+
+      expect(live).toContain("hello");
+      expect(live).toContain("world");
+      // The flush re-announces the step as running, on top of the
+      // insert-time event, so a mounted run page refetches.
+      const runningUpdates = seen.filter(
+        (e) => e.type === "run.step.updated" && e.step === 0 && e.status === "running",
+      );
+      expect(runningUpdates.length).toBeGreaterThanOrEqual(2);
+
+      const result = await started.done;
+      expect(result.status).toBe("ok");
+      // The terminal update replaces the live traces with the envelope's:
+      // the split streams plus the full merged console.
+      const row = db.select().from(runSteps).where(eq(runSteps.runId, started.runId)).get();
+      expect(row?.traces).toEqual({
+        stdout: "hello",
+        stderr: " world",
+        console: expect.stringContaining("hello"),
+        durationMs: expect.any(Number),
+      });
+      expect((row?.traces as { console: string }).console).toContain("world");
+    });
+
+    it("keeps only a well-formed tail of a high-volume console", async () => {
+      // 32768 four-byte emoji then "b": 65537 UTF-16 units, one over the
+      // 64 Ki tail cap — and the cap boundary lands on the low surrogate of
+      // the first emoji, so the trim must step past it.
+      const wf = makeWorkflow("firehose", [
+        {
+          sh: `awk 'BEGIN{for(i=0;i<32768;i++)printf "🙂"; printf "b"}'; sleep 1`,
+        },
+      ]);
+
+      const started = runWorkflow(db, wf, { config });
+      const live = await waitForLiveConsole(started.runId, (c) => c.endsWith("b"));
+
+      expect(live.length).toBe(64 * 1024 - 1);
+      expect(live.isWellFormed()).toBe(true);
+      expect(live.endsWith("b")).toBe(true);
+
+      await started.done;
+    });
   });
 
   it("publishes run.updated/run.finished even when execution throws mid-flight", async () => {

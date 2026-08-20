@@ -134,18 +134,65 @@ describe("<RunPhases>", () => {
     expect(screen.queryByText(/^sh:/)).toBeNull();
   });
 
-  it("expands an executed step to reveal stdout and an empty stderr", async () => {
+  it("expands a finished step to reveal its merged console, not split streams", async () => {
     const user = userEvent.setup();
     const run = makeRun({ name: "wf", steps: [{ use: "fetch-pr" }] });
     const steps = [
-      makeStep({ index: 0, traces: { stdout: "hello stdout", stderr: "", durationMs: 12000 } }),
+      makeStep({
+        index: 0,
+        traces: { stdout: "", stderr: "", console: "hello\nwarning: x", durationMs: 12000 },
+      }),
     ];
 
     render(<RunPhases run={run} steps={steps} now={NOW} />);
     await user.click(screen.getByRole("button", { name: /fetch-pr/i }));
 
-    expect(screen.getByText("hello stdout")).toBeDefined();
-    expect(screen.getByText("(empty)")).toBeDefined();
+    expect(screen.getByText("console")).toBeDefined();
+    expect(screen.getByText(/warning: x/)).toBeDefined();
+    expect(screen.queryByText("stdout")).toBeNull();
+    expect(screen.queryByText("stderr")).toBeNull();
+  });
+
+  it("falls back to the joined split streams for rows predating merged capture", async () => {
+    const user = userEvent.setup();
+    const run = makeRun({ name: "wf", steps: [{ use: "fetch-pr" }] });
+    const steps = [
+      makeStep({ index: 0, traces: { stdout: "old out", stderr: "old err", durationMs: 12000 } }),
+    ];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /fetch-pr/i }));
+
+    expect(screen.getByText(/old out/)).toBeDefined();
+    expect(screen.getByText(/old err/)).toBeDefined();
+  });
+
+  it("shows the full sh: script as the command when expanded", async () => {
+    const user = userEvent.setup();
+    const run = makeRun({
+      name: "wf",
+      steps: [{ sh: "echo hi\necho bye", name: "Warm the cache" }],
+    });
+    const steps = [makeStep({ index: 0, kind: "sh" })];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /warm the cache/i }));
+
+    expect(screen.getByText("command")).toBeDefined();
+    expect(screen.getByText(/echo hi/)).toBeDefined();
+    expect(screen.getByText(/echo bye/)).toBeDefined();
+  });
+
+  it("shows the bundle script path as the command for a use: step", async () => {
+    const user = userEvent.setup();
+    const run = makeRun({ name: "wf", steps: [{ use: "fetch-pr" }] });
+    const steps = [makeStep({ index: 0 })];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /fetch-pr/i }));
+
+    expect(screen.getByText("command")).toBeDefined();
+    expect(screen.getByText("bundles/fetch-pr/run.sh")).toBeDefined();
   });
 
   it("reveals a step's emitted named outputs when expanded", async () => {
@@ -204,6 +251,44 @@ describe("<RunPhases>", () => {
     expect(screen.getByText("pending")).toBeDefined();
     expect(screen.queryByRole("button", { name: /deploy/i })).toBeNull();
     expect(screen.getByText("—")).toBeDefined();
+  });
+
+  it("shows a running step's live merged console instead of the split streams", async () => {
+    const user = userEvent.setup();
+    const run = makeRun(
+      { name: "wf", steps: [{ use: "build" }] },
+      { status: "running", finishedAt: null },
+    );
+    const steps = [
+      makeStep({
+        index: 0,
+        status: "running",
+        finishedAt: null,
+        traces: { stdout: "", stderr: "", durationMs: 800, console: "compiling…\nwarning: x" },
+      }),
+    ];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /build/i }));
+
+    expect(screen.getByText("console")).toBeDefined();
+    expect(screen.getByText(/compiling/)).toBeDefined();
+  });
+
+  it("shows an empty live console before the first output flush lands", async () => {
+    const user = userEvent.setup();
+    const run = makeRun(
+      { name: "wf", steps: [{ use: "build" }] },
+      { status: "running", finishedAt: null },
+    );
+    // A just-inserted running row has no traces yet.
+    const steps = [makeStep({ index: 0, status: "running", finishedAt: null, traces: null })];
+
+    render(<RunPhases run={run} steps={steps} now={NOW} />);
+    await user.click(screen.getByRole("button", { name: /build/i }));
+
+    expect(screen.getByText("console")).toBeDefined();
+    expect(screen.getByText("(empty)")).toBeDefined();
   });
 
   it("surfaces a failed step's error message, with the stack when present", async () => {

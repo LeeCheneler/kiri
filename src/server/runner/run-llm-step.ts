@@ -30,8 +30,9 @@ export interface RunLlmStepArgs {
 /**
  * Execute an `llm:` step: render its prompt template and run a single
  * completion, mapping the result onto the standard envelope. The completion
- * text becomes both `output` and `traces.stdout` (`stderr` stays empty —
- * there is no second stream), and token counts land on `traces.usage`.
+ * text becomes `output`, `traces.stdout`, and `traces.console` (`stderr`
+ * stays empty — there is no second stream), and token counts land on
+ * `traces.usage`.
  * Any failure — unreadable `prompt_file`, resolution error, provider/API
  * error, abort — yields `status: "failed"` with the cause's message.
  */
@@ -42,7 +43,7 @@ export async function runLlmStep(args: RunLlmStepArgs): Promise<StepEnvelope> {
     status: "failed",
     output: "",
     error,
-    traces: { stdout: "", stderr: "", durationMs: performance.now() - startedAt },
+    traces: { stdout: "", stderr: "", console: "", durationMs: performance.now() - startedAt },
   });
 
   if (!llmClients) {
@@ -92,7 +93,13 @@ export async function runLlmStep(args: RunLlmStepArgs): Promise<StepEnvelope> {
     return {
       status: "ok",
       output: text,
-      traces: { stdout: text, stderr: "", durationMs: performance.now() - startedAt, usage },
+      traces: {
+        stdout: text,
+        stderr: "",
+        console: text,
+        durationMs: performance.now() - startedAt,
+        usage,
+      },
     };
   } catch (cause) {
     return cause instanceof Error
