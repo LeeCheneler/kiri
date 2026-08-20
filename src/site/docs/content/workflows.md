@@ -23,6 +23,11 @@ Two habits worth forming from the first step: start non-trivial scripts with
 repo files via `$KIRI_REPO_ROOT` — steps run in a per-run scratch directory,
 not your repo.
 
+Every step's row on the run page shows the command it ran and its console —
+stdout and stderr merged as they arrived. While the step runs the console
+streams live, so a long build or test step is watchable, not a black box;
+once it finishes, the output stays on the run for debugging and replay.
+
 ## Wire steps together
 
 A step passes data forward by declaring an `id:`; any later phase pulls its

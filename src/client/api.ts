@@ -264,6 +264,12 @@ export interface RunStepRow {
     stdout: string;
     stderr: string;
     durationMs: number;
+    /**
+     * stdout and stderr merged in arrival order — the step's output as a
+     * terminal would have shown it. Tail-capped while the step runs, full
+     * once it settles. Absent only on rows predating merged capture.
+     */
+    console?: string;
     usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   } | null;
   isSummary: boolean;

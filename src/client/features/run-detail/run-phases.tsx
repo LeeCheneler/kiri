@@ -101,8 +101,9 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
  * The run's execution as up-to-three labelled groups — Steps, Articles, and
  * Summarise — mirroring the order the runner walks them. Each group lists its
  * entries with status and duration (a live timer while running, the final span
- * once finished); rows that have executed expand to reveal their captured
- * stdout, stderr, and any error. A published article's expanded row leads with
+ * once finished). An executed row expands to the command it ran and its
+ * console — stdout and stderr merged in arrival order, growing live while the
+ * step runs — plus any error. A published article's expanded row leads with
  * a link through to its article page. Empty groups (no articles, no
  * summariser) are omitted. `now` is injectable so tests pin the live timer;
  * production omits it.
@@ -184,8 +185,12 @@ function StepDuration({ row, now }: { row: RunStepRow | undefined; now?: Date })
 }
 
 function StepTrace({ row, entry, href }: { row: RunStepRow; entry: PhaseEntry; href?: string }) {
-  const llm = "llm" in entry ? entry.llm : undefined;
   const usage = row.traces?.usage;
+  // Rows persisted before merged capture fall back to the split streams
+  // joined — there is no interleaving to recover for them.
+  const consoleBody = row.traces
+    ? (row.traces.console ?? [row.traces.stdout, row.traces.stderr].filter(Boolean).join("\n"))
+    : "";
   return (
     <div className="space-y-4">
       {href ? (
@@ -196,10 +201,9 @@ function StepTrace({ row, entry, href }: { row: RunStepRow; entry: PhaseEntry; h
           </p>
         </div>
       ) : null}
-      {llm ? <LlmDetail llm={llm} /> : null}
+      {"llm" in entry ? <LlmDetail llm={entry.llm} /> : <CommandDetail entry={entry} />}
       {row.outputs ? <StepOutputs outputs={row.outputs} /> : null}
-      <TracePart label="stdout" body={row.traces?.stdout ?? ""} />
-      <TracePart label="stderr" body={row.traces?.stderr ?? ""} />
+      <TracePart label="console" body={consoleBody} />
       {usage ? <LlmUsage usage={usage} /> : null}
       {row.error ? (
         <div>
@@ -214,6 +218,35 @@ function StepTrace({ row, entry, href }: { row: RunStepRow; entry: PhaseEntry; h
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** A script-backed entry — inline `sh:` or a `use:` bundle reference. */
+type ScriptEntry = Exclude<PhaseEntry, { llm: LlmConfigSummary }>;
+
+/**
+ * The command an expanded script row ran: the full `sh:` snippet, or the
+ * bundle script a `use:` entry resolves to. `llm:` rows render their model
+ * and prompt through `LlmDetail` instead.
+ */
+function CommandDetail({ entry }: { entry: ScriptEntry }): ReactNode {
+  if ("sh" in entry) {
+    return (
+      <div>
+        <Eyebrow tone="muted">command</Eyebrow>
+        <div className="mt-1.5">
+          <CodeBlock>{entry.sh}</CodeBlock>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Eyebrow tone="muted">command</Eyebrow>
+      <p className="mt-1.5 font-mono text-sm">
+        <Code>bundles/{entry.use}/run.sh</Code>
+      </p>
     </div>
   );
 }
