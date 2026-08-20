@@ -48,6 +48,44 @@ const editButton = () => screen.getByRole("button", { name: "edit" });
 const deleteButton = () => screen.getByRole("button", { name: "delete" });
 
 describe("<ChatMessage>", () => {
+  it("renders a woven inbox delivery as the user's interjection inside the assistant turn", () => {
+    renderMessage(
+      message("assistant", [
+        { type: "step-start" },
+        { type: "text", text: "Working on it." },
+        {
+          type: "data-inbox",
+          id: "i1",
+          data: { source: "user", text: "also check X", queuedAt: 1 },
+        },
+        { type: "step-start" },
+        { type: "text", text: "Checked X too." },
+      ]),
+    );
+
+    expect(screen.getByText("also check X")).toBeDefined();
+    // Labelled as the user speaking, so the transcript still reads as a conversation.
+    expect(screen.getByText("You")).toBeDefined();
+  });
+
+  it("renders a drained inbox row as an interjection without edit or delete controls", () => {
+    renderMessage(
+      message("user", [
+        {
+          type: "data-inbox",
+          id: "i1",
+          data: { source: "user", text: "queued while idle", queuedAt: 1 },
+        },
+      ]),
+    );
+
+    expect(screen.getByText("queued while idle")).toBeDefined();
+    // Not an editable user message: resending it would re-run a conversation
+    // it never started.
+    expect(screen.queryByRole("button", { name: "edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "delete" })).toBeNull();
+  });
+
   it("renders a delegate call as a plain tool block when no session id is supplied", () => {
     // Without the owning session there is no child lookup — the embedded
     // child-session box needs it, so the call degrades to the ordinary block.

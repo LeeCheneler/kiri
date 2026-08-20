@@ -321,6 +321,29 @@ export const messages = sqliteTable(
 );
 
 /**
+ * One row per message queued for a session while it couldn't take it — the
+ * session's inbox. A turn drains the inbox at each step boundary (and a fresh
+ * turn drains what queued while the session was idle); a drained row's content
+ * moves into the transcript as a `data-inbox` message part and the row is
+ * deleted, so the table only ever holds the undelivered backlog. `source`
+ * records who queued it — `"user"` today; other senders (a delegated child's
+ * report or question) arrive with the delegation work.
+ */
+export const sessionInbox = sqliteTable(
+  "session_inbox",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    source: text("source", { enum: ["user"] }).notNull(),
+    text: text("text").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("session_inbox_session_id_idx").on(t.sessionId)],
+);
+
+/**
  * One row per memory: a small durable fact a session saved for future
  * sessions to recall. `name` is the URL-safe identifier the tools key off,
  * unique within its scope — across the workspace for a global memory, within
