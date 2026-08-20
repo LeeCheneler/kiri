@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { isInboxPart } from "../../../shared/inbox-part.ts";
 import { ApiError, type Session, type SessionDetail } from "../../api.ts";
 import { Chip } from "../../design-system/actions/chip.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
@@ -11,7 +12,7 @@ import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useProject } from "../../state/projects.ts";
 import { useModels, useSession } from "../../state/sessions.ts";
-import { ChatMessage } from "./chat-message.tsx";
+import { ChatMessage, QueuedMessage } from "./chat-message.tsx";
 import {
   CONTEXT_WARNING_RATIO,
   contextWindowForModel,
@@ -180,11 +181,24 @@ function ChatView({
     awaitingApproval,
     liveConsoles,
     sendMessage,
+    queueMessage,
     resubmit,
     deleteMessage,
     cancel,
     onToolDecision,
-  } = useSessionConversation({ session, initialMessages });
+  } = useSessionConversation({ session, initialMessages, pendingInbox: detail.inbox });
+  // The undelivered backlog, straight off the same detail payload the session's
+  // status rides — chips render from the server's queue, not local state, so
+  // they survive reloads and show in every view of the session. A delivery the
+  // live stream has already shown renders as its interjection in the
+  // transcript, so its chip hides rather than showing the message twice while
+  // the turn finishes (the backlog row itself only clears at settle).
+  const deliveredLive = useMemo(
+    () =>
+      new Set(messages.flatMap((message) => message.parts.filter(isInboxPart).map((p) => p.id))),
+    [messages],
+  );
+  const queued = (detail.inbox ?? []).filter((item) => !deliveredLive.has(item.id));
   // Chips above the composer for a settled turn a short reply answers. Driven
   // by the persisted transcript rather than the live one: it refetches in the
   // same query as the `busy` status, so a settled turn's suggestions are only
@@ -261,11 +275,12 @@ function ChatView({
   // and leave the foot *above* the offset we last saw. Both writes land before
   // paint, and the browser coalesces the frame's scroll events into one, so the
   // listener only ever sees the settled offset.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: queued is a trigger — a chip appearing or resolving moves the foot; nothing inside reads it.
   useLayoutEffect(() => {
     if (messages.length === 0 || !pinnedToBottom.current) return;
     window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
     lastScrollTop.current = document.documentElement.scrollTop;
-  }, [messages]);
+  }, [messages, queued]);
 
   // Focus the composer on landing so a message can be typed straight away.
   // `Chat` only mounts once the session has loaded, so this fires when the page
@@ -274,10 +289,30 @@ function ChatView({
     document.getElementById(inputId)?.focus();
   }, [inputId]);
 
-  // Send a composed turn. The composer assembles the parts (text + any staged
-  // images); a new turn pulls the transcript back to the foot, even if the user
-  // had scrolled up to read the previous reply.
-  const handleSend = (parts: UIMessage["parts"]) => {
+  // Send a composed turn — or, while one is already in flight, queue it for
+  // the turn's next step boundary. Only text can ride the inbox: a busy submit
+  // carrying images is refused (returning `false` keeps them staged) with a
+  // notice, rather than dropping the attachments. Either acceptance pulls the
+  // transcript back to the foot, even if the user had scrolled up.
+  const [queueBlocked, setQueueBlocked] = useState(false);
+  const handleSend = (parts: UIMessage["parts"]): boolean | undefined => {
+    if (busy) {
+      if (parts.some((part) => part.type === "file")) {
+        setQueueBlocked(true);
+        return false;
+      }
+      setQueueBlocked(false);
+      pinnedToBottom.current = true;
+      void queueMessage(
+        parts
+          .map((part) => (part.type === "text" ? part.text : ""))
+          .filter((text) => text !== "")
+          .join("\n\n"),
+      );
+      clearDraft();
+      return;
+    }
+    setQueueBlocked(false);
     pinnedToBottom.current = true;
     void sendMessage({ parts });
     clearDraft();
@@ -344,6 +379,17 @@ function ChatView({
           ))
         )}
       </div>
+
+      {/* Messages queued for the in-flight turn, at the transcript foot where
+          they were sent. Each resolves into the transcript proper — woven in
+          when the turn delivers it, or as its own sent turn when promoted. */}
+      {queued.length > 0 ? (
+        <div className="mt-8 space-y-8">
+          {queued.map((item) => (
+            <QueuedMessage key={item.id} text={item.text} />
+          ))}
+        </div>
+      ) : null}
 
       {/* In-flight / failed cue at the transcript foot, above the composer rule:
           the working (or failed) status, with the cancel hint alongside while a
@@ -414,6 +460,12 @@ function ChatView({
             }
           }}
         >
+          {queueBlocked ? (
+            <p role="alert" className="mb-2 font-mono text-status-failed text-xs">
+              Images can't be queued while a turn is running — wait for it to finish, or remove the
+              attachments to queue the text.
+            </p>
+          ) : null}
           <MessageComposer
             key={session.id}
             id={inputId}
@@ -422,7 +474,10 @@ function ChatView({
             value={draft}
             onChange={setDraft}
             placeholder="Send a message… enter to send · shift+enter for newline"
-            busy={busy || awaitingApproval}
+            /* Submitting stays live while a turn runs — the message queues for
+               the turn's next step boundary. Only an approval pause blocks it:
+               the model can't continue past an unanswered call. */
+            busy={awaitingApproval}
             acceptsImages={acceptsImages}
             controls={
               <>

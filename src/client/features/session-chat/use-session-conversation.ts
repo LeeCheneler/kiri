@@ -9,13 +9,16 @@ import {
 } from "ai";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  type SessionInboxItem,
   cancelSession,
+  queueSessionMessage,
   sessionStreamEndpoint,
   sessionTurnEndpoint,
   setToolPermission,
   truncateSessionMessages,
+  withdrawQueuedMessage,
 } from "../../api.ts";
-import { useTruncateSessionDetail } from "../../state/sessions.ts";
+import { usePatchSessionInbox, useTruncateSessionDetail } from "../../state/sessions.ts";
 import { type LiveConsoleStore, createLiveConsoleStore, liveConsoleOf } from "./live-console.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
 
@@ -76,6 +79,14 @@ export interface SessionConversation {
   liveConsoles: LiveConsoleStore;
   /** Start a turn from composed parts. */
   sendMessage: ReturnType<typeof useChat<UIMessage>>["sendMessage"];
+  /**
+   * Queue `text` for the in-flight turn, delivered at its next step boundary.
+   * The queue lives server-side (it rides the session detail as `inbox`); the
+   * cached detail is patched optimistically so the chip renders at once. A
+   * failed queue (usually the 409 of racing the turn's settle) degrades to a
+   * normal send, so the message is never silently lost.
+   */
+  queueMessage: (text: string) => Promise<void>;
   /** Replace the local transcript (used by cancel and resubmit). */
   setMessages: ReturnType<typeof useChat<UIMessage>>["setMessages"];
   /** Resend an edited user message, truncating the transcript back to it first. */
@@ -100,8 +111,15 @@ export function useSessionConversation(opts: {
   session: { id: string; status: string };
   /** The persisted transcript to seed once; `useChat` owns the live state after mount. */
   initialMessages: UIMessage[];
+  /**
+   * The session's undelivered inbox, from the same detail payload as `session`
+   * — status and backlog always describe the same moment, which is what makes
+   * the settle-time reconcile below race-free. Omit in views that never queue
+   * (the embedded child session).
+   */
+  pendingInbox?: SessionInboxItem[];
 }): SessionConversation {
-  const { session, initialMessages } = opts;
+  const { session, initialMessages, pendingInbox = [] } = opts;
 
   const transport = useMemo(() => {
     const { url, headers } = sessionTurnEndpoint(session.id);
@@ -192,6 +210,62 @@ export function useSessionConversation(opts: {
       last.parts.some((part) => isToolUIPart(part) && part.state === "approval-requested")
     );
   }, [messages]);
+
+  // The inbox lives server-side; these patch the cached detail so a queue or
+  // withdraw shows at once instead of waiting for the SSE echo's refetch.
+  const inboxCache = usePatchSessionInbox(session.id);
+
+  const queueMessage = useCallback(
+    async (text: string) => {
+      try {
+        const { item } = await queueSessionMessage(session.id, text);
+        inboxCache.append(item);
+      } catch {
+        // The queue failed — usually the 409 of racing the turn's settle,
+        // where the message is simply the next turn. Every failure degrades to
+        // a normal send: if the turn is genuinely still running the server
+        // rejects the concurrent turn and that error surfaces in the chat, so
+        // the message is never lost silently.
+        void sendMessage({ parts: [{ type: "text", text }] });
+      }
+    },
+    [session.id, sendMessage, inboxCache],
+  );
+
+  // Promote what the settled turn left behind: with no turn in flight and no
+  // approval pause (a waiting turn still delivers on resume), a backlog can
+  // only be answered by a new turn. Withdraw the newest user message — the
+  // 204-vs-404 settles any race with delivery (and with another tab doing the
+  // same) authoritatively — and, if the withdraw won, resend the message as
+  // its own turn: older undelivered messages stay in the server's inbox and
+  // drain ahead of it, preserving arrival order. A 404 instead means it was
+  // delivered, so the chip just resolves; the effect's re-run then examines
+  // the next-newest, clearing any chips the refetched backlog has outrun.
+  // `pendingInbox` and `session.status` ride the same detail payload, so the
+  // backlog examined is the one the settled turn actually left.
+  //
+  // Each item is examined at most once per view: the ref remembers every id
+  // withdrawn here, so no re-run — StrictMode's doubled effects, a settle
+  // flip, a backlog snapshot the refetch hasn't replaced yet — can withdraw
+  // one twice (the repeat would 404 against the first attempt and drop the
+  // promotion). There is deliberately no staleness abort — everything the
+  // continuation captures (the withdraw target, the cache patcher, the
+  // id-keyed chat) is scoped to the session it started for, so completing
+  // after a switch or unmount still promotes the message rather than losing
+  // it between the withdraw and the send.
+  const settled = !streaming && session.status !== "running" && session.status !== "waiting";
+  const examined = useRef(new Set<string>());
+  useEffect(() => {
+    if (!settled) return;
+    const last = pendingInbox.filter((item) => item.source === "user").at(-1);
+    if (last === undefined || examined.current.has(last.id)) return;
+    examined.current.add(last.id);
+    void (async () => {
+      const wasQueued = await withdrawQueuedMessage(session.id, last.id).catch(() => false);
+      inboxCache.remove(last.id);
+      if (wasQueued) void sendMessage({ parts: [{ type: "text", text: last.text }] });
+    })();
+  }, [settled, pendingInbox, session.id, sendMessage, inboxCache]);
 
   // A turn can finish while this view is unmounted (we navigated away) or be
   // driven from elsewhere: it persists without `useChat` — which ignores
@@ -293,6 +367,7 @@ export function useSessionConversation(opts: {
     awaitingApproval,
     liveConsoles,
     sendMessage,
+    queueMessage,
     setMessages,
     resubmit,
     deleteMessage,

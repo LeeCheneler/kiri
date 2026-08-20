@@ -40,8 +40,10 @@ import {
   createStreamRegistry,
   createSystemPromptBuilder,
   delegateTool,
+  deleteInboxItems,
   deleteMessagesFrom,
   deleteSession,
+  enqueueInboxItem,
   filesystemTools,
   generateSessionTitle,
   generateSuggestedReplies,
@@ -57,6 +59,7 @@ import {
   listSkills,
   liveConsoleEmitter,
   memoryTools,
+  pendingInboxItems,
   projectTools,
   resumeTurn,
   runTurn,
@@ -164,6 +167,12 @@ const createSessionBodySchema = z
   .strict();
 
 const tidyBodySchema = z.object({ text: z.string().min(1) });
+
+// A message queued for a running turn. Text only: images can't ride the inbox,
+// and the client blocks queueing them rather than dropping parts.
+const inboxBodySchema = z.object({ text: z.string().trim().min(1) }).strict();
+
+const inboxItemParamSchema = z.object({ id: z.string().min(1), itemId: z.string().min(1) });
 
 // Any field may be set independently: the aside swaps the models and the
 // rename control sets `title` (`null` clears it), both through this one
@@ -852,7 +861,14 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { id } = c.req.valid("param");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
-      return c.json({ session: withHealedCwd(session), messages: getSessionMessages(db, id) });
+      return c.json({
+        session: withHealedCwd(session),
+        messages: getSessionMessages(db, id),
+        // The undelivered backlog rides the detail so queued messages stay
+        // visible across reloads and other views — the inbox table, not any
+        // client's local state, is the queue's source of truth.
+        inbox: pendingInboxItems(db, id),
+      });
     },
   );
 
@@ -1138,6 +1154,46 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // delete — unlike an edit-and-resend — has no follow-up turn to announce
       // one, so publish the change here.
       bus?.publish({ type: "session.updated", id, status: session.status as SessionStatus });
+      return c.body(null, 204);
+    },
+  );
+
+  app.post(
+    "/sessions/:id/inbox",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    zValidator("json", inboxBodySchema, onZodFail("invalid message")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const { text } = c.req.valid("json");
+      const session = getSession(db, id);
+      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      // Queueing only makes sense against a turn that can still deliver it:
+      // one running now, or paused awaiting a tool approval (delivered on
+      // resume). Anything else takes a normal message — the 409 tells the
+      // client it lost that race and should send instead of queue.
+      if (session.status !== "running" && session.status !== "waiting") {
+        return c.json({ error: `session "${id}" has no turn in flight to queue for` }, 409);
+      }
+      const item = enqueueInboxItem(db, id, { source: "user", text });
+      bus?.publish({ type: "session.inbox.queued", sessionId: id });
+      return c.json({ item }, 201);
+    },
+  );
+
+  app.delete(
+    "/sessions/:id/inbox/:itemId",
+    zValidator("param", inboxItemParamSchema, onZodFail("invalid session or item id")),
+    (c) => {
+      const { id, itemId } = c.req.valid("param");
+      const session = getSession(db, id);
+      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      // Withdrawing races delivery, and delivery wins: once the turn has
+      // consumed the item its row is gone, so the 404 doubles as the "already
+      // delivered" signal the client's auto-promotion keys off.
+      if (!pendingInboxItems(db, id).some((item) => item.id === itemId)) {
+        return c.json({ error: `message "${itemId}" is not queued for session "${id}"` }, 404);
+      }
+      deleteInboxItems(db, [itemId]);
       return c.body(null, 204);
     },
   );

@@ -35,7 +35,9 @@ import { ImageThumb } from "./image-thumb.tsx";
  * from `initialImages`/`initialTextFiles` and are cleared on submit. `onSubmit`
  * receives the assembled `UIMessage` parts — images, then each text file as an
  * `<attached-file>` text part, then the typed text — and the caller decides what
- * they mean (send a turn, resend an edit). `onCancel`, when given, fires from
+ * they mean (send a turn, resend an edit); returning `false` refuses the
+ * submit — staged attachments stay put for the caller's error to explain.
+ * `onCancel`, when given, fires from
  * Escape and a cancel button in the toolbar (e.g. to close an inline editor).
  * While `busy` — a turn is in flight — the field and its controls stay editable
  * so the next message can be drafted, but submitting is blocked until the turn
@@ -72,7 +74,8 @@ export function MessageComposer({
 }: {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: (parts: UIMessage["parts"]) => void;
+  // biome-ignore lint/suspicious/noConfusingVoidType: callers that never refuse a submit return nothing; only an explicit `false` refuses it.
+  onSubmit: (parts: UIMessage["parts"]) => boolean | undefined | void;
   onCancel?: () => void;
   busy?: boolean;
   id?: string;
@@ -147,7 +150,7 @@ export function MessageComposer({
       })),
       ...(text === "" ? [] : [{ type: "text" as const, text }]),
     ];
-    onSubmit(parts);
+    if (onSubmit(parts) === false) return;
     setImages([]);
     setTextFiles([]);
     setAttachmentError(undefined);

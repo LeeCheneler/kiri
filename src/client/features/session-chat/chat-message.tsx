@@ -179,6 +179,27 @@ function UserMessage({
   );
 }
 
+/**
+ * A message accepted for the in-flight turn but not yet delivered to it. Boxed
+ * like a user message so it reads as part of the conversation, with a quiet
+ * "queued" tag and muted text for its pending state. It resolves out of this
+ * view when the turn absorbs it (it reappears as the woven interjection) or
+ * the turn settles first (it promotes to an ordinary sent message).
+ */
+export function QueuedMessage({ text }: { text: string }) {
+  return (
+    <article>
+      <Card>
+        <div className="flex items-baseline justify-between">
+          <Eyebrow tone="muted">You</Eyebrow>
+          <span className="font-mono text-ink-muted text-xs">queued</span>
+        </div>
+        <p className="mt-2 whitespace-pre-wrap font-mono text-ink-muted text-sm">{text}</p>
+      </Card>
+    </article>
+  );
+}
+
 // A delivered inbox message — something the user sent that was queued and
 // drained at a turn boundary: woven into the assistant message at the point
 // the model saw it, or its own user-role row when it drained ahead of a fresh

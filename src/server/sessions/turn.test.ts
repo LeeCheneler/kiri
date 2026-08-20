@@ -1244,7 +1244,7 @@ describe("session inbox in turns", () => {
       },
       { session, userMessage: USER_MESSAGE },
     );
-    await response.text();
+    const streamed = await response.text();
     await done;
 
     // Step 1 ran before the message existed; steps 2 and 3 both carry it —
@@ -1252,6 +1252,12 @@ describe("session inbox in turns", () => {
     expect(occurrences(JSON.stringify(prompts[0]), MID_TURN_TEXT)).toBe(0);
     expect(occurrences(JSON.stringify(prompts[1]), MID_TURN_TEXT)).toBe(1);
     expect(occurrences(JSON.stringify(prompts[2]), MID_TURN_TEXT)).toBe(1);
+
+    // The delivery rides the live response stream as its data part — a
+    // watching client renders the interjection mid-turn at the boundary it
+    // happened, not only after a reload of the persisted turn.
+    expect(streamed).toContain('"type":"data-inbox"');
+    expect(streamed).toContain(MID_TURN_TEXT);
     const stepTwo = prompts[1] as { role: string; content: unknown }[];
     const injected = stepTwo.find((m) => JSON.stringify(m.content).includes(MID_TURN_TEXT));
     expect(injected?.role).toBe("user");
