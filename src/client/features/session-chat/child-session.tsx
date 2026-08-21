@@ -51,14 +51,17 @@ function ChildSessionSummary({ title, status }: { title: string; status: StatusK
 // above the transcript — with prose as markdown and inner tool calls as the
 // usual collapsible blocks, plus the messages the delegation exchange weaves
 // in (the parent's steers, delivered mid-turn or opening a wake turn), so
-// the box reads as the conversation it is. Untrusted content renders exactly
-// as it would in the child's own page.
+// the box reads as the conversation it is. A call paused on the user's
+// approval renders the full Allow / Always allow / Deny prompt right here —
+// the box is where the pause is first seen, so the verdict shouldn't cost a
+// navigation. Untrusted content renders exactly as it would in the child's
+// own page.
 function ChildTranscript({ detail }: { detail: SessionDetail }) {
   const initialMessages = useMemo(
     () => detail.messages.map((m) => ({ id: m.id, role: m.role, parts: m.parts })),
     [detail.messages],
   );
-  const { messages, busy, cancel, liveConsoles } = useSessionConversation({
+  const { messages, busy, cancel, liveConsoles, onToolDecision } = useSessionConversation({
     session: detail.session,
     initialMessages,
   });
@@ -82,7 +85,12 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
                 // just as it would in the child's own page.
                 if (isToolUIPart(part))
                   return (
-                    <ToolInvocation key={part.toolCallId} part={part} liveConsoles={liveConsoles} />
+                    <ToolInvocation
+                      key={part.toolCallId}
+                      part={part}
+                      liveConsoles={liveConsoles}
+                      onDecision={onToolDecision}
+                    />
                   );
                 if (isInboxPart(part)) return <InboxInterjection key={part.id} part={part} />;
                 return null;
@@ -124,9 +132,9 @@ function ChildSessionBody({ childId }: { childId: string }) {
 /**
  * A delegate tool call rendered as its embedded child session: collapsed to
  * the delegation's title and the child's live status like any tool block,
- * expanding to the task brief and the worker's transcript — its prose and
- * inner tool calls — with a link to the child's own page and a cancel control
- * while it runs. Until the child row exists (it is created moments after the
+ * expanding to the task brief and the worker's transcript — its prose, inner
+ * tool calls, and any approval prompt a paused call is waiting on — with a
+ * link to the child's own page and a cancel control while it runs. Until the child row exists (it is created moments after the
  * call starts) the box renders just its summary from the call itself,
  * upgrading once the lookup finds the child. A call from before titles
  * existed has none, so the summary falls back to the task brief.

@@ -35,10 +35,11 @@ export interface DelegateToolDeps {
   /** The session whose turn offers this tool; children it spawns carry it as their parent. */
   parentSessionId: string;
   /**
-   * Assembles the turn dependencies a child session runs against: its tool
-   * set (the parent catalogue narrowed to standing-allow tools — a worker
-   * runs unattended, so an approval can never surface) and the worker system
-   * prompt over those tools.
+   * Assembles the turn dependencies a child session runs against: the same
+   * approval-gated catalogue as any session (minus the child-withheld tools,
+   * with message_parent in place of the delegation tools) and the worker
+   * system prompt over those tools. An ask-gated call pauses the child for
+   * the user like any session.
    */
   childTurnDeps: (childSessionId: string) => RunTurnDeps;
   bus?: EventBus;
@@ -86,7 +87,7 @@ const spawnedResult = (title: string, childSessionId: string): string =>
 export function delegateTool(deps: DelegateToolDeps): ToolSet {
   const { db, parentSessionId, childTurnDeps, bus, delegates } = deps;
   const description =
-    "The first-call route for research. A comparison, a roundup or comprehensive breakdown, a latest-news check, anything answered by gathering from more than one place: delegate it before running any search, fetch, or read of your own — doing multi-call research in the conversation instead is a mistake. The tool hands the task to a separate worker session — the same model as you, holding the tools the user allows to run without approval — that does the legwork in its own context, and returns the worker's session id immediately: the worker runs in the background while you carry on, and the user watches it live. Its progress, questions, and results arrive in this conversation as messages from it — mid-turn if you are still working, or waking you if you have ended your turn, so once your workers are spawned and nothing else needs you, tell the user what is underway and end your turn. The worker cannot see this conversation: write the task as a complete brief, stating the goal, every specific it needs, and the shape of report you want back. Only a single specific lookup, whose one result you use directly, belongs inline.";
+    "The first-call route for research. A comparison, a roundup or comprehensive breakdown, a latest-news check, anything answered by gathering from more than one place: delegate it before running any search, fetch, or read of your own — doing multi-call research in the conversation instead is a mistake. The tool hands the task to a separate worker session — the same model as you, holding the same permission-gated tools as this conversation; a call needing approval pauses the worker until the user answers — that does the legwork in its own context, and returns the worker's session id immediately: the worker runs in the background while you carry on, and the user watches it live. Its progress, questions, and results arrive in this conversation as messages from it — mid-turn if you are still working, or waking you if you have ended your turn, so once your workers are spawned and nothing else needs you, tell the user what is underway and end your turn. The worker cannot see this conversation: write the task as a complete brief, stating the goal, every specific it needs, and the shape of report you want back. Only a single specific lookup, whose one result you use directly, belongs inline.";
   const titleField = z
     .string()
     .min(1)

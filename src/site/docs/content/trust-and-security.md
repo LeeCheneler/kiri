@@ -69,10 +69,11 @@ in [Sessions](/docs/sessions). Three invariants hold throughout:
   from your own approvals and denials — session tools can't reach it and a
   shell write into it always asks, so a session can never author its own
   approval rules.
-- **Delegated workers can't exceed the chat.** A worker session runs
-  unattended, so it only holds tools already set to Always allow — one that
-  would ask first isn't offered to it at all — and a worker can't spawn
-  workers. Delegating can never run anything unprompted that the chat itself
+- **Delegated workers can't exceed the chat.** A worker holds the same
+  tools under the same standing permissions — a call that would ask in the
+  chat pauses the worker for the same explicit approval, answerable only by
+  you, never by the delegating session — and a worker can't spawn workers.
+  Delegating can never run anything unprompted that the chat itself
   couldn't.
 
 ## Secrets

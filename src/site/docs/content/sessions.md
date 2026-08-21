@@ -136,7 +136,7 @@ tightened or switched off:
 | Filesystem reads | Always allow | Declaring the sandbox is the authorisation. |
 | `set_working_directory` | Always allow | Only moves a value confined to the sandbox. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
-| `delegate` | Always allow | Workers only hold tools already always-allowed. |
+| `delegate` | Always allow | Workers' own calls stay gated by these same permissions. |
 | `message_worker`, `message_parent` | Always allow | Only move text between the conversation's own sessions. |
 | `run_workflow`, `rerun_workflow` | Ask | Execute your workflows. |
 | Workflow write / edit | Ask | Put runnable YAML in your repo. |
@@ -239,10 +239,12 @@ the legwork.
   mid-task, nudge a quiet one, or answer a question a worker sends back. A
   worker's result arriving after the assistant has finished its reply starts
   a new one, so fanned-out research assembles itself as the reports land.
-- A worker only holds tools set to **Always allow** — anything that would
-  ask isn't offered to it, so delegation never runs what you haven't already
-  allowed. A research worker coming back empty-handed usually means your
-  search tool needs **Always allow**.
+- A worker holds the same tools as the chat, under the same permissions — a
+  call on **Ask** pauses that worker until you allow or deny it, exactly as
+  it would in the chat, so delegation never runs anything unprompted that
+  the chat itself couldn't. Only you can answer a pause: the assistant
+  can't approve its workers' calls, and messages sent to a paused worker
+  queue until it resumes.
 - Workers don't appear in the feed, session list, or search — but each is a
   real session you can open at its own URL. Cancelling one stops just that
   worker.

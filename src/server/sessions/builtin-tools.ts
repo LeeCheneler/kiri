@@ -24,9 +24,10 @@ export interface BuiltinTool {
  * user-authored scripts (`run_workflow`, `rerun_workflow`), write files
  * (the workflow and filesystem write tools), or run model-authored commands
  * (`run_command`) ask first. `delegate` runs without prompting because its
- * worker holds only standing-allow tools — delegation never widens what runs
- * unprompted — and the delegation messaging tools (`message_worker`,
- * `message_parent`) only move text between the conversation's own sessions.
+ * worker's tools ride this same gating — an ask pauses the worker for the
+ * user, so delegation never widens what runs unprompted — and the delegation
+ * messaging tools (`message_worker`, `message_parent`) only move text
+ * between the conversation's own sessions.
  * A tool whose capability isn't configured (the filesystem tools and
  * `run_command` with no declared sandbox) is withheld from the model
  * regardless of its permission, as are `delegate` and `message_worker`

@@ -67,9 +67,9 @@ function ToolRow({
 // The built-in tools grouped by what they touch, in listing order. Each group
 // heads its rows with a line of context; the shell and delegation lines carry
 // the permission behaviour that isn't self-evident from a row — a delegated
-// worker inherits only Always-allow tools, so an Ask or Auto tool's absence
-// from a worker is a setting here, not a bug; and Auto needs a utility model
-// to judge with.
+// worker runs under these same permissions, so an Ask tool pauses the worker
+// for the user's approval rather than being withheld; and Auto needs a
+// utility model to judge with.
 const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly string[] }[] = [
   {
     title: "Articles",
@@ -139,7 +139,7 @@ const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly s
   {
     title: "Delegation",
     blurb:
-      "A delegated worker session runs unattended, so it only holds tools set to Always allow — tools on Ask or Auto are never offered to workers.",
+      "A delegated worker holds the same tools under these same permissions — a call on Ask or Auto pauses the worker for your approval, exactly like the chat.",
     tools: ["delegate"],
   },
 ];
