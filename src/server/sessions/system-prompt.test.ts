@@ -969,6 +969,16 @@ describe("delegate guidance", () => {
     expect(withoutDelegate).not.toContain("Route before you run");
   });
 
+  it("frames delegation as gated action whose pauses wait on the user", () => {
+    const prompt = buildSystemPrompt({ config, tools: ["delegate"], now: FIXED_NOW });
+    // Workers hold the gated catalogue, so the steer must offer action —
+    // writes, commands — while teaching the pause mechanics: only the user
+    // answers an ask, and a paused worker's messages queue.
+    expect(prompt).toContain("Delegation can act, not just research");
+    expect(prompt).toContain("pauses the worker until they answer");
+    expect(prompt).not.toContain("Delegate legwork, not action");
+  });
+
   it("adds the model right-sizing rule only when delegate roles are configured", () => {
     const withRoles = buildSystemPrompt({
       config,
@@ -1094,6 +1104,17 @@ describe("buildChildSessionPrompt", () => {
     const withTools = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
     expect(withTools).toContain("You have tools available");
     expect(buildChildSessionPrompt({ now: FIXED_NOW })).not.toContain("You have tools available");
+  });
+
+  it("teaches the approval mechanics only when tools are active", () => {
+    const withTools = buildChildSessionPrompt({ tools: ["tavily__search"], now: FIXED_NOW });
+    // The pause is invisible from inside the session, so the prompt must
+    // state it — and frame a denial as a decision to work around, not an
+    // error to retry.
+    expect(withTools).toContain("Tool approvals:");
+    expect(withTools).toContain("pause this session for the user's approval");
+    expect(withTools).toContain("A denied call is the user's decision");
+    expect(buildChildSessionPrompt({ now: FIXED_NOW })).not.toContain("Tool approvals:");
   });
 
   it("carries the capability guidance its tool set activates", () => {

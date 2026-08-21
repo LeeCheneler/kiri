@@ -349,7 +349,7 @@ function buildDelegateGuidance(
 ): string | null {
   if (!tools.includes("delegate")) return null;
   return [
-    "You can delegate: the `delegate` tool hands a self-contained task to a worker session — the same model as you, holding the tools the user always allows — that does the legwork in its own context, in the background, so this conversation holds the findings rather than the working. The call returns the worker's session id immediately; everything the worker has to say — progress, questions, and its result — arrives here as messages from it, woven into your turn if you are still working or starting a new one for you if you have ended it. The user watches the worker live in the transcript, so delegating hides nothing.",
+    "You can delegate: the `delegate` tool hands a self-contained task to a worker session — the same model as you, holding the same permission-gated tools as this conversation — that does the legwork in its own context, in the background, so this conversation holds the findings rather than the working. The call returns the worker's session id immediately; everything the worker has to say — progress, questions, and its result — arrives here as messages from it, woven into your turn if you are still working or starting a new one for you if you have ended it. The user watches the worker live in the transcript, so delegating hides nothing.",
     'Delegation is the rule for research, not an option to weigh. A comparison ("how does X compare to Y"), a roundup or comprehensive breakdown, a "what\'s the latest on X", any request answered by gathering from more than one place: these go to `delegate` as your first tool call for the request. Running their searches, fetches, and reads in this conversation is a mistake, however efficient each call looks. The only research to run inline is a single specific lookup — one search or one read whose result you use directly.',
     "Delegating well:",
     ...(delegateRoles.length > 0
@@ -367,7 +367,7 @@ function buildDelegateGuidance(
     "- Fan out, then synthesise: as reports land, fold each into the picture, and give the user the assembled answer once the last strand has reported — each wake, check what is still outstanding before replying as though the work were done.",
     "- `message_worker` is your side of the conversation: answer a worker's question promptly — it may be stuck until you do — steer one that is drifting off-brief, and nudge one that has gone quiet for longer than its task explains. Skip idle chatter: every message costs the worker a context detour, so message with a purpose or not at all.",
     "- A worker's report closes its task — answer from it, and do not re-run the searches it already made. Send a follow-up with `message_worker` only for something the report genuinely didn't cover; the worker still holds its context.",
-    "- Delegate legwork, not action: a worker runs unattended, so anything the user approves per call — writes, shell commands — stays here.",
+    "- Delegation can act, not just research: a worker holds the same permission-gated tools as this conversation, so delegated work may include writes and commands. A call the user approves per call pauses the worker until they answer — you cannot approve it, and a message sent to a paused worker queues until it resumes — so a quiet worker may be waiting on the user, and a task that would pause at every step is better done here.",
   ].join("\n");
 }
 
@@ -556,9 +556,23 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
         "- Synthesise, don't dump: distil the facts and figures that actually answer the task. Never paste raw results or long quotes.",
         "- Be honest about gaps: if you couldn't confirm something, or a result was truncated or thin, say so plainly rather than presenting a guess as settled, and never fabricate facts, figures, quotes, or URLs.",
       ].join("\n");
+  // A worker's ask-gated calls pause the whole session for the user's
+  // verdict — mechanics the model can't observe from inside (a pause and its
+  // resume look like one continuous step), so the prompt states them: a
+  // pause is normal however long it lasts, and a denial is a decision to
+  // work around, never a call to retry.
+  const approvals =
+    tools.length === 0
+      ? null
+      : [
+          "Tool approvals:",
+          "- Some tool calls pause this session for the user's approval before they run. The session resumes once they answer, however long that takes — a pause is normal, not a failure, and messages from the parent queue while you are paused, arriving when you resume.",
+          "- A denied call is the user's decision, not an error: never re-attempt the same call, take the best route still open without it, and be plain in your report about what was skipped because of it.",
+        ].join("\n");
   const sections = [
     intro,
     reporting,
+    approvals,
     buildEffortGuidance(opts.effort ?? "medium"),
     buildToolGuidance(tools),
     buildSkillGuidance(tools, opts.skills ?? []),
