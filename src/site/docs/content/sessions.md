@@ -298,8 +298,13 @@ configured the action isn't offered.
 
 ## Desktop notifications
 
-Switch **Desktop notifications** on and kiri notifies you when a run lands
-or a session finishes a turn while you're looking elsewhere — clicking opens
-the work. The page you're actively watching stays quiet. Notifications come
-from the browser (so switching them on prompts for permission) and arrive
-only while kiri is open in a tab — kiri never runs in the background.
+Switch **Desktop notifications** on and kiri notifies you when a run lands,
+a session finishes a turn, or a session pauses for a tool approval — a
+delegated worker's pause included, since the delegation sits stalled until
+you answer. Clicking opens the work. The page you're actively watching
+stays quiet, and a worker counts as watched from its parent's page too,
+where its approval prompt shows inline. A worker's other comings and
+goings — reporting back, being messaged — never notify; the conversation
+holding the delegation is where those land. Notifications come from the
+browser (so switching them on prompts for permission) and arrive only
+while kiri is open in a tab — kiri never runs in the background.
