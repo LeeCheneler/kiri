@@ -5,11 +5,12 @@ import { type Notifier, defaultNotifier, desktopNotificationsEnabled } from "./n
 
 /**
  * Bridges completion events to desktop notifications: a workflow run
- * finishing or a session settling pops a system notification that opens the
- * entity when clicked. Suppressed while the tab is focused on that entity's
- * page — the user is already watching it — and inert until the user enables
- * notifications and the browser grants permission. Renders nothing; mount
- * once inside `<LiveEventsProvider>`.
+ * finishing, a session settling, or a delegated worker pausing on tool
+ * approval pops a system notification that opens the entity when clicked.
+ * Suppressed while the tab is focused on that entity's page — the user is
+ * already watching it — and inert until the user enables notifications and
+ * the browser grants permission. Renders nothing; mount once inside
+ * `<LiveEventsProvider>`.
  *
  * `notifier` is a test seam — production callers omit it and get the
  * browser's `Notification` API.
@@ -51,9 +52,27 @@ export function DesktopNotifications({
       if (!settled) return;
       const path = `/sessions/${event.id}`;
       if (suppressed(path)) return;
-      void fetchSession(event.id).then(({ session }) => {
-        // Delegate children are internal workers, not a surface the user watches.
-        if (session.parentSessionId !== null) return;
+      void fetchSession(event.id).then(({ session, parent }) => {
+        // A delegated worker is background machinery except when it needs the
+        // user: its approval pause notifies — the mob is stalled until they
+        // answer — while its other settles are hops in the delegation
+        // exchange and stay silent.
+        if (session.parentSessionId !== null) {
+          if (event.status !== "waiting") return;
+          // The worker's approval prompt also renders inline on the parent's
+          // page, so watching the parent counts as watching the worker.
+          if (parent !== null && suppressed(`/sessions/${parent.id}`)) return;
+          notifier.show({
+            title: session.title ?? "Worker",
+            body:
+              parent === null
+                ? "Worker waiting for tool approval"
+                : `Worker waiting for tool approval · ${parent.label}`,
+            tag: event.id,
+            onClick: () => navigate(path),
+          });
+          return;
+        }
         notifier.show({
           title: session.title ?? "Session",
           body:
