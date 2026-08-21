@@ -9,8 +9,9 @@ import { ArticleList } from "../activity-feed/article-list.tsx";
 
 // Session lifecycle mapped onto the shared status vocabulary: a running turn
 // reads as "working", the resting state as "idle", a turn paused on tool
-// approval as "waiting".
-const SESSION_STATUS: Record<SessionStatus, StatusKind> = {
+// approval as "waiting". Shared with the aside's workers list, which reads
+// child sessions in the same vocabulary.
+export const SESSION_STATUS: Record<SessionStatus, StatusKind> = {
   idle: "idle",
   running: "working",
   waiting: "waiting",

@@ -8,7 +8,10 @@ import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionAside } from "./session-aside.tsx";
 
-const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
+const sessionDetail = (
+  overrides: Record<string, unknown> = {},
+  parent: { id: string; label: string } | null = null,
+) => ({
   session: {
     id: "s1",
     status: "idle",
@@ -21,6 +24,7 @@ const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
     ...overrides,
   },
   messages: [],
+  parent,
 });
 
 const renderAside = (ui: ReactNode) =>
@@ -56,6 +60,23 @@ describe("<SessionAside>", () => {
     await screen.findByRole("button", { name: /edit title/i });
     // The session fixture's id is "s1"; its 8-char prefix is the id itself.
     expect(screen.getByText("s1")).toBeDefined();
+    // A top-level session has no parent to link back to.
+    expect(screen.queryByText("Parent")).toBeNull();
+  });
+
+  it("links a delegated worker back to its parent", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail({ parentSessionId: "parent-1" }, { id: "parent-1", label: "Bird surveys" }),
+        ),
+      ),
+    );
+    renderAside(<SessionAside id="s1" />);
+
+    const link = await screen.findByRole("link", { name: "Bird surveys" });
+    expect(link.getAttribute("href")).toBe("/sessions/parent-1");
+    expect(screen.getByText("Parent")).toBeDefined();
   });
 
   it("renames the session from the dialog, committed with Enter", async () => {

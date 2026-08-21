@@ -996,20 +996,28 @@ export interface SessionDetail {
   session: Session;
   messages: SessionMessage[];
   inbox: SessionInboxItem[];
+  /** The spawning session's id and display label for a delegated child; null for a top-level session. */
+  parent: { id: string; label: string } | null;
 }
 
 /** Fetch a single session with its messages. Throws on non-2xx (404 for unknown ids). */
 export const fetchSession = async (id: string): Promise<SessionDetail> =>
   json<SessionDetail>(await apiFetch(`/api/sessions/${encodeURIComponent(id)}`));
 
+/** A delegated child as the children listing carries it: the session row plus when it last moved. */
+export interface ChildSessionEntry extends Session {
+  /** The child's newest message's timestamp, else its start — recency without loading its transcript. */
+  lastActivityAt: string;
+}
+
 /**
  * Fetch the child sessions a session's delegate calls have spawned, oldest
  * first. Children are hidden from the list and feed, so this is the transcript's
  * lookup for the session behind a delegate call. Throws on non-2xx.
  */
-export const fetchSessionChildren = async (id: string): Promise<Session[]> =>
+export const fetchSessionChildren = async (id: string): Promise<ChildSessionEntry[]> =>
   (
-    await json<{ children: Session[] }>(
+    await json<{ children: ChildSessionEntry[] }>(
       await apiFetch(`/api/sessions/${encodeURIComponent(id)}/children`),
     )
   ).children;
