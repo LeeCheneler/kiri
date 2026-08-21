@@ -31,12 +31,26 @@ const article = (slug: string, heading: string | null, name = "Doc") => ({
   createdAt: "2026-08-07T10:00:00.000Z",
 });
 
+// The full listing entry the project detail now carries, so the page's rows
+// render through the same SessionRow as the feed.
 const session = (id: string, over: Record<string, unknown> = {}) => ({
   id,
-  title: null,
-  preview: null,
   status: "idle",
+  projectId: "p1",
+  projectName: null,
+  model: "anthropic:claude",
+  imageModel: null,
+  effort: "medium",
+  cwd: null,
+  title: null,
+  parentSessionId: null,
+  parentToolCallId: null,
   startedAt: "2026-08-07T10:00:00.000Z",
+  finishedAt: null,
+  error: null,
+  preview: null,
+  articles: [],
+  hasWaitingChild: false,
   ...over,
 });
 
@@ -90,11 +104,11 @@ describe("<ProjectDetail>", () => {
     expect(screen.getByText("Deploys land on Tuesdays.")).toBeDefined();
   });
 
-  it("renders the session index, leading with title then preview then id", async () => {
+  it("renders the session index through the feed's rows", async () => {
     serveProject(
       detail({
         sessions: [
-          session("aaaabbbb-1", { title: "Titled", status: "running" }),
+          session("aaaabbbb-1", { title: "Titled", status: "running", hasWaitingChild: true }),
           session("ccccdddd-2", { preview: "first message" }),
           session("eeeeffff-3"),
         ],
@@ -106,8 +120,10 @@ describe("<ProjectDetail>", () => {
     expect(screen.getByRole("link", { name: "first message" })).toBeDefined();
     const byId = screen.getByRole("link", { name: "eeeeffff" });
     expect(byId.getAttribute("href")).toBe("/sessions/eeeeffff-3");
-    // A running turn reads as "working" in the shared status vocabulary.
+    // A running turn reads as "working" in the shared status vocabulary, and
+    // a blocked delegated worker badges its row here just as on the feed.
     expect(screen.getByText("working")).toBeDefined();
+    expect(screen.getByText("worker waiting").getAttribute("data-status")).toBe("waiting");
   });
 
   it("explains every index when the container is empty", async () => {

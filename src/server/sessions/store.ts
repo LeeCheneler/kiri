@@ -1,7 +1,8 @@
 import type { UIMessage } from "ai";
 import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, messages, sessionInbox, sessions } from "../db/schema.ts";
+import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
 
 /** A persisted session row. */
@@ -257,6 +258,69 @@ export function getSessionsWithWaitingChildren(db: KiriDb, sessionIds: string[])
       .all()
       .flatMap((row) => row.parentSessionId ?? []),
   );
+}
+
+/**
+ * A session row enriched for a listing: the row plus its preview label, the
+ * articles it wrote, its container's name, and the blocked-worker badge.
+ */
+export type SessionListEntry = Session & {
+  preview: string | null;
+  articles: { slug: string; name: string; heading: string | null; createdAt: Date }[];
+  projectName: string | null;
+  hasWaitingChild: boolean;
+};
+
+/**
+ * Enrich session `rows` into listing entries — preview label, written
+ * articles, owning project's name, and whether a delegated child sits
+ * waiting on approval — batched, so the query count is flat in the page
+ * size. The one projection every session listing shares (the sessions list,
+ * the activity feed, a project's page), so rows render identically wherever
+ * they surface.
+ */
+export function buildSessionListEntries(db: KiriDb, rows: Session[]): SessionListEntry[] {
+  const ids = rows.map((row) => row.id);
+  const previews = getSessionPreviews(db, ids);
+  const waitingChildren = getSessionsWithWaitingChildren(db, ids);
+  const articlesBySessionId = new Map<string | null, SessionListEntry["articles"]>();
+  if (ids.length > 0) {
+    const articleRows = db
+      .select()
+      .from(articles)
+      .where(inArray(articles.sessionId, ids))
+      .orderBy(asc(articles.createdAt))
+      .all();
+    for (const article of articleRows) {
+      const entry = {
+        slug: article.slug,
+        name: article.name,
+        heading: extractFirstHeading(article.contentMd),
+        createdAt: article.createdAt,
+      };
+      const list = articlesBySessionId.get(article.sessionId);
+      if (list) list.push(entry);
+      else articlesBySessionId.set(article.sessionId, [entry]);
+    }
+  }
+  const projectIds = [...new Set(rows.flatMap((row) => row.projectId ?? []))];
+  const projectNames = new Map(
+    projectIds.length > 0
+      ? db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(inArray(projects.id, projectIds))
+          .all()
+          .map((project) => [project.id, project.name])
+      : [],
+  );
+  return rows.map((row) => ({
+    ...row,
+    preview: previews.get(row.id) ?? null,
+    articles: articlesBySessionId.get(row.id) ?? [],
+    projectName: row.projectId !== null ? (projectNames.get(row.projectId) ?? null) : null,
+    hasWaitingChild: waitingChildren.has(row.id),
+  }));
 }
 
 /** Read a session's messages in order. */

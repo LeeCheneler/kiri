@@ -5,11 +5,7 @@ import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, projects, recommendations, runs, sessions } from "../db/schema.ts";
-import {
-  getSessionLabels,
-  getSessionPreviews,
-  getSessionsWithWaitingChildren,
-} from "../sessions/index.ts";
+import { buildSessionListEntries, getSessionLabels } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
 import { onZodFail } from "./shared.ts";
 
@@ -257,58 +253,15 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
       registry,
       page.flatMap((e) => (e.kind === "run" ? [e.row] : [])),
     );
-    const sessionIds = page.flatMap((e) => (e.kind === "session" ? [e.row.id] : []));
-    const previews = getSessionPreviews(db, sessionIds);
-
-    // Session articles, batched across the page — the same projection a run
-    // entry carries, so both kinds of row lead with what they produced.
-    const articlesBySessionId = new Map<string | null, ArticleProjection[]>();
-    if (sessionIds.length > 0) {
-      const sessionArticles = db
-        .select({
-          sessionId: articles.sessionId,
-          slug: articles.slug,
-          name: articles.name,
-          contentMd: articles.contentMd,
-          createdAt: articles.createdAt,
-        })
-        .from(articles)
-        .where(inArray(articles.sessionId, sessionIds))
-        .orderBy(asc(articles.createdAt))
-        .all();
-      for (const { sessionId, slug, name, contentMd, createdAt } of sessionArticles) {
-        const entry: ArticleProjection = {
-          slug,
-          name,
-          heading: extractFirstHeading(contentMd),
-          createdAt,
-        };
-        const list = articlesBySessionId.get(sessionId);
-        if (list) list.push(entry);
-        else articlesBySessionId.set(sessionId, [entry]);
-      }
-    }
-
-    // Each project row's container name, batched across the page — the feed
-    // shows where a session lives without a per-row lookup.
-    const projectIds = [
-      ...new Set(page.flatMap((e) => (e.kind === "session" ? (e.row.projectId ?? []) : []))),
-    ];
-    const projectNames = new Map(
-      projectIds.length > 0
-        ? db
-            .select({ id: projects.id, name: projects.name })
-            .from(projects)
-            .where(inArray(projects.id, projectIds))
-            .all()
-            .map((project) => [project.id, project.name])
-        : [],
+    // Session rows share the sessions list's projection — preview label,
+    // written articles, project name, waiting-child badge — so a session
+    // renders identically here and there.
+    const sessionEntryById = new Map(
+      buildSessionListEntries(
+        db,
+        page.flatMap((e) => (e.kind === "session" ? [e.row] : [])),
+      ).map((entry) => [entry.id, entry]),
     );
-
-    // Sessions with a delegated child paused on tool approval, batched — the
-    // feed row badges the blocked worker so it is visible from the timeline
-    // without opening the chat.
-    const waitingChildren = getSessionsWithWaitingChildren(db, sessionIds);
 
     const entries = page.map((e) => {
       if (e.kind === "run") {
@@ -316,17 +269,9 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
         if (!run) throw new Error(`run "${e.row.id}" vanished during activity assembly`);
         return { kind: "run" as const, run };
       }
-      return {
-        kind: "session" as const,
-        session: {
-          ...e.row,
-          preview: previews.get(e.row.id) ?? null,
-          articles: articlesBySessionId.get(e.row.id) ?? [],
-          projectName:
-            e.row.projectId !== null ? (projectNames.get(e.row.projectId) ?? null) : null,
-          hasWaitingChild: waitingChildren.has(e.row.id),
-        },
-      };
+      const session = sessionEntryById.get(e.row.id);
+      if (!session) throw new Error(`session "${e.row.id}" vanished during activity assembly`);
+      return { kind: "session" as const, session };
     });
 
     return c.json({ entries, nextCursor });

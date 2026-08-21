@@ -16,8 +16,8 @@ import {
 } from "../projects/store.ts";
 import { countOpenTasksByProject } from "../projects/tasks.ts";
 import {
+  buildSessionListEntries,
   getScopedMemory,
-  getSessionPreviews,
   listProjectMemories,
   memoryNameSchema,
 } from "../sessions/index.ts";
@@ -118,20 +118,16 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
     const project = getProject(db, id);
     if (!project) return c.json({ error: `project "${id}" not found` }, 404);
     const rows = projectSessions(db, id);
-    const previews = getSessionPreviews(
-      db,
-      rows.map((row) => row.id),
-    );
     return c.json({
       project,
       articles: listProjectArticles(db, id),
       memories: listProjectMemories(db, id),
-      sessions: rows.map((row) => ({
-        id: row.id,
-        title: row.title,
-        preview: previews.get(row.id) ?? null,
-        status: row.status,
-        startedAt: row.startedAt,
+      // The full listing projection, so the page renders the same rows as
+      // the feed. projectName is nulled deliberately: every row here lives
+      // in this project, and the page already names the container.
+      sessions: buildSessionListEntries(db, rows).map((entry) => ({
+        ...entry,
+        projectName: null,
       })),
     });
   });

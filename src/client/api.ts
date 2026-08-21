@@ -1352,24 +1352,18 @@ export interface ProjectSummary {
   openTaskCount: number;
 }
 
-/** One of a project's sessions, as listed on its project page. */
-export interface ProjectSessionSummary {
-  id: string;
-  title: string | null;
-  preview: string | null;
-  status: SessionStatus;
-  startedAt: string;
-}
-
 /**
  * A project in full: the container — including its standing instructions,
  * null when it has none — with its article, memory, and session indexes.
+ * Sessions carry the same listing projection as the feed (with `projectName`
+ * nulled — the page itself names the container), so both surfaces render
+ * the same rows.
  */
 export interface ProjectDetail {
   project: { id: string; name: string; instructions: string | null; createdAt: string };
   articles: ArticleSummary[];
   memories: MemorySummary[];
-  sessions: ProjectSessionSummary[];
+  sessions: SessionListEntry[];
 }
 
 /**

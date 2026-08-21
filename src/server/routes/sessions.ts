@@ -9,14 +9,14 @@ import {
   UI_MESSAGE_STREAM_HEADERS,
   isToolUIPart,
 } from "ai";
-import { and, asc, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { type ModelsConfig, configuredDelegateRoles } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, projects, sessions as sessionsTable } from "../db/schema.ts";
+import { articles, sessions as sessionsTable } from "../db/schema.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import { EFFORT_LEVELS, type LlmClients } from "../llm/index.ts";
 import { c, createLogger } from "../log.ts";
@@ -35,6 +35,7 @@ import {
   type ToolPermission,
   type ToolPermissionStore,
   articleTools,
+  buildSessionListEntries,
   createCommandLearning,
   createSession,
   createStreamRegistry,
@@ -52,8 +53,6 @@ import {
   getSessionLabels,
   getSessionLastActivity,
   getSessionMessages,
-  getSessionPreviews,
-  getSessionsWithWaitingChildren,
   imageTools,
   judgeCommand,
   listMemories,
@@ -775,71 +774,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         .all();
 
       const nextCursor = rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null;
-      // Label each row with a preview of its first user message — the
-      // human-readable identifier the list leads with.
-      const previews = getSessionPreviews(
-        db,
-        rows.map((row) => row.id),
-      );
-      // Each row's written articles, batched across the page — the projection
-      // mirrors the activity feed's session enrichment so both surfaces
-      // render the same rows.
-      const articlesBySessionId = new Map<
-        string | null,
-        { slug: string; name: string; heading: string | null; createdAt: Date }[]
-      >();
-      if (rows.length > 0) {
-        const articleRows = db
-          .select()
-          .from(articles)
-          .where(
-            inArray(
-              articles.sessionId,
-              rows.map((row) => row.id),
-            ),
-          )
-          .orderBy(asc(articles.createdAt))
-          .all();
-        for (const article of articleRows) {
-          const entry = {
-            slug: article.slug,
-            name: article.name,
-            heading: extractFirstHeading(article.contentMd),
-            createdAt: article.createdAt,
-          };
-          const list = articlesBySessionId.get(article.sessionId);
-          if (list) list.push(entry);
-          else articlesBySessionId.set(article.sessionId, [entry]);
-        }
-      }
-      // Each project row's container name, batched across the page — the
-      // feed shows where a session lives without a per-row lookup.
-      const projectIds = [...new Set(rows.flatMap((row) => row.projectId ?? []))];
-      const projectNames = new Map(
-        projectIds.length > 0
-          ? db
-              .select({ id: projects.id, name: projects.name })
-              .from(projects)
-              .where(inArray(projects.id, projectIds))
-              .all()
-              .map((project) => [project.id, project.name])
-          : [],
-      );
-      // Sessions with a delegated child paused on tool approval, batched —
-      // the row badges the blocked worker so it is visible from the listing
-      // without opening the chat.
-      const waitingChildren = getSessionsWithWaitingChildren(
-        db,
-        rows.map((row) => row.id),
-      );
-      const sessions = rows.map((row) => ({
-        ...row,
-        preview: previews.get(row.id) ?? null,
-        articles: articlesBySessionId.get(row.id) ?? [],
-        projectName: row.projectId !== null ? (projectNames.get(row.projectId) ?? null) : null,
-        hasWaitingChild: waitingChildren.has(row.id),
-      }));
-      return c.json({ sessions, nextCursor });
+      return c.json({ sessions: buildSessionListEntries(db, rows), nextCursor });
     },
   );
 

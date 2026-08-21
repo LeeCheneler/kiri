@@ -196,6 +196,9 @@ describe("projects routes", () => {
           title: "Titled",
           preview: "hello there",
           status: "idle",
+          // The page names the container, so its rows never repeat it.
+          projectName: null,
+          hasWaitingChild: false,
         }),
       ]);
     });
