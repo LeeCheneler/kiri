@@ -151,6 +151,16 @@ const createSessionWaiter = () => {
   return { bus, waitForSettled };
 };
 
+// A delegation's detached worker turns (and the wakes they trigger) settle on
+// their own schedule, so assertions on them poll rather than await a handle.
+const until = async (predicate: () => boolean): Promise<void> => {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("condition not met in time");
+};
+
 describe("sessions routes", () => {
   let env: TestEnv;
 
@@ -2718,77 +2728,102 @@ describe("sessions routes", () => {
       expect(capture.systemText).not.toContain("prefer the `delegate` tool");
     });
 
-    it("runs a delegated task in a hidden child session and feeds back only its report", async () => {
+    it("spawns a hidden detached worker whose report messages back and wakes the parent", async () => {
       // The one standing-allow MCP tool: the worker may hold it; ask-gated
       // tools and the withheld set must never reach it.
       createToolPermissionStore(env.config.toolPermissionsFile()).set("tavily__search", "allow");
       let childToolNames: string[] = [];
-      let call = 0;
+      // The parent's steps and the detached child turn can interleave, so
+      // each response keys off the prompt rather than a call counter: the
+      // child's prompt carries the task, the parent's wake turn carries the
+      // worker's delivered report, and everything else is a parent step.
       const model = new MockLanguageModelV3({
         doStream: async (options) => {
-          call += 1;
-          // Call order is deterministic: the parent's first step issues the
-          // delegate call, its execute drives the child's whole turn (call 2),
-          // then the parent's second step answers from the report.
-          if (call === 1) {
+          const prompt = JSON.stringify(options.prompt);
+          if (prompt.includes("Report: pelicans all good.")) {
+            return {
+              stream: convertArrayToReadableStream([
+                { type: "text-start", id: "t3" },
+                { type: "text-delta", id: "t3", delta: "Summarised for the user." },
+                { type: "text-end", id: "t3" },
+                { type: "finish", finishReason: finishReason("stop"), usage: usage(6, 2) },
+              ]),
+            };
+          }
+          if (prompt.includes("Find pelican facts") && !prompt.includes("Delegated")) {
+            childToolNames = (options.tools ?? []).map((t) => t.name);
             return {
               stream: convertArrayToReadableStream([
                 {
                   type: "tool-call",
-                  toolCallId: "c1",
-                  toolName: "delegate",
-                  input: '{"title":"Pelican facts","task":"Find pelican facts","effort":"low"}',
+                  toolCallId: "m1",
+                  toolName: "message_parent",
+                  input: '{"message":"Report: pelicans all good."}',
                 },
-                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(4, 1) },
               ]),
             };
           }
-          if (call === 2) {
-            childToolNames = (options.tools ?? []).map((t) => t.name);
+          if (prompt.includes("Delegated")) {
+            // The parent's second step: the delegate call resolved to the
+            // spawn acknowledgement, and the parent ends its turn to let the
+            // worker's messages wake it.
             return {
               stream: convertArrayToReadableStream([
-                { type: "text-start", id: "t1" },
-                { type: "text-delta", id: "t1", delta: "Pelicans: all good." },
-                { type: "text-end", id: "t1" },
-                { type: "finish", finishReason: finishReason("stop"), usage: usage(4, 3) },
+                { type: "text-start", id: "t2" },
+                { type: "text-delta", id: "t2", delta: "Worker underway; ending my turn." },
+                { type: "text-end", id: "t2" },
+                { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 2) },
               ]),
             };
           }
           return {
             stream: convertArrayToReadableStream([
-              { type: "text-start", id: "t2" },
-              { type: "text-delta", id: "t2", delta: "Summarised." },
-              { type: "text-end", id: "t2" },
-              { type: "finish", finishReason: finishReason("stop"), usage: usage(6, 2) },
+              {
+                type: "tool-call",
+                toolCallId: "c1",
+                toolName: "delegate",
+                input: '{"title":"Pelican facts","task":"Find pelican facts","effort":"low"}',
+              },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
             ]),
           };
         },
       }) as unknown as LlmModel;
 
-      const { bus, waitForSettled } = createSessionWaiter();
+      const { bus } = createSessionWaiter();
       const app = makeApp(fakeClients({ model }), {
         bus,
         mcpRegistry: fakeMcp({ tavily__search: mcpTool() }),
       });
       createSession(env.db, MODEL, { id: "s1" });
 
-      const settled = waitForSettled("s1");
       await (await postMessage(app, "s1", "research pelicans")).text();
-      await settled;
+      // The whole exchange settles on its own: the parent's turn ends, the
+      // detached worker messages its report, and the report wakes the parent
+      // into a turn that answers from it.
+      await until(() => JSON.stringify(getSessionMessages(env.db, "s1")).includes("Summarised"));
+      await until(() => getSession(env.db, "s1")?.status === "idle");
 
-      // The parent transcript holds the call with the report as its output,
-      // then the model's answer from it.
+      // The parent transcript: the delegate call settled with the spawn
+      // acknowledgement (not the report), the turn ended, then the worker's
+      // report arrived as a labelled interjection that woke the final turn.
       const rows = getSessionMessages(env.db, "s1");
       const part = toolPartOf(rows[1]);
       expect(part.type).toBe("tool-delegate");
       expect(part.state).toBe("output-available");
-      expect(part.output).toBe("Pelicans: all good.");
-      expect(JSON.stringify(rows[1]?.parts)).toContain("Summarised.");
+      expect(String(part.output)).toContain('Delegated "Pelican facts"');
+      expect(rows.map((r) => r.role)).toEqual(["user", "assistant", "user", "assistant"]);
+      const interjection = (rows[2]?.parts as { type: string; data?: { source?: string } }[])[0];
+      expect(interjection?.type).toBe("data-inbox");
+      expect(interjection?.data?.source).toBe("child");
+      expect(JSON.stringify(rows[2]?.parts)).toContain("Report: pelicans all good.");
+      expect(JSON.stringify(rows[3]?.parts)).toContain("Summarised for the user.");
 
       // The child is linked to the spawning call, ran the task as its own
       // transcript, and settled idle.
       const child = findChildByToolCall(env.db, "s1", "c1");
-      expect(child?.status).toBe("idle");
+      await until(() => getSession(env.db, child?.id ?? "")?.status === "idle");
       const childRows = getSessionMessages(env.db, child?.id ?? "");
       expect(childRows.map((r) => r.role)).toEqual(["user", "assistant"]);
       expect(JSON.stringify(childRows[0]?.parts)).toContain("Find pelican facts");
@@ -2800,17 +2835,46 @@ describe("sessions routes", () => {
       expect(list.sessions.map((s) => s.id)).toEqual(["s1"]);
       expect((await app.request(`/api/sessions/${child?.id}`)).status).toBe(200);
 
-      // The worker held only standing-allow tools: the allowed MCP search and
-      // the article and memory reads, never the ask-gated, withheld, or
-      // spawning ones.
+      // The worker held only standing-allow tools plus its voice back to the
+      // parent: the allowed MCP search, the article and memory reads, and
+      // message_parent — never the ask-gated, withheld, or spawning ones.
       expect(childToolNames).toContain("tavily__search");
       expect(childToolNames).toContain("read_article");
       expect(childToolNames).toContain("read_memory");
+      expect(childToolNames).toContain("message_parent");
       expect(childToolNames).not.toContain("delegate");
+      expect(childToolNames).not.toContain("send_to_delegate");
       expect(childToolNames).not.toContain("create_article");
       expect(childToolNames).not.toContain("save_memory");
       expect(childToolNames).not.toContain("delete_memory");
       expect(childToolNames).not.toContain("run_workflow");
+    });
+
+    it("blocks deleting a parent while its delegated worker is still running", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, {
+        id: "worker",
+        parentSessionId: "s1",
+        parentToolCallId: "call_1",
+      });
+      setSessionStatus(env.db, "worker", "running");
+
+      const blocked = await app.request("/api/sessions/s1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(blocked.status).toBe(409);
+      expect(((await blocked.json()) as { error: string }).error).toContain("delegated worker");
+
+      // Once the worker settles, the delete cascades as before.
+      setSessionStatus(env.db, "worker", "idle");
+      const allowed = await app.request("/api/sessions/s1", {
+        method: "DELETE",
+        headers: CLIENT_HEADERS,
+      });
+      expect(allowed.status).toBe(204);
+      expect(getSession(env.db, "worker")).toBeUndefined();
     });
   });
 

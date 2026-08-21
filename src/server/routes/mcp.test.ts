@@ -173,6 +173,8 @@ describe("mcp routes", () => {
           { name: "delete_directory", description: expect.any(String), permission: "ask" },
           { name: "run_command", description: expect.any(String), permission: "ask" },
           { name: "delegate", description: expect.any(String), permission: "allow" },
+          { name: "send_to_delegate", description: expect.any(String), permission: "allow" },
+          { name: "message_parent", description: expect.any(String), permission: "allow" },
         ],
       });
     });

@@ -11,22 +11,35 @@ export type InboxItem = typeof sessionInbox.$inferSelect;
 export const inboxUIPart = (item: InboxItem): InboxUIPart => ({
   type: "data-inbox",
   id: item.id,
-  data: { source: item.source, text: item.text, queuedAt: item.createdAt.getTime() },
+  data: {
+    source: item.source,
+    text: item.text,
+    ...(item.fromSessionId !== null ? { fromSessionId: item.fromSessionId } : {}),
+    queuedAt: item.createdAt.getTime(),
+  },
 });
 
 /**
  * Queue a message for `sessionId`. It sits in the inbox until a turn drains
  * it — at the next step boundary of a running turn, or ahead of the next turn
- * when the session is idle.
+ * when the session is idle. Pass `fromSessionId` with a child-sourced message
+ * so the delivery can name the worker it came from.
  */
 export function enqueueInboxItem(
   db: KiriDb,
   sessionId: string,
-  item: { source: InboxItem["source"]; text: string },
+  item: { source: InboxItem["source"]; text: string; fromSessionId?: string },
 ): InboxItem {
   const id = crypto.randomUUID();
   db.insert(sessionInbox)
-    .values({ id, sessionId, source: item.source, text: item.text, createdAt: new Date() })
+    .values({
+      id,
+      sessionId,
+      source: item.source,
+      text: item.text,
+      fromSessionId: item.fromSessionId ?? null,
+      createdAt: new Date(),
+    })
     .run();
   return db.select().from(sessionInbox).where(eq(sessionInbox.id, id)).get() as InboxItem;
 }
@@ -69,23 +82,56 @@ export interface InboxDelivery {
   insertIndex: number;
 }
 
-// Framing wrapped around an item's text at send time, telling the model how
-// the message reached it. Mid-turn: it interrupted work in progress. Queued:
-// it waited for this turn to start.
+/**
+ * Resolves a session id to its display label at send time, so a child
+ * sender's framing names the worker by its live title. Undefined (the
+ * resolver, or its result — a sender since deleted) drops the name rather
+ * than failing the frame.
+ */
+export type SenderLabelResolver = (sessionId: string) => string | undefined;
+
+// Framing wrapped around an item's text at send time, telling the model who
+// the message is from and how it reached it. Mid-turn: it interrupted work in
+// progress. Queued: it waited for this turn to start (a wake turn's opening
+// messages arrive this way too). The sender half names the source — the user,
+// the session that delegated this worker's task, or a delegated worker by
+// name — so the model never mistakes a worker's report for the user speaking.
+interface FramingSender {
+  source: InboxItem["source"];
+  fromSessionId?: string | null;
+}
+
+function describeSender(
+  { source, fromSessionId }: FramingSender,
+  labelFor?: SenderLabelResolver,
+): string {
+  if (source === "parent") return "The session that delegated your task sent this message";
+  if (source === "child") {
+    const label = fromSessionId == null ? undefined : labelFor?.(fromSessionId);
+    const name = label == null || label === "" ? "" : ` "${label}"`;
+    return `Your delegated worker${name} sent this message`;
+  }
+  return "The user sent this message";
+}
+
 const MID_TURN_FRAMING =
-  "The user sent this message while you were working. Treat it as a course correction or " +
+  "while you were working. Treat it as a course correction or " +
   "additional information for the task in progress: weigh it against the work you have already " +
   "done and carry on, rather than starting over or treating it as a fresh request.";
 const QUEUED_FRAMING =
-  "The user sent this message earlier, while no turn was running. It was queued and is " +
-  "delivered now, ahead of the message that started this turn.";
+  "earlier, while no turn was running. It was queued and is delivered now, at the start of this turn.";
 
-const framed = (text: string, framing: string): string => `[${framing}]\n\n${text}`;
+const framed = (
+  sender: FramingSender,
+  text: string,
+  framing: string,
+  labelFor?: SenderLabelResolver,
+): string => `[${describeSender(sender, labelFor)} ${framing}]\n\n${text}`;
 
 // The user-role model message an item is injected as mid-turn.
-const midTurnModelMessage = (item: InboxItem): ModelMessage => ({
+const midTurnModelMessage = (item: InboxItem, labelFor?: SenderLabelResolver): ModelMessage => ({
   role: "user",
-  content: [{ type: "text", text: framed(item.text, MID_TURN_FRAMING) }],
+  content: [{ type: "text", text: framed(item, item.text, MID_TURN_FRAMING, labelFor) }],
 });
 
 /**
@@ -93,11 +139,12 @@ const midTurnModelMessage = (item: InboxItem): ModelMessage => ({
  * its recorded position. `deliveries` is in delivery order, so positions are
  * non-decreasing and ties keep queue order. Positions are clamped to the end
  * defensively; with coordinates recorded from the SDK's own step input this
- * doesn't occur.
+ * doesn't occur. `labelFor` names child senders in the framing.
  */
 export function insertInboxModelMessages(
   messages: ModelMessage[],
   deliveries: InboxDelivery[],
+  labelFor?: SenderLabelResolver,
 ): ModelMessage[] {
   const out: ModelMessage[] = [];
   let next = 0;
@@ -106,7 +153,7 @@ export function insertInboxModelMessages(
       next < deliveries.length &&
       Math.min(deliveries[next].insertIndex, messages.length) === i
     ) {
-      out.push(midTurnModelMessage(deliveries[next].item));
+      out.push(midTurnModelMessage(deliveries[next].item, labelFor));
       next += 1;
     }
     if (i < messages.length) out.push(messages[i]);
@@ -123,10 +170,14 @@ const assistantSlice = (
 ): UIMessage => ({ id: `${message.id}:${slice}`, role: "assistant", parts });
 
 // The user-role message a woven inbox part expands back into.
-const wovenUserMessage = (message: UIMessage, part: InboxUIPart): UIMessage => ({
+const wovenUserMessage = (
+  message: UIMessage,
+  part: InboxUIPart,
+  labelFor?: SenderLabelResolver,
+): UIMessage => ({
   id: `${message.id}:inbox:${part.id}`,
   role: "user",
-  parts: [{ type: "text", text: framed(part.data.text, MID_TURN_FRAMING) }],
+  parts: [{ type: "text", text: framed(part.data, part.data.text, MID_TURN_FRAMING, labelFor) }],
 });
 
 /**
@@ -137,9 +188,12 @@ const wovenUserMessage = (message: UIMessage, part: InboxUIPart): UIMessage => (
  * the same sequence the live turn saw, so later turns replay history
  * faithfully. Splits only ever fall on step boundaries, so a slice always
  * keeps its tool calls and results together. Messages without inbox parts pass
- * through untouched.
+ * through untouched. `labelFor` names child senders in the framing.
  */
-export function expandInboxMessages(messages: UIMessage[]): UIMessage[] {
+export function expandInboxMessages(
+  messages: UIMessage[],
+  labelFor?: SenderLabelResolver,
+): UIMessage[] {
   return messages.flatMap((message) => {
     if (!message.parts.some(isInboxPart)) return [message];
     if (message.role !== "assistant") {
@@ -148,7 +202,10 @@ export function expandInboxMessages(messages: UIMessage[]): UIMessage[] {
           ...message,
           parts: message.parts.map((part) =>
             isInboxPart(part)
-              ? ({ type: "text", text: framed(part.data.text, QUEUED_FRAMING) } as const)
+              ? ({
+                  type: "text",
+                  text: framed(part.data, part.data.text, QUEUED_FRAMING, labelFor),
+                } as const)
               : part,
           ),
         },
@@ -164,7 +221,7 @@ export function expandInboxMessages(messages: UIMessage[]): UIMessage[] {
           sliceIndex += 1;
           slice = [];
         }
-        expanded.push(wovenUserMessage(message, part));
+        expanded.push(wovenUserMessage(message, part, labelFor));
       } else {
         slice.push(part);
       }
