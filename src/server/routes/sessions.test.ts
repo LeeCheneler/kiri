@@ -215,6 +215,21 @@ describe("sessions routes", () => {
       body: JSON.stringify({ message: { role: "user", parts: [{ type: "text", text }] } }),
     });
 
+  const postRaw = (app: ReturnType<typeof createApp>, id: string, message: unknown) =>
+    app.request(`/api/sessions/${id}/messages`, {
+      method: "POST",
+      headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+
+  // Flip a paused assistant message's approval requests to responses.
+  const approvedParts = (row: { parts: unknown } | undefined, approved: boolean) =>
+    (row?.parts as ToolPart[]).map((part) =>
+      part.state === "approval-requested"
+        ? { ...part, state: "approval-responded", approval: { ...part.approval, approved } }
+        : part,
+    );
+
   describe("GET /api/models", () => {
     it("returns the aggregated model listing", async () => {
       const app = makeApp(
@@ -2172,6 +2187,8 @@ describe("sessions routes", () => {
         judgeReply?: string;
         modelsConfig?: () => ModelsConfig;
         learning?: ReturnType<typeof fakeLearning>;
+        /** Run the turn on a delegated child session instead of a top-level one. */
+        child?: boolean;
       }) => {
         writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
         createToolPermissionStore(env.config.toolPermissionsFile()).set("run_command", "auto");
@@ -2191,7 +2208,12 @@ describe("sessions routes", () => {
         );
         // Pre-titled so first-turn title generation doesn't also call the
         // scripted generateText and muddy the judge-call assertions.
-        createSession(env.db, MODEL, { id: "s1", title: "auto shell" });
+        if (opts.child) createSession(env.db, MODEL, { id: "p1" });
+        createSession(env.db, MODEL, {
+          id: "s1",
+          title: "auto shell",
+          ...(opts.child ? { parentSessionId: "p1", parentToolCallId: "call_1" } : {}),
+        });
         const settled = waitForSettled("s1");
         await (await postMessage(app, "s1", "run it")).text();
         await settled;
@@ -2276,6 +2298,27 @@ describe("sessions routes", () => {
         // The verdict fed the learning loop, correlated to the judgement it
         // answers — and honouring the prior request logged no second judgement.
         expect(learning.judgements).toHaveLength(1);
+        expect(learning.resolutions).toEqual([
+          {
+            toolCallId: learning.judgements[0]?.toolCallId,
+            command: "echo judged",
+            approved: true,
+          },
+        ]);
+      });
+
+      it("feeds a delegated worker's verdicts into the learning loop like any session", async () => {
+        const { app, learning, waitForSettled } = await startAutoTurn({
+          input: JSON.stringify({ command: "echo judged" }),
+          judgeReply: "EFFECTS: unclear\nVERDICT: ask\nREASON: unsure",
+          child: true,
+        });
+
+        await resumeWithVerdict(app, waitForSettled, true);
+
+        // The worker's approved command ran and its verdict became precedent —
+        // the auto judge and learning loop are lineage-agnostic.
+        expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-available");
         expect(learning.resolutions).toEqual([
           {
             toolCallId: learning.judgements[0]?.toolCallId,
@@ -2793,13 +2836,18 @@ describe("sessions routes", () => {
       await settled;
 
       expect(capture.toolNames).not.toContain("delegate");
+      // The withheld set applies to a child however its turn starts: driving
+      // its page directly grants no article or memory writes either.
+      expect(capture.toolNames).not.toContain("create_article");
+      expect(capture.toolNames).not.toContain("save_memory");
       expect(capture.systemText).toContain("focused assistant");
       expect(capture.systemText).not.toContain("prefer the `delegate` tool");
     });
 
     it("spawns a hidden detached worker whose report messages back and wakes the parent", async () => {
-      // The one standing-allow MCP tool: the worker may hold it; ask-gated
-      // tools and the withheld set must never reach it.
+      // Standing permissions spread across the worker's catalogue: one MCP
+      // tool allowed, one left at its ask default — the worker holds both,
+      // gated, like any session.
       createToolPermissionStore(env.config.toolPermissionsFile()).set("tavily__search", "allow");
       let childToolNames: string[] = [];
       // The parent's steps and the detached child turn can interleave, so
@@ -2863,7 +2911,7 @@ describe("sessions routes", () => {
       const { bus } = createSessionWaiter();
       const app = makeApp(fakeClients({ model }), {
         bus,
-        mcpRegistry: fakeMcp({ tavily__search: mcpTool() }),
+        mcpRegistry: fakeMcp({ tavily__search: mcpTool(), linear__create_issue: mcpTool() }),
       });
       createSession(env.db, MODEL, { id: "s1" });
 
@@ -2904,10 +2952,13 @@ describe("sessions routes", () => {
       expect(list.sessions.map((s) => s.id)).toEqual(["s1"]);
       expect((await app.request(`/api/sessions/${child?.id}`)).status).toBe(200);
 
-      // The worker held only standing-allow tools plus its voice back to the
-      // parent: the allowed MCP search, the article and memory reads, and
-      // message_parent — never the ask-gated, withheld, or spawning ones.
+      // The worker holds the same gated catalogue as any session — standing
+      // allows and ask-gated tools alike (an ask pauses it for the user) —
+      // plus its voice back to the parent. Only the withheld set and the
+      // spawning tools are absent.
       expect(childToolNames).toContain("tavily__search");
+      expect(childToolNames).toContain("linear__create_issue");
+      expect(childToolNames).toContain("run_workflow");
       expect(childToolNames).toContain("read_article");
       expect(childToolNames).toContain("read_memory");
       expect(childToolNames).toContain("message_parent");
@@ -2916,7 +2967,112 @@ describe("sessions routes", () => {
       expect(childToolNames).not.toContain("create_article");
       expect(childToolNames).not.toContain("save_memory");
       expect(childToolNames).not.toContain("delete_memory");
-      expect(childToolNames).not.toContain("run_workflow");
+    });
+
+    it("pauses a delegate-spawned worker on an ask-gated tool until the user resolves it", async () => {
+      // Keyed off the prompt like the spawn test: the child's prompt carries
+      // the task, its resumed step carries the tool's result, and the parent's
+      // second step carries the spawn acknowledgement.
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          const prompt = JSON.stringify(options.prompt);
+          if (prompt.includes("issue LIN-7 opened")) {
+            return {
+              stream: convertArrayToReadableStream([
+                { type: "text-start", id: "t3" },
+                { type: "text-delta", id: "t3", delta: "Issue opened." },
+                { type: "text-end", id: "t3" },
+                { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 2) },
+              ]),
+            };
+          }
+          if (prompt.includes("Create the issue titled Bug") && !prompt.includes("Delegated")) {
+            return {
+              stream: convertArrayToReadableStream([
+                {
+                  type: "tool-call",
+                  toolCallId: "w1",
+                  toolName: "linear__create_issue",
+                  input: '{"title":"Bug"}',
+                },
+                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(4, 1) },
+              ]),
+            };
+          }
+          if (prompt.includes("Delegated")) {
+            return {
+              stream: convertArrayToReadableStream([
+                { type: "text-start", id: "t2" },
+                { type: "text-delta", id: "t2", delta: "Worker underway." },
+                { type: "text-end", id: "t2" },
+                { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 2) },
+              ]),
+            };
+          }
+          return {
+            stream: convertArrayToReadableStream([
+              {
+                type: "tool-call",
+                toolCallId: "c1",
+                toolName: "delegate",
+                input: '{"title":"Issue","task":"Create the issue titled Bug","effort":"low"}',
+              },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const issueTool = tool({
+        description: "create an issue",
+        inputSchema: z.object({ title: z.string() }),
+        execute: async () => "issue LIN-7 opened",
+      });
+      const { bus } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), {
+        bus,
+        mcpRegistry: fakeMcp({ linear__create_issue: issueTool }),
+      });
+      createSession(env.db, MODEL, { id: "s1" });
+
+      await (await postMessage(app, "s1", "open an issue via a worker")).text();
+
+      // The worker hit the ask-gated tool and paused on it — never running it —
+      // while the parent's own turn settled.
+      await until(() => findChildByToolCall(env.db, "s1", "c1") !== undefined);
+      const childId = findChildByToolCall(env.db, "s1", "c1")?.id ?? "";
+      await until(() => getSession(env.db, childId)?.status === "waiting");
+      await until(() => getSession(env.db, "s1")?.status === "idle");
+      const pausedRows = getSessionMessages(env.db, childId);
+      const pendingTool = toolPartOf(pausedRows[1]);
+      expect(pendingTool.state).toBe("approval-requested");
+      expect(pendingTool.output).toBeUndefined();
+
+      // The pause badges the parent in the listing.
+      const list = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string; hasWaitingChild: boolean }[];
+      };
+      expect(list.sessions[0]?.hasWaitingChild).toBe(true);
+
+      // Only the child's own route resolves its pause: the parent holds no
+      // pending approval, so a verdict posted at it is refused — the parent
+      // model has no path to approving its worker's calls.
+      const verdicts = approvedParts(pausedRows[1], true);
+      expect((await postRaw(app, "s1", { role: "assistant", parts: verdicts })).status).toBe(409);
+
+      // Approving on the child resumes it exactly like any session.
+      const res = await postRaw(app, childId, { role: "assistant", parts: verdicts });
+      expect(res.status).toBe(200);
+      await res.text();
+      await until(() => getSession(env.db, childId)?.status === "idle");
+      const resumedTool = toolPartOf(getSessionMessages(env.db, childId)[1]);
+      expect(resumedTool.state).toBe("output-available");
+      expect(String(resumedTool.output)).toContain("issue LIN-7 opened");
+
+      // The resolved pause clears the parent's badge.
+      const after = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string; hasWaitingChild: boolean }[];
+      };
+      expect(after.sessions[0]?.hasWaitingChild).toBe(false);
     });
 
     it("blocks deleting a parent while its delegated worker is still running", async () => {
@@ -2948,13 +3104,6 @@ describe("sessions routes", () => {
   });
 
   describe("tool permission prompts", () => {
-    const postRaw = (app: ReturnType<typeof createApp>, id: string, message: unknown) =>
-      app.request(`/api/sessions/${id}/messages`, {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
-      });
-
     it("pauses an ungranted tool for approval, then runs it when resumed", async () => {
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: toolCallModel("linear__create_issue") }), {

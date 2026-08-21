@@ -35,10 +35,11 @@ export interface DelegateToolDeps {
   /** The session whose turn offers this tool; children it spawns carry it as their parent. */
   parentSessionId: string;
   /**
-   * Assembles the turn dependencies a child session runs against: its tool
-   * set (the parent catalogue narrowed to standing-allow tools — a worker
-   * runs unattended, so an approval can never surface) and the worker system
-   * prompt over those tools.
+   * Assembles the turn dependencies a child session runs against: the same
+   * approval-gated catalogue as any session (minus the child-withheld tools,
+   * with message_parent in place of the delegation tools) and the worker
+   * system prompt over those tools. An ask-gated call pauses the child for
+   * the user like any session.
    */
   childTurnDeps: (childSessionId: string) => RunTurnDeps;
   bus?: EventBus;

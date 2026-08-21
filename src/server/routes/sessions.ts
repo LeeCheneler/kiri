@@ -528,62 +528,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     "delete_task_group",
   ]);
 
-  // The tools a delegate-driven child turn runs with: the same catalogue
-  // narrowed to tools whose standing permission is "allow", offered ungated.
-  // A worker runs unattended — no approval prompt can surface mid-delegation —
-  // so a tool the user hasn't already allowed to run unprompted is simply
-  // absent. An "auto" tool is likewise absent: its judgement can ask, and a
-  // worker has no one to ask. Delegation therefore never widens what runs
-  // without asking.
-  const childActiveTools = (childSessionId: string, writer?: UIMessageStreamWriter): ToolSet => {
-    const tools: ToolSet = {};
-    for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
-      if (toolPermissions.get(name, "ask") === "allow") tools[name] = mcpTool;
-    }
-    const builtin = {
-      ...builtinToolsFor(childSessionId, writer),
-      // The worker's voice: everything it reports, asks, and delivers rides
-      // message_parent back to the session that delegated its task.
-      ...messageParentTool({ db, childSessionId, bus }),
-    };
-    for (const { name, defaultPermission } of BUILTIN_TOOLS) {
-      const builtinTool = builtin[name];
-      if (builtinTool === undefined || childWithheld.has(name)) continue;
-      if (toolPermissions.get(name, defaultPermission) === "allow") tools[name] = builtinTool;
-    }
-    return tools;
-  };
-
-  // The turn dependencies a delegate-driven child session runs against: its
-  // allow-only tool set and the worker system prompt over those tools (the
-  // prompt builder chooses the worker layer by the child's lineage). Shares
-  // this surface's stream registry and cancel registry, so a reconnecting
-  // client can rejoin the child's live stream and a cancel reaches its turn.
-  const childTurnDeps = (childSessionId: string): RunTurnDeps => {
-    // The prompt needs the tool names before the turn's stream (and so its
-    // writer) exists; the set the model runs with is rebuilt against the
-    // writer when the stream starts. Both constructions gate identically, so
-    // the names always match.
-    const toolNames = Object.keys(childActiveTools(childSessionId));
-    return {
-      db,
-      llmClients,
-      bus,
-      cancelRegistry,
-      streamRegistry,
-      buildSystemPrompt: createSystemPromptBuilder(
-        config,
-        toolNames,
-        sandboxDirectories(),
-        [],
-        listSkills(config),
-        listMemories(db),
-        projectContextFor(childSessionId),
-      ),
-      tools: ({ writer }) => childActiveTools(childSessionId, writer),
-    };
-  };
-
   // The tools offered to a turn: the live MCP server tools plus the
   // first-party sets. Read per turn (not once) so a config reload that adds
   // or drops MCP servers, and a permission change since the last turn, are
@@ -596,7 +540,13 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // The filesystem and shell tools self-gate on configuration like an MCP
   // server: no declared directories, no tools — a BUILTIN_TOOLS entry absent
   // from the merged set is simply withheld.
+  // A delegated child runs this same gated catalogue, minus the withheld set
+  // above and with message_parent in place of the delegation tools. An
+  // ask-gated call pauses the child like any session — surfaced on the
+  // parent, resolved only by the user — so delegation still never widens
+  // what runs unprompted.
   const activeTools = (sessionId: string, writer?: UIMessageStreamWriter): ToolSet => {
+    const isChild = getSession(db, sessionId)?.parentSessionId != null;
     const tools: ToolSet = {};
     for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
       const offered = gate(name, mcpTool, "ask");
@@ -609,31 +559,36 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // message_parent only to one with a parent to message. Delegate
       // models, when configured, make the worker's model a required role
       // choice, read live so a kiri.yaml edit applies on the next turn.
-      ...(getSession(db, sessionId)?.parentSessionId
+      ...(isChild
         ? messageParentTool({ db, childSessionId: sessionId, bus })
         : delegateTool({
             db,
             parentSessionId: sessionId,
-            childTurnDeps,
+            childTurnDeps: (childSessionId) => turnDepsFor(childSessionId),
             bus,
             delegates: deps.getModelsConfig?.().delegates,
           })),
     };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
       const builtinTool = builtin[name];
-      if (builtinTool === undefined) continue;
+      if (builtinTool === undefined || (isChild && childWithheld.has(name))) continue;
       const offered = gate(name, builtinTool, defaultPermission);
       if (offered !== null) tools[name] = offered;
     }
     return tools;
   };
 
-  // The standard turn dependencies a session runs against — the live,
-  // approval-gated catalogue over the standard system prompt (whose builder
-  // picks the worker layer for a child by lineage). The turn endpoint wraps
-  // this with its one-off stale-cwd notice when a heal happened.
-  const standardTurnDeps = (sessionId: string): RunTurnDeps => {
-    // Resolve the tool names for the system prompt so the core layer's tool
+  // The turn dependencies a session runs against — the live, approval-gated
+  // catalogue over the per-lineage system prompt (the builder picks the
+  // worker layer for a child). One construction serves every driver — the
+  // turn endpoint, a delegate spawn, and a message-driven wake — so a child
+  // holds the same tools however its turn starts, and a pause on an ask waits
+  // for the user identically from each. Shares this surface's stream registry
+  // and cancel registry, so a reconnecting client can rejoin a live stream
+  // and a cancel reaches its turn. The turn endpoint wraps this with its
+  // one-off stale-cwd notice when a heal happened.
+  const turnDepsFor = (sessionId: string): RunTurnDeps => {
+    // Resolve the tool names for the system prompt so the prompt's tool
     // guidance matches what the model is actually offered; the set the model
     // runs with is rebuilt against the turn's stream writer when the stream
     // starts. Both constructions gate identically, so the names always match.
@@ -656,16 +611,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       tools: ({ writer }) => activeTools(sessionId, writer),
     };
   };
-
-  // The turn dependencies a message-driven wake runs against, chosen by
-  // lineage: a delegated child wakes as the unattended worker it is (the
-  // allow-only tool set), a top-level session as itself. Distinct from the
-  // turn endpoint's choice — a user driving a child's page directly is there
-  // to answer approvals, so that path keeps the gated catalogue.
-  const turnDepsFor = (sessionId: string): RunTurnDeps =>
-    getSession(db, sessionId)?.parentSessionId != null
-      ? childTurnDeps(sessionId)
-      : standardTurnDeps(sessionId);
 
   // The delegation messaging loop: a message queued to a session that is out
   // of a turn wakes it, and a child whose turn fails notices its parent.
@@ -1034,7 +979,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // A healed working directory rides this turn's prompt as a one-off
       // notice; from the next turn the standard working-directory line is
       // accurate on its own.
-      const base = standardTurnDeps(id);
+      const base = turnDepsFor(id);
       const turnDeps: RunTurnDeps =
         cwdNotice === undefined
           ? base
