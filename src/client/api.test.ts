@@ -315,7 +315,13 @@ describe("api client", () => {
 
   it("queues a message for an in-flight turn and returns the queued row", async () => {
     const seen: { method: string; header: string | null; id: string; body: unknown }[] = [];
-    const item = { id: "q1", source: "user", text: "also check X", createdAt: "2026-08-20" };
+    const item = {
+      id: "q1",
+      source: "user",
+      text: "also check X",
+      fromSessionId: null,
+      createdAt: "2026-08-20",
+    };
     server.use(
       http.post("*/api/sessions/:id/inbox", async ({ request, params }) => {
         seen.push({

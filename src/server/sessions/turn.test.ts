@@ -23,7 +23,7 @@ import {
   setSessionStatus,
 } from "./store.ts";
 import { createStreamRegistry } from "./stream-registry.ts";
-import { resumeTurn, runTurn } from "./turn.ts";
+import { resumeTurn, runTurn, runWakeTurn } from "./turn.ts";
 
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
@@ -1479,5 +1479,88 @@ describe("session inbox in turns", () => {
     expect(types.filter((t) => t === "data-inbox")).toHaveLength(1);
     expect(pendingInboxItems(db, "s1")).toEqual([]);
     expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+});
+
+describe("runWakeTurn", () => {
+  let dir: string;
+  let db: KiriDb;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-turn-wake-"));
+    db = openDatabase(join(dir, "kiri.db"));
+    migrate(db);
+  });
+  afterEach(() => {
+    db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("opens a turn with the drained backlog and no fresh user message", async () => {
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+    // Real sender sessions: the framing names each worker by resolving its
+    // live title at send time.
+    createSession(db, MODEL, { id: "w1", title: "CVE scan" });
+    createSession(db, MODEL, { id: "w2", title: "Docs sweep" });
+    enqueueInboxItem(db, "s1", { source: "child", fromSessionId: "w1", text: "the report" });
+    enqueueInboxItem(db, "s1", { source: "child", fromSessionId: "w2", text: "another" });
+
+    const capture: { prompt?: unknown } = {};
+    const started = await runWakeTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)), bus: recordingBus(events) },
+      { session },
+    );
+    await started?.response.text();
+    await started?.done;
+
+    // The drained messages are the whole opening: two user rows, then the reply.
+    const rows = getSessionMessages(db, "s1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "user", "assistant"]);
+    expect((rows[0]?.parts as { type: string }[])[0]?.type).toBe("data-inbox");
+    const prompt = JSON.stringify(capture.prompt);
+    expect(prompt).toContain('Your delegated worker \\"CVE scan\\" sent this message');
+    expect(prompt.indexOf("the report")).toBeLessThan(prompt.indexOf("another"));
+
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+    expect(events).toContainEqual({ type: "session.message.added", sessionId: "s1" });
+    expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
+  });
+
+  it("returns null and touches nothing when the backlog is already drained", async () => {
+    const events: KiriEvent[] = [];
+    const session = createSession(db, MODEL, { id: "s1" });
+
+    const started = await runWakeTurn(
+      { db, llmClients: clientsFor(capturingModel({})), bus: recordingBus(events) },
+      { session },
+    );
+
+    expect(started).toBeNull();
+    expect(getSessionMessages(db, "s1")).toEqual([]);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    expect(events).toEqual([]);
+  });
+
+  it("clears a failed session's terminal markers, like any resumed turn", async () => {
+    createSession(db, MODEL, { id: "s1" });
+    setSessionStatus(db, "s1", "failed", {
+      error: { message: "provider down" },
+      finishedAt: new Date(),
+    });
+    enqueueInboxItem(db, "s1", { source: "child", text: "done anyway" });
+
+    const started = await runWakeTurn(
+      { db, llmClients: clientsFor(capturingModel({})) },
+      { session: getSession(db, "s1") as NonNullable<ReturnType<typeof getSession>> },
+    );
+    await started?.response.text();
+    await started?.done;
+
+    const settled = getSession(db, "s1");
+    expect(settled?.status).toBe("idle");
+    expect(settled?.error).toBeNull();
   });
 });

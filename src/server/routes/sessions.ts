@@ -59,6 +59,8 @@ import {
   listSkills,
   liveConsoleEmitter,
   memoryTools,
+  messageParentTool,
+  mountDelegationMessaging,
   pendingInboxItems,
   projectTools,
   resumeTurn,
@@ -499,8 +501,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   };
 
   // Withheld from a delegate-driven worker regardless of permission: a worker
-  // can't spawn workers, and its deliverable is the report — articles it wrote
-  // would ride a hidden session rather than a surface the user sees. Memory
+  // can't spawn or steer workers, and its deliverable rides message_parent —
+  // articles it wrote would land on a hidden session rather than a surface
+  // the user sees. Memory
   // writes stay with the user-facing conversation too: a worker recalls
   // memories but never rewrites the durable record, and the project's standing
   // instructions — which a worker doesn't even carry — are the user's to change
@@ -508,6 +511,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // a worker reads it but leaves its upkeep to the conversation.
   const childWithheld = new Set([
     "delegate",
+    "message_worker",
     "create_article",
     "replace_article",
     "edit_article",
@@ -535,7 +539,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
       if (toolPermissions.get(name, "ask") === "allow") tools[name] = mcpTool;
     }
-    const builtin = builtinToolsFor(childSessionId, writer);
+    const builtin = {
+      ...builtinToolsFor(childSessionId, writer),
+      // The worker's voice: everything it reports, asks, and delivers rides
+      // message_parent back to the session that delegated its task.
+      ...messageParentTool({ db, childSessionId, bus }),
+    };
     for (const { name, defaultPermission } of BUILTIN_TOOLS) {
       const builtinTool = builtin[name];
       if (builtinTool === undefined || childWithheld.has(name)) continue;
@@ -594,18 +603,18 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     }
     const builtin: ToolSet = {
       ...builtinToolsFor(sessionId, writer),
-      // A worker can't spawn workers: delegate is offered only to a session
-      // with no parent. Delegate models, when configured, make the worker's
-      // model a required role choice, read live so a kiri.yaml edit applies
-      // on the next turn.
+      // A worker can't spawn workers: the delegation tools (delegate and
+      // message_worker) are offered only to a session with no parent, and
+      // message_parent only to one with a parent to message. Delegate
+      // models, when configured, make the worker's model a required role
+      // choice, read live so a kiri.yaml edit applies on the next turn.
       ...(getSession(db, sessionId)?.parentSessionId
-        ? {}
+        ? messageParentTool({ db, childSessionId: sessionId, bus })
         : delegateTool({
             db,
             parentSessionId: sessionId,
             childTurnDeps,
             bus,
-            cancelRegistry,
             delegates: deps.getModelsConfig?.().delegates,
           })),
     };
@@ -617,6 +626,50 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     }
     return tools;
   };
+
+  // The standard turn dependencies a session runs against — the live,
+  // approval-gated catalogue over the standard system prompt (whose builder
+  // picks the worker layer for a child by lineage). The turn endpoint wraps
+  // this with its one-off stale-cwd notice when a heal happened.
+  const standardTurnDeps = (sessionId: string): RunTurnDeps => {
+    // Resolve the tool names for the system prompt so the core layer's tool
+    // guidance matches what the model is actually offered; the set the model
+    // runs with is rebuilt against the turn's stream writer when the stream
+    // starts. Both constructions gate identically, so the names always match.
+    const toolNames = Object.keys(activeTools(sessionId));
+    return {
+      db,
+      llmClients,
+      bus,
+      cancelRegistry,
+      streamRegistry,
+      buildSystemPrompt: createSystemPromptBuilder(
+        config,
+        toolNames,
+        sandboxDirectories(),
+        configuredDelegateRoles(deps.getModelsConfig?.().delegates),
+        listSkills(config),
+        listMemories(db),
+        projectContextFor(sessionId),
+      ),
+      tools: ({ writer }) => activeTools(sessionId, writer),
+    };
+  };
+
+  // The turn dependencies a message-driven wake runs against, chosen by
+  // lineage: a delegated child wakes as the unattended worker it is (the
+  // allow-only tool set), a top-level session as itself. Distinct from the
+  // turn endpoint's choice — a user driving a child's page directly is there
+  // to answer approvals, so that path keeps the gated catalogue.
+  const turnDepsFor = (sessionId: string): RunTurnDeps =>
+    getSession(db, sessionId)?.parentSessionId != null
+      ? childTurnDeps(sessionId)
+      : standardTurnDeps(sessionId);
+
+  // The delegation messaging loop: a message queued to a session that is out
+  // of a turn wakes it, and a child whose turn fails notices its parent.
+  // Lives for the app's lifetime, like the surface's routes themselves.
+  if (bus) mountDelegationMessaging({ db, bus, turnDepsFor });
 
   // The listing carries the configured model shortcuts alongside the models,
   // so the pickers can pin them and new sessions can start on the first one,
@@ -1014,38 +1067,17 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const pending =
         last?.role === "assistant" && hasPendingApproval(last.parts as UIMessage["parts"]);
 
-      // Resolve the live, approval-gated tool names for this turn and compose
-      // the system prompt from them so the core layer's tool guidance matches
-      // what the model is actually offered; the sandbox rides along so the
-      // filesystem and shell guidance can enumerate the reachable roots. The
-      // set the model runs with is rebuilt against the turn's stream writer
-      // when the stream starts, so a tool can emit live progress parts; both
-      // constructions gate identically, so the names always match.
-      const toolNames = Object.keys(activeTools(id));
-      const buildSystemPrompt = createSystemPromptBuilder(
-        config,
-        toolNames,
-        sandboxDirectories(),
-        configuredDelegateRoles(deps.getModelsConfig?.().delegates),
-        listSkills(config),
-        listMemories(db),
-        projectContextFor(id),
-      );
-      const turnDeps: RunTurnDeps = {
-        db,
-        llmClients,
-        bus,
-        cancelRegistry,
-        streamRegistry,
-        // A healed working directory rides this turn's prompt as a one-off
-        // notice; from the next turn the standard working-directory line is
-        // accurate on its own.
-        buildSystemPrompt:
-          cwdNotice === undefined
-            ? buildSystemPrompt
-            : (s: Session) => `${buildSystemPrompt(s)}\n\n${cwdNotice}`,
-        tools: ({ writer }) => activeTools(id, writer),
-      };
+      // A healed working directory rides this turn's prompt as a one-off
+      // notice; from the next turn the standard working-directory line is
+      // accurate on its own.
+      const base = standardTurnDeps(id);
+      const turnDeps: RunTurnDeps =
+        cwdNotice === undefined
+          ? base
+          : {
+              ...base,
+              buildSystemPrompt: (s: Session) => `${base.buildSystemPrompt?.(s)}\n\n${cwdNotice}`,
+            };
 
       // Persistence rides the stream's completion (the turn's `onFinish`), so the
       // route just hands back the streamed response. The turn is drained
@@ -1125,8 +1157,16 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // A running session has a turn streaming and persisting server-side;
       // deleting mid-turn would orphan that write, so require a cancel first.
+      // A delegated worker runs detached from its parent's turns, so its
+      // in-flight turn blocks the parent's delete the same way.
       if (session.status === "running") {
         return c.json({ error: `session "${id}" has a turn in flight; cancel it first` }, 409);
+      }
+      if (getSessionChildren(db, id).some((child) => child.status === "running")) {
+        return c.json(
+          { error: `session "${id}" has a delegated worker running; cancel it first` },
+          409,
+        );
       }
       deleteSession(db, id);
       bus?.publish({ type: "session.deleted", id });

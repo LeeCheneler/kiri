@@ -20,11 +20,16 @@ import { createSession, deleteSession } from "./store.ts";
 const MODEL = "lmstudio:gemma-4-26b-a4b-qat";
 
 // A queued item without a database, for the pure helpers.
-const item = (id: string, text: string): InboxItem => ({
+const item = (
+  id: string,
+  text: string,
+  sender: { source?: InboxItem["source"]; fromSessionId?: string | null } = {},
+): InboxItem => ({
   id,
   sessionId: "s1",
-  source: "user",
+  source: sender.source ?? "user",
   text,
+  fromSessionId: sender.fromSessionId ?? null,
   createdAt: new Date(1_000),
 });
 
@@ -65,6 +70,27 @@ describe("inbox store", () => {
     // An empty delete is a no-op rather than a malformed query.
     deleteInboxItems(db, []);
     expect(pendingInboxItems(db, "s1")).toHaveLength(1);
+  });
+
+  it("stores a child sender's session id and carries it into the delivered part", () => {
+    createSession(db, MODEL, { id: "s1" });
+    const fromChild = enqueueInboxItem(db, "s1", {
+      source: "child",
+      fromSessionId: "worker-1",
+      text: "report",
+    });
+    const fromUser = enqueueInboxItem(db, "s1", { source: "user", text: "steer" });
+
+    expect(fromChild.fromSessionId).toBe("worker-1");
+    expect(inboxUIPart(fromChild).data).toEqual({
+      source: "child",
+      text: "report",
+      fromSessionId: "worker-1",
+      queuedAt: fromChild.createdAt.getTime(),
+    });
+    // A sender-less item leaves the key off the part rather than nulling it.
+    expect(fromUser.fromSessionId).toBeNull();
+    expect("fromSessionId" in inboxUIPart(fromUser).data).toBe(false);
   });
 
   it("scopes the backlog to its session", () => {
@@ -184,5 +210,75 @@ describe("expandInboxMessages", () => {
     const out = expandInboxMessages([woven]);
 
     expect(out.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+  });
+});
+
+describe("sender framing", () => {
+  // Resolves the one known worker, standing in for the live title lookup the
+  // turn supplies.
+  const labelFor = (id: string): string | undefined => (id === "w1" ? "CVE scan" : undefined);
+
+  const framedTextOf = (sender: Parameters<typeof item>[2]): string => {
+    const drained = {
+      id: "m1",
+      role: "user" as const,
+      parts: [inboxUIPart(item("a", "the message", sender)) as UIMessage["parts"][number]],
+    };
+    const [out] = expandInboxMessages([drained], labelFor);
+    return (out?.parts[0] as { text: string }).text;
+  };
+
+  it("names the user as the sender by default", () => {
+    expect(framedTextOf({})).toContain("The user sent this message");
+  });
+
+  it("names the parent session as the sender of a parent-sourced message", () => {
+    const text = framedTextOf({ source: "parent" });
+    expect(text).toContain("The session that delegated your task sent this message");
+    expect(text).toContain("the message");
+  });
+
+  it("names a child sender by its resolved live label", () => {
+    const text = framedTextOf({ source: "child", fromSessionId: "w1" });
+    expect(text).toContain('Your delegated worker "CVE scan" sent this message');
+  });
+
+  it("drops the name when the sender no longer resolves, rather than quoting nothing", () => {
+    const text = framedTextOf({ source: "child", fromSessionId: "deleted" });
+    expect(text).toContain("Your delegated worker sent this message");
+    expect(text).not.toContain('""');
+  });
+
+  it("drops the name without a resolver at all", () => {
+    const drained = {
+      id: "m1",
+      role: "user" as const,
+      parts: [
+        inboxUIPart(
+          item("a", "the message", { source: "child", fromSessionId: "w1" }),
+        ) as UIMessage["parts"][number],
+      ],
+    };
+    const [out] = expandInboxMessages([drained]);
+    expect((out?.parts[0] as { text: string }).text).toContain(
+      "Your delegated worker sent this message",
+    );
+  });
+
+  it("frames the sender on mid-turn weaves too", () => {
+    const woven = {
+      id: "m1",
+      role: "assistant" as const,
+      parts: [
+        { type: "text", text: "before" } as const,
+        inboxUIPart(
+          item("a", "steer", { source: "parent" }),
+        ) as unknown as UIMessage["parts"][number],
+      ],
+    };
+    const out = expandInboxMessages([woven], labelFor);
+    const framedText = (out[1]?.parts[0] as { text: string }).text;
+    expect(framedText).toContain("The session that delegated your task sent this message");
+    expect(framedText).toContain("while you were working");
   });
 });

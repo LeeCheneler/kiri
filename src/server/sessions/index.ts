@@ -17,7 +17,21 @@ export {
 } from "./command-judgement-log.ts";
 export { type CommandLearning, createCommandLearning } from "./command-learning.ts";
 export { type CommandScreenResult, screenCommand } from "./command-screen.ts";
-export { DELEGATE_TOOL_NAME, type DelegateToolDeps, delegateTool } from "./delegate-tool.ts";
+export {
+  DELEGATE_TOOL_NAME,
+  MAX_RUNNING_CHILDREN,
+  MESSAGE_PARENT_MAX_LENGTH,
+  MESSAGE_PARENT_TOOL_NAME,
+  MESSAGE_WORKER_TOOL_NAME,
+  type DelegateToolDeps,
+  type MessageParentToolDeps,
+  delegateTool,
+  messageParentTool,
+} from "./delegate-tool.ts";
+export {
+  type DelegationMessagingDeps,
+  mountDelegationMessaging,
+} from "./delegation-messaging.ts";
 export {
   type FilesystemToolsOptions,
   type SessionCwd,
@@ -98,5 +112,6 @@ export {
   type ToolApprovalDecision,
   resumeTurn,
   runTurn,
+  runWakeTurn,
 } from "./turn.ts";
 export { type WorkflowToolsDeps, workflowTools } from "./workflow-tools.ts";

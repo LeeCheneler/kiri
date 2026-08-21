@@ -18,6 +18,7 @@ import { finaliseCancelledParts } from "./finalise-cancelled-parts.ts";
 import { stripImageToolResults } from "./image-tool-results.ts";
 import {
   type InboxDelivery,
+  type SenderLabelResolver,
   deleteInboxItems,
   expandInboxMessages,
   inboxUIPart,
@@ -28,6 +29,7 @@ import {
   type Message,
   type Session,
   appendMessage,
+  getSessionLabels,
   getSessionMessages,
   setSessionStatus,
   updateMessage,
@@ -149,6 +151,27 @@ async function pumpStream(stream: ReadableStream<string>, sink?: StreamSink): Pr
   }
 }
 
+// Drain everything queued while the session was out of a turn: each item
+// becomes its own user-role message ahead of the turn, so the model reads the
+// backlog in arrival order. Rows are deleted only after their messages are
+// appended — a crash between the two redelivers rather than loses. Returns
+// how many items drained.
+function drainBacklog(db: KiriDb, bus: EventBus | undefined, sessionId: string): number {
+  const backlog = pendingInboxItems(db, sessionId);
+  for (const item of backlog) {
+    appendMessage(db, sessionId, {
+      role: "user",
+      parts: [inboxUIPart(item) as UIMessage["parts"][number]],
+    });
+  }
+  deleteInboxItems(
+    db,
+    backlog.map((item) => item.id),
+  );
+  if (backlog.length > 0) bus?.publish({ type: "session.inbox.delivered", sessionId });
+  return backlog.length;
+}
+
 /**
  * Run one agentic turn: persist the user message, stream the assistant response
  * against the session's model, and persist that response plus its token usage
@@ -172,23 +195,9 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   // Resolve before any writes so a bad id rejects with nothing half-persisted.
   const model = llmClients.resolveModel(session.model);
 
-  // Anything queued while the session was idle drains ahead of the turn: each
-  // item becomes its own user-role message before the one that starts the
-  // turn, so the model reads the backlog in arrival order. Rows are deleted
-  // only after their messages are appended — a crash between the two
-  // redelivers rather than loses.
-  const backlog = pendingInboxItems(db, session.id);
-  for (const item of backlog) {
-    appendMessage(db, session.id, {
-      role: "user",
-      parts: [inboxUIPart(item) as UIMessage["parts"][number]],
-    });
-  }
-  deleteInboxItems(
-    db,
-    backlog.map((item) => item.id),
-  );
-  if (backlog.length > 0) bus?.publish({ type: "session.inbox.delivered", sessionId: session.id });
+  // Anything queued while the session was idle drains ahead of the message
+  // that starts the turn.
+  drainBacklog(db, bus, session.id);
 
   // Persist under the message's own id so the client and server agree on it —
   // edit-and-resend truncates the transcript by this id, which only works if the
@@ -197,6 +206,35 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   bus?.publish({ type: "session.message.added", sessionId: session.id });
   // Clear any prior terminal markers: a session resumed after a failed or
   // cancelled turn starts the new turn clean.
+  setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
+  bus?.publish({ type: "session.updated", id: session.id, status: "running" });
+
+  return streamCore(deps, session, model);
+}
+
+/**
+ * Start a turn from the session's queued backlog alone — the message-driven
+ * wake of a session with no turn in flight. Each queued item becomes its own
+ * user-role message (framed at send time by its source) and the model's turn
+ * opens on those, with no fresh user message. Clears any prior terminal
+ * markers, so a failed session woken by a worker's report starts clean.
+ * Returns null without touching the session when nothing is queued — the wake
+ * raced an earlier drain. The caller checks the session is out of a turn; the
+ * preamble here runs synchronously to the `running` write, so two wakes on
+ * one tick can't both start a turn.
+ */
+export async function runWakeTurn(
+  deps: RunTurnDeps,
+  args: { session: Session },
+): Promise<StartedTurn | null> {
+  const { db, llmClients, bus } = deps;
+  const { session } = args;
+
+  // Resolve before any writes so a bad id rejects with nothing half-persisted.
+  const model = llmClients.resolveModel(session.model);
+
+  if (drainBacklog(db, bus, session.id) === 0) return null;
+  bus?.publish({ type: "session.message.added", sessionId: session.id });
   setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
   bus?.publish({ type: "session.updated", id: session.id, status: "running" });
 
@@ -310,9 +348,17 @@ async function streamCore(
 
   const rows = getSessionMessages(db, session.id);
   const history = rows.map(toUiMessage);
+  // Names a child sender in send-time framing by its live label, resolved at
+  // most once per sender per turn. A sender since deleted resolves to
+  // nothing, and the framing drops the name.
+  const senderLabels = new Map<string, string | undefined>();
+  const senderLabelFor: SenderLabelResolver = (id) => {
+    if (!senderLabels.has(id)) senderLabels.set(id, getSessionLabels(db, [id]).get(id));
+    return senderLabels.get(id);
+  };
   // Past the cull ratio of the model's context window, send the model a
-  // trimmed history — older tool results replaced by a short notice, delegate
-  // reports always kept — to claw back token budget.
+  // trimmed history — older tool results replaced by a short notice — to
+  // claw back token budget.
   // The untrimmed `history` still feeds persistence below, so nothing stored is
   // lost. The window is unknown for some providers (then this no-ops).
   const contextWindow = await llmClients.contextWindowFor(session.model);
@@ -332,7 +378,9 @@ async function streamCore(
   );
   // Expand delivered inbox parts back into the framed user messages the live
   // turn saw, so a later turn replays the interleaving faithfully.
-  const modelMessages = await convertToModelMessages(expandInboxMessages(modelHistory));
+  const modelMessages = await convertToModelMessages(
+    expandInboxMessages(modelHistory, senderLabelFor),
+  );
 
   // Compose the turn's system prompt — the kiri core layer, the workspace's
   // `kiri.md`, and the `AGENTS.md` chain covering the session's working
@@ -421,7 +469,7 @@ async function streamCore(
               writer.write(inboxUIPart(item) as InboxChunk);
             }
             if (deliveries.length === 0) return undefined;
-            return { messages: insertInboxModelMessages(messages, deliveries) };
+            return { messages: insertInboxModelMessages(messages, deliveries, senderLabelFor) };
           },
           abortSignal: controller.signal,
           onError: ({ error }) => {

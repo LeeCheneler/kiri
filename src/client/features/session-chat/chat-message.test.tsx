@@ -86,6 +86,55 @@ describe("<ChatMessage>", () => {
     expect(screen.queryByRole("button", { name: "delete" })).toBeNull();
   });
 
+  it("renders a worker's message as a labelled interjection, collapsed by default", async () => {
+    const user = userEvent.setup();
+    renderMessage(
+      message("user", [
+        {
+          type: "data-inbox",
+          id: "i1",
+          data: {
+            source: "child",
+            fromSessionId: "worker-1",
+            text: "Report: two advisories found.\n\nBoth patched upstream.",
+            queuedAt: 1,
+          },
+        },
+      ]),
+    );
+
+    // Collapsed: the sender label and a one-line preview show; the full body
+    // (markdown paragraphs) does not — an essay-length report must not take
+    // over the screen. It is the worker speaking, not the user. (The worker's
+    // title needs the owning session's children lookup, absent here — the
+    // session-chat tests cover the name.)
+    expect(screen.getByText("Worker")).toBeDefined();
+    expect(screen.queryByText("You")).toBeNull();
+    expect(screen.queryByText("Both patched upstream.")).toBeNull();
+    const toggle = screen.getByRole("button", { expanded: false });
+
+    await user.click(toggle);
+
+    expect(screen.getByText("Both patched upstream.")).toBeDefined();
+  });
+
+  it("renders the parent's steer in a worker transcript as a collapsed interjection", () => {
+    renderMessage(
+      message("assistant", [
+        { type: "text", text: "Scanning." },
+        {
+          type: "data-inbox",
+          id: "i2",
+          data: { source: "parent", text: "Cover the dev dependencies too.", queuedAt: 1 },
+        },
+      ]),
+    );
+
+    expect(screen.getByText("Parent")).toBeDefined();
+    expect(screen.getByRole("button", { expanded: false })).toBeDefined();
+    expect(screen.queryByText("You")).toBeNull();
+  });
+
   it("renders a delegate call as a plain tool block when no session id is supplied", () => {
     // Without the owning session there is no child lookup — the embedded
     // child-session box needs it, so the call degrades to the ordinary block.

@@ -170,24 +170,18 @@ describe("cullToolHistory", () => {
     expect(toolOutputs(culled)).toEqual([CULLED_RESULT_NOTICE, { b: 2 }, { c: 3 }, { d: 4 }]);
   });
 
-  it("never culls delegate results, and they don't spend a keep slot", () => {
+  it("culls a delegate result like any other — reports ride the transcript now", () => {
+    // Since async delegation, a worker's report is an ordinary inbox message
+    // in the transcript; the delegate call's own result is just the spawn
+    // acknowledgement, so it earns no exemption.
     const history = [
-      assistant(delegateResult("d1", "the report")),
+      assistant(delegateResult("d1", "spawn acknowledgement")),
       assistant(toolResult("c1", { a: 1 })),
-      assistant(toolResult("c2", { b: 2 }), toolResult("c3", { c: 3 }), toolResult("c4", { d: 4 })),
+      assistant(toolResult("c2", { b: 2 }), toolResult("c3", { c: 3 })),
     ];
 
     const culled = cullToolHistory(history, OVER_BUDGET);
-    // The delegate report survives in full even though it is the oldest result,
-    // and doesn't count as one of the three kept — c1 is the sole cull.
-    expect(culled[0]).toBe(history[0]);
-    expect(toolOutputs(culled)).toEqual([
-      "the report",
-      CULLED_RESULT_NOTICE,
-      { b: 2 },
-      { c: 3 },
-      { d: 4 },
-    ]);
+    expect(toolOutputs(culled)).toEqual([CULLED_RESULT_NOTICE, { a: 1 }, { b: 2 }, { c: 3 }]);
   });
 
   it("does not mutate the input history", () => {

@@ -326,8 +326,14 @@ export const messages = sqliteTable(
  * turn drains what queued while the session was idle); a drained row's content
  * moves into the transcript as a `data-inbox` message part and the row is
  * deleted, so the table only ever holds the undelivered backlog. `source`
- * records who queued it — `"user"` today; other senders (a delegated child's
- * report or question) arrive with the delegation work.
+ * records who queued it: the user, the session's parent (steering a delegated
+ * worker), or one of the session's delegated children (progress, questions,
+ * and results messaged back). `from_session_id` carries a child sender's
+ * session id so the delivery can name the worker by its live title; null for
+ * the other sources — the receiving session has exactly one user and one
+ * parent. Deliberately not a foreign key: the sender can be deleted while
+ * its message still sits in another session's backlog, and the delivery then
+ * simply loses the name rather than blocking the delete.
  */
 export const sessionInbox = sqliteTable(
   "session_inbox",
@@ -336,8 +342,9 @@ export const sessionInbox = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id),
-    source: text("source", { enum: ["user"] }).notNull(),
+    source: text("source", { enum: ["user", "parent", "child"] }).notNull(),
     text: text("text").notNull(),
+    fromSessionId: text("from_session_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("session_inbox_session_id_idx").on(t.sessionId)],

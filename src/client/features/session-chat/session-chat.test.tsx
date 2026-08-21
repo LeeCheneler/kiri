@@ -595,6 +595,55 @@ describe("<SessionChat>", () => {
     expect(screen.queryByText("queued")).toBeNull();
   });
 
+  it("renders an undelivered worker message as its labelled interjection, not a queued card", async () => {
+    // A worker's report held while this session can't take it (here: paused
+    // on a tool approval) is not the user's own queued message — it renders
+    // as the labelled interjection it will become, named by the worker's
+    // live title off the children lookup, with no "queued" tag.
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionDetail([message("m1", "user", "fan out the research")], { status: "waiting" }, [
+            {
+              id: "q9",
+              source: "child",
+              text: "Report: pelicans thriving.",
+              fromSessionId: "worker-1",
+              createdAt: "2026-05-09T12:00:00.000Z",
+            },
+          ]),
+        ),
+      ),
+      http.get("*/api/sessions/:id/children", () =>
+        HttpResponse.json({
+          children: [
+            {
+              id: "worker-1",
+              status: "idle",
+              projectId: null,
+              model: "anthropic:claude",
+              imageModel: null,
+              effort: "medium",
+              cwd: null,
+              title: "Pelican census",
+              parentSessionId: "s1",
+              parentToolCallId: "c1",
+              startedAt: "2026-05-09T12:00:00.000Z",
+              finishedAt: null,
+              error: null,
+            },
+          ],
+        }),
+      ),
+    );
+    renderChat();
+
+    expect(await screen.findByText("Worker")).toBeDefined();
+    expect(await screen.findByText("Pelican census")).toBeDefined();
+    expect(screen.getByText("Report: pelicans thriving.")).toBeDefined();
+    expect(screen.queryByText("queued")).toBeNull();
+  });
+
   it("promotes an undelivered queued message to its own turn when the session settles", async () => {
     const user = userEvent.setup();
     let withdrawn = 0;

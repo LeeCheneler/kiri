@@ -9,8 +9,17 @@ import { migrate } from "../db/migrate.ts";
 import { projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
-import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
-import { DELEGATE_TOOL_NAME, type DelegateToolDeps, delegateTool } from "./delegate-tool.ts";
+import {
+  DELEGATE_TOOL_NAME,
+  type DelegateToolDeps,
+  MAX_RUNNING_CHILDREN,
+  MESSAGE_PARENT_MAX_LENGTH,
+  MESSAGE_PARENT_TOOL_NAME,
+  MESSAGE_WORKER_TOOL_NAME,
+  delegateTool,
+  messageParentTool,
+} from "./delegate-tool.ts";
+import { pendingInboxItems } from "./inbox.ts";
 import {
   createSession,
   getSession,
@@ -40,7 +49,7 @@ const usage = (input: number, output: number) => ({
 
 const finishReason = (unified: "stop" | "error") => ({ unified, raw: unified });
 
-// A worker model that replies with `text` — the report the tool extracts.
+// A worker model that replies with `text` and settles.
 const reportingModel = (text: string): LlmModel =>
   new MockLanguageModelV3({
     doStream: async () => ({
@@ -53,53 +62,26 @@ const reportingModel = (text: string): LlmModel =>
     }),
   }) as unknown as LlmModel;
 
-// A worker model that finishes without any text — a report-less run.
-const silentModel = (): LlmModel =>
-  new MockLanguageModelV3({
-    doStream: async () => ({
-      stream: convertArrayToReadableStream<LanguageModelV3StreamPart>([
-        { type: "finish", finishReason: finishReason("stop"), usage: usage(2, 0) },
-      ]),
-    }),
-  }) as unknown as LlmModel;
-
-// A worker model whose stream errors, landing the child turn as failed.
-const failingModel = (message: string): LlmModel =>
-  new MockLanguageModelV3({
-    doStream: async () => ({
-      stream: convertArrayToReadableStream<LanguageModelV3StreamPart>([
-        { type: "error", error: new Error(message) },
-        { type: "finish", finishReason: finishReason("error"), usage: usage(0, 0) },
-      ]),
-    }),
-  }) as unknown as LlmModel;
-
-// A worker model whose stream stays open until aborted, so a cancel is the
-// only way its turn settles.
-const pendingModel = (): LlmModel =>
-  new MockLanguageModelV3({
-    doStream: async () => ({
-      stream: new ReadableStream<LanguageModelV3StreamPart>({
-        start(controller) {
-          controller.enqueue({ type: "text-start", id: "t1" });
-          controller.enqueue({ type: "text-delta", id: "t1", delta: "wor" });
-        },
-      }),
-    }),
-  }) as unknown as LlmModel;
+// The child turn runs detached from the spawning call, so assertions poll for
+// its settled state rather than awaiting a handle.
+const until = async (predicate: () => boolean): Promise<void> => {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("condition not met in time");
+};
 
 describe("delegate tool", () => {
   let dir: string;
   let db: KiriDb;
   let bus: EventBus;
-  let cancelRegistry: CancelRegistry;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "kiri-delegate-"));
     db = openDatabase(join(dir, "state.db"));
     migrate(db);
     bus = createEventBus();
-    cancelRegistry = createCancelRegistry();
     createSession(db, MODEL, { id: "parent" });
   });
 
@@ -114,12 +96,19 @@ describe("delegate tool", () => {
     db,
     parentSessionId: "parent",
     bus,
-    cancelRegistry,
     childTurnDeps: (childSessionId): RunTurnDeps => {
       capture.childId = childSessionId;
-      return { db, llmClients: clientsFor(model), bus, cancelRegistry };
+      return { db, llmClients: clientsFor(model), bus };
     },
   });
+
+  // Waits for the spawned child's detached turn to settle, so no turn is
+  // still writing when the test's database closes.
+  const settled = (childId: string | undefined) =>
+    until(() => {
+      const status = childId ? getSession(db, childId)?.status : undefined;
+      return status === "idle" || status === "failed" || status === "cancelled";
+    });
 
   const invoke = (
     deps: DelegateToolDeps,
@@ -155,27 +144,46 @@ describe("delegate tool", () => {
     );
   };
 
-  it("runs the task in a new child session and resolves with its report", async () => {
+  it("spawns a detached child session and resolves immediately with its id", async () => {
     const events: KiriEvent[] = [];
     bus.subscribe((e) => events.push(e));
     const capture: { childId?: string } = {};
 
-    const report = await invoke(
-      depsFor(reportingModel("Pelicans are thriving."), capture),
-      "Research pelicans",
-    );
+    const result = await invoke(depsFor(reportingModel("On it."), capture), "Research pelicans", {
+      title: "Pelican census",
+    });
 
-    expect(report).toBe("Pelicans are thriving.");
+    // The spawn acknowledgement names the delegation and hands back the id
+    // message_worker steers by; the worker's answers arrive as messages,
+    // not through this call.
+    expect(result).toContain('Delegated "Pelican census"');
+    expect(result).toContain(capture.childId ?? "");
+    expect(result).toContain(MESSAGE_WORKER_TOOL_NAME);
+    expect(result).not.toContain("On it.");
     const child = capture.childId ? getSession(db, capture.childId) : undefined;
     expect(child?.parentSessionId).toBe("parent");
     expect(child?.parentToolCallId).toBe("call_1");
-    // The child runs the parent's model and settles idle, its transcript
-    // holding the task and the report.
     expect(child?.model).toBe(MODEL);
-    expect(child?.status).toBe("idle");
-    const rows = getSessionMessages(db, child?.id ?? "");
-    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
     expect(events).toContainEqual({ type: "session.started", id: child?.id ?? "" });
+
+    // The turn runs on detached: the transcript fills in after the call has
+    // already resolved.
+    await settled(capture.childId);
+    expect(getSession(db, capture.childId ?? "")?.status).toBe("idle");
+    const rows = getSessionMessages(db, capture.childId ?? "");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("ignores the spawning turn's abort — cancelling a parent turn doesn't touch its children", async () => {
+    const capture: { childId?: string } = {};
+
+    await invoke(depsFor(reportingModel("Done."), capture), "Keep going", {
+      abortSignal: AbortSignal.abort(),
+    });
+
+    await settled(capture.childId);
+    expect(getSession(db, capture.childId ?? "")?.status).toBe("idle");
+    expect(getSessionMessages(db, capture.childId ?? "")).toHaveLength(2);
   });
 
   it("spawns the worker on the named role's model when delegates are configured", async () => {
@@ -185,12 +193,12 @@ describe("delegate tool", () => {
       delegates: { quick: "a:small", daily: "a:mid", deep: "a:big" },
     };
 
-    const report = await invoke(deps, "Quick lookup", { model: "quick" });
+    await invoke(deps, "Quick lookup", { model: "quick" });
 
-    expect(report).toBe("Done.");
     // The role resolved to its configured model at spawn — the child stores
     // that id rather than the parent's model.
     expect(capture.childId && getSession(db, capture.childId)?.model).toBe("a:small");
+    await settled(capture.childId);
   });
 
   it("requires the model role exactly when delegates are configured", () => {
@@ -322,6 +330,7 @@ describe("delegate tool", () => {
     });
 
     expect(capture.childId && getSession(db, capture.childId)?.title).toBe("Pelican census");
+    await settled(capture.childId);
   });
 
   it("spawns the child working from the parent's directory", async () => {
@@ -331,6 +340,7 @@ describe("delegate tool", () => {
     await invoke(depsFor(reportingModel("Done."), capture), "Count pelicans", {});
 
     expect(capture.childId && getSession(db, capture.childId)?.cwd).toBe("/srv/notes");
+    await settled(capture.childId);
   });
 
   it("spawns the child without a working directory when the parent has none", async () => {
@@ -339,6 +349,7 @@ describe("delegate tool", () => {
     await invoke(depsFor(reportingModel("Done."), capture), "Count pelicans", {});
 
     expect(capture.childId && getSession(db, capture.childId)?.cwd).toBeNull();
+    await settled(capture.childId);
   });
 
   it("spawns the child inside the parent's project so it reads the same corpus", async () => {
@@ -353,6 +364,7 @@ describe("delegate tool", () => {
     );
 
     expect(capture.childId && getSession(db, capture.childId)?.projectId).toBe("p1");
+    await settled(capture.childId);
   });
 
   it("stores the stated effort on the child session", async () => {
@@ -361,73 +373,203 @@ describe("delegate tool", () => {
     await invoke(depsFor(reportingModel("Done."), capture), "Deep dive", { effort: "high" });
 
     expect(capture.childId && getSession(db, capture.childId)?.effort).toBe("high");
+    await settled(capture.childId);
   });
 
-  it("re-attaches to the child a repeated call already created", async () => {
+  it("re-attaches to the child a repeated call already created, without re-driving it", async () => {
     createSession(db, MODEL, {
       id: "existing",
       parentSessionId: "parent",
       parentToolCallId: "call_1",
     });
+    setSessionStatus(db, "existing", "running");
 
-    const report = await invoke(depsFor(reportingModel("Done.")), "Try again");
+    const result = await invoke(depsFor(reportingModel("unused")), "Try again");
 
-    expect(report).toBe("Done.");
-    // The task ran in the existing child rather than a duplicate.
+    // The acknowledgement points at the existing child; no duplicate spawn,
+    // no second turn driven into it.
+    expect(result).toContain("existing");
     const children = db.$client
       .query<{ id: string }, []>("SELECT id FROM sessions WHERE parent_tool_call_id = 'call_1'")
       .all();
     expect(children.map((c) => c.id)).toEqual(["existing"]);
-    expect(getSessionMessages(db, "existing").map((r) => r.role)).toEqual(["user", "assistant"]);
+    expect(getSessionMessages(db, "existing")).toEqual([]);
   });
 
-  it("refuses to drive a child that is still running", async () => {
-    createSession(db, MODEL, {
-      id: "busy",
-      parentSessionId: "parent",
-      parentToolCallId: "call_1",
-    });
-    setSessionStatus(db, "busy", "running");
+  it("caps concurrently running workers, freeing slots as they settle", async () => {
+    for (let i = 0; i < MAX_RUNNING_CHILDREN; i += 1) {
+      createSession(db, MODEL, {
+        id: `worker-${i}`,
+        parentSessionId: "parent",
+        parentToolCallId: `spawn-${i}`,
+      });
+      setSessionStatus(db, `worker-${i}`, "running");
+    }
 
-    expect(invoke(depsFor(reportingModel("unused")), "Again")).rejects.toThrow("already running");
+    expect(invoke(depsFor(reportingModel("unused")), "One too many")).rejects.toThrow("the limit");
+
+    // A settled worker frees its slot — only live ones count.
+    setSessionStatus(db, "worker-0", "idle");
+    const capture: { childId?: string } = {};
+    await invoke(depsFor(reportingModel("Done."), capture), "Fits now", {
+      toolCallId: "call_fits",
+    });
+    await settled(capture.childId);
   });
 
   it("throws when the parent session is missing", async () => {
     const deps = { ...depsFor(reportingModel("unused")), parentSessionId: "ghost" };
     expect(invoke(deps, "Anything")).rejects.toThrow('session "ghost" not found');
   });
+});
 
-  it("resolves with a cancelled note when the parent turn aborts", async () => {
-    const capture: { childId?: string } = {};
-    // Resolve once the child's turn is streaming, so the abort lands after the
-    // tool has registered its cascade listener.
-    const childRunning = new Promise<string>((resolve) => {
-      bus.subscribe((e) => {
-        if (e.type === "session.updated" && e.status === "running" && e.id !== "parent") {
-          resolve(e.id);
-        }
-      });
+describe("message_worker tool", () => {
+  let dir: string;
+  let db: KiriDb;
+  let bus: EventBus;
+  let events: KiriEvent[];
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-send-delegate-"));
+    db = openDatabase(join(dir, "state.db"));
+    migrate(db);
+    bus = createEventBus();
+    events = [];
+    bus.subscribe((e) => events.push(e));
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, {
+      id: "worker",
+      title: "CVE scan",
+      parentSessionId: "parent",
+      parentToolCallId: "spawn-1",
     });
-    const controller = new AbortController();
-
-    const pending = invoke(depsFor(pendingModel(), capture), "Never finishes", {
-      abortSignal: controller.signal,
-    });
-    await childRunning;
-    controller.abort();
-
-    expect(await pending).toContain("cancelled");
-    expect(getSession(db, capture.childId ?? "")?.status).toBe("cancelled");
   });
 
-  it("resolves with a failure note carrying the child's error", async () => {
-    const note = await invoke(depsFor(failingModel("provider exploded")), "Doomed task");
-    expect(note).toContain("The delegated task failed");
-    expect(note).toContain("provider exploded");
+  afterEach(() => {
+    db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  it("resolves with a fallback note when the worker produces no report", async () => {
-    const note = await invoke(depsFor(silentModel()), "Silent task");
-    expect(note).toBe("The delegated worker finished without producing a report.");
+  const send = (sessionId: string, message: string): Promise<string> => {
+    const set = delegateTool({
+      db,
+      parentSessionId: "parent",
+      bus,
+      childTurnDeps: () => ({ db, llmClients: clientsFor(reportingModel("unused")) }),
+    });
+    const sendTool = set[MESSAGE_WORKER_TOOL_NAME] as {
+      execute: (
+        input: { sessionId: string; message: string },
+        options: { toolCallId: string; messages: [] },
+      ) => Promise<string>;
+    };
+    return sendTool.execute({ sessionId, message }, { toolCallId: "call_s", messages: [] });
+  };
+
+  it("queues a parent-sourced message for the worker and announces it", async () => {
+    setSessionStatus(db, "worker", "running");
+
+    const result = await send("worker", "Also cover the dev dependencies.");
+
+    expect(result).toContain("weaves in");
+    const [item] = pendingInboxItems(db, "worker");
+    expect(item?.source).toBe("parent");
+    expect(item?.text).toBe("Also cover the dev dependencies.");
+    // The worker has exactly one parent, so the sender needs no id.
+    expect(item?.fromSessionId).toBeNull();
+    expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "worker" });
+  });
+
+  it("tells the parent how the message will land, by the worker's state", async () => {
+    expect(await send("worker", "status?")).toContain("starts a new turn");
+    setSessionStatus(db, "worker", "waiting");
+    expect(await send("worker", "status?")).toContain("paused on a tool approval");
+    setSessionStatus(db, "worker", "cancelled");
+    expect(await send("worker", "status?")).toContain("cancelled by the user");
+  });
+
+  it("rejects a session that is not one of this conversation's workers", async () => {
+    createSession(db, MODEL, { id: "other-parent" });
+    createSession(db, MODEL, {
+      id: "foreign-worker",
+      parentSessionId: "other-parent",
+      parentToolCallId: "spawn-x",
+    });
+
+    expect(send("foreign-worker", "hi")).rejects.toThrow("no delegated worker");
+    expect(send("ghost", "hi")).rejects.toThrow("no delegated worker");
+    expect(pendingInboxItems(db, "foreign-worker")).toEqual([]);
+  });
+});
+
+describe("message_parent tool", () => {
+  let dir: string;
+  let db: KiriDb;
+  let bus: EventBus;
+  let events: KiriEvent[];
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-message-parent-"));
+    db = openDatabase(join(dir, "state.db"));
+    migrate(db);
+    bus = createEventBus();
+    events = [];
+    bus.subscribe((e) => events.push(e));
+    createSession(db, MODEL, { id: "parent" });
+    createSession(db, MODEL, {
+      id: "worker",
+      title: "CVE scan",
+      parentSessionId: "parent",
+      parentToolCallId: "spawn-1",
+    });
+  });
+
+  afterEach(() => {
+    db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const message = (childSessionId: string, text: string): Promise<string> => {
+    const set = messageParentTool({ db, childSessionId, bus });
+    const messageTool = set[MESSAGE_PARENT_TOOL_NAME] as {
+      execute: (
+        input: { message: string },
+        options: { toolCallId: string; messages: [] },
+      ) => Promise<string>;
+    };
+    return messageTool.execute({ message: text }, { toolCallId: "call_m", messages: [] });
+  };
+
+  it("queues a child-sourced message for the parent, carrying the sender's session id", async () => {
+    const result = await message("worker", "Report: two advisories, both patched upstream.");
+
+    expect(result).toContain("Delivered");
+    const [item] = pendingInboxItems(db, "parent");
+    expect(item?.source).toBe("child");
+    // The id, not a copied label: the delivery names the worker by its live
+    // title wherever the message surfaces.
+    expect(item?.fromSessionId).toBe("worker");
+    expect(item?.text).toBe("Report: two advisories, both patched upstream.");
+    expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "parent" });
+  });
+
+  it("caps the message size so an essay can't flood the parent", () => {
+    const set = messageParentTool({ db, childSessionId: "worker", bus });
+    const schema = (
+      set[MESSAGE_PARENT_TOOL_NAME] as {
+        inputSchema: { safeParse: (v: unknown) => { success: boolean } };
+      }
+    ).inputSchema;
+    expect(schema.safeParse({ message: "x".repeat(MESSAGE_PARENT_MAX_LENGTH) }).success).toBe(true);
+    expect(schema.safeParse({ message: "x".repeat(MESSAGE_PARENT_MAX_LENGTH + 1) }).success).toBe(
+      false,
+    );
+    expect(schema.safeParse({ message: "" }).success).toBe(false);
+  });
+
+  it("throws when the session is missing or has no parent", async () => {
+    expect(message("ghost", "hi")).rejects.toThrow('session "ghost" not found');
+    expect(message("parent", "hi")).rejects.toThrow("no parent to message");
+    expect(pendingInboxItems(db, "parent")).toEqual([]);
   });
 });

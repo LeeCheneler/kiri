@@ -12,7 +12,7 @@ import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { useProject } from "../../state/projects.ts";
 import { useModels, useSession } from "../../state/sessions.ts";
-import { ChatMessage, QueuedMessage } from "./chat-message.tsx";
+import { ChatMessage, InboxInterjection, QueuedMessage } from "./chat-message.tsx";
 import {
   CONTEXT_WARNING_RATIO,
   contextWindowForModel,
@@ -382,12 +382,33 @@ function ChatView({
 
       {/* Messages queued for the in-flight turn, at the transcript foot where
           they were sent. Each resolves into the transcript proper — woven in
-          when the turn delivers it, or as its own sent turn when promoted. */}
+          when the turn delivers it, or as its own sent turn when promoted.
+          The user's own messages render as their queued card; one from the
+          delegation exchange (a worker's report held while this session is
+          paused, a parent's steer) renders as the labelled interjection it
+          will become. */}
       {queued.length > 0 ? (
         <div className="mt-8 space-y-8">
-          {queued.map((item) => (
-            <QueuedMessage key={item.id} text={item.text} />
-          ))}
+          {queued.map((item) =>
+            item.source === "user" ? (
+              <QueuedMessage key={item.id} text={item.text} />
+            ) : (
+              <InboxInterjection
+                key={item.id}
+                sessionId={session.id}
+                part={{
+                  type: "data-inbox",
+                  id: item.id,
+                  data: {
+                    source: item.source,
+                    text: item.text,
+                    ...(item.fromSessionId != null ? { fromSessionId: item.fromSessionId } : {}),
+                    queuedAt: new Date(item.createdAt).getTime(),
+                  },
+                }}
+              />
+            ),
+          )}
         </div>
       ) : null}
 

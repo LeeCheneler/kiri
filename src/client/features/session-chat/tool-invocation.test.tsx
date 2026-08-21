@@ -1,7 +1,11 @@
 import { describe, expect, it, mock } from "bun:test";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ToolUIPart } from "ai";
+import { http, HttpResponse } from "msw";
+import { server } from "../../../../tests/setup/msw.ts";
+import { createQueryClient } from "../../state/query-client.ts";
 import { createLiveConsoleStore } from "./live-console.ts";
 import {
   CANCELLED_ERROR_TEXT,
@@ -35,6 +39,108 @@ describe("<ToolInvocation>", () => {
 
     await user.click(screen.getByRole("button"));
     expect(screen.getByText(/"id": 42/)).toBeDefined();
+  });
+
+  it("renders a delegation message as the sent message, not the delivery note alone", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={part({
+          type: "tool-message_parent",
+          state: "output-available",
+          input: { message: "Report: two advisories found.\n\nBoth patched upstream." },
+          output: "Delivered to the session that delegated your task.",
+        })}
+      />,
+    );
+
+    // Collapsed, the summary previews the message itself.
+    expect(screen.getByText(/Report: two advisories found/)).toBeDefined();
+
+    await user.click(screen.getByRole("button"));
+    // Expanded, the message is the content — markdown, as the receiving
+    // transcript renders it — with the delivery outcome as a muted line.
+    expect(screen.getByText("Both patched upstream.")).toBeDefined();
+    expect(screen.getByText("Delivered to the session that delegated your task.")).toBeDefined();
+  });
+
+  it("renders message_worker the same way, keeping its delivery-mode note", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={part({
+          type: "tool-message_worker",
+          state: "output-available",
+          input: { sessionId: "w1", message: "Cover the dev dependencies too." },
+          output: "Delivered: the worker is mid-turn, so the message weaves in at its next step.",
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    // Twice once expanded: the summary preview and the markdown body.
+    expect(screen.getAllByText("Cover the dev dependencies too.")).toHaveLength(2);
+    expect(screen.getByText(/weaves in at its next step/)).toBeDefined();
+  });
+
+  it("names the messaged worker in the collapsed summary, off the children query", async () => {
+    server.use(
+      http.get("*/api/sessions/s1/children", () =>
+        HttpResponse.json({ children: [{ id: "w1", title: "Pelican census" }] }),
+      ),
+    );
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <ToolInvocation
+          sessionId="s1"
+          part={part({
+            type: "tool-message_worker",
+            state: "output-available",
+            input: { sessionId: "w1", message: "What's taking so long?" },
+            output: "Delivered: the worker is mid-turn, so the message weaves in at its next step.",
+          })}
+        />
+      </QueryClientProvider>,
+    );
+
+    // The row reads MESSAGE WORKER · <worker title> · <message>.
+    expect(await screen.findByText("Pelican census")).toBeDefined();
+    expect(screen.getByText("What's taking so long?")).toBeDefined();
+  });
+
+  it("falls back to JSON for a malformed delegation message call", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={part({
+          type: "tool-message_parent",
+          state: "output-available",
+          input: { note: "wrong field" },
+          output: { delivered: true },
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"delivered": true/)).toBeDefined();
+  });
+
+  it("skips the message rendering and worker name when the input isn't even an object", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        sessionId="s1"
+        part={part({
+          type: "tool-message_worker",
+          state: "output-available",
+          input: "bogus",
+          output: { delivered: true },
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/"delivered": true/)).toBeDefined();
   });
 
   it("shows a urls list in the collapsed summary", () => {

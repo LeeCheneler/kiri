@@ -90,10 +90,13 @@ const chainStatus = (parts: ToolPart[]): StatusKind | null =>
  */
 export function ToolChain({
   parts,
+  sessionId,
   pageLinks,
   liveConsoles,
 }: {
   parts: ToolPart[];
+  /** The session that owns this transcript; lets a folded message_worker call name its target. */
+  sessionId?: string;
   pageLinks?: ToolPageLinks;
   liveConsoles?: LiveConsoleStore;
 }) {
@@ -122,6 +125,7 @@ export function ToolChain({
               key={part.toolCallId}
               part={part}
               framed={false}
+              sessionId={sessionId}
               pageLinks={pageLinks}
               liveConsoles={liveConsoles}
             />

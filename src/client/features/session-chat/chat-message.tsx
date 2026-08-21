@@ -1,6 +1,7 @@
 import type { FileUIPart, UIMessage } from "ai";
 import { memo, useEffect, useId, useState } from "react";
 import { type InboxUIPart, isInboxPart } from "../../../shared/inbox-part.ts";
+import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
@@ -17,6 +18,7 @@ import {
   type ToolDecisionHandler,
   ToolInvocation,
   type ToolPageLinks,
+  WorkerName,
 } from "./tool-invocation.tsx";
 
 /** Resend an edited user message, re-running the conversation from that point. */
@@ -200,13 +202,56 @@ export function QueuedMessage({ text }: { text: string }) {
   );
 }
 
-// A delivered inbox message — something the user sent that was queued and
-// drained at a turn boundary: woven into the assistant message at the point
-// the model saw it, or its own user-role row when it drained ahead of a fresh
-// turn. Boxed like a user message so the transcript still reads as a
-// conversation, but with no edit or delete controls — it belongs to the turn
-// that absorbed it.
-function InboxInterjection({ part }: { part: InboxUIPart }) {
+// A message from the conversation's other session — a worker's report or
+// question in its parent's transcript, or the parent's steer in a worker's.
+// Labelled with the sender and collapsed by default behind a one-line
+// preview: an essay-length report must not take over the screen. The body
+// renders as markdown — it is model-written prose, not something a person
+// typed verbatim.
+function CrossSessionInterjection({ part, sessionId }: { part: InboxUIPart; sessionId?: string }) {
+  const isWorker = part.data.source === "child";
+  const preview = part.data.text.replace(/\s+/g, " ").trim();
+  return (
+    <article className="border border-rule" data-inbox-source={part.data.source}>
+      <Disclosure
+        summary={
+          <span className="flex items-baseline gap-3 font-mono text-xs">
+            <span className="shrink-0 uppercase tracking-widest text-ink-muted">
+              {isWorker ? "Worker" : "Parent"}
+            </span>
+            {isWorker && part.data.fromSessionId && sessionId ? (
+              <WorkerName sessionId={sessionId} workerSessionId={part.data.fromSessionId} />
+            ) : null}
+            <span className="min-w-0 flex-1 truncate text-ink-muted">{preview}</span>
+          </span>
+        }
+      >
+        <Markdown content={part.data.text} />
+      </Disclosure>
+    </article>
+  );
+}
+
+/**
+ * A delivered inbox message — one that was queued and drained at a turn
+ * boundary: woven into the assistant message at the point the model saw it,
+ * or its own user-role row when it drained ahead of a fresh turn. The user's
+ * own messages render inline, boxed like a sent message but with no edit or
+ * delete controls — they belong to the turn that absorbed them. A message
+ * from another session (a worker's report, the parent's steer) renders as a
+ * labelled, collapsed-by-default interjection instead; `sessionId` — the
+ * owning session — lets it name a sending worker by its live title.
+ */
+export function InboxInterjection({
+  part,
+  sessionId,
+}: {
+  part: InboxUIPart;
+  sessionId?: string;
+}) {
+  if (part.data.source !== "user") {
+    return <CrossSessionInterjection part={part} sessionId={sessionId} />;
+  }
   return (
     <article>
       <Card>
@@ -280,12 +325,15 @@ function AssistantMessage({
             return <ToolInvocation key={segment.part.toolCallId} part={segment.part} />;
           }
           if (segment.kind === "inbox") {
-            return <InboxInterjection key={segment.part.id} part={segment.part} />;
+            return (
+              <InboxInterjection key={segment.part.id} part={segment.part} sessionId={sessionId} />
+            );
           }
           return segment.parts.length === 1 ? (
             <ToolInvocation
               key={segment.parts[0].toolCallId}
               part={segment.parts[0]}
+              sessionId={sessionId}
               pageLinks={pageLinks}
               liveConsoles={liveConsoles}
             />
@@ -293,6 +341,7 @@ function AssistantMessage({
             <ToolChain
               key={segment.parts[0].toolCallId}
               parts={segment.parts}
+              sessionId={sessionId}
               pageLinks={pageLinks}
               liveConsoles={liveConsoles}
             />
@@ -353,7 +402,7 @@ export const ChatMessage = memo(function ChatMessage({
       return (
         <>
           {message.parts.filter(isInboxPart).map((part) => (
-            <InboxInterjection key={part.id} part={part} />
+            <InboxInterjection key={part.id} part={part} sessionId={sessionId} />
           ))}
         </>
       );

@@ -1,0 +1,1 @@
+ALTER TABLE `session_inbox` ADD `from_session_id` text;

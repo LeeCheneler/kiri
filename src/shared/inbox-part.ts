@@ -13,9 +13,19 @@ export interface InboxUIPart {
   /** The inbox row's id, kept so a delivery is traceable and streamable under a stable id. */
   id: string;
   data: {
-    /** Who queued the message. Only the user today; other senders arrive with delegation. */
-    source: "user";
+    /**
+     * Who queued the message: the user, the session's parent (steering a
+     * delegated worker), or one of the session's delegated children
+     * (progress, questions, and results messaged back).
+     */
+    source: "user" | "parent" | "child";
     text: string;
+    /**
+     * A child sender's session id, so the delivery can name the worker by
+     * its live title. Absent for the other sources — the receiving session
+     * has exactly one user and one parent.
+     */
+    fromSessionId?: string;
     /** When the message was queued, epoch ms. */
     queuedAt: number;
   };

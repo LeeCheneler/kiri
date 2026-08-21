@@ -9,7 +9,7 @@ import type { LlmClients } from "../llm/index.ts";
 import { createRegistry } from "../workflows/index.ts";
 import { articleTools } from "./article-tools.ts";
 import { BUILTIN_TOOLS } from "./builtin-tools.ts";
-import { delegateTool } from "./delegate-tool.ts";
+import { delegateTool, messageParentTool } from "./delegate-tool.ts";
 import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
 import { memoryTools } from "./memory-tools.ts";
@@ -68,6 +68,9 @@ describe("BUILTIN_TOOLS", () => {
         parentSessionId: "session-1",
         childTurnDeps: () => ({ db, llmClients: stubClients }),
       }),
+      // Offered to child sessions where delegate/message_worker are not;
+      // the registry carries all three, so merge both sides here.
+      ...messageParentTool({ db, childSessionId: "session-1" }),
     };
     expect(BUILTIN_TOOLS.map((tool) => tool.name).sort()).toEqual(Object.keys(offered).sort());
   });

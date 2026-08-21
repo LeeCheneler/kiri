@@ -7,7 +7,9 @@ import { Diff, patchFromStrings } from "../../design-system/content/diff.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { InlineLink } from "../../design-system/content/inline-link.tsx";
+import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
+import { useSessionChildren } from "../../state/sessions.ts";
 import { FullWidthImage } from "./image-thumb.tsx";
 import { type LiveConsoleStore, useLiveConsole } from "./live-console.ts";
 
@@ -53,16 +55,18 @@ export const toolStatus = (part: ToolPart): StatusKind =>
 // A short input detail for the collapsed summary, when the call carries an
 // obvious one — a string `query`, a `path` (the filesystem tools), a `command`
 // (run_command), a `prompt` (generate_image), a `name` (use_skill), a `slug`
-// (the article tools), or a list of `urls`; nothing otherwise.
+// (the article tools), a `message` (the delegation messaging tools), or a
+// list of `urls`; nothing otherwise.
 const summaryDetail = (input: unknown): string | null => {
   if (input === null || typeof input !== "object") return null;
-  const { query, path, command, prompt, name, slug, urls } = input as {
+  const { query, path, command, prompt, name, slug, message, urls } = input as {
     query?: unknown;
     path?: unknown;
     command?: unknown;
     prompt?: unknown;
     name?: unknown;
     slug?: unknown;
+    message?: unknown;
     urls?: unknown;
   };
   if (typeof query === "string") return query;
@@ -71,6 +75,7 @@ const summaryDetail = (input: unknown): string | null => {
   if (typeof prompt === "string") return prompt;
   if (typeof name === "string") return name;
   if (typeof slug === "string") return slug;
+  if (typeof message === "string") return message;
   if (Array.isArray(urls)) {
     const list = urls.filter((url): url is string => typeof url === "string").join(", ");
     return list === "" ? null : list;
@@ -700,6 +705,61 @@ const movedCwd = (name: string, output: unknown): string | null => {
   return typeof cwd === "string" ? `Now working in ${cwd}.` : null;
 };
 
+// The delegation messaging tools, whose settled panel renders what was sent
+// rather than the delivery acknowledgement alone.
+const MESSAGING_TOOLS = new Set(["message_parent", "message_worker"]);
+
+/**
+ * A worker's live title, resolved off the owning session's children query —
+ * the same one the transcript's delegation boxes ride, so it is already warm
+ * wherever a worker can speak. Mounted only where a block names a worker
+ * (a worker-sourced interjection, a message_worker summary), so other
+ * transcripts never fire the lookup; a worker since deleted (or untitled)
+ * simply contributes no name.
+ */
+export function WorkerName({
+  sessionId,
+  workerSessionId,
+}: {
+  sessionId: string;
+  workerSessionId: string;
+}) {
+  const children = useSessionChildren(sessionId);
+  const title = children.data?.find((child) => child.id === workerSessionId)?.title;
+  if (!title) return null;
+  return <span className="shrink-0 text-ink">{title}</span>;
+}
+
+// The worker a message_worker call targets, for naming it in the collapsed
+// summary — the call's input carries the worker's session id.
+const messagedWorkerId = (name: string, input: unknown): string | null => {
+  if (name !== "message_worker") return null;
+  if (input === null || typeof input !== "object") return null;
+  const { sessionId } = input as { sessionId?: unknown };
+  return typeof sessionId === "string" ? sessionId : null;
+};
+
+// A messaging call's panel: the sent message is the content — it is the
+// model's own prose, so it renders as markdown exactly as it does in the
+// receiving transcript's interjection — with the delivery outcome (how and
+// whether it landed) as a muted line below. Null for other tools, or a
+// malformed call with no string message, which fall back to the generic
+// result rendering.
+const sentMessage = (name: string, input: unknown, output: unknown): ReactNode | null => {
+  if (!MESSAGING_TOOLS.has(name)) return null;
+  if (input === null || typeof input !== "object") return null;
+  const { message } = input as { message?: unknown };
+  if (typeof message !== "string") return null;
+  return (
+    <div className="space-y-2">
+      <Markdown content={message} />
+      {typeof output === "string" ? (
+        <p className="font-mono text-ink-muted text-xs">{output}</p>
+      ) : null}
+    </div>
+  );
+};
+
 // The call's input rendered as formatted JSON — untrusted data, shown verbatim.
 function ToolInput({ input }: { input: unknown }) {
   return (
@@ -743,6 +803,10 @@ function ToolPanel({
           <InlineLink href={link.href}>{link.label}</InlineLink>
         </p>
       ) : null;
+    // A delegation message's panel is the message itself — the string result
+    // alone says nothing about what was sent.
+    const sent = sentMessage(name, part.input, part.output);
+    if (sent) return sent;
     // A write's result renders as the change itself — the unified diff, a
     // created document's content, or an edit's old/new pair — still untrusted
     // text shown verbatim, never markdown.
@@ -902,12 +966,19 @@ export function ToolInvocation({
   part,
   onDecision,
   framed = true,
+  sessionId,
   pageLinks,
   liveConsoles,
 }: {
   part: ToolPart;
   onDecision?: ToolDecisionHandler;
   framed?: boolean;
+  /**
+   * The session that owns this transcript. Lets a message_worker call name
+   * its target worker in the collapsed summary, off the session's children
+   * query. Omitted, the summary just skips the name.
+   */
+  sessionId?: string;
   /**
    * Where the owning container's article, memory, and project pages live;
    * results link through it. Omitted, those links are dropped while workflow
@@ -928,6 +999,7 @@ export function ToolInvocation({
   const detail = summaryDetail(part.input);
   const status = toolStatus(part);
   const image = generatedImage(part);
+  const messagedWorker = messagedWorkerId(name, part.input);
   return (
     <div className={framed ? "border border-rule" : undefined} data-tool={name}>
       <Disclosure
@@ -936,6 +1008,9 @@ export function ToolInvocation({
             <span className="shrink-0 uppercase tracking-widest text-ink-muted">
               {humanizeName(name)}
             </span>
+            {messagedWorker !== null && sessionId !== undefined ? (
+              <WorkerName sessionId={sessionId} workerSessionId={messagedWorker} />
+            ) : null}
             {detail ? <span className="min-w-0 truncate text-ink">{detail}</span> : null}
             <span className="ml-auto shrink-0">
               <Status status={status} />

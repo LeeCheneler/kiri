@@ -14,16 +14,6 @@ export const CONTEXT_CULL_RATIO = 0.8;
 export const KEEP_RECENT_TOOL_RESULTS = 3;
 
 /**
- * Tool parts whose results are never culled, by UI part type. A delegate
- * result is a worker session's distilled report — the findings the delegation
- * spent a whole child context producing — and re-running one is slow, costly,
- * and not guaranteed to reach the same conclusions, so it must outlive any
- * cull. (The part type embeds the tool name; the delegate tool's own module
- * sits above this one in the import graph, so the name can't be imported.)
- */
-export const CULL_EXEMPT_TOOL_TYPES: ReadonlySet<string> = new Set(["tool-delegate"]);
-
-/**
  * Stands in for a culled tool result in the history sent to the model. The tool
  * call — its name and arguments — is kept so the model still sees what it ran;
  * only the result payload, often the bulk of the context, is replaced by this.
@@ -45,8 +35,7 @@ export function currentContextTokens(rows: Message[]): number | undefined {
  * Reshape a session's history for sending to the model: once context fill is
  * over `CONTEXT_CULL_RATIO` of the window, replace the result of every tool call
  * except the most recent `KEEP_RECENT_TOOL_RESULTS` with `CULLED_RESULT_NOTICE`,
- * keeping each call's invocation intact. Results of `CULL_EXEMPT_TOOL_TYPES`
- * are never culled and never count toward the kept recents. Returns the history unchanged when the
+ * keeping each call's invocation intact. Returns the history unchanged when the
  * window or fill is unknown, when fill is within budget, or when there are no
  * more tool results than we keep. Pure: a culled message is a fresh object, so
  * the caller's array — reused for persistence — is never mutated.
@@ -62,20 +51,15 @@ export function cullToolHistory(
 }
 
 // Replace the `output` of every settled tool result bar the last `keep` with the
-// notice. Pending, errored, exempt, and non-tool parts are left untouched —
-// exempt results don't spend a keep slot either — and "the last `keep`" is
-// counted across the flattened tool-result sequence over all messages — a
-// turn's multi-step loop can land several results in one assistant message.
+// notice. Pending, errored, and non-tool parts are left untouched, and "the
+// last `keep`" is counted across the flattened tool-result sequence over all
+// messages — a turn's multi-step loop can land several results in one
+// assistant message.
 function cullOlderToolResults(history: UIMessage[], keep: number): UIMessage[] {
   const positions: string[] = [];
   history.forEach((message, mi) => {
     message.parts.forEach((part, pi) => {
-      if (
-        isToolUIPart(part) &&
-        part.state === "output-available" &&
-        !CULL_EXEMPT_TOOL_TYPES.has(part.type)
-      )
-        positions.push(`${mi}:${pi}`);
+      if (isToolUIPart(part) && part.state === "output-available") positions.push(`${mi}:${pi}`);
     });
   });
   if (positions.length <= keep) return history;
