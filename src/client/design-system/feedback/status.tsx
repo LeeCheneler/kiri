@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 /**
  * The states a run, run step, or session can be in. Runs use
  * `pending`/`running`/`ok`/`interrupted`; sessions use `idle` (resting between
@@ -43,9 +45,12 @@ const STATUS_DOT: Partial<Record<StatusKind, string>> = {
  * word as a cue (the dot is decorative — the word already conveys the state). Exposes
  * the state as `data-status` so containers and tests can anchor on it without
  * reading styles. Upper-cases the word centrally (its canonical machine-layer
- * form) and stays `font-mono`, leaving size to the caller.
+ * form) and stays `font-mono`, leaving size to the caller. Pass children to
+ * stand a longer label in for the bare word — a row badging `worker waiting`,
+ * say — keeping the state's tint, dot, and anchor.
  */
-export function Status({ status }: { status: StatusKind }) {
+export function Status({ status, children }: { status: StatusKind; children?: ReactNode }) {
+  const word = children ?? status;
   const dot = STATUS_DOT[status];
   if (dot) {
     return (
@@ -57,13 +62,13 @@ export function Status({ status }: { status: StatusKind }) {
           aria-hidden="true"
           className={`inline-block h-1.5 w-1.5 animate-pulse self-center rounded-full ${dot}`}
         />
-        {status}
+        {word}
       </span>
     );
   }
   return (
     <span data-status={status} className={`font-mono uppercase ${STATUS_TEXT[status]}`}>
-      {status}
+      {word}
     </span>
   );
 }

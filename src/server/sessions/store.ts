@@ -1,7 +1,8 @@
 import type { UIMessage } from "ai";
-import { and, asc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
-import { articles, messages, sessionInbox, sessions } from "../db/schema.ts";
+import { articles, messages, projects, sessionInbox, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
 
 /** A persisted session row. */
@@ -219,6 +220,107 @@ export function getSessionLabels(db: KiriDb, sessionIds: string[]): Map<string, 
     labels.set(id, title ?? previews.get(id) ?? id.slice(0, 8));
   }
   return labels;
+}
+
+/**
+ * When each of `sessionIds` last moved: its newest message's timestamp. A
+ * single batched query ordered newest-first, so the first row per session
+ * wins. Sessions with no messages yet are absent from the map — callers fall
+ * back to `startedAt`.
+ */
+export function getSessionLastActivity(db: KiriDb, sessionIds: string[]): Map<string, Date> {
+  const activity = new Map<string, Date>();
+  if (sessionIds.length === 0) return activity;
+  const rows = db
+    .select({ sessionId: messages.sessionId, createdAt: messages.createdAt })
+    .from(messages)
+    .where(inArray(messages.sessionId, sessionIds))
+    .orderBy(desc(messages.createdAt))
+    .all();
+  for (const row of rows) {
+    if (!activity.has(row.sessionId)) activity.set(row.sessionId, row.createdAt);
+  }
+  return activity;
+}
+
+/**
+ * Which of `sessionIds` have a delegated child paused waiting on tool
+ * approval — blocked on the user, so listings can badge the session. A single
+ * batched query; sessions with no waiting child are absent from the set.
+ */
+export function getSessionsWithWaitingChildren(db: KiriDb, sessionIds: string[]): Set<string> {
+  if (sessionIds.length === 0) return new Set();
+  return new Set(
+    db
+      .select({ parentSessionId: sessions.parentSessionId })
+      .from(sessions)
+      .where(and(inArray(sessions.parentSessionId, sessionIds), eq(sessions.status, "waiting")))
+      .all()
+      .flatMap((row) => row.parentSessionId ?? []),
+  );
+}
+
+/**
+ * A session row enriched for a listing: the row plus its preview label, the
+ * articles it wrote, its container's name, and the blocked-worker badge.
+ */
+export type SessionListEntry = Session & {
+  preview: string | null;
+  articles: { slug: string; name: string; heading: string | null; createdAt: Date }[];
+  projectName: string | null;
+  hasWaitingChild: boolean;
+};
+
+/**
+ * Enrich session `rows` into listing entries — preview label, written
+ * articles, owning project's name, and whether a delegated child sits
+ * waiting on approval — batched, so the query count is flat in the page
+ * size. The one projection every session listing shares (the sessions list,
+ * the activity feed, a project's page), so rows render identically wherever
+ * they surface.
+ */
+export function buildSessionListEntries(db: KiriDb, rows: Session[]): SessionListEntry[] {
+  const ids = rows.map((row) => row.id);
+  const previews = getSessionPreviews(db, ids);
+  const waitingChildren = getSessionsWithWaitingChildren(db, ids);
+  const articlesBySessionId = new Map<string | null, SessionListEntry["articles"]>();
+  if (ids.length > 0) {
+    const articleRows = db
+      .select()
+      .from(articles)
+      .where(inArray(articles.sessionId, ids))
+      .orderBy(asc(articles.createdAt))
+      .all();
+    for (const article of articleRows) {
+      const entry = {
+        slug: article.slug,
+        name: article.name,
+        heading: extractFirstHeading(article.contentMd),
+        createdAt: article.createdAt,
+      };
+      const list = articlesBySessionId.get(article.sessionId);
+      if (list) list.push(entry);
+      else articlesBySessionId.set(article.sessionId, [entry]);
+    }
+  }
+  const projectIds = [...new Set(rows.flatMap((row) => row.projectId ?? []))];
+  const projectNames = new Map(
+    projectIds.length > 0
+      ? db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(inArray(projects.id, projectIds))
+          .all()
+          .map((project) => [project.id, project.name])
+      : [],
+  );
+  return rows.map((row) => ({
+    ...row,
+    preview: previews.get(row.id) ?? null,
+    articles: articlesBySessionId.get(row.id) ?? [],
+    projectName: row.projectId !== null ? (projectNames.get(row.projectId) ?? null) : null,
+    hasWaitingChild: waitingChildren.has(row.id),
+  }));
 }
 
 /** Read a session's messages in order. */

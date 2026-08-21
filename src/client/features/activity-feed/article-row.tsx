@@ -24,20 +24,36 @@ const containerPath = (producer: ArticleProducer): string =>
  * link to the container the article lives in (a workflow's run, a session, or
  * a project) and its relative age; the heading below links through to the
  * article itself, falling back to its name when the body has none.
+ * `context="scoped"` renders the row inside its own container's page (a
+ * project's corpus index): the kind marker and container link drop from the
+ * byline — the page already establishes both — leaving the age, while the
+ * accent edge and row anatomy stay identical to the feed's.
  * `now` is injectable so tests render deterministic relative times; production
  * omits it.
  */
-export function ArticleRow({ article, now }: { article: ArticleFeedEntry; now?: Date }) {
+export function ArticleRow({
+  article,
+  now,
+  context = "feed",
+}: {
+  article: ArticleFeedEntry;
+  now?: Date;
+  context?: "feed" | "scoped";
+}) {
   const container = containerPath(article.producer);
   return (
     <EdgedBlock>
       <Meta>
-        <span className="text-accent uppercase">article</span>
-        {/* Wrapped so Meta's middot attaches to the span rather than joining
-            the link's underline and hit area, as run rows do. */}
-        <span>
-          <InlineLink href={container}>{article.producer.label}</InlineLink>
-        </span>
+        {context === "feed" ? (
+          <>
+            <span className="text-accent uppercase">article</span>
+            {/* Wrapped so Meta's middot attaches to the span rather than joining
+                the link's underline and hit area, as run rows do. */}
+            <span>
+              <InlineLink href={container}>{article.producer.label}</InlineLink>
+            </span>
+          </>
+        ) : null}
         <span>{formatRelativeTime(article.createdAt, now)}</span>
       </Meta>
       <div className="mt-1 text-base">

@@ -9,8 +9,9 @@ import { ArticleList } from "../activity-feed/article-list.tsx";
 
 // Session lifecycle mapped onto the shared status vocabulary: a running turn
 // reads as "working", the resting state as "idle", a turn paused on tool
-// approval as "waiting".
-const SESSION_STATUS: Record<SessionStatus, StatusKind> = {
+// approval as "waiting". Shared with the aside's workers list, which reads
+// child sessions in the same vocabulary.
+export const SESSION_STATUS: Record<SessionStatus, StatusKind> = {
   idle: "idle",
   running: "working",
   waiting: "waiting",
@@ -43,17 +44,32 @@ const shortModel = (model: string): string => {
  * session leads with its title instead, upright and unquoted — a title names
  * the conversation rather than voicing it. Before a title or message exists the short id stands in,
  * likewise unquoted — only actual speech gets quote marks.
+ * `context="scoped"` renders the row inside a page that already establishes
+ * what these rows are and where they live (a project page's session index):
+ * the kind marker and project link drop from the byline, the way a run row's
+ * `nameBy` retitles it per surface, while everything else stays identical.
  * `now` is injectable so tests render deterministic relative times; production
  * omits it.
  */
-export function SessionRow({ session, now }: { session: SessionListEntry; now?: Date }) {
+export function SessionRow({
+  session,
+  now,
+  context = "feed",
+}: {
+  session: SessionListEntry;
+  now?: Date;
+  context?: "feed" | "scoped";
+}) {
   const status = SESSION_STATUS[session.status];
   return (
     <StatusBlock status={status}>
       <Meta>
-        <span className="text-accent uppercase">session</span>
+        {context === "feed" ? <span className="text-accent uppercase">session</span> : null}
         <Status status={status} />
-        {session.projectName !== null && session.projectId !== null ? (
+        {/* A delegated child paused on tool approval — blocked on the user —
+            badged so it is visible from the listing without opening the chat. */}
+        {session.hasWaitingChild ? <Status status="waiting">worker waiting</Status> : null}
+        {context === "feed" && session.projectName !== null && session.projectId !== null ? (
           // Wrapped so Meta's middot attaches to the span rather than
           // joining the link's underline and hit area, as run rows do.
           <span>

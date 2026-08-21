@@ -17,10 +17,10 @@ const entry = (producer: ArticleProducer, over: Partial<ArticleFeedEntry> = {}) 
     ...over,
   }) satisfies ArticleFeedEntry;
 
-const renderRow = (article: ArticleFeedEntry) =>
+const renderRow = (article: ArticleFeedEntry, context?: "feed" | "scoped") =>
   render(
     <Router hook={memoryLocation({ path: "/" }).hook}>
-      <ArticleRow article={article} now={NOW} />
+      <ArticleRow article={article} now={NOW} context={context} />
     </Router>,
   );
 
@@ -48,5 +48,14 @@ describe("<ArticleRow>", () => {
   it("falls back to the article name when the body has no heading", () => {
     renderRow(entry({ kind: "run", id: "r1", label: "wf" }, { heading: null, name: "Headless" }));
     expect(screen.getByRole("link", { name: /Headless/ })).toBeDefined();
+  });
+
+  it("drops the kind marker and container link when scoped to its container", () => {
+    renderRow(entry({ kind: "project", id: "p1", label: "Research" }), "scoped");
+    expect(screen.queryByText("article")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Research" })).toBeNull();
+    // The age and the heading link keep the feed's anatomy.
+    expect(screen.getByText("2 hours ago")).toBeDefined();
+    expect(hrefOf(/The morning digest/)).toBe("/projects/p1/articles/digest");
   });
 });

@@ -24,12 +24,13 @@ const base: SessionListEntry = {
   error: null,
   preview: "Summarise the readme",
   articles: [],
+  hasWaitingChild: false,
 };
 
-const renderRow = (over: Partial<SessionListEntry> = {}) =>
+const renderRow = (over: Partial<SessionListEntry> = {}, context?: "feed" | "scoped") =>
   render(
     <Router hook={memoryLocation({ path: "/" }).hook}>
-      <SessionRow session={{ ...base, ...over }} now={NOW} />
+      <SessionRow session={{ ...base, ...over }} now={NOW} context={context} />
     </Router>,
   );
 
@@ -44,6 +45,25 @@ describe("<SessionRow>", () => {
   it("leads the byline with the session kind marker", () => {
     renderRow();
     expect(screen.getByText("session")).toBeDefined();
+    // No delegated child is blocked, so no worker badge.
+    expect(screen.queryByText("worker waiting")).toBeNull();
+  });
+
+  it("badges the byline while a delegated child waits on approval", () => {
+    renderRow({ hasWaitingChild: true });
+    expect(screen.getByText("worker waiting").getAttribute("data-status")).toBe("waiting");
+  });
+
+  it("drops the kind marker and project link when scoped to its container page", () => {
+    renderRow(
+      { projectId: "p1", projectName: "Research", hasWaitingChild: true, status: "waiting" },
+      "scoped",
+    );
+    expect(screen.queryByText("session")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Research" })).toBeNull();
+    // The machine layer the row still owns — status and badge — stays.
+    expect(screen.getByText("waiting").getAttribute("data-status")).toBe("waiting");
+    expect(screen.getByText("worker waiting")).toBeDefined();
   });
 
   it("sets the first message as quoted speech", () => {

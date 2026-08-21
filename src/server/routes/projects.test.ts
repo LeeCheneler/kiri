@@ -196,6 +196,8 @@ describe("projects routes", () => {
           title: "Titled",
           preview: "hello there",
           status: "idle",
+          projectName: "Research",
+          hasWaitingChild: false,
         }),
       ]);
     });

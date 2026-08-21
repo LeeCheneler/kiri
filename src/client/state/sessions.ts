@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import {
+  type ChildSessionEntry,
   type ModelsResult,
   type Session,
   type SessionDetail,
@@ -59,7 +60,7 @@ export function useSession(id: string): UseQueryResult<SessionDetail> {
  * first. Fetches on first use and serves the cache thereafter; kept current by
  * `useSessionsLive`, which refetches it as children start, stream, and settle.
  */
-export function useSessionChildren(id: string): UseQueryResult<Session[]> {
+export function useSessionChildren(id: string): UseQueryResult<ChildSessionEntry[]> {
   return useQuery({ queryKey: sessionChildrenKey(id), queryFn: () => fetchSessionChildren(id) });
 }
 

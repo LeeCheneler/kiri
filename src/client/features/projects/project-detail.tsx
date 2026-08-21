@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { ApiError, type ProjectSessionSummary, type SessionStatus } from "../../api.ts";
+import { ApiError } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
@@ -11,7 +11,6 @@ import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
 import { Prose } from "../../design-system/content/prose.tsx";
-import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
 import { type TabDef, Tabs } from "../../design-system/navigation/tabs.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
@@ -23,29 +22,15 @@ import {
   useRenameProject,
   useSaveProjectInstructions,
 } from "../../state/projects.ts";
+import { ArticleRow } from "../activity-feed/article-row.tsx";
 import { NewSessionButton } from "../session-chat/new-session-button.tsx";
+import { SessionRow } from "../session-chat/session-row.tsx";
 import { ProjectTasks } from "./project-tasks.tsx";
 
 const BREADCRUMB = [{ label: "Projects", href: "/projects" }];
 
-// Session lifecycle mapped onto the shared status vocabulary: a running turn
-// reads as "working", the resting state as "idle", a turn paused on tool
-// approval as "waiting".
-const SESSION_STATUS: Record<SessionStatus, StatusKind> = {
-  idle: "idle",
-  running: "working",
-  waiting: "waiting",
-  failed: "failed",
-  cancelled: "cancelled",
-};
-
 const plural = (count: number, noun: string, plural = `${noun}s`): string =>
   `${count} ${count === 1 ? noun : plural}`;
-
-// The label a session row leads with: its title, else its first user
-// message, else its short id — the same fallback order as the feed.
-const sessionLabel = (session: ProjectSessionSummary): string =>
-  session.title ?? session.preview ?? session.id.slice(0, 8);
 
 // The renaming dialog behind the rename button. Owns its own field state,
 // prefilled from the stored name each time it opens.
@@ -248,21 +233,16 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
                 </EmptyState>
               </div>
             ) : (
-              <div className="mt-1 divide-y divide-rule">
+              // The feed's session rows verbatim — status, waiting-worker
+              // badge, quoted preview, written articles — so a session reads
+              // the same here as on the timeline.
+              <ul className="mt-3 space-y-6">
                 {data.sessions.map((session) => (
-                  <div key={session.id} className="py-3">
-                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                      <HeadlineLink href={`/sessions/${encodeURIComponent(session.id)}`}>
-                        {sessionLabel(session)}
-                      </HeadlineLink>
-                      <Meta>
-                        <Status status={SESSION_STATUS[session.status]} />
-                        <span>started {formatRelativeTime(session.startedAt, now)}</span>
-                      </Meta>
-                    </div>
-                  </div>
+                  <li key={session.id}>
+                    <SessionRow session={session} now={now} context="scoped" />
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
           <div>
@@ -275,22 +255,22 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
                 </EmptyState>
               </div>
             ) : (
-              <div className="mt-1 divide-y divide-rule">
+              // The feed's article rows in scoped dress — accent edge, age
+              // above the heading — the producer is this very page.
+              <ul className="mt-3 space-y-6">
                 {data.articles.map((article) => (
-                  <div key={article.slug} className="py-3">
-                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                      <HeadlineLink
-                        href={`/projects/${encodeURIComponent(id)}/articles/${encodeURIComponent(article.slug)}`}
-                      >
-                        {article.heading ?? article.name}
-                      </HeadlineLink>
-                      <Meta>
-                        <span>created {formatRelativeTime(article.createdAt, now)}</span>
-                      </Meta>
-                    </div>
-                  </div>
+                  <li key={article.slug}>
+                    <ArticleRow
+                      article={{
+                        ...article,
+                        producer: { kind: "project", id, label: data.project.name },
+                      }}
+                      now={now}
+                      context="scoped"
+                    />
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
         </div>
@@ -339,15 +319,16 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
           <div className="-mt-2 divide-y divide-rule">
             {data.memories.map((memory) => (
               <div key={memory.name} className="py-3">
-                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                {/* Details above the display face, the listing pages' rhythm. */}
+                <Meta>
+                  <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
+                </Meta>
+                <div className="mt-1">
                   <HeadlineLink
                     href={`/projects/${encodeURIComponent(id)}/memories/${encodeURIComponent(memory.name)}`}
                   >
                     {memory.name}
                   </HeadlineLink>
-                  <Meta>
-                    <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
-                  </Meta>
                 </div>
                 <p className="mt-1 font-mono text-sm text-ink-muted">{memory.description}</p>
               </div>

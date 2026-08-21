@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Button } from "../../design-system/actions/button.tsx";
 import { TextInput } from "../../design-system/actions/text-input.tsx";
+import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
+import { HeadlineLink } from "../../design-system/content/headline-link.tsx";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Modal } from "../../design-system/surfaces/modal.tsx";
 import { useModels, useSession, useUpdateSession } from "../../state/sessions.ts";
@@ -116,6 +118,19 @@ export function SessionAside({ id }: { id: string }) {
         fallback={session.id.slice(0, 8)}
         onCommit={(title) => void setTitle(title)}
       />
+      {/* A delegated worker names the session that spawned it — the way back
+          up to the conversation this one is working for. Mirrors the project
+          link's lockup: a container, not one of the session's own facts. */}
+      {detail.parent ? (
+        <section>
+          <Eyebrow tone="muted">Parent</Eyebrow>
+          <div className="mt-1.5 text-sm">
+            <HeadlineLink href={`/sessions/${detail.parent.id}`}>
+              {detail.parent.label}
+            </HeadlineLink>
+          </div>
+        </section>
+      ) : null}
       <section className="space-y-4">
         {/* Where the session is working. Display-only by design: the
             assistant moves the directory through its own sandbox-validated

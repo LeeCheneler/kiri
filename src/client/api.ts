@@ -817,6 +817,8 @@ export interface SessionListEntry extends Session {
   articles: ArticleSummary[];
   /** The owning project's display name, or null for a projectless session. */
   projectName: string | null;
+  /** True while a delegated child sits waiting on tool approval — a worker blocked on the user. */
+  hasWaitingChild: boolean;
 }
 
 /**
@@ -996,20 +998,28 @@ export interface SessionDetail {
   session: Session;
   messages: SessionMessage[];
   inbox: SessionInboxItem[];
+  /** The spawning session's id and display label for a delegated child; null for a top-level session. */
+  parent: { id: string; label: string } | null;
 }
 
 /** Fetch a single session with its messages. Throws on non-2xx (404 for unknown ids). */
 export const fetchSession = async (id: string): Promise<SessionDetail> =>
   json<SessionDetail>(await apiFetch(`/api/sessions/${encodeURIComponent(id)}`));
 
+/** A delegated child as the children listing carries it: the session row plus when it last moved. */
+export interface ChildSessionEntry extends Session {
+  /** The child's newest message's timestamp, else its start — recency without loading its transcript. */
+  lastActivityAt: string;
+}
+
 /**
  * Fetch the child sessions a session's delegate calls have spawned, oldest
  * first. Children are hidden from the list and feed, so this is the transcript's
  * lookup for the session behind a delegate call. Throws on non-2xx.
  */
-export const fetchSessionChildren = async (id: string): Promise<Session[]> =>
+export const fetchSessionChildren = async (id: string): Promise<ChildSessionEntry[]> =>
   (
-    await json<{ children: Session[] }>(
+    await json<{ children: ChildSessionEntry[] }>(
       await apiFetch(`/api/sessions/${encodeURIComponent(id)}/children`),
     )
   ).children;
@@ -1342,24 +1352,18 @@ export interface ProjectSummary {
   openTaskCount: number;
 }
 
-/** One of a project's sessions, as listed on its project page. */
-export interface ProjectSessionSummary {
-  id: string;
-  title: string | null;
-  preview: string | null;
-  status: SessionStatus;
-  startedAt: string;
-}
-
 /**
  * A project in full: the container — including its standing instructions,
  * null when it has none — with its article, memory, and session indexes.
+ * Sessions carry the same listing projection as the feed, so both surfaces
+ * render the same rows; the page renders them scoped, hiding the redundant
+ * project link.
  */
 export interface ProjectDetail {
   project: { id: string; name: string; instructions: string | null; createdAt: string };
   articles: ArticleSummary[];
   memories: MemorySummary[];
-  sessions: ProjectSessionSummary[];
+  sessions: SessionListEntry[];
 }
 
 /**
