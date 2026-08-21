@@ -194,6 +194,45 @@ describe("<ChildSession>", () => {
     expect(screen.getAllByText("Focus on coastal colonies.")).toHaveLength(2);
   });
 
+  it("resolves a worker's pending tool approval inline", async () => {
+    withChildren([child("waiting")]);
+    withChildDetail("waiting", [
+      childMessage("m1", "user", [{ type: "text", text: "Research pelicans" }]),
+      childMessage("m2", "assistant", [
+        {
+          type: "tool-linear__create_issue",
+          toolCallId: "t1",
+          state: "approval-requested",
+          input: { title: "Bug" },
+          approval: { id: "a1" },
+        },
+      ]),
+    ]);
+    const resumes: unknown[] = [];
+    server.use(
+      http.post("*/api/sessions/child-1/messages", async ({ request }) => {
+        resumes.push(await request.json());
+        return new HttpResponse(null, { status: 200 });
+      }),
+    );
+    renderBox();
+
+    await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
+
+    // The pause renders the full approval prompt, not a collapsed block, and
+    // a verdict resumes the child from right here — no navigation needed.
+    expect(await screen.findByText(/wants to run this tool/i)).toBeDefined();
+    await userEvent.click(screen.getByRole("button", { name: "Allow" }));
+
+    await waitFor(() => expect(resumes).toHaveLength(1));
+    const body = resumes[0] as {
+      message: { role: string; parts: { state?: string; approval?: { approved?: boolean } }[] };
+    };
+    expect(body.message.role).toBe("assistant");
+    const verdict = body.message.parts.find((part) => part.state === "approval-responded");
+    expect(verdict?.approval?.approved).toBe(true);
+  });
+
   it("surfaces a transcript that fails to load", async () => {
     withChildren([child("idle")]);
     server.use(http.get("*/api/sessions/child-1", () => new HttpResponse(null, { status: 404 })));
