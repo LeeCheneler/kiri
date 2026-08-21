@@ -36,7 +36,9 @@ const childStatus = (status: SessionStatus): StatusKind =>
 function ChildSessionSummary({ title, status }: { title: string; status: StatusKind }) {
   return (
     <span className="flex items-baseline gap-3 font-mono text-xs">
-      <span className="shrink-0 uppercase tracking-widest text-ink-muted">Delegate</span>
+      {/* The act, not the sender: "Worker" alone is the label an incoming
+          message carries, and the spawn box must read differently. */}
+      <span className="shrink-0 uppercase tracking-widest text-ink-muted">Delegate to worker</span>
       {title ? <span className="min-w-0 truncate text-ink">{title}</span> : null}
       <span className="ml-auto shrink-0">
         <Status status={status} />

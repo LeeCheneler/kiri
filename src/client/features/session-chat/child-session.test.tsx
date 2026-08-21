@@ -93,7 +93,7 @@ describe("<ChildSession>", () => {
     withChildren([child("running")]);
     renderBox();
 
-    expect(await screen.findByRole("button", { name: /delegate/i })).toBeDefined();
+    expect(await screen.findByRole("button", { name: /worker/i })).toBeDefined();
     expect(screen.getByText("Pelican census")).toBeDefined();
     expect(screen.getByText(/working/i)).toBeDefined();
   });
@@ -116,7 +116,7 @@ describe("<ChildSession>", () => {
     ]);
     renderBox(delegatePart({ state: "output-available", output: "Pelicans are thriving." }));
 
-    await userEvent.click(await screen.findByRole("button", { name: /delegate/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
 
     // The worker's inner tool call and report render like any transcript,
     // led by the task brief the collapsed row no longer shows; the settled
@@ -145,7 +145,7 @@ describe("<ChildSession>", () => {
     ]);
     renderBox();
 
-    await userEvent.click(await screen.findByRole("button", { name: /delegate/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
 
     // The worker's executing command is a normal collapsed tool row that
     // expands to its (so far empty) live panel.
@@ -180,7 +180,7 @@ describe("<ChildSession>", () => {
     ]);
     renderBox(delegatePart({ state: "output-available", output: "spawned" }));
 
-    await userEvent.click(await screen.findByRole("button", { name: /delegate/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
 
     expect(await screen.findByText("Scanning sources.")).toBeDefined();
     // Both steers render labelled and collapsed — the woven one and the row
@@ -199,7 +199,7 @@ describe("<ChildSession>", () => {
     server.use(http.get("*/api/sessions/child-1", () => new HttpResponse(null, { status: 404 })));
     renderBox();
 
-    await userEvent.click(await screen.findByRole("button", { name: /delegate/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
 
     expect(await screen.findByRole("alert")).toBeDefined();
     expect(screen.getByText(/failed to load the delegated task/i)).toBeDefined();
@@ -231,7 +231,7 @@ describe("<ChildSession>", () => {
 
     // The box (not the plain block): its summary carries the title and the
     // child's live status from the lookup.
-    expect(await screen.findByRole("button", { name: /delegate/i })).toBeDefined();
+    expect(await screen.findByRole("button", { name: /worker/i })).toBeDefined();
     expect(screen.getByText("Pelican census")).toBeDefined();
     expect(screen.getByText(/working/i)).toBeDefined();
   });
@@ -250,7 +250,7 @@ describe("<ChildSession>", () => {
     );
     renderBox();
 
-    await userEvent.click(await screen.findByRole("button", { name: /delegate/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
 
     expect(await screen.findByText("The worker hasn't replied yet.")).toBeDefined();
     await userEvent.click(screen.getByRole("button", { name: "Cancel task" }));

@@ -365,8 +365,8 @@ function buildDelegateGuidance(
     "Working with running delegations — the mob's choreography:",
     "- Don't wait busily. Once your workers are spawned and nothing else needs you this turn, tell the user what is underway and end your turn: each worker's messages arrive on their own and wake you when you are idle. Never poll a worker on a timer or spin making no-op calls to stay alive.",
     "- Fan out, then synthesise: as reports land, fold each into the picture, and give the user the assembled answer once the last strand has reported — each wake, check what is still outstanding before replying as though the work were done.",
-    "- `send_to_delegate` is your side of the conversation: answer a worker's question promptly — it may be stuck until you do — steer one that is drifting off-brief, and nudge one that has gone quiet for longer than its task explains. Skip idle chatter: every message costs the worker a context detour, so message with a purpose or not at all.",
-    "- A worker's report closes its task — answer from it, and do not re-run the searches it already made. Send a follow-up with `send_to_delegate` only for something the report genuinely didn't cover; the worker still holds its context.",
+    "- `message_worker` is your side of the conversation: answer a worker's question promptly — it may be stuck until you do — steer one that is drifting off-brief, and nudge one that has gone quiet for longer than its task explains. Skip idle chatter: every message costs the worker a context detour, so message with a purpose or not at all.",
+    "- A worker's report closes its task — answer from it, and do not re-run the searches it already made. Send a follow-up with `message_worker` only for something the report genuinely didn't cover; the worker still holds its context.",
     "- Delegate legwork, not action: a worker runs unattended, so anything the user approves per call — writes, shell commands — stays here.",
   ].join("\n");
 }

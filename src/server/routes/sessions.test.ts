@@ -2843,7 +2843,7 @@ describe("sessions routes", () => {
       expect(childToolNames).toContain("read_memory");
       expect(childToolNames).toContain("message_parent");
       expect(childToolNames).not.toContain("delegate");
-      expect(childToolNames).not.toContain("send_to_delegate");
+      expect(childToolNames).not.toContain("message_worker");
       expect(childToolNames).not.toContain("create_article");
       expect(childToolNames).not.toContain("save_memory");
       expect(childToolNames).not.toContain("delete_memory");

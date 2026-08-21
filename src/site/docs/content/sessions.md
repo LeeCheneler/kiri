@@ -137,7 +137,7 @@ tightened or switched off:
 | `set_working_directory` | Always allow | Only moves a value confined to the sandbox. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
 | `delegate` | Always allow | Workers only hold tools already always-allowed. |
-| `send_to_delegate`, `message_parent` | Always allow | Only move text between the conversation's own sessions. |
+| `message_worker`, `message_parent` | Always allow | Only move text between the conversation's own sessions. |
 | `run_workflow`, `rerun_workflow` | Ask | Execute your workflows. |
 | Workflow write / edit | Ask | Put runnable YAML in your repo. |
 | Filesystem writes / deletes | Ask | Change your files. |

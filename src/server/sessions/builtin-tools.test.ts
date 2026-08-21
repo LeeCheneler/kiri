@@ -68,7 +68,7 @@ describe("BUILTIN_TOOLS", () => {
         parentSessionId: "session-1",
         childTurnDeps: () => ({ db, llmClients: stubClients }),
       }),
-      // Offered to child sessions where delegate/send_to_delegate are not;
+      // Offered to child sessions where delegate/message_worker are not;
       // the registry carries all three, so merge both sides here.
       ...messageParentTool({ db, childSessionId: "session-1" }),
     };

@@ -15,7 +15,7 @@ import {
   MAX_RUNNING_CHILDREN,
   MESSAGE_PARENT_MAX_LENGTH,
   MESSAGE_PARENT_TOOL_NAME,
-  SEND_TO_DELEGATE_TOOL_NAME,
+  MESSAGE_WORKER_TOOL_NAME,
   delegateTool,
   messageParentTool,
 } from "./delegate-tool.ts";
@@ -154,11 +154,11 @@ describe("delegate tool", () => {
     });
 
     // The spawn acknowledgement names the delegation and hands back the id
-    // send_to_delegate steers by; the worker's answers arrive as messages,
+    // message_worker steers by; the worker's answers arrive as messages,
     // not through this call.
     expect(result).toContain('Delegated "Pelican census"');
     expect(result).toContain(capture.childId ?? "");
-    expect(result).toContain(SEND_TO_DELEGATE_TOOL_NAME);
+    expect(result).toContain(MESSAGE_WORKER_TOOL_NAME);
     expect(result).not.toContain("On it.");
     const child = capture.childId ? getSession(db, capture.childId) : undefined;
     expect(child?.parentSessionId).toBe("parent");
@@ -423,7 +423,7 @@ describe("delegate tool", () => {
   });
 });
 
-describe("send_to_delegate tool", () => {
+describe("message_worker tool", () => {
   let dir: string;
   let db: KiriDb;
   let bus: EventBus;
@@ -457,7 +457,7 @@ describe("send_to_delegate tool", () => {
       bus,
       childTurnDeps: () => ({ db, llmClients: clientsFor(reportingModel("unused")) }),
     });
-    const sendTool = set[SEND_TO_DELEGATE_TOOL_NAME] as {
+    const sendTool = set[MESSAGE_WORKER_TOOL_NAME] as {
       execute: (
         input: { sessionId: string; message: string },
         options: { toolCallId: string; messages: [] },

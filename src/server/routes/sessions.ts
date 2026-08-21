@@ -511,7 +511,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // a worker reads it but leaves its upkeep to the conversation.
   const childWithheld = new Set([
     "delegate",
-    "send_to_delegate",
+    "message_worker",
     "create_article",
     "replace_article",
     "edit_article",
@@ -604,7 +604,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     const builtin: ToolSet = {
       ...builtinToolsFor(sessionId, writer),
       // A worker can't spawn workers: the delegation tools (delegate and
-      // send_to_delegate) are offered only to a session with no parent, and
+      // message_worker) are offered only to a session with no parent, and
       // message_parent only to one with a parent to message. Delegate
       // models, when configured, make the worker's model a required role
       // choice, read live so a kiri.yaml edit applies on the next turn.

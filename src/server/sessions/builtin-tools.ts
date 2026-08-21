@@ -25,11 +25,11 @@ export interface BuiltinTool {
  * (the workflow and filesystem write tools), or run model-authored commands
  * (`run_command`) ask first. `delegate` runs without prompting because its
  * worker holds only standing-allow tools — delegation never widens what runs
- * unprompted — and the delegation messaging tools (`send_to_delegate`,
+ * unprompted — and the delegation messaging tools (`message_worker`,
  * `message_parent`) only move text between the conversation's own sessions.
  * A tool whose capability isn't configured (the filesystem tools and
  * `run_command` with no declared sandbox) is withheld from the model
- * regardless of its permission, as are `delegate` and `send_to_delegate`
+ * regardless of its permission, as are `delegate` and `message_worker`
  * from a child session — a worker can't spawn or steer workers — and
  * `message_parent` from a session with no parent.
  */
@@ -226,7 +226,7 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
-    name: "send_to_delegate",
+    name: "message_worker",
     description: "Message a delegated worker: steer it, ask for progress, or answer its question.",
     defaultPermission: "allow",
   },

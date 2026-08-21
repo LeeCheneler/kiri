@@ -7,7 +7,6 @@ import { Markdown } from "../../design-system/content/markdown.tsx";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
-import { useSessionChildren } from "../../state/sessions.ts";
 import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
 import { ChildSession } from "./child-session.tsx";
 import { PreviewableFile } from "./file-thumb.tsx";
@@ -19,6 +18,7 @@ import {
   type ToolDecisionHandler,
   ToolInvocation,
   type ToolPageLinks,
+  WorkerName,
 } from "./tool-invocation.tsx";
 
 /** Resend an edited user message, re-running the conversation from that point. */
@@ -202,24 +202,6 @@ export function QueuedMessage({ text }: { text: string }) {
   );
 }
 
-// The sending worker's live title, resolved off the owning session's
-// children query — the same one the transcript's delegate boxes ride, so it
-// is already warm wherever a worker can speak. Mounted only for
-// child-sourced parts, so other transcripts never fire the lookup; a worker
-// since deleted (or untitled) simply contributes no name.
-function WorkerName({
-  sessionId,
-  workerSessionId,
-}: {
-  sessionId: string;
-  workerSessionId: string;
-}) {
-  const children = useSessionChildren(sessionId);
-  const title = children.data?.find((child) => child.id === workerSessionId)?.title;
-  if (!title) return null;
-  return <span className="shrink-0 text-ink">{title}</span>;
-}
-
 // A message from the conversation's other session — a worker's report or
 // question in its parent's transcript, or the parent's steer in a worker's.
 // Labelled with the sender and collapsed by default behind a one-line
@@ -351,6 +333,7 @@ function AssistantMessage({
             <ToolInvocation
               key={segment.parts[0].toolCallId}
               part={segment.parts[0]}
+              sessionId={sessionId}
               pageLinks={pageLinks}
               liveConsoles={liveConsoles}
             />
@@ -358,6 +341,7 @@ function AssistantMessage({
             <ToolChain
               key={segment.parts[0].toolCallId}
               parts={segment.parts}
+              sessionId={sessionId}
               pageLinks={pageLinks}
               liveConsoles={liveConsoles}
             />

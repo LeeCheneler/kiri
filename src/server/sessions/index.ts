@@ -22,7 +22,7 @@ export {
   MAX_RUNNING_CHILDREN,
   MESSAGE_PARENT_MAX_LENGTH,
   MESSAGE_PARENT_TOOL_NAME,
-  SEND_TO_DELEGATE_TOOL_NAME,
+  MESSAGE_WORKER_TOOL_NAME,
   type DelegateToolDeps,
   type MessageParentToolDeps,
   delegateTool,

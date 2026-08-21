@@ -16,7 +16,7 @@ import { type RunTurnDeps, runTurn } from "./turn.ts";
 export const DELEGATE_TOOL_NAME = "delegate";
 
 /** Name of the parent-side tool that messages a delegated worker. */
-export const SEND_TO_DELEGATE_TOOL_NAME = "send_to_delegate";
+export const MESSAGE_WORKER_TOOL_NAME = "message_worker";
 
 /** Name of the child-side tool that messages the delegating parent. */
 export const MESSAGE_PARENT_TOOL_NAME = "message_parent";
@@ -64,7 +64,7 @@ const ROLE_PROSE: Record<DelegateRole, string> = {
 // What the spawning call resolves with: the handle the parent steers by, and
 // the shape of everything that comes back.
 const spawnedResult = (title: string, childSessionId: string): string =>
-  `Delegated "${title}" to a worker session, id ${childSessionId}. It runs in the background — spawning it does not block this turn, and cancelling this turn does not stop it. Its progress, questions, and results arrive here as messages from the worker; a message that lands after you end your turn starts a new one for you. Steer it, nudge it, or answer its questions with ${SEND_TO_DELEGATE_TOOL_NAME} and that session id.`;
+  `Delegated "${title}" to a worker session, id ${childSessionId}. It runs in the background — spawning it does not block this turn, and cancelling this turn does not stop it. Its progress, questions, and results arrive here as messages from the worker; a message that lands after you end your turn starts a new one for you. Steer it, nudge it, or answer its questions with ${MESSAGE_WORKER_TOOL_NAME} and that session id.`;
 
 /**
  * The first-party `delegate` tool: hands a self-contained task to a child
@@ -80,7 +80,7 @@ const spawnedResult = (title: string, childSessionId: string): string =>
  * names, resolved at spawn — at a required effort level the call states.
  * Concurrent workers per session are capped at `MAX_RUNNING_CHILDREN`.
  *
- * Ships with `send_to_delegate`, the parent-side half of the conversation:
+ * Ships with `message_worker`, the parent-side half of the conversation:
  * steer a worker, ask for progress, or answer its question by session id.
  */
 export function delegateTool(deps: DelegateToolDeps): ToolSet {
@@ -159,7 +159,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     return spawnedResult(title, child.id);
   };
 
-  const sendToDelegate = tool({
+  const messageWorker = tool({
     description:
       "Message one of your delegated workers, by the session id `delegate` returned: steer it mid-task, ask what's taking so long, or answer a question it messaged you. The message weaves into the worker's turn if it is still running, or starts a new turn for it if it has finished — so you can also use this to send a settled worker a follow-up on the task it already holds. Keep it purposeful: answer questions promptly, nudge a worker that has gone quiet, and skip idle chatter — every message costs the worker a context detour.",
     inputSchema: z.object({
@@ -217,7 +217,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
         execute: ({ title, task, model, effort }, ctx) =>
           run(title, task, delegates?.[model], effort, ctx),
       }),
-      [SEND_TO_DELEGATE_TOOL_NAME]: sendToDelegate,
+      [MESSAGE_WORKER_TOOL_NAME]: messageWorker,
     };
   }
   return {
@@ -226,7 +226,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
       inputSchema: z.object({ title: titleField, task: taskField, effort: effortField }),
       execute: ({ title, task, effort }, ctx) => run(title, task, undefined, effort, ctx),
     }),
-    [SEND_TO_DELEGATE_TOOL_NAME]: sendToDelegate,
+    [MESSAGE_WORKER_TOOL_NAME]: messageWorker,
   };
 }
 
