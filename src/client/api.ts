@@ -1355,9 +1355,9 @@ export interface ProjectSummary {
 /**
  * A project in full: the container — including its standing instructions,
  * null when it has none — with its article, memory, and session indexes.
- * Sessions carry the same listing projection as the feed (with `projectName`
- * nulled — the page itself names the container), so both surfaces render
- * the same rows.
+ * Sessions carry the same listing projection as the feed, so both surfaces
+ * render the same rows; the page renders them scoped, hiding the redundant
+ * project link.
  */
 export interface ProjectDetail {
   project: { id: string; name: string; instructions: string | null; createdAt: string };

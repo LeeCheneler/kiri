@@ -27,15 +27,17 @@ export function SessionChildren({ id, now }: { id: string; now?: Date }) {
       <ul className="mt-1.5 space-y-4">
         {children.map((child) => (
           <li key={child.id} className="space-y-1">
+            {/* Details above the display face, like every listing row — and
+                the status is what this list is scanned for. */}
+            <Meta>
+              <Status status={SESSION_STATUS[child.status]} />
+              <span>{formatRelativeTime(child.lastActivityAt, now)}</span>
+            </Meta>
             <div className="text-sm">
               <HeadlineLink href={`/sessions/${child.id}`}>
                 {child.title ?? child.id.slice(0, 8)}
               </HeadlineLink>
             </div>
-            <Meta>
-              <Status status={SESSION_STATUS[child.status]} />
-              <span>{formatRelativeTime(child.lastActivityAt, now)}</span>
-            </Meta>
           </li>
         ))}
       </ul>

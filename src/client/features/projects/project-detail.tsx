@@ -22,6 +22,7 @@ import {
   useRenameProject,
   useSaveProjectInstructions,
 } from "../../state/projects.ts";
+import { ArticleRow } from "../activity-feed/article-row.tsx";
 import { NewSessionButton } from "../session-chat/new-session-button.tsx";
 import { SessionRow } from "../session-chat/session-row.tsx";
 import { ProjectTasks } from "./project-tasks.tsx";
@@ -238,7 +239,7 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
               <ul className="mt-3 space-y-6">
                 {data.sessions.map((session) => (
                   <li key={session.id}>
-                    <SessionRow session={session} now={now} />
+                    <SessionRow session={session} now={now} context="scoped" />
                   </li>
                 ))}
               </ul>
@@ -254,22 +255,22 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
                 </EmptyState>
               </div>
             ) : (
-              <div className="mt-1 divide-y divide-rule">
+              // The feed's article rows in scoped dress — accent edge, age
+              // above the heading — the producer is this very page.
+              <ul className="mt-3 space-y-6">
                 {data.articles.map((article) => (
-                  <div key={article.slug} className="py-3">
-                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                      <HeadlineLink
-                        href={`/projects/${encodeURIComponent(id)}/articles/${encodeURIComponent(article.slug)}`}
-                      >
-                        {article.heading ?? article.name}
-                      </HeadlineLink>
-                      <Meta>
-                        <span>created {formatRelativeTime(article.createdAt, now)}</span>
-                      </Meta>
-                    </div>
-                  </div>
+                  <li key={article.slug}>
+                    <ArticleRow
+                      article={{
+                        ...article,
+                        producer: { kind: "project", id, label: data.project.name },
+                      }}
+                      now={now}
+                      context="scoped"
+                    />
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
         </div>
@@ -318,15 +319,16 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
           <div className="-mt-2 divide-y divide-rule">
             {data.memories.map((memory) => (
               <div key={memory.name} className="py-3">
-                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                {/* Details above the display face, the listing pages' rhythm. */}
+                <Meta>
+                  <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
+                </Meta>
+                <div className="mt-1">
                   <HeadlineLink
                     href={`/projects/${encodeURIComponent(id)}/memories/${encodeURIComponent(memory.name)}`}
                   >
                     {memory.name}
                   </HeadlineLink>
-                  <Meta>
-                    <span>updated {formatRelativeTime(memory.updatedAt, now)}</span>
-                  </Meta>
                 </div>
                 <p className="mt-1 font-mono text-sm text-ink-muted">{memory.description}</p>
               </div>

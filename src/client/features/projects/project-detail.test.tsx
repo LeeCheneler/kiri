@@ -82,6 +82,10 @@ describe("<ProjectDetail>", () => {
     expect(link.getAttribute("href")).toBe("/projects/p1/articles/corpus-doc");
     // Falls back to the article name when the body has no heading.
     expect(screen.getByRole("link", { name: "Headless" })).toBeDefined();
+    // The feed's article rows in scoped dress: age above the heading, no
+    // kind marker or container link — the page establishes both.
+    expect(screen.getAllByText("2 hours ago").length).toBe(2);
+    expect(screen.queryByText("article")).toBeNull();
   });
 
   it("renders the memory index with links into the project's curation pages", async () => {
@@ -124,6 +128,10 @@ describe("<ProjectDetail>", () => {
     // a blocked delegated worker badges its row here just as on the feed.
     expect(screen.getByText("working")).toBeDefined();
     expect(screen.getByText("worker waiting").getAttribute("data-status")).toBe("waiting");
+    // Scoped rows: the SESSIONS heading already names the kind, and the page
+    // the container — neither repeats per row.
+    expect(screen.queryByText("session")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Research" })).toBeNull();
   });
 
   it("explains every index when the container is empty", async () => {

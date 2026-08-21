@@ -123,12 +123,9 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
       articles: listProjectArticles(db, id),
       memories: listProjectMemories(db, id),
       // The full listing projection, so the page renders the same rows as
-      // the feed. projectName is nulled deliberately: every row here lives
-      // in this project, and the page already names the container.
-      sessions: buildSessionListEntries(db, rows).map((entry) => ({
-        ...entry,
-        projectName: null,
-      })),
+      // the feed — in scoped dress, so the redundant project link is the
+      // display site's decision rather than a hole in the data.
+      sessions: buildSessionListEntries(db, rows),
     });
   });
 
