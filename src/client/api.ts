@@ -983,8 +983,11 @@ export const fetchSearch = async (q: string): Promise<SearchResults> => {
 /** A message queued in a session's inbox, awaiting delivery at a turn boundary. */
 export interface SessionInboxItem {
   id: string;
-  source: "user";
+  /** Who queued it: the user, the session's parent, or one of its delegated workers. */
+  source: "user" | "parent" | "child";
   text: string;
+  /** A child sender's session id, naming the worker by its live title; null for the other sources. */
+  fromSessionId: string | null;
   createdAt: string;
 }
 

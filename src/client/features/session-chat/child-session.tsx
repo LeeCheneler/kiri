@@ -1,5 +1,6 @@
 import { isToolUIPart } from "ai";
 import { useMemo } from "react";
+import { isInboxPart } from "../../../shared/inbox-part.ts";
 import type { Session, SessionDetail, SessionStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
@@ -8,6 +9,7 @@ import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { useSession, useSessionChildren } from "../../state/sessions.ts";
+import { InboxInterjection } from "./chat-message.tsx";
 import { ToolInvocation, type ToolPart, toolStatus } from "./tool-invocation.tsx";
 import { useSessionConversation } from "./use-session-conversation.ts";
 
@@ -43,10 +45,12 @@ function ChildSessionSummary({ title, status }: { title: string; status: StatusK
   );
 }
 
-// The worker's transcript: its assistant turns only — the task brief renders
+// The worker's transcript: its assistant turns — the task brief renders
 // above the transcript — with prose as markdown and inner tool calls as the
-// usual collapsible blocks. Untrusted content renders exactly as it would in
-// the child's own page.
+// usual collapsible blocks, plus the messages the delegation exchange weaves
+// in (the parent's steers, delivered mid-turn or opening a wake turn), so
+// the box reads as the conversation it is. Untrusted content renders exactly
+// as it would in the child's own page.
 function ChildTranscript({ detail }: { detail: SessionDetail }) {
   const initialMessages = useMemo(
     () => detail.messages.map((m) => ({ id: m.id, role: m.role, parts: m.parts })),
@@ -60,7 +64,11 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
     <div className="space-y-3">
       <div className="max-h-[17.5rem] space-y-3 overflow-y-auto">
         {messages
-          .filter((message) => message.role === "assistant")
+          .filter(
+            (message) =>
+              message.role === "assistant" ||
+              (message.parts.length > 0 && message.parts.every(isInboxPart)),
+          )
           .map((message) => (
             <div key={message.id} className="space-y-3">
               {message.parts.map((part, index) => {
@@ -74,6 +82,7 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
                   return (
                     <ToolInvocation key={part.toolCallId} part={part} liveConsoles={liveConsoles} />
                   );
+                if (isInboxPart(part)) return <InboxInterjection key={part.id} part={part} />;
                 return null;
               })}
             </div>

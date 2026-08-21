@@ -154,6 +154,46 @@ describe("<ChildSession>", () => {
     expect(screen.getAllByText("bun test").length).toBeGreaterThan(0);
   });
 
+  it("shows the parent's steers in the worker transcript as collapsed interjections", async () => {
+    withChildren([child("idle")]);
+    withChildDetail("idle", [
+      childMessage("m1", "user", [{ type: "text", text: "Research pelicans" }]),
+      childMessage("m2", "assistant", [
+        { type: "text", text: "Scanning sources." },
+        {
+          type: "data-inbox",
+          id: "i1",
+          data: { source: "parent", text: "Focus on coastal colonies.", queuedAt: 1 },
+        },
+        { type: "text", text: "Narrowed to coasts." },
+      ]),
+      // A steer that arrived while the worker was idle opens its wake turn
+      // as its own user-role row — still part of the exchange, so it shows.
+      childMessage("m3", "user", [
+        {
+          type: "data-inbox",
+          id: "i2",
+          data: { source: "parent", text: "One more colony to check.", queuedAt: 2 },
+        },
+      ]),
+      childMessage("m4", "assistant", [{ type: "text", text: "Checked it." }]),
+    ]);
+    renderBox(delegatePart({ state: "output-available", output: "spawned" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: /delegate/i }));
+
+    expect(await screen.findByText("Scanning sources.")).toBeDefined();
+    // Both steers render labelled and collapsed — the woven one and the row
+    // that opened the wake turn — never as the worker's own prose. Collapsed,
+    // the message shows once (the summary preview); expanding adds the body.
+    expect(screen.getAllByText("Parent")).toHaveLength(2);
+    expect(screen.getAllByText("Focus on coastal colonies.")).toHaveLength(1);
+    const [wovenToggle] = screen.getAllByRole("button", { expanded: false });
+    if (!wovenToggle) throw new Error("expected a collapsed interjection");
+    await userEvent.click(wovenToggle);
+    expect(screen.getAllByText("Focus on coastal colonies.")).toHaveLength(2);
+  });
+
   it("surfaces a transcript that fails to load", async () => {
     withChildren([child("idle")]);
     server.use(http.get("*/api/sessions/child-1", () => new HttpResponse(null, { status: 404 })));
