@@ -137,6 +137,7 @@ tightened or switched off:
 | `set_working_directory` | Always allow | Only moves a value confined to the sandbox. |
 | `generate_image` | Always allow | Picking an image model is the authorisation. |
 | `delegate` | Always allow | Workers only hold tools already always-allowed. |
+| `send_to_delegate`, `message_parent` | Always allow | Only move text between the conversation's own sessions. |
 | `run_workflow`, `rerun_workflow` | Ask | Execute your workflows. |
 | Workflow write / edit | Ask | Put runnable YAML in your repo. |
 | Filesystem writes / deletes | Ask | Change your files. |
@@ -228,10 +229,16 @@ asking.
 
 For a task that would take a pile of searching and reading — "compare these
 three libraries" — the assistant can hand the legwork to a **delegated
-worker**: a separate session that runs the task in its own context and
-reports back. Only the written report returns to your conversation, so your
-context window stays lean.
+worker**: a separate session that runs the task in the background, in its own
+context. The worker messages its progress, questions, and written result back
+into your conversation as it goes — each one a labelled note you can expand —
+so your context window stays lean and the conversation never sits blocked on
+the legwork.
 
+- The assistant and its workers talk both ways: it can steer a worker
+  mid-task, nudge a quiet one, or answer a question a worker sends back. A
+  worker's result arriving after the assistant has finished its reply starts
+  a new one, so fanned-out research assembles itself as the reports land.
 - A worker only holds tools set to **Always allow** — anything that would
   ask isn't offered to it, so delegation never runs what you haven't already
   allowed. A research worker coming back empty-handed usually means your
