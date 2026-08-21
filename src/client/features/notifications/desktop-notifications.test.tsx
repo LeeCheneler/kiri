@@ -30,7 +30,11 @@ const runPayload = (id: string, workflowName: string) => ({
   steps: [],
 });
 
-const sessionPayload = (id: string, overrides: Record<string, unknown> = {}) => ({
+const sessionPayload = (
+  id: string,
+  overrides: Record<string, unknown> = {},
+  parent: { id: string; label: string } | null = null,
+) => ({
   session: {
     id,
     status: "idle",
@@ -44,6 +48,8 @@ const sessionPayload = (id: string, overrides: Record<string, unknown> = {}) => 
     ...overrides,
   },
   messages: [],
+  inbox: [],
+  parent,
 });
 
 const renderNotifications = (opts: { path?: string; permission?: NotificationPermission } = {}) => {
@@ -169,14 +175,70 @@ describe("<DesktopNotifications>", () => {
     expect(spec.body).toBe("Session failed");
   });
 
-  it("stays silent for delegate child sessions", async () => {
+  it("stays silent when a worker settles — hops in the delegation exchange", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
-        HttpResponse.json(sessionPayload("s2", { parentSessionId: "s1" })),
+        HttpResponse.json(
+          sessionPayload("s2", { parentSessionId: "s1" }, { id: "s1", label: "Ship checklist" }),
+        ),
       ),
     );
     const { emit, shown } = renderNotifications();
     await emit({ type: "session.updated", id: "s2", status: "idle" });
+    await emit({ type: "session.finished", id: "s2", status: "failed" });
     expect(shown).toHaveLength(0);
+  });
+
+  it("notifies when a worker pauses on tool approval, opening the worker on click", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionPayload(
+            "s2",
+            { parentSessionId: "s1", title: "CVE scan" },
+            { id: "s1", label: "Ship checklist" },
+          ),
+        ),
+      ),
+    );
+    const { emit, shown, history } = renderNotifications();
+    await emit({ type: "session.updated", id: "s2", status: "waiting" });
+    expect(shown).toHaveLength(1);
+    const spec = shown[0] as DesktopNotificationSpec;
+    expect(spec.title).toBe("CVE scan");
+    expect(spec.body).toBe("Worker waiting for tool approval · Ship checklist");
+    expect(spec.tag).toBe("s2");
+    act(() => spec.onClick());
+    expect(history).toContain("/sessions/s2");
+  });
+
+  it("stays silent about a worker's pause while focused on its parent's page", async () => {
+    // The approval prompt renders inline in the parent's transcript, so
+    // watching the parent counts as watching the worker.
+    hasFocus.mockReturnValue(true);
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(
+          sessionPayload("s2", { parentSessionId: "s1" }, { id: "s1", label: "Ship checklist" }),
+        ),
+      ),
+    );
+    const { emit, shown } = renderNotifications({ path: "/sessions/s1" });
+    await emit({ type: "session.updated", id: "s2", status: "waiting" });
+    expect(shown).toHaveLength(0);
+  });
+
+  it("falls back to a generic worker title and plain body without a parent label", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionPayload("s2", { parentSessionId: "s1", title: null })),
+      ),
+    );
+    const { emit, shown } = renderNotifications();
+    await emit({ type: "session.updated", id: "s2", status: "waiting" });
+    expect(shown).toHaveLength(1);
+    const spec = shown[0] as DesktopNotificationSpec;
+    expect(spec.title).toBe("Worker");
+    expect(spec.body).toBe("Worker waiting for tool approval");
   });
 });
