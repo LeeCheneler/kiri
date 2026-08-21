@@ -5,7 +5,11 @@ import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import type { KiriDb } from "../db/index.ts";
 import { articles, projects, recommendations, runs, sessions } from "../db/schema.ts";
-import { getSessionLabels, getSessionPreviews } from "../sessions/index.ts";
+import {
+  getSessionLabels,
+  getSessionPreviews,
+  getSessionsWithWaitingChildren,
+} from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
 import { onZodFail } from "./shared.ts";
 
@@ -301,6 +305,11 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
         : [],
     );
 
+    // Sessions with a delegated child paused on tool approval, batched — the
+    // feed row badges the blocked worker so it is visible from the timeline
+    // without opening the chat.
+    const waitingChildren = getSessionsWithWaitingChildren(db, sessionIds);
+
     const entries = page.map((e) => {
       if (e.kind === "run") {
         const run = runEntryById.get(e.row.id);
@@ -315,6 +324,7 @@ export function activityRoutes(deps: ActivityRoutesDeps): Hono {
           articles: articlesBySessionId.get(e.row.id) ?? [],
           projectName:
             e.row.projectId !== null ? (projectNames.get(e.row.projectId) ?? null) : null,
+          hasWaitingChild: waitingChildren.has(e.row.id),
         },
       };
     });

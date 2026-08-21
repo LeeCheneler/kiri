@@ -53,6 +53,7 @@ import {
   getSessionLastActivity,
   getSessionMessages,
   getSessionPreviews,
+  getSessionsWithWaitingChildren,
   imageTools,
   judgeCommand,
   listMemories,
@@ -824,11 +825,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
               .map((project) => [project.id, project.name])
           : [],
       );
+      // Sessions with a delegated child paused on tool approval, batched —
+      // the row badges the blocked worker so it is visible from the listing
+      // without opening the chat.
+      const waitingChildren = getSessionsWithWaitingChildren(
+        db,
+        rows.map((row) => row.id),
+      );
       const sessions = rows.map((row) => ({
         ...row,
         preview: previews.get(row.id) ?? null,
         articles: articlesBySessionId.get(row.id) ?? [],
         projectName: row.projectId !== null ? (projectNames.get(row.projectId) ?? null) : null,
+        hasWaitingChild: waitingChildren.has(row.id),
       }));
       return c.json({ sessions, nextCursor });
     },

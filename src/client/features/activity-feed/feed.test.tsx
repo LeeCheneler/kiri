@@ -48,6 +48,7 @@ const baseSession: SessionListEntry = {
   error: null,
   preview: "Summarise the readme",
   articles: [],
+  hasWaitingChild: false,
 };
 
 const runEntry = (over: Partial<RunListEntry> = {}): ActivityEntry => ({

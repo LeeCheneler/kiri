@@ -51,6 +51,7 @@ describe("activity routes", () => {
             id: string;
             preview: string | null;
             articles: Array<{ name: string; heading: string | null }>;
+            hasWaitingChild: boolean;
           };
         }
     >;
@@ -67,6 +68,31 @@ describe("activity routes", () => {
   };
 
   describe("GET /api/activity", () => {
+    it("badges a feed session whose delegated child waits on approval", async () => {
+      insertSession("s1", 2000);
+      insertSession("s2", 1000);
+      env.db
+        .insert(sessions)
+        .values({
+          id: "c1",
+          status: "waiting",
+          model: "anthropic:claude",
+          startedAt: new Date(3000),
+          parentSessionId: "s1",
+          parentToolCallId: "call_1",
+        })
+        .run();
+
+      const { body } = await getActivity();
+
+      // The waiting child itself never enters the feed; its parent carries
+      // the badge instead.
+      expect(body.entries.map(idOf)).toEqual(["s1", "s2"]);
+      expect(
+        body.entries.map((e) => (e.kind === "session" ? e.session.hasWaitingChild : null)),
+      ).toEqual([true, false]);
+    });
+
     it("interleaves runs and sessions newest-first by start time", async () => {
       insertRun("r1", 100);
       insertSession("s1", 200);

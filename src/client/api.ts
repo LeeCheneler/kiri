@@ -817,6 +817,8 @@ export interface SessionListEntry extends Session {
   articles: ArticleSummary[];
   /** The owning project's display name, or null for a projectless session. */
   projectName: string | null;
+  /** True while a delegated child sits waiting on tool approval — a worker blocked on the user. */
+  hasWaitingChild: boolean;
 }
 
 /**

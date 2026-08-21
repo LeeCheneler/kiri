@@ -54,6 +54,9 @@ export function SessionRow({ session, now }: { session: SessionListEntry; now?: 
       <Meta>
         <span className="text-accent uppercase">session</span>
         <Status status={status} />
+        {/* A delegated child paused on tool approval — blocked on the user —
+            badged so it is visible from the listing without opening the chat. */}
+        {session.hasWaitingChild ? <Status status="waiting">worker waiting</Status> : null}
         {session.projectName !== null && session.projectId !== null ? (
           // Wrapped so Meta's middot attaches to the span rather than
           // joining the link's underline and hit area, as run rows do.

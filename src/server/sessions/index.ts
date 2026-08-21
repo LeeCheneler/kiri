@@ -76,6 +76,7 @@ export {
   getSessionLastActivity,
   getSessionMessages,
   getSessionPreviews,
+  getSessionsWithWaitingChildren,
   setSessionStatus,
   updateSessionCwd,
   updateSessionEffort,

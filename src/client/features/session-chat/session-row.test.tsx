@@ -24,6 +24,7 @@ const base: SessionListEntry = {
   error: null,
   preview: "Summarise the readme",
   articles: [],
+  hasWaitingChild: false,
 };
 
 const renderRow = (over: Partial<SessionListEntry> = {}) =>
@@ -44,6 +45,13 @@ describe("<SessionRow>", () => {
   it("leads the byline with the session kind marker", () => {
     renderRow();
     expect(screen.getByText("session")).toBeDefined();
+    // No delegated child is blocked, so no worker badge.
+    expect(screen.queryByText("worker waiting")).toBeNull();
+  });
+
+  it("badges the byline while a delegated child waits on approval", () => {
+    renderRow({ hasWaitingChild: true });
+    expect(screen.getByText("worker waiting").getAttribute("data-status")).toBe("waiting");
   });
 
   it("sets the first message as quoted speech", () => {

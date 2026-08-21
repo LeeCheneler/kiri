@@ -242,6 +242,23 @@ export function getSessionLastActivity(db: KiriDb, sessionIds: string[]): Map<st
   return activity;
 }
 
+/**
+ * Which of `sessionIds` have a delegated child paused waiting on tool
+ * approval — blocked on the user, so listings can badge the session. A single
+ * batched query; sessions with no waiting child are absent from the set.
+ */
+export function getSessionsWithWaitingChildren(db: KiriDb, sessionIds: string[]): Set<string> {
+  if (sessionIds.length === 0) return new Set();
+  return new Set(
+    db
+      .select({ parentSessionId: sessions.parentSessionId })
+      .from(sessions)
+      .where(and(inArray(sessions.parentSessionId, sessionIds), eq(sessions.status, "waiting")))
+      .all()
+      .flatMap((row) => row.parentSessionId ?? []),
+  );
+}
+
 /** Read a session's messages in order. */
 export function getSessionMessages(db: KiriDb, sessionId: string): Message[] {
   return db

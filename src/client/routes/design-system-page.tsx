@@ -1954,7 +1954,8 @@ export function DesignSystemContent() {
                 <Code>working</Code>, <Code>waiting</Code>) add a pulsing dot as a cue. It exposes
                 the state as <Code>data-status</Code> for containers to anchor on, and upper-cases
                 the word and stays mono — leaving size to the caller, so it drops cleanly into a
-                row's chrome.
+                row's chrome. Children stand a longer label in for the bare word — a session row
+                badging a blocked worker, say — keeping the state's tint, dot, and anchor.
               </p>
             </Prose>
             <div className="mt-5">
@@ -1963,6 +1964,7 @@ export function DesignSystemContent() {
                   {STATUSES.map((status) => (
                     <Status key={status} status={status} />
                   ))}
+                  <Status status="waiting">worker waiting</Status>
                 </div>
               </Card>
             </div>

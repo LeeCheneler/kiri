@@ -17,6 +17,7 @@ import {
   getSessionLastActivity,
   getSessionMessages,
   getSessionPreviews,
+  getSessionsWithWaitingChildren,
   setSessionStatus,
   updateMessage,
   updateSessionCwd,
@@ -290,6 +291,25 @@ describe("sessions store", () => {
     expect(activity.get("s1")).toEqual(new Date(3000));
     expect(activity.get("s2")).toEqual(new Date(2000));
     expect(activity.has("s3")).toBe(false);
+  });
+
+  it("finds the sessions with a delegated child paused waiting on approval", () => {
+    createSession(db, MODEL, { id: "s1" });
+    createSession(db, MODEL, { id: "c1", parentSessionId: "s1", parentToolCallId: "call_1" });
+    setSessionStatus(db, "c1", "waiting");
+    // An idle child never marks its parent.
+    createSession(db, MODEL, { id: "s2" });
+    createSession(db, MODEL, { id: "c2", parentSessionId: "s2", parentToolCallId: "call_2" });
+    // A session waiting on its own turn is not a waiting child.
+    createSession(db, MODEL, { id: "s3" });
+    setSessionStatus(db, "s3", "waiting");
+
+    expect(getSessionsWithWaitingChildren(db, []).size).toBe(0);
+
+    const waiting = getSessionsWithWaitingChildren(db, ["s1", "s2", "s3"]);
+    expect(waiting.has("s1")).toBe(true);
+    expect(waiting.has("s2")).toBe(false);
+    expect(waiting.has("s3")).toBe(false);
   });
 
   it("moves a session to a terminal status with error and finishedAt", () => {

@@ -475,6 +475,22 @@ describe("sessions routes", () => {
       expect(page2.nextCursor).toBeNull();
     });
 
+    it("badges sessions whose delegated child waits on approval", async () => {
+      createSession(env.db, MODEL, { id: "s1", startedAt: new Date(2000) });
+      createSession(env.db, MODEL, { id: "c1", parentSessionId: "s1", parentToolCallId: "call_1" });
+      setSessionStatus(env.db, "c1", "waiting");
+      createSession(env.db, MODEL, { id: "s2", startedAt: new Date(1000) });
+      const app = makeApp(fakeClients());
+
+      const page = (await (await app.request("/api/sessions")).json()) as {
+        sessions: { id: string; hasWaitingChild: boolean }[];
+      };
+      expect(page.sessions.map((s) => [s.id, s.hasWaitingChild])).toEqual([
+        ["s1", true],
+        ["s2", false],
+      ]);
+    });
+
     it("names each session's project on the row", async () => {
       env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
       createSession(env.db, MODEL, { id: "s1", startedAt: new Date(1000), projectId: "p1" });
