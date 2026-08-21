@@ -588,6 +588,27 @@ describe("sessions routes", () => {
       expect(body.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
     });
 
+    it("names a child's parent so its page can link back up", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "parent-000-0000", title: "Research push" });
+      createSession(env.db, MODEL, {
+        id: "child",
+        parentSessionId: "parent-000-0000",
+        parentToolCallId: "call_1",
+      });
+
+      const child = (await (await app.request("/api/sessions/child")).json()) as {
+        parent: { id: string; label: string } | null;
+      };
+      expect(child.parent).toEqual({ id: "parent-000-0000", label: "Research push" });
+
+      // A top-level session has nothing to link up to.
+      const parent = (await (await app.request("/api/sessions/parent-000-0000")).json()) as {
+        parent: unknown;
+      };
+      expect(parent.parent).toBeNull();
+    });
+
     it("404s an unknown session", async () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions/ghost");
@@ -628,6 +649,38 @@ describe("sessions routes", () => {
       expect(body.children.map((c) => [c.id, c.parentToolCallId])).toEqual([
         ["c1", "call_1"],
         ["c2", "call_2"],
+      ]);
+    });
+
+    it("stamps each child with its last activity, falling back to its start", async () => {
+      const app = makeApp(fakeClients());
+      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, {
+        id: "c1",
+        startedAt: new Date(1000),
+        parentSessionId: "s1",
+        parentToolCallId: "call_1",
+      });
+      appendMessage(
+        env.db,
+        "c1",
+        { role: "assistant", parts: [{ type: "text", text: "Done" }] },
+        { createdAt: new Date(5000) },
+      );
+      // A child yet to speak reads as last active when it started.
+      createSession(env.db, MODEL, {
+        id: "c2",
+        startedAt: new Date(2000),
+        parentSessionId: "s1",
+        parentToolCallId: "call_2",
+      });
+
+      const res = await app.request("/api/sessions/s1/children");
+
+      const body = (await res.json()) as { children: { id: string; lastActivityAt: string }[] };
+      expect(body.children.map((c) => [c.id, c.lastActivityAt])).toEqual([
+        ["c1", new Date(5000).toISOString()],
+        ["c2", new Date(2000).toISOString()],
       ]);
     });
 

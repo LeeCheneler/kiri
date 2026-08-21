@@ -50,6 +50,7 @@ import {
   getSession,
   getSessionChildren,
   getSessionLabels,
+  getSessionLastActivity,
   getSessionMessages,
   getSessionPreviews,
   imageTools,
@@ -914,6 +915,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const { id } = c.req.valid("param");
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      const parentId = session.parentSessionId;
       return c.json({
         session: withHealedCwd(session),
         messages: getSessionMessages(db, id),
@@ -921,6 +923,12 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         // visible across reloads and other views — the inbox table, not any
         // client's local state, is the queue's source of truth.
         inbox: pendingInboxItems(db, id),
+        // A delegated child names the session that spawned it so its page can
+        // link back up; a top-level session carries null.
+        parent:
+          parentId !== null
+            ? { id: parentId, label: getSessionLabels(db, [parentId]).get(parentId) ?? parentId }
+            : null,
       });
     },
   );
@@ -928,14 +936,26 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // The sessions a session's delegate calls have spawned. Children are hidden
   // from the list and feed, so this is how the transcript finds the child
   // behind a delegate tool call — matched client-side on parentToolCallId —
-  // including one still mid-run after a reload.
+  // including one still mid-run after a reload. Each child carries when it
+  // last moved — its newest message, else its start — so the aside can read
+  // recency at a glance without loading any child's transcript.
   app.get(
     "/sessions/:id/children",
     zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
     (c) => {
       const { id } = c.req.valid("param");
       if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
-      return c.json({ children: getSessionChildren(db, id) });
+      const children = getSessionChildren(db, id);
+      const lastActivity = getSessionLastActivity(
+        db,
+        children.map((child) => child.id),
+      );
+      return c.json({
+        children: children.map((child) => ({
+          ...child,
+          lastActivityAt: lastActivity.get(child.id) ?? child.startedAt,
+        })),
+      });
     },
   );
 

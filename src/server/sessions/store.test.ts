@@ -14,6 +14,7 @@ import {
   findChildByToolCall,
   getSession,
   getSessionLabels,
+  getSessionLastActivity,
   getSessionMessages,
   getSessionPreviews,
   setSessionStatus,
@@ -258,6 +259,37 @@ describe("sessions store", () => {
     // Never left unnamed: the short id stands in when there is nothing else.
     expect(labels.get("silent-0000-0000")).toBe("silent-0");
     expect(labels.has("gone")).toBe(false);
+  });
+
+  it("reports each session's last activity as its newest message's timestamp", () => {
+    createSession(db, MODEL, { id: "s1" });
+    appendMessage(
+      db,
+      "s1",
+      { role: "user", parts: [{ type: "text", text: "Hi" }] },
+      { createdAt: new Date(1000) },
+    );
+    appendMessage(
+      db,
+      "s1",
+      { role: "assistant", parts: [{ type: "text", text: "Hello" }] },
+      { createdAt: new Date(3000) },
+    );
+    createSession(db, MODEL, { id: "s2" });
+    appendMessage(
+      db,
+      "s2",
+      { role: "user", parts: [{ type: "text", text: "Later" }] },
+      { createdAt: new Date(2000) },
+    );
+    createSession(db, MODEL, { id: "s3" }); // no messages yet
+
+    expect(getSessionLastActivity(db, []).size).toBe(0);
+
+    const activity = getSessionLastActivity(db, ["s1", "s2", "s3"]);
+    expect(activity.get("s1")).toEqual(new Date(3000));
+    expect(activity.get("s2")).toEqual(new Date(2000));
+    expect(activity.has("s3")).toBe(false);
   });
 
   it("moves a session to a terminal status with error and finishedAt", () => {

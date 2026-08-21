@@ -73,6 +73,7 @@ export {
   getSession,
   getSessionChildren,
   getSessionLabels,
+  getSessionLastActivity,
   getSessionMessages,
   getSessionPreviews,
   setSessionStatus,

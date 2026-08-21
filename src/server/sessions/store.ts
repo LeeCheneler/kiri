@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { and, asc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import type { KiriDb } from "../db/index.ts";
 import { articles, messages, sessionInbox, sessions } from "../db/schema.ts";
 import type { SessionStatus } from "../events/index.ts";
@@ -219,6 +219,27 @@ export function getSessionLabels(db: KiriDb, sessionIds: string[]): Map<string, 
     labels.set(id, title ?? previews.get(id) ?? id.slice(0, 8));
   }
   return labels;
+}
+
+/**
+ * When each of `sessionIds` last moved: its newest message's timestamp. A
+ * single batched query ordered newest-first, so the first row per session
+ * wins. Sessions with no messages yet are absent from the map — callers fall
+ * back to `startedAt`.
+ */
+export function getSessionLastActivity(db: KiriDb, sessionIds: string[]): Map<string, Date> {
+  const activity = new Map<string, Date>();
+  if (sessionIds.length === 0) return activity;
+  const rows = db
+    .select({ sessionId: messages.sessionId, createdAt: messages.createdAt })
+    .from(messages)
+    .where(inArray(messages.sessionId, sessionIds))
+    .orderBy(desc(messages.createdAt))
+    .all();
+  for (const row of rows) {
+    if (!activity.has(row.sessionId)) activity.set(row.sessionId, row.createdAt);
+  }
+  return activity;
 }
 
 /** Read a session's messages in order. */
