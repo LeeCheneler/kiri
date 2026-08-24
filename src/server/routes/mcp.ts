@@ -115,8 +115,10 @@ export function mcpRoutes(deps: McpRoutesDeps): Hono {
     }));
     // Every built-in session tool rides alongside, so its standing permission
     // is reviewable and reversible from the same surface. A tool with no
-    // recorded decision reports its own declared default.
-    const builtin = BUILTIN_TOOLS.map((tool) => ({
+    // recorded decision reports its own declared default. Internal tools —
+    // plumbing between kiri's own sessions — aren't a permission the user
+    // manages, so the listing leaves them out.
+    const builtin = BUILTIN_TOOLS.filter((tool) => tool.internal !== true).map((tool) => ({
       name: tool.name,
       description: tool.description,
       permission: permissions.get(tool.name, tool.defaultPermission),

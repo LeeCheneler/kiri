@@ -142,6 +142,40 @@ describe("<McpTools>", () => {
     });
   });
 
+  it("groups the project tools under Projects rather than the trailing group", async () => {
+    server.use(
+      http.get("*/api/mcp/tools", () =>
+        HttpResponse.json({
+          servers: [],
+          builtin: [
+            { name: "list_tasks", description: "List the project's tasks.", permission: "allow" },
+            {
+              name: "update_project_instructions",
+              description: "Rewrite the project's instructions.",
+              permission: "allow",
+            },
+          ],
+        }),
+      ),
+    );
+    renderTools();
+
+    await userEvent.click(await screen.findByRole("button", { name: /built-in tools/i }));
+    const projects = (await screen.findByText("Projects")).closest("section");
+    expect(
+      within(projects as HTMLElement).getByRole("radiogroup", {
+        name: "Permission for list_tasks",
+      }),
+    ).toBeDefined();
+    expect(
+      within(projects as HTMLElement).getByRole("radiogroup", {
+        name: "Permission for update_project_instructions",
+      }),
+    ).toBeDefined();
+    // Every listed tool is claimed, so no trailing Other group renders.
+    expect(screen.queryByText("Other")).toBeNull();
+  });
+
   it("still renders a built-in tool that no group claims", async () => {
     server.use(
       http.get("*/api/mcp/tools", () =>

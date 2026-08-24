@@ -101,6 +101,21 @@ const BUILTIN_GROUPS: readonly { title: string; blurb: string; tools: readonly s
     tools: ["save_memory", "read_memory", "delete_memory"],
   },
   {
+    title: "Projects",
+    blurb:
+      "The session's project — its standing instructions and its task list, shared by every session in the project.",
+    tools: [
+      "update_project_instructions",
+      "list_tasks",
+      "add_task",
+      "update_task",
+      "delete_task",
+      "create_task_group",
+      "update_task_group",
+      "delete_task_group",
+    ],
+  },
+  {
     title: "Workflows",
     blurb: "List, read, author, and run the workspace's workflow YAML files.",
     tools: [
