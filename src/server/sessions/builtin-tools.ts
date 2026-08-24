@@ -10,6 +10,11 @@ export interface BuiltinTool {
   name: string;
   description: string;
   defaultPermission: ToolPermission;
+  /**
+   * Plumbing between kiri's own sessions rather than a capability the user
+   * grants: gated like every tool, but kept off the MCP page's listing.
+   */
+  internal?: boolean;
 }
 
 /**
@@ -27,7 +32,9 @@ export interface BuiltinTool {
  * worker's tools ride this same gating — an ask pauses the worker for the
  * user, so delegation never widens what runs unprompted — and the delegation
  * messaging tools (`message_worker`, `message_parent`) only move text
- * between the conversation's own sessions.
+ * between the conversation's own sessions. Those two are `internal`:
+ * inner plumbing of delegation rather than a capability the user grants,
+ * so the MCP page's listing leaves them out.
  * A tool whose capability isn't configured (the filesystem tools and
  * `run_command` with no declared sandbox) is withheld from the model
  * regardless of its permission, as are `delegate` and `message_worker`
@@ -230,11 +237,13 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     name: "message_worker",
     description: "Message a delegated worker: steer it, ask for progress, or answer its question.",
     defaultPermission: "allow",
+    internal: true,
   },
   {
     name: "message_parent",
     description:
       "Let a delegated worker message the session that delegated its task: progress, questions, and results.",
     defaultPermission: "allow",
+    internal: true,
   },
 ];

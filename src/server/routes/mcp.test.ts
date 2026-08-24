@@ -127,9 +127,11 @@ describe("mcp routes", () => {
           },
           { name: "down", type: "stdio", state: "failed", error: "boom", tools: [] },
         ],
-        // Every built-in tool is listed: unset tools report their declared
-        // default (allow for the kiri-data tools, ask for the workflow write
-        // tools), the recorded run_workflow decision wins over its ask default.
+        // Every built-in tool is listed bar the internal delegation
+        // messaging pair (message_worker, message_parent): unset tools report
+        // their declared default (allow for the kiri-data tools, ask for the
+        // workflow write tools), the recorded run_workflow decision wins over
+        // its ask default.
         builtin: [
           { name: "create_article", description: expect.any(String), permission: "allow" },
           { name: "replace_article", description: expect.any(String), permission: "allow" },
@@ -173,8 +175,6 @@ describe("mcp routes", () => {
           { name: "delete_directory", description: expect.any(String), permission: "ask" },
           { name: "run_command", description: expect.any(String), permission: "ask" },
           { name: "delegate", description: expect.any(String), permission: "allow" },
-          { name: "message_worker", description: expect.any(String), permission: "allow" },
-          { name: "message_parent", description: expect.any(String), permission: "allow" },
         ],
       });
     });
