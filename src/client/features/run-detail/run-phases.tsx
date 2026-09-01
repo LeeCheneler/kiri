@@ -1,23 +1,15 @@
 import type { ReactNode } from "react";
 import { resolveArticleName } from "../../../shared/article-name.ts";
-import type {
-  LlmConfigSummary,
-  RunArticleSnapshot,
-  RunDetailRun,
-  RunStepRow,
-  WorkflowStepSummary,
-} from "../../api.ts";
-import { Code, CodeBlock } from "../../design-system/content/code.tsx";
+import type { RunDetailRun, RunStepRow } from "../../api.ts";
+import { CodeBlock } from "../../design-system/content/code.tsx";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { InlineLink } from "../../design-system/content/inline-link.tsx";
+import { Log } from "../../design-system/content/log.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { formatDuration } from "../../formatters/format-time.ts";
 import { stepTitle } from "../workflow-details/entry-config.tsx";
 import { LiveDuration } from "./live-duration.tsx";
-
-/** A declared pipeline entry from the run's definition snapshot. */
-type PhaseEntry = WorkflowStepSummary | RunArticleSnapshot;
 
 type LlmUsageCounts = NonNullable<NonNullable<RunStepRow["traces"]>["usage"]>;
 
@@ -33,8 +25,6 @@ interface PhaseItem {
   handle?: string;
   /** Link through to the entry's published article, once one exists. */
   href?: string;
-  /** The declared definition entry — carries the `llm:` config for an llm row. */
-  entry: PhaseEntry;
   /** The persisted step row, once the runner has reached this entry. */
   row: RunStepRow | undefined;
 }
@@ -58,7 +48,6 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       title: stepTitle(step),
       status: row?.status ?? "pending",
       handle: step.id,
-      entry: step,
       row,
     };
   });
@@ -76,7 +65,6 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       status: row?.status ?? "pending",
       handle: entry.slug,
       href: publishedSlugs.has(entry.slug) ? `/runs/${run.id}/articles/${entry.slug}` : undefined,
-      entry,
       row,
     };
   });
@@ -89,7 +77,6 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
       ordinal: 1,
       title: stepTitle(snap.summarize),
       status: row?.status ?? "pending",
-      entry: snap.summarize,
       row,
     };
   }
@@ -101,10 +88,13 @@ const buildPhases = (run: RunDetailRun, steps: RunStepRow[]) => {
  * The run's execution as up-to-three labelled groups — Steps, Articles, and
  * Summarise — mirroring the order the runner walks them. Each group lists its
  * entries with status and duration (a live timer while running, the final span
- * once finished). An executed row expands to the command it ran and its
+ * once finished). An executed row expands to what the step produced: its
  * console — stdout and stderr merged in arrival order, growing live while the
- * step runs — plus any error. A published article's expanded row leads with
- * a link through to its article page. Empty groups (no articles, no
+ * step runs, held to its last few lines until opened — plus any named
+ * outputs, token counts, and error. A published
+ * article's expanded row leads with a link through to its article page. The
+ * step's own definition (script, model, prompt, env) is not repeated here;
+ * that lives on the workflow page's Schema tab. Empty groups (no articles, no
  * summariser) are omitted. `now` is injectable so tests pin the live timer;
  * production omits it.
  */
@@ -173,7 +163,7 @@ function PhaseRow({ item, now }: { item: PhaseItem; now?: Date }) {
   }
   return (
     <Disclosure summary={summary}>
-      <StepTrace row={item.row} entry={item.entry} href={item.href} />
+      <StepTrace row={item.row} href={item.href} />
     </Disclosure>
   );
 }
@@ -184,7 +174,7 @@ function StepDuration({ row, now }: { row: RunStepRow | undefined; now?: Date })
   return <>{formatDuration(row.startedAt, row.finishedAt)}</>;
 }
 
-function StepTrace({ row, entry, href }: { row: RunStepRow; entry: PhaseEntry; href?: string }) {
+function StepTrace({ row, href }: { row: RunStepRow; href?: string }) {
   const usage = row.traces?.usage;
   // Rows persisted before merged capture fall back to the split streams
   // joined — there is no interleaving to recover for them.
@@ -201,9 +191,8 @@ function StepTrace({ row, entry, href }: { row: RunStepRow; entry: PhaseEntry; h
           </p>
         </div>
       ) : null}
-      {"llm" in entry ? <LlmDetail llm={entry.llm} /> : <CommandDetail entry={entry} />}
-      {row.outputs ? <StepOutputs outputs={row.outputs} /> : null}
       <TracePart label="console" body={consoleBody} />
+      {row.outputs ? <StepOutputs outputs={row.outputs} /> : null}
       {usage ? <LlmUsage usage={usage} /> : null}
       {row.error ? (
         <div>
@@ -219,75 +208,6 @@ function StepTrace({ row, entry, href }: { row: RunStepRow; entry: PhaseEntry; h
         </div>
       ) : null}
     </div>
-  );
-}
-
-/** A script-backed entry — inline `sh:` or a `use:` bundle reference. */
-type ScriptEntry = Exclude<PhaseEntry, { llm: LlmConfigSummary }>;
-
-/**
- * The command an expanded script row ran: the full `sh:` snippet, or the
- * bundle script a `use:` entry resolves to. `llm:` rows render their model
- * and prompt through `LlmDetail` instead.
- */
-function CommandDetail({ entry }: { entry: ScriptEntry }): ReactNode {
-  if ("sh" in entry) {
-    return (
-      <div>
-        <Eyebrow tone="muted">command</Eyebrow>
-        <div className="mt-1.5">
-          <CodeBlock>{entry.sh}</CodeBlock>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div>
-      <Eyebrow tone="muted">command</Eyebrow>
-      <p className="mt-1.5 font-mono text-sm">
-        <Code>bundles/{entry.use}/run.sh</Code>
-      </p>
-    </div>
-  );
-}
-
-const PROMPT_EXCERPT_LIMIT = 200;
-
-const promptExcerpt = (prompt: string): string =>
-  prompt.length > PROMPT_EXCERPT_LIMIT ? `${prompt.slice(0, PROMPT_EXCERPT_LIMIT)}…` : prompt;
-
-/**
- * The llm-specific header of an expanded trace: the completion's model and
- * its prompt source — an inline `prompt` excerpt or the `prompt_file` path.
- * A historical zero-config summariser row carries neither and shows only
- * the model.
- */
-function LlmDetail({ llm }: { llm: LlmConfigSummary }) {
-  return (
-    <>
-      <div>
-        <Eyebrow tone="muted">model</Eyebrow>
-        <p className="mt-1.5 font-mono text-sm">
-          <Code>{llm.model}</Code>
-        </p>
-      </div>
-      {llm.prompt !== undefined ? (
-        <div>
-          <Eyebrow tone="muted">prompt</Eyebrow>
-          <div className="mt-1.5">
-            <CodeBlock>{promptExcerpt(llm.prompt)}</CodeBlock>
-          </div>
-        </div>
-      ) : null}
-      {llm.prompt_file !== undefined ? (
-        <div>
-          <Eyebrow tone="muted">prompt file</Eyebrow>
-          <p className="mt-1.5 font-mono text-sm">
-            <Code>{llm.prompt_file}</Code>
-          </p>
-        </div>
-      ) : null}
-    </>
   );
 }
 
@@ -345,13 +265,16 @@ function StepOutputs({ outputs }: { outputs: Record<string, string> }): ReactNod
   );
 }
 
+/** Lines of console shown before the reader opens the pane; the newest are kept in view. */
+const CONSOLE_LINES = 10;
+
 function TracePart({ label, body }: { label: string; body: string }): ReactNode {
   return (
     <div>
       <Eyebrow tone="muted">{label}</Eyebrow>
       <div className="mt-1.5">
         {body ? (
-          <CodeBlock>{body}</CodeBlock>
+          <Log lines={CONSOLE_LINES}>{body}</Log>
         ) : (
           <p className="font-mono text-xs text-ink-faint italic">(empty)</p>
         )}
