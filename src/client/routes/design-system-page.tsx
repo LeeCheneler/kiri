@@ -21,6 +21,7 @@ import { HeadlineLink } from "../design-system/content/headline-link.tsx";
 import { InlineLink } from "../design-system/content/inline-link.tsx";
 import { List } from "../design-system/content/list.tsx";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
+import { Log } from "../design-system/content/log.tsx";
 import { Markdown } from "../design-system/content/markdown.tsx";
 import { Meta } from "../design-system/content/meta.tsx";
 import { Prose } from "../design-system/content/prose.tsx";
@@ -857,6 +858,34 @@ export function DesignSystemContent() {
   );
 }`}</CodeBlock>
                 </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Log</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">Log</span> · design-system/content/log.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A code block for output that arrives over time — a step's console, a command's
+                stream. Pass <Code>lines</Code> for the budget (default 10): the pane holds to that
+                many lines and stays pinned to its newest output while text grows, scrolling
+                internally if the reader looks back. Output that overflows gets a <em>show more</em>{" "}
+                action beneath, opening the pane to its full height. Reach for Clamp for prose that
+                should show its <em>first</em> lines, and a plain CodeBlock for a snippet that isn't
+                going to grow.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <Log lines={4}>
+                  {Array.from(
+                    { length: 12 },
+                    (_, i) => `[${String(i + 1).padStart(2, "0")}] rendering page ${i + 1} of 12`,
+                  ).join("\n")}
+                </Log>
               </Card>
             </div>
           </article>

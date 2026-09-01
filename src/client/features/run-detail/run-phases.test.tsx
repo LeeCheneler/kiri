@@ -167,7 +167,7 @@ describe("<RunPhases>", () => {
     expect(screen.getByText(/old err/)).toBeDefined();
   });
 
-  it("shows the full sh: script as the command when expanded", async () => {
+  it("leaves a step's definition to the workflow page rather than repeating it", async () => {
     const user = userEvent.setup();
     const run = makeRun({
       name: "wf",
@@ -178,21 +178,9 @@ describe("<RunPhases>", () => {
     render(<RunPhases run={run} steps={steps} now={NOW} />);
     await user.click(screen.getByRole("button", { name: /warm the cache/i }));
 
-    expect(screen.getByText("command")).toBeDefined();
-    expect(screen.getByText(/echo hi/)).toBeDefined();
-    expect(screen.getByText(/echo bye/)).toBeDefined();
-  });
-
-  it("shows the bundle script path as the command for a use: step", async () => {
-    const user = userEvent.setup();
-    const run = makeRun({ name: "wf", steps: [{ use: "fetch-pr" }] });
-    const steps = [makeStep({ index: 0 })];
-
-    render(<RunPhases run={run} steps={steps} now={NOW} />);
-    await user.click(screen.getByRole("button", { name: /fetch-pr/i }));
-
-    expect(screen.getByText("command")).toBeDefined();
-    expect(screen.getByText("bundles/fetch-pr/run.sh")).toBeDefined();
+    expect(screen.getByText("console")).toBeDefined();
+    expect(screen.queryByText("command")).toBeNull();
+    expect(screen.queryByText(/echo bye/)).toBeNull();
   });
 
   it("reveals a step's emitted named outputs when expanded", async () => {
@@ -309,7 +297,7 @@ describe("<RunPhases>", () => {
     expect(screen.getByText("splat")).toBeDefined();
   });
 
-  it("expands an llm step to reveal its model, prompt, and token counts", async () => {
+  it("expands an llm step to reveal its token counts", async () => {
     const user = userEvent.setup();
     const run = makeRun({
       name: "wf",
@@ -336,14 +324,14 @@ describe("<RunPhases>", () => {
     render(<RunPhases run={run} steps={steps} now={NOW} />);
     await user.click(screen.getByRole("button", { name: /draft summary/i }));
 
-    expect(screen.getByText("anthropic:claude-haiku-4-5")).toBeDefined();
-    expect(screen.getByText("Summarise the run.")).toBeDefined();
     expect(screen.getByText("1200")).toBeDefined();
     expect(screen.getByText("340")).toBeDefined();
     expect(screen.getByText("1540")).toBeDefined();
+    // The model and prompt belong to the workflow page's Schema tab.
+    expect(screen.queryByText("Summarise the run.")).toBeNull();
   });
 
-  it("shows an llm step's prompt file and omits token counts when usage is absent", async () => {
+  it("omits token counts when the row carries no usage", async () => {
     const user = userEvent.setup();
     const run = makeRun({
       name: "wf",
@@ -358,8 +346,6 @@ describe("<RunPhases>", () => {
     render(<RunPhases run={run} steps={steps} now={NOW} />);
     await user.click(screen.getByRole("button", { name: /review/i }));
 
-    expect(screen.getByText("prompts/review.tpl")).toBeDefined();
-    // No usage on the row ⇒ no token-count section.
     expect(screen.queryByText("tokens")).toBeNull();
   });
 });
