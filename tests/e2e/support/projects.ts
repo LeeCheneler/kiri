@@ -21,15 +21,11 @@ export const createProject = async (page: Page, name: string): Promise<string> =
 };
 
 /**
- * Start a session inside the open project from the page's own new-session
- * action (the rail carries a projectless one under the same label), landing
- * on its chat page.
+ * Start a session inside the open project from the rail's new-session action
+ * — scoped to the project while its page is open — landing on its chat page.
  */
 export const startProjectSession = async (page: Page): Promise<void> => {
-  await page
-    .getByRole("main")
-    .getByRole("button", { name: /new session/i })
-    .click();
+  await page.getByRole("button", { name: /new session/i }).click();
   await expect(page).toHaveURL(/\/sessions\/[0-9a-f-]+$/);
 };
 

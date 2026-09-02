@@ -6,14 +6,13 @@ import { useStartSession } from "./use-start-session.ts";
 const SHORTCUT_LABEL = /mac/i.test(navigator.platform) ? "⌥⌘N" : "Ctrl+Alt+N";
 
 /**
- * One-click new-session action — the rail's button over `useStartSession`.
- * Disabled, with a hint, when no models are configured. Pass `projectId` to
- * create the session within that project — the project page's variant. Only
- * the rail variant advertises the keyboard shortcut: the shortcut starts a
- * project-less session, so on a project page it would promise the wrong thing.
+ * One-click new-session action — the rail's button over `useStartSession`,
+ * advertising the keyboard shortcut that does the same thing. The session
+ * lands in the project the current page is scoped to, if any. Disabled, with
+ * a hint, when no models are configured.
  */
-export function NewSessionButton({ projectId }: { projectId?: string } = {}) {
-  const { start, ready, starting } = useStartSession(projectId);
+export function NewSessionButton() {
+  const { start, ready, starting } = useStartSession();
 
   return (
     <Button
@@ -24,7 +23,7 @@ export function NewSessionButton({ projectId }: { projectId?: string } = {}) {
       onClick={() => void start()}
       title={ready ? undefined : "Configure an LLM provider to start a session"}
     >
-      New session{projectId === undefined ? ` (${SHORTCUT_LABEL})` : null}
+      + New session ({SHORTCUT_LABEL})
     </Button>
   );
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, delay } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { server } from "../../../../tests/setup/msw.ts";
@@ -23,17 +23,24 @@ const session = (id: string, model: string) => ({
   error: null,
 });
 
+const sessionDetail = (projectId: string | null) => ({
+  session: { ...session("s1", "openai:gpt"), projectId },
+  messages: [],
+  inbox: [],
+  parent: null,
+});
+
 const sessionsPage = (...entries: ReturnType<typeof session>[]) => ({
   sessions: entries.map((s) => ({ ...s, preview: null })),
   nextCursor: null,
 });
 
-const renderButton = (props: { projectId?: string } = {}) => {
-  const memory = memoryLocation({ path: "/", record: true });
+const renderButton = (path = "/") => {
+  const memory = memoryLocation({ path, record: true });
   render(
     <QueryClientProvider client={createQueryClient()}>
       <Router hook={memory.hook}>
-        <NewSessionButton {...props} />
+        <NewSessionButton />
       </Router>
     </QueryClientProvider>,
   );
@@ -54,6 +61,8 @@ describe("<NewSessionButton>", () => {
       http.get("*/api/sessions", () =>
         HttpResponse.json(sessionsPage(session("s1", "anthropic:claude"))),
       ),
+      // The navigate lands on the new session's page, whose scope reads it.
+      http.get("*/api/sessions/new-1", () => HttpResponse.json(sessionDetail(null))),
       http.post("*/api/sessions", async ({ request }) => {
         sentModel = ((await request.json()) as { model: string }).model;
         return HttpResponse.json({ session: session("new-1", sentModel) }, { status: 201 });
@@ -167,7 +176,7 @@ describe("<NewSessionButton>", () => {
     await waitFor(() => expect(sent).toEqual({ model: "a:small" }));
   });
 
-  it("creates the session inside the given project", async () => {
+  it("creates the session inside the project the page is scoped to", async () => {
     let sentBody: Record<string, unknown> | undefined;
     server.use(
       http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
@@ -178,12 +187,105 @@ describe("<NewSessionButton>", () => {
       }),
     );
     const user = userEvent.setup();
-    const { history } = renderButton({ projectId: "p1" });
+    const { history } = renderButton("/projects/p1/articles/notes");
 
     await user.click(await enabledButton());
 
     await waitFor(() => expect(history[history.length - 1]).toBe("/sessions/new-1"));
     expect(sentBody).toEqual({ model: "openai:gpt", projectId: "p1" });
+  });
+
+  it("creates the session inside the project the current session belongs to", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.get("*/api/sessions/s1", () => HttpResponse.json(sessionDetail("p1"))),
+      http.post("*/api/sessions", async ({ request }) => {
+        sentBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ session: session("new-1", "openai:gpt") }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderButton("/sessions/s1");
+
+    await user.click(await enabledButton());
+
+    await waitFor(() => expect(sentBody).toEqual({ model: "openai:gpt", projectId: "p1" }));
+  });
+
+  it("creates a project-less session from a project-less session", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.get("*/api/sessions/s1", () => HttpResponse.json(sessionDetail(null))),
+      http.post("*/api/sessions", async ({ request }) => {
+        sentBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ session: session("new-1", "openai:gpt") }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderButton("/sessions/s1/articles/notes");
+
+    await user.click(await enabledButton());
+
+    await waitFor(() => expect(sentBody).toEqual({ model: "openai:gpt" }));
+  });
+
+  it("stays disabled until the current session's project is known", async () => {
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.get("*/api/sessions/s1", async () => {
+        await delay(200);
+        return HttpResponse.json(sessionDetail("p1"));
+      }),
+    );
+    renderButton("/sessions/s1");
+
+    const button = await screen.findByRole("button", { name: /new session/i });
+    // Models have loaded by now; only the session's project is outstanding.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(button.hasAttribute("disabled")).toBe(true);
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+  });
+
+  it("falls back to project-less when the current session can't be read", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.get("*/api/sessions/gone", () => new HttpResponse(null, { status: 404 })),
+      http.post("*/api/sessions", async ({ request }) => {
+        sentBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ session: session("new-1", "openai:gpt") }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderButton("/sessions/gone");
+
+    await user.click(await enabledButton());
+
+    await waitFor(() => expect(sentBody).toEqual({ model: "openai:gpt" }));
+  });
+
+  it("creates a project-less session on the projects index", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+      http.post("*/api/sessions", async ({ request }) => {
+        sentBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ session: session("new-1", "openai:gpt") }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderButton("/projects");
+
+    await user.click(await enabledButton());
+
+    await waitFor(() => expect(sentBody).toEqual({ model: "openai:gpt" }));
   });
 
   it("re-enables and stays put when the create fails", async () => {
@@ -203,19 +305,15 @@ describe("<NewSessionButton>", () => {
     expect(history[history.length - 1]).toBe("/");
   });
 
-  it("advertises the keyboard shortcut on the rail variant only", async () => {
+  it("advertises the keyboard shortcut", async () => {
     server.use(
       http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
       http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
     );
     renderButton();
-    renderButton({ projectId: "p1" });
 
-    const [rail, project] = await screen.findAllByRole("button", { name: /new session/i });
-    // The project page's shortcut-less variant: its sessions land in the
-    // project, which the shortcut can't promise.
-    expect(rail?.textContent).toMatch(/New session \((⌥⌘N|Ctrl\+Alt\+N)\)$/);
-    expect(project?.textContent).toBe("New session");
+    const button = await screen.findByRole("button", { name: /new session/i });
+    expect(button.textContent).toMatch(/^\+ New session \((⌥⌘N|Ctrl\+Alt\+N)\)$/);
   });
 
   it("is disabled when no models are configured", async () => {

@@ -1,7 +1,7 @@
 import { type Page, expect } from "@playwright/test";
 
 /**
- * Start a fresh session from the rail's one-click "New session" action and
+ * Start a fresh session from the rail's one-click "+ New session" action and
  * land on its chat page. Returns the new session's id (parsed from the URL).
  */
 export const startSession = async (page: Page): Promise<string> => {
