@@ -25,8 +25,8 @@ const session = (id: string, model: string) => ({
 
 const emptySessionsPage = () => ({ sessions: [], nextCursor: null });
 
-const renderShortcut = () => {
-  const memory = memoryLocation({ path: "/", record: true });
+const renderShortcut = (path = "/") => {
+  const memory = memoryLocation({ path, record: true });
   render(
     <QueryClientProvider client={createQueryClient()}>
       <Router hook={memory.hook}>
@@ -38,20 +38,35 @@ const renderShortcut = () => {
   return { history: memory.history };
 };
 
-// A create handler that counts its calls and answers with a fresh session id.
+// A create handler that records each call's body and answers with a fresh
+// session id.
 const countingCreate = () => {
-  const calls: string[] = [];
+  const calls: Record<string, unknown>[] = [];
   server.use(
     http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
     http.get("*/api/sessions", () => HttpResponse.json(emptySessionsPage())),
+    // Each navigate lands on the new session's page, whose scope reads it.
+    http.get("*/api/sessions/:id", ({ params }) =>
+      HttpResponse.json({
+        session: { ...session(String(params.id), "openai:gpt"), projectId: null },
+        messages: [],
+        inbox: [],
+        parent: null,
+      }),
+    ),
     http.post("*/api/sessions", async ({ request }) => {
-      const { model } = (await request.json()) as { model: string };
-      calls.push(model);
-      return HttpResponse.json({ session: session(`new-${calls.length}`, model) }, { status: 201 });
+      const body = (await request.json()) as { model: string };
+      calls.push(body);
+      return HttpResponse.json(
+        { session: session(`new-${calls.length}`, body.model) },
+        { status: 201 },
+      );
     }),
   );
   return calls;
 };
+
+const projectless = { model: "openai:gpt" };
 
 // The shortcut arms only once the models have loaded — wait for that, or a
 // keypress lands before there's a listener and the test proves nothing.
@@ -71,11 +86,11 @@ describe("<NewSessionShortcut>", () => {
 
     await user.keyboard("{Meta>}n{/Meta}");
     await waitFor(() => expect(history[history.length - 1]).toBe("/sessions/new-1"));
-    expect(calls).toEqual(["openai:gpt"]);
+    expect(calls).toEqual([projectless]);
 
     await user.keyboard("{Control>}n{/Control}");
     await waitFor(() => expect(history[history.length - 1]).toBe("/sessions/new-2"));
-    expect(calls).toEqual(["openai:gpt", "openai:gpt"]);
+    expect(calls).toEqual([projectless, projectless]);
   });
 
   it("accepts the Option/Alt-modified form the browser lets through", async () => {
@@ -86,7 +101,18 @@ describe("<NewSessionShortcut>", () => {
 
     await user.keyboard("{Meta>}{Alt>}n{/Alt}{/Meta}");
     await waitFor(() => expect(history[history.length - 1]).toBe("/sessions/new-1"));
-    expect(calls).toEqual(["openai:gpt"]);
+    expect(calls).toEqual([projectless]);
+  });
+
+  it("creates the session inside the project the page is scoped to", async () => {
+    const calls = countingCreate();
+    const user = userEvent.setup();
+    const { history } = renderShortcut("/projects/p1");
+    await armed();
+
+    await user.keyboard("{Meta>}n{/Meta}");
+    await waitFor(() => expect(history[history.length - 1]).toBe("/sessions/new-1"));
+    expect(calls).toEqual([{ model: "openai:gpt", projectId: "p1" }]);
   });
 
   it("ignores the shifted form and the bare key", async () => {

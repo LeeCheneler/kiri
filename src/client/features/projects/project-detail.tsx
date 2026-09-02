@@ -23,7 +23,6 @@ import {
   useSaveProjectInstructions,
 } from "../../state/projects.ts";
 import { ArticleRow } from "../activity-feed/article-row.tsx";
-import { NewSessionButton } from "../session-chat/new-session-button.tsx";
 import { SessionRow } from "../session-chat/session-row.tsx";
 import { ProjectTasks } from "./project-tasks.tsx";
 
@@ -366,9 +365,6 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
           {error}
         </p>
       ) : null}
-      <div className="mt-4">
-        <NewSessionButton projectId={id} />
-      </div>
       <div className="mt-10">
         <Tabs tabs={tabs} label="Project details" />
       </div>

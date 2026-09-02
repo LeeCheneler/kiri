@@ -24,8 +24,9 @@ that page is your standing oversight — and can be set to Ask or Off like any
 
 A **project** is a named container for a body of work: a shared corpus of
 articles, a task list, and the sessions that build both. Create one from the
-Projects page and start sessions inside it — a session belongs to a project
-from creation or not at all.
+Projects page; while you're on the project's pages or in one of its
+sessions, **+ New session** (or ⌥⌘N) starts a session inside it — a session
+belongs to a project from creation or not at all.
 
 ### The shared corpus
 

@@ -49,10 +49,17 @@ export function useModels(): UseQueryResult<ModelsResult> {
 /**
  * Read a single session with its messages, fetching on first use and serving
  * the cache thereafter. Kept current by `useSessionsLive`, so the status and
- * token totals refresh as turns run without a manual refetch.
+ * token totals refresh as turns run without a manual refetch. Without an id
+ * the query stays disabled — idle, never fetching — for callers whose session
+ * is conditional on where the app is.
  */
-export function useSession(id: string): UseQueryResult<SessionDetail> {
-  return useQuery({ queryKey: sessionKey(id), queryFn: () => fetchSession(id) });
+export function useSession(id: string | undefined): UseQueryResult<SessionDetail> {
+  return useQuery({
+    queryKey: sessionKey(id ?? ""),
+    // Never runs against the fallback key: the query is disabled without an id.
+    queryFn: () => fetchSession(id ?? ""),
+    enabled: id !== undefined,
+  });
 }
 
 /**
