@@ -4,7 +4,7 @@ import { useStartSession } from "./use-start-session.ts";
 /**
  * Global keyboard shortcut for the new-session action: ⌘N / Ctrl+N starts a
  * session against the default model and opens its chat, from any page — the
- * same action as the rail's `+ New session` button, which it complements
+ * same action as the rail's `New session` button, which it complements
  * rather than replaces. Renders nothing; mount once at the app root.
  *
  * Browsers reserve plain ⌘N/Ctrl+N for "new window" and act on it before the

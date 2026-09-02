@@ -55,7 +55,7 @@ works too — see [Models & providers](/docs/llm-providers).
 
 ## Work it out in a session
 
-Click **+ New session** (or press ⌥⌘N) and ask for something you'd normally
+Click **New session** (or press ⌥⌘N) and ask for something you'd normally
 lose to a chat window — say, *"summarise what changed in this repo this week
 and what's still open."* Then ask the session to keep it:
 
