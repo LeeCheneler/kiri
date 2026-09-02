@@ -203,6 +203,21 @@ describe("<NewSessionButton>", () => {
     expect(history[history.length - 1]).toBe("/");
   });
 
+  it("advertises the keyboard shortcut on the rail variant only", async () => {
+    server.use(
+      http.get("*/api/models", () => HttpResponse.json(models("openai:gpt"))),
+      http.get("*/api/sessions", () => HttpResponse.json(sessionsPage())),
+    );
+    renderButton();
+    renderButton({ projectId: "p1" });
+
+    const [rail, project] = await screen.findAllByRole("button", { name: /new session/i });
+    // The project page's shortcut-less variant: its sessions land in the
+    // project, which the shortcut can't promise.
+    expect(rail?.textContent).toMatch(/New session \((⌥⌘N|Ctrl\+Alt\+N)\)$/);
+    expect(project?.textContent).toBe("New session");
+  });
+
   it("is disabled when no models are configured", async () => {
     server.use(
       http.get("*/api/models", () => HttpResponse.json(models())),

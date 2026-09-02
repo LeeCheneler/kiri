@@ -6,6 +6,7 @@ import { DesktopNotifications } from "./features/notifications/desktop-notificat
 import type { Notifier } from "./features/notifications/notifier.ts";
 import { ScrollReset } from "./features/page-shell/scroll-reset.tsx";
 import { SearchProvider } from "./features/search/search-provider.tsx";
+import { NewSessionShortcut } from "./features/session-chat/new-session-shortcut.tsx";
 import { ArticlePage } from "./routes/article-page.tsx";
 import { DesignSystemPage } from "./routes/design-system-page.tsx";
 import { HomePage } from "./routes/home-page.tsx";
@@ -32,7 +33,8 @@ import { createQueryClient } from "./state/query-client.ts";
  * invalidating cached queries as server events arrive. Each route renders
  * its own page shell (wordmark, nav, and right-rail marginalia), so the
  * root is just the providers and the route switch. `<SearchProvider>`
- * hosts the search overlay above the routes so ⌘K reaches it from any page.
+ * hosts the search overlay above the routes so ⌘K reaches it from any page,
+ * and `<NewSessionShortcut>` likewise gives ⌘N the rail's new-session action.
  *
  * `liveEventsFactory` and `notifier` are test seams — production callers
  * omit both and get the native `EventSource` and `Notification` APIs.
@@ -48,6 +50,7 @@ export function App({
         <LiveSync />
         <DesktopNotifications notifier={notifier} />
         <ScrollReset />
+        <NewSessionShortcut />
         <SearchProvider>
           <Switch>
             <Route path="/" component={HomePage} />
