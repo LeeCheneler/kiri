@@ -9,7 +9,7 @@ import {
   lazy,
   memo,
 } from "react";
-import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
+import ReactMarkdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -284,6 +284,14 @@ function TableNode({ node: _node, children }: HTMLAttributes<HTMLTableElement> &
   );
 }
 
+// Only `~~x~~` strikes through. GFM's single-tilde form would pair the `~`
+// models write for approximations ("~5,000 engineers … (~$80m") into a
+// struck-through run.
+const gfmPlugin: NonNullable<Options["remarkPlugins"]>[number] = [
+  remarkGfm,
+  { singleTilde: false },
+];
+
 const baseComponents: Components = {
   a: Anchor,
   h1: buildHeading(1, 1),
@@ -366,8 +374,8 @@ export const Markdown = memo(function Markdown({
         components={resolvedComponents}
         remarkPlugins={
           wikiLinkResolver
-            ? [remarkGfm, remarkMath, remarkWikiLinks(wikiLinkResolver)]
-            : [remarkGfm, remarkMath]
+            ? [gfmPlugin, remarkMath, remarkWikiLinks(wikiLinkResolver)]
+            : [gfmPlugin, remarkMath]
         }
         rehypePlugins={[rehypeKatex]}
       >
