@@ -55,4 +55,56 @@ describe("normaliseLatexFallbacks", () => {
   it("leaves a command inside inline code untouched", () => {
     expect(normaliseLatexFallbacks("`\\boxed{x}`")).toBe("`\\boxed{x}`");
   });
+
+  describe("currency dollars", () => {
+    it("escapes lone currency dollars so they never pair into maths", () => {
+      expect(normaliseLatexFallbacks("costs $400m, was $150 and up to $500 each")).toBe(
+        "costs \\$400m, was \\$150 and up to \\$500 each",
+      );
+    });
+
+    it("escapes a currency pair joined by punctuation", () => {
+      expect(normaliseLatexFallbacks("$5-$10 or ($80m)")).toBe("\\$5-\\$10 or (\\$80m)");
+    });
+
+    it("keeps inline maths, including maths starting with a digit", () => {
+      expect(normaliseLatexFallbacks("$x$ and $2\\pi r$ and $1 + 1 = 2$")).toBe(
+        "$x$ and $2\\pi r$ and $1 + 1 = 2$",
+      );
+    });
+
+    it("escapes currency that shares a paragraph with real maths", () => {
+      expect(normaliseLatexFallbacks("costs $400m; the formula $E=mc^2$")).toBe(
+        "costs \\$400m; the formula $E=mc^2$",
+      );
+    });
+
+    it("escapes a dollar followed by a space", () => {
+      expect(normaliseLatexFallbacks("$ 5 and 5 $")).toBe("\\$ 5 and 5 \\$");
+    });
+
+    it("does not pair across a blank line", () => {
+      expect(normaliseLatexFallbacks("$5\n\nx$")).toBe("\\$5\n\nx\\$");
+    });
+
+    it("leaves display maths and $$ untouched", () => {
+      expect(normaliseLatexFallbacks("$$\na+b\n$$ and $$x$$")).toBe("$$\na+b\n$$ and $$x$$");
+    });
+
+    it("does not pair a lone dollar with a $$", () => {
+      expect(normaliseLatexFallbacks("$5 then $$x$$")).toBe("\\$5 then $$x$$");
+    });
+
+    it("leaves an already-escaped dollar alone", () => {
+      expect(normaliseLatexFallbacks("\\$5 and \\\\ and $x$")).toBe("\\$5 and \\\\ and $x$");
+    });
+
+    it("leaves dollars inside code untouched", () => {
+      expect(normaliseLatexFallbacks("`$5` and ```\n$5\n```")).toBe("`$5` and ```\n$5\n```");
+    });
+
+    it("still renders \\(…\\) maths after the rewrite", () => {
+      expect(normaliseLatexFallbacks("pay $5 for \\(x\\)")).toBe("pay \\$5 for $x$");
+    });
+  });
 });

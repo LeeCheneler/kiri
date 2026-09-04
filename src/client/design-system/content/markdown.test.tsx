@@ -72,6 +72,14 @@ describe("<Markdown>", () => {
     expect(tex).toContain("\\frac{1}{2}");
   });
 
+  it("renders currency dollars as literal text, not maths", () => {
+    const { container } = renderMd(
+      <Markdown content={"costs $400m — reported spend was $150 and up to $500."} />,
+    );
+    expect(container.querySelector('annotation[encoding="application/x-tex"]')).toBeNull();
+    expect(container.textContent).toBe("costs $400m — reported spend was $150 and up to $500.");
+  });
+
   it("leaves \\(…\\) inside inline code as literal text, not maths", () => {
     const { container } = renderMd(<Markdown content={"Use `\\(x\\)` literally"} />);
     expect(container.querySelector("code")?.textContent).toBe("\\(x\\)");
