@@ -10,7 +10,7 @@ import { ThemeSwitcher } from "../theme/theme-switcher.tsx";
 import { VersionInfo } from "./version-info.tsx";
 
 // The rail's body — the primary nav and the new-session action up top, the
-// documentation nav, the round notification and theme controls, and the
+// secondary links, the round notification and theme controls, and the
 // version footer pinned to the foot — shared between the lg+ column and the
 // mobile drawer.
 function RailContent({ location }: { location: string }) {
@@ -42,7 +42,7 @@ function RailContent({ location }: { location: string }) {
         <div className="my-6">
           <Rule />
         </div>
-        <NavList heading="Documentation" items={docItems} />
+        <NavList items={docItems} />
         <div className="my-6">
           <Rule />
         </div>
@@ -59,7 +59,7 @@ function RailContent({ location }: { location: string }) {
 /**
  * Left-rail site navigation. At `lg` and up it is a full-height column: the
  * kiri wordmark sits at the top, the primary nav (Activity, Workflows) and the
- * new-session action below it, and the documentation nav and version footer
+ * new-session action below it, and the secondary links and version footer
  * pinned to the bottom. Below `lg` the column collapses to a slim top bar — the
  * wordmark and a menu button — and the same rail content moves into a
  * left-anchored drawer the button opens; selecting a link, Escape, or a
