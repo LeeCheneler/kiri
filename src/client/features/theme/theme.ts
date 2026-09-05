@@ -49,3 +49,13 @@ export const setTheme = (id: ThemeId): void => {
   localStorage.setItem(PREFERENCE_KEY, id);
   document.documentElement.dataset.theme = id;
 };
+
+/**
+ * Stamp the persisted theme on the document at boot. The inline scripts in
+ * the client and hosted-shell HTML do this before first paint, but the app
+ * owns the preference — so a host page without the script still boots into
+ * the chosen theme.
+ */
+export const applyStoredTheme = (): void => {
+  document.documentElement.dataset.theme = currentTheme();
+};
