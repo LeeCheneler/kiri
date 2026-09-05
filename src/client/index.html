@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/kiri.png" />
     <title>Kiri</title>
+    <!-- Apply the stored theme before first paint so the page never flashes
+         the default. Mirrors `currentTheme()` in features/theme/theme.ts. -->
+    <script>
+      try {
+        var theme = localStorage.getItem("kiri:theme");
+        if (theme) document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

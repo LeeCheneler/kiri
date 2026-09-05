@@ -26,8 +26,9 @@ const makeNotifier = (opts: {
   };
 };
 
-const onSegment = () => screen.getByRole("radio", { name: "On" }) as HTMLInputElement;
-const offSegment = () => screen.getByRole("radio", { name: "Off" }) as HTMLInputElement;
+const bell = () =>
+  screen.getByRole("button", { name: "Desktop notifications" }) as HTMLButtonElement;
+const pressed = () => bell().getAttribute("aria-pressed");
 
 afterEach(() => {
   setDesktopNotificationsEnabled(false);
@@ -36,45 +37,48 @@ afterEach(() => {
 describe("<NotificationsToggle>", () => {
   it("persists the preference once the browser grants permission", async () => {
     render(<NotificationsToggle notifier={makeNotifier({ result: "granted" })} />);
-    fireEvent.click(onSegment());
+    expect(pressed()).toBe("false");
+    expect(bell().title).toBe("Desktop notifications off");
+    fireEvent.click(bell());
     await flushAsync();
     expect(desktopNotificationsEnabled()).toBe(true);
-    expect(onSegment().checked).toBe(true);
+    expect(pressed()).toBe("true");
+    expect(bell().title).toBe("Desktop notifications on");
   });
 
-  it("stays off and disables the control when the prompt is denied", async () => {
+  it("stays off and disables the button when the prompt is denied", async () => {
     render(<NotificationsToggle notifier={makeNotifier({ result: "denied" })} />);
-    fireEvent.click(onSegment());
+    fireEvent.click(bell());
     await flushAsync();
     expect(desktopNotificationsEnabled()).toBe(false);
-    expect(offSegment().checked).toBe(true);
-    expect(onSegment().disabled).toBe(true);
-    expect(screen.getByText(/blocked in the browser/i)).toBeDefined();
+    expect(pressed()).toBe("false");
+    expect(bell().disabled).toBe(true);
+    expect(bell().title).toMatch(/blocked in the browser/i);
   });
 
   it("stays off but re-promptable when the prompt is dismissed", async () => {
     render(<NotificationsToggle notifier={makeNotifier({ result: "default" })} />);
-    fireEvent.click(onSegment());
+    fireEvent.click(bell());
     await flushAsync();
     expect(desktopNotificationsEnabled()).toBe(false);
-    expect(offSegment().checked).toBe(true);
-    expect(onSegment().disabled).toBe(false);
-    expect(screen.queryByText(/blocked in the browser/i)).toBeNull();
+    expect(pressed()).toBe("false");
+    expect(bell().disabled).toBe(false);
+    expect(bell().title).not.toMatch(/blocked in the browser/i);
   });
 
   it("clears the preference when switched off", async () => {
     setDesktopNotificationsEnabled(true);
     render(<NotificationsToggle notifier={makeNotifier({ initial: "granted" })} />);
-    expect(onSegment().checked).toBe(true);
-    fireEvent.click(offSegment());
+    expect(pressed()).toBe("true");
+    fireEvent.click(bell());
     await flushAsync();
     expect(desktopNotificationsEnabled()).toBe(false);
-    expect(offSegment().checked).toBe(true);
+    expect(pressed()).toBe("false");
   });
 
   it("renders disabled with a hint when the browser has notifications blocked", () => {
     render(<NotificationsToggle notifier={makeNotifier({ initial: "denied" })} />);
-    expect(onSegment().disabled).toBe(true);
-    expect(screen.getByText(/blocked in the browser/i)).toBeDefined();
+    expect(bell().disabled).toBe(true);
+    expect(bell().title).toMatch(/blocked in the browser/i);
   });
 });

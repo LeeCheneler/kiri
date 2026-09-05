@@ -36,7 +36,12 @@ export function PageShell({
       <div
         className={`grid grid-cols-1 gap-8 lg:gap-12 ${wide ? "lg:grid-cols-[200px_1fr]" : "lg:grid-cols-[200px_1fr_260px]"}`}
       >
-        <aside className="lg:sticky lg:top-8 lg:h-[calc(100dvh-4rem)] lg:self-start">{left}</aside>
+        {/* Sticky positioning makes the rail its own stacking context, so it is
+            raised above the centre column: a rail control's popup (the theme
+            picker) must paint over the content's own sticky chrome. */}
+        <aside className="lg:sticky lg:top-8 lg:z-20 lg:h-[calc(100dvh-4rem)] lg:self-start">
+          {left}
+        </aside>
         <main className={wide ? "min-w-0" : "min-w-0 lg:max-w-240"}>{children}</main>
         {right ? <aside className="lg:sticky lg:top-8 lg:self-start">{right}</aside> : null}
       </div>

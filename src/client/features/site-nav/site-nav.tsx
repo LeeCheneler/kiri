@@ -6,11 +6,13 @@ import { type NavItem, NavList } from "../../design-system/navigation/nav-list.t
 import { Drawer } from "../../design-system/surfaces/drawer.tsx";
 import { NotificationsToggle } from "../notifications/notifications-toggle.tsx";
 import { NewSessionButton } from "../session-chat/new-session-button.tsx";
+import { ThemeSwitcher } from "../theme/theme-switcher.tsx";
 import { VersionInfo } from "./version-info.tsx";
 
 // The rail's body — the primary nav and the new-session action up top, the
-// documentation nav and version footer pinned to the foot — shared between the
-// lg+ column and the mobile drawer.
+// documentation nav, the round notification and theme controls, and the
+// version footer pinned to the foot — shared between the lg+ column and the
+// mobile drawer.
 function RailContent({ location }: { location: string }) {
   const docItems: NavItem[] = [
     { label: "Managing kiri", href: "https://kiri.build/docs" },
@@ -41,8 +43,12 @@ function RailContent({ location }: { location: string }) {
           <Rule />
         </div>
         <NavList heading="Documentation" items={docItems} />
-        <div className="mt-6">
+        <div className="my-6">
+          <Rule />
+        </div>
+        <div className="flex items-center gap-3">
           <NotificationsToggle />
+          <ThemeSwitcher />
         </div>
         <VersionInfo />
       </div>

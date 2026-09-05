@@ -45,6 +45,262 @@
   --animate-text-shimmer: text-shimmer 2.5s linear infinite;
 }
 
+/* ---------------------------------------------------------------------------
+   Themes. Every colour utility resolves through the `@theme` variables above,
+   so a theme is just a block re-pointing those variables under a
+   `data-theme` attribute. The app stamps the chosen theme on <html> (see
+   `features/theme/theme.ts` and the inline script in index.html that applies
+   it before first paint); the theme picker stamps each swatch with its own
+   theme so it previews itself. `ledger` restates the defaults so a ledger
+   swatch inside another theme resets to them.
+
+   Each block sets the full token set — surfaces, ink, rule, accent, then the
+   run/session/notice vocabularies — so no theme leaks another's colours.
+   --------------------------------------------------------------------------- */
+
+/* Ledger — the default: warm near-black paper with a gilt accent. */
+[data-theme="ledger"] {
+  --color-canvas: #0e0f0d;
+  --color-canvas-2: #131310;
+  --color-paper: #1a1b19;
+  --color-paper-2: #21221f;
+  --color-ink: #e5dfd2;
+  --color-ink-muted: #8b8579;
+  --color-ink-faint: #736d60;
+  --color-rule: #2a2a26;
+  --color-accent: #d6b85a;
+  --color-accent-deep: #a58a3c;
+  --color-accent-warm: #c99858;
+  --color-status-running: #7aaedb;
+  --color-status-ok: #88a579;
+  --color-status-failed: #d1493e;
+  --color-status-interrupted: #c99858;
+  --color-status-cancelled: #8b8579;
+  --color-status-pending: #555048;
+  --color-status-working: #7aaedb;
+  --color-status-idle: #88a579;
+  --color-status-waiting: #c99858;
+  --color-notice-info: #7aaedb;
+  --color-notice-warning: #c99858;
+  --color-notice-negative: #d1493e;
+}
+
+/* Gazette — newsprint: bright white paper, near-black ink, a darker gilt. */
+[data-theme="gazette"] {
+  --color-canvas: #f7f5f0;
+  --color-canvas-2: #f1eee7;
+  --color-paper: #ffffff;
+  --color-paper-2: #f3f1ea;
+  --color-ink: #1c1b18;
+  --color-ink-muted: #6b665c;
+  --color-ink-faint: #9a948a;
+  --color-rule: #dcd8cf;
+  --color-accent: #9a7418;
+  --color-accent-deep: #6f5310;
+  --color-accent-warm: #b4692a;
+  --color-status-running: #2f6fa8;
+  --color-status-ok: #4a7a3d;
+  --color-status-failed: #b8362b;
+  --color-status-interrupted: #b4692a;
+  --color-status-cancelled: #6b665c;
+  --color-status-pending: #c4bfb5;
+  --color-status-working: #2f6fa8;
+  --color-status-idle: #4a7a3d;
+  --color-status-waiting: #b4692a;
+  --color-notice-info: #2f6fa8;
+  --color-notice-warning: #b4692a;
+  --color-notice-negative: #b8362b;
+}
+
+/* Parchment — aged cream stock, walnut ink, sienna accent. */
+[data-theme="parchment"] {
+  --color-canvas: #efe6d3;
+  --color-canvas-2: #e8dec9;
+  --color-paper: #f6efdf;
+  --color-paper-2: #ede4d0;
+  --color-ink: #3a2e1f;
+  --color-ink-muted: #7a6a52;
+  --color-ink-faint: #a0917a;
+  --color-rule: #d5c8ad;
+  --color-accent: #8b5a1e;
+  --color-accent-deep: #6a4315;
+  --color-accent-warm: #a8642c;
+  --color-status-running: #3d6b8f;
+  --color-status-ok: #5a7a3a;
+  --color-status-failed: #a6382b;
+  --color-status-interrupted: #a8642c;
+  --color-status-cancelled: #7a6a52;
+  --color-status-pending: #c9bda3;
+  --color-status-working: #3d6b8f;
+  --color-status-idle: #5a7a3a;
+  --color-status-waiting: #a8642c;
+  --color-notice-info: #3d6b8f;
+  --color-notice-warning: #a8642c;
+  --color-notice-negative: #a6382b;
+}
+
+/* Terminal — phosphor green on true black. */
+[data-theme="terminal"] {
+  --color-canvas: #050705;
+  --color-canvas-2: #080b08;
+  --color-paper: #0c110c;
+  --color-paper-2: #111811;
+  --color-ink: #c8e6c0;
+  --color-ink-muted: #6f9468;
+  --color-ink-faint: #4d6b48;
+  --color-rule: #1d2a1c;
+  --color-accent: #4ade80;
+  --color-accent-deep: #22a35a;
+  --color-accent-warm: #e0c060;
+  --color-status-running: #5ec8e6;
+  --color-status-ok: #4ade80;
+  --color-status-failed: #f0524a;
+  --color-status-interrupted: #e0c060;
+  --color-status-cancelled: #6f9468;
+  --color-status-pending: #2f4030;
+  --color-status-working: #5ec8e6;
+  --color-status-idle: #4ade80;
+  --color-status-waiting: #e0c060;
+  --color-notice-info: #5ec8e6;
+  --color-notice-warning: #e0c060;
+  --color-notice-negative: #f0524a;
+}
+
+/* Glacier — cool slate blues with an ice accent. */
+[data-theme="glacier"] {
+  --color-canvas: #1b1f27;
+  --color-canvas-2: #20252f;
+  --color-paper: #262c37;
+  --color-paper-2: #2d3440;
+  --color-ink: #dfe5ee;
+  --color-ink-muted: #8c98ab;
+  --color-ink-faint: #6b768a;
+  --color-rule: #353d4b;
+  --color-accent: #88c0d0;
+  --color-accent-deep: #5e96a8;
+  --color-accent-warm: #d8a86a;
+  --color-status-running: #81a1c1;
+  --color-status-ok: #a3be8c;
+  --color-status-failed: #bf616a;
+  --color-status-interrupted: #d08770;
+  --color-status-cancelled: #8c98ab;
+  --color-status-pending: #4c5566;
+  --color-status-working: #81a1c1;
+  --color-status-idle: #a3be8c;
+  --color-status-waiting: #d08770;
+  --color-notice-info: #81a1c1;
+  --color-notice-warning: #d08770;
+  --color-notice-negative: #bf616a;
+}
+
+/* Damask — deep plum with a rose accent. */
+[data-theme="damask"] {
+  --color-canvas: #1c1420;
+  --color-canvas-2: #211826;
+  --color-paper: #291f2f;
+  --color-paper-2: #322639;
+  --color-ink: #eadfe6;
+  --color-ink-muted: #a08ea0;
+  --color-ink-faint: #7d6d7f;
+  --color-rule: #3d2f43;
+  --color-accent: #e58fa8;
+  --color-accent-deep: #b96680;
+  --color-accent-warm: #e2b07a;
+  --color-status-running: #8fb3e5;
+  --color-status-ok: #9ec98f;
+  --color-status-failed: #e5605c;
+  --color-status-interrupted: #e2b07a;
+  --color-status-cancelled: #a08ea0;
+  --color-status-pending: #4f4056;
+  --color-status-working: #8fb3e5;
+  --color-status-idle: #9ec98f;
+  --color-status-waiting: #e2b07a;
+  --color-notice-info: #8fb3e5;
+  --color-notice-warning: #e2b07a;
+  --color-notice-negative: #e5605c;
+}
+
+/* Oxide — charcoal with a copper accent and a verdigris running hue. */
+[data-theme="oxide"] {
+  --color-canvas: #121110;
+  --color-canvas-2: #171514;
+  --color-paper: #1e1b19;
+  --color-paper-2: #262220;
+  --color-ink: #e3d9cf;
+  --color-ink-muted: #948a80;
+  --color-ink-faint: #6f665d;
+  --color-rule: #2f2a26;
+  --color-accent: #d2764a;
+  --color-accent-deep: #a3552f;
+  --color-accent-warm: #d9a441;
+  --color-status-running: #5fb3b0;
+  --color-status-ok: #8fb07a;
+  --color-status-failed: #d64b3b;
+  --color-status-interrupted: #d9a441;
+  --color-status-cancelled: #948a80;
+  --color-status-pending: #4a423d;
+  --color-status-working: #5fb3b0;
+  --color-status-idle: #8fb07a;
+  --color-status-waiting: #d9a441;
+  --color-notice-info: #5fb3b0;
+  --color-notice-warning: #d9a441;
+  --color-notice-negative: #d64b3b;
+}
+
+/* Indigo — deep navy with a lilac accent. */
+[data-theme="indigo"] {
+  --color-canvas: #0f1020;
+  --color-canvas-2: #131529;
+  --color-paper: #1a1c33;
+  --color-paper-2: #22243f;
+  --color-ink: #e4e2f4;
+  --color-ink-muted: #9491b4;
+  --color-ink-faint: #6f6c90;
+  --color-rule: #2c2e4a;
+  --color-accent: #b7a6ff;
+  --color-accent-deep: #8a76d6;
+  --color-accent-warm: #e2b070;
+  --color-status-running: #7fb4e8;
+  --color-status-ok: #8fcf9f;
+  --color-status-failed: #e8635d;
+  --color-status-interrupted: #e2b070;
+  --color-status-cancelled: #9491b4;
+  --color-status-pending: #3c3e5c;
+  --color-status-working: #7fb4e8;
+  --color-status-idle: #8fcf9f;
+  --color-status-waiting: #e2b070;
+  --color-notice-info: #7fb4e8;
+  --color-notice-warning: #e2b070;
+  --color-notice-negative: #e8635d;
+}
+
+/* Graphite — neutral greys, the accent is plain white. */
+[data-theme="graphite"] {
+  --color-canvas: #101010;
+  --color-canvas-2: #151515;
+  --color-paper: #1b1b1b;
+  --color-paper-2: #232323;
+  --color-ink: #e8e8e8;
+  --color-ink-muted: #8f8f8f;
+  --color-ink-faint: #6a6a6a;
+  --color-rule: #2c2c2c;
+  --color-accent: #f4f4f4;
+  --color-accent-deep: #bdbdbd;
+  --color-accent-warm: #c9a86a;
+  --color-status-running: #86b4dc;
+  --color-status-ok: #93b58a;
+  --color-status-failed: #d65a50;
+  --color-status-interrupted: #c9a86a;
+  --color-status-cancelled: #8f8f8f;
+  --color-status-pending: #474747;
+  --color-status-working: #86b4dc;
+  --color-status-idle: #93b58a;
+  --color-status-waiting: #c9a86a;
+  --color-notice-info: #86b4dc;
+  --color-notice-warning: #c9a86a;
+  --color-notice-negative: #d65a50;
+}
+
 @layer base {
   html {
     background: var(--color-canvas);
