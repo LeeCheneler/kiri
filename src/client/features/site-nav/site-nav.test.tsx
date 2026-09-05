@@ -32,6 +32,7 @@ describe("<SiteNav>", () => {
     expect(screen.getByRole("link", { name: /github/i })).toBeDefined();
     // The version footer (MSW default "dev") confirms the rail mounted in full.
     expect(await screen.findByText("dev")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Theme" })).toBeDefined();
     await flushAsync();
   });
 

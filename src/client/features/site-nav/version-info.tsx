@@ -34,8 +34,8 @@ const parseVersion = (raw: string): number[] | null => {
 };
 
 /**
- * Left-rail footer: the running kiri version with an inline nudge when a
- * newer GitHub release exists. Both reads fail closed — if `/api/version`
+ * Left-rail footer, sitting under the rail's round controls: the running
+ * kiri version with an inline nudge when a newer GitHub release exists. Both reads fail closed — if `/api/version`
  * errors the footer renders nothing; if the GitHub lookup errors the
  * version still shows without a nudge — so a rate-limit blip never pushes
  * noise into the chrome. The nudge is suppressed on "dev" builds and on
@@ -52,7 +52,7 @@ export function VersionInfo() {
   const hasUpdate = latest !== undefined && compareVersions(current, latest.tagName) === -1;
 
   return (
-    <div className="mt-6 border-t border-rule pt-6 text-xs text-ink-muted">
+    <div className="mt-6 text-xs text-ink-muted">
       <div className="font-mono">{current}</div>
       {hasUpdate && latest && (
         <div className="mt-1">
