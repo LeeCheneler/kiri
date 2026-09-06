@@ -271,3 +271,20 @@ describe("configuredDelegateRoles", () => {
     expect(configuredDelegateRoles(undefined)).toEqual([]);
   });
 });
+
+describe("Codex provider configuration", () => {
+  it("accepts subscription auth without key or URL", () => {
+    expect(
+      kiriConfigSchema.parse({ providers: { chatgpt: { type: "openai-codex" } } }).providers
+        ?.chatgpt,
+    ).toEqual({ type: "openai-codex" });
+  });
+  it.each([{ api_key: { env: "OPENAI_API_KEY" } }, { base_url: "https://api.openai.com/v1" }])(
+    "rejects API configuration on a subscription provider",
+    (extra) => {
+      expect(() =>
+        kiriConfigSchema.parse({ providers: { chatgpt: { type: "openai-codex", ...extra } } }),
+      ).toThrow();
+    },
+  );
+});

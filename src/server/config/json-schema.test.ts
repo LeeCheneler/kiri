@@ -37,7 +37,7 @@ describe("kiriConfigJsonSchema", () => {
 
   it("models the provider entry as a union discriminated on type", () => {
     const consts = entryBranches().map((b) => b.properties.type?.const);
-    expect(consts).toEqual(["anthropic", "openai", "openai-compatible"]);
+    expect(consts).toEqual(["anthropic", "openai", "openai-compatible", "openai-codex"]);
   });
 
   it("requires type on every branch and base_url only on openai-compatible", () => {
@@ -47,11 +47,19 @@ describe("kiriConfigJsonSchema", () => {
   });
 
   it("constrains api_key to the { env } object form on every branch", () => {
-    for (const branch of entryBranches()) {
+    for (const branch of entryBranches().filter(
+      (branch) => branch.properties.type?.const !== "openai-codex",
+    )) {
       expect(branch.properties.api_key?.type).toBe("object");
       expect(branch.properties.api_key?.required).toEqual(["env"]);
       expect(branch.properties.api_key?.additionalProperties).toBe(false);
     }
+  });
+
+  it("allows only type on the Codex branch", () => {
+    const branch = branchFor("openai-codex");
+    expect(branch?.required).toEqual(["type"]);
+    expect(Object.keys(branch?.properties ?? {})).toEqual(["type"]);
   });
 
   it("rejects unknown keys on every branch", () => {

@@ -91,11 +91,24 @@ export function effortProviderOptions(
   provider: LlmProvider,
   modelId: string,
   effort: Effort,
+  reasoningLevels?: string[],
 ): EffortProviderOptions | undefined {
   switch (provider.type) {
     case "anthropic": {
       const clamped = clampClaudeEffort(modelId, effort);
       return clamped === undefined ? undefined : { anthropic: { effort: clamped } };
+    }
+    case "openai-codex": {
+      const target = OPENAI_REASONING_EFFORT[effort];
+      const levels = ["none", "minimal", "low", "medium", "high", "xhigh"];
+      const supported = levels.filter((level) => reasoningLevels?.includes(level));
+      const clamped =
+        supported.filter((level) => levels.indexOf(level) <= levels.indexOf(target)).at(-1) ??
+        supported[0];
+      // The catalogue can contain reasoning models newer than the SDK's ID heuristics.
+      return clamped === undefined
+        ? undefined
+        : { openai: { reasoningEffort: clamped, forceReasoning: true } };
     }
     case "openai":
       return { openai: { reasoningEffort: OPENAI_REASONING_EFFORT[effort] } };

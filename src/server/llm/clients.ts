@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { type ImageModel, type LanguageModel, type TranscriptionModel, generateText } from "ai";
+import { createCodexModel, generateCodexText } from "./codex-model.ts";
 import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
 import { type LlmModelsResult, listLlmModels } from "./models.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
@@ -39,7 +40,7 @@ export interface LlmUsage {
   totalTokens?: number;
 }
 
-/** The text and token usage from a single non-streaming completion. */
+/** The text and token usage from a single completion. */
 export interface GenerateLlmTextResult {
   text: string;
   usage: LlmUsage;
@@ -56,17 +57,17 @@ export interface LlmClients {
   /**
    * Build an image-generation model for a `provider:model` id. The same id
    * and registry contract as `resolveModel`; additionally throws for an
-   * `anthropic` provider, which offers no image generation.
+   * `anthropic` or `openai-codex` provider, which offers no image generation.
    */
   resolveImageModel(id: string): LlmImageModel;
   /**
    * Build a speech-to-text model for a `provider:model` id. The same id and
    * registry contract as `resolveModel`; additionally throws for an
-   * `anthropic` provider, which offers no transcription.
+   * `anthropic` or `openai-codex` provider, which offers no transcription.
    */
   resolveTranscriptionModel(id: string): LlmTranscriptionModel;
   /**
-   * Resolve a `provider:model` id and run a single non-streaming completion
+   * Resolve a `provider:model` id and run a single completion
    * against it. Resolution errors and provider/API errors both surface as a
    * rejection. The one operation the runner needs, on the one object it is
    * handed — so a test fake can stand in without touching the AI SDK.
@@ -143,9 +144,10 @@ export function createLlmClients(
     },
     async reasoningOptionsFor(id, effort) {
       const { models } = await cachedListing();
-      if (models.find((model) => model.id === id)?.reasoning !== true) return undefined;
+      const model = models.find((model) => model.id === id);
+      if (model?.reasoning !== true) return undefined;
       const { provider, modelId } = resolveProvider(registry, id);
-      return effortProviderOptions(provider, modelId, effort);
+      return effortProviderOptions(provider, modelId, effort, model.reasoningLevels);
     },
     resolveModel(id) {
       const { provider, modelId } = resolveProvider(registry, id);
@@ -196,6 +198,8 @@ function buildModel(
 ): LlmModel {
   const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
   switch (provider.type) {
+    case "openai-codex":
+      return createCodexModel(modelId, provider.name, env);
     case "anthropic":
       return createAnthropic({ apiKey, baseURL: provider.baseUrl })(modelId);
     case "openai":
@@ -227,7 +231,10 @@ function buildImageModel(
   const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
   switch (provider.type) {
     case "anthropic":
-      throw new Error(`provider "${provider.name}" is anthropic, which offers no image generation`);
+    case "openai-codex":
+      throw new Error(
+        `provider "${provider.name}" is ${provider.type}, which offers no image generation`,
+      );
     case "openai":
       return createOpenAI({ apiKey, baseURL: provider.baseUrl }).imageModel(modelId);
     case "openai-compatible":
@@ -250,7 +257,10 @@ function buildTranscriptionModel(
   const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
   switch (provider.type) {
     case "anthropic":
-      throw new Error(`provider "${provider.name}" is anthropic, which offers no transcription`);
+    case "openai-codex":
+      throw new Error(
+        `provider "${provider.name}" is ${provider.type}, which offers no transcription`,
+      );
     case "openai":
       return createOpenAI({ apiKey, baseURL: provider.baseUrl }).transcription(modelId);
     case "openai-compatible":
@@ -268,7 +278,7 @@ function buildTranscriptionModel(
 }
 
 /**
- * Run a single non-streaming completion against a resolved model, returning the
+ * Run a single completion against a resolved model, returning the
  * generated text and token usage. Provider and API errors bubble unchanged.
  */
 export async function generateLlmText(options: {
@@ -276,7 +286,11 @@ export async function generateLlmText(options: {
   prompt: string;
   abortSignal?: AbortSignal;
 }): Promise<GenerateLlmTextResult> {
-  const { text, usage } = await generateText({
+  const generate =
+    typeof options.model !== "string" && options.model.provider === "openai-codex"
+      ? generateCodexText
+      : generateText;
+  const { text, usage } = await generate({
     model: options.model,
     prompt: options.prompt,
     abortSignal: options.abortSignal,

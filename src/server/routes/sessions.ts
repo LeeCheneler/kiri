@@ -632,7 +632,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   app.get("/models", async (c) => {
     const { models, failures } = await llmClients.listModels();
     return c.json({
-      models: models.map(({ reasoning: _reasoning, ...model }) => model),
+      models: models.map(
+        ({ reasoning: _reasoning, reasoningLevels: _reasoningLevels, ...model }) => model,
+      ),
       failures,
       shortcuts: deps.getModelsConfig?.().shortcuts ?? {},
       utility: deps.getModelsConfig?.().utility,

@@ -33,6 +33,13 @@ describe("loadKiriConfig", () => {
     expect(result.failure).toBeUndefined();
   });
 
+  it("loads Codex without checking credentials or falling back to an API key", () => {
+    write(cwd, "providers:\n  chatgpt:\n    type: openai-codex\n");
+    const result = loadKiriConfig(config, { OPENAI_API_KEY: "must-not-use" });
+    expect(result.failure).toBeUndefined();
+    expect(result.providers.get("chatgpt")).toEqual({ name: "chatgpt", type: "openai-codex" });
+  });
+
   it("hydrates a provider with a declared api_key env ref", () => {
     write(
       cwd,
