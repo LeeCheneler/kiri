@@ -333,6 +333,41 @@ describe("<PushToTalk>", () => {
     expect(counts.opens).toBe(1);
   });
 
+  it("shows a pulsing red dot from hold to record and a blue one while transcribing, with no visible word", async () => {
+    let answer: (() => void) | undefined;
+    server.use(
+      modelsWith(MODEL),
+      http.post("*/api/transcribe", async () => {
+        await new Promise<void>((resolve) => {
+          answer = resolve;
+        });
+        return HttpResponse.json({ text: "spoken" });
+      }),
+    );
+    renderHarness(fakeRecorder().recorder);
+
+    const button = await talkButton();
+    const dot = () => micButton().querySelector("span[aria-hidden='true']");
+    expect(dot()).toBeNull();
+
+    // Held: the glyph gives way to a pulsing red dot while recording.
+    hold(button);
+    expect(await screen.findByRole("button", { name: "listening…" })).toBeDefined();
+    expect(dot()?.className).toContain("animate-pulse");
+    expect(dot()?.className).toContain("bg-status-failed");
+
+    // Released: the dot turns blue while the capture is transcribed.
+    release(micButton());
+    expect(await screen.findByRole("button", { name: "transcribing…" })).toBeDefined();
+    expect(dot()?.className).toContain("bg-status-running");
+    answer?.();
+    await waitFor(() => expect(draftBox().value).toBe("spoken"));
+
+    // Idle again: the microphone glyph, and no dot.
+    expect(await talkButton()).toBeDefined();
+    expect(dot()).toBeNull();
+  });
+
   it("appends the spoken text to a draft, after a space unless it already ends in one", async () => {
     server.use(modelsWith(MODEL), transcribing("and Redis."));
     const { recorder } = fakeRecorder();
@@ -364,7 +399,7 @@ describe("<PushToTalk>", () => {
 
     await holdUntilListening();
     release(micButton());
-    await screen.findByText("transcribing…");
+    await screen.findByRole("button", { name: "transcribing…" });
     await user.type(draftBox(), "typed");
     await waitFor(() => expect(answer).toBeDefined());
     answer?.();
@@ -473,9 +508,9 @@ describe("<PushToTalk>", () => {
 
     await holdUntilListening();
     release(micButton());
-    await screen.findByText("transcribing…");
-    // The pending button is disabled, so drive the state directly through
-    // the events it would receive were it not.
+    await screen.findByRole("button", { name: "transcribing…" });
+    // The hold is ignored while transcribing — the hook takes no new hold —
+    // so drive the events directly.
     hold(micButton());
     release(micButton());
     await waitFor(() => expect(answer).toBeDefined());
