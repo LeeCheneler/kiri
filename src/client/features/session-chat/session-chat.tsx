@@ -495,10 +495,11 @@ function ChatView({
              the model can't continue past an unanswered call. */
           busy={awaitingApproval}
           acceptsImages={acceptsImages}
+          error={talkState.error}
           controls={
             <>
               <PushToTalk state={talkState} />
-              <SessionModelControls id={session.id} />
+              <SessionModelControls id={session.id} microphone={talkState} />
             </>
           }
           onSubmit={handleSend}
@@ -510,6 +511,7 @@ function ChatView({
           <Meta>
             <span>{modelLabel(modelsData?.shortcuts?.text, session.model)}</span>
             <span>{session.effort}</span>
+            {talkState.available ? <span>{talkState.deviceLabel}</span> : null}
           </Meta>
         </div>
       </div>

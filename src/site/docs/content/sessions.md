@@ -295,6 +295,10 @@ applied. Nothing is added and nothing is answered. The text lands in the
 draft after whatever you'd typed, and goes out only when you send it.
 Without a transcription model configured the button isn't offered.
 
+The microphone it listens to is the browser's default unless you pick one
+under **settings**; the choice is remembered, and the microphone in use is
+named at the foot of the composer beside the model and effort.
+
 ## Desktop notifications
 
 Switch **Desktop notifications** on and kiri notifies you when a run lands,

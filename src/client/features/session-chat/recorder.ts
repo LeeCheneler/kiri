@@ -47,10 +47,14 @@ const mediaRecorderCtor = (): typeof MediaRecorder | undefined =>
   (globalThis as { MediaRecorder?: typeof MediaRecorder }).MediaRecorder;
 const mediaDevices = (): MediaDevices | undefined => navigator.mediaDevices;
 
+// Browsers suffix a USB input's name with its vendor and product ids —
+// "Shure MV7PLUS (14ed:1019)" — which name nothing to a person.
+const TRAILING_BRACKETS = /\s*\([^)]*\)\s*$/;
+
 const audioInputs = async (): Promise<AudioInput[]> =>
   (await (mediaDevices() as MediaDevices).enumerateDevices())
     .filter((device) => device.kind === "audioinput")
-    .map((device) => ({ id: device.deviceId, label: device.label }));
+    .map((device) => ({ id: device.deviceId, label: device.label.replace(TRAILING_BRACKETS, "") }));
 
 /** Production `Recorder` backed by the browser's `MediaRecorder`, in the container it picks. */
 export const defaultRecorder: Recorder = {

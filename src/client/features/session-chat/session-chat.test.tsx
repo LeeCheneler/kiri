@@ -323,6 +323,8 @@ describe("<SessionChat>", () => {
       renderChat();
       const button = await screen.findByRole("button", { name: "hold to talk" });
       const field = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+      // The foot names the microphone beside the model and effort.
+      expect(screen.getByText("Browser default")).toBeDefined();
 
       fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
       await screen.findByRole("button", { name: "listening…" });
@@ -348,6 +350,7 @@ describe("<SessionChat>", () => {
       renderChat();
       expect(await screen.findByRole("textbox", { name: /message/i })).toBeDefined();
       expect(screen.queryByRole("button", { name: "hold to talk" })).toBeNull();
+      expect(screen.queryByText("Browser default")).toBeNull();
     } finally {
       uninstallFakeMedia();
     }

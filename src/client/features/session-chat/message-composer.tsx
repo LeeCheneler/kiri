@@ -69,6 +69,7 @@ export function MessageComposer({
   submitLabel,
   acceptsImages = true,
   controls,
+  error,
   initialImages = [],
   initialTextFiles = [],
 }: {
@@ -85,6 +86,8 @@ export function MessageComposer({
   submitLabel?: string;
   acceptsImages?: boolean;
   controls?: ReactNode;
+  /** A failure from a control in the toolbar, shown on the composer's error row. */
+  error?: string;
   initialImages?: PendingImage[];
   initialTextFiles?: PendingTextFile[];
 }) {
@@ -209,6 +212,19 @@ export function MessageComposer({
           }
         }}
       />
+      {/* Failures get a row of their own, above the toolbar, so a long
+          message never pushes the controls about. */}
+      {[attachmentError, error]
+        .filter((message): message is string => message !== undefined)
+        .map((message) => (
+          <p
+            key={message}
+            role="alert"
+            className="border-t border-rule px-2 py-2 font-mono text-status-failed text-xs"
+          >
+            {message}
+          </p>
+        ))}
       <div className="flex flex-wrap items-center gap-3 border-t border-rule px-2 py-2">
         <input
           ref={fileInputRef}
@@ -219,11 +235,6 @@ export function MessageComposer({
           onChange={onPickFiles}
         />
         <Button onClick={() => fileInputRef.current?.click()}>+ add file</Button>
-        {attachmentError ? (
-          <span role="alert" className="font-mono text-status-failed text-xs">
-            {attachmentError}
-          </span>
-        ) : null}
         <div className="ml-auto flex flex-wrap items-center gap-3">
           {controls}
           {onCancel ? (

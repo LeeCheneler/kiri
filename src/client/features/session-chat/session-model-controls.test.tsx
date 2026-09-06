@@ -6,7 +6,7 @@ import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
-import { SessionModelControls } from "./session-model-controls.tsx";
+import { type MicrophoneState, SessionModelControls } from "./session-model-controls.tsx";
 
 const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
   session: {
@@ -26,10 +26,10 @@ const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
 const renderControls = (ui: ReactNode) =>
   render(<QueryClientProvider client={createQueryClient()}>{ui}</QueryClientProvider>);
 
-// The controls live behind the toolbar's "models" trigger; every interaction
+// The controls live behind the toolbar's "settings" trigger; every interaction
 // starts by opening its popover.
-const openModels = async () => {
-  await userEvent.click(await screen.findByRole("button", { name: "models" }));
+const openSettings = async () => {
+  await userEvent.click(await screen.findByRole("button", { name: "settings" }));
 };
 
 // The pickers render blank and disabled until the models listing settles, so
@@ -41,15 +41,15 @@ const loadedPicker = async (name: RegExp): Promise<HTMLInputElement> => {
 };
 
 describe("<SessionModelControls>", () => {
-  it("keeps the model group behind the models trigger until opened", async () => {
+  it("keeps the model group behind the settings trigger until opened", async () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
     renderControls(<SessionModelControls id="s1" />);
 
-    await screen.findByRole("button", { name: "models" });
+    await screen.findByRole("button", { name: "settings" });
     expect(screen.queryByRole("combobox", { name: /^model/i })).toBeNull();
 
-    await openModels();
-    expect(screen.getByRole("dialog", { name: "Models" })).toBeDefined();
+    await openSettings();
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeDefined();
     expect(screen.getByRole("combobox", { name: /^model/i })).toBeDefined();
     expect(screen.getByRole("radiogroup", { name: /effort/i })).toBeDefined();
   });
@@ -58,7 +58,7 @@ describe("<SessionModelControls>", () => {
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     const combobox = await loadedPicker(/^model/i);
     // The provider group heading names the provider, so the option label —
     // and the closed input — carry the bare model name.
@@ -86,7 +86,7 @@ describe("<SessionModelControls>", () => {
 
     // While the listing is in flight the closed input must not show the bare
     // committed value — the label that would immediately be replaced.
-    await openModels();
+    await openSettings();
     const combobox = (await screen.findByRole("combobox", { name: /^model/i })) as HTMLInputElement;
     expect(combobox.value).toBe("");
     expect(combobox.disabled).toBe(true);
@@ -117,7 +117,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     const combobox = await loadedPicker(/^model/i);
     await userEvent.click(combobox);
     await userEvent.click(screen.getByRole("option", { name: "gpt" }));
@@ -147,7 +147,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     await userEvent.click(await loadedPicker(/^model/i));
     expect(
       within(screen.getByRole("listbox"))
@@ -178,7 +178,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     await userEvent.click(await loadedPicker(/^model/i));
     // Shortcut entries carry the shortcut name alone, in config order; the
     // listing follows grouped by provider with bare model-name labels.
@@ -208,7 +208,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     await userEvent.click(await loadedPicker(/^model/i));
     expect(
       within(screen.getByRole("listbox"))
@@ -237,7 +237,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     await userEvent.click(await loadedPicker(/image model/i));
     expect(
       within(screen.getByRole("listbox"))
@@ -262,7 +262,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     await userEvent.click(await loadedPicker(/image model/i));
     expect(
       within(screen.getByRole("listbox"))
@@ -283,7 +283,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     await loadedPicker(/^model/i);
     expect(screen.queryByRole("combobox", { name: /image model/i })).toBeNull();
   });
@@ -307,7 +307,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     const combobox = await loadedPicker(/image model/i);
     await userEvent.click(combobox);
     await userEvent.click(screen.getByRole("option", { name: "google/gemini-image" }));
@@ -338,7 +338,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     const combobox = await loadedPicker(/image model/i);
     expect(combobox.value).toBe("google/gemini-image");
     await userEvent.click(combobox);
@@ -356,7 +356,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     const combobox = await loadedPicker(/image model/i);
     expect(combobox.value).toBe("delisted-image");
   });
@@ -384,7 +384,7 @@ describe("<SessionModelControls>", () => {
 
     // While the listing is in flight the closed input must not show the bare
     // committed value — the label that would immediately be replaced.
-    await openModels();
+    await openSettings();
     const combobox = (await screen.findByRole("combobox", {
       name: /image model/i,
     })) as HTMLInputElement;
@@ -415,7 +415,7 @@ describe("<SessionModelControls>", () => {
     renderControls(<SessionModelControls id="s1" />);
 
     // No image model selected and none listed yet — nothing to pick from.
-    await openModels();
+    await openSettings();
     await screen.findByRole("combobox", { name: /^model/i });
     expect(screen.queryByRole("combobox", { name: /image model/i })).toBeNull();
 
@@ -436,7 +436,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     expect(await screen.findByRole("radiogroup", { name: /effort/i })).toBeDefined();
     // The session's stored level is the selected segment.
     // The medium segment's visible label is "med"; the committed value stays "medium".
@@ -460,7 +460,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     await userEvent.click(await screen.findByRole("radio", { name: "high" }));
 
     await waitFor(() => expect(patched.effort).toBe("high"));
@@ -477,7 +477,7 @@ describe("<SessionModelControls>", () => {
     );
     renderControls(<SessionModelControls id="s1" />);
 
-    await openModels();
+    await openSettings();
     const combobox = (await screen.findByRole("combobox", { name: /^model/i })) as HTMLInputElement;
     expect(combobox.disabled).toBe(true);
     expect((screen.getByRole("radio", { name: "med" }) as HTMLInputElement).disabled).toBe(true);
@@ -487,5 +487,82 @@ describe("<SessionModelControls>", () => {
     server.use(http.get("*/api/sessions/:id", () => new Promise<Response>(() => {})));
     const { container } = renderControls(<SessionModelControls id="s1" />);
     expect(container.firstChild).toBeNull();
+  });
+
+  describe("microphone", () => {
+    const microphone = (overrides: Partial<MicrophoneState> = {}) => {
+      const calls = { setDevice: [] as (string | undefined)[], refreshes: 0 };
+      const state: MicrophoneState = {
+        available: true,
+        status: "idle",
+        inputs: [
+          { id: "built-in", label: "MacBook Pro Microphone" },
+          { id: "usb-1", label: "USB Audio" },
+          { id: "unnamed", label: "" },
+        ],
+        deviceId: "usb-1",
+        setDevice: (deviceId) => calls.setDevice.push(deviceId),
+        refreshInputs: () => {
+          calls.refreshes += 1;
+        },
+        ...overrides,
+      };
+      return { state, calls };
+    };
+
+    it("offers no microphone picker without push-to-talk", async () => {
+      server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+      renderControls(
+        <SessionModelControls id="s1" microphone={microphone({ available: false }).state} />,
+      );
+
+      await openSettings();
+      expect(screen.queryByRole("combobox", { name: /microphone/i })).toBeNull();
+    });
+
+    it("lists the inputs behind the browser default, selected on the chosen one, re-listing on open", async () => {
+      server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+      const { state, calls } = microphone();
+      renderControls(<SessionModelControls id="s1" microphone={state} />);
+
+      await openSettings();
+      const picker = screen.getByRole("combobox", { name: /microphone/i }) as HTMLSelectElement;
+
+      expect(picker.value).toBe("usb-1");
+      expect(Array.from(picker.options).map((option) => option.textContent)).toEqual([
+        "Browser default",
+        "MacBook Pro Microphone",
+        "USB Audio",
+        // An input the browser names nothing shows its id.
+        "unnamed",
+      ]);
+      expect(calls.refreshes).toBe(1);
+    });
+
+    it("chooses an input, and the browser default", async () => {
+      server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+      const { state, calls } = microphone();
+      renderControls(<SessionModelControls id="s1" microphone={state} />);
+      await openSettings();
+      const picker = screen.getByRole("combobox", { name: /microphone/i });
+
+      await userEvent.selectOptions(picker, "built-in");
+      await userEvent.selectOptions(picker, "");
+
+      expect(calls.setDevice).toEqual(["built-in", undefined]);
+    });
+
+    it("locks the picker while a hold or its transcription is in progress", async () => {
+      server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+      renderControls(
+        <SessionModelControls id="s1" microphone={microphone({ status: "recording" }).state} />,
+      );
+
+      await openSettings();
+
+      expect(
+        (screen.getByRole("combobox", { name: /microphone/i }) as HTMLSelectElement).disabled,
+      ).toBe(true);
+    });
   });
 });

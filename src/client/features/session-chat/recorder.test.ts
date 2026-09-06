@@ -10,6 +10,7 @@ const INPUTS = [
   { id: "default", label: "MacBook Pro Microphone" },
   { id: "usb-1", label: "USB Audio" },
 ];
+const USB_INPUTS = [{ id: "usb-2", label: "Shure MV7PLUS (14ed:1019)" }];
 
 describe("defaultRecorder", () => {
   afterEach(uninstallFakeMedia);
@@ -32,6 +33,12 @@ describe("defaultRecorder", () => {
     expect(media.requests).toEqual([true]);
     // The access request was only for the labels: nothing stays open.
     expect(media.streams[0]?.tracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  it("drops the bracketed hardware id a browser appends to an input's name", async () => {
+    installFakeMedia({ inputs: USB_INPUTS });
+
+    expect(await defaultRecorder.listInputs()).toEqual([{ id: "usb-2", label: "Shure MV7PLUS" }]);
   });
 
   it("lists without asking again once labels are known", async () => {

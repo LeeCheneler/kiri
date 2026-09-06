@@ -95,6 +95,7 @@ function Harness({
     <>
       <textarea aria-label="Draft" value={draft} onChange={(e) => setDraft(e.target.value)} />
       <PushToTalk state={state} />
+      {state.error ? <p role="alert">{state.error}</p> : null}
       <output aria-label="Microphone">{state.deviceLabel}</output>
       <button type="button" onClick={() => state.setDevice("usb-1")}>
         use usb
