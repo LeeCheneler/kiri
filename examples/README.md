@@ -62,7 +62,9 @@ the article, and an `llm:` summariser prompting over the article:
   always `{ env: <NAME> }` references — a literal key is rejected so
   secrets stay out of git. Point the example at `local:<model>` (the
   bundled `openai-compatible` entry) to run against LM Studio / Ollama
-  with no key.
+  with no key. For ChatGPT subscription access, enable the commented
+  `codex` provider in `kiri.yaml` and follow the
+  [Codex setup guide](https://kiri.build/docs/llm-providers#codex-with-a-chatgpt-subscription).
 - **Templating matches the bundles.** Every phase takes exactly the data
   it declares through `{ input: <name> }` / `{ step: <id> }` /
   `{ step, output }` / `{ article: <slug> }` env refs, rendered into the

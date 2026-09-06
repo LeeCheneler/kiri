@@ -43,9 +43,9 @@ The model endpoints `llm:` steps and sessions call, keyed by name — the
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `type` | yes | `anthropic`, `openai`, or `openai-compatible`. |
-| `base_url` | for `openai-compatible` | The endpoint's base URL. Optional override for the other types. |
-| `api_key` | no | `{ env: <NAME> }` reference. Omit for a local server with no auth. |
+| `type` | yes | `anthropic`, `openai`, `openai-compatible`, or `openai-codex`. |
+| `base_url` | for `openai-compatible` | The endpoint's base URL. Optional for `anthropic`/`openai`; forbidden for `openai-codex`. |
+| `api_key` | no | `{ env: <NAME> }` reference. Omit for a local server with no auth. Forbidden for `openai-codex`, which reads Codex CLI file credentials. |
 
 ## `models:`
 

@@ -10,7 +10,9 @@ Every AI tool you use forgets. Chats scroll away, context gets re-explained, and
 2. **Keep what matters.** Output lands as **articles**: readable pages in a live feed, with charts and diagrams, not scrollback. Facts persist as memories; related work compounds into a project's shared, cross-linked corpus.
 3. **Automate the repeats.** Anything worth doing twice hardens into a **workflow** — a YAML file in your repo, runnable as a one-click button. A session can author it for you.
 
-Bring your own model — Anthropic, OpenAI, or any OpenAI-compatible endpoint (OpenRouter, LM Studio, Ollama, vLLM). Nothing leaves your machine except the model calls you configure, and kiri only runs while the app is open.
+Bring your own model — Anthropic, OpenAI, Codex with a ChatGPT subscription, or any OpenAI-compatible endpoint (OpenRouter, LM Studio, Ollama, vLLM). Nothing leaves your machine except the model calls you configure, and kiri only runs while the app is open.
+
+For subscription access, [configure `openai-codex`](https://kiri.build/docs/llm-providers#codex-with-a-chatgpt-subscription) after signing in through the Codex CLI.
 
 The whole configuration is one file. Every section is optional; this one names two providers, tells sessions which directories they may work in, and adds a tool:
 

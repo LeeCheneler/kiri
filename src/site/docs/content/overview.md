@@ -22,7 +22,8 @@ chore gets re-prompted every week. Kiri is built so work compounds instead:
 ## Two files and you're working
 
 Configuration is a single `kiri.yaml` at the workspace root. The lightest
-useful one names a model provider — Anthropic, OpenAI, or any
+useful one names a model provider — Anthropic, OpenAI, Codex with a
+ChatGPT subscription, or any
 OpenAI-compatible endpoint such as OpenRouter — and the directories sessions
 may work in:
 

@@ -37,7 +37,15 @@ const providerEntrySchema = z.discriminatedUnion("type", [
   anthropicProviderSchema,
   openaiProviderSchema,
   openaiCompatibleProviderSchema,
-  z.object({ type: z.literal("openai-codex") }).strict(),
+  z
+    .object({
+      type: z
+        .literal("openai-codex")
+        .describe(
+          "ChatGPT subscription access using Codex CLI file credentials. Run codex login; api_key and base_url are not accepted.",
+        ),
+    })
+    .strict(),
 ]);
 
 /** Schema for the `providers:` map in `kiri.yaml`, keyed by provider name. */
