@@ -22,8 +22,9 @@ export interface AudioInput {
  * Seam over the browser's microphone capture (`getUserMedia` plus
  * `MediaRecorder`) so push-to-talk is drivable in tests, mirroring the
  * notifications' `Notifier` seam. Opening takes a while (a permission
- * prompt on first use, then device start-up — a second or two is normal),
- * so a microphone is opened once and kept for a run of recordings.
+ * prompt on first use, then device start-up), and the browser shows a
+ * recording indicator for as long as a microphone is open, so one is opened
+ * for a hold and closed as soon as its capture is in hand.
  */
 export interface Recorder {
   /** Whether this browser can capture audio at all. */
