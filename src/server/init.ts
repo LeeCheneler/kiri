@@ -357,9 +357,10 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 # delegating session's model. \`utility\` is the model kiri itself uses for
 # small internal generations — naming a new session, judging shell
 # commands under the Auto permission, suggesting tap-to-send replies,
-# tidying a dictated draft — point it at a fast, cheap model (a local one
+# tidying a push-to-talk transcript — point it at a fast, cheap model (a local one
 # works well); unset, titling runs on the session's own model, Auto falls
-# back to asking, and suggested replies and tidying stay off.
+# back to asking, suggested replies stay off, and push-to-talk lands the
+# raw transcript.
 # \`transcription\` is the speech-to-text model behind push-to-talk in the
 # session composer — any \`openai\` or \`openai-compatible\` provider that
 # serves the OpenAI-style audio transcriptions endpoint (an OpenRouter

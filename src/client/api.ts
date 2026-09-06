@@ -1040,15 +1040,6 @@ export const fetchSuggestedReplies = async (id: string): Promise<string[]> =>
   ).replies;
 
 /**
- * Rewrite a composer draft as the clean message its writer meant — errors,
- * filler, and mid-flow corrections resolved — against the workspace's utility
- * model. Throws `ApiError` on non-2xx, notably 400 when no utility model is
- * configured.
- */
-export const tidyDraft = async (text: string): Promise<string> =>
-  (await json<{ text: string }>(await apiFetch("/api/tidy", jsonInit("POST", { text })))).text;
-
-/**
  * Transcribe a push-to-talk recording into draft text — tidied too, when a
  * utility model is configured. The server sniffs the audio container, so
  * whatever the browser recorded goes as is. Empty when nothing was said.

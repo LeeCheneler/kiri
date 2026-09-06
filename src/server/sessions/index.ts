@@ -88,7 +88,6 @@ export {
 } from "./store.ts";
 export { SESSION_TITLE_MAX_LENGTH, generateSessionTitle } from "./session-title.ts";
 export { generateSuggestedReplies } from "./suggested-replies.ts";
-export { TIDY_DRAFT_PROMPT_PREFIX, tidyDraft } from "./tidy-draft.ts";
 export { transcribeDraft } from "./transcribe-draft.ts";
 export { type ShellToolsOptions, shellTools } from "./shell-tools.ts";
 export { skillTools } from "./skill-tools.ts";

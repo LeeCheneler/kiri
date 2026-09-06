@@ -283,18 +283,17 @@ open-ended and get no suggestions; that's by design. Suggestions come from
 your [utility model](/docs/llm-providers#utility-model), so without one
 configured they're off.
 
-## Tidy a draft
+## Push to talk
 
-Dictate a message — with your OS's dictation, into the composer — or type it
-in a hurry, then hit **tidy** (or ⌘⇧F / Ctrl+Shift+F) and kiri rewrites the
-draft as the message you meant: transcription errors and filler gone,
-mid-flow changes of mind resolved to what you settled on, punctuation and
-light markdown applied. Nothing is added and nothing is answered — it's an
-edit, not a reply — and the rewrite replaces the draft in place with an
-**undo tidy** beside it until you edit further. Tidying is never automatic:
-your message goes out exactly as you send it. It runs on your
-[utility model](/docs/llm-providers#utility-model), so without one
-configured the action isn't offered.
+Hold **hold to talk**, wait for it to read **listening…**, say your message,
+and let go. The recording is transcribed by your
+[transcription model](/docs/llm-providers#transcription-model) and, with a
+[utility model](/docs/llm-providers#utility-model) configured, tidied into
+the message you meant: transcription errors and filler gone, mid-flow changes
+of mind resolved to what you settled on, punctuation and light markdown
+applied. Nothing is added and nothing is answered. The text lands in the
+draft after whatever you'd typed, and goes out only when you send it.
+Without a transcription model configured the button isn't offered.
 
 ## Desktop notifications
 

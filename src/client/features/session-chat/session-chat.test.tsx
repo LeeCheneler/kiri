@@ -306,37 +306,6 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText("daily")).toBeDefined();
   });
 
-  it("tidies the draft from the composer's shortcut when a utility model is configured", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({ models: [], failures: [], utility: "local:tiny" }),
-      ),
-      http.post("*/api/tidy", async ({ request }) => {
-        const { text } = (await request.json()) as { text: string };
-        return HttpResponse.json({ text: text.toUpperCase() });
-      }),
-    );
-    const user = userEvent.setup();
-    renderChat();
-    expect(await screen.findByRole("button", { name: "tidy" })).toBeDefined();
-    const field = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
-
-    await user.type(field, "so um postgres");
-    await user.keyboard("{Meta>}{Shift>}f{/Shift}{/Meta}");
-
-    await waitFor(() => expect(field.value).toBe("SO UM POSTGRES"));
-    // The tidied draft is the draft: it persists like anything typed.
-    expect(localStorage.getItem("kiri:session-draft:s1")).toBe("SO UM POSTGRES");
-  });
-
-  it("offers no tidy action without a utility model", async () => {
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    renderChat();
-    expect(await screen.findByRole("textbox", { name: /message/i })).toBeDefined();
-    expect(screen.queryByRole("button", { name: "tidy" })).toBeNull();
-  });
-
   it("offers push-to-talk when a transcription model is configured and the browser can record", async () => {
     installFakeMedia();
     try {
