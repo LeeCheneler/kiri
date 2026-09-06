@@ -113,6 +113,47 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("the data behind a chart");
   });
 
+  it("requires read and inferred specifics to be kept apart", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    // A plain fabrication ban doesn't catch a name or capability extrapolated
+    // from the pattern of ones actually read — the provenance rule must.
+    expect(prompt).toContain("Keep read and inferred apart");
+    expect(prompt).toContain("A plausible name is not a real one");
+    expect(prompt).toContain("marked unverified where it appears");
+  });
+
+  it("forbids invented precision in numbers", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).toContain("Never give a precise figure or range you didn't measure");
+    expect(prompt).toContain("must read as one");
+  });
+
+  it("holds a deliverable to the brief rather than padding it", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    expect(prompt).toContain("Answer the brief at the depth it needs and no wider");
+    expect(prompt).toContain("mark it as outside the brief");
+  });
+
+  it("warns that recalled versions and model names may be stale", () => {
+    const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
+    // The cutoff cuts both ways: not only is the unfamiliar likely newer, the
+    // familiar is likely superseded.
+    expect(prompt).toContain("The same cutoff cuts the other way");
+    expect(prompt).toContain("say it's as of your training");
+  });
+
+  it("ties higher effort to verifying against the source", () => {
+    expect(buildSystemPrompt({ config, effort: "high", now: FIXED_NOW })).toContain(
+      "opening a file or dependency before asserting what it does",
+    );
+    expect(buildSystemPrompt({ config, effort: "xhigh", now: FIXED_NOW })).toContain(
+      "against the source rather than memory",
+    );
+    expect(buildSystemPrompt({ config, effort: "max", now: FIXED_NOW })).toContain(
+      "verify conclusions against the source",
+    );
+  });
+
   it("marks the prompt and standing instructions authoritative over quoted text", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     // The untrusted-data line draws the boundary both ways: trusted instruction
@@ -1096,6 +1137,19 @@ describe("buildChildSessionPrompt", () => {
     expect(prompt).toContain("2026-06-17");
     // The user's chat layers never apply to a delegated worker.
     expect(prompt).not.toContain("interactive chat session");
+  });
+
+  it("carries the honesty bullets in both reporting modes", () => {
+    // The provenance, precision, and brief rules travel with the worker
+    // whether it reports over message_parent or in its reply.
+    const messaging = buildChildSessionPrompt({ tools: ["message_parent"], now: FIXED_NOW });
+    const reply = buildChildSessionPrompt({ now: FIXED_NOW });
+    for (const prompt of [messaging, reply]) {
+      expect(prompt).toContain("Keep read and inferred apart");
+      expect(prompt).toContain("Never give a precise figure or range you didn't measure");
+      expect(prompt).toContain("Answer the brief at the depth it needs and no wider");
+      expect(prompt).toContain("The same cutoff cuts the other way");
+    }
   });
 
   it("names the host machine so platform-specific output fits it", () => {
