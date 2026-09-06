@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { type ImageModel, type LanguageModel, generateText } from "ai";
+import { type ImageModel, type LanguageModel, type TranscriptionModel, generateText } from "ai";
 import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
 import { type LlmModelsResult, listLlmModels } from "./models.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
@@ -19,6 +19,12 @@ export type LlmModel = LanguageModel;
  * `resolveImageModel` and handed to the AI SDK's `generateImage`.
  */
 export type LlmImageModel = ImageModel;
+
+/**
+ * A constructed, ready-to-call speech-to-text model, produced by
+ * `resolveTranscriptionModel` and handed to the AI SDK's `transcribe`.
+ */
+export type LlmTranscriptionModel = TranscriptionModel;
 
 // How long a fetched model listing is reused for context-window lookups. A
 // model's window is effectively constant, so a few minutes' cache spares a
@@ -53,6 +59,12 @@ export interface LlmClients {
    * `anthropic` provider, which offers no image generation.
    */
   resolveImageModel(id: string): LlmImageModel;
+  /**
+   * Build a speech-to-text model for a `provider:model` id. The same id and
+   * registry contract as `resolveModel`; additionally throws for an
+   * `anthropic` provider, which offers no transcription.
+   */
+  resolveTranscriptionModel(id: string): LlmTranscriptionModel;
   /**
    * Resolve a `provider:model` id and run a single non-streaming completion
    * against it. Resolution errors and provider/API errors both surface as a
@@ -143,6 +155,10 @@ export function createLlmClients(
       const { provider, modelId } = resolveProvider(registry, id);
       return buildImageModel(provider, modelId, env);
     },
+    resolveTranscriptionModel(id) {
+      const { provider, modelId } = resolveProvider(registry, id);
+      return buildTranscriptionModel(provider, modelId, env);
+    },
   };
   return clients;
 }
@@ -222,6 +238,32 @@ function buildImageModel(
         baseURL: provider.baseUrl as string,
         apiKey,
       }).imageModel(modelId);
+  }
+}
+
+/** Construct an AI SDK transcription model for a resolved provider, reading its API key from `env` now. */
+function buildTranscriptionModel(
+  provider: LlmProvider,
+  modelId: string,
+  env: Record<string, string | undefined>,
+): LlmTranscriptionModel {
+  const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
+  switch (provider.type) {
+    case "anthropic":
+      throw new Error(`provider "${provider.name}" is anthropic, which offers no transcription`);
+    case "openai":
+      return createOpenAI({ apiKey, baseURL: provider.baseUrl }).transcription(modelId);
+    case "openai-compatible":
+      // The openai-compatible provider has no transcription model, but the
+      // openai one only ever posts a `model` + `file` multipart form to
+      // `<base_url>/audio/transcriptions` — the exact OpenAI-style contract
+      // OpenRouter and local speech servers implement — so it serves here.
+      // Unlike its openai-compatible sibling it insists on a key, so a
+      // keyless local server gets an empty bearer it ignores.
+      return createOpenAI({
+        apiKey: apiKey ?? "",
+        baseURL: provider.baseUrl as string,
+      }).transcription(modelId);
   }
 }
 

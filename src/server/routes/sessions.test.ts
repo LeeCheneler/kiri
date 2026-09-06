@@ -120,6 +120,9 @@ const fakeClients = (
   resolveImageModel: () => {
     throw new Error("no image model in this fake");
   },
+  resolveTranscriptionModel: () => {
+    throw new Error("no transcription model in this fake");
+  },
   generateText: opts.generateText ?? (async () => ({ text: "", usage: {} })),
   listModels: async () => ({
     models: (opts.models ?? []).map((model) => ({ reasoning: false, ...model })),

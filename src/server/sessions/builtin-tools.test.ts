@@ -27,6 +27,9 @@ const stubClients: LlmClients = {
   resolveImageModel: () => {
     throw new Error("unused");
   },
+  resolveTranscriptionModel: () => {
+    throw new Error("unused");
+  },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
   contextWindowFor: async () => undefined,

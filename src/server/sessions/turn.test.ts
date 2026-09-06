@@ -40,6 +40,9 @@ const clientsFor = (model: LlmModel): LlmClients => ({
   resolveImageModel: () => {
     throw new Error("no image model in this fake");
   },
+  resolveTranscriptionModel: () => {
+    throw new Error("no transcription model in this fake");
+  },
   generateText: async () => ({ text: "", usage: {} }),
   listModels: async () => ({ models: [], failures: [] }),
   contextWindowFor: async () => undefined,
@@ -498,6 +501,9 @@ describe("runTurn", () => {
         throw new Error('unknown llm provider "anthropic"');
       },
       resolveImageModel: () => {
+        throw new Error('unknown llm provider "anthropic"');
+      },
+      resolveTranscriptionModel: () => {
         throw new Error('unknown llm provider "anthropic"');
       },
       generateText: async () => ({ text: "", usage: {} }),

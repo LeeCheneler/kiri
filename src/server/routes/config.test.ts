@@ -89,6 +89,9 @@ describe("config routes", () => {
         resolveImageModel: () => {
           throw new Error("unused in this fake");
         },
+        resolveTranscriptionModel: () => {
+          throw new Error("unused in this fake");
+        },
         generateText: async () => ({ text: "", usage: {} }),
         listModels: async () => ({
           models: [{ id: "local:listed", provider: "local", output: "text", reasoning: false }],

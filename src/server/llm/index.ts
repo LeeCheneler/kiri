@@ -12,6 +12,7 @@ export {
   type LlmClients,
   type LlmImageModel,
   type LlmModel,
+  type LlmTranscriptionModel,
   type LlmUsage,
   createLlmClients,
   generateLlmText,

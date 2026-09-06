@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { generateImage } from "ai";
+import { generateImage, experimental_transcribe as transcribe } from "ai";
 import { http, HttpResponse, delay } from "msw";
 import { server } from "../../../tests/setup/msw.ts";
 import { createLlmClients, generateLlmText } from "./clients.ts";
@@ -27,6 +27,12 @@ const local: LlmProvider = {
 // A 1x1 transparent PNG, so the SDK's media-type sniffing sees real image bytes.
 const TINY_PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+// A bare RIFF/WAVE header, so the SDK's media-type sniffing sees real audio
+// bytes and posts the file as `audio/wav`.
+const TINY_WAV = new Uint8Array([
+  0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45,
+]);
 
 const anthropicMessages = (text: string, usage = { input_tokens: 11, output_tokens: 22 }) =>
   http.post("https://api.anthropic.com/v1/messages", () =>
@@ -146,6 +152,64 @@ describe("llm clients", () => {
     const clients = createLlmClients(registryWith(openai), {});
 
     expect(() => clients.resolveImageModel("ghost:model")).toThrow(/unknown llm provider "ghost"/);
+  });
+
+  it("resolves an openai transcription model against the transcriptions endpoint with the key", async () => {
+    let headers: Headers | undefined;
+    let form: FormData | undefined;
+    server.use(
+      http.post("https://api.openai.com/v1/audio/transcriptions", async ({ request }) => {
+        headers = request.headers;
+        form = await request.formData();
+        return HttpResponse.json({ text: "hello there" });
+      }),
+    );
+    const clients = createLlmClients(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+
+    const { text } = await transcribe({
+      model: clients.resolveTranscriptionModel("openai:whisper-1"),
+      audio: TINY_WAV,
+    });
+
+    expect(text).toBe("hello there");
+    expect(headers?.get("authorization")).toBe("Bearer sk-test");
+    expect(form?.get("model")).toBe("whisper-1");
+    expect((form?.get("file") as File).name).toBe("audio.wav");
+  });
+
+  it("resolves an openai-compatible transcription model against its base_url transcriptions endpoint", async () => {
+    let form: FormData | undefined;
+    server.use(
+      http.post("http://localhost:1234/v1/audio/transcriptions", async ({ request }) => {
+        form = await request.formData();
+        return HttpResponse.json({ text: "hello from local" });
+      }),
+    );
+    const clients = createLlmClients(registryWith(local), {});
+
+    const { text } = await transcribe({
+      model: clients.resolveTranscriptionModel("local:openai/whisper-1"),
+      audio: TINY_WAV,
+    });
+
+    expect(text).toBe("hello from local");
+    expect(form?.get("model")).toBe("openai/whisper-1");
+  });
+
+  it("refuses a transcription model on an anthropic provider", () => {
+    const clients = createLlmClients(registryWith(anthropic), { ANTHROPIC_API_KEY: "sk-test" });
+
+    expect(() => clients.resolveTranscriptionModel("anthropic:claude")).toThrow(
+      /offers no transcription/,
+    );
+  });
+
+  it("rejects a transcription model id whose provider is not configured", () => {
+    const clients = createLlmClients(registryWith(openai), {});
+
+    expect(() => clients.resolveTranscriptionModel("ghost:model")).toThrow(
+      /unknown llm provider "ghost"/,
+    );
   });
 
   it("lists models across configured providers via listModels", async () => {

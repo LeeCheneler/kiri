@@ -258,6 +258,9 @@ describe("evaluateModelListingHealth", () => {
     resolveImageModel: () => {
       throw new Error("unused in this fake");
     },
+    resolveTranscriptionModel: () => {
+      throw new Error("unused in this fake");
+    },
     generateText: async () => ({ text: "", usage: {} }),
     listModels: async () => ({
       models: models.map((m) => ({ ...m, output: "text" as const, reasoning: false })),
