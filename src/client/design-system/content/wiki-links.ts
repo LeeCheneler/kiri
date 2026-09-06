@@ -78,3 +78,26 @@ export function remarkWikiLinks(resolve: WikiLinkResolver) {
 
   return () => walk;
 }
+
+/**
+ * A resolver over one container's article index: each `[[slug]]` lands on
+ * `${articleBase}/${slug}`, titled by the article's first heading (its name
+ * when the body has none). Built once per index change and memoised by the
+ * caller so the surfaces' render memos hold; an absent index (still loading)
+ * resolves nothing, so every reference stays literal until it arrives.
+ */
+export function articleWikiLinkResolver(
+  articleBase: string,
+  articles: readonly { slug: string; name: string; heading: string | null }[] | undefined,
+): WikiLinkResolver {
+  const targets = new Map(
+    (articles ?? []).map((article) => [
+      article.slug,
+      {
+        href: `${articleBase}/${encodeURIComponent(article.slug)}`,
+        label: article.heading ?? article.name,
+      },
+    ]),
+  );
+  return (slug) => targets.get(slug) ?? null;
+}

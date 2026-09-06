@@ -6,10 +6,14 @@ import { Chip } from "../../design-system/actions/chip.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
 import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Meta } from "../../design-system/content/meta.tsx";
-import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
+import {
+  type WikiLinkResolver,
+  articleWikiLinkResolver,
+} from "../../design-system/content/wiki-links.ts";
 import { Notice } from "../../design-system/feedback/notice.tsx";
 import { Status } from "../../design-system/feedback/status.tsx";
 import { Breadcrumb } from "../../design-system/navigation/breadcrumb.tsx";
+import { useSessionArticles } from "../../state/articles.ts";
 import { useProject } from "../../state/projects.ts";
 import { useModels, useSession } from "../../state/sessions.ts";
 import { ChatMessage, InboxInterjection, QueuedMessage } from "./chat-message.tsx";
@@ -103,15 +107,28 @@ function ProjectChatBreadcrumb({ projectId, current }: { projectId: string; curr
   );
 }
 
-// A project session's chat also renders the model's `[[slug]]` references as
-// corpus links, matching the project reading view — the assistant cross-links
-// articles in its replies the same way it does in article bodies. Split so the
-// corpus query mounts only for project sessions; a projectless chat has no
-// corpus to resolve against, so the syntax stays literal there.
+// The chat renders the model's `[[slug]]` references as links to the articles
+// it can name — the project corpus for a project session, the session's own
+// articles otherwise — matching the reading views, so the assistant points at
+// what it wrote the same way in a reply as in an article body. Split so each
+// index query mounts only where it applies.
 function Chat({ detail }: { detail: SessionDetail }) {
   const { projectId } = detail.session;
-  if (projectId === null) return <ChatView detail={detail} />;
+  if (projectId === null) return <SessionArticlesChat detail={detail} />;
   return <ProjectChat detail={detail} projectId={projectId} />;
+}
+
+function SessionArticlesChat({ detail }: { detail: SessionDetail }) {
+  // `[[slug]]` references resolve against the session's own article list.
+  // Memoised so the ChatMessage memo holds between renders; unresolved slugs
+  // (and everything until the list loads) stay literal.
+  const sessionId = detail.session.id;
+  const articles = useSessionArticles(sessionId).data;
+  const wikiLinkResolver = useMemo(
+    () => articleWikiLinkResolver(`/sessions/${encodeURIComponent(sessionId)}/articles`, articles),
+    [articles, sessionId],
+  );
+  return <ChatView detail={detail} wikiLinkResolver={wikiLinkResolver} />;
 }
 
 function ProjectChat({ detail, projectId }: { detail: SessionDetail; projectId: string }) {
@@ -119,18 +136,10 @@ function ProjectChat({ detail, projectId }: { detail: SessionDetail; projectId: 
   // target's title. Memoised so the ChatMessage memo holds between renders;
   // unresolved slugs (and everything until the index loads) stay literal.
   const corpus = useProject(projectId).data?.articles;
-  const wikiLinkResolver = useMemo<WikiLinkResolver>(() => {
-    const targets = new Map(
-      (corpus ?? []).map((entry) => [
-        entry.slug,
-        {
-          href: `/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(entry.slug)}`,
-          label: entry.heading ?? entry.name,
-        },
-      ]),
-    );
-    return (slug) => targets.get(slug) ?? null;
-  }, [corpus, projectId]);
+  const wikiLinkResolver = useMemo(
+    () => articleWikiLinkResolver(`/projects/${encodeURIComponent(projectId)}/articles`, corpus),
+    [corpus, projectId],
+  );
   return <ChatView detail={detail} wikiLinkResolver={wikiLinkResolver} />;
 }
 

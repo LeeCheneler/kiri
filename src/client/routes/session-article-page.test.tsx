@@ -87,6 +87,39 @@ describe("<SessionArticlePage>", () => {
     expect(sessionLink.getAttribute("href")).toBe(`/sessions/${SESSION_ID}`);
   });
 
+  it("links [[slug]] references to the session's other articles, leaving unknown slugs literal", async () => {
+    server.use(
+      http.get("*/api/sessions/:id/articles", () =>
+        HttpResponse.json({
+          articles: [
+            {
+              slug: "level-design",
+              name: "Level Design",
+              heading: "Level Design Notes",
+              createdAt: new Date(NOW.getTime() - 45_000).toISOString(),
+            },
+          ],
+        }),
+      ),
+      http.get("*/api/sessions/:id/articles/:slug", ({ params }) =>
+        HttpResponse.json(
+          articleJson(
+            params.id as string,
+            params.slug as string,
+            "# Hello\n\nSee [[level-design]] and [[missing-doc]].",
+          ),
+        ),
+      ),
+    );
+
+    renderArticle(SESSION_ID, "notes");
+
+    const link = await screen.findByRole("link", { name: "Level Design Notes" });
+    expect(link.getAttribute("href")).toBe(`/sessions/${SESSION_ID}/articles/level-design`);
+    // A slug the session doesn't own stays as written.
+    expect(screen.getByText(/\[\[missing-doc\]\]/)).toBeDefined();
+  });
+
   it("refetches and repaints when the session edits the article", async () => {
     let version = 0;
     server.use(

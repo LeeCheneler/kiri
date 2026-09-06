@@ -388,7 +388,7 @@ export const ChatMessage = memo(function ChatMessage({
   pageLinks?: ToolPageLinks;
   /** Where an executing command's live console snapshots land; must be referentially stable. */
   liveConsoles?: LiveConsoleStore;
-  /** Turns `[[slug]]` references in assistant prose into corpus links when set. */
+  /** Turns `[[slug]]` references in assistant prose into article links when set. */
   wikiLinkResolver?: WikiLinkResolver;
   onResubmit: ResubmitHandler;
   onDelete: DeleteMessageHandler;

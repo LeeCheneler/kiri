@@ -1,12 +1,18 @@
+import { useMemo } from "react";
 import { ApiError } from "../api.ts";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
+import { articleWikiLinkResolver } from "../design-system/content/wiki-links.ts";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
 import { DeleteArticleButton } from "../features/article/delete-article-button.tsx";
 import { PageShell } from "../features/page-shell/page-shell.tsx";
 import { SiteNav } from "../features/site-nav/site-nav.tsx";
-import { useDeleteSessionArticle, useSessionArticle } from "../state/articles.ts";
+import {
+  useDeleteSessionArticle,
+  useSessionArticle,
+  useSessionArticles,
+} from "../state/articles.ts";
 
 /**
  * Session article route. Composes the article content into the page shell,
@@ -64,7 +70,8 @@ export function SessionArticleActions({ params }: { params: { id: string; slug: 
  * Session article content. Reads a single article by `(sessionId, slug)`
  * from the shared query cache — kept live-synced, since the session can edit
  * it — and renders it through the shared `ArticleReader`, situated under its
- * producing session.
+ * producing session, with `[[slug]]` references linking to the session's
+ * other articles.
  */
 export function SessionArticleContent({
   params,
@@ -74,6 +81,14 @@ export function SessionArticleContent({
   now?: Date;
 }) {
   const article = useSessionArticle(params.id, params.slug);
+  // `[[slug]]` references resolve against the session's own article list.
+  // Memoised so the Markdown memo holds between renders; unresolved slugs
+  // (and everything until the list loads) stay literal.
+  const articles = useSessionArticles(params.id).data;
+  const wikiLinkResolver = useMemo(
+    () => articleWikiLinkResolver(`/sessions/${encodeURIComponent(params.id)}/articles`, articles),
+    [articles, params.id],
+  );
 
   if (article.isPending) {
     return <LoadingState>Loading article…</LoadingState>;
@@ -114,6 +129,7 @@ export function SessionArticleContent({
         { label: "Activity", href: "/" },
         { label: data.sessionLabel, href: `/sessions/${data.sessionId}` },
       ]}
+      wikiLinkResolver={wikiLinkResolver}
       now={now}
     />
   );

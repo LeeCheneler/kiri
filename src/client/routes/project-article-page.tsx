@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { ApiError } from "../api.ts";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
-import type { WikiLinkResolver } from "../design-system/content/wiki-links.ts";
+import { articleWikiLinkResolver } from "../design-system/content/wiki-links.ts";
 import { Breadcrumb } from "../design-system/navigation/breadcrumb.tsx";
 import { ArticleReader } from "../features/article/article-reader.tsx";
 import { ArticleToc } from "../features/article/article-toc.tsx";
@@ -84,18 +84,10 @@ export function ProjectArticleContent({
   // target's title. Memoised so the Markdown memo holds between renders;
   // unresolved slugs (and everything until the index loads) stay literal.
   const corpus = projectDetail?.articles;
-  const wikiLinkResolver = useMemo<WikiLinkResolver>(() => {
-    const targets = new Map(
-      (corpus ?? []).map((entry) => [
-        entry.slug,
-        {
-          href: `/projects/${encodeURIComponent(params.id)}/articles/${encodeURIComponent(entry.slug)}`,
-          label: entry.heading ?? entry.name,
-        },
-      ]),
-    );
-    return (slug) => targets.get(slug) ?? null;
-  }, [corpus, params.id]);
+  const wikiLinkResolver = useMemo(
+    () => articleWikiLinkResolver(`/projects/${encodeURIComponent(params.id)}/articles`, corpus),
+    [corpus, params.id],
+  );
 
   if (article.isPending) {
     return <LoadingState>Loading article…</LoadingState>;

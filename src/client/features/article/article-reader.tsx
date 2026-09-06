@@ -35,7 +35,7 @@ export function ArticleReader({
   createdAt: string;
   /** Trail above the title; the article's own title is appended as the current crumb. */
   breadcrumbItems: { label: string; href: string }[];
-  /** Turns `[[slug]]` references into links — the project corpus reader passes one; other owners leave the syntax literal. */
+  /** Turns `[[slug]]` references into links — the project and session readers pass one over their owner's article index; a run's reader leaves the syntax literal. */
   wikiLinkResolver?: WikiLinkResolver;
   /** Clock injection for tests; production callers omit it. */
   now?: Date;
