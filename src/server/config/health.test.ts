@@ -314,6 +314,18 @@ describe("evaluateModelListingHealth", () => {
     expect(checks).toHaveLength(0);
   });
 
+  it("never checks the transcription reference, which the listing does not carry", async () => {
+    const clients = clientsListing([]);
+    clients.listModels = () => {
+      throw new Error("listing should not be fetched");
+    };
+    const checks = await evaluateModelListingHealth(
+      configured({ shortcuts: {}, delegates: {}, transcription: "a:nvidia/parakeet" }),
+      clients,
+    );
+    expect(checks).toHaveLength(0);
+  });
+
   it("stays silent when every reference is listed", async () => {
     const checks = await evaluateModelListingHealth(
       configured({ shortcuts: { text: { flash: "a:small" } }, delegates: { daily: "a:small" } }),

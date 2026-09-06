@@ -211,7 +211,12 @@ export async function evaluateModelListingHealth(
   kiriConfig: KiriConfigLoadResult,
   llmClients: LlmClients,
 ): Promise<ConfigCheck[]> {
-  const refs = modelReferences(kiriConfig.models).filter(({ ref }) => {
+  // The listing carries text and image models only; transcription models sit
+  // outside it (OpenRouter serves them under a separate query, and the
+  // listing filter drops whisper-style ids as non-text), so there is nothing
+  // to check the transcription reference against.
+  const refs = modelReferences(kiriConfig.models).filter(({ label, ref }) => {
+    if (label === "transcription") return false;
     const provider = providerOf(ref);
     return provider !== null && kiriConfig.providers.has(provider);
   });
