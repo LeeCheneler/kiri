@@ -1,3 +1,4 @@
+import { readCodexAuth } from "../llm/codex-auth.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { KiriConfigLoadResult } from "./loader.ts";
 import type { ModelsConfig } from "./schema.ts";
@@ -238,4 +239,64 @@ export async function evaluateModelListingHealth(
     });
   }
   return checks;
+}
+
+/**
+ * Check file-backed provider credentials for boot and HTTP health reports.
+ * Reads Codex once per report; does not contact a backend or expose credentials.
+ */
+export async function evaluateProviderAuthHealth(
+  kiriConfig: KiriConfigLoadResult,
+  env: Record<string, string | undefined>,
+): Promise<ConfigCheck[]> {
+  const providers = [...kiriConfig.providers.values()].filter(
+    (provider) => provider.type === "openai-codex",
+  );
+  if (providers.length === 0) return [];
+  const state = await readCodexAuth(env);
+  let finding: Omit<ConfigCheck, "area">;
+  switch (state.status) {
+    case "signed-in":
+      finding = {
+        level: "ok",
+        title: "Codex credentials available",
+        detail: `Access token expires ${new Date(state.expiresAt).toUTCString()}. Credentials are checked locally; backend access is checked when used.`,
+      };
+      break;
+    case "expired":
+      finding = {
+        level: "error",
+        title: "Codex authentication expired",
+        detail:
+          "Run `codex login`, then retry. Kiri reads the updated credentials without restarting.",
+      };
+      break;
+    case "missing":
+      finding = {
+        level: "error",
+        title: "Codex file credentials are missing",
+        detail:
+          'Kiri requires file-backed Codex credentials. Set cli_auth_credentials_store = "file" in your Codex config and run `codex login`. Kiri honours CODEX_HOME.',
+      };
+      break;
+    case "invalid":
+      finding = {
+        level: "error",
+        title: "Codex file credentials are invalid",
+        detail: "Run `codex login` with ChatGPT to replace the file credentials, then retry.",
+      };
+      break;
+    case "unreadable":
+      finding = {
+        level: "error",
+        title: "Codex file credentials could not be read",
+        detail: "Check access to auth.json under CODEX_HOME (default ~/.codex), then retry.",
+      };
+      break;
+  }
+  return providers.map((provider) => ({
+    area: "providers",
+    ...finding,
+    title: `${provider.name}: ${finding.title}`,
+  }));
 }
