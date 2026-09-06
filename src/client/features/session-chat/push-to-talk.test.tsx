@@ -43,6 +43,7 @@ const fakeRecorder = (opts: { supported?: boolean; audio?: string; ready?: boole
   };
   const recorder: Recorder = {
     supported: () => supported,
+    listInputs: async () => [],
     open: () => {
       counts.opens += 1;
       return new Promise<Microphone>((resolve) => {
@@ -293,6 +294,7 @@ describe("<PushToTalk>", () => {
     server.use(modelsWith(MODEL));
     const recorder: Recorder = {
       supported: () => true,
+      listInputs: async () => [],
       open: async () => {
         throw new DOMException("Permission denied", "NotAllowedError");
       },

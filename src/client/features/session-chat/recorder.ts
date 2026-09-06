@@ -12,6 +12,12 @@ export interface Microphone {
   close(): void;
 }
 
+/** One audio input the browser can open. */
+export interface AudioInput {
+  id: string;
+  label: string;
+}
+
 /**
  * Seam over the browser's microphone capture (`getUserMedia` plus
  * `MediaRecorder`) so push-to-talk is drivable in tests, mirroring the
@@ -22,8 +28,17 @@ export interface Microphone {
 export interface Recorder {
   /** Whether this browser can capture audio at all. */
   supported(): boolean;
-  /** Ask for the microphone (the browser prompts on first use) and open it. */
-  open(): Promise<Microphone>;
+  /**
+   * The audio inputs on offer. Browsers withhold labels until microphone
+   * access has been granted, so this asks for it once when they are blank.
+   */
+  listInputs(): Promise<AudioInput[]>;
+  /**
+   * Ask for the microphone (the browser prompts on first use) and open it —
+   * `deviceId`'s input by preference, the browser's default when that is
+   * absent or no longer present.
+   */
+  open(deviceId?: string): Promise<Microphone>;
 }
 
 // Read lazily rather than at module load: the globals are absent in
@@ -32,12 +47,27 @@ const mediaRecorderCtor = (): typeof MediaRecorder | undefined =>
   (globalThis as { MediaRecorder?: typeof MediaRecorder }).MediaRecorder;
 const mediaDevices = (): MediaDevices | undefined => navigator.mediaDevices;
 
+const audioInputs = async (): Promise<AudioInput[]> =>
+  (await (mediaDevices() as MediaDevices).enumerateDevices())
+    .filter((device) => device.kind === "audioinput")
+    .map((device) => ({ id: device.deviceId, label: device.label }));
+
 /** Production `Recorder` backed by the browser's `MediaRecorder`, in the container it picks. */
 export const defaultRecorder: Recorder = {
   supported: () =>
     mediaRecorderCtor() !== undefined && typeof mediaDevices()?.getUserMedia === "function",
-  open: async () => {
+  listInputs: async () => {
+    const inputs = await audioInputs();
+    if (inputs.every((input) => input.label !== "")) return inputs;
+    // Labels are withheld until access is granted: ask, release, ask again.
     const stream = await (mediaDevices() as MediaDevices).getUserMedia({ audio: true });
+    for (const track of stream.getTracks()) track.stop();
+    return audioInputs();
+  },
+  open: async (deviceId) => {
+    const stream = await (mediaDevices() as MediaDevices).getUserMedia({
+      audio: deviceId === undefined ? true : { deviceId: { ideal: deviceId } },
+    });
     return {
       record: () => {
         const recorder = new (mediaRecorderCtor() as typeof MediaRecorder)(stream);

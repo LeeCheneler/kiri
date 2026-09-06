@@ -46,24 +46,47 @@ export class FakeMediaRecorder {
 
 type Globals = { MediaRecorder?: unknown };
 
+/** What the fake `navigator.mediaDevices` saw and did, for assertions. */
+export interface FakeMediaState {
+  /** The `audio` constraint of every `getUserMedia` call, in order. */
+  requests: unknown[];
+  /** Every stream handed out, in order. */
+  streams: FakeMediaStream[];
+}
+
 /**
  * Install the fake `MediaRecorder` and a `navigator.mediaDevices` whose
  * `getUserMedia` hands out a `FakeMediaStream` — or, with `denied`, rejects
- * the way a refused microphone prompt does.
+ * the way a refused microphone prompt does — and whose `enumerateDevices`
+ * lists `inputs` as audio inputs, their labels blank until a stream has been
+ * granted, as browsers do.
  */
-export const installFakeMedia = (opts: { denied?: boolean } = {}): void => {
+export const installFakeMedia = (
+  opts: { denied?: boolean; inputs?: { id: string; label: string }[] } = {},
+): FakeMediaState => {
   FakeMediaRecorder.instances = [];
   FakeMediaRecorder.chunk = new Blob(["audio"], { type: "audio/webm" });
+  const state: FakeMediaState = { requests: [], streams: [] };
   (globalThis as Globals).MediaRecorder = FakeMediaRecorder;
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
     value: {
-      getUserMedia: async () => {
+      getUserMedia: async (constraints: { audio: unknown }) => {
+        state.requests.push(constraints.audio);
         if (opts.denied) throw new DOMException("Permission denied", "NotAllowedError");
-        return new FakeMediaStream();
+        const stream = new FakeMediaStream();
+        state.streams.push(stream);
+        return stream;
       },
+      enumerateDevices: async () =>
+        (opts.inputs ?? []).map((input) => ({
+          kind: "audioinput",
+          deviceId: input.id,
+          label: state.streams.length > 0 ? input.label : "",
+        })),
     },
   });
+  return state;
 };
 
 /** Remove the fakes, leaving the environment without media capture as happy-dom ships it. */
