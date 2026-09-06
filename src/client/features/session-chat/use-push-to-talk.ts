@@ -20,17 +20,17 @@ export interface PushToTalkState {
   status: PushToTalkStatus;
   /** The last attempt failed or captured nothing; cleared by the next. */
   error: string | undefined;
-  /** Begin a hold: records at once on the open microphone; a no-op when unavailable or not idle. */
+  /** Begin a hold: opens the microphone and records; a no-op when unavailable or not idle. */
   start: () => void;
   /** End the hold: transcribes the capture into the draft; a no-op outside a hold. */
   stop: () => void;
-  /** The audio inputs the browser offers, once the microphone has been opened. */
+  /** The audio inputs the browser offers, once a hold has opened the microphone or a listing was asked for. */
   inputs: AudioInput[];
   /** The chosen input's device id; undefined for the browser's default. */
   deviceId: string | undefined;
   /** The chosen input's name, for display. */
   deviceLabel: string;
-  /** Choose an input (undefined for the browser's default): persisted, and opened in place of the current one. */
+  /** Choose an input (undefined for the browser's default): persisted, and opened by the next hold. */
   setDevice: (deviceId: string | undefined) => void;
   /** Re-list the inputs, for a device plugged in since. */
   refreshInputs: () => void;
@@ -51,18 +51,27 @@ export const DEFAULT_INPUT_LABEL = "Browser default";
 const appendSpoken = (draft: string, spoken: string): string =>
   draft === "" || /\s$/.test(draft) ? `${draft}${spoken}` : `${draft} ${spoken}`;
 
+// One hold's microphone and the recording running on it.
+interface Hold {
+  mic: Microphone;
+  active: Recording;
+  since: number;
+}
+
 /**
- * The composer's push-to-talk over a controlled draft. While available, the
- * chosen microphone is opened on arrival and held until the page is left,
- * so a hold records at once rather than waiting on device start-up; `start`
- * records until `stop`, which sends the capture to be transcribed (and
- * tidied, server-side) and appends the text to `value` via `onChange`.
- * Appends rather than replaces — dictation adds to what's typed, and a
- * draft edited while transcription is in flight keeps that edit. A hold
- * released before the microphone came live, or too short to hold speech,
- * sends nothing and says so. The input choice persists across pages and
- * reloads. Unavailable (and inert) until the models listing reports a
- * transcription model and the recorder can capture.
+ * The composer's push-to-talk over a controlled draft. The microphone is
+ * held only for the hold: `start` opens the chosen input (the browser may
+ * show its permission prompt then) and records until `stop`, which gives
+ * the microphone back as soon as the capture is in hand — so the browser's
+ * recording indicator lights for the hold and no longer — then sends the
+ * capture to be transcribed (and tidied, server-side) and appends the text
+ * to `value` via `onChange`. Appends rather than replaces — dictation adds
+ * to what's typed, and a draft edited while transcription is in flight
+ * keeps that edit. A hold released before the microphone came live, or too
+ * short to hold speech, sends nothing and says so. The input choice
+ * persists across pages and reloads. Unavailable (and inert) until the
+ * models listing reports a transcription model and the recorder can
+ * capture.
  */
 export function usePushToTalk(opts: {
   value: string;
@@ -84,56 +93,45 @@ export function usePushToTalk(opts: {
   // The live draft, read when the text lands so it appends to what's there.
   const latest = useRef(value);
   latest.current = value;
-  // The open microphone, and the open in progress before it is.
-  const mic = useRef<Microphone | null>(null);
-  const opening = useRef<Promise<Microphone> | null>(null);
-  // Whether the hold is still down, and the recording once one is running.
+  // Whether the hold is still down, and its microphone once that is live.
   const holding = useRef(false);
-  const recording = useRef<{ active: Recording; since: number } | null>(null);
+  const hold = useRef<Hold | null>(null);
+  // Set on leaving, so a microphone that comes live afterwards is let go.
+  const left = useRef(false);
 
   const refreshInputs = useCallback(() => {
     void recorder.listInputs().then(setInputs, () => undefined);
   }, [recorder]);
 
-  // Open the chosen input while available, and release it on leaving or
-  // when the choice changes. A refusal on arrival stays quiet — the hold
-  // that needs the microphone asks again and reports.
+  // A remembered input is named by the listing, so ask for it on arrival.
+  // Access was granted when the input was chosen, so this prompts for
+  // nothing; with no choice remembered, the first hold's open lists them.
   useEffect(() => {
-    if (!available) return;
-    let live = true;
-    const pending = recorder.open(deviceId).then((open) => {
-      if (!live) {
-        open.close();
-        throw new Error("microphone closed");
-      }
-      mic.current = open;
-      return open;
-    });
-    opening.current = pending;
-    pending.then(
-      () => {
-        opening.current = null;
-        refreshInputs();
-      },
-      () => {
-        opening.current = null;
-      },
-    );
+    if (available && deviceId !== undefined) refreshInputs();
+  }, [available, deviceId, refreshInputs]);
+
+  // Release everything on leaving: an in-flight capture and its microphone.
+  useEffect(() => {
+    left.current = false;
     return () => {
-      live = false;
+      left.current = true;
       holding.current = false;
-      void recording.current?.active.stop();
-      recording.current = null;
-      mic.current?.close();
-      mic.current = null;
+      const current = hold.current;
+      hold.current = null;
+      if (current) {
+        void current.active.stop();
+        current.mic.close();
+      }
     };
-  }, [available, recorder, deviceId, refreshInputs]);
+  }, []);
 
   const finish = useCallback(
-    async (active: Recording, since: number) => {
+    async ({ mic, active, since }: Hold) => {
       setStatus("transcribing");
       try {
-        const audio = await active.stop();
+        // The microphone goes back as soon as the capture is in hand — not
+        // after the transcription, which takes a while longer.
+        const audio = await active.stop().finally(() => mic.close());
         if (Date.now() - since < minCaptureMs || audio.size === 0) {
           setError(NOTHING_CAPTURED);
           return;
@@ -149,37 +147,29 @@ export function usePushToTalk(opts: {
     [onChange, minCaptureMs],
   );
 
-  const begin = useCallback((open: Microphone) => {
-    recording.current = { active: open.record(), since: Date.now() };
-    setStatus("recording");
-  }, []);
-
   const start = useCallback(() => {
     if (!available || status !== "idle" || holding.current) return;
     holding.current = true;
     setError(undefined);
-    if (mic.current) {
-      begin(mic.current);
-      return;
-    }
     setStatus("starting");
-    // Still opening from arrival, or that open was refused: ask again.
-    const pending =
-      opening.current ??
-      recorder.open(deviceId).then((open) => {
-        mic.current = open;
-        return open;
-      });
-    pending.then(
-      (open) => {
-        if (holding.current) {
-          begin(open);
+    recorder.open(deviceId).then(
+      (mic) => {
+        if (left.current) {
+          mic.close();
           return;
         }
-        // Released while the microphone was still coming live: nothing was
-        // captured, but it is open now, so the next hold records at once.
-        setStatus("idle");
-        setError(NOTHING_CAPTURED);
+        // Labels are withheld until access is granted, which it now is.
+        refreshInputs();
+        if (!holding.current) {
+          // Released while the microphone was still coming live: nothing
+          // was captured, and the microphone isn't wanted after all.
+          mic.close();
+          setStatus("idle");
+          setError(NOTHING_CAPTURED);
+          return;
+        }
+        hold.current = { mic, active: mic.record(), since: Date.now() };
+        setStatus("recording");
       },
       (cause: unknown) => {
         holding.current = false;
@@ -187,14 +177,15 @@ export function usePushToTalk(opts: {
         setError(cause instanceof Error ? cause.message : "microphone unavailable");
       },
     );
-  }, [available, status, recorder, deviceId, begin]);
+  }, [available, status, recorder, deviceId, refreshInputs]);
 
   const stop = useCallback(() => {
     if (!holding.current) return;
     holding.current = false;
-    const current = recording.current;
-    recording.current = null;
-    if (current) void finish(current.active, current.since);
+    const current = hold.current;
+    hold.current = null;
+    // Still starting: the open's own handling sees the hold has ended.
+    if (current) void finish(current);
   }, [finish]);
 
   const setDevice = useCallback((next: string | undefined) => {
