@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
 
 type Variant = "primary" | "default" | "negative" | "negative-quiet" | "dismissive";
 type Size = "inline" | "sm" | "lg";
@@ -43,6 +43,11 @@ const SIZE_CLASSES: Record<Size, string> = {
  * positioning and any shared error slot belong to the surrounding action group.
  * A button that toggles an attached surface (a popover, a disclosure) passes
  * `aria-expanded` / `aria-haspopup` through so assistive tech hears the state.
+ *
+ * A hold action (push-to-talk) takes `onPressStart` / `onPressEnd` instead of
+ * `onClick`: the pair fires on pointer down / up (the pointer is captured, so
+ * a release outside the button still ends the hold) and on Space or Enter
+ * down / up from the keyboard.
  */
 export function Button({
   children,
@@ -53,6 +58,8 @@ export function Button({
   disabled = false,
   type = "button",
   onClick,
+  onPressStart,
+  onPressEnd,
   title,
   "aria-expanded": ariaExpanded,
   "aria-haspopup": ariaHasPopup,
@@ -65,14 +72,45 @@ export function Button({
   disabled?: boolean;
   type?: "button" | "submit" | "reset";
   onClick?: () => void;
+  onPressStart?: () => void;
+  onPressEnd?: () => void;
   title?: string;
   "aria-expanded"?: boolean;
   "aria-haspopup"?: boolean | "dialog" | "listbox" | "menu";
 }) {
+  const hold = onPressStart !== undefined || onPressEnd !== undefined;
+  const onPointerDown = hold
+    ? (event: PointerEvent<HTMLButtonElement>) => {
+        if (event.button !== 0) return;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        onPressStart?.();
+      }
+    : undefined;
+  const onPressKey = (event: KeyboardEvent<HTMLButtonElement>): boolean => {
+    if (event.key !== " " && event.key !== "Enter") return false;
+    // Not the browser's own click for these keys — the hold owns them.
+    event.preventDefault();
+    return true;
+  };
+  const onKeyDown = hold
+    ? (event: KeyboardEvent<HTMLButtonElement>) => {
+        if (onPressKey(event) && !event.repeat) onPressStart?.();
+      }
+    : undefined;
+  const onKeyUp = hold
+    ? (event: KeyboardEvent<HTMLButtonElement>) => {
+        if (onPressKey(event)) onPressEnd?.();
+      }
+    : undefined;
   return (
     <button
       type={type}
       onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerUp={hold ? onPressEnd : undefined}
+      onPointerCancel={hold ? onPressEnd : undefined}
+      onKeyDown={onKeyDown}
+      onKeyUp={onKeyUp}
       disabled={disabled || pending}
       title={title}
       aria-expanded={ariaExpanded}

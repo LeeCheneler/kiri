@@ -644,6 +644,8 @@ export interface ModelsResult {
   shortcuts?: ModelShortcutsConfig;
   /** The configured utility model, `provider:model`; absent when none is set. */
   utility?: string;
+  /** The configured transcription model, `provider:model`; absent when none is set. */
+  transcription?: string;
 }
 
 /** Fetch the models every configured provider offers. Throws on non-2xx. */
@@ -1045,6 +1047,20 @@ export const fetchSuggestedReplies = async (id: string): Promise<string[]> =>
  */
 export const tidyDraft = async (text: string): Promise<string> =>
   (await json<{ text: string }>(await apiFetch("/api/tidy", jsonInit("POST", { text })))).text;
+
+/**
+ * Transcribe a push-to-talk recording into draft text — tidied too, when a
+ * utility model is configured. The server sniffs the audio container, so
+ * whatever the browser recorded goes as is. Empty when nothing was said.
+ * Throws `ApiError` on non-2xx, notably 400 when no transcription model is
+ * configured.
+ */
+export const transcribeAudio = async (audio: Blob): Promise<string> => {
+  const body = new FormData();
+  body.append("audio", audio, "recording");
+  return (await json<{ text: string }>(await apiFetch("/api/transcribe", { method: "POST", body })))
+    .text;
+};
 
 /**
  * Create a session against `model` (a `provider:model` id), returning the new

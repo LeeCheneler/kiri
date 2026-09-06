@@ -24,10 +24,12 @@ import {
 } from "./context-usage.ts";
 import { MessageComposer } from "./message-composer.tsx";
 import { modelLabel } from "./model-options.ts";
+import { PushToTalk } from "./push-to-talk.tsx";
 import { useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
 import { TidyDraft } from "./tidy-draft.tsx";
 import type { ToolPageLinks } from "./tool-invocation.tsx";
+import { usePushToTalk } from "./use-push-to-talk.ts";
 import { useSessionConversation } from "./use-session-conversation.ts";
 import { useSuggestedReplies } from "./use-suggested-replies.ts";
 import { useTidyDraft } from "./use-tidy-draft.ts";
@@ -220,6 +222,7 @@ function ChatView({
   });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
   const tidyState = useTidyDraft({ value: draft, onChange: setDraft });
+  const talkState = usePushToTalk({ value: draft, onChange: setDraft });
   const inputId = useId();
 
   // A failure to surface at the transcript foot: this view's own turn errored,
@@ -511,6 +514,7 @@ function ChatView({
             acceptsImages={acceptsImages}
             controls={
               <>
+                <PushToTalk state={talkState} />
                 <TidyDraft state={tidyState} empty={draft.trim() === ""} />
                 <SessionModelControls id={session.id} />
               </>

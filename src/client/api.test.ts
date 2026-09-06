@@ -13,6 +13,7 @@ import {
   queueSessionMessage,
   rerunRun,
   tidyDraft,
+  transcribeAudio,
   triggerRun,
   truncateSessionMessages,
   withdrawQueuedMessage,
@@ -513,6 +514,23 @@ describe("api client", () => {
 
     expect(seen).toEqual({ text: "so um postgres" });
     expect(text).toBe("I think we should use Postgres.");
+  });
+
+  it("posts the recording as multipart audio to the transcribe endpoint and returns the text", async () => {
+    let seen: { name: string; body: string } | undefined;
+    server.use(
+      http.post("*/api/transcribe", async ({ request }) => {
+        const audio = (await request.formData()).get("audio") as File;
+        seen = { name: audio.name, body: await audio.text() };
+        return HttpResponse.json({ text: "Use Postgres." });
+      }),
+    );
+
+    // The bytes are what matter: the server sniffs the container from them.
+    const text = await transcribeAudio(new Blob(["opus bytes"], { type: "audio/webm" }));
+
+    expect(seen).toEqual({ name: "recording", body: "opus bytes" });
+    expect(text).toBe("Use Postgres.");
   });
 
   it("throws an ApiError carrying 400 when no utility model is configured", async () => {

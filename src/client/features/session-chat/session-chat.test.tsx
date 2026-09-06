@@ -7,6 +7,10 @@ import { http, HttpResponse } from "msw";
 import { StrictMode } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import {
+  installFakeMedia,
+  uninstallFakeMedia,
+} from "../../../../tests/setup/fake-media-recorder.ts";
 import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionChat } from "./session-chat.tsx";
@@ -331,6 +335,51 @@ describe("<SessionChat>", () => {
     renderChat();
     expect(await screen.findByRole("textbox", { name: /message/i })).toBeDefined();
     expect(screen.queryByRole("button", { name: "tidy" })).toBeNull();
+  });
+
+  it("offers push-to-talk when a transcription model is configured and the browser can record", async () => {
+    installFakeMedia();
+    try {
+      server.use(
+        http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+        http.get("*/api/models", () =>
+          HttpResponse.json({
+            models: [],
+            failures: [],
+            transcription: "openrouter:openai/whisper-1",
+          }),
+        ),
+        http.post("*/api/transcribe", () => HttpResponse.json({ text: "Use Postgres." })),
+      );
+      renderChat();
+      const button = await screen.findByRole("button", { name: "hold to talk" });
+      const field = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+
+      fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
+      await screen.findByRole("button", { name: "listening…" });
+      fireEvent.pointerUp(screen.getByRole("button", { name: "listening…" }), {
+        button: 0,
+        pointerId: 1,
+      });
+
+      await waitFor(() => expect(field.value).toBe("Use Postgres."));
+      // The spoken draft is the draft: it persists like anything typed.
+      expect(localStorage.getItem("kiri:session-draft:s1")).toBe("Use Postgres.");
+    } finally {
+      uninstallFakeMedia();
+    }
+  });
+
+  it("offers no push-to-talk without a transcription model", async () => {
+    installFakeMedia();
+    try {
+      server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+      renderChat();
+      expect(await screen.findByRole("textbox", { name: /message/i })).toBeDefined();
+      expect(screen.queryByRole("button", { name: "hold to talk" })).toBeNull();
+    } finally {
+      uninstallFakeMedia();
+    }
   });
 
   it("heads the page with the session's title, falling back to the short id", async () => {
