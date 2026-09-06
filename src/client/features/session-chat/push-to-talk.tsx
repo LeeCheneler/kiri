@@ -3,8 +3,9 @@ import type { PushToTalkState } from "./use-push-to-talk.ts";
 
 /**
  * The composer toolbar's push-to-talk control: a button held to record and
- * released to transcribe into the draft (see `usePushToTalk`), with the last
- * failure inline. Renders nothing when unavailable — the action doesn't
+ * released to transcribe into the draft (see `usePushToTalk`), reading
+ * `starting mic…` until the microphone is live and `listening…` while it
+ * records, with the last failure inline. Renders nothing when unavailable — the action doesn't
  * exist rather than existing disabled.
  */
 export function PushToTalk({ state }: { state: PushToTalkState }) {
@@ -24,7 +25,11 @@ export function PushToTalk({ state }: { state: PushToTalkState }) {
         pendingLabel="transcribing…"
         title="Hold to talk; release to transcribe into the draft"
       >
-        {status === "recording" ? "listening…" : "hold to talk"}
+        {status === "recording"
+          ? "listening…"
+          : status === "starting"
+            ? "starting mic…"
+            : "hold to talk"}
       </Button>
     </>
   );

@@ -84,6 +84,7 @@ import type { Registry } from "../workflows/index.ts";
 import { articleParamSchema, onZodFail } from "./shared.ts";
 
 const log = createLogger("shell");
+const sessionsLog = createLogger("sessions");
 
 export interface SessionsRoutesDeps {
   db: KiriDb;
@@ -665,6 +666,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         utilityModel: deps.getModelsConfig?.().utility,
         audio: new Uint8Array(await audio.arrayBuffer()),
       });
+      // A capture that comes back empty is the thing to see when push-to-talk
+      // seems to do nothing: the bytes reached the model, and it heard silence.
+      sessionsLog.info(
+        `transcribed ${audio.size} bytes of ${audio.type || "audio"} with ${transcriptionModel}: ${text.length} chars`,
+      );
       return c.json({ text });
     },
   );

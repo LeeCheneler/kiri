@@ -18,10 +18,11 @@ describe("defaultRecorder", () => {
     expect(defaultRecorder.supported()).toBe(true);
   });
 
-  it("records the microphone, and on stop releases it and resolves the capture in the recorder's container", async () => {
+  it("records the open microphone, resolving the capture in the recorder's container and keeping the microphone open", async () => {
     installFakeMedia();
 
-    const recording = await defaultRecorder.start();
+    const mic = await defaultRecorder.open();
+    const recording = mic.record();
     const recorder = FakeMediaRecorder.instances[0] as FakeMediaRecorder;
     expect(recorder.state).toBe("recording");
 
@@ -30,32 +31,38 @@ describe("defaultRecorder", () => {
     expect(recorder.state).toBe("inactive");
     expect(audio.type).toBe("audio/webm");
     expect(await audio.text()).toBe("audio");
-    expect(recorder.stream.tracks.every((track) => track.stopped)).toBe(true);
+    expect(recorder.stream.tracks.every((track) => track.stopped)).toBe(false);
   });
 
-  it("resolves an empty capture when the recorder delivered nothing", async () => {
+  it("records again on the same microphone, and close releases it", async () => {
     installFakeMedia();
+
+    const mic = await defaultRecorder.open();
+    await mic.record().stop();
+    await mic.record().stop();
+    expect(FakeMediaRecorder.instances).toHaveLength(2);
+    const stream = (FakeMediaRecorder.instances[0] as FakeMediaRecorder).stream;
+    expect((FakeMediaRecorder.instances[1] as FakeMediaRecorder).stream).toBe(stream);
+
+    mic.close();
+
+    expect(stream.tracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  it("resolves an empty capture when the recorder delivered nothing, skipping empty chunks", async () => {
+    installFakeMedia();
+    const mic = await defaultRecorder.open();
+
     FakeMediaRecorder.chunk = null;
+    expect((await mic.record().stop()).size).toBe(0);
 
-    const recording = await defaultRecorder.start();
-    const audio = await recording.stop();
-
-    expect(audio.size).toBe(0);
-  });
-
-  it("skips empty chunks the recorder delivers", async () => {
-    installFakeMedia();
     FakeMediaRecorder.chunk = new Blob([], { type: "audio/webm" });
-
-    const recording = await defaultRecorder.start();
-    const audio = await recording.stop();
-
-    expect(audio.size).toBe(0);
+    expect((await mic.record().stop()).size).toBe(0);
   });
 
   it("rejects when the microphone is refused", async () => {
     installFakeMedia({ denied: true });
 
-    await expect(defaultRecorder.start()).rejects.toThrow("Permission denied");
+    await expect(defaultRecorder.open()).rejects.toThrow("Permission denied");
   });
 });

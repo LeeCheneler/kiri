@@ -326,6 +326,8 @@ describe("<SessionChat>", () => {
 
       fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
       await screen.findByRole("button", { name: "listening…" });
+      // Long enough to count as speech rather than a slip.
+      await new Promise((resolve) => setTimeout(resolve, 300));
       fireEvent.pointerUp(screen.getByRole("button", { name: "listening…" }), {
         button: 0,
         pointerId: 1,
