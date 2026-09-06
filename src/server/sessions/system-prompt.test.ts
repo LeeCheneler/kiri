@@ -228,6 +228,22 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain("You can save articles");
   });
 
+  it("names [[slug]] as the one way to point at an article, in and out of a project", () => {
+    const projectless = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["create_article"] });
+    expect(projectless).toContain("Refer to an article by writing [[slug]]");
+    expect(projectless).toContain("Never write a URL or markdown link to an article");
+
+    const inProject = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["create_article", "read_article"],
+      project: { name: "Research", articles: [], memories: [] },
+    });
+    // The project layer leaves linking to the shared article guidance rather
+    // than restating it.
+    expect(inProject.match(/\[\[slug\]\]/g)?.length).toBe(1);
+  });
+
   it("steers article changes to a targeted edit over a wholesale replace", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["create_article"] });
     expect(prompt).toContain("prefer a targeted edit_article call");

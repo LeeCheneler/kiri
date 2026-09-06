@@ -360,7 +360,7 @@ export const Markdown = memo(function Markdown({
   withSectionOrdinals?: boolean;
   downgradeHeaderLevels?: number;
   sectionLevel?: HeadingLevel;
-  /** Turns `[[slug]]` references into links when set — the corpus-aware surfaces' affordance (project reading view, project session chat); other surfaces leave the syntax literal. */
+  /** Turns `[[slug]]` references into links when set — the article-aware surfaces' affordance (project and session reading views, the session chat); other surfaces leave the syntax literal. */
   wikiLinkResolver?: WikiLinkResolver;
 }) {
   const resolvedComponents = buildMarkdownComponents({

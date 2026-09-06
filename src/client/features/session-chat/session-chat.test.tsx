@@ -429,22 +429,42 @@ describe("<SessionChat>", () => {
     expect(screen.getByText(/\[\[unknown-doc\]\] does not exist/)).toBeDefined();
   });
 
-  it("leaves [[slug]] references literal in a projectless session's chat", async () => {
+  it("links a projectless session's [[slug]] references to its own articles", async () => {
     server.use(
       http.get("*/api/sessions/:id", () =>
         HttpResponse.json(
           sessionDetail([
             {
               ...message("m1", "assistant", ""),
-              parts: [{ type: "text", text: "See [[game-engine-choice]] for the call." }],
+              parts: [
+                {
+                  type: "text",
+                  text: "I wrote up [[voice-input-proposal]]; [[unknown-doc]] does not exist.",
+                },
+              ],
             },
           ]),
         ),
       ),
+      http.get("*/api/sessions/:id/articles", () =>
+        HttpResponse.json({
+          articles: [
+            {
+              slug: "voice-input-proposal",
+              name: "voice-input-proposal",
+              heading: "RFC: Voice Input",
+              createdAt: "2026-05-09T11:00:00.000Z",
+            },
+          ],
+        }),
+      ),
     );
     renderChat();
 
-    expect(await screen.findByText(/\[\[game-engine-choice\]\]/)).toBeDefined();
+    const link = await screen.findByRole("link", { name: "RFC: Voice Input" });
+    expect(link.getAttribute("href")).toBe("/sessions/s1/articles/voice-input-proposal");
+    // A slug the session doesn't own stays as the literal text it was.
+    expect(screen.getByText(/\[\[unknown-doc\]\] does not exist/)).toBeDefined();
   });
 
   it("warns when the conversation nears the model's context window", async () => {

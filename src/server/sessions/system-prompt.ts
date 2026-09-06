@@ -161,7 +161,7 @@ function buildProjectGuidance(
   ];
   if (canWrite) {
     lines.push(
-      "Write durable knowledge into the corpus: create_article for a new document, edit_article or replace_article to keep an existing one current — including articles other sessions wrote; the corpus is shared, and improving it is normal curation. Cross-reference corpus articles by writing [[slug]] in an article body or in your replies — kiri renders it as a link to that article.",
+      "Write durable knowledge into the corpus: create_article for a new document, edit_article or replace_article to keep an existing one current — including articles other sessions wrote; the corpus is shared, and improving it is normal curation.",
     );
   }
   return lines.join("\n");
@@ -194,16 +194,19 @@ function buildTaskGuidance(tools: string[], project: ProjectPromptContext | null
 
 // Cross-cutting guidance for the first-party article tools — the workflow no
 // single tool description can carry: what an article is *for* (a deliverable
-// kept outside the chat), keeping the full piece out of the reply, and how to
-// choose between a targeted edit and a wholesale replace. Keyed off the create
-// tool's name, so it appears exactly when the article tools are offered and
-// never in a plain chat.
+// kept outside the chat), keeping the full piece out of the reply, how to
+// point at an article (the one syntax kiri renders — a model has no article
+// URL to write, and an invented one goes nowhere), and how to choose between
+// a targeted edit and a wholesale replace. Keyed off the create tool's name,
+// so it appears exactly when the article tools are offered and never in a
+// plain chat.
 function buildArticleGuidance(tools: string[]): string | null {
   if (!tools.includes("create_article")) return null;
   return [
     "You can save articles: standalone markdown documents kept outside this conversation, listed alongside the session, and opened in kiri's reading view. An article is for a deliverable — a write-up, report, digest, guide, or reference the user will want after the chat scrolls on. When the user asks for one, put the full piece in the article and keep your reply to a sentence or two saying what you wrote; never paste the article's body back into the chat.",
     "Working with articles:",
     "- Open the body with a `# ` title heading. Charts (fenced `chart`) and diagrams (fenced `mermaid`) render inside articles exactly as they do in your replies.",
+    "- Refer to an article by writing [[slug]] — in your replies, including the pointer after you write one, and in article bodies to cross-reference others. kiri renders it as a link titled with the article's heading. Never write a URL or markdown link to an article: you don't know its address, and an invented one goes nowhere.",
     "- To change an article, prefer a targeted edit_article call — the exact current text as old_string, its replacement as new_string. Reach for replace_article only when most of the body is changing.",
     "- You already know the content of an article you just wrote or edited — call read_article only when its content is no longer in the conversation.",
   ].join("\n");
