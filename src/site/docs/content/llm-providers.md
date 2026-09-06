@@ -42,6 +42,7 @@ needs none.
 | --- | --- | --- |
 | `anthropic` | Anthropic's API | optional override |
 | `openai` | OpenAI's API | optional override |
+| `openai-codex` | Codex using your ChatGPT subscription login | not allowed |
 | `openai-compatible` | Any OpenAI-compatible server — LM Studio, Ollama, vLLM, … | **required** |
 
 ## Keys stay out of git
@@ -55,6 +56,61 @@ a missing var fails the step cleanly.
 # .env  (workspace root, git-ignored)
 ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+## Codex with a ChatGPT subscription
+
+Use `openai-codex` to call the Codex backend with your ChatGPT subscription
+login. Install the Codex CLI and configure file credential storage in
+`~/.codex/config.toml` (or `$CODEX_HOME/config.toml`):
+
+```toml
+cli_auth_credentials_store = "file"
+```
+
+Then sign in with your ChatGPT account:
+
+```sh
+codex login
+```
+
+Codex also supports OS keyring storage, which Kiri cannot read. See the
+[Codex authentication guide](https://learn.chatgpt.com/docs/auth) for login
+and credential-storage options.
+
+Add a provider to your workspace's `kiri.yaml`:
+
+```yaml
+providers:
+  codex:
+    type: openai-codex
+```
+
+Choose a `codex:<model-id>` in the model picker. The name `codex` is yours to
+choose; model IDs come from the account's Codex catalogue and may differ
+from OpenAI's API catalogue. Use those same references in text shortcuts,
+delegates, `models.utility`, and workflow `llm:` steps.
+
+Kiri reads `auth.json` under `CODEX_HOME` (default `~/.codex`) for each
+request. It never writes the file, uses a refresh token, or starts Codex.
+When the access token expires or is rejected, run `codex login` and retry.
+If Codex has already updated the file during normal use, Kiri picks up the
+new credentials automatically. No Kiri restart is needed. Returning to the
+app rechecks the health banner; a local expiry check does not verify backend
+access. Keep the credential file out of your repository and shared logs.
+
+Sessions support streaming, tools, token usage, and image input when the
+model advertises it. Utility calls and `llm:` steps collect the streamed
+response into their usual final text result. Effort is clamped to the
+model's advertised levels. This provider offers neither image generation
+nor audio transcription; configure another provider for those capabilities.
+
+The provider rejects `api_key` and `base_url`. It never falls back to
+`OPENAI_API_KEY`; requests use your Codex account's entitlements and limits.
+A separate `type: openai` provider continues to use API billing.
+
+This integration uses the Codex backend rather than the public OpenAI API.
+Its endpoint and model-listing protocol, including the required client
+version, may change and require a Kiri update.
 
 ## Gateways and local models
 
@@ -160,7 +216,7 @@ same endpoint. Unset, push-to-talk stays off.
 
 Edits to `kiri.yaml` apply live; an invalid edit keeps the last-known-good
 config. Problems — an unset key variable, a reference to an undeclared
-provider — never block boot: they're flagged in the boot report and the
+provider, or expired Codex credentials — never block boot: they're flagged in the boot report and the
 in-app health banner. See [Troubleshooting](/docs/troubleshooting).
 
 Every `kiri.yaml` field is listed in the

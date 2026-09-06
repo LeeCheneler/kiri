@@ -1,8 +1,17 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { renderHealth } from "../launch-screen.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { LlmProvider } from "../llm/schema.ts";
 import type { McpServer } from "../mcp/schema.ts";
-import { type ConfigCheck, evaluateConfigHealth, evaluateModelListingHealth } from "./health.ts";
+import {
+  type ConfigCheck,
+  evaluateConfigHealth,
+  evaluateModelListingHealth,
+  evaluateProviderAuthHealth,
+} from "./health.ts";
 import type { KiriConfigLoadResult } from "./loader.ts";
 
 const providerMap = (...providers: LlmProvider[]): Map<string, LlmProvider> =>
@@ -332,5 +341,92 @@ describe("evaluateModelListingHealth", () => {
       clientsListing([{ id: "a:small", provider: "a" }]),
     );
     expect(checks).toHaveLength(0);
+  });
+});
+
+describe("evaluateProviderAuthHealth", () => {
+  let home: string;
+  const config = result({
+    providers: providerMap(
+      { name: "codex", type: "openai-codex" },
+      { name: "second", type: "openai-codex" },
+      { name: "api", type: "openai" },
+    ),
+  });
+  const save = (exp: number) =>
+    writeFileSync(
+      join(home, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: `header.${Buffer.from(JSON.stringify({ exp })).toString("base64url")}.secret-signature`,
+          account_id: "secret-account",
+          refresh_token: "secret-refresh",
+        },
+      }),
+    );
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "kiri-auth-health-"));
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("skips file credentials when no Codex provider is configured", async () => {
+    expect(await evaluateProviderAuthHealth(result(), { CODEX_HOME: home })).toEqual([]);
+  });
+
+  it("reports local availability and expiry without exposing credentials", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 600;
+    save(exp);
+    const checks = await evaluateProviderAuthHealth(config, { CODEX_HOME: home });
+    expect(checks).toHaveLength(2);
+    expect(checks[0]).toMatchObject({
+      area: "providers",
+      level: "ok",
+      title: "codex: Codex credentials available",
+    });
+    expect(checks[1].title).toBe("second: Codex credentials available");
+    expect(checks[0].detail).toContain(new Date(exp * 1000).toUTCString());
+    expect(JSON.stringify(checks)).not.toContain("secret-");
+    expect(renderHealth({ checks })).toEqual([]);
+  });
+
+  it("warns at startup when expired and recognizes renewed credentials", async () => {
+    save(1);
+    const checks = await evaluateProviderAuthHealth(config, { CODEX_HOME: home });
+    expect(checks[0]).toMatchObject({
+      level: "error",
+      title: "codex: Codex authentication expired",
+    });
+    expect(renderHealth({ checks }).join("\n")).toContain("Run `codex login`");
+    save(Math.floor(Date.now() / 1000) + 600);
+    expect((await evaluateProviderAuthHealth(config, { CODEX_HOME: home }))[0].level).toBe("ok");
+  });
+
+  it("explains file storage when credentials are absent", async () => {
+    const [check] = await evaluateProviderAuthHealth(config, { CODEX_HOME: home });
+    expect(check.level).toBe("error");
+    expect(check.title).toContain("file credentials are missing");
+    expect(check.detail).toContain('cli_auth_credentials_store = "file"');
+    expect(check.detail).toContain("codex login");
+  });
+
+  it("sanitizes invalid credentials", async () => {
+    writeFileSync(join(home, "auth.json"), "private-invalid-token");
+    const checks = await evaluateProviderAuthHealth(config, { CODEX_HOME: home });
+    expect(checks[0]).toMatchObject({
+      level: "error",
+      title: "codex: Codex file credentials are invalid",
+    });
+    expect(JSON.stringify(checks)).not.toContain("private-invalid-token");
+  });
+
+  it("reports unreadable credentials without failing the report", async () => {
+    mkdirSync(join(home, "auth.json"));
+    const [check] = await evaluateProviderAuthHealth(config, { CODEX_HOME: home });
+    expect(check.level).toBe("error");
+    expect(check.title).toContain("could not be read");
+    expect(check.detail).toContain("Check access");
   });
 });

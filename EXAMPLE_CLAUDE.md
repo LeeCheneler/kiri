@@ -334,7 +334,7 @@ Providers live under `providers:` in the workspace-root `kiri.yaml` (kept in git
 
 providers:
   anthropic:                  # entry name = the `provider:` prefix in a model id
-    type: anthropic           # anthropic | openai | openai-compatible
+    type: anthropic           # anthropic | openai | openai-compatible | openai-codex
     api_key:
       env: ANTHROPIC_API_KEY  # API keys are ALWAYS { env: <NAME> } refs — never a literal
   local:
@@ -342,7 +342,8 @@ providers:
     base_url: http://localhost:1234/v1   # required for openai-compatible (LM Studio, Ollama, vLLM)
 ```
 
-- **`type`** is one of `anthropic`, `openai`, `openai-compatible`. `base_url` is optional for the first two (override the default endpoint) and **required** for `openai-compatible`.
+- **`type`** is one of `anthropic`, `openai`, `openai-compatible`, `openai-codex`. `base_url` is optional for the first two (override the default endpoint) and **required** for `openai-compatible`.
+- **Codex subscription auth:** `type: openai-codex` accepts neither `api_key` nor `base_url`. The user signs in through `codex login` with file credential storage; Kiri reads `CODEX_HOME/auth.json` (default `~/.codex/auth.json`) without refreshing or writing it. Expired or rejected tokens require re-login. Use model IDs from the picker; text sessions, delegates, utility calls and `llm:` steps work, but image generation and transcription need another provider.
 - **`api_key` is only ever `{ env: <NAME> }`** — a reference to the environment variable holding the key. A literal key string is rejected so secrets stay out of git; the key is read at run time, and a missing env var fails the step cleanly.
 - The `providers:` map is **optional** — a workspace with no `llm:` steps needs none. A worked example lives in `examples/kiri.yaml`.
 - **File name:** `kiri.yaml` is canonical; `kiri.yml` works too. If both exist, `kiri.yaml` wins (kiri warns).

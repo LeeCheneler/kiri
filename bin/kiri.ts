@@ -5,7 +5,7 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { bootstrap } from "../src/server/bootstrap.ts";
 import { DEFAULT_PORT, resolveConfigDir, resolvePort } from "../src/server/config-dir.ts";
 import { loadWorkspaceEnv } from "../src/server/config/env.ts";
-import { evaluateConfigHealth } from "../src/server/config/health.ts";
+import { evaluateConfigHealth, evaluateProviderAuthHealth } from "../src/server/config/health.ts";
 import { loadKiriConfig } from "../src/server/config/loader.ts";
 import { createConfigStore } from "../src/server/config/store.ts";
 import { watchKiriConfig } from "../src/server/config/watcher.ts";
@@ -175,6 +175,7 @@ for (const status of mcpStatuses) {
 // Surface configuration health at boot — warn-and-continue, never blocking the
 // server from starting. The same report is served at GET /api/config/health.
 const health = evaluateConfigHealth({ kiriConfig, env: process.env });
+health.checks.push(...(await evaluateProviderAuthHealth(kiriConfig, process.env)));
 printRows(renderHealth(health));
 // Provider names come live off the registry so a kiri.yaml reload re-validates
 // workflows against the new set (see the config watcher below).

@@ -211,6 +211,7 @@ every step; \`KIRI_BUNDLE_DIR\` into \`use:\` steps;
 
 ## llm: steps
 
+- A configured \`openai-codex\` provider works for \`llm:\` steps through the user's Codex CLI login. Use its listed model IDs; on expired or rejected authentication, tell the user to run \`codex login\` and retry. Never read or copy credential files into a workflow.
 - \`model\` is \`provider:model\` — the prefix must name a provider configured
   in the workspace's kiri.yaml. **Never invent one.** Use, in order: a model
   the user's standing instructions name as preferred for workflows, a

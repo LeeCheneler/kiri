@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CODEX_BASE_URL, createCodexFetch } from "./codex-fetch.ts";
 import type { LlmProviderRegistry } from "./registry.ts";
 import type { LlmProvider, ProviderType } from "./schema.ts";
 
@@ -37,6 +38,8 @@ export interface LlmModelInfo {
    * the models endpoint's response.
    */
   reasoning: boolean;
+  /** Server-side effort levels advertised by Codex, ordered by capability at use. */
+  reasoningLevels?: string[];
 }
 
 /** A provider whose model listing failed. Never fatal — collected, not thrown. */
@@ -331,7 +334,37 @@ const nativeListingSchema = z
   );
 
 /** A model id from a provider's listing, with any limits the listing reported. */
-type ProviderModel = z.infer<typeof listingEntrySchema>;
+type ProviderModel = z.infer<typeof listingEntrySchema> & { reasoningLevels?: string[] };
+
+// The Codex backend requires a client version; pinned to the verified protocol.
+const CODEX_CLIENT_VERSION = "0.153.4";
+const codexListingEntrySchema = z.object({
+  slug: z.string().min(1),
+  visibility: z.literal("list"),
+  context_window: tokenLimit,
+  input_modalities: z.array(z.string()).optional(),
+  supported_reasoning_levels: z.array(z.object({ effort: z.string() })).optional(),
+});
+const codexListingSchema = z
+  .object({ models: z.array(z.unknown()) })
+  .transform((body): ProviderModel[] =>
+    body.models.flatMap((entry) => {
+      const parsed = codexListingEntrySchema.safeParse(entry);
+      if (!parsed.success) return [];
+      const model = parsed.data;
+      const reasoningLevels = model.supported_reasoning_levels?.map((level) => level.effort) ?? [];
+      return [
+        {
+          id: model.slug,
+          output: "text" as const,
+          imageInput: model.input_modalities?.includes("image"),
+          reasoning: reasoningLevels.some((level) => level !== "none"),
+          reasoningLevels,
+          limits: { contextWindow: model.context_window, outputLimit: undefined },
+        },
+      ];
+    }),
+  );
 
 /**
  * List the models every configured provider offers, namespaced as `provider:model`.
@@ -377,6 +410,7 @@ export async function listLlmModels(
         output: entry.output,
         imageInput: entry.imageInput,
         reasoning: entry.reasoning,
+        ...(entry.reasoningLevels !== undefined ? { reasoningLevels: entry.reasoningLevels } : {}),
       });
     }
   }
@@ -396,6 +430,14 @@ async function listProviderModels(
   const { url, headers } = buildRequest(provider, apiKey);
 
   try {
+    if (provider.type === "openai-codex") {
+      const response = await createCodexFetch(env, provider.name)(
+        `${CODEX_BASE_URL}/models?client_version=${CODEX_CLIENT_VERSION}`,
+        { signal: AbortSignal.timeout(10_000) },
+      );
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
+      return { provider, entries: codexListingSchema.parse(await response.json()) };
+    }
     const response = await fetch(url, { headers });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
     const entries = listingSchema.parse(await response.json());

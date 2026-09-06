@@ -145,6 +145,10 @@ function loadConfigFile(
   const providers = new Map<string, LlmProvider>();
   const missing: string[] = [];
   for (const [name, entry] of Object.entries(result.data.providers ?? {})) {
+    if (entry.type === "openai-codex") {
+      providers.set(name, { name, type: entry.type });
+      continue;
+    }
     if (entry.api_key && env[entry.api_key.env] === undefined) {
       missing.push(`"${name}" → ${entry.api_key.env}`);
       continue;

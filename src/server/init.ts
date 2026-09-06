@@ -143,7 +143,7 @@ need them if you use \`llm:\` steps.
 # kiri.yaml
 providers:
   anthropic:
-    type: anthropic          # anthropic | openai | openai-compatible
+    type: anthropic          # anthropic | openai | openai-compatible | openai-codex
     api_key:
       env: ANTHROPIC_API_KEY  # API keys are always { env: <NAME> } refs — never a literal
   local:
@@ -153,6 +153,12 @@ providers:
 
 An API key is only ever a \`{ env: <NAME> }\` reference to an environment
 variable, so secrets stay out of git; the key is read at run time.
+
+For ChatGPT subscription access, declare \`type: openai-codex\` with no
+\`api_key\` or \`base_url\`. Sign in using \`codex login\` with file credential
+storage configured in Codex. Kiri reads \`~/.codex/auth.json\` (or
+\`CODEX_HOME/auth.json\`) without refreshing or writing it. If credentials
+expire, log in again and retry. Choose model IDs from the session picker.
 
 ## Inputs
 
@@ -344,6 +350,10 @@ export const DEFAULT_KIRI_CONFIG = `# yaml-language-server: $schema=.kiri/kiri.s
 #     type: anthropic
 #     api_key:
 #       env: ANTHROPIC_API_KEY
+#   codex:
+#     type: openai-codex               # ChatGPT subscription; Codex file credentials
+#     # Run \`codex login\` with cli_auth_credentials_store = "file" in Codex config.
+#     # If credentials expire, log in again and retry; Kiri never refreshes them.
 #   local:
 #     type: openai-compatible          # LM Studio, Ollama, vLLM, …
 #     base_url: http://localhost:1234/v1

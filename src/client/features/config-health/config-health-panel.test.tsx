@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
@@ -47,6 +47,38 @@ describe("<ConfigHealthPanel>", () => {
     // A degraded check reads as a warning, an error as a negative.
     expect(container.querySelector("[data-tone='warning']")).not.toBeNull();
     expect(container.querySelector("[data-tone='negative']")).not.toBeNull();
+  });
+
+  it("clears an expired-login warning when returning after an external login", async () => {
+    let loggedIn = false;
+    server.use(
+      http.get("*/api/config/health", () =>
+        HttpResponse.json({
+          checks: loggedIn
+            ? []
+            : [
+                {
+                  area: "providers",
+                  level: "error",
+                  title: "codex: Codex authentication expired",
+                  detail: "Run `codex login`, then retry.",
+                },
+              ],
+        }),
+      ),
+    );
+    renderPanel(<ConfigHealthPanel />);
+    expect(await screen.findByText("codex: Codex authentication expired")).toBeDefined();
+    try {
+      focusManager.setFocused(false);
+      loggedIn = true;
+      focusManager.setFocused(true);
+      await waitFor(() =>
+        expect(screen.queryByText("codex: Codex authentication expired")).toBeNull(),
+      );
+    } finally {
+      focusManager.setFocused(undefined);
+    }
   });
 
   it("renders nothing when every check is ok", async () => {

@@ -9,10 +9,15 @@ const modelsKey = ["models"] as const;
 
 /**
  * Read the workspace's configuration-health report. Fetched on first use and
- * served from cache thereafter; kept current by `useConfigHealthLive`.
+ * refreshed by `useConfigHealthLive` and on focus, since Codex login can
+ * change credentials outside Kiri's configuration watcher.
  */
 export function useConfigHealth(): UseQueryResult<ConfigHealth> {
-  return useQuery({ queryKey: configHealthKey, queryFn: fetchConfigHealth });
+  return useQuery({
+    queryKey: configHealthKey,
+    queryFn: fetchConfigHealth,
+    refetchOnWindowFocus: "always",
+  });
 }
 
 /**

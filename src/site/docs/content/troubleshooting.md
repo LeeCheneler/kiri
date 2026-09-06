@@ -21,8 +21,8 @@ cross-origin hop.
 
 ## A provider key is missing or invalid
 
-If the config-health report flags a provider as an **error**, its API-key env var
-is unset. Keys are `{ env: <NAME> }` refs in `kiri.yaml`; set the named variable
+If the config-health report says a provider's API-key env var is unset,
+configure that variable. Keys are `{ env: <NAME> }` refs in `kiri.yaml`; set the named variable
 in your environment or your git-ignored workspace `.env`:
 
 ```sh
@@ -33,6 +33,23 @@ ANTHROPIC_API_KEY=sk-ant-...
 Kiri auto-loads `.env` from the **config dir**. If you launch with
 `KIRI_CONFIG_DIR` pointed elsewhere, make sure the `.env` lives in *that*
 directory, not the one you launched from.
+
+## Codex authentication is expired or unavailable
+
+For an `openai-codex` provider, run `codex login` with your ChatGPT account,
+then return to Kiri and retry. Kiri re-reads credentials without restarting;
+the health banner rechecks when you return to the app.
+
+If Codex is signed in but Kiri reports missing file credentials, configure
+`cli_auth_credentials_store = "file"` in Codex's `config.toml` and sign in
+again. Kiri cannot read OS keyring credentials. Both processes must use the
+same `CODEX_HOME` (default `~/.codex`). For an unreadable-file error, check
+access to `auth.json` in that directory. Do not copy tokens into `kiri.yaml`.
+
+The local expiry timestamp cannot detect revocation. A rejected request can
+require another login even before that timestamp. A model-listing or protocol
+error after a successful login may require updating Kiri; see
+[Codex setup](/docs/llm-providers#codex-with-a-chatgpt-subscription).
 
 ## No providers configured
 

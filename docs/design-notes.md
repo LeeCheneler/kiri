@@ -211,7 +211,7 @@ First-party LLM steps reference named endpoints declared under `providers:` in t
 ```yaml
 providers:
   anthropic:
-    type: anthropic                  # required — anthropic | openai | openai-compatible
+    type: anthropic                  # required — anthropic | openai | openai-compatible | openai-codex
   work-openai:
     type: openai
     api_key: { env: WORK_OPENAI_KEY }
@@ -225,6 +225,7 @@ providers:
 - **`type` is always required** and selects the API the endpoint speaks; there is no inference from the entry's key. Each entry is a discriminated union on `type`, so the published JSON Schema enforces every rule in-editor — notably that `openai-compatible` requires a `base_url`.
 - **`api_key` is an `{ env: <NAME> }` reference only**, never a literal key. This mirrors the `{ input: }` idiom in workflow `env:` and keeps secrets out of the git-tracked YAML. When omitted, `anthropic`/`openai` fall back to the conventional `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`; `openai-compatible` needs no key.
 - Kiri reads the config at startup into an in-memory registry. A **missing file is first-class** — an empty registry, not an error. A present file is validated, and a declared `{ env: }` ref must name a variable set in the kiri process or the load fails with the offending key named — the same posture as a workflow referencing a missing bundle. Only *declared* refs are checked at load; conventional fallbacks resolve when a provider is used. Resolved key **values are never persisted, snapshotted, or echoed in errors** — the registry keeps only the env var's name.
+- **Codex subscription auth.** `openai-codex` is a strict provider branch accepting neither `api_key` nor `base_url`. The AI SDK Responses adapter sends streaming requests with `store: false` and includes encrypted reasoning for stateless history replay. Credentials are read afresh from `CODEX_HOME/auth.json` (default `~/.codex/auth.json`); Kiri never refreshes, writes, or spawns Codex to manage them. File storage and `codex login` are user-managed requirements. A 401 re-reads the file and retries once only if credentials changed; otherwise the user is told to log in again. Model discovery uses the Codex catalogue, filters hidden models, and carries context limits, image-input capability and supported effort levels. Image generation and transcription are unsupported. Startup and HTTP health report local credential availability and expiry; returning to the app refreshes health to pick up external logins.
 - **Env source.** Kiri loads `.env` from the workspace root — the resolved config dir, not the launch cwd — at startup, so a workspace pinned via `KIRI_CONFIG_DIR` gets its own `.env` regardless of where kiri was launched from. The variables your `{ env: }` refs name resolve from there or the ambient environment. Existing variables win: an ambient export of the same name is left untouched, and an absent `.env` is a no-op.
 - **Editor support.** Kiri publishes `.kiri/kiri.schema.json` on every launch, alongside the workflow schema, for YAML validation and autocomplete — map it the same way (modeline or `yaml.schemas`).
 - **Workflows validate against it.** An `llm:` step's `model` is a `provider:model` id; the prefix must name a provider in this registry or the workflow fails to load — the same posture as a missing bundle.
@@ -233,7 +234,7 @@ providers:
 
 ### LLM step execution
 
-An `llm:` step runs as a single non-streaming completion inside the kiri process — nothing is spawned. The runner renders the prompt template, calls the model through the provider registry, and maps the result onto the standard step envelope:
+An `llm:` step returns a single completion inside the kiri process — nothing is spawned. The Codex provider collects a streamed response into final text and usage; other providers use non-streaming generation. The runner renders the prompt template, calls the model through the provider registry, and maps the result onto the standard step envelope:
 
 - **Prompt rendering.** Same `{{VAR}}` semantics as the script bundles' renderer (ASCII `[A-Z_][A-Z0-9_]*` names, one left-to-right pass, unknown names resolve to empty, substituted values never re-scanned), so existing bundle prompt templates port to `llm:` steps unchanged. The vars map is the step's env scope — its own `env:` (with refs resolved) plus the kiri-injected vars (`KIRI_RUN_ID`, `KIRI_STEP_INDEX`, `KIRI_REPO_ROOT`).
 - **Envelope mapping.** The completion text becomes `output` and `traces.stdout`; `traces.stderr` stays empty — there is no second stream. Token counts from the response are persisted on `traces.usage` (input/output/total, fields omitted when the provider doesn't report them). A provider or API error fails the step with the provider's message; halt-on-failure semantics match every other step.

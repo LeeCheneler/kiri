@@ -5,6 +5,11 @@
 # An API key is only ever a `{ env: <NAME> }` reference to an environment
 # variable — a literal key is rejected so secrets never land in git.
 providers:
+  # Optional ChatGPT subscription access; see the Models & providers docs.
+  # Use file credential storage in Codex, then run `codex login`.
+  # codex:
+  #   type: openai-codex
+
   # Anthropic's API. The key is read from $ANTHROPIC_API_KEY at run time.
   # A step's `model: anthropic:claude-haiku-4-5` resolves against this entry.
   anthropic:

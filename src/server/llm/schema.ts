@@ -37,6 +37,15 @@ const providerEntrySchema = z.discriminatedUnion("type", [
   anthropicProviderSchema,
   openaiProviderSchema,
   openaiCompatibleProviderSchema,
+  z
+    .object({
+      type: z
+        .literal("openai-codex")
+        .describe(
+          "ChatGPT subscription access using Codex CLI file credentials. Run codex login; api_key and base_url are not accepted.",
+        ),
+    })
+    .strict(),
 ]);
 
 /** Schema for the `providers:` map in `kiri.yaml`, keyed by provider name. */
@@ -55,8 +64,8 @@ export type { EnvRef } from "../config/env-ref.ts";
 /**
  * A provider after the loader resolves it: its `type`, the optional base URL,
  * and the *name* of the environment variable its API key is read from (never
- * the key's value). `apiKeyEnv` is undefined only for an `openai-compatible`
- * provider with no declared `api_key`.
+ * the key's value). `apiKeyEnv` is undefined for Codex subscription auth and
+ * keyless `openai-compatible` providers.
  */
 export interface LlmProvider {
   /** Provider name — the `providers:` map key. */
