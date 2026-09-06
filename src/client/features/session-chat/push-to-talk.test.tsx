@@ -344,6 +344,49 @@ describe("<PushToTalk>", () => {
     expect(counts.opens).toBe(1);
   });
 
+  it("shows a hollow ring until the microphone is live, a red dot while listening, and a blue one while transcribing", async () => {
+    let answer: (() => void) | undefined;
+    server.use(
+      modelsWith(MODEL),
+      http.post("*/api/transcribe", async () => {
+        await new Promise<void>((resolve) => {
+          answer = resolve;
+        });
+        return HttpResponse.json({ text: "spoken" });
+      }),
+    );
+    const { recorder, makeReady } = fakeRecorder({ ready: false });
+    renderHarness(recorder);
+    const indicator = () => micButton().querySelector("span[aria-hidden='true'] > span");
+
+    // Idle: the glyph, and no indicator.
+    const button = await talkButton();
+    expect(indicator()).toBeNull();
+
+    // Pressed: a hollow ring says the microphone is still coming up.
+    hold(button);
+    await screen.findByRole("button", { name: "starting mic…" });
+    expect(indicator()?.className).toContain("border-status-failed");
+    expect(indicator()?.className).not.toContain("bg-status-failed");
+
+    // Live: the ring fills — the cue to speak.
+    makeReady();
+    await screen.findByRole("button", { name: "listening…" });
+    expect(indicator()?.className).toContain("bg-status-failed");
+    expect(indicator()?.className).toContain("animate-pulse");
+
+    // Released: blue while the capture is transcribed.
+    release(micButton());
+    await screen.findByRole("button", { name: "transcribing…" });
+    expect(indicator()?.className).toContain("bg-status-running");
+    answer?.();
+
+    // Done: the glyph again.
+    await waitFor(() => expect(draftBox().value).toBe("spoken"));
+    expect(await talkButton()).toBeDefined();
+    expect(indicator()).toBeNull();
+  });
+
   it("appends the spoken text to a draft, after a space unless it already ends in one", async () => {
     server.use(modelsWith(MODEL), transcribing("and Redis."));
     const { recorder } = fakeRecorder();
