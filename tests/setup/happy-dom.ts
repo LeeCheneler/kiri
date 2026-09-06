@@ -20,12 +20,19 @@ import { FakeIntersectionObserver } from "./fake-intersection-observer.ts";
 // `globalThis.Event`. If we restored native Event, every keystroke or
 // blur would fail that check. MSW's interceptor operates on its own
 // native AbortSignal — not on DOM nodes — so it doesn't touch this path.
+//
+// `Blob` and `File` go with `FormData`: native FormData.append rejects a
+// happy-dom File ("Expected argument to be a Blob"), so any multipart
+// request built under the DOM globals — the AI SDK's transcription model
+// posts its audio that way — would fail before it left the process.
 const nativeKeys = [
   "fetch",
   "Request",
   "Response",
   "Headers",
   "FormData",
+  "Blob",
+  "File",
   "AbortController",
   "AbortSignal",
   "EventTarget",
