@@ -160,7 +160,7 @@ describe("<PushToTalk>", () => {
     expect(counts.opens).toBe(0);
   });
 
-  it("opens the browser's default microphone on arrival and lists the inputs, so a hold records at once", async () => {
+  it("opens no microphone until the first hold, then lists the inputs and keeps it open", async () => {
     let sent: File | undefined;
     server.use(
       modelsWith(MODEL),
@@ -178,49 +178,61 @@ describe("<PushToTalk>", () => {
     });
 
     const button = await talkButton();
+    // Nothing captured until the user holds.
+    expect(opened).toEqual([]);
+    expect(latest?.inputs).toEqual([]);
+
+    hold(button);
+    expect(await screen.findByRole("button", { name: "listening…" })).toBeDefined();
     await waitFor(() => expect(latest?.inputs).toEqual(INPUTS));
     expect(opened).toEqual([undefined]);
     expect(screen.getByLabelText("Microphone").textContent).toBe(DEFAULT_INPUT_LABEL);
 
-    hold(button);
-    expect(screen.getByRole("button", { name: "listening…" })).toBeDefined();
     release(screen.getByRole("button", { name: "listening…" }));
-    expect(await screen.findByText("transcribing…")).toBeDefined();
-
     await waitFor(() => expect(draftBox().value).toBe("Use Postgres."));
-    expect(await talkButton()).toBeDefined();
     expect(sent?.size).toBe(5);
-    expect(counts).toEqual({ opens: 1, records: 1, stops: 1, closes: 0, listings: 1 });
+
+    // Still open, so the next hold records without reopening.
+    await holdUntilListening();
+    release(micButton());
+    await waitFor(() => expect(draftBox().value).toBe("Use Postgres. Use Postgres."));
+    expect(counts).toEqual({ opens: 1, records: 2, stops: 2, closes: 0, listings: 1 });
   });
 
-  it("opens the remembered input, and switching input reopens and persists", async () => {
+  it("opens the remembered input on the first hold, and switching input releases it and applies from the next hold", async () => {
     server.use(modelsWith(MODEL), transcribing("spoken"));
     setMicrophonePreference("usb-1");
     const user = userEvent.setup();
     const { recorder, counts, opened } = fakeRecorder();
     renderHarness(recorder);
 
-    await talkButton();
+    // The first hold opens the remembered input.
+    await holdUntilListening();
     await waitFor(() => expect(screen.getByLabelText("Microphone").textContent).toBe("USB Audio"));
     expect(opened).toEqual(["usb-1"]);
+    release(micButton());
+    await waitFor(() => expect(draftBox().value).toBe("spoken"));
 
+    // Switching releases the open microphone rather than reopening at once.
     await user.click(screen.getByRole("button", { name: "use default" }));
-
-    await waitFor(() => expect(opened).toEqual(["usb-1", undefined]));
-    expect(counts.closes).toBe(1);
+    await waitFor(() => expect(counts.closes).toBe(1));
     expect(microphonePreference()).toBeUndefined();
     await waitFor(() =>
       expect(screen.getByLabelText("Microphone").textContent).toBe(DEFAULT_INPUT_LABEL),
     );
 
-    await user.click(screen.getByRole("button", { name: "use usb" }));
+    // The next hold opens the new choice.
+    await holdUntilListening();
+    await waitFor(() => expect(opened).toEqual(["usb-1", undefined]));
+    release(micButton());
+    await waitFor(() => expect(draftBox().value).toBe("spoken spoken"));
 
+    await user.click(screen.getByRole("button", { name: "use usb" }));
+    await holdUntilListening();
     await waitFor(() => expect(opened).toEqual(["usb-1", undefined, "usb-1"]));
     expect(microphonePreference()).toBe("usb-1");
-    // The reopened microphone still records.
-    await holdUntilListening();
     release(micButton());
-    await waitFor(() => expect(draftBox().value).toBe("spoken"));
+    await waitFor(() => expect(draftBox().value).toBe("spoken spoken spoken"));
   });
 
   it("shows the browser default when the remembered input is no longer listed", async () => {
@@ -260,7 +272,9 @@ describe("<PushToTalk>", () => {
     const user = userEvent.setup();
     const { recorder, counts } = fakeRecorder();
     renderHarness(recorder);
-    await talkButton();
+    // Inputs are listed once the first hold has opened the microphone.
+    await holdUntilListening();
+    release(micButton());
     await waitFor(() => expect(counts.listings).toBe(1));
 
     await user.click(screen.getByRole("button", { name: "refresh inputs" }));
@@ -268,7 +282,7 @@ describe("<PushToTalk>", () => {
     await waitFor(() => expect(counts.listings).toBe(2));
   });
 
-  it("waits for a microphone still opening on arrival, then records", async () => {
+  it("waits for a microphone still opening while held, then records", async () => {
     server.use(modelsWith(MODEL), transcribing("late"));
     const { recorder, counts, makeReady } = fakeRecorder({ ready: false });
     renderHarness(recorder);
@@ -285,7 +299,7 @@ describe("<PushToTalk>", () => {
     expect(counts.opens).toBe(1);
   });
 
-  it("asks for the microphone again on a hold when the open on arrival was refused, and reports a second refusal", async () => {
+  it("reports a refused open on the hold that asked, and records once granted", async () => {
     server.use(modelsWith(MODEL), transcribing("ok now"));
     let refusals = 2;
     const { recorder, counts } = fakeRecorder();
@@ -299,16 +313,20 @@ describe("<PushToTalk>", () => {
     };
     renderHarness(recorder);
 
-    // Refused on arrival: nothing said until a hold needs it.
+    // No microphone is asked for until a hold needs one, and the refusal
+    // is that hold's to report.
     const button = await talkButton();
-    await waitFor(() => expect(refusals).toBe(1));
     expect(screen.queryByRole("alert")).toBeNull();
-
     hold(button);
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Permission denied");
     expect(await talkButton()).toBeDefined();
 
-    // Granted this time.
+    // The next hold asks again, and is refused once more.
+    hold(micButton());
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Permission denied");
+    expect(await talkButton()).toBeDefined();
+
+    // Granted on the third ask.
     await holdUntilListening();
     release(micButton());
     await waitFor(() => expect(draftBox().value).toBe("ok now"));
@@ -483,7 +501,9 @@ describe("<PushToTalk>", () => {
     server.use(modelsWith(MODEL));
     const { recorder, counts, makeReady } = fakeRecorder({ ready: false });
     const view = renderHarness(recorder);
-    await talkButton();
+    const button = await talkButton();
+    hold(button);
+    await screen.findByRole("button", { name: "starting mic…" });
     await waitFor(() => expect(counts.opens).toBe(1));
 
     view.unmount();
