@@ -45,6 +45,9 @@ const modelReferences = (models: ModelsConfig): ModelReference[] => [
     ref,
   })),
   ...(models.utility !== undefined ? [{ label: "utility", ref: models.utility }] : []),
+  ...(models.transcription !== undefined
+    ? [{ label: "transcription", ref: models.transcription }]
+    : []),
 ];
 
 // The provider prefix of a well-formed `provider:model` reference, or null

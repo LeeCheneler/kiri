@@ -179,6 +179,7 @@ describe("evaluateConfigHealth", () => {
           shortcuts: { text: { sonnet: "a:mid" }, image: { images: "a:img" } },
           delegates: { daily: "a:mid" },
           utility: "a:small",
+          transcription: "a:whisper",
         },
       }),
       env: {},
@@ -186,9 +187,9 @@ describe("evaluateConfigHealth", () => {
     const models = find(checks, "models");
     expect(models).toHaveLength(1);
     expect(models[0].level).toBe("ok");
-    expect(models[0].title).toBe("4 model references configured");
+    expect(models[0].title).toBe("5 model references configured");
     expect(models[0].detail).toBe(
-      "shortcuts.text.sonnet, shortcuts.image.images, delegates.daily, utility",
+      "shortcuts.text.sonnet, shortcuts.image.images, delegates.daily, utility, transcription",
     );
   });
 

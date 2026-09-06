@@ -79,10 +79,15 @@ const modelsSchema = z
       .describe(
         "The model kiri itself uses for small internal one-off generations, such as naming a new session, judging shell commands under the Auto permission (and distilling your approve/deny decisions into the precedent that judgement reads), or suggesting tap-to-send replies after a turn. A `provider:model` reference — point it at a fast, cheap model (a local one works well). Unset, session titling falls back to the session's model; the Auto shell permission falls back to asking; suggested replies stay off.",
       ),
+    transcription: modelRef
+      .optional()
+      .describe(
+        "The speech-to-text model behind push-to-talk in the session composer. A `provider:model` reference to a transcription model on an `openai` or `openai-compatible` provider that serves the OpenAI-style `/audio/transcriptions` endpoint (OpenRouter does; e.g. `openrouter:openai/whisper-1`). Unset, push-to-talk stays off.",
+      ),
   })
   .strict()
   .describe(
-    "Model configuration: `shortcuts` pin your named favourites to the top of the session pickers, `delegates` size the workers the assistant delegates to, `utility` runs kiri's own small internal generations. All references resolve at use.",
+    "Model configuration: `shortcuts` pin your named favourites to the top of the session pickers, `delegates` size the workers the assistant delegates to, `utility` runs kiri's own small internal generations, `transcription` turns push-to-talk speech into a draft. All references resolve at use.",
   );
 
 /** One modality's named shortcuts, `name → provider:model`, in config order. */
@@ -109,6 +114,8 @@ export interface ModelsConfig {
   delegates: ModelDelegates;
   /** The model for kiri's internal one-off generations; absent when unconfigured. */
   utility?: string;
+  /** The speech-to-text model behind composer push-to-talk; absent when unconfigured. */
+  transcription?: string;
 }
 
 /** The delegate roles that have a model configured, lightest first. */
