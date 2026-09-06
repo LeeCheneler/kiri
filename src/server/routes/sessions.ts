@@ -11,6 +11,7 @@ import {
 } from "ai";
 import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
 import { type ModelsConfig, configuredDelegateRoles } from "../config/schema.ts";
@@ -72,6 +73,7 @@ import {
   summariseTaskList,
   taskTools,
   tidyDraft,
+  transcribeDraft,
   updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
@@ -170,6 +172,12 @@ const createSessionBodySchema = z
   .strict();
 
 const tidyBodySchema = z.object({ text: z.string().min(1) });
+
+// A push-to-talk recording is the one large body the API takes, so the
+// app-wide body limit exempts this path and the route carries its own cap:
+// the ceiling OpenAI (and OpenRouter after it) puts on an audio upload.
+export const TRANSCRIBE_PATH = "/api/transcribe";
+const TRANSCRIBE_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 
 // A message queued for a running turn. Text only: images can't ride the inbox,
 // and the client blocks queueing them rather than dropping parts.
@@ -630,8 +638,39 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       failures,
       shortcuts: deps.getModelsConfig?.().shortcuts ?? {},
       utility: deps.getModelsConfig?.().utility,
+      transcription: deps.getModelsConfig?.().transcription,
     });
   });
+
+  // Turn a push-to-talk recording into draft text: transcribed by the
+  // transcription model and, with a utility model configured, tidied like
+  // the composer's tidy action. Nothing is persisted. No transcription model
+  // configured is the feature's off switch — the client hides the mic — so
+  // a request without one is a plain 400.
+  app.post(
+    "/transcribe",
+    bodyLimit({
+      maxSize: TRANSCRIBE_BODY_LIMIT_BYTES,
+      onError: (c) => c.json({ error: "request body too large" }, 413),
+    }),
+    async (c) => {
+      const transcriptionModel = deps.getModelsConfig?.().transcription;
+      if (transcriptionModel === undefined) {
+        return c.json({ error: "no transcription model configured" }, 400);
+      }
+      const { audio } = await c.req.parseBody();
+      if (!(audio instanceof File) || audio.size === 0) {
+        return c.json({ error: "invalid audio" }, 400);
+      }
+      const text = await transcribeDraft({
+        llmClients,
+        transcriptionModel,
+        utilityModel: deps.getModelsConfig?.().utility,
+        audio: new Uint8Array(await audio.arrayBuffer()),
+      });
+      return c.json({ text });
+    },
+  );
 
   // Rewrite a composer draft as the clean message its writer meant, against
   // the utility model. Nothing is persisted: the tidied text goes back to the

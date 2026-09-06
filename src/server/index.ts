@@ -19,7 +19,7 @@ import { memoriesRoutes } from "./routes/memories.ts";
 import { projectsRoutes } from "./routes/projects.ts";
 import { runsRoutes } from "./routes/runs.ts";
 import { searchRoutes } from "./routes/search.ts";
-import { sessionsRoutes } from "./routes/sessions.ts";
+import { TRANSCRIBE_PATH, sessionsRoutes } from "./routes/sessions.ts";
 import { mountStaticRoutes } from "./routes/static.ts";
 import { systemRoutes } from "./routes/system.ts";
 import { workflowsRoutes } from "./routes/workflows.ts";
@@ -198,14 +198,14 @@ export function createApp(deps: AppDeps): Hono {
   // with an unbounded payload. `bodyLimit` short-circuits on bodyless
   // requests (GET/HEAD/OPTIONS), so scoping to `/api/*` is for clarity, not
   // necessity. The custom `onError` keeps the 413 body on the same
-  // `{ error }` contract every other 4xx in the app honours.
-  app.use(
-    "/api/*",
-    bodyLimit({
-      maxSize: BODY_LIMIT_BYTES,
-      onError: (c) => c.json({ error: "request body too large" }, 413),
-    }),
-  );
+  // `{ error }` contract every other 4xx in the app honours. A push-to-talk
+  // recording is the one legitimately large body; that route carries its
+  // own, larger cap, so it is exempted here.
+  const apiBodyLimit = bodyLimit({
+    maxSize: BODY_LIMIT_BYTES,
+    onError: (c) => c.json({ error: "request body too large" }, 413),
+  });
+  app.use("/api/*", (c, next) => (c.req.path === TRANSCRIBE_PATH ? next() : apiBodyLimit(c, next)));
 
   // Belt-and-braces CSRF defence layered on top of the CORS allow-list.
   // Custom headers force a CORS preflight; a cross-origin attacker can't
