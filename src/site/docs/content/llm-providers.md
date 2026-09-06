@@ -124,7 +124,8 @@ Optionally set the model kiri itself uses for small internal generations —
 naming a new session off its opening message, judging shell commands under
 the Auto permission and distilling your approval decisions into the
 precedent that judgement reads, suggesting tap-to-send replies after a
-turn, or tidying a dictated draft on request — under `models.utility:`:
+turn, or tidying a push-to-talk transcript into the message you meant —
+under `models.utility:`:
 
 ```yaml
 models:
@@ -135,7 +136,25 @@ These calls are tiny, so a fast, cheap model is the right fit — a
 [local model](#gateways-and-local-models) works well and keeps them off the meter
 entirely. Unset, session titling falls back to the session's own model,
 the shell tool's Auto permission falls back to asking on every command,
-and suggested replies and draft tidying stay off.
+suggested replies stay off, and push-to-talk lands the raw transcript.
+
+## Transcription model
+
+Optionally set the speech-to-text model behind push-to-talk in the session
+composer, under `models.transcription:`. Hold the button, speak, let go: the
+recording is transcribed by this model and, with a utility model configured,
+tidied into the message you meant before it lands in the draft.
+
+```yaml
+models:
+  transcription: openrouter:openai/whisper-1
+```
+
+Any `openai` or `openai-compatible` provider that serves the OpenAI-style
+`/audio/transcriptions` endpoint works — OpenRouter does, with its
+speech-to-text catalogue (`openai/whisper-1`, `openai/gpt-4o-transcribe`,
+`deepgram/nova-3`, …), as does a local speech server that implements the
+same endpoint. Unset, push-to-talk stays off.
 
 ## Hot reload and health
 

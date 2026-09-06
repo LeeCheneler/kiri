@@ -232,6 +232,9 @@ describe("workflows routes", () => {
           resolveImageModel: () => {
             throw new Error("resolveImageModel is not part of the runner contract");
           },
+          resolveTranscriptionModel: () => {
+            throw new Error("resolveTranscriptionModel is not part of the runner contract");
+          },
           generateText: async () => ({ text: "hi back", usage: {} }),
           listModels: async () => ({ models: [], failures: [] }),
           contextWindowFor: async () => undefined,

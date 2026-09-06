@@ -1,12 +1,21 @@
+import { useEffect } from "react";
 import type { SessionEffort } from "../../api.ts";
 import { Combobox } from "../../design-system/actions/combobox.tsx";
 import {
   SegmentedControl,
   type SegmentedOption,
 } from "../../design-system/actions/segmented-control.tsx";
+import { Select } from "../../design-system/actions/select.tsx";
 import { Popover } from "../../design-system/surfaces/popover.tsx";
 import { useModels, useSession, useUpdateSession } from "../../state/sessions.ts";
 import { providerGroups, shortcutGroup } from "./model-options.ts";
+import { DEFAULT_INPUT_LABEL, type PushToTalkState } from "./use-push-to-talk.ts";
+
+/** The slice of push-to-talk the settings popover drives: which microphone it listens to. */
+export type MicrophoneState = Pick<
+  PushToTalkState,
+  "available" | "status" | "inputs" | "deviceId" | "setDevice" | "refreshInputs"
+>;
 
 // The image-model picker entry that means "image generation off". Model ids
 // are always `provider:model`, so a real model can never collide with it.
@@ -22,17 +31,72 @@ const EFFORT_OPTIONS: readonly SegmentedOption<SessionEffort>[] = [
   { value: "max", label: "max" },
 ];
 
+/** A cog, named for assistive tech since the glyph says nothing on its own. */
+function SettingsGlyph() {
+  return (
+    <>
+      <svg aria-hidden="true" viewBox="0 0 16 16" className="inline-block h-4 w-4 align-middle">
+        {/* An eight-toothed gear around a hub. */}
+        <path
+          d="M8.00 2.80 L8.88 1.06 L10.27 1.38 L10.29 3.33 L11.68 4.32 L13.53 3.71 L14.29 4.92 L12.92 6.32 L13.20 8.00 L14.94 8.88 L14.62 10.27 L12.67 10.29 L11.68 11.68 L12.29 13.53 L11.08 14.29 L9.68 12.92 L8.00 13.20 L7.12 14.94 L5.73 14.62 L5.71 12.67 L4.32 11.68 L2.47 12.29 L1.71 11.08 L3.08 9.68 L2.80 8.00 L1.06 7.12 L1.38 5.73 L3.33 5.71 L4.32 4.32 L3.71 2.47 L4.92 1.71 L6.32 3.08 Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinejoin="round"
+        />
+        <circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+      <span className="sr-only">settings</span>
+    </>
+  );
+}
+
 /**
- * The session's model group, folded behind a "models" button in the message
- * composer's toolbar: the popover holds the conversation model, the effort
- * level, and the image model (offered only when a provider lists one), so
- * what handles the next message is chosen where it's typed without the
- * controls crowding the toolbar. All commit on change and apply from the next
- * turn; all lock while a turn is in flight, since that turn has already
- * resolved them. Reads the same shared session query the chat body uses and
- * renders nothing until it resolves.
+ * The microphone push-to-talk listens to: the browser's default or one of
+ * the inputs it lists. The popover mounts its contents on open, so mounting
+ * re-lists, picking up a device plugged in since. Locked while a hold or
+ * its transcription is in progress — that capture has its microphone.
  */
-export function SessionModelControls({ id }: { id: string }) {
+function MicrophonePicker({ microphone }: { microphone: MicrophoneState }) {
+  const { status, inputs, deviceId, setDevice, refreshInputs } = microphone;
+  useEffect(() => {
+    refreshInputs();
+  }, [refreshInputs]);
+  return (
+    <Select
+      label="Microphone"
+      value={deviceId ?? ""}
+      disabled={status !== "idle"}
+      onChange={(value) => setDevice(value === "" ? undefined : value)}
+    >
+      <option value="">{DEFAULT_INPUT_LABEL}</option>
+      {inputs.map((input) => (
+        <option key={input.id} value={input.id}>
+          {input.label || input.id}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+/**
+ * The session's settings, folded behind a "settings" button in the message
+ * composer's toolbar: the popover holds the conversation model, the effort
+ * level, the image model (offered only when a provider lists one), and the
+ * microphone push-to-talk listens to (offered only while push-to-talk is
+ * available), so what handles the next message is chosen where it's typed
+ * without the controls crowding the toolbar. The model controls commit on
+ * change and apply from the next turn, and lock while a turn is in flight,
+ * since that turn has already resolved them. Reads the same shared session
+ * query the chat body uses and renders nothing until it resolves.
+ */
+export function SessionModelControls({
+  id,
+  microphone,
+}: {
+  id: string;
+  microphone?: MicrophoneState;
+}) {
   const detail = useSession(id).data;
   const { setModel, setImageModel, setEffort } = useUpdateSession(id);
   const modelsQuery = useModels();
@@ -93,7 +157,7 @@ export function SessionModelControls({ id }: { id: string }) {
   return (
     // Pinned to the trigger's right edge so the panel stays inside the
     // composer's frame; it picks its own side for the room available.
-    <Popover trigger="models" label="Models" align="end">
+    <Popover trigger={<SettingsGlyph />} label="Settings" align="end">
       <div className="w-64 space-y-4">
         <Combobox
           label="Model"
@@ -123,6 +187,7 @@ export function SessionModelControls({ id }: { id: string }) {
             onChange={(value) => void setImageModel(value === IMAGE_MODEL_NONE ? null : value)}
           />
         ) : null}
+        {microphone?.available ? <MicrophonePicker microphone={microphone} /> : null}
       </div>
     </Popover>
   );

@@ -179,6 +179,7 @@ describe("evaluateConfigHealth", () => {
           shortcuts: { text: { sonnet: "a:mid" }, image: { images: "a:img" } },
           delegates: { daily: "a:mid" },
           utility: "a:small",
+          transcription: "a:whisper",
         },
       }),
       env: {},
@@ -186,9 +187,9 @@ describe("evaluateConfigHealth", () => {
     const models = find(checks, "models");
     expect(models).toHaveLength(1);
     expect(models[0].level).toBe("ok");
-    expect(models[0].title).toBe("4 model references configured");
+    expect(models[0].title).toBe("5 model references configured");
     expect(models[0].detail).toBe(
-      "shortcuts.text.sonnet, shortcuts.image.images, delegates.daily, utility",
+      "shortcuts.text.sonnet, shortcuts.image.images, delegates.daily, utility, transcription",
     );
   });
 
@@ -257,6 +258,9 @@ describe("evaluateModelListingHealth", () => {
     resolveImageModel: () => {
       throw new Error("unused in this fake");
     },
+    resolveTranscriptionModel: () => {
+      throw new Error("unused in this fake");
+    },
     generateText: async () => ({ text: "", usage: {} }),
     listModels: async () => ({
       models: models.map((m) => ({ ...m, output: "text" as const, reasoning: false })),
@@ -305,6 +309,18 @@ describe("evaluateModelListingHealth", () => {
     };
     const checks = await evaluateModelListingHealth(
       result({ models: { shortcuts: {}, delegates: {} } }),
+      clients,
+    );
+    expect(checks).toHaveLength(0);
+  });
+
+  it("never checks the transcription reference, which the listing does not carry", async () => {
+    const clients = clientsListing([]);
+    clients.listModels = () => {
+      throw new Error("listing should not be fetched");
+    };
+    const checks = await evaluateModelListingHealth(
+      configured({ shortcuts: {}, delegates: {}, transcription: "a:nvidia/parakeet" }),
       clients,
     );
     expect(checks).toHaveLength(0);

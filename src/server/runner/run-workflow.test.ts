@@ -57,6 +57,9 @@ describe("runWorkflow", () => {
     resolveImageModel: () => {
       throw new Error("resolveImageModel is not part of the runner contract");
     },
+    resolveTranscriptionModel: () => {
+      throw new Error("resolveTranscriptionModel is not part of the runner contract");
+    },
     generateText,
     listModels: async () => ({ models: [], failures: [] }),
     contextWindowFor: async () => undefined,

@@ -15,6 +15,7 @@ function Harness({
   submitLabel,
   acceptsImages,
   controls,
+  error,
   initialImages,
   initialTextFiles,
 }: {
@@ -25,6 +26,7 @@ function Harness({
   submitLabel?: string;
   acceptsImages?: boolean;
   controls?: ReactNode;
+  error?: string;
   initialImages?: PendingImage[];
   initialTextFiles?: PendingTextFile[];
 }) {
@@ -41,6 +43,7 @@ function Harness({
       submitLabel={submitLabel}
       acceptsImages={acceptsImages}
       controls={controls}
+      error={error}
       initialImages={initialImages}
       initialTextFiles={initialTextFiles}
     />
@@ -399,5 +402,25 @@ describe("<MessageComposer>", () => {
     const parts = onSubmit.mock.calls[0]?.[0] ?? [];
     expect(parts[0]).toEqual({ type: "text", text: wrapAttachedFile("seed.md", "seeded body") });
     expect(parts.at(-1)).toEqual({ type: "text", text: "use it" });
+  });
+
+  it("shows a control's error on its own row, alongside an attachment error", async () => {
+    const { container, rerender } = render(
+      <Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} error="provider down" />,
+    );
+    expect(screen.getByRole("alert").textContent).toBe("provider down");
+
+    await userEvent.upload(
+      fileInput(container),
+      txtFile("big.txt", new Uint8Array(256 * 1024 + 1)),
+    );
+    await screen.findByText(/must be under 256 KB/i);
+
+    const alerts = screen.getAllByRole("alert").map((alert) => alert.textContent);
+    expect(alerts).toHaveLength(2);
+    expect(alerts).toContain("provider down");
+
+    rerender(<Harness onSubmit={mock((_parts: UIMessage["parts"]) => {})} />);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 });

@@ -189,7 +189,7 @@ function loadConfigFile(
     });
   }
   const defaultWorkingDirectory = resolvedDefault ?? allowedDirectories[0];
-  // Shortcut, delegate, and utility values are `provider:model` references
+  // Shortcut, delegate, utility, and transcription values are `provider:model` references
   // kept verbatim: they resolve at use (session create, patch, delegation
   // spawn, an internal one-off call), so re-pointing a name changes future
   // work without rewriting what past sessions ran on.
@@ -197,6 +197,9 @@ function loadConfigFile(
     shortcuts: result.data.models?.shortcuts ?? {},
     delegates: result.data.models?.delegates ?? {},
     ...(result.data.models?.utility !== undefined ? { utility: result.data.models.utility } : {}),
+    ...(result.data.models?.transcription !== undefined
+      ? { transcription: result.data.models.transcription }
+      : {}),
   };
   return {
     providers,

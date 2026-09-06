@@ -16,7 +16,7 @@ export const startSession = async (page: Page): Promise<string> => {
  * screen. A no-op when it is already open.
  */
 export const openModels = async (page: Page): Promise<void> => {
-  const trigger = page.getByRole("button", { name: "models" });
+  const trigger = page.getByRole("button", { name: "settings" });
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
 };
 

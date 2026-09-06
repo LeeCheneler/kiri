@@ -20,7 +20,8 @@ export function Popover({
   align = "start",
   children,
 }: {
-  trigger: string;
+  /** The trigger button's content — text, or a glyph with a visually hidden name. */
+  trigger: ReactNode;
   label: string;
   align?: "start" | "end";
   children: ReactNode;

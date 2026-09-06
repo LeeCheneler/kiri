@@ -24,13 +24,13 @@ import {
 } from "./context-usage.ts";
 import { MessageComposer } from "./message-composer.tsx";
 import { modelLabel } from "./model-options.ts";
+import { PushToTalk } from "./push-to-talk.tsx";
 import { useSessionDraft } from "./session-draft.ts";
 import { SessionModelControls } from "./session-model-controls.tsx";
-import { TidyDraft } from "./tidy-draft.tsx";
 import type { ToolPageLinks } from "./tool-invocation.tsx";
+import { usePushToTalk } from "./use-push-to-talk.ts";
 import { useSessionConversation } from "./use-session-conversation.ts";
 import { useSuggestedReplies } from "./use-suggested-replies.ts";
-import { useTidyDraft } from "./use-tidy-draft.ts";
 
 // The session row stores a terminal turn's failure as `{ message }`. Pull that
 // out so a turn that failed while this view was away still surfaces its error on
@@ -219,7 +219,7 @@ function ChatView({
     awaitingApproval,
   });
   const { draft, setDraft, clearDraft } = useSessionDraft(session.id);
-  const tidyState = useTidyDraft({ value: draft, onChange: setDraft });
+  const talkState = usePushToTalk({ value: draft, onChange: setDraft });
   const inputId = useId();
 
   // A failure to surface at the transcript foot: this view's own turn errored,
@@ -476,48 +476,34 @@ function ChatView({
             clearing any staged images (the draft text is per-session already).
             Enter-only submit — the key instructions ride in the placeholder,
             visible exactly when there's nothing typed to send. */}
-        {/* The tidy shortcut listens on a wrapper rather than the composer's
-            own key handling, so the composer primitive stays unaware of it. */}
-        <div
-          onKeyDown={(event) => {
-            if (
-              (event.metaKey || event.ctrlKey) &&
-              event.shiftKey &&
-              event.key.toLowerCase() === "f"
-            ) {
-              event.preventDefault();
-              tidyState.tidy();
-            }
-          }}
-        >
-          {queueBlocked ? (
-            <p role="alert" className="mb-2 font-mono text-status-failed text-xs">
-              Images can't be queued while a turn is running — wait for it to finish, or remove the
-              attachments to queue the text.
-            </p>
-          ) : null}
-          <MessageComposer
-            key={session.id}
-            id={inputId}
-            label="Message"
-            labelHidden
-            value={draft}
-            onChange={setDraft}
-            placeholder="Send a message… enter to send · shift+enter for newline"
-            /* Submitting stays live while a turn runs — the message queues for
-               the turn's next step boundary. Only an approval pause blocks it:
-               the model can't continue past an unanswered call. */
-            busy={awaitingApproval}
-            acceptsImages={acceptsImages}
-            controls={
-              <>
-                <TidyDraft state={tidyState} empty={draft.trim() === ""} />
-                <SessionModelControls id={session.id} />
-              </>
-            }
-            onSubmit={handleSend}
-          />
-        </div>
+        {queueBlocked ? (
+          <p role="alert" className="mb-2 font-mono text-status-failed text-xs">
+            Images can't be queued while a turn is running — wait for it to finish, or remove the
+            attachments to queue the text.
+          </p>
+        ) : null}
+        <MessageComposer
+          key={session.id}
+          id={inputId}
+          label="Message"
+          labelHidden
+          value={draft}
+          onChange={setDraft}
+          placeholder="Send a message… enter to send · shift+enter for newline"
+          /* Submitting stays live while a turn runs — the message queues for
+             the turn's next step boundary. Only an approval pause blocks it:
+             the model can't continue past an unanswered call. */
+          busy={awaitingApproval}
+          acceptsImages={acceptsImages}
+          error={talkState.error}
+          controls={
+            <>
+              <PushToTalk state={talkState} />
+              <SessionModelControls id={session.id} microphone={talkState} />
+            </>
+          }
+          onSubmit={handleSend}
+        />
         {/* A quiet readout of what the next turn runs with, labelled the way
             the picker labels it — the shortcut's name when one points at the
             session's model. */}
@@ -525,6 +511,7 @@ function ChatView({
           <Meta>
             <span>{modelLabel(modelsData?.shortcuts?.text, session.model)}</span>
             <span>{session.effort}</span>
+            {talkState.available ? <span>{talkState.deviceLabel}</span> : null}
           </Meta>
         </div>
       </div>

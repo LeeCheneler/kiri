@@ -59,7 +59,8 @@ resolved at use.
 | `delegates.quick` | Worker model for mechanical, fully-specified tasks. |
 | `delegates.daily` | Worker model for ordinary work — the default role. |
 | `delegates.deep` | Worker model for work that hinges on reasoning depth. |
-| `utility` | The model kiri itself uses for small internal generations — session titles, Auto shell judgement and its learned precedent, suggested replies, tidying a draft. |
+| `utility` | The model kiri itself uses for small internal generations — session titles, Auto shell judgement and its learned precedent, suggested replies, tidying a push-to-talk transcript. |
+| `transcription` | The speech-to-text model behind push-to-talk in the session composer. Any `openai` or `openai-compatible` provider serving the OpenAI-style `/audio/transcriptions` endpoint — OpenRouter does. |
 
 ## `mcp:`
 

@@ -3,14 +3,18 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type Tool, type ToolSet, tool } from "ai";
-import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
+import {
+  MockLanguageModelV3,
+  MockTranscriptionModelV3,
+  convertArrayToReadableStream,
+} from "ai/test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { ModelShortcutsConfig, ModelsConfig } from "../config/schema.ts";
 import { articles, memories, projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
 import { createApp } from "../index.ts";
-import type { LlmClients, LlmModel } from "../llm/index.ts";
+import type { LlmClients, LlmModel, LlmTranscriptionModel } from "../llm/index.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { listTaskGroups } from "../projects/tasks.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
@@ -111,6 +115,7 @@ const fakeClients = (
     resolveError?: string;
     models?: { id: string; provider: string; output: "text" | "image"; reasoning?: boolean }[];
     generateText?: LlmClients["generateText"];
+    transcription?: LlmTranscriptionModel;
   } = {},
 ): LlmClients => ({
   resolveModel: () => {
@@ -119,6 +124,10 @@ const fakeClients = (
   },
   resolveImageModel: () => {
     throw new Error("no image model in this fake");
+  },
+  resolveTranscriptionModel: () => {
+    if (opts.transcription) return opts.transcription;
+    throw new Error("no transcription model in this fake");
   },
   generateText: opts.generateText ?? (async () => ({ text: "", usage: {} })),
   listModels: async () => ({
@@ -276,61 +285,158 @@ describe("sessions routes", () => {
       expect(res.status).toBe(200);
       expect(((await res.json()) as { utility?: string }).utility).toBe("local:tiny");
     });
-  });
 
-  describe("POST /api/tidy", () => {
-    const UTILITY = "local:tiny";
-    const withUtility = () => ({ shortcuts: {}, delegates: {}, utility: UTILITY });
-
-    // Clients whose generateText answers with a fixed rewrite, recording each
-    // call so a guard case can assert nothing was generated.
-    const tidyingClients = () => {
-      const calls: { model: string; prompt: string }[] = [];
-      const clients = fakeClients();
-      clients.generateText = async ({ model, prompt }) => {
-        calls.push({ model, prompt });
-        return { text: "I think we should use Postgres.", usage: {} };
-      };
-      return { clients, calls };
-    };
-
-    const postTidy = (app: ReturnType<typeof createApp>, body: unknown) =>
-      app.request("/api/tidy", {
-        method: "POST",
-        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+    it("carries the configured transcription model alongside the listing", async () => {
+      const app = makeApp(fakeClients(), {
+        getModelsConfig: () => ({
+          shortcuts: {},
+          delegates: {},
+          transcription: "openrouter:openai/whisper-1",
+        }),
       });
 
-    it("rewrites the draft with the utility model", async () => {
-      const { clients, calls } = tidyingClients();
-      const app = makeApp(clients, { getModelsConfig: withUtility });
-
-      const res = await postTidy(app, { text: "so um i think we should uh use postgres" });
+      const res = await app.request("/api/models");
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ text: "I think we should use Postgres." });
-      expect(calls).toHaveLength(1);
-      expect(calls[0]?.model).toBe(UTILITY);
-      expect(calls[0]?.prompt).toContain("so um i think we should uh use postgres");
+      expect(((await res.json()) as { transcription?: string }).transcription).toBe(
+        "openrouter:openai/whisper-1",
+      );
+    });
+  });
+
+  describe("POST /api/transcribe", () => {
+    const TRANSCRIPTION = "openrouter:openai/whisper-1";
+    const UTILITY = "local:tiny";
+    const withTranscription = (utility?: string) => () => ({
+      shortcuts: {},
+      delegates: {},
+      transcription: TRANSCRIPTION,
+      ...(utility !== undefined ? { utility } : {}),
     });
 
-    it("400s without generating when no utility model is configured", async () => {
-      const { clients, calls } = tidyingClients();
-      const app = makeApp(clients);
+    // A bare RIFF/WAVE header, so the SDK sniffs real audio bytes.
+    const TINY_WAV = new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45,
+    ]);
 
-      const res = await postTidy(app, { text: "anything" });
+    // Clients whose transcription model answers with a fixed transcript and
+    // whose utility generation answers with a fixed tidy, each recording
+    // its calls so a guard case can assert what ran.
+    const transcribingClients = () => {
+      const transcribeCalls: { audioBytes: number; mediaType: string }[] = [];
+      const generateCalls: { model: string; prompt: string }[] = [];
+      const clients = fakeClients({
+        transcription: new MockTranscriptionModelV3({
+          doGenerate: async ({ audio, mediaType }) => {
+            transcribeCalls.push({ audioBytes: audio.length, mediaType });
+            return {
+              text: "so um use postgres",
+              segments: [],
+              language: undefined,
+              durationInSeconds: undefined,
+              warnings: [],
+              response: { timestamp: new Date(), modelId: "whisper-1" },
+            };
+          },
+        }) as LlmTranscriptionModel,
+        generateText: async ({ model, prompt }) => {
+          generateCalls.push({ model, prompt });
+          return { text: "Use Postgres.", usage: {} };
+        },
+      });
+      return { clients, transcribeCalls, generateCalls };
+    };
 
-      expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "no utility model configured" });
-      expect(calls).toHaveLength(0);
+    const postAudio = (app: ReturnType<typeof createApp>, audio: Uint8Array<ArrayBuffer>) => {
+      const form = new FormData();
+      form.append("audio", new File([audio], "recording.wav", { type: "audio/wav" }));
+      return app.request("/api/transcribe", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+        body: form,
+      });
+    };
+
+    it("transcribes the recording and tidies it with the utility model", async () => {
+      const { clients, transcribeCalls, generateCalls } = transcribingClients();
+      const app = makeApp(clients, { getModelsConfig: withTranscription(UTILITY) });
+
+      const res = await postAudio(app, TINY_WAV);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ text: "Use Postgres." });
+      expect(transcribeCalls).toEqual([{ audioBytes: TINY_WAV.length, mediaType: "audio/wav" }]);
+      expect(generateCalls).toHaveLength(1);
+      expect(generateCalls[0]?.model).toBe(UTILITY);
+      expect(generateCalls[0]?.prompt).toContain("so um use postgres");
     });
 
-    it("400s on an empty draft", async () => {
-      const app = makeApp(tidyingClients().clients, { getModelsConfig: withUtility });
+    it("returns the raw transcript when no utility model is configured", async () => {
+      const { clients, generateCalls } = transcribingClients();
+      const app = makeApp(clients, { getModelsConfig: withTranscription() });
 
-      const res = await postTidy(app, { text: "" });
+      const res = await postAudio(app, TINY_WAV);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ text: "so um use postgres" });
+      expect(generateCalls).toHaveLength(0);
+    });
+
+    it("400s without transcribing when no transcription model is configured", async () => {
+      const { clients, transcribeCalls } = transcribingClients();
+      const app = makeApp(clients, {
+        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: UTILITY }),
+      });
+
+      const res = await postAudio(app, TINY_WAV);
 
       expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "no transcription model configured" });
+      expect(transcribeCalls).toHaveLength(0);
+    });
+
+    it("400s on a form without an audio file, or with an empty one", async () => {
+      const app = makeApp(transcribingClients().clients, {
+        getModelsConfig: withTranscription(),
+      });
+
+      const empty = await postAudio(app, new Uint8Array());
+      expect(empty.status).toBe(400);
+      expect(await empty.json()).toEqual({ error: "invalid audio" });
+
+      const form = new FormData();
+      form.append("audio", "not a file");
+      const text = await app.request("/api/transcribe", {
+        method: "POST",
+        headers: CLIENT_HEADERS,
+        body: form,
+      });
+      expect(text.status).toBe(400);
+      expect(await text.json()).toEqual({ error: "invalid audio" });
+    });
+
+    it("accepts a recording larger than the app-wide body limit", async () => {
+      const { clients, transcribeCalls } = transcribingClients();
+      const app = makeApp(clients, { getModelsConfig: withTranscription() });
+      // Well past the 256 KiB cap every other API body gets.
+      const big = new Uint8Array(512 * 1024);
+      big.set(TINY_WAV);
+
+      const res = await postAudio(app, big);
+
+      expect(res.status).toBe(200);
+      expect(transcribeCalls).toEqual([{ audioBytes: big.length, mediaType: "audio/wav" }]);
+    });
+
+    it("413s a recording over the audio cap", async () => {
+      const app = makeApp(transcribingClients().clients, {
+        getModelsConfig: withTranscription(),
+      });
+
+      const res = await postAudio(app, new Uint8Array(25 * 1024 * 1024 + 1024));
+
+      expect(res.status).toBe(413);
+      expect(await res.json()).toEqual({ error: "request body too large" });
     });
   });
 

@@ -7,6 +7,10 @@ import { http, HttpResponse } from "msw";
 import { StrictMode } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import {
+  installFakeMedia,
+  uninstallFakeMedia,
+} from "../../../../tests/setup/fake-media-recorder.ts";
 import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { SessionChat } from "./session-chat.tsx";
@@ -302,35 +306,54 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText("daily")).toBeDefined();
   });
 
-  it("tidies the draft from the composer's shortcut when a utility model is configured", async () => {
-    server.use(
-      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
-      http.get("*/api/models", () =>
-        HttpResponse.json({ models: [], failures: [], utility: "local:tiny" }),
-      ),
-      http.post("*/api/tidy", async ({ request }) => {
-        const { text } = (await request.json()) as { text: string };
-        return HttpResponse.json({ text: text.toUpperCase() });
-      }),
-    );
-    const user = userEvent.setup();
-    renderChat();
-    expect(await screen.findByRole("button", { name: "tidy" })).toBeDefined();
-    const field = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+  it("offers push-to-talk when a transcription model is configured and the browser can record", async () => {
+    installFakeMedia();
+    try {
+      server.use(
+        http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+        http.get("*/api/models", () =>
+          HttpResponse.json({
+            models: [],
+            failures: [],
+            transcription: "openrouter:openai/whisper-1",
+          }),
+        ),
+        http.post("*/api/transcribe", () => HttpResponse.json({ text: "Use Postgres." })),
+      );
+      renderChat();
+      const button = await screen.findByRole("button", { name: "hold to talk" });
+      const field = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+      // The foot names the microphone beside the model and effort.
+      expect(screen.getByText("Browser default")).toBeDefined();
 
-    await user.type(field, "so um postgres");
-    await user.keyboard("{Meta>}{Shift>}f{/Shift}{/Meta}");
+      fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
+      await screen.findByRole("button", { name: "listening…" });
+      // Long enough to count as speech rather than a slip.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      fireEvent.pointerUp(screen.getByRole("button", { name: "listening…" }), {
+        button: 0,
+        pointerId: 1,
+      });
 
-    await waitFor(() => expect(field.value).toBe("SO UM POSTGRES"));
-    // The tidied draft is the draft: it persists like anything typed.
-    expect(localStorage.getItem("kiri:session-draft:s1")).toBe("SO UM POSTGRES");
+      await waitFor(() => expect(field.value).toBe("Use Postgres."));
+      // The spoken draft is the draft: it persists like anything typed.
+      expect(localStorage.getItem("kiri:session-draft:s1")).toBe("Use Postgres.");
+    } finally {
+      uninstallFakeMedia();
+    }
   });
 
-  it("offers no tidy action without a utility model", async () => {
-    server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
-    renderChat();
-    expect(await screen.findByRole("textbox", { name: /message/i })).toBeDefined();
-    expect(screen.queryByRole("button", { name: "tidy" })).toBeNull();
+  it("offers no push-to-talk without a transcription model", async () => {
+    installFakeMedia();
+    try {
+      server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));
+      renderChat();
+      expect(await screen.findByRole("textbox", { name: /message/i })).toBeDefined();
+      expect(screen.queryByRole("button", { name: "hold to talk" })).toBeNull();
+      expect(screen.queryByText("Browser default")).toBeNull();
+    } finally {
+      uninstallFakeMedia();
+    }
   });
 
   it("heads the page with the session's title, falling back to the short id", async () => {
