@@ -22,3 +22,22 @@ test("a provider error surfaces a failure at the transcript foot, and the sessio
   // the next message rather than locking the conversation.
   await expect(page.getByLabel(/message/i)).toBeEnabled();
 });
+
+test("a step-limit handoff survives reload and the session can continue", async ({ page }) => {
+  await startSession(page);
+  await useModel(page, "fake:tool");
+  await sendMessage(page, "repeat-call:list_articles {}");
+
+  await expect(page.getByRole("alert")).toContainText("64-step work limit", { timeout: 15_000 });
+  await expect(page.getByText(/^You said: The work step limit has been reached/)).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("alert")).toContainText("64-step work limit");
+  await expect(page.getByText(/^You said: The work step limit has been reached/)).toHaveCount(1);
+  await expect(page.getByLabel(/message/i)).toBeEnabled();
+
+  await sendMessage(page, "Continue from the saved work");
+  await expect(
+    page.getByText("You said: Continue from the saved work", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});

@@ -2,8 +2,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { UIMessage } from "ai";
+import { type UIMessage, tool } from "ai";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { bootstrap } from "../../src/server/bootstrap.ts";
 import { loadKiriConfig } from "../../src/server/config/loader.ts";
 import { createConfigStore } from "../../src/server/config/store.ts";
@@ -127,6 +128,111 @@ describe("session turn streaming", () => {
     const messages = getSessionMessages(db, session.id);
     expect(assistantText(messages[1].parts)).toBe("All done.");
     expect(getSession(db, session.id)?.status).toBe("idle");
+  });
+
+  it("keeps a completed action after a later provider failure and supplies it to the next turn", async () => {
+    let executions = 0;
+    const tools = {
+      save: tool({
+        inputSchema: z.object({ value: z.string() }),
+        execute: ({ value }) => {
+          executions += 1;
+          writeFileSync(join(cwd, "saved.txt"), value);
+          return { saved: value };
+        },
+      }),
+    };
+    const session = createSession(db, "fake:tool-boom");
+    const failed = await runTurn(
+      { db, llmClients, tools },
+      { session, userMessage: userMessage('call:save {"value":"keep this"}') },
+    );
+    await failed.done;
+    expect(getSession(db, session.id)?.status).toBe("failed");
+    const saved = getSessionMessages(db, session.id);
+    expect(saved).toHaveLength(2);
+    expect(saved[1]?.parts).toContainEqual(
+      expect.objectContaining({
+        state: "output-available",
+        output: { saved: "keep this" },
+      }),
+    );
+    expect(await Bun.file(join(cwd, "saved.txt")).text()).toBe("keep this");
+
+    const next = await runTurn(
+      { db, llmClients, tools },
+      {
+        session,
+        userMessage: userMessage("Continue from the saved work"),
+      },
+    );
+    await next.done;
+    expect(executions).toBe(1);
+    expect(getSession(db, session.id)?.status).toBe("idle");
+    expect(JSON.stringify(fake.requests.at(-1)?.messages)).toContain("keep this");
+    expect(fake.requests.at(-1)?.messages?.some((m) => m.role === "tool")).toBe(true);
+  });
+
+  it("streams and saves a step-limit handoff after exactly 64 completed actions", async () => {
+    const requestStart = fake.requests.length;
+    let executions = 0;
+    const session = createSession(db, "fake:tool");
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients,
+        tools: {
+          save: tool({
+            inputSchema: z.object({ value: z.string() }),
+            execute: ({ value }) => {
+              executions += 1;
+              writeFileSync(join(cwd, "progress.txt"), `${value}: ${executions}`);
+              return { saved: executions };
+            },
+          }),
+        },
+      },
+      { session, userMessage: userMessage('repeat-call:save {"value":"completed"}') },
+    );
+    const sse = await response.text();
+    await done;
+
+    expect(executions).toBe(64);
+    expect(await Bun.file(join(cwd, "progress.txt")).text()).toBe("completed: 64");
+    const requests = fake.requests.slice(requestStart);
+    expect(requests).toHaveLength(65);
+    expect(requests[63]?.tools).toHaveLength(1);
+    expect(requests[64]?.tools ?? []).toEqual([]);
+    expect(JSON.stringify(requests[64]?.messages)).toContain(
+      "what remains unfinished or uncertain",
+    );
+    expect(sse).toContain("64-step work limit");
+    const streamedText = sse
+      .split("\n")
+      .filter((line) => line.startsWith("data: {"))
+      .map((line) => JSON.parse(line.slice(6)) as { type: string; delta: string })
+      .filter((chunk) => chunk.type === "text-delta")
+      .map((chunk) => chunk.delta)
+      .join("");
+    expect(streamedText).toContain("The work step limit has been reached.");
+    const rows = getSessionMessages(db, session.id);
+    expect(rows).toHaveLength(2);
+    expect(assistantText(rows[1]?.parts)).toBe(streamedText);
+    expect(assistantText(rows[1]?.parts)).toContain("64-step work limit");
+    expect(
+      (rows[1]?.parts as Array<{ state?: string }>).filter((p) => p.state === "output-available"),
+    ).toHaveLength(64);
+    expect(getSession(db, session.id)).toMatchObject({
+      status: "failed",
+      error: { code: "step_limit" },
+    });
+
+    db.$client.close();
+    db = bootstrap(createConfigStore(cwd));
+    expect(assistantText(getSessionMessages(db, session.id)[1]?.parts)).toContain(
+      "64-step work limit",
+    );
+    expect(getSession(db, session.id)?.status).toBe("failed");
   });
 
   it("drives generate_image over the wire, keeping the image bytes out of the model's context", async () => {

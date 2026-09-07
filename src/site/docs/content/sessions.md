@@ -13,6 +13,21 @@ You can swap a session's model mid-conversation — it applies from the next
 turn — and a streaming turn survives a page reload: reopening the session
 rejoins it live.
 
+Kiri saves progress after each completed model/tool step. If a later provider
+request fails, completed actions and useful partial replies remain in the
+conversation after reload, ready for your next message. A failed turn does
+not automatically repeat completed actions. If an action's result never
+arrived, its outcome may be unknown; check its effect before retrying.
+
+A turn can take up to **64 work steps**, each a model response that may
+call tools. If it still needs to continue, Kiri saves a stopping notice and
+allows one final response with tools disabled to summarise completed work,
+what remains, and why it stopped. The turn is marked failed with the step
+limit as its reason. The notice and saved work remain available if that
+summary fails or is empty; send another message to continue. A normal final
+answer on step 64 completes normally. Tool approvals still pause for your
+decision, and you can cancel during either the work or the final summary.
+
 ## Articles
 
 Ask for a write-up — a report, a digest, a guide — and the session saves it
@@ -239,6 +254,13 @@ the legwork.
   mid-task, nudge a quiet one, or answer a question a worker sends back. A
   worker's result arriving after the assistant has finished its reply starts
   a new one, so fanned-out research assembles itself as the reports land.
+- Kiri sends a notice whenever a worker's turn ends, including failure,
+  cancellation, or the work step limit. If the worker omitted its report,
+  the notice includes a bounded excerpt of its saved final reply or a link
+  to its transcript. A report already sent is not repeated. A progress note
+  or a stopped turn does not mean the task is complete: the assistant checks
+  what remains before answering. Notices queue while your conversation is
+  paused for approval or cancelled; they do not restart it.
 - A worker holds the same tools as the chat, under the same permissions — a
   call on **Ask** pauses that worker until you allow or deny it, exactly as
   it would in the chat, so delegation never runs anything unprompted that

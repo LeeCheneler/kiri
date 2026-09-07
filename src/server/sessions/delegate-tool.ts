@@ -65,7 +65,7 @@ const ROLE_PROSE: Record<DelegateRole, string> = {
 // What the spawning call resolves with: the handle the parent steers by, and
 // the shape of everything that comes back.
 const spawnedResult = (title: string, childSessionId: string): string =>
-  `Delegated "${title}" to a worker session, id ${childSessionId}. It runs in the background — spawning it does not block this turn, and cancelling this turn does not stop it. Its progress, questions, and results arrive here as messages from the worker; a message that lands after you end your turn starts a new one for you. Steer it, nudge it, or answer its questions with ${MESSAGE_WORKER_TOOL_NAME} and that session id.`;
+  `Delegated "${title}" to a worker session, id ${childSessionId}. It runs in the background — spawning it does not block this turn, and cancelling this turn does not stop it. Its progress, questions, and results arrive here as messages from the worker, and kiri sends a notice when its turn stops; a message that lands after you end your turn starts a new one for you. Steer it, nudge it, or answer its questions with ${MESSAGE_WORKER_TOOL_NAME} and that session id.`;
 
 /**
  * The first-party `delegate` tool: hands a self-contained task to a child
@@ -118,8 +118,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     // child it already created rather than spawning a duplicate.
     const existing = findChildByToolCall(db, parentSessionId, toolCallId);
     if (existing) return spawnedResult(title, existing.id);
-    // The cap counts live workers only — a settled one has already reported
-    // (or been noticed dead) and frees its slot.
+    // The cap counts active execution only: a worker out of a turn frees its slot.
     const running = getSessionChildren(db, parentSessionId).filter(
       (child) => child.status === "running",
     );
@@ -150,8 +149,8 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     // Starting the turn is awaited — a model that can't resolve fails the
     // spawn as a tool error the parent can act on — but the turn itself runs
     // detached: the worker never pins the parent's turn, and cancelling the
-    // parent doesn't touch it. A failed worker turn reaches the parent as the
-    // system-authored failure notice (delegation messaging), not through this
+    // parent doesn't touch it. Every settled worker turn reaches the parent as
+    // a runtime notice (delegation messaging), not through this
     // call. `done` always resolves (the turn settles it in a finally), so
     // the handle is deliberately dropped rather than awaited.
     const { done } = await runTurn(childTurnDeps(child.id), { session: child, userMessage });
@@ -251,7 +250,7 @@ export function messageParentTool(deps: MessageParentToolDeps): ToolSet {
   return {
     [MESSAGE_PARENT_TOOL_NAME]: tool({
       description:
-        "Message the session that delegated your task. This is how everything you have to say gets back: progress when a long task passes a real milestone, a question when you are genuinely blocked on something only the parent can answer, and — always — your result, messaged before you end your turn. A reply you write without messaging it reaches no one. Keep every message a tight synthesis, never a dump; the parent acts on what you send, so lead with the answer.",
+        "Message the session that delegated your task. This is how everything you have to say gets back: progress when a long task passes a real milestone, a question when you are genuinely blocked on something only the parent can answer, and — always — your result, messaged before you end your turn. Kiri also sends an automatic notice when your turn stops, forwarding a bounded saved final reply unless you already sent it. The notice does not declare your task complete. Keep every message a tight synthesis, never a dump; the parent acts on what you send, so lead with the answer.",
       inputSchema: z.object({
         message: z
           .string()

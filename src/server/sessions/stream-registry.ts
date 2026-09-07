@@ -1,3 +1,5 @@
+import type { Message } from "./store.ts";
+
 /**
  * Process-local registry of the in-flight turn stream for each active session,
  * so a client that reconnects mid-turn — a page refresh, or a second tab — can
@@ -32,7 +34,9 @@ export interface StreamRegistry {
    * near-instant reconnect finds the entry rather than a gap. Replaces any
    * existing entry for the session.
    */
-  open(sessionId: string): StreamSink;
+  open(sessionId: string, messages?: Message[]): StreamSink;
+  /** Transcript before the active stream began, so replay does not duplicate checkpointed parts. */
+  messagesBeforeTurn(sessionId: string): Message[] | null;
   /**
    * A readable of the session's live turn for a reconnecting client — the frames
    * buffered so far followed by live ones — or `null` when no turn is streaming
@@ -44,6 +48,7 @@ export interface StreamRegistry {
 }
 
 interface Entry {
+  messages: Message[];
   buffer: string[];
   subs: Set<ReadableStreamDefaultController<Uint8Array>>;
 }
@@ -56,8 +61,8 @@ export function createStreamRegistry(): StreamRegistry {
   const entries = new Map<string, Entry>();
 
   return {
-    open(sessionId) {
-      const entry: Entry = { buffer: [], subs: new Set() };
+    open(sessionId, messages = []) {
+      const entry: Entry = { messages: structuredClone(messages), buffer: [], subs: new Set() };
       entries.set(sessionId, entry);
       return {
         push(chunk) {
@@ -72,6 +77,10 @@ export function createStreamRegistry(): StreamRegistry {
           if (entries.get(sessionId) === entry) entries.delete(sessionId);
         },
       };
+    },
+
+    messagesBeforeTurn(sessionId) {
+      return entries.get(sessionId)?.messages ?? null;
     },
 
     subscribe(sessionId) {

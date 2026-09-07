@@ -41,6 +41,8 @@ describe("llm model listing", () => {
       "fake:paint",
       "fake:slow",
       "fake:tool",
+      "fake:tool-boom",
+      "fake:tool-slow",
     ]);
     expect(result.models.every((m) => m.provider === "fake")).toBe(true);
     // The stub's `paint` reports an image output modality; the rest are chat.
@@ -57,7 +59,8 @@ describe("llm model listing", () => {
 
     const result = await clients.listModels();
 
-    expect(result.models.map((m) => m.provider)).toEqual(["fake", "fake", "fake", "fake", "fake"]);
+    expect(result.models).toHaveLength(7);
+    expect(result.models.every((m) => m.provider === "fake")).toBe(true);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0].provider).toBe("dead");
     expect(result.failures[0].reason).toBeTruthy();

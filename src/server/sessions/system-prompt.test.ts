@@ -1014,7 +1014,8 @@ describe("delegate guidance", () => {
     expect(withDelegate).toContain("Route before you run");
     // It must also steer against re-running the delegated work — the leak the
     // tool exists to prevent.
-    expect(withDelegate).toContain("do not re-run the searches it already made");
+    expect(withDelegate).toContain("without repeating completed work");
+    expect(withDelegate).toContain("A stopped turn does not prove the task is complete");
     // A session without delegate gets no delegation steer — direct search is
     // the only research path it has.
     const withoutDelegate = buildSystemPrompt({
@@ -1144,6 +1145,10 @@ describe("buildChildSessionPrompt", () => {
     // whether it reports over message_parent or in its reply.
     const messaging = buildChildSessionPrompt({ tools: ["message_parent"], now: FIXED_NOW });
     const reply = buildChildSessionPrompt({ now: FIXED_NOW });
+    expect(messaging).toContain("Kiri also notifies the parent when your turn stops");
+    expect(messaging).not.toContain("reaches no one");
+    expect(reply).toContain("Kiri forwards a bounded excerpt of your saved final reply");
+    expect(reply).not.toContain("`message_parent`");
     for (const prompt of [messaging, reply]) {
       expect(prompt).toContain("Keep read and inferred apart");
       expect(prompt).toContain("Never give a precise figure or range you didn't measure");

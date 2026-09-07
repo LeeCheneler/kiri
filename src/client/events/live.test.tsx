@@ -223,6 +223,25 @@ describe("LiveEventsProvider", () => {
 });
 
 describe("useLiveSync", () => {
+  it("receives a worker settlement signal from the live stream", () => {
+    const { factory, sources } = captureEventSources();
+    const refetch = mock(() => {});
+    render(
+      <LiveEventsProvider factory={factory}>
+        <Probe on={["session.turn.settled"]} refetch={refetch} />
+      </LiveEventsProvider>,
+    );
+    act(() => {
+      sources[0]?.emit({
+        type: "session.turn.settled",
+        id: "worker",
+        messageId: "reply",
+        outcome: "ended",
+      });
+    });
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
   it("calls refetch when a subscribed event type fires", () => {
     const { factory, sources } = captureEventSources();
     const refetch = mock(() => {});
