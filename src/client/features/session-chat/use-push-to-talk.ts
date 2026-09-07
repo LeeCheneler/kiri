@@ -64,7 +64,7 @@ interface Hold {
  * show its permission prompt then) and records until `stop`, which gives
  * the microphone back as soon as the capture is in hand — so the browser's
  * recording indicator lights for the hold and no longer — then sends the
- * capture to be transcribed (and tidied, server-side) and appends the text
+ * capture to be transcribed and appends the text
  * to `value` via `onChange`. Appends rather than replaces — dictation adds
  * to what's typed, and a draft edited while transcription is in flight
  * keeps that edit. A hold released before the microphone came live, or too

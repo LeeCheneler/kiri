@@ -306,12 +306,10 @@ describe("sessions routes", () => {
 
   describe("POST /api/transcribe", () => {
     const TRANSCRIPTION = "openrouter:openai/whisper-1";
-    const UTILITY = "local:tiny";
-    const withTranscription = (utility?: string) => () => ({
+    const withTranscription = () => () => ({
       shortcuts: {},
       delegates: {},
       transcription: TRANSCRIPTION,
-      ...(utility !== undefined ? { utility } : {}),
     });
 
     // A bare RIFF/WAVE header, so the SDK sniffs real audio bytes.
@@ -319,9 +317,8 @@ describe("sessions routes", () => {
       0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45,
     ]);
 
-    // Clients whose transcription model answers with a fixed transcript and
-    // whose utility generation answers with a fixed tidy, each recording
-    // its calls so a guard case can assert what ran.
+    // A client whose transcription model answers with a fixed transcript,
+    // recording its calls so guard cases can assert what ran.
     const transcribingClients = () => {
       const transcribeCalls: { audioBytes: number; mediaType: string }[] = [];
       const generateCalls: { model: string; prompt: string }[] = [];
@@ -330,7 +327,7 @@ describe("sessions routes", () => {
           doGenerate: async ({ audio, mediaType }) => {
             transcribeCalls.push({ audioBytes: audio.length, mediaType });
             return {
-              text: "so um use postgres",
+              text: "  so um use postgres \n",
               segments: [],
               language: undefined,
               durationInSeconds: undefined,
@@ -341,7 +338,7 @@ describe("sessions routes", () => {
         }) as LlmTranscriptionModel,
         generateText: async ({ model, prompt }) => {
           generateCalls.push({ model, prompt });
-          return { text: "Use Postgres.", usage: {} };
+          return { text: "rewritten", usage: {} };
         },
       });
       return { clients, transcribeCalls, generateCalls };
@@ -357,35 +354,29 @@ describe("sessions routes", () => {
       });
     };
 
-    it("transcribes the recording and tidies it with the utility model", async () => {
+    it("returns the trimmed transcript without rewriting it through the utility model", async () => {
       const { clients, transcribeCalls, generateCalls } = transcribingClients();
-      const app = makeApp(clients, { getModelsConfig: withTranscription(UTILITY) });
-
-      const res = await postAudio(app, TINY_WAV);
-
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ text: "Use Postgres." });
-      expect(transcribeCalls).toEqual([{ audioBytes: TINY_WAV.length, mediaType: "audio/wav" }]);
-      expect(generateCalls).toHaveLength(1);
-      expect(generateCalls[0]?.model).toBe(UTILITY);
-      expect(generateCalls[0]?.prompt).toContain("so um use postgres");
-    });
-
-    it("returns the raw transcript when no utility model is configured", async () => {
-      const { clients, generateCalls } = transcribingClients();
-      const app = makeApp(clients, { getModelsConfig: withTranscription() });
+      const app = makeApp(clients, {
+        getModelsConfig: () => ({
+          shortcuts: {},
+          delegates: {},
+          transcription: TRANSCRIPTION,
+          utility: "local:tiny",
+        }),
+      });
 
       const res = await postAudio(app, TINY_WAV);
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ text: "so um use postgres" });
+      expect(transcribeCalls).toEqual([{ audioBytes: TINY_WAV.length, mediaType: "audio/wav" }]);
       expect(generateCalls).toHaveLength(0);
     });
 
     it("400s without transcribing when no transcription model is configured", async () => {
       const { clients, transcribeCalls } = transcribingClients();
       const app = makeApp(clients, {
-        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: UTILITY }),
+        getModelsConfig: () => ({ shortcuts: {}, delegates: {}, utility: "local:tiny" }),
       });
 
       const res = await postAudio(app, TINY_WAV);

@@ -1040,8 +1040,8 @@ export const fetchSuggestedReplies = async (id: string): Promise<string[]> =>
   ).replies;
 
 /**
- * Transcribe a push-to-talk recording into draft text — tidied too, when a
- * utility model is configured. The server sniffs the audio container, so
+ * Transcribe a push-to-talk recording into trimmed draft text. The server
+ * sniffs the audio container, so
  * whatever the browser recorded goes as is. Empty when nothing was said.
  * Throws `ApiError` on non-2xx, notably 400 when no transcription model is
  * configured.
