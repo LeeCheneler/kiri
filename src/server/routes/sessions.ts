@@ -642,11 +642,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     });
   });
 
-  // Turn a push-to-talk recording into draft text: transcribed by the
-  // transcription model and, with a utility model configured, tidied into
-  // the message its speaker meant. Nothing is persisted. No transcription model
-  // configured is the feature's off switch — the client hides the mic — so
-  // a request without one is a plain 400.
+  // Turn a push-to-talk recording into trimmed draft text. Nothing is
+  // persisted. No transcription model configured is the feature's off switch —
+  // the client hides the mic — so a request without one is a plain 400.
   app.post(
     "/transcribe",
     bodyLimit({
@@ -665,7 +663,6 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const text = await transcribeDraft({
         llmClients,
         transcriptionModel,
-        utilityModel: deps.getModelsConfig?.().utility,
         audio: new Uint8Array(await audio.arrayBuffer()),
       });
       // A capture that comes back empty is the thing to see when push-to-talk
