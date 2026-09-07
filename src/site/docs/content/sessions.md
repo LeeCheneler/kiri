@@ -287,13 +287,11 @@ configured they're off.
 
 Hold **hold to talk**, wait for it to read **listening…**, say your message,
 and let go. The recording is transcribed by your
-[transcription model](/docs/llm-providers#transcription-model) and, with a
-[utility model](/docs/llm-providers#utility-model) configured, tidied into
-the message you meant: transcription errors and filler gone, mid-flow changes
-of mind resolved to what you settled on, punctuation and light markdown
-applied. Nothing is added and nothing is answered. The text lands in the
-draft after whatever you'd typed, and goes out only when you send it.
-Without a transcription model configured the button isn't offered.
+[transcription model](/docs/llm-providers#transcription-model), with only outer
+whitespace trimmed; kiri does not rewrite the result through the utility model.
+The words returned by speech-to-text land in the draft after whatever you'd
+typed, and go out only when you send them. Without a transcription model
+configured the button isn't offered.
 
 The microphone it listens to is the browser's default unless you pick one
 under **settings**; the choice is remembered, and the microphone in use is

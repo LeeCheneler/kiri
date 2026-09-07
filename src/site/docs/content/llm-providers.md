@@ -179,9 +179,8 @@ at spawn. Without them, workers run the same model as the conversation.
 Optionally set the model kiri itself uses for small internal generations —
 naming a new session off its opening message, judging shell commands under
 the Auto permission and distilling your approval decisions into the
-precedent that judgement reads, suggesting tap-to-send replies after a
-turn, or tidying a push-to-talk transcript into the message you meant —
-under `models.utility:`:
+precedent that judgement reads, or suggesting tap-to-send replies after a
+turn — under `models.utility:`:
 
 ```yaml
 models:
@@ -191,15 +190,15 @@ models:
 These calls are tiny, so a fast, cheap model is the right fit — a
 [local model](#gateways-and-local-models) works well and keeps them off the meter
 entirely. Unset, session titling falls back to the session's own model,
-the shell tool's Auto permission falls back to asking on every command,
-suggested replies stay off, and push-to-talk lands the raw transcript.
+the shell tool's Auto permission falls back to asking on every command, and
+suggested replies stay off.
 
 ## Transcription model
 
 Optionally set the speech-to-text model behind push-to-talk in the session
-composer, under `models.transcription:`. Hold the button, speak, let go: the
-recording is transcribed by this model and, with a utility model configured,
-tidied into the message you meant before it lands in the draft.
+composer, under `models.transcription:`. Hold the button, speak, let go: this
+model's transcript lands in the draft with only outer whitespace trimmed. Kiri
+does not rewrite it through the utility model.
 
 ```yaml
 models:
