@@ -6,7 +6,6 @@ import {
   createUIMessageStream,
   createUIMessageStreamResponse,
   isToolUIPart,
-  stepCountIs,
   streamText,
 } from "ai";
 import { isInboxPart } from "../../shared/inbox-part.ts";
@@ -63,7 +62,8 @@ export interface RunTurnDeps {
   /**
    * Tools offered to the model this turn. When non-empty, the turn runs as a
    * multi-step loop — the model can call a tool, read its result, and continue —
-   * capped at `MAX_TURN_STEPS`. An empty set (the default) is a plain chat:
+   * capped at `MAX_TURN_STEPS`, followed on exhaustion by one tool-free handoff.
+   * An empty set (the default) is a plain chat:
    * `streamText` runs a single step with no tools. A factory is called with the
    * turn's stream writer as the stream starts, so a tool can emit live progress
    * parts into the response while it runs.
@@ -76,7 +76,15 @@ export interface RunTurnDeps {
 // stops a misbehaving model from looping without end. Generous enough for
 // extended tool work: many search-and-reason cycles, or a long series of
 // document edits, in one turn.
-const MAX_TURN_STEPS = 32;
+const MAX_TURN_STEPS = 64;
+
+const STEP_LIMIT_NOTICE = `Kiri stopped this turn at its ${MAX_TURN_STEPS}-step work limit. Work may be incomplete. Completed actions are saved. Send another message to continue from the saved progress.`;
+
+const HANDOFF_PROMPT =
+  "The work step limit has been reached. Tools are unavailable. Give a concise handoff: " +
+  "what was completed, what remains unfinished or uncertain, and that this turn stopped " +
+  "because of the step limit. Do not claim unfinished work is complete or suggest repeating " +
+  "completed actions. If an action's outcome is unknown, say it needs verification.";
 
 const UNKNOWN_TOOL_RESULT =
   "The turn failed before this tool's result was recorded. Its action may have completed. " +
@@ -426,6 +434,8 @@ async function streamCore(
   let streamError: unknown;
   let checkpointed = false;
   let checkpointFailed = false;
+  let stepLimitReached = false;
+  let checkpointFinished: (() => void) | undefined;
   const acknowledgedIds = new Set<string>();
 
   // The stream can already contain an inbox delivery for the next model step.
@@ -469,7 +479,7 @@ async function streamCore(
     // the provider's stream id, which some providers reuse across requests and
     // would collide on the message primary key from one turn to the next.
     generateId: () => crypto.randomUUID(),
-    execute: ({ writer }) => {
+    execute: async ({ writer }) => {
       try {
         // Tools may be supplied ready-made or built against this turn's stream
         // writer, so a tool can emit live progress parts while it runs. With
@@ -483,7 +493,18 @@ async function streamCore(
           system,
           messages: modelMessages,
           ...(providerOptions !== undefined ? { providerOptions } : {}),
-          ...(hasTools ? { tools: turnTools, stopWhen: stepCountIs(MAX_TURN_STEPS) } : {}),
+          ...(hasTools
+            ? {
+                tools: turnTools,
+                // The SDK checks stop conditions only when tool work could
+                // continue. A final answer or pending approval at the boundary
+                // therefore never spends the handoff allowance.
+                stopWhen: ({ steps }) => {
+                  stepLimitReached = steps.length >= MAX_TURN_STEPS;
+                  return stepLimitReached;
+                },
+              }
+            : {}),
           // Deliver anything queued since the last boundary: inject it into
           // this step's model messages, and write its part into the UI stream
           // so the client shows the interjection mid-turn — at this boundary,
@@ -506,7 +527,65 @@ async function streamCore(
             streamError ??= error;
           },
         });
-        writer.merge(result.toUIMessageStream({ onError: errorMessage }));
+        // Forward in order and wait for each checkpoint before proceeding.
+        // Merging two streams concurrently could put the handoff ahead of the
+        // last tool result. Hold the final finish frame until both have ended.
+        for await (const chunk of result.toUIMessageStream({
+          onError: errorMessage,
+          sendFinish: false,
+        })) {
+          let checkpoint: Promise<void> | undefined;
+          if (chunk.type === "finish-step") {
+            checkpoint = new Promise<void>((resolve) => {
+              checkpointFinished = resolve;
+            });
+          }
+          writer.write(chunk);
+          if (checkpoint) await checkpoint;
+        }
+        if (controller.signal.aborted || streamError !== undefined) return;
+        if (!stepLimitReached) {
+          writer.write({ type: "finish", finishReason: await result.finishReason });
+          return;
+        }
+
+        // This runtime notice survives even an empty or failed handoff. Its
+        // checkpoint must land before another provider call can start.
+        const noticeId = crypto.randomUUID();
+        writer.write({ type: "start-step" });
+        writer.write({ type: "text-start", id: noticeId });
+        writer.write({ type: "text-delta", id: noticeId, delta: `${STEP_LIMIT_NOTICE}\n\n` });
+        writer.write({ type: "text-end", id: noticeId });
+        const noticeSaved = new Promise<void>((resolve) => {
+          checkpointFinished = resolve;
+        });
+        writer.write({ type: "finish-step" });
+        await noticeSaved;
+        if (controller.signal.aborted) return;
+
+        const workResponse = await result.response;
+        result = streamText({
+          model,
+          system,
+          messages: [
+            ...insertInboxModelMessages(
+              [...modelMessages, ...workResponse.messages],
+              deliveries,
+              senderLabelFor,
+            ),
+            { role: "user", content: HANDOFF_PROMPT },
+          ],
+          ...(providerOptions !== undefined ? { providerOptions } : {}),
+          // A separate call has no executable tool catalogue, even if a
+          // provider ignores the prompt and emits a tool call. No retry can
+          // spend another call beyond this one reserved handoff.
+          maxRetries: 0,
+          abortSignal: controller.signal,
+          onError: ({ error }) => {
+            streamError ??= error;
+          },
+        });
+        writer.merge(result.toUIMessageStream({ sendStart: false, onError: errorMessage }));
       } catch (cause) {
         // A tools factory that throws fails the turn like a provider error:
         // recorded here so `onFinish` lands it as failed, and rethrown so the
@@ -516,8 +595,8 @@ async function streamCore(
       }
     },
     onStepFinish: ({ responseMessage, isContinuation }) => {
-      if (finaliseInterruptedParts(responseMessage.parts) === null) return;
       try {
+        if (finaliseInterruptedParts(responseMessage.parts) === null) return;
         persistProgress(responseMessage, isContinuation);
       } catch (cause) {
         // The SDK reports checkpoint errors without stopping its tool loop.
@@ -526,6 +605,9 @@ async function streamCore(
         streamError = cause;
         controller.abort();
         throw cause;
+      } finally {
+        checkpointFinished?.();
+        checkpointFinished = undefined;
       }
     },
     onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
@@ -550,7 +632,13 @@ async function streamCore(
           }
           setSessionStatus(db, session.id, status, {
             finishedAt: new Date(),
-            error: streamError === undefined ? undefined : { message: errorMessage(streamError) },
+            error:
+              streamError === undefined
+                ? undefined
+                : {
+                    message: errorMessage(streamError),
+                    ...(stepLimitReached && !aborted ? { code: "step_limit" } : {}),
+                  },
           });
           finalStatus = status;
           return;
@@ -564,6 +652,14 @@ async function streamCore(
         const contextTokens = lastStep?.totalTokens;
         persistProgress(responseMessage, isContinuation, contextTokens);
         messagePersisted = true;
+        if (stepLimitReached) {
+          setSessionStatus(db, session.id, "failed", {
+            finishedAt: new Date(),
+            error: { code: "step_limit", message: STEP_LIMIT_NOTICE },
+          });
+          finalStatus = "failed";
+          return;
+        }
         // A turn that stopped on tool-approval requests hasn't settled: the
         // session is blocked on the user's verdicts, and lists surface that
         // as `waiting` rather than the resting `idle`.

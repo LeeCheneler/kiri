@@ -18,7 +18,8 @@
  *   `call:<name> {<json args>}` makes it stream that tool call verbatim, and
  *   once the loop feeds the result back it settles with "All done." — so a
  *   test drives any offered tool with any input, deterministically. Any other
- *   message echoes like `echo`.
+ *   message echoes like `echo`. `repeat-call:<name> {<json args>}` keeps
+ *   calling until the harness stops it, for step-limit coverage.
  * - `tool-slow` / `tool-boom` — the same tool caller, followed by a delayed
  *   response or a provider failure, for checkpoint/recovery scenarios.
  * - `paint` — an image-generation model. Its listing entry reports an image
@@ -66,6 +67,7 @@ export interface ChatCompletionRequest {
   model?: string;
   messages?: ChatMessage[];
   stream?: boolean;
+  tools?: unknown[];
 }
 
 /** An image-generation request body the stub received — captured for assertions. */
@@ -93,9 +95,13 @@ export const TOOL_DONE_REPLY = "All done.";
 // A `call:<name> {<json>}` directive in the user message, or null when the
 // message isn't one. The args ride as the raw JSON string — the consumer (the
 // AI SDK) parses them against the tool's schema, not the stub.
-const parseToolDirective = (text: string): { name: string; args: string } | null => {
-  const match = /^call:(\S+)\s+(\{.*\})\s*$/s.exec(text);
-  return match ? { name: match[1] as string, args: match[2] as string } : null;
+const parseToolDirective = (
+  text: string,
+): { name: string; args: string; repeat: boolean } | null => {
+  const match = /^(repeat-)?call:(\S+)\s+(\{.*\})\s*$/s.exec(text);
+  return match
+    ? { name: match[2] as string, args: match[3] as string, repeat: match[1] !== undefined }
+    : null;
 };
 
 // A timed wait that resolves early — without throwing — if the request aborts,
@@ -308,7 +314,7 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
     if (model === "tool" || model === "tool-slow" || model === "tool-boom") {
       const directive = parseToolDirective(lastUserText(messages));
       const toolRanAlready = messages.at(-1)?.role === "tool";
-      if (directive && !toolRanAlready && body.stream) {
+      if (directive && (!toolRanAlready || directive.repeat) && body.stream) {
         return new Response(toolCallStream(model, directive, `call-stub-${messages.length}`), {
           headers: SSE_HEADERS,
         });

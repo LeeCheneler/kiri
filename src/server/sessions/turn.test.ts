@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import { APICallError, type LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type UIMessage, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
@@ -207,6 +207,253 @@ describe("runTurn", () => {
     db.$client.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it.each(["summary", "empty", "error", "tool call", "cancel"] as const)(
+    "stops after 64 work steps and one tool-free handoff ending in %s",
+    async (ending) => {
+      let calls = 0;
+      let executions = 0;
+      const cancelRegistry = createCancelRegistry();
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          calls += 1;
+          if (calls <= 64) {
+            return {
+              stream: convertArrayToReadableStream([
+                {
+                  type: "tool-call",
+                  toolCallId: `c${calls}`,
+                  toolName: "echo",
+                  input: JSON.stringify({ value: String(calls) }),
+                },
+                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+              ]),
+            };
+          }
+          expect(calls).toBe(65);
+          expect(options.tools ?? []).toEqual([]);
+          expect(JSON.stringify(options.prompt)).toContain("what remains unfinished or uncertain");
+          expect(JSON.stringify(options.prompt).match(/check the remaining work/g)).toHaveLength(1);
+          // The fallback is durable before the handoff provider is called.
+          expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain(
+            "64-step work limit",
+          );
+          if (ending === "error") {
+            throw new APICallError({
+              message: "handoff unavailable",
+              url: "https://provider.invalid",
+              requestBodyValues: {},
+              statusCode: 503,
+              isRetryable: true,
+            });
+          }
+          if (ending === "cancel") {
+            const stream = parkedStream(
+              [
+                { type: "text-start", id: "summary" },
+                { type: "text-delta", id: "summary", delta: "Saved 64 results." },
+              ],
+              options.abortSignal,
+            );
+            queueMicrotask(() => cancelRegistry.requestCancel("s1"));
+            return { stream };
+          }
+          const parts: LanguageModelV3StreamPart[] = [];
+          if (ending === "summary") {
+            parts.push(
+              { type: "text-start", id: "summary" },
+              { type: "text-delta", id: "summary", delta: "Saved 64 results. More work remains." },
+              { type: "text-end", id: "summary" },
+            );
+          }
+          if (ending === "tool call") {
+            // A provider ignoring the disabled tools still cannot execute one.
+            parts.push({
+              type: "tool-call",
+              toolCallId: "unexpected",
+              toolName: "echo",
+              input: '{"value":"do not execute"}',
+            });
+          }
+          parts.push({ type: "finish", finishReason: finishReason("stop"), usage: usage(100, 20) });
+          return { stream: convertArrayToReadableStream(parts) };
+        },
+      }) as unknown as LlmModel;
+      const session = createSession(db, MODEL, { id: "s1" });
+      const events: KiriEvent[] = [];
+      const { response, done } = await runTurn(
+        {
+          db,
+          llmClients: clientsFor(model),
+          bus: recordingBus(events),
+          cancelRegistry,
+          tools: {
+            echo: tool({
+              inputSchema: z.object({ value: z.string() }),
+              execute: ({ value }) => {
+                executions += 1;
+                if (executions === 10) {
+                  enqueueInboxItem(db, "s1", { source: "user", text: "check the remaining work" });
+                }
+                return { echoed: value };
+              },
+            }),
+          },
+        },
+        { session, userMessage: USER_MESSAGE },
+      );
+      const sse = await response.text();
+      await done;
+      expect(calls).toBe(65);
+      expect(executions).toBe(64);
+      expect(sse).toContain("64-step work limit");
+      expect(sse).toContain('"toolCallId":"c64","output"');
+      expect(sse.indexOf('"toolCallId":"c64","output"')).toBeLessThan(
+        sse.indexOf("64-step work limit"),
+      );
+      const rows = getSessionMessages(db, "s1");
+      expect(rows).toHaveLength(2);
+      expect(
+        (rows[1]?.parts as ToolPart[]).filter((p) => p.state === "output-available"),
+      ).toHaveLength(64);
+      expect(JSON.stringify(rows[1]?.parts)).toContain("64-step work limit");
+      expect(pendingInboxItems(db, "s1")).toEqual([]);
+      const status = ending === "cancel" ? "cancelled" : "failed";
+      expect(getSession(db, "s1")).toMatchObject({
+        status,
+        ...(ending !== "cancel" ? { error: { code: "step_limit" } } : {}),
+        finishedAt: expect.any(Date),
+      });
+      expect(events).toContainEqual({ type: "session.finished", id: "s1", status });
+      if (ending === "summary") {
+        expect(sse).toContain("Saved 64 results. More work remains.");
+        expect(JSON.stringify(rows[1]?.parts)).toContain("Saved 64 results. More work remains.");
+        expect(rows[1]?.contextTokens).toBe(120);
+      }
+      if (ending === "error") expect(sse).toContain("handoff unavailable");
+
+      const capture: { prompt?: unknown } = {};
+      await (
+        await runTurn(
+          { db, llmClients: clientsFor(capturingModel(capture)), tools: echoTools },
+          { session, userMessage: { ...USER_MESSAGE, id: "u2" } },
+        )
+      ).done;
+      expect(JSON.stringify(capture.prompt)).toContain("64-step work limit");
+      expect(getSession(db, "s1")).toMatchObject({ status: "idle", error: null, finishedAt: null });
+    },
+  );
+
+  it("does not start a handoff when saving its stopping notice fails", async () => {
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls += 1;
+        return {
+          stream: convertArrayToReadableStream([
+            {
+              type: "tool-call",
+              toolCallId: `c${calls}`,
+              toolName: "echo",
+              input: '{"value":"hi"}',
+            },
+            { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+    db.$client.exec(`
+      CREATE TRIGGER reject_stopping_notice BEFORE UPDATE ON messages
+      WHEN NEW.parts LIKE '%64-step work limit%'
+      BEGIN SELECT RAISE(FAIL, 'notice checkpoint unavailable'); END;
+    `);
+    const streamRegistry = createStreamRegistry();
+    const { done } = await runTurn(
+      { db, llmClients: clientsFor(model), tools: echoTools, streamRegistry },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await done;
+    expect(calls).toBe(64);
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { message: "notice checkpoint unavailable" },
+    });
+    expect(
+      (getSessionMessages(db, "s1")[1]?.parts as ToolPart[]).filter(
+        (p) => p.state === "output-available",
+      ),
+    ).toHaveLength(64);
+    expect(streamRegistry.has("s1")).toBe(false);
+  });
+
+  it.each(["answer", "approval", "cancel"] as const)(
+    "does not hand off when step 64 ends with %s",
+    async (ending) => {
+      let calls = 0;
+      let executions = 0;
+      const cancelRegistry = createCancelRegistry();
+      const model = new MockLanguageModelV3({
+        doStream: async () => {
+          calls += 1;
+          const parts: LanguageModelV3StreamPart[] =
+            calls === 64 && ending === "answer"
+              ? [
+                  { type: "text-start", id: "answer" },
+                  { type: "text-delta", id: "answer", delta: "Work complete." },
+                  { type: "text-end", id: "answer" },
+                ]
+              : [
+                  {
+                    type: "tool-call",
+                    toolCallId: `c${calls}`,
+                    toolName: "echo",
+                    input: '{"value":"hi"}',
+                  },
+                ];
+          parts.push({
+            type: "finish",
+            finishReason: finishReason(calls === 64 && ending === "answer" ? "stop" : "tool-calls"),
+            usage: usage(5, 1),
+          });
+          return { stream: convertArrayToReadableStream(parts) };
+        },
+      }) as unknown as LlmModel;
+      const session = createSession(db, MODEL, { id: "s1" });
+      const { response, done } = await runTurn(
+        {
+          db,
+          llmClients: clientsFor(model),
+          cancelRegistry,
+          tools: {
+            echo: tool({
+              inputSchema: z.object({ value: z.string() }),
+              needsApproval: () => calls === 64 && ending === "approval",
+              execute: ({ value }) => {
+                executions += 1;
+                if (calls === 64 && ending === "cancel") cancelRegistry.requestCancel("s1");
+                return { echoed: value };
+              },
+            }),
+          },
+        },
+        { session, userMessage: USER_MESSAGE },
+      );
+      const sse = await response.text();
+      await done;
+      expect(calls).toBe(64);
+      expect(executions).toBe(ending === "cancel" ? 64 : 63);
+      expect(sse).not.toContain("64-step work limit");
+      expect(getSession(db, "s1")?.status).toBe(
+        ending === "answer" ? "idle" : ending === "approval" ? "waiting" : "cancelled",
+      );
+      if (ending === "approval") {
+        expect(getSessionMessages(db, "s1")[1]?.parts).toContainEqual(
+          expect.objectContaining({ toolCallId: "c64", state: "approval-requested" }),
+        );
+      }
+    },
+  );
 
   it("passes the session's effort as provider options when the model supports reasoning", async () => {
     const capture: { providerOptions?: unknown } = {};

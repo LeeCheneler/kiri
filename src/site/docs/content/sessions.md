@@ -19,6 +19,15 @@ conversation after reload, ready for your next message. A failed turn does
 not automatically repeat completed actions. If an action's result never
 arrived, its outcome may be unknown; check its effect before retrying.
 
+A turn can take up to **64 work steps**, each a model response that may
+call tools. If it still needs to continue, Kiri saves a stopping notice and
+allows one final response with tools disabled to summarise completed work,
+what remains, and why it stopped. The turn is marked failed with the step
+limit as its reason. The notice and saved work remain available if that
+summary fails or is empty; send another message to continue. A normal final
+answer on step 64 completes normally. Tool approvals still pause for your
+decision, and you can cancel during either the work or the final summary.
+
 ## Articles
 
 Ask for a write-up — a report, a digest, a guide — and the session saves it
