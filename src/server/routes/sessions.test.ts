@@ -3039,22 +3039,30 @@ describe("sessions routes", () => {
       // detached worker messages its report, and the report wakes the parent
       // into a turn that answers from it.
       await until(() => JSON.stringify(getSessionMessages(env.db, "s1")).includes("Summarised"));
+      await until(() =>
+        JSON.stringify(getSessionMessages(env.db, "s1")).includes("worker's turn ended"),
+      );
       await until(() => getSession(env.db, "s1")?.status === "idle");
 
       // The parent transcript: the delegate call settled with the spawn
-      // acknowledgement (not the report), the turn ended, then the worker's
-      // report arrived as a labelled interjection that woke the final turn.
+      // acknowledgement, then the worker's report and runtime settlement
+      // arrived as labelled interjections. They may weave into an active turn
+      // or each wake one, depending on when the model replies.
       const rows = getSessionMessages(env.db, "s1");
       const part = toolPartOf(rows[1]);
       expect(part.type).toBe("tool-delegate");
       expect(part.state).toBe("output-available");
       expect(String(part.output)).toContain('Delegated "Pelican facts"');
-      expect(rows.map((r) => r.role)).toEqual(["user", "assistant", "user", "assistant"]);
-      const interjection = (rows[2]?.parts as { type: string; data?: { source?: string } }[])[0];
-      expect(interjection?.type).toBe("data-inbox");
-      expect(interjection?.data?.source).toBe("child");
-      expect(JSON.stringify(rows[2]?.parts)).toContain("Report: pelicans all good.");
-      expect(JSON.stringify(rows[3]?.parts)).toContain("Summarised for the user.");
+      const interjections = rows.flatMap((row) =>
+        (row.parts as { type: string; data?: { source?: string; text?: string } }[]).filter(
+          (part) => part.type === "data-inbox" && part.data?.source === "child",
+        ),
+      );
+      expect(interjections).toHaveLength(2);
+      expect(interjections[0]?.data?.text).toBe("Report: pelicans all good.");
+      expect(interjections[1]?.data?.text).toContain("worker's turn ended");
+      expect(interjections[1]?.data?.text).not.toContain("Report: pelicans all good.");
+      expect(JSON.stringify(rows.at(-1)?.parts)).toContain("Summarised for the user.");
 
       // The child is linked to the spawning call, ran the task as its own
       // transcript, and settled idle.

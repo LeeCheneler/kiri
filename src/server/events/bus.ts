@@ -32,6 +32,12 @@ export type KiriEvent =
   | { type: "session.inbox.delivered"; sessionId: string }
   | { type: "session.updated"; id: string; status: SessionStatus }
   | { type: "session.finished"; id: string; status: SessionStatus }
+  | {
+      type: "session.turn.settled";
+      id: string;
+      messageId: string | null;
+      outcome: "ended" | "incomplete" | "failed" | "cancelled";
+    }
   | { type: "session.deleted"; id: string }
   | { type: "article.written"; sessionId: string; slug: string; projectId?: string }
   | { type: "article.deleted"; slug: string; sessionId?: string; projectId?: string }

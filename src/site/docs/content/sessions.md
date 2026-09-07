@@ -254,6 +254,13 @@ the legwork.
   mid-task, nudge a quiet one, or answer a question a worker sends back. A
   worker's result arriving after the assistant has finished its reply starts
   a new one, so fanned-out research assembles itself as the reports land.
+- Kiri sends a notice whenever a worker's turn ends, including failure,
+  cancellation, or the work step limit. If the worker omitted its report,
+  the notice includes a bounded excerpt of its saved final reply or a link
+  to its transcript. A report already sent is not repeated. A progress note
+  or a stopped turn does not mean the task is complete: the assistant checks
+  what remains before answering. Notices queue while your conversation is
+  paused for approval or cancelled; they do not restart it.
 - A worker holds the same tools as the chat, under the same permissions — a
   call on **Ask** pauses that worker until you allow or deny it, exactly as
   it would in the chat, so delegation never runs anything unprompted that

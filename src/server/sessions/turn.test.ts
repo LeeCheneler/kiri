@@ -325,6 +325,14 @@ describe("runTurn", () => {
         finishedAt: expect.any(Date),
       });
       expect(events).toContainEqual({ type: "session.finished", id: "s1", status });
+      expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
+        {
+          type: "session.turn.settled",
+          id: "s1",
+          messageId: rows[1]?.id,
+          outcome: ending === "cancel" ? "cancelled" : "incomplete",
+        },
+      ]);
       if (ending === "summary") {
         expect(sse).toContain("Saved 64 results. More work remains.");
         expect(JSON.stringify(rows[1]?.parts)).toContain("Saved 64 results. More work remains.");
@@ -556,6 +564,9 @@ describe("runTurn", () => {
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "running" });
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
     expect(events.filter((e) => e.type === "session.message.added")).toHaveLength(2);
+    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
+      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "ended" },
+    ]);
   });
 
   it("culls older tool results from what the model sees over the cull ratio, leaving storage intact", async () => {
@@ -786,6 +797,9 @@ describe("runTurn", () => {
     const settled = getSession(db, "s1");
     expect(settled?.status).toBe("failed");
     expect(settled?.error).toEqual({ message: "rate limited" });
+    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
+      { type: "session.turn.settled", id: "s1", messageId: null, outcome: "failed" },
+    ]);
     expect(settled?.finishedAt).toBeInstanceOf(Date);
     // The user message persisted; no assistant message was appended.
     expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
@@ -824,6 +838,9 @@ describe("runTurn", () => {
     expect(rows[1]?.contextTokens).toBeNull();
     expect(events).toContainEqual({ type: "session.message.added", sessionId: "s1" });
     expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "cancelled" });
+    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
+      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "cancelled" },
+    ]);
   });
 
   it("holds the resumable stream while a turn is in flight and drops it when it settles", async () => {
@@ -875,6 +892,32 @@ describe("runTurn", () => {
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
   });
 
+  it("reports settlement after final persistence fails, retaining the last successful checkpoint", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const events: KiriEvent[] = [];
+    const streamRegistry = createStreamRegistry();
+    db.$client.exec(`
+      CREATE TRIGGER reject_final_usage BEFORE UPDATE ON messages
+      WHEN NEW.context_tokens IS NOT NULL
+      BEGIN SELECT RAISE(FAIL, 'final persistence unavailable'); END;
+    `);
+    const { done } = await runTurn(
+      { db, llmClients: clientsFor(capturingModel({})), bus: recordingBus(events), streamRegistry },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await done;
+    const saved = getSessionMessages(db, "s1").at(-1);
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { message: "final persistence unavailable" },
+    });
+    expect(saved?.role).toBe("assistant");
+    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
+      { type: "session.turn.settled", id: "s1", messageId: saved?.id ?? null, outcome: "failed" },
+    ]);
+    expect(streamRegistry.has("s1")).toBe(false);
+  });
+
   it("releases the old turn before an idle event starts another cancellable turn", async () => {
     const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
     const streamRegistry = createStreamRegistry();
@@ -883,6 +926,11 @@ describe("runTurn", () => {
     const bus = {
       subscribe: () => () => {},
       publish: (event: KiriEvent) => {
+        if (event.type === "session.turn.settled") {
+          expect(getSessionMessages(db, "s1").at(-1)?.id ?? null).toBe(event.messageId);
+          expect(streamRegistry.has("s1")).toBe(false);
+          expect(cancelRegistry.requestCancel("s1")).toBe(false);
+        }
         if (event.type !== "session.updated" || event.status !== "idle" || next) return;
         next = runTurn(
           { db, llmClients: clientsFor(pendingModel()), cancelRegistry, streamRegistry },
@@ -1059,14 +1107,17 @@ describe("runTurn", () => {
     // and the bus said so, so lists flip amber live.
     expect(getSession(db, "s1")?.status).toBe("waiting");
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "waiting" });
+    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([]);
   });
 
   it("runs the tool and answers when a paused turn is resumed with approval", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
     const clients = clientsFor(toolLoopModel());
+    const events: KiriEvent[] = [];
+    const bus = recordingBus(events);
 
     const first = await runTurn(
-      { db, llmClients: clients, tools: gatedEchoTools },
+      { db, llmClients: clients, tools: gatedEchoTools, bus },
       { session, userMessage: USER_MESSAGE },
     );
     await first.response.text();
@@ -1074,7 +1125,7 @@ describe("runTurn", () => {
     const paused = toolPartOf(getSessionMessages(db, "s1")[1]);
 
     const second = await resumeTurn(
-      { db, llmClients: clients, tools: gatedEchoTools },
+      { db, llmClients: clients, tools: gatedEchoTools, bus },
       {
         session,
         approvals: [{ toolCallId: paused.toolCallId as string, approved: true }],
@@ -1085,6 +1136,9 @@ describe("runTurn", () => {
 
     const rows = getSessionMessages(db, "s1");
     // The continuation extended the same two rows — no extra assistant message.
+    expect(events.filter((event) => event.type === "session.turn.settled")).toEqual([
+      { type: "session.turn.settled", id: "s1", messageId: rows[1]?.id, outcome: "ended" },
+    ]);
     expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
     const toolPart = toolPartOf(rows[1]);
     expect(toolPart.state).toBe("output-available");

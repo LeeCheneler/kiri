@@ -1,8 +1,9 @@
+import { type UIMessage, isToolUIPart } from "ai";
 import type { KiriDb } from "../db/index.ts";
-import type { EventBus } from "../events/index.ts";
+import type { EventBus, KiriEvent } from "../events/index.ts";
 import { createLogger } from "../log.ts";
 import { enqueueInboxItem } from "./inbox.ts";
-import { type Session, getSession } from "./store.ts";
+import { type Session, getSession, getSessionMessages, setSessionStatus } from "./store.ts";
 import { type RunTurnDeps, runWakeTurn } from "./turn.ts";
 
 const log = createLogger("sessions");
@@ -27,6 +28,55 @@ export interface DelegationMessagingDeps {
 // turn clears the terminal markers, like any resumed turn).
 const WAKEABLE: ReadonlySet<Session["status"]> = new Set(["idle", "failed"]);
 
+type TurnSettlement = Extract<KiriEvent, { type: "session.turn.settled" }>;
+
+const SETTLEMENT_NOTICE: Record<TurnSettlement["outcome"], string> = {
+  ended: "Automatic notice: this worker's turn ended.",
+  incomplete:
+    "Automatic notice: this worker stopped at its work step limit; work may be incomplete.",
+  failed: "Automatic notice: this worker's turn failed and it has stopped.",
+  cancelled:
+    "Automatic notice: this worker was cancelled by the user and has stopped. It will not restart on its own.",
+};
+const MAX_SETTLEMENT_LENGTH = 8_000;
+
+// Only the saved reply after the last tool call is a fallback report. Earlier
+// prose may be work in progress, and a successful message_parent call already
+// delivered its input through the inbox. Neither proves the task is complete.
+function settlementText(db: KiriDb, child: Session, event: TurnSettlement): string {
+  const message = getSessionMessages(db, child.id).find((row) => row.id === event.messageId);
+  const parts = (message?.parts ?? []) as UIMessage["parts"];
+  const finalText = parts
+    .slice(parts.findLastIndex(isToolUIPart) + 1)
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n")
+    .trim();
+  const alreadySent = parts.some((part) => {
+    if (part.type !== "tool-message_parent" || part.state !== "output-available") return false;
+    const input = part.input as { message?: unknown } | undefined;
+    return typeof input?.message === "string" && input.message.trim() === finalText;
+  });
+  const error = (child.error as { message?: string } | null)?.message;
+  const header = [
+    SETTLEMENT_NOTICE[event.outcome],
+    "A stopped turn or an earlier progress message does not establish task completion. Check the result and what remains.",
+    ...(event.outcome === "failed" && error ? [`Error: ${error.slice(0, 500)}`] : []),
+    `Worker transcript: /sessions/${child.id}${event.messageId ? ` (message ${event.messageId})` : ""}.`,
+  ].join("\n\n");
+  if (!finalText)
+    return `${header}\n\nNo final reply was saved. Review earlier messages and the worker transcript for its progress and any outstanding work.`;
+  if (alreadySent)
+    return `${header}\n\nThe final reply was already delivered through message_parent; its body is not repeated here.`;
+
+  const prefix = `${header}\n\nSaved worker reply (may be partial):\n`;
+  const suffix = "\n[Excerpt truncated; see the worker transcript.]";
+  const remaining = MAX_SETTLEMENT_LENGTH - prefix.length;
+  return finalText.length <= remaining
+    ? prefix + finalText
+    : prefix + finalText.slice(0, remaining - suffix.length) + suffix;
+}
+
 /**
  * The messaging loop that lets delegations run as plain sessions talking
  * through their inboxes. One bus subscription carries the whole behaviour:
@@ -42,9 +92,10 @@ const WAKEABLE: ReadonlySet<Session["status"]> = new Set(["idle", "failed"]);
  *   settles `failed` deliberately does not re-wake — its own delivery
  *   attempt failing would loop — so a failed session waits for the next
  *   message (or the user) to try again.
- * - A delegated child whose turn fails enqueues a brief failure notice to its
- *   parent — the one system-authored message — so the parent never stalls
- *   silently on a dead worker.
+ * - Every settled worker turn enqueues a runtime notice to its parent, even
+ *   when the worker omitted message_parent. A saved final reply is included
+ *   within a size limit unless it was already delivered. Approval pauses are
+ *   not settlements, and a settlement does not claim the task is complete.
  *
  * Returns the unsubscribe function. Wake turns run detached: failures land on
  * the session's own status through the turn machinery, and are logged here.
@@ -52,25 +103,43 @@ const WAKEABLE: ReadonlySet<Session["status"]> = new Set(["idle", "failed"]);
 export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => void {
   const { db, bus, turnDepsFor } = deps;
 
-  const wake = (sessionId: string) => {
+  const wake = async (sessionId: string) => {
     const session = getSession(db, sessionId);
     if (!session || !WAKEABLE.has(session.status)) return;
     // `runWakeTurn` runs synchronously up to marking the session `running`
     // (or returns null on an already-drained backlog), so a second queued
     // event on the same tick finds it unwakeable rather than racing a
     // concurrent turn.
-    void runWakeTurn(turnDepsFor(sessionId), { session })
-      .then((started) => started?.done)
-      .catch((cause) => log.error(`wake turn for session ${sessionId} failed`, cause));
+    let turnDeps: RunTurnDeps | undefined;
+    try {
+      turnDeps = turnDepsFor(sessionId);
+      const started = await runWakeTurn(turnDeps, { session });
+      await started?.done;
+    } catch (cause) {
+      // A startup failure has no stream to settle it (for example, the worker's
+      // model no longer resolves). It still owes the parent a failure notice.
+      turnDeps?.cancelRegistry?.release(sessionId);
+      setSessionStatus(db, sessionId, "failed", {
+        finishedAt: new Date(),
+        error: { message: cause instanceof Error ? cause.message : String(cause) },
+      });
+      bus.publish({
+        type: "session.turn.settled",
+        id: sessionId,
+        messageId: null,
+        outcome: "failed",
+      });
+      bus.publish({ type: "session.finished", id: sessionId, status: "failed" });
+      log.error(`wake turn for session ${sessionId} failed`, cause);
+    }
   };
 
-  const notifyParentOfFailure = (child: Session) => {
+  const notifyParent = (child: Session, event: TurnSettlement) => {
     if (child.parentSessionId === null) return;
-    const error = (child.error as { message?: string } | null)?.message;
     enqueueInboxItem(db, child.parentSessionId, {
       source: "child",
       fromSessionId: child.id,
-      text: `Automatic notice: this worker's turn failed and it has stopped${error ? ` — ${error}` : ""}. It did not report a result. Message it to retry, or spawn a replacement.`,
+      text: settlementText(db, child, event),
     });
     // Publishing the queued event hands delivery to the same loop: the
     // notice weaves into a busy parent or wakes an idle one.
@@ -78,11 +147,11 @@ export function mountDelegationMessaging(deps: DelegationMessagingDeps): () => v
   };
 
   return bus.subscribe((event) => {
-    if (event.type === "session.inbox.queued") wake(event.sessionId);
-    if (event.type === "session.updated" && event.status === "idle") wake(event.id);
-    if (event.type === "session.finished" && event.status === "failed") {
+    if (event.type === "session.inbox.queued") void wake(event.sessionId);
+    if (event.type === "session.updated" && event.status === "idle") void wake(event.id);
+    if (event.type === "session.turn.settled") {
       const session = getSession(db, event.id);
-      if (session) notifyParentOfFailure(session);
+      if (session) notifyParent(session, event);
     }
   });
 }

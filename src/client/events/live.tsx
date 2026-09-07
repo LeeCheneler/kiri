@@ -15,6 +15,7 @@ export type KiriEventType =
   | "session.inbox.delivered"
   | "session.updated"
   | "session.finished"
+  | "session.turn.settled"
   | "session.deleted"
   | "article.written"
   | "article.deleted"
@@ -67,6 +68,12 @@ export type KiriEvent =
   | { type: "session.inbox.delivered"; sessionId: string }
   | { type: "session.updated"; id: string; status: SessionStatus }
   | { type: "session.finished"; id: string; status: SessionStatus }
+  | {
+      type: "session.turn.settled";
+      id: string;
+      messageId: string | null;
+      outcome: "ended" | "incomplete" | "failed" | "cancelled";
+    }
   | { type: "session.deleted"; id: string }
   | { type: "article.written"; sessionId: string; slug: string; projectId?: string }
   | { type: "article.deleted"; slug: string; sessionId?: string; projectId?: string }
@@ -109,6 +116,7 @@ const KIRI_EVENT_TYPES: readonly KiriEventType[] = [
   "session.inbox.delivered",
   "session.updated",
   "session.finished",
+  "session.turn.settled",
   "session.deleted",
   "article.written",
   "article.deleted",

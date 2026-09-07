@@ -611,7 +611,7 @@ async function streamCore(
       }
     },
     onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
-      let finalStatus: SessionStatus | undefined;
+      let finalStatus: Exclude<SessionStatus, "running"> | undefined;
       let messagePersisted = checkpointed;
       try {
         const aborted = !checkpointFailed && (isAborted || controller.signal.aborted);
@@ -670,11 +670,35 @@ async function streamCore(
           : ("idle" as const);
         setSessionStatus(db, session.id, settled);
         finalStatus = settled;
+      } catch (cause) {
+        // Final persistence can fail after a successful step checkpoint. The
+        // turn still stopped: record that failure before notifying its parent.
+        setSessionStatus(db, session.id, "failed", {
+          finishedAt: new Date(),
+          error: { message: errorMessage(cause) },
+        });
+        finalStatus = "failed";
+        throw cause;
       } finally {
         // Close the resumable stream as the turn settles, in step with persisting
         // the message above, so a client reconnecting now replays nothing.
         sink?.close();
         cancelRegistry?.release(session.id);
+        if (finalStatus !== undefined && finalStatus !== "waiting") {
+          bus?.publish({
+            type: "session.turn.settled",
+            id: session.id,
+            // An empty failed turn must not point at an older reply. Approval
+            // continuations retain the same assistant row as their saved work.
+            messageId: messagePersisted ? responseMessage.id : null,
+            outcome:
+              finalStatus === "idle"
+                ? "ended"
+                : finalStatus === "failed" && stepLimitReached
+                  ? "incomplete"
+                  : finalStatus,
+          });
+        }
         // An idle event can synchronously wake another turn. Release this
         // turn's resources first so cleanup cannot cancel its replacement.
         if (messagePersisted)
