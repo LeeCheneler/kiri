@@ -16,6 +16,7 @@ import {
   loadWorkflows,
   workflowSchema,
 } from "../workflows/index.ts";
+import { createInstructionContext } from "./instruction-context.ts";
 import { type WorkflowToolsDeps, workflowTools } from "./workflow-tools.ts";
 
 // Invoke a tool's execute with a minimal ToolExecutionOptions, casting away
@@ -398,6 +399,37 @@ describe("workflowTools", () => {
   };
 
   const GREET_YAML = "name: greet\nsteps:\n  - sh: printf ok\n";
+
+  it.each(["create_workflow", "edit_workflow", "replace_workflow"])(
+    "defers %s under workspace instructions even when filesystem access is disabled",
+    async (name) => {
+      const path = join(dir, "workflows", "greet.yaml");
+      if (name !== "create_workflow") writeFileSync(path, GREET_YAML);
+      await syncFromDisk();
+      writeFileSync(join(dir, "workflows", "AGENTS.md"), "Workflow authoring rule.");
+      const sources = { config: createConfigStore(dir), allowedDirectories: [] };
+      const context = createInstructionContext(() => sources);
+      context.resolve(sources);
+      const guarded = tools({
+        checkInstructions: (directory) =>
+          context.requireForDirectory(directory, { scope: "workflow" }),
+      });
+      const next = GREET_YAML.replace("printf ok", "printf revised");
+      const input = {
+        slug: "greet",
+        name: "greet",
+        content_yaml: next,
+        old_string: "printf ok",
+        new_string: "printf revised",
+      };
+      await expect(run(guarded[name], input)).rejects.toThrow("Nothing was changed or started");
+      if (name === "create_workflow") expect(existsSync(path)).toBe(false);
+      else expect(readFileSync(path, "utf8")).toBe(GREET_YAML);
+      expect(context.resolve(sources).directories.at(-1)?.text).toBe("Workflow authoring rule.");
+      await run(guarded[name], input);
+      expect(readFileSync(path, "utf8")).toBe(next);
+    },
+  );
 
   describe("read_workflow", () => {
     it("returns the raw YAML and workspace-relative file of an existing workflow", async () => {

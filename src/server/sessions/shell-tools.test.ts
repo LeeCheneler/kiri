@@ -1,8 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolExecutionOptions, ToolSet } from "ai";
+import { createInstructionContext } from "./instruction-context.ts";
 import { type ShellToolsOptions, shellTools } from "./shell-tools.ts";
 
 // Invoke the tool's execute with a minimal ToolExecutionOptions, casting away
@@ -47,6 +57,24 @@ describe("shellTools", () => {
   // Results report *real* absolute paths (macOS's tmpdir is symlinked), so
   // expectations build on the realpath'd roots.
   const ws = (...segments: string[]): string => join(realpathSync(workspace), ...segments);
+
+  it("does not start a command until its explicit cwd's rules have reached the model", async () => {
+    mkdirSync(ws("nested"));
+    writeFileSync(ws("nested", "AGENTS.md"), "Command rule.");
+    cwdValue = ws();
+    const sources = { workingDirectory: cwdValue, allowedDirectories: [workspace] };
+    const context = createInstructionContext(() => sources);
+    context.resolve(sources);
+    const guarded = tool([workspace], {
+      checkInstructions: (directory) => context.requireForDirectory(directory),
+    });
+    const input = { command: "printf ran > result.txt", cwd: "nested" };
+    await expect(run(guarded, input)).rejects.toThrow("Nothing was changed or started");
+    expect(existsSync(ws("nested", "result.txt"))).toBe(false);
+    context.resolve(sources);
+    expect((await run(guarded, input)).exitCode).toBe(0);
+    expect(readFileSync(ws("nested", "result.txt"), "utf8")).toBe("ran");
+  });
 
   it("runs a command in the sole allowed directory when cwd is omitted with no session working directory", async () => {
     const result = await run(tool(), { command: "pwd" });

@@ -40,5 +40,9 @@ Kiri. Keep project guidance in `AGENTS.md`; `CLAUDE.md` imports it for Claude Co
 
 Kiri loads workspace `kiri.md`, then project instructions, then the `AGENTS.md`
 chain for a session's working directory inside its allowed directories.
+Workers inherit these layers too. Before changing files, Kiri checks the
+target's nested rules; workflow authoring checks its chain inside the workspace.
+If a tool defers for unseen or changed instructions, consider the refreshed
+rules before retrying under the usual approval policy.
 Keep workspace-wide session preferences in `kiri.md`. This file governs work
 in this repository; the long authoring guide is read when needed.

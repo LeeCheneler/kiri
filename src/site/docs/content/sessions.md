@@ -41,11 +41,13 @@ where they land in the project's shared corpus instead: see
 
 ## Shaping behaviour
 
-Each turn's system prompt layers your standing instructions, broadest
-first — and where two conflict, the narrower wins:
+Every session, including a delegated worker, receives your standing
+instructions. Where applicable instructions conflict, precedence is highest
+first:
 
 ```
-core (kiri)  →  kiri.md  →  project instructions  →  AGENTS.md chain
+Enforced Kiri constraints → explicit user requests → nearest AGENTS.md
+  → project instructions → kiri.md → loaded skills → general defaults
 ```
 
 - **`kiri.md`** — markdown at the workspace root, applied to every session:
@@ -53,17 +55,40 @@ core (kiri)  →  kiri.md  →  project instructions  →  AGENTS.md chain
 - **[Project instructions](/docs/projects-and-memories#project-instructions)**
   — carried by every session in a project.
 - **`AGENTS.md` chain** — per-directory instructions collected from the
-  session's [working directory](#working-with-your-files) up the tree,
-  nearer files winning. It's the same `AGENTS.md` convention other coding
-  assistants follow, so an existing repo needs no kiri-specific setup. Only
-  files inside your allowed directories are read, and kiri never writes one.
+  session's [working directory](#working-with-your-files) and the paths its
+  file tools change, nearer files winning. It's the same `AGENTS.md` convention
+  other coding assistants follow, so an existing repo needs no kiri-specific setup. Only
+  files inside your allowed directories are read. Secret-bearing paths and
+  internal `.git`/`.kiri` files are excluded, including symlink targets.
+
+Tool permissions, filesystem boundaries, and the requirement that Kiri runs
+while the app is active cannot be overridden by instructions. A worker's
+brief cannot waive inherited rules or approve a tool call. Skill instructions
+loaded through `use_skill` guide their specific task; ordinary file contents,
+web pages, and other tool results remain data, even if they claim authority.
 
 ```
 Answer in British English. Be direct, lead with the answer, and cite
 file:line when you reference code.
 ```
 
-Every layer is read fresh each turn, so an edit applies on the next turn.
+Standing instructions are read fresh before each model step. Edits take
+effect as the assistant continues within the same turn. Moving to another
+directory replaces the directory rules before the assistant continues there;
+the previous directory's rules are no longer applied outside their scope.
+
+Before changing files, Kiri also checks nested `AGENTS.md` files that govern
+the target. You do not need to move the session's working directory into
+each subdirectory. If the assistant has not received the current rules,
+the tool leaves the files untouched and supplies those rules for the
+assistant to consider before retrying. Recursive directory deletion checks
+the descendants too. Retries follow the usual approval policy, including
+when instructions changed while a call was waiting for your approval.
+
+Workflow authoring checks the workspace's instruction chain for the YAML
+file, even without filesystem access enabled. Shell commands check the
+chain for their execution directory; Kiri does not infer every path touched
+by a shell command or an external tool.
 
 ## Skills
 
@@ -212,7 +237,8 @@ filesystem:
   relative paths resolve and commands run. It starts at
   `default_working_directory` (or the first allowed directory) and the
   assistant can move it within the sandbox as the work settles somewhere
-  else. If it disappears — a deleted checkout, a narrowed sandbox — the
+  else. The new directory's instructions apply within the same turn. If it
+  disappears — a deleted checkout, a narrowed sandbox — the
   session falls back to the default and the assistant lets you know.
 
 ## Running shell commands
@@ -267,6 +293,10 @@ the legwork.
   the chat itself couldn't. Only you can answer a pause: the assistant
   can't approve its workers' calls, and messages sent to a paused worker
   queue until it resumes.
+- Workers inherit workspace and project instructions, and load the
+  `AGENTS.md` chain for their working directory. They start in the parent's
+  directory and project. Their brief supplies task-specific details; the
+  parent conversation itself is not copied.
 - Workers don't appear in the feed, session list, or search — but each is a
   real session you can open at its own URL. Cancelling one stops just that
   worker.

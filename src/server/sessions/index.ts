@@ -38,6 +38,7 @@ export {
   filesystemTools,
 } from "./filesystem-tools.ts";
 export { type ImageToolsDeps, imageTools } from "./image-tools.ts";
+export { type InstructionContext, createInstructionContext } from "./instruction-context.ts";
 export {
   type InboxItem,
   deleteInboxItems,
