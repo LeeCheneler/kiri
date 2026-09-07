@@ -25,6 +25,7 @@ import {
   insertInboxModelMessages,
   pendingInboxItems,
 } from "./inbox.ts";
+import type { InstructionContext } from "./instruction-context.ts";
 import {
   type Message,
   type Session,
@@ -40,6 +41,8 @@ import { toonEncodeToolResults } from "./toon-tool-results.ts";
 import { stripWriteToolDiffs } from "./write-tool-diffs.ts";
 
 export interface RunTurnDeps {
+  /** Shared by the prompt builder and mutation tools; receipts survive approval pauses. */
+  instructionContext?: InstructionContext;
   db: KiriDb;
   /** Resolves the session's `provider:model` into a callable model. */
   llmClients: LlmClients;
@@ -348,7 +351,16 @@ async function streamCore(
   session: Session,
   model: ReturnType<LlmClients["resolveModel"]>,
 ): Promise<StartedTurn> {
-  const { db, llmClients, bus, cancelRegistry, streamRegistry, buildSystemPrompt, tools } = deps;
+  const {
+    db,
+    llmClients,
+    bus,
+    cancelRegistry,
+    streamRegistry,
+    buildSystemPrompt,
+    tools,
+    instructionContext,
+  } = deps;
 
   // A cancel aborts the controller; the registry treats it like any child
   // process, so a cancel that arrives before the stream starts still fires.
@@ -358,6 +370,10 @@ async function streamCore(
 
   const rows = getSessionMessages(db, session.id);
   const history = rows.map(toUiMessage);
+  const last = history.at(-1);
+  instructionContext?.restore(
+    session.status === "waiting" && last?.role === "assistant" ? last.parts : [],
+  );
   // Names a child sender in send-time framing by its live label, resolved at
   // most once per sender per turn. A sender since deleted resolves to
   // nothing, and the framing drops the name.
@@ -513,6 +529,14 @@ async function streamCore(
               ...session,
               cwd: getSession(db, session.id)?.cwd ?? null,
             });
+            const receipt = instructionContext?.receipt();
+            if (receipt) {
+              writer.write({
+                type: "data-instructions",
+                id: "standing-instructions",
+                data: receipt,
+              });
+            }
             for (const item of pendingInboxItems(db, session.id)) {
               if (deliveredIds.has(item.id)) continue;
               deliveredIds.add(item.id);

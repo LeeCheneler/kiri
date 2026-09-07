@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type UIMessage, tool } from "ai";
@@ -18,6 +18,7 @@ import {
 import { createCancelRegistry } from "../../src/server/runner/cancel-registry.ts";
 import {
   articleTools,
+  createInstructionContext,
   createSession,
   createSystemPromptBuilder,
   filesystemTools,
@@ -385,6 +386,84 @@ describe("session turn streaming", () => {
         cwd: realpathSync(second),
         status: "idle",
       });
+    },
+  );
+
+  it.each(["parent", "worker"])(
+    "delivers nested mutation rules to a %s over the provider wire before any write",
+    async (mode) => {
+      const nested = join(cwd, "nested");
+      mkdirSync(nested);
+      writeFileSync(join(nested, "AGENTS.md"), "Nested wire rule.");
+      writeFileSync(join(cwd, "kiri.md"), "Inherited workspace rule.");
+      const parent = mode === "worker" ? createSession(db, "fake:tool") : null;
+      const session = createSession(db, "fake:tool", {
+        cwd,
+        ...(parent ? { parentSessionId: parent.id } : {}),
+      });
+      const config = createConfigStore(cwd);
+      const project = {
+        name: "Project",
+        instructions: "Inherited project rule.",
+        articles: [],
+        memories: [],
+      };
+      const sources = { config, project, workingDirectory: cwd, allowedDirectories: [cwd] };
+      const instructionContext = createInstructionContext(() => sources);
+      const tools = filesystemTools(
+        () => [cwd],
+        {
+          get: () => getSession(db, session.id)?.cwd ?? null,
+          set: (next) => {
+            updateSessionCwd(db, session.id, next);
+          },
+        },
+        {
+          checkInstructions: (directory, recursive) =>
+            instructionContext.requireForDirectory(directory, { recursive }),
+        },
+      );
+      const start = fake.requests.length;
+      await (
+        await runTurn(
+          {
+            db,
+            llmClients,
+            tools,
+            instructionContext,
+            buildSystemPrompt: createSystemPromptBuilder(
+              config,
+              Object.keys(tools),
+              [cwd],
+              [],
+              [],
+              [],
+              project,
+              instructionContext,
+            ),
+          },
+          {
+            session,
+            userMessage: userMessage(
+              'call:write_file {"path":"nested/note.txt","content":"Unchecked."}',
+            ),
+          },
+        )
+      ).done;
+      const sent = fake.requests.slice(start);
+      expect(sent).toHaveLength(2);
+      const systems = sent.map(
+        (request) => request.messages?.find((message) => message.role === "system")?.content,
+      );
+      expect(systems[0]).not.toContain("Nested wire rule.");
+      expect(systems[1]).toContain("Nested wire rule.");
+      for (const system of systems) {
+        expect(system).toContain("Inherited workspace rule.");
+        expect(system).toContain("Inherited project rule.");
+      }
+      expect(JSON.stringify(sent[1]?.messages)).toContain("Nothing was changed or started");
+      expect(existsSync(join(nested, "note.txt"))).toBe(false);
+      expect(getSession(db, session.id)).toMatchObject({ cwd, status: "idle" });
     },
   );
 

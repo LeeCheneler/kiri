@@ -27,6 +27,7 @@ import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import {
   BUILTIN_TOOLS,
   type CommandLearning,
+  type InstructionContext,
   type RunTurnDeps,
   SESSION_TITLE_MAX_LENGTH,
   type Session,
@@ -38,6 +39,7 @@ import {
   articleTools,
   buildSessionListEntries,
   createCommandLearning,
+  createInstructionContext,
   createSession,
   createStreamRegistry,
   createSystemPromptBuilder,
@@ -476,11 +478,25 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // runs; today only run_command's live console does. Absent (a writer-less
   // construction, used to enumerate tool names for the system prompt), the
   // tools run without a live feed.
-  const builtinToolsFor = (sessionId: string, writer?: UIMessageStreamWriter): ToolSet => {
+  const builtinToolsFor = (
+    sessionId: string,
+    writer?: UIMessageStreamWriter,
+    instructionContext?: InstructionContext,
+  ): ToolSet => {
     const sandbox = sandboxDirectories();
     return {
       ...skillTools(config),
-      ...workflowTools({ db, registry, config, bus, cancelRegistry, llmClients, getProviderNames }),
+      ...workflowTools({
+        db,
+        registry,
+        config,
+        bus,
+        cancelRegistry,
+        llmClients,
+        getProviderNames,
+        checkInstructions: (directory) =>
+          instructionContext?.requireForDirectory(directory, { scope: "workflow" }),
+      }),
       ...articleTools(db, sessionId, getSession(db, sessionId)?.projectId ?? null, (event) =>
         bus?.publish(event),
       ),
@@ -493,15 +509,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       ...taskTools(db, getSession(db, sessionId)?.projectId ?? null, (event) =>
         bus?.publish(event),
       ),
-      ...(sandbox.length > 0 ? filesystemTools(() => sandbox, cwdBindingFor(sessionId)) : {}),
       ...(sandbox.length > 0
-        ? shellTools(
-            () => sandbox,
-            cwdBindingFor(sessionId),
-            writer === undefined
+        ? filesystemTools(() => sandbox, cwdBindingFor(sessionId), {
+            checkInstructions: (directory, recursive) =>
+              instructionContext?.requireForDirectory(directory, { recursive }),
+          })
+        : {}),
+      ...(sandbox.length > 0
+        ? shellTools(() => sandbox, cwdBindingFor(sessionId), {
+            checkInstructions: (directory) => instructionContext?.requireForDirectory(directory),
+            ...(writer === undefined
               ? {}
-              : { liveConsole: (toolCallId) => liveConsoleEmitter(writer, toolCallId) },
-          )
+              : { liveConsole: (toolCallId: string) => liveConsoleEmitter(writer, toolCallId) }),
+          })
         : {}),
       ...(getSession(db, sessionId)?.imageModel ? imageTools({ db, sessionId, llmClients }) : {}),
     };
@@ -551,7 +571,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // ask-gated call pauses the child like any session — surfaced on the
   // parent, resolved only by the user — so delegation still never widens
   // what runs unprompted.
-  const activeTools = (sessionId: string, writer?: UIMessageStreamWriter): ToolSet => {
+  const activeTools = (
+    sessionId: string,
+    writer?: UIMessageStreamWriter,
+    instructionContext?: InstructionContext,
+  ): ToolSet => {
     const isChild = getSession(db, sessionId)?.parentSessionId != null;
     const tools: ToolSet = {};
     for (const [name, mcpTool] of Object.entries(mcpRegistry?.tools() ?? {})) {
@@ -559,7 +583,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       if (offered !== null) tools[name] = offered;
     }
     const builtin: ToolSet = {
-      ...builtinToolsFor(sessionId, writer),
+      ...builtinToolsFor(sessionId, writer, instructionContext),
       // A worker can't spawn workers: the delegation tools (delegate and
       // message_worker) are offered only to a session with no parent, and
       // message_parent only to one with a parent to message. Delegate
@@ -599,22 +623,31 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     // runs with is rebuilt against the turn's stream writer when the stream
     // starts. Both constructions gate identically, so the names always match.
     const toolNames = Object.keys(activeTools(sessionId));
+    const sandbox = sandboxDirectories();
+    const instructionContext = createInstructionContext(() => ({
+      config,
+      project: projectContextFor(sessionId),
+      workingDirectory: cwdBindingFor(sessionId).get(),
+      allowedDirectories: sandbox,
+    }));
     return {
       db,
       llmClients,
       bus,
       cancelRegistry,
       streamRegistry,
+      instructionContext,
       buildSystemPrompt: createSystemPromptBuilder(
         config,
         toolNames,
-        sandboxDirectories(),
+        sandbox,
         configuredDelegateRoles(deps.getModelsConfig?.().delegates),
         listSkills(config),
         listMemories(db),
         () => projectContextFor(sessionId),
+        instructionContext,
       ),
-      tools: ({ writer }) => activeTools(sessionId, writer),
+      tools: ({ writer }) => activeTools(sessionId, writer, instructionContext),
     };
   };
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { type Tool, type ToolSet, tool } from "ai";
@@ -1385,6 +1385,88 @@ describe("sessions routes", () => {
   });
 
   describe("POST /api/sessions/:id/messages", () => {
+    it.each(["create_workflow", "run_command"])(
+      "checks target instructions through the %s route wiring",
+      async (name) => {
+        const directory = join(env.cwd, name === "create_workflow" ? "workflows" : "nested");
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, "AGENTS.md"), "Target route rule.");
+        if (name === "run_command") {
+          writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+        }
+        createToolPermissionStore(env.config.toolPermissionsFile()).set(name, "allow");
+        const input =
+          name === "create_workflow"
+            ? { slug: "guarded", content_yaml: "name: guarded\nsteps:\n  - sh: printf ok\n" }
+            : { command: "printf ran > result.txt", cwd: directory };
+        const model = toolCallModel(name, JSON.stringify(input)) as MockLanguageModelV3;
+        const { bus, waitForSettled } = createSessionWaiter();
+        const app = makeApp(fakeClients({ model }), { bus });
+        createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
+        const settled = waitForSettled("s1");
+        await (await postMessage(app, "s1", "perform the requested work")).text();
+        await settled;
+        expect(toolPartOf(getSessionMessages(env.db, "s1")[1]).state).toBe("output-error");
+        expect(
+          existsSync(join(directory, name === "create_workflow" ? "guarded.yaml" : "result.txt")),
+        ).toBe(false);
+        expect(model.doStreamCalls).toHaveLength(2);
+        expect(
+          model.doStreamCalls[1]?.prompt.find((message) => message.role === "system")?.content,
+        ).toContain("Target route rule.");
+      },
+    );
+
+    it("supplies nested rules before retrying a mutation and resets target scopes on a new turn", async () => {
+      mkdirSync(join(env.cwd, "nested"));
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      writeFileSync(join(env.cwd, "nested", "AGENTS.md"), "Use the nested convention.");
+      createToolPermissionStore(env.config.toolPermissionsFile()).set("write_file", "allow");
+      const file = join(env.cwd, "nested", "note.txt");
+      let step = 0;
+      const model = new MockLanguageModelV3({
+        doStream: async ({ prompt }) => {
+          step += 1;
+          const system = prompt.find((message) => message.role === "system")?.content;
+          if (step === 1 || step === 4) expect(system).not.toContain("Use the nested convention.");
+          else expect(system).toContain("Use the nested convention.");
+          if (step <= 2) {
+            expect(existsSync(file)).toBe(false);
+            return {
+              stream: convertArrayToReadableStream([
+                {
+                  type: "tool-call",
+                  toolCallId: `c${step}`,
+                  toolName: "write_file",
+                  input: JSON.stringify({
+                    path: file,
+                    content: step === 1 ? "Unconsidered." : "Considered.",
+                  }),
+                },
+                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+              ]),
+            };
+          }
+          expect(readFileSync(file, "utf8")).toBe("Considered.\n");
+          return { stream: convertArrayToReadableStream(helloTurn()) };
+        },
+      });
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
+      const first = waitForSettled("s1");
+      await (await postMessage(app, "s1", "write the nested note")).text();
+      await first;
+      const parts = getSessionMessages(env.db, "s1")[1]?.parts as ToolPart[];
+      expect(parts.find((part) => part.toolCallId === "c1")?.state).toBe("output-error");
+      expect(parts.find((part) => part.toolCallId === "c2")?.state).toBe("output-available");
+      const second = waitForSettled("s1");
+      await (await postMessage(app, "s1", "thanks")).text();
+      await second;
+      expect(step).toBe(4);
+      expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
+    });
+
     it("streams a turn and persists the messages, usage, and totals", async () => {
       const model = streamingModel([
         { type: "text-start", id: "t1" },
@@ -3297,6 +3379,96 @@ describe("sessions routes", () => {
   });
 
   describe("tool permission prompts", () => {
+    it.each(["unchanged", "changed", "denied"] as const)(
+      "restores instruction delivery across approval reconstruction: %s",
+      async (mode) => {
+        writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+        writeFileSync(join(env.cwd, "AGENTS.md"), "Original approval rule.");
+        const file = join(env.cwd, "note.txt");
+        let step = 0;
+        const model = new MockLanguageModelV3({
+          doStream: async ({ prompt }) => {
+            step += 1;
+            const system = prompt.find((message) => message.role === "system")?.content;
+            expect(system).toContain(
+              step === 1 || mode === "unchanged"
+                ? "Original approval rule."
+                : "Revised approval rule.",
+            );
+            if (step === 1 || (step === 2 && mode !== "unchanged")) {
+              expect(existsSync(file)).toBe(false);
+              return {
+                stream: convertArrayToReadableStream([
+                  {
+                    type: "tool-call",
+                    toolCallId: `c${step}`,
+                    toolName: "write_file",
+                    input: JSON.stringify({ path: file, content: "Approved." }),
+                  },
+                  { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+                ]),
+              };
+            }
+            return {
+              stream: convertArrayToReadableStream([
+                { type: "text-start", id: "t" },
+                { type: "text-delta", id: "t", delta: "Finished." },
+                { type: "text-end", id: "t" },
+                { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 1) },
+              ]),
+            };
+          },
+        });
+        const { bus, waitForSettled } = createSessionWaiter();
+        const clients = fakeClients({ model });
+        let app = makeApp(clients, { bus });
+        createSession(env.db, MODEL, { id: "s1", cwd: env.cwd });
+        const paused = waitForSettled("s1");
+        await (await postMessage(app, "s1", "write a note")).text();
+        await paused;
+        expect(getSession(env.db, "s1")?.status).toBe("waiting");
+        const row = getSessionMessages(env.db, "s1")[1];
+        expect(JSON.stringify(row?.parts)).not.toContain("Original approval rule.");
+        if (mode !== "unchanged")
+          writeFileSync(join(env.cwd, "AGENTS.md"), "Revised approval rule.");
+        // A fresh route instance has no in-memory instruction state. Only
+        // the server's persisted receipt can authorize consideration here.
+        app = makeApp(clients, { bus });
+        const resumed = waitForSettled("s1");
+        await (
+          await postRaw(app, "s1", {
+            role: "assistant",
+            // Client-supplied receipts are not trusted; only its approval
+            // verdicts are applied to the existing server-side message.
+            parts: approvedParts(row, true).map((part) =>
+              part.type === "data-instructions" ? { ...part, data: null } : part,
+            ),
+          })
+        ).text();
+        await resumed;
+        if (mode !== "unchanged") {
+          expect(existsSync(file)).toBe(false);
+          expect(getSession(env.db, "s1")?.status).toBe("waiting");
+          const next = getSessionMessages(env.db, "s1")[1];
+          expect((next?.parts as ToolPart[]).find((part) => part.toolCallId === "c1")?.state).toBe(
+            "output-error",
+          );
+          const finished = waitForSettled("s1");
+          await (
+            await postRaw(app, "s1", {
+              role: "assistant",
+              parts: approvedParts(next, mode !== "denied"),
+            })
+          ).text();
+          await finished;
+        }
+        expect(getSession(env.db, "s1")?.status).toBe("idle");
+        if (mode === "denied") expect(existsSync(file)).toBe(false);
+        else expect(readFileSync(file, "utf8")).toBe("Approved.\n");
+        expect(step).toBe(mode === "unchanged" ? 2 : 3);
+      },
+    );
+
     it("pauses an ungranted tool for approval, then runs it when resumed", async () => {
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: toolCallModel("linear__create_issue") }), {

@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { ToolExecutionOptions, ToolSet } from "ai";
 import { type FilesystemToolsOptions, filesystemTools } from "./filesystem-tools.ts";
+import { createInstructionContext } from "./instruction-context.ts";
 
 // Invoke a tool's execute with a minimal ToolExecutionOptions, casting away
 // the union's `never` input so a test can call it plainly.
@@ -55,6 +56,90 @@ describe("filesystemTools", () => {
   // expectations build on the realpath'd roots.
   const ws = (...segments: string[]): string => join(realpathSync(workspace), ...segments);
   const out = (...segments: string[]): string => join(realpathSync(outside), ...segments);
+
+  it.each(["write_file", "edit_file", "create_directory", "delete_file", "delete_directory"])(
+    "defers %s until the model has received the target's nested instructions",
+    async (name) => {
+      const nested = ws("nested");
+      mkdirSync(nested);
+      writeFileSync(join(nested, "AGENTS.md"), "Nested mutation rule.");
+      const file = join(nested, "note.txt");
+      writeFileSync(file, "Original.\n");
+      const sources = { workingDirectory: ws(), allowedDirectories: [workspace] };
+      const context = createInstructionContext(() => sources);
+      context.resolve(sources);
+      const guarded = tools([workspace], {
+        checkInstructions: (directory, recursive) =>
+          context.requireForDirectory(directory, { recursive }),
+      });
+      const path =
+        name === "delete_directory"
+          ? nested
+          : name === "create_directory"
+            ? join(nested, "new", "deeper")
+            : file;
+      const input = {
+        path,
+        content: "Updated.",
+        old_string: "Original.",
+        new_string: "Updated.",
+        recursive: true,
+      };
+      await expect(run(guarded[name], input)).rejects.toThrow("Nothing was changed or started");
+      expect(readFileSync(file, "utf8")).toBe("Original.\n");
+      expect(existsSync(join(nested, "new"))).toBe(false);
+      expect(context.resolve(sources).directories.at(-1)?.text).toBe("Nested mutation rule.");
+      await run(guarded[name], input);
+      if (name === "delete_directory" || name === "delete_file")
+        expect(existsSync(path)).toBe(false);
+      else if (name === "create_directory") expect(existsSync(path)).toBe(true);
+      else expect(readFileSync(file, "utf8")).toBe("Updated.\n");
+    },
+  );
+
+  it("defers every parallel write to a new scope until the next prompt", async () => {
+    mkdirSync(ws("nested"));
+    writeFileSync(ws("nested", "AGENTS.md"), "Parallel rule.");
+    symlinkSync(ws("nested"), ws("alias"));
+    cwdValue = ws();
+    const sources = { workingDirectory: cwdValue, allowedDirectories: [workspace] };
+    const context = createInstructionContext(() => sources);
+    context.resolve(sources);
+    const guarded = tools([workspace], {
+      checkInstructions: (directory) => context.requireForDirectory(directory),
+    });
+    const calls = ["alias/one.txt", "nested/two.txt"].map((path) => ({ path, content: "New." }));
+    const results = await Promise.allSettled(calls.map((input) => run(guarded.write_file, input)));
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(existsSync(ws("nested", "one.txt"))).toBe(false);
+    expect(existsSync(ws("nested", "two.txt"))).toBe(false);
+    context.resolve(sources);
+    await Promise.all(calls.map((input) => run(guarded.write_file, input)));
+    expect(readFileSync(ws("nested", "one.txt"), "utf8")).toBe("New.\n");
+    expect(readFileSync(ws("nested", "two.txt"), "utf8")).toBe("New.\n");
+  });
+
+  it("rechecks the live cwd when a move and write arrive in the same model step", async () => {
+    mkdirSync(ws("nested"));
+    writeFileSync(ws("nested", "AGENTS.md"), "New cwd rule.");
+    cwdValue = ws();
+    const sources = () => ({ workingDirectory: cwdValue, allowedDirectories: [workspace] });
+    const context = createInstructionContext(sources);
+    context.resolve(sources());
+    const guarded = tools([workspace], {
+      checkInstructions: (directory) => context.requireForDirectory(directory),
+    });
+    const results = await Promise.allSettled([
+      run(guarded.set_working_directory, { path: "nested" }),
+      run(guarded.write_file, { path: "note.txt", content: "New." }),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect(cwdValue).toBe(ws("nested"));
+    expect(existsSync(ws("nested", "note.txt"))).toBe(false);
+    context.resolve(sources());
+    await run(guarded.write_file, { path: "note.txt", content: "New." });
+    expect(readFileSync(ws("nested", "note.txt"), "utf8")).toBe("New.\n");
+  });
 
   describe("find_files", () => {
     it("finds files by glob pattern, absolute and sorted", async () => {

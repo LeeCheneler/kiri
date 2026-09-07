@@ -105,6 +105,8 @@ export interface SessionCwd {
 
 /** Tunable bounds, defaulting to the module constants. Tests pass tiny values. */
 export interface FilesystemToolsOptions {
+  /** Checks scoped instructions synchronously after confinement, before any mutation. */
+  checkInstructions?: (directory: string, recursive?: boolean) => void;
   maxReadBytes?: number;
   maxFindResults?: number;
   maxSearchMatches?: number;
@@ -597,6 +599,7 @@ export function filesystemTools(
       }),
       execute: async ({ path, content }) => {
         const { real, exists } = confineTarget(path);
+        options.checkInstructions?.(dirname(real));
         const next = withTrailingNewline(content);
         if (exists) {
           if (statSync(real).isDirectory()) {
@@ -659,6 +662,7 @@ export function filesystemTools(
           );
         }
         const next = raw.replaceAll(old_string, new_string);
+        options.checkInstructions?.(dirname(real));
         writeFileSync(real, next);
         return { path: real, replacements: count, ...unifiedDiff(raw, next) };
       },
@@ -684,6 +688,7 @@ export function filesystemTools(
           }
           return { path: real, created: false };
         }
+        options.checkInstructions?.(real);
         mkdirSync(real, { recursive: true });
         return { path: real, created: true };
       },
@@ -703,6 +708,7 @@ export function filesystemTools(
         if (statSync(real).isDirectory()) {
           throw new Error(`"${path}" is a directory — call delete_directory instead.`);
         }
+        options.checkInstructions?.(dirname(real));
         unlinkSync(real);
         return { path: real, deleted: true };
       },
@@ -738,6 +744,7 @@ export function filesystemTools(
             `"${path}" is not empty — set recursive to delete it and everything inside.`,
           );
         }
+        options.checkInstructions?.(real, recursive === true);
         rmSync(real, { recursive: true });
         return { path: real, deleted: true };
       },

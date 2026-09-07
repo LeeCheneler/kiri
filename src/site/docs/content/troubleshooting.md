@@ -102,11 +102,16 @@ landing:
 - A `kiri.md`, project instructions, or `AGENTS.md` change applies before the
   **next model step**, including within a turn already in progress. A directory
   move refreshes the applicable instructions at the same boundary. An
-  `AGENTS.md` only counts when it sits in or above the session's working
-  directory, inside the allowed directories. This applies to delegated
+  `AGENTS.md` counts when it governs the working directory or a file-tool
+  target, inside the allowed directories. Workflow authoring also checks
+  the YAML file's chain inside the workspace. This applies to delegated
   workers too. An `AGENTS.md` symlink outside those directories is skipped.
-  Instruction files pointing into
-  secret-bearing or internal paths (`.env*`, `.git`, `.kiri`) are also skipped.
+  Instruction files pointing into secret-bearing or internal paths
+  (`.env*`, `.git`, `.kiri`) are also skipped.
+- A tool reporting instructions it has not yet considered has made no
+  change. Kiri supplies the current rules before the assistant continues;
+  a revised call may ask for approval again. Approving a call does not
+  bypass an instruction change that happened while it was waiting.
 - Confirm you're editing files in the active workspace (the launch dir, or
   `KIRI_CONFIG_DIR` if set).
 

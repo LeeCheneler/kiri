@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { type JSONValue, type ToolSet, tool } from "ai";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -19,6 +19,8 @@ import {
 } from "../workflows/index.ts";
 import { MAX_DIFF_LENGTH, compactWriteOutput, unifiedDiff } from "./write-tool-diffs.ts";
 export interface WorkflowToolsDeps {
+  /** Checks workspace-authorized directory instructions before writing workflow YAML. */
+  checkInstructions?: (directory: string) => void;
   db: KiriDb;
   /** Workflow definitions, read live so a file change is reflected on the next call. */
   registry: Registry;
@@ -356,6 +358,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
           }
         }
         const path = join(config.workflowsDir(), `${slug}.yaml`);
+        deps.checkInstructions?.(realpathSync(dirname(path)));
         writeFileSync(path, withTrailingNewline(content_yaml));
         return { name: definition.name, file: workspaceRelative(path) };
       },
@@ -398,6 +401,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
         const next = raw.replaceAll(old_string, new_string);
         const definition = validateSource(next);
         requireRenameFree(definition.name, name);
+        deps.checkInstructions?.(dirname(realpathSync(source)));
         writeFileSync(source, next);
         return { name: definition.name, file: workspaceRelative(source), replacements: count };
       },
@@ -424,6 +428,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
         requireRenameFree(definition.name, name);
         const before = readFileSync(source, "utf8");
         const after = withTrailingNewline(content_yaml);
+        deps.checkInstructions?.(dirname(realpathSync(source)));
         writeFileSync(source, after);
         // The diff is app-only: the transcript renders the rewrite as the
         // change it made, while toModelOutput and the send-time strip keep it

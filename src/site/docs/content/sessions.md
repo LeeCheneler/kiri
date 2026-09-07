@@ -55,9 +55,9 @@ Enforced Kiri constraints → explicit user requests → nearest AGENTS.md
 - **[Project instructions](/docs/projects-and-memories#project-instructions)**
   — carried by every session in a project.
 - **`AGENTS.md` chain** — per-directory instructions collected from the
-  session's [working directory](#working-with-your-files) up the tree,
-  nearer files winning. It's the same `AGENTS.md` convention other coding
-  assistants follow, so an existing repo needs no kiri-specific setup. Only
+  session's [working directory](#working-with-your-files) and the paths its
+  file tools change, nearer files winning. It's the same `AGENTS.md` convention
+  other coding assistants follow, so an existing repo needs no kiri-specific setup. Only
   files inside your allowed directories are read. Secret-bearing paths and
   internal `.git`/`.kiri` files are excluded, including symlink targets.
 
@@ -76,6 +76,19 @@ Standing instructions are read fresh before each model step. Edits take
 effect as the assistant continues within the same turn. Moving to another
 directory replaces the directory rules before the assistant continues there;
 the previous directory's rules are no longer applied outside their scope.
+
+Before changing files, Kiri also checks nested `AGENTS.md` files that govern
+the target. You do not need to move the session's working directory into
+each subdirectory. If the assistant has not received the current rules,
+the tool leaves the files untouched and supplies those rules for the
+assistant to consider before retrying. Recursive directory deletion checks
+the descendants too. Retries follow the usual approval policy, including
+when instructions changed while a call was waiting for your approval.
+
+Workflow authoring checks the workspace's instruction chain for the YAML
+file, even without filesystem access enabled. Shell commands check the
+chain for their execution directory; Kiri does not infer every path touched
+by a shell command or an external tool.
 
 ## Skills
 

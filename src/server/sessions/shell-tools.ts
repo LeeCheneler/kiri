@@ -17,6 +17,8 @@ const DEFAULT_TIMEOUT_SECONDS = 120;
 
 /** Tunable bounds, defaulting to the module constants. Tests pass tiny values. */
 export interface ShellToolsOptions {
+  /** Checks the confined command directory's instructions before starting the process. */
+  checkInstructions?: (directory: string) => void;
   maxOutputLength?: number;
   /**
    * Builds the live feed a call streams its merged output through while it
@@ -180,6 +182,7 @@ export function shellTools(
       }),
       execute: async ({ command, cwd, timeout_seconds }, { toolCallId, abortSignal }) => {
         const real = confineCwd(cwd);
+        options.checkInstructions?.(real);
         const timeoutMs = (timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000;
         const startedAt = performance.now();
         // env is inherited from the kiri process — PATH, HOME, and the user's
