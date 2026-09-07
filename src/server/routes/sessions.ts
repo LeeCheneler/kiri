@@ -513,7 +513,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
   // the user sees. Memory
   // writes stay with the user-facing conversation too: a worker recalls
   // memories but never rewrites the durable record, and the project's standing
-  // instructions — which a worker doesn't even carry — are the user's to change
+  // instructions — which workers inherit — are the user's to change
   // through the conversation they're in. The task list follows the same rule:
   // a worker reads it but leaves its upkeep to the conversation.
   const childWithheld = new Set([

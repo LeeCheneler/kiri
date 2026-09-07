@@ -98,7 +98,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     .string()
     .min(1)
     .describe(
-      "The complete brief for the worker: the goal, every detail it needs (it cannot see this conversation), and the shape of the report you want back.",
+      "The complete brief for the worker: the goal, task-specific constraints and details it needs (it cannot see this conversation), and the shape of the report you want back. Workspace, project, and applicable directory instructions are supplied automatically; do not copy them into the brief or ask the worker to waive them.",
     );
   const effortField = z
     .enum(EFFORT_LEVELS)

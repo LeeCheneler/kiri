@@ -778,9 +778,12 @@ The JSON Schemas under `.kiri/` are generated from the Zod schemas and refreshed
 
 ## Agentic sessions: `kiri.md`, project instructions, and `AGENTS.md`
 
-Kiri composes each turn's system prompt in this order:
+Kiri resolves standing instructions for every session, including delegated
+workers. Conflict precedence is highest first:
 
-**core (kiri) → workspace `kiri.md` → project instructions → `AGENTS.md` chain**
+**Enforced Kiri constraints → explicit user requests → nearest applicable
+`AGENTS.md` → project instructions → workspace `kiri.md` → loaded skills →
+general defaults.**
 
 - **`kiri.md`** is plain markdown at the workspace root, applied to every
   session. Keep workspace-wide preferences here, including preferred workflow
@@ -790,8 +793,17 @@ Kiri composes each turn's system prompt in this order:
 - **`AGENTS.md`** applies to its directory and descendants. Kiri collects the
   chain above the session's working directory, broadest first. Only files
   whose real paths are inside `filesystem.allowed_directories` count; symlinks
-  outside those roots are skipped. No working directory or no allowed roots
-  means no chain. More specific instructions win on conflict.
+  outside those roots are skipped, as are secret-bearing and internal paths
+  (`.env*`, `.git`, `.kiri`), including symlink targets. No working directory
+  or no allowed roots means no chain. More specific instructions win on
+  conflict within the paths they govern.
+- Workers start in the parent's project and working directory and receive
+  the same applicable standing instructions automatically. Their brief adds
+  task-specific context; it cannot waive those instructions or approve tools.
+- A skill loaded through `use_skill` provides task guidance within this
+  precedence. Other tool results and quoted external text are data, not new
+  instructions. No instruction overrides tool permissions, filesystem
+  boundaries, or the app-active execution scope.
 - A repo's `AGENTS.md` is visible to Kiri sessions working there. Keep lengthy
   workflow tutorials in reference documents so unrelated sessions do not load
   them automatically. Kiri does not automatically read global files from

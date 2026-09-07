@@ -41,11 +41,13 @@ where they land in the project's shared corpus instead: see
 
 ## Shaping behaviour
 
-Each turn's system prompt layers your standing instructions, broadest
-first — and where two conflict, the narrower wins:
+Every session, including a delegated worker, receives your standing
+instructions. Where applicable instructions conflict, precedence is highest
+first:
 
 ```
-core (kiri)  →  kiri.md  →  project instructions  →  AGENTS.md chain
+Enforced Kiri constraints → explicit user requests → nearest AGENTS.md
+  → project instructions → kiri.md → loaded skills → general defaults
 ```
 
 - **`kiri.md`** — markdown at the workspace root, applied to every session:
@@ -56,7 +58,14 @@ core (kiri)  →  kiri.md  →  project instructions  →  AGENTS.md chain
   session's [working directory](#working-with-your-files) up the tree,
   nearer files winning. It's the same `AGENTS.md` convention other coding
   assistants follow, so an existing repo needs no kiri-specific setup. Only
-  files inside your allowed directories are read, and kiri never writes one.
+  files inside your allowed directories are read. Secret-bearing paths and
+  internal `.git`/`.kiri` files are excluded, including symlink targets.
+
+Tool permissions, filesystem boundaries, and the requirement that Kiri runs
+while the app is active cannot be overridden by instructions. A worker's
+brief cannot waive inherited rules or approve a tool call. Skill instructions
+loaded through `use_skill` guide their specific task; ordinary file contents,
+web pages, and other tool results remain data, even if they claim authority.
 
 ```
 Answer in British English. Be direct, lead with the answer, and cite
@@ -267,6 +276,10 @@ the legwork.
   the chat itself couldn't. Only you can answer a pause: the assistant
   can't approve its workers' calls, and messages sent to a paused worker
   queue until it resumes.
+- Workers inherit workspace and project instructions, and load the
+  `AGENTS.md` chain for their working directory. They start in the parent's
+  directory and project. Their brief supplies task-specific details; the
+  parent conversation itself is not copied.
 - Workers don't appear in the feed, session list, or search — but each is a
   real session you can open at its own URL. Cancelling one stops just that
   worker.

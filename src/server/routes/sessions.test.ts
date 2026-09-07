@@ -2964,11 +2964,27 @@ describe("sessions routes", () => {
     });
 
     it("spawns a hidden detached worker whose report messages back and wakes the parent", async () => {
+      const repo = join(env.cwd, "repo");
+      mkdirSync(repo);
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      writeFileSync(env.config.instructionsFile(), "Workspace: keep source provenance.");
+      writeFileSync(join(env.cwd, "AGENTS.md"), "Workspace directory: use existing conventions.");
+      writeFileSync(join(repo, "AGENTS.md"), "Repository: include verification results.");
+      env.db
+        .insert(projects)
+        .values({
+          id: "p1",
+          name: "Research",
+          instructions: "Project: cite every source.",
+          createdAt: new Date(),
+        })
+        .run();
       // Standing permissions spread across the worker's catalogue: one MCP
       // tool allowed, one left at its ask default — the worker holds both,
       // gated, like any session.
       createToolPermissionStore(env.config.toolPermissionsFile()).set("tavily__search", "allow");
       let childToolNames: string[] = [];
+      let childSystemText = "";
       // The parent's steps and the detached child turn can interleave, so
       // each response keys off the prompt rather than a call counter: the
       // child's prompt carries the task, the parent's wake turn carries the
@@ -2988,6 +3004,8 @@ describe("sessions routes", () => {
           }
           if (prompt.includes("Find pelican facts") && !prompt.includes("Delegated")) {
             childToolNames = (options.tools ?? []).map((t) => t.name);
+            const system = options.prompt.find((message) => message.role === "system");
+            childSystemText = typeof system?.content === "string" ? system.content : "";
             return {
               stream: convertArrayToReadableStream([
                 {
@@ -3032,7 +3050,7 @@ describe("sessions routes", () => {
         bus,
         mcpRegistry: fakeMcp({ tavily__search: mcpTool(), linear__create_issue: mcpTool() }),
       });
-      createSession(env.db, MODEL, { id: "s1" });
+      createSession(env.db, MODEL, { id: "s1", cwd: repo, projectId: "p1" });
 
       await (await postMessage(app, "s1", "research pelicans")).text();
       // The whole exchange settles on its own: the parent's turn ends, the
@@ -3067,6 +3085,11 @@ describe("sessions routes", () => {
       // The child is linked to the spawning call, ran the task as its own
       // transcript, and settled idle.
       const child = findChildByToolCall(env.db, "s1", "c1");
+      expect(childSystemText).toContain("Workspace: keep source provenance.");
+      expect(childSystemText).toContain("Project: cite every source.");
+      expect(childSystemText).toContain("Workspace directory: use existing conventions.");
+      expect(childSystemText).toContain("Repository: include verification results.");
+      expect(child?.projectId).toBe("p1");
       await until(() => getSession(env.db, child?.id ?? "")?.status === "idle");
       const childRows = getSessionMessages(env.db, child?.id ?? "");
       expect(childRows.map((r) => r.role)).toEqual(["user", "assistant"]);

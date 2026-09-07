@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigStore, createConfigStore } from "../config/store.ts";
@@ -10,7 +10,6 @@ import {
   buildChildSessionPrompt,
   buildSystemPrompt,
   createSystemPromptBuilder,
-  readAgentsChain,
 } from "./system-prompt.ts";
 
 const FIXED_NOW = new Date("2026-06-17T10:00:00.000Z");
@@ -875,71 +874,6 @@ describe("AGENTS.md chain", () => {
     writeFileSync(join(directory, AGENTS_FILENAME), body);
   };
 
-  const bodies = (chain: readonly { text: string }[]): string[] => chain.map(({ text }) => text);
-
-  it("collects the chain from the sandbox root down to the working directory", () => {
-    writeAgents(root, "Root rules.");
-    writeAgents(join(root, "a"), "A rules.");
-    writeAgents(join(root, "a", "b"), "B rules.");
-    expect(bodies(readAgentsChain(join(root, "a", "b"), [root]))).toEqual([
-      "Root rules.",
-      "A rules.",
-      "B rules.",
-    ]);
-  });
-
-  it("keeps only the files that exist", () => {
-    writeAgents(root, "Root rules.");
-    expect(bodies(readAgentsChain(join(root, "a", "b"), [root]))).toEqual(["Root rules."]);
-  });
-
-  it("never reads an AGENTS.md above the allowed directories", () => {
-    writeAgents(dir, "Instructions outside the sandbox.");
-    writeAgents(root, "Root rules.");
-    // The sandbox root is <root>, so the walk passes <dir> but must exclude it
-    // by path containment — its contents may not reach the prompt at all.
-    expect(bodies(readAgentsChain(join(root, "a"), [root]))).toEqual(["Root rules."]);
-  });
-
-  it("excludes an AGENTS.md that symlinks out of the allowed directories", () => {
-    writeFileSync(join(dir, "elsewhere.md"), "Smuggled instructions.");
-    symlinkSync(join(dir, "elsewhere.md"), join(root, AGENTS_FILENAME));
-    expect(readAgentsChain(root, [root])).toEqual([]);
-  });
-
-  it("resolves the working directory before testing containment", () => {
-    writeAgents(dir, "Instructions outside the sandbox.");
-    // A traversal out of the sandbox lands above it, so nothing is collected.
-    expect(readAgentsChain(join(root, "a", "..", ".."), [root])).toEqual([]);
-  });
-
-  it("skips an empty, whitespace-only, or unreadable AGENTS.md", () => {
-    writeAgents(root, "  \n\t\n");
-    mkdirSync(join(root, "a", AGENTS_FILENAME));
-    writeAgents(join(root, "a", "b"), "B rules.");
-    expect(bodies(readAgentsChain(join(root, "a", "b"), [root]))).toEqual(["B rules."]);
-  });
-
-  it("collects nothing without a working directory or allowed directories", () => {
-    writeAgents(root, "Root rules.");
-    expect(readAgentsChain(null, [root])).toEqual([]);
-    expect(readAgentsChain(root, [])).toEqual([]);
-  });
-
-  it("ignores an allowed directory that doesn't exist and a missing working directory", () => {
-    writeAgents(root, "Root rules.");
-    expect(bodies(readAgentsChain(root, [join(dir, "gone"), root]))).toEqual(["Root rules."]);
-    expect(readAgentsChain(join(root, "gone"), [root])).toEqual([]);
-  });
-
-  it("walks up to a second allowed directory's own root", () => {
-    const notes = join(dir, "notes");
-    mkdirSync(join(notes, "daily"), { recursive: true });
-    writeAgents(dir, "Instructions outside the sandbox.");
-    writeAgents(notes, "Notes rules.");
-    expect(bodies(readAgentsChain(join(notes, "daily"), [root, notes]))).toEqual(["Notes rules."]);
-  });
-
   it("appends the chain after kiri.md, most specific last", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
     writeAgents(root, "Root rules.");
@@ -975,14 +909,18 @@ describe("AGENTS.md chain", () => {
     expect(builder(session(join(root, "a", "b")))).toContain("B rules.");
   });
 
-  it("keeps the chain out of a child session's worker prompt", () => {
+  it("includes the scoped chain in a child session's worker prompt", () => {
     writeAgents(root, "Root rules.");
+    writeAgents(join(root, "a"), "A rules.");
+    writeAgents(join(root, "a", "b"), "B rules.");
     const prompt = createSystemPromptBuilder(
       config,
       [],
       [root],
-    )({ parentSessionId: "parent", effort: "medium", cwd: root } as unknown as Session);
-    expect(prompt).not.toContain("Root rules.");
+    )({ parentSessionId: "parent", effort: "medium", cwd: join(root, "a") } as unknown as Session);
+    expect(prompt).toContain("Root rules.");
+    expect(prompt).toContain("A rules.");
+    expect(prompt).not.toContain("B rules.");
   });
 });
 
@@ -1264,7 +1202,7 @@ describe("buildChildSessionPrompt", () => {
     expect(prompt).not.toContain("Keep the list current");
   });
 
-  it("leaves the project's standing instructions out of a worker's brief", () => {
+  it("includes the project's standing instructions in a worker's prompt", () => {
     const prompt = buildChildSessionPrompt({
       tools: ["read_article"],
       project: {
@@ -1275,7 +1213,7 @@ describe("buildChildSessionPrompt", () => {
       },
       now: FIXED_NOW,
     });
-    expect(prompt).not.toContain("Cite every source.");
+    expect(prompt).toContain("Cite every source.");
   });
 });
 
@@ -1319,12 +1257,73 @@ describe("createSystemPromptBuilder", () => {
     expect(prompt).toContain("Be terse.");
   });
 
-  it("uses the worker prompt for a child session, ignoring kiri.md", () => {
+  it("uses the worker prompt for a child session with the workspace's instructions", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
     const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith("parent"));
     expect(prompt).toContain("focused assistant");
     expect(prompt).toContain("You have tools available");
-    expect(prompt).not.toContain("Be terse.");
+    expect(prompt).toContain("Be terse.");
+  });
+
+  it("applies the same standing layers and precedence to parents and workers", () => {
+    writeFileSync(config.instructionsFile(), "Keep replies concise.");
+    writeFileSync(join(dir, "AGENTS.md"), "Use the repository's conventions.");
+    const builder = createSystemPromptBuilder(
+      config,
+      ["read_file", "use_skill"],
+      [dir],
+      [],
+      [],
+      [],
+      {
+        name: "Research",
+        articles: [],
+        memories: [],
+        instructions: "Cite every source.",
+      },
+    );
+    const parent = builder(sessionWith(null, "medium", dir));
+    const worker = builder(sessionWith("parent", "medium", dir));
+    for (const prompt of [parent, worker]) {
+      expect(prompt).toContain("Keep replies concise.");
+      expect(prompt).toContain("Cite every source.");
+      expect(prompt).toContain("Use the repository's conventions.");
+      const rules = prompt.split("Instruction precedence (highest first):")[1] as string;
+      const levels = [
+        "Kiri's enforced constraints",
+        "The user's explicit requests",
+        "Applicable directory instructions",
+        "The current project's standing instructions",
+        "The workspace's kiri.md standing instructions",
+        "Instructions explicitly loaded from Kiri's skill catalogue",
+        "Kiri's general response and working defaults",
+      ];
+      let previous = -1;
+      for (const level of levels) {
+        const position = rules.indexOf(level);
+        expect(position).toBeGreaterThan(previous);
+        previous = position;
+      }
+      expect(rules).toContain("cannot independently waive inherited standing instructions");
+      expect(rules).toContain("untrusted data");
+    }
+  });
+
+  it("refreshes inherited workspace and directory instructions on each worker turn", () => {
+    writeFileSync(config.instructionsFile(), "First workspace rule.");
+    writeFileSync(join(dir, "AGENTS.md"), "First directory rule.");
+    const builder = createSystemPromptBuilder(config, [], [dir]);
+    const worker = sessionWith("parent", "medium", dir);
+    expect(builder(worker)).toContain("First workspace rule.");
+    expect(builder(worker)).toContain("First directory rule.");
+
+    writeFileSync(config.instructionsFile(), "Revised workspace rule.");
+    writeFileSync(join(dir, "AGENTS.md"), "Revised directory rule.");
+    const revised = builder(worker);
+    expect(revised).toContain("Revised workspace rule.");
+    expect(revised).toContain("Revised directory rule.");
+    expect(revised).not.toContain("First workspace rule.");
+    expect(revised).not.toContain("First directory rule.");
   });
 
   it("hands the skill catalogue to parent and child prompts alike", () => {
