@@ -1326,6 +1326,23 @@ describe("createSystemPromptBuilder", () => {
     expect(revised).not.toContain("First directory rule.");
   });
 
+  it.each([null, "parent"])("resolves project instructions afresh for lineage %s", (parentId) => {
+    let project: { name: string; articles: []; memories: []; instructions: string } | null = {
+      name: "Research",
+      articles: [],
+      memories: [],
+      instructions: "Original project rule.",
+    };
+    const builder = createSystemPromptBuilder(config, [], [], [], [], [], () => project);
+    const session = sessionWith(parentId);
+    expect(builder(session)).toContain("Original project rule.");
+    project = { ...project, instructions: "Revised project rule." };
+    expect(builder(session)).toContain("Revised project rule.");
+    expect(builder(session)).not.toContain("Original project rule.");
+    project = null;
+    expect(builder(session)).not.toContain("Revised project rule.");
+  });
+
   it("hands the skill catalogue to parent and child prompts alike", () => {
     const builder = createSystemPromptBuilder(
       config,

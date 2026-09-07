@@ -99,11 +99,13 @@ landing:
 
 - Check the boot report / health banner for a parse error — an invalid
   `kiri.yaml` keeps the previous config.
-- A `kiri.md`, project instructions, or `AGENTS.md` change applies on the
-  **next turn**, not retroactively — and an `AGENTS.md` only counts when it
-  sits in or above the session's working directory, inside the allowed
-  directories. This applies to delegated workers too. An `AGENTS.md` symlink
-  outside those directories is skipped. Instruction files pointing into
+- A `kiri.md`, project instructions, or `AGENTS.md` change applies before the
+  **next model step**, including within a turn already in progress. A directory
+  move refreshes the applicable instructions at the same boundary. An
+  `AGENTS.md` only counts when it sits in or above the session's working
+  directory, inside the allowed directories. This applies to delegated
+  workers too. An `AGENTS.md` symlink outside those directories is skipped.
+  Instruction files pointing into
   secret-bearing or internal paths (`.env*`, `.git`, `.kiri`) are also skipped.
 - Confirm you're editing files in the active workspace (the launch dir, or
   `KIRI_CONFIG_DIR` if set).

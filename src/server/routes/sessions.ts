@@ -612,7 +612,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         configuredDelegateRoles(deps.getModelsConfig?.().delegates),
         listSkills(config),
         listMemories(db),
-        projectContextFor(sessionId),
+        () => projectContextFor(sessionId),
       ),
       tools: ({ writer }) => activeTools(sessionId, writer),
     };
@@ -1017,7 +1017,11 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
           ? base
           : {
               ...base,
-              buildSystemPrompt: (s: Session) => `${base.buildSystemPrompt?.(s)}\n\n${cwdNotice}`,
+              buildSystemPrompt: (s: Session) => {
+                const prompt = base.buildSystemPrompt?.(s);
+                // A later move supersedes the directory named by the repair.
+                return s.cwd === session.cwd ? `${prompt}\n\n${cwdNotice}` : prompt;
+              },
             };
 
       // The turn checkpoints and finalises its own persistence, so the route

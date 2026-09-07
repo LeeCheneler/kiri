@@ -1632,15 +1632,21 @@ describe("sessions routes", () => {
     });
 
     it("rewrites a project's instructions straight through for a project session", async () => {
-      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      env.db
+        .insert(projects)
+        .values({
+          id: "p1",
+          name: "Research",
+          instructions: "Original project rule.",
+          createdAt: new Date(),
+        })
+        .run();
       const input = JSON.stringify({ instructions_md: "Answer in British English." });
       const { bus, waitForSettled } = createSessionWaiter();
       const seen: KiriEvent[] = [];
       bus.subscribe((event) => seen.push(event));
-      const app = makeApp(
-        fakeClients({ model: toolCallModel("update_project_instructions", input) }),
-        { bus },
-      );
+      const model = toolCallModel("update_project_instructions", input) as MockLanguageModelV3;
+      const app = makeApp(fakeClients({ model }), { bus });
       createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
 
       const settled = waitForSettled("s1");
@@ -1656,6 +1662,13 @@ describe("sessions routes", () => {
       const row = env.db.select().from(projects).where(eq(projects.id, "p1")).get();
       expect(row?.instructions).toBe("Answer in British English.");
       expect(seen).toContainEqual({ type: "project.updated", id: "p1" });
+      const prompts = model.doStreamCalls.map(
+        (call) => call.prompt.find((m) => m.role === "system")?.content,
+      );
+      expect(prompts).toHaveLength(2);
+      expect(prompts[0]).toContain("Original project rule.");
+      expect(prompts[1]).toContain("Answer in British English.");
+      expect(prompts[1]).not.toContain("Original project rule.");
     });
 
     it("files a task into the project's list straight through for a project session", async () => {
@@ -2003,6 +2016,36 @@ describe("sessions routes", () => {
       expect(res.status).toBe(200);
       expect(((await res.json()) as { session: { cwd: string | null } }).session.cwd).toBe(env.cwd);
       expect(getSession(env.db, "s1")?.cwd).toBe(env.cwd);
+    });
+
+    it("refreshes a healed directory's rules when the model moves elsewhere in the turn", async () => {
+      const next = join(env.cwd, "next");
+      mkdirSync(next);
+      writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
+      writeFileSync(join(next, "AGENTS.md"), "Follow the new repository's rules.");
+      const model = toolCallModel(
+        "set_working_directory",
+        JSON.stringify({ path: next }),
+      ) as MockLanguageModelV3;
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), {
+        bus,
+        getDefaultWorkingDirectory: () => env.cwd,
+      });
+      createSession(env.db, MODEL, { id: "s1", cwd: join(env.cwd, "gone") });
+
+      const settled = waitForSettled("s1");
+      await (await postMessage(app, "s1", "work in the next repository")).text();
+      await settled;
+
+      const prompts = model.doStreamCalls.map(
+        (call) => call.prompt.find((m) => m.role === "system")?.content,
+      );
+      expect(prompts).toHaveLength(2);
+      expect(prompts[0]).toContain("moved to the configured default working directory");
+      expect(prompts[1]).not.toContain("moved to the configured default working directory");
+      expect(prompts[1]).toContain(`The session's working directory is ${realpathSync(next)}`);
+      expect(prompts[1]).toContain("Follow the new repository's rules.");
     });
 
     it("leaves a session without a working directory alone when no default exists", async () => {

@@ -29,6 +29,7 @@ import {
   type Message,
   type Session,
   appendMessage,
+  getSession,
   getSessionLabels,
   getSessionMessages,
   setSessionStatus,
@@ -53,10 +54,9 @@ export interface RunTurnDeps {
    */
   streamRegistry?: StreamRegistry;
   /**
-   * Composes the turn's system prompt from the session and the workspace's
-   * instruction files. Omit for a plain chat with no system prompt — the
-   * previous behaviour, kept for tests and any caller that wants a bare
-   * conversation.
+   * Resolves the system prompt before each model step and the final handoff,
+   * using the current working directory and the turn's original model/effort.
+   * Omit for a plain chat with no system prompt.
    */
   buildSystemPrompt?: (session: Session) => string | undefined;
   /**
@@ -392,12 +392,6 @@ async function streamCore(
     expandInboxMessages(modelHistory, senderLabelFor),
   );
 
-  // Compose the turn's system prompt — the kiri core layer, the workspace's
-  // `kiri.md`, and the `AGENTS.md` chain covering the session's working
-  // directory — read fresh from disk each turn. Undefined when no
-  // builder is wired (a bare chat with no system
-  // prompt), which leaves `streamText` to send the messages alone.
-  const system = buildSystemPrompt?.(session);
   // The session's effort as this turn's provider reasoning parameters —
   // undefined for a model without reasoning support, which leaves the call
   // without provider options rather than sending parameters blind. Resolved
@@ -490,7 +484,6 @@ async function streamCore(
         const hasTools = turnTools !== undefined && Object.keys(turnTools).length > 0;
         result = streamText({
           model,
-          system,
           messages: modelMessages,
           ...(providerOptions !== undefined ? { providerOptions } : {}),
           ...(hasTools
@@ -513,14 +506,25 @@ async function streamCore(
           // so later boundaries would re-read it) and re-inserted every step,
           // because the SDK rebuilds the step input without our injections.
           prepareStep: ({ messages }) => {
+            // Refresh cwd while model and effort still describe the provider
+            // call configured when this turn began. Replace the system prompt
+            // so rules from a directory we left do not linger.
+            const system = buildSystemPrompt?.({
+              ...session,
+              cwd: getSession(db, session.id)?.cwd ?? null,
+            });
             for (const item of pendingInboxItems(db, session.id)) {
               if (deliveredIds.has(item.id)) continue;
               deliveredIds.add(item.id);
               deliveries.push({ item, insertIndex: messages.length });
               writer.write(inboxUIPart(item) as InboxChunk);
             }
-            if (deliveries.length === 0) return undefined;
-            return { messages: insertInboxModelMessages(messages, deliveries, senderLabelFor) };
+            return {
+              system,
+              ...(deliveries.length === 0
+                ? {}
+                : { messages: insertInboxModelMessages(messages, deliveries, senderLabelFor) }),
+            };
           },
           abortSignal: controller.signal,
           onError: ({ error }) => {
@@ -566,7 +570,11 @@ async function streamCore(
         const workResponse = await result.response;
         result = streamText({
           model,
-          system,
+          // The last work step may itself have moved cwd or edited rules.
+          system: buildSystemPrompt?.({
+            ...session,
+            cwd: getSession(db, session.id)?.cwd ?? null,
+          }),
           messages: [
             ...insertInboxModelMessages(
               [...modelMessages, ...workResponse.messages],

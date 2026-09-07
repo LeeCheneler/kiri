@@ -21,6 +21,8 @@ import {
   getSession,
   getSessionMessages,
   setSessionStatus,
+  updateSessionCwd,
+  updateSessionEffort,
 } from "./store.ts";
 import { createStreamRegistry } from "./stream-registry.ts";
 import { resumeTurn, runTurn, runWakeTurn } from "./turn.ts";
@@ -232,6 +234,9 @@ describe("runTurn", () => {
           }
           expect(calls).toBe(65);
           expect(options.tools ?? []).toEqual([]);
+          expect(options.prompt.find((message) => message.role === "system")?.content).toBe(
+            "Current directory: /last-directory",
+          );
           expect(JSON.stringify(options.prompt)).toContain("what remains unfinished or uncertain");
           expect(JSON.stringify(options.prompt).match(/check the remaining work/g)).toHaveLength(1);
           // The fallback is durable before the handoff provider is called.
@@ -287,11 +292,13 @@ describe("runTurn", () => {
           llmClients: clientsFor(model),
           bus: recordingBus(events),
           cancelRegistry,
+          buildSystemPrompt: (current) => `Current directory: ${current.cwd}`,
           tools: {
             echo: tool({
               inputSchema: z.object({ value: z.string() }),
               execute: ({ value }) => {
                 executions += 1;
+                if (executions === 64) updateSessionCwd(db, "s1", "/last-directory");
                 if (executions === 10) {
                   enqueueInboxItem(db, "s1", { source: "user", text: "check the remaining work" });
                 }
@@ -1288,6 +1295,89 @@ describe("runTurn", () => {
     // The builder's output reaches the provider as a system message.
     expect(JSON.stringify(captured)).toContain("SYSTEM-UNDER-TEST");
   });
+
+  it("refreshes cwd before the next step while preserving effort and inbox delivery", async () => {
+    const model = toolLoopModel() as MockLanguageModelV3;
+    const session = createSession(db, MODEL, { id: "s1", cwd: "/first", effort: "low" });
+    const { done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(model),
+        buildSystemPrompt: (current) => `Directory: ${current.cwd}; effort: ${current.effort}`,
+        tools: {
+          echo: tool({
+            inputSchema: z.object({ value: z.string() }),
+            execute: ({ value }) => {
+              updateSessionCwd(db, session.id, "/second");
+              updateSessionEffort(db, session.id, "high");
+              enqueueInboxItem(db, session.id, {
+                source: "user",
+                text: "Keep the original scope.",
+              });
+              return { echoed: value };
+            },
+          }),
+        },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await done;
+
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(
+      model.doStreamCalls.map((call) => call.prompt.find((m) => m.role === "system")?.content),
+    ).toEqual(["Directory: /first; effort: low", "Directory: /second; effort: low"]);
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("Keep the original scope.");
+    expect(getSession(db, session.id)).toMatchObject({
+      cwd: "/second",
+      effort: "high",
+      status: "idle",
+    });
+    expect(pendingInboxItems(db, session.id)).toEqual([]);
+  });
+
+  it.each(["removed", "failed"] as const)(
+    "does not reuse the previous prompt when resolution is %s after a completed tool",
+    async (outcome) => {
+      let executed = false;
+      const model = toolLoopModel() as MockLanguageModelV3;
+      const session = createSession(db, MODEL, { id: "s1" });
+      const { done } = await runTurn(
+        {
+          db,
+          llmClients: clientsFor(model),
+          buildSystemPrompt: () => {
+            if (!executed) return "Original standing rule.";
+            if (outcome === "failed") throw new Error("Instruction resolution failed.");
+            return undefined;
+          },
+          tools: {
+            echo: tool({
+              inputSchema: z.object({ value: z.string() }),
+              execute: ({ value }) => {
+                executed = true;
+                return { echoed: value };
+              },
+            }),
+          },
+        },
+        { session, userMessage: USER_MESSAGE },
+      );
+      await done;
+
+      expect(toolPartOf(getSessionMessages(db, session.id)[1])).toMatchObject({
+        state: "output-available",
+        output: { echoed: "hi" },
+      });
+      expect(model.doStreamCalls).toHaveLength(outcome === "failed" ? 1 : 2);
+      if (outcome === "removed") {
+        expect(model.doStreamCalls[1]?.prompt.some((message) => message.role === "system")).toBe(
+          false,
+        );
+      }
+      expect(getSession(db, session.id)?.status).toBe(outcome === "failed" ? "failed" : "idle");
+    },
+  );
 
   it("sends no system message when no builder is provided", async () => {
     let captured: unknown;

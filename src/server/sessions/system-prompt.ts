@@ -481,19 +481,18 @@ function buildEffortGuidance(effort: Effort): string {
 }
 
 // The one sentence both prompt layers state when the session has a working
-// directory: where it is and what resolves against it. The set_working_directory
-// results are newer than this line once the session moves mid-turn, so it
-// claims turn-start truth only.
+// directory: where it is and what resolves against it. The prompt refreshes
+// after a set_working_directory move before the model continues its work.
 function describeWorkingDirectory(workingDirectory: string): string {
-  return `The session's working directory is ${workingDirectory} — relative tool paths resolve against it and commands run there by default. It may move during a turn: a set_working_directory result supersedes this line.`;
+  return `The session's working directory is ${workingDirectory} — relative tool paths resolve against it and commands run there by default. After a set_working_directory move, Kiri refreshes this prompt and the applicable directory instructions before your next model step.`;
 }
 
 // The kiri-authored core layer: the model's identity, the environment the
 // session runs in, how to respond (communication style and the honesty bar),
 // the rendering capabilities (markdown, charts, diagrams) of the surface its
-// replies land in, and guidance on the available tools. Built per turn rather
+// replies land in, and guidance on the available tools. Built on demand rather
 // than kept as a constant because it states the live date and the active tool
-// set. Not user-editable — `kiri.md` customises on top of it.
+// set. Rebuilt at model step boundaries; `kiri.md` customises on top of it.
 function buildCorePrompt(
   now: Date,
   tools: string[],
@@ -684,9 +683,8 @@ export interface BuildSystemPromptOptions {
  * layer, then the workspace's `kiri.md` standing instructions when present,
  * then the project's own instructions when the session belongs to one, then
  * the `AGENTS.md` chain governing the session's working directory. Always
- * returns a non-empty string — the core layer is always included. Every layer
- * is resolved fresh each turn so edits take effect on the next turn, with
- * nothing snapshotted onto the session.
+ * returns a non-empty string — the core layer is always included. Instruction
+ * files are read on each call; the supplied project context provides its layer.
  */
 export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
   const sections = [
@@ -708,13 +706,14 @@ export function buildSystemPrompt(opts: BuildSystemPromptOptions): string {
 }
 
 /**
- * Build the per-turn system-prompt resolver for a workspace. The returned
+ * Build the system-prompt resolver for a workspace. The returned
  * function composes the prompt for a session, choosing by its lineage: a
  * top-level session gets the layered prompt — core (with tool-use guidance for
  * the active `tools`), then `kiri.md`, then its project's instructions, then
  * the `AGENTS.md` chain for its working directory — while a child session (one with a parent) gets the
  * focused worker prompt with the same applicable standing instructions. Handed to
- * `runTurn`, so a turn streams with its system prompt in place.
+ * `runTurn`, which refreshes it at each model step. A project callback resolves
+ * current project instructions instead of keeping a turn-start snapshot.
  */
 export function createSystemPromptBuilder(
   config: ConfigStore,
@@ -723,10 +722,11 @@ export function createSystemPromptBuilder(
   delegateRoles: readonly DelegateRole[] = [],
   skills: readonly SkillSummary[] = [],
   memories: readonly MemorySummary[] = [],
-  project: ProjectPromptContext | null = null,
+  project: ProjectPromptContext | null | (() => ProjectPromptContext | null) = null,
 ): (session: Session) => string {
-  return (session: Session) =>
-    session.parentSessionId !== null
+  return (session: Session) => {
+    const currentProject = typeof project === "function" ? project() : project;
+    return session.parentSessionId !== null
       ? buildChildSessionPrompt({
           config,
           tools,
@@ -734,7 +734,7 @@ export function createSystemPromptBuilder(
           workingDirectory: session.cwd,
           skills,
           memories,
-          project,
+          project: currentProject,
           effort: session.effort,
         })
       : buildSystemPrompt({
@@ -745,7 +745,8 @@ export function createSystemPromptBuilder(
           delegateRoles,
           skills,
           memories,
-          project,
+          project: currentProject,
           effort: session.effort,
         });
+  };
 }
