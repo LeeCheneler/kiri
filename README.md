@@ -60,6 +60,11 @@ steps:
 
 **📖 Full documentation → [kiri.build/docs](https://kiri.build/docs)**
 
+For repository work, read [AGENTS.md](AGENTS.md). To set up instructions in a
+workflow workspace, copy [EXAMPLE_AGENTS.md](EXAMPLE_AGENTS.md) as `AGENTS.md`
+along with [docs/workflow-authoring.md](docs/workflow-authoring.md). For Claude
+Code, add a `CLAUDE.md` containing `@./AGENTS.md`.
+
 ## Highlights
 
 - **Sessions do whatever the work is.** Think something through, research a question, review a PR, draft a doc, fix a bug — one surface. Sessions find, read, and edit files; run builds, tests, and git; search the web and your tools through MCP; generate images inline; and delegate legwork to a hidden worker that reports back only its findings — with any model, streaming.

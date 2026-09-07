@@ -1,6 +1,6 @@
 # Kiri — Workflow Authoring Reference
 
-Drop this file into a kiri workspace (or copy it into the workspace's `CLAUDE.md`) so an AI assistant has full context on how to write workflows, bundles, prompts, and `articles:` / `summarize:` blocks — and how to shape agentic sessions with `kiri.md` and `AGENTS.md` — without hunting around for the schema.
+Read this reference when authoring workflows, bundles, prompts, articles, or summaries. Keep the workspace's standing instructions in `AGENTS.md` and link to this document for details.
 
 Kiri is a **local-first, git-based workflow orchestrator**. A workflow is a linear sequence of steps: any step that declares an `id` can have its output referenced by name from later steps, articles, and the summariser — declared env refs are how data moves. Workflows are YAML, bundles are bash scripts on disk, prompts are plain text templates.
 
@@ -776,21 +776,31 @@ The JSON Schemas under `.kiri/` are generated from the Zod schemas and refreshed
 
 ---
 
-## Agentic sessions: `kiri.md` and `AGENTS.md`
+## Agentic sessions: `kiri.md`, project instructions, and `AGENTS.md`
 
-Sessions are kiri's second pillar — a multi-turn chat with a model, separate from workflows. You don't author a session the way you author a workflow; instead a couple of optional markdown files shape every session's **system prompt**, which kiri composes fresh on each turn from three layers, in order:
+Kiri composes each turn's system prompt in this order:
 
-**core (kiri) → `kiri.md` → the `AGENTS.md` chain**
+**core (kiri) → workspace `kiri.md` → project instructions → `AGENTS.md` chain**
 
-- **`kiri.md`** — a single markdown file at the workspace root, applied to *every* session. Its body is your standing instructions: the session equivalent of a global "how I want you to behave." Optional — with no `kiri.md`, sessions run on kiri's core layer alone.
-- **The `AGENTS.md` chain** — the per-directory layer, resolved against the session's working directory. Kiri walks from that directory up to the top of the tree, collects every `AGENTS.md`, and layers them most general first, so a file applies to its own directory and everything below it and the nearest one wins on conflict. This is the same `AGENTS.md` convention other assistants follow, so a repo that already carries one needs no kiri-specific setup. Only files inside the directories allowed in `kiri.yaml` are read — one above that boundary is never opened — and a session with no working directory or no allowed directories loads no chain. Kiri reads these files; it never writes them.
-
-Authoring notes:
-
-- It is **plain markdown — no frontmatter, no schema.** The whole file body is the instruction text. Just write prose.
-- The **kiri core layer is not user-editable.** It already tells the model the environment it runs in, that replies render as GitHub-flavoured markdown, and how to draw inline charts (fence a code block as `chart` with a Vega-Lite spec) and mermaid diagrams (fence a block as `mermaid`) — the same renderer as workflow articles; see *Charts in articles* and *Mermaid diagrams in articles*. Build on top of it rather than repeating it.
-- Every layer is **read fresh from disk each turn**, so an edit takes effect on the next turn — git is the source of truth, nothing is snapshotted.
-- Sessions can **author workflows** through built-in tools (create/edit/replace whole YAML files, validated before every write). When authoring an `llm:` step a session won't invent a `provider:model` — it follows `kiri.md`, copies an existing workflow, or asks. **Recommended:** name your preferred models in `kiri.md` (e.g. "for workflow llm steps, prefer `anthropic:claude-haiku-4-5`") so sessions pick them automatically.
+- **`kiri.md`** is plain markdown at the workspace root, applied to every
+  session. Keep workspace-wide preferences here, including preferred workflow
+  models. Kiri reads it fresh each turn; it does not expand Claude's `@` imports.
+- **Project instructions** belong to a Kiri project and apply to its sessions.
+  Use these for a project's role or working agreements.
+- **`AGENTS.md`** applies to its directory and descendants. Kiri collects the
+  chain above the session's working directory, broadest first. Only files
+  whose real paths are inside `filesystem.allowed_directories` count; symlinks
+  outside those roots are skipped. No working directory or no allowed roots
+  means no chain. More specific instructions win on conflict.
+- A repo's `AGENTS.md` is visible to Kiri sessions working there. Keep lengthy
+  workflow tutorials in reference documents so unrelated sessions do not load
+  them automatically. Kiri does not automatically read global files from
+  `~/.config/agents` or `~/.codex`.
+- The core layer already explains the environment, Markdown rendering, charts,
+  Mermaid, and built-in tools. Extend it rather than repeating it.
+- Sessions can author workflows through validated built-in tools. For an
+  `llm:` step, use a configured `provider:model`, copy a suitable existing
+  workflow, or ask when no preference is established.
 
 ### Session tools — MCP servers (`mcp:` in `kiri.yaml`)
 
@@ -826,7 +836,7 @@ A worked `mcp:` block also lives in `examples/kiri.yaml`.
 
 ## Where to look in the codebase
 
-If kiri's repo is the workspace and behaviour is unclear, these are the source-of-truth files:
+The following paths are relative to Kiri's application source repository, not a workflow workspace. If behaviour is unclear, consult them in that repository:
 
 - **Schema (steps, articles, refs, inputs):** `src/server/workflows/schema.ts`
 - **Loader (file scan, bundle resolution, error reporting):** `src/server/workflows/loader.ts`
@@ -837,5 +847,5 @@ If kiri's repo is the workspace and behaviour is unclear, these are the source-o
 - **LLM providers (schema, loader, provider clients):** `src/server/llm/`
 - **`kiri.yaml` config (providers + MCP; schema, loader, health):** `src/server/config/`
 - **MCP servers (connect, tool namespacing, OAuth):** `src/server/mcp/`
-- **Session system prompt (core layer, `kiri.md`, `AGENTS.md` chain):** `src/server/sessions/system-prompt.ts`
+- **Session system prompt (core, `kiri.md`, projects, `AGENTS.md`):** `src/server/sessions/system-prompt.ts`
 - **Architecture & roadmap:** `docs/design-notes.md`
