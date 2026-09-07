@@ -33,6 +33,19 @@ const IN_FLIGHT_TOOL_STATES = new Set(["input-streaming", "input-available", "ap
 const totalParts = (messages: UIMessage[]): number =>
   messages.reduce((sum, message) => sum + message.parts.length, 0);
 
+const sessionTurnMessage = (message: UIMessage | undefined): UIMessage | undefined => {
+  if (message?.role !== "assistant") return message;
+  const approvals = message.parts.filter(
+    (part) => isToolUIPart(part) && part.state === "approval-responded",
+  );
+  return approvals.length > 0 ? { ...message, parts: approvals } : message;
+};
+
+/** Build a compact turn body for approval resumes without changing user turns. */
+export const prepareSessionTurnRequest = ({ messages }: { messages: UIMessage[] }) => ({
+  body: { message: sessionTurnMessage(messages.at(-1)) },
+});
+
 // Rewrite any still-running tool call to a terminal cancelled state. Cancelling
 // a turn stops a call mid-flight, which otherwise leaves its part on "working"
 // in the transcript; this marks it cancelled instead. Other parts pass through.
@@ -126,10 +139,10 @@ export function useSessionConversation(opts: {
     return new DefaultChatTransport<UIMessage>({
       api: url,
       headers,
-      // Send only the new message; the server loads the prior turns.
-      prepareSendMessagesRequest: ({ messages }) => ({
-        body: { message: messages.at(-1) },
-      }),
+      // Send only the new message; the server loads the prior turns. Approval
+      // resumes need only the verdict-bearing parts — retransmitting earlier
+      // tool outputs from the paused turn can exceed the API body limit.
+      prepareSendMessagesRequest: prepareSessionTurnRequest,
       // Resume reconnects to the GET stream endpoint, not the POST turn `api`.
       prepareReconnectToStreamRequest: () => ({ api: sessionStreamEndpoint(session.id) }),
     });
