@@ -628,6 +628,35 @@ describe("runTurn", () => {
     expect(events).toContainEqual({ type: "session.updated", id: "s1", status: "idle" });
   });
 
+  it("releases the old turn before an idle event starts another cancellable turn", async () => {
+    const cancelRegistry = createCancelRegistry({ sigkillDelayMs: 20 });
+    const streamRegistry = createStreamRegistry();
+    const session = createSession(db, MODEL, { id: "s1" });
+    let next: ReturnType<typeof runTurn> | undefined;
+    const bus = {
+      subscribe: () => () => {},
+      publish: (event: KiriEvent) => {
+        if (event.type !== "session.updated" || event.status !== "idle" || next) return;
+        next = runTurn(
+          { db, llmClients: clientsFor(pendingModel()), cancelRegistry, streamRegistry },
+          { session, userMessage: { ...USER_MESSAGE, id: "u2" } },
+        );
+      },
+    };
+    const first = await runTurn(
+      { db, llmClients: clientsFor(capturingModel({})), cancelRegistry, streamRegistry, bus },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await first.done;
+    const second = await next;
+    expect(second).toBeDefined();
+    expect(streamRegistry.has("s1")).toBe(true);
+    expect(cancelRegistry.requestCancel("s1")).toBe(true);
+    await second?.done;
+    expect(getSession(db, "s1")?.status).toBe("cancelled");
+    expect(streamRegistry.has("s1")).toBe(false);
+  });
+
   it("resumes a session after a failed turn, clearing the prior error", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
     setSessionStatus(db, "s1", "failed", { error: { message: "boom" }, finishedAt: new Date() });
@@ -985,6 +1014,214 @@ describe("runTurn", () => {
 
     const roles = (captured as { role: string }[]).map((m) => m.role);
     expect(roles).not.toContain("system");
+  });
+});
+
+describe("failed turns keep their progress", () => {
+  let dir: string;
+  let db: KiriDb;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kiri-turn-failure-"));
+    db = openDatabase(join(dir, "kiri.db"));
+    migrate(db);
+  });
+  afterEach(() => {
+    db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("checkpoints an action before the next step settles, retaining it after failure and reload", async () => {
+    let modelCalls = 0;
+    let executions = 0;
+    let fail!: () => void;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        modelCalls += 1;
+        if (modelCalls === 1) {
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "tool-call", toolCallId: "c1", toolName: "echo", input: '{"value":"saved"}' },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        }
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: "text-start", id: "t1" });
+              controller.enqueue({ type: "text-delta", id: "t1", delta: "The action completed." });
+              fail = () => {
+                fail = () => {};
+                controller.enqueue({ type: "error", error: "provider disconnected" });
+                controller.close();
+              };
+            },
+          }),
+        };
+      },
+    }) as unknown as LlmModel;
+    const tools = {
+      echo: tool({
+        inputSchema: z.object({ value: z.string() }),
+        execute: ({ value }) => {
+          executions += 1;
+          return { saved: value };
+        },
+      }),
+    };
+    const streamRegistry = createStreamRegistry();
+    const session = createSession(db, MODEL, { id: "s1" });
+    const started = await runTurn(
+      { db, llmClients: clientsFor(model), tools, streamRegistry },
+      { session, userMessage: USER_MESSAGE },
+    );
+    try {
+      for (let i = 0; i < 100 && (!fail || getSessionMessages(db, "s1").length < 2); i += 1) {
+        await Bun.sleep(5);
+      }
+      const checkpoint = getSessionMessages(db, "s1").at(-1);
+      expect(checkpoint?.role).toBe("assistant");
+      expect(checkpoint?.parts).toContainEqual(
+        expect.objectContaining({
+          toolCallId: "c1",
+          state: "output-available",
+          output: { saved: "saved" },
+        }),
+      );
+      expect(getSession(db, "s1")?.status).toBe("running");
+      expect(streamRegistry.messagesBeforeTurn("s1")?.map((m) => m.role)).toEqual(["user"]);
+      fail();
+      await started.done;
+
+      // Reopen the database so these assertions read durable state, not a stream snapshot.
+      db.$client.close();
+      db = openDatabase(join(dir, "kiri.db"));
+      const saved = getSessionMessages(db, "s1");
+      expect(saved).toHaveLength(2);
+      expect(saved[1]?.id).toBe(checkpoint?.id ?? "");
+      expect(textParts(saved[1]?.parts)).toContainEqual(
+        expect.objectContaining({
+          type: "text",
+          text: "The action completed.",
+        }),
+      );
+      expect(getSession(db, "s1")?.status).toBe("failed");
+      expect(streamRegistry.messagesBeforeTurn("s1")).toBeNull();
+
+      const capture: { prompt?: unknown } = {};
+      const resumed = await runTurn(
+        { db, llmClients: clientsFor(capturingModel(capture)), tools },
+        { session, userMessage: { ...USER_MESSAGE, id: "u2" } },
+      );
+      await resumed.done;
+      expect(executions).toBe(1);
+      expect(JSON.stringify(capture.prompt)).toContain("saved");
+      expect(JSON.stringify(capture.prompt)).toContain("The action completed.");
+    } finally {
+      fail?.();
+      await started.done;
+    }
+  });
+
+  it("retains a partial reply when the first model step fails", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const started = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(
+          streamingModel([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "Here is what I found so far" },
+            { type: "error", error: "provider disconnected" },
+          ]),
+        ),
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await started.done;
+    expect(getSession(db, "s1")?.status).toBe("failed");
+    expect(textParts(getSessionMessages(db, "s1")[1]?.parts)).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Here is what I found so far" }),
+    );
+  });
+
+  it("keeps an approved action on its original message when the continuation fails", async () => {
+    let executions = 0;
+    const tools = {
+      echo: tool({
+        inputSchema: z.object({ value: z.string() }),
+        needsApproval: true,
+        execute: ({ value }) => {
+          executions += 1;
+          return { echoed: value };
+        },
+      }),
+    };
+    const session = createSession(db, MODEL, { id: "s1" });
+    const paused = await runTurn(
+      { db, llmClients: clientsFor(toolLoopModel()), tools },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await paused.done;
+    const pausedMessage = getSessionMessages(db, "s1")[1];
+    expect(executions).toBe(0);
+
+    const resumed = await resumeTurn(
+      {
+        db,
+        tools,
+        llmClients: clientsFor(streamingModel([{ type: "error", error: "provider unavailable" }])),
+      },
+      { session, approvals: [{ toolCallId: "c1", approved: true }] },
+    );
+    await resumed.done;
+    const messages = getSessionMessages(db, "s1");
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.id).toBe(pausedMessage?.id);
+    expect(messages[1]?.parts).toContainEqual(
+      expect.objectContaining({
+        toolCallId: "c1",
+        state: "output-available",
+        output: { echoed: "hi" },
+      }),
+    );
+    expect(getSession(db, "s1")?.status).toBe("failed");
+
+    const capture: { prompt?: unknown } = {};
+    const next = await runTurn(
+      { db, tools, llmClients: clientsFor(capturingModel(capture)) },
+      { session, userMessage: { ...USER_MESSAGE, id: "u2" } },
+    );
+    await next.done;
+    expect(executions).toBe(1);
+    expect(JSON.stringify(capture.prompt)).toContain("echoed");
+  });
+
+  it("stops and releases the turn when a checkpoint cannot be saved", async () => {
+    db.$client.exec(`
+      CREATE TRIGGER reject_assistant BEFORE INSERT ON messages
+      WHEN NEW.role = 'assistant'
+      BEGIN SELECT RAISE(FAIL, 'checkpoint unavailable'); END;
+    `);
+    const cancelRegistry = createCancelRegistry();
+    const streamRegistry = createStreamRegistry();
+    const session = createSession(db, MODEL, { id: "s1" });
+    const started = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(toolLoopModel()),
+        tools: echoTools,
+        cancelRegistry,
+        streamRegistry,
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await started.done;
+    expect(getSession(db, "s1")?.status).toBe("failed");
+    expect(JSON.stringify(getSession(db, "s1")?.error)).toContain("checkpoint unavailable");
+    expect(streamRegistry.has("s1")).toBe(false);
+    expect(cancelRegistry.requestCancel("s1")).toBe(false);
   });
 });
 
@@ -1365,7 +1602,7 @@ describe("session inbox in turns", () => {
     expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
   });
 
-  it("keeps a mid-turn message queued when the turn fails before persisting", async () => {
+  it("keeps a delivered mid-turn message in failed history without redelivering it", async () => {
     let step = 0;
     const failingSecondStep = new MockLanguageModelV3({
       doStream: async () => {
@@ -1401,12 +1638,22 @@ describe("session inbox in turns", () => {
     await response.text();
     await done;
 
-    // The failed turn persisted nothing, so the delivery is rolled back to the
-    // backlog for the next turn rather than lost with the discarded work.
+    // The delivered instruction survives alongside the completed tool result.
+    // Its inbox row is acknowledged only with the transcript that contains it.
     expect(getSession(db, "s1")?.status).toBe("failed");
-    expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
-    expect(pendingInboxItems(db, "s1").map((i) => i.text)).toEqual([MID_TURN_TEXT]);
-    expect(events).not.toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+    const saved = getSessionMessages(db, "s1");
+    expect(saved.map((r) => r.role)).toEqual(["user", "assistant"]);
+    expect(occurrences(JSON.stringify(saved), MID_TURN_TEXT)).toBe(1);
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(events.filter((e) => e.type === "session.inbox.delivered")).toHaveLength(1);
+
+    const capture: { prompt?: unknown } = {};
+    const next = await runTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)) },
+      { session, userMessage: { ...USER_MESSAGE, id: "u2" } },
+    );
+    await next.done;
+    expect(occurrences(JSON.stringify(capture.prompt), MID_TURN_TEXT)).toBe(1);
   });
 
   it("keeps a delivery in a cancelled turn's kept parts", async () => {
@@ -1452,6 +1699,22 @@ describe("session inbox in turns", () => {
     expect(JSON.stringify(rows[1]?.parts)).toContain(MID_TURN_TEXT);
     expect(pendingInboxItems(db, "s1")).toEqual([]);
     expect(events).toContainEqual({ type: "session.inbox.delivered", sessionId: "s1" });
+  });
+
+  it("rolls back the checkpoint if acknowledging its inbox delivery fails", async () => {
+    db.$client.exec(`
+      CREATE TRIGGER reject_inbox_ack BEFORE DELETE ON session_inbox
+      BEGIN SELECT RAISE(FAIL, 'inbox unavailable'); END;
+    `);
+    const session = createSession(db, MODEL, { id: "s1" });
+    const started = await runTurn(
+      { db, llmClients: clientsFor(threeStepModel([])), tools: enqueueingTools("s1") },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await started.done;
+    expect(getSession(db, "s1")?.status).toBe("failed");
+    expect(JSON.stringify(getSessionMessages(db, "s1"))).not.toContain(MID_TURN_TEXT);
+    expect(pendingInboxItems(db, "s1").map((item) => item.text)).toEqual([MID_TURN_TEXT]);
   });
 
   it("delivers into an approval resume after the paused step's tool call", async () => {

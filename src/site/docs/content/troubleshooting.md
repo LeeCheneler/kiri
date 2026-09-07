@@ -78,6 +78,18 @@ model's context. Stopping the turn cancels any call in flight. A tool that's
 routinely slow or returns far too much usually wants a narrower input (search
 a specific subfolder rather than a huge tree, say).
 
+## A session failed after doing some work
+
+Completed steps and useful partial replies remain in the conversation even
+when a later provider request fails. Fix the provider problem, then send a
+follow-up in the same session to continue from that history. Reloading the
+page does not erase saved progress or replay completed actions.
+
+An action whose result never arrived may already have happened. Check the
+file, workflow run, or external service before asking Kiri to repeat it.
+After an app restart, interrupted turns are marked failed; their completed
+checkpoints remain, but they do not restart automatically.
+
 ## Edits aren't taking effect
 
 Most files are read fresh from disk — workflow edits, skills, `kiri.yaml`, and

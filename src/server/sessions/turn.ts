@@ -9,12 +9,13 @@ import {
   stepCountIs,
   streamText,
 } from "ai";
+import { isInboxPart } from "../../shared/inbox-part.ts";
 import type { KiriDb } from "../db/index.ts";
-import type { EventBus } from "../events/index.ts";
+import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { cullToolHistory, currentContextTokens } from "./cull-tool-results.ts";
-import { finaliseCancelledParts } from "./finalise-cancelled-parts.ts";
+import { finaliseInterruptedParts } from "./finalise-interrupted-parts.ts";
 import { stripImageToolResults } from "./image-tool-results.ts";
 import {
   type InboxDelivery,
@@ -76,6 +77,10 @@ export interface RunTurnDeps {
 // extended tool work: many search-and-reason cycles, or a long series of
 // document edits, in one turn.
 const MAX_TURN_STEPS = 32;
+
+const UNKNOWN_TOOL_RESULT =
+  "The turn failed before this tool's result was recorded. Its action may have completed. " +
+  "Verify the current state before deciding whether to retry; do not automatically repeat it.";
 
 // The chunk union `UIMessageStreamWriter.write` accepts. A delivered inbox
 // part is written verbatim — its shape is a data chunk — but the union types
@@ -174,8 +179,8 @@ function drainBacklog(db: KiriDb, bus: EventBus | undefined, sessionId: string):
 
 /**
  * Run one agentic turn: persist the user message, stream the assistant response
- * against the session's model, and persist that response plus its token usage
- * on completion. Returns the AI SDK's streamed response for the route to hand
+ * against the session's model, checkpoint completed steps, and persist partial
+ * output on interruption. Returns the AI SDK's streamed response for the route to hand
  * straight to the client, and a `done` promise that settles after persistence.
  *
  * Cancellation rides the shared registry: a cancel aborts the in-flight stream
@@ -305,20 +310,17 @@ function applyApprovals(
   return { parts: next, applied };
 }
 
-// Persist a turn's assistant message. A continuation extends the assistant
-// message that paused for approval — update it in place with this turn's
-// footprint. Otherwise it's a new assistant message, persisted under the id the
-// stream assigned it.
+// Approval continuations and later checkpoints update the same assistant row.
 function persistAssistantMessage(
   db: KiriDb,
   sessionId: string,
   id: string,
   parts: UIMessage["parts"],
-  isContinuation: boolean,
+  alreadyPersisted: boolean,
   contextTokens?: number,
 ): void {
-  if (isContinuation) {
-    // Leave the footprint alone when this turn has none (a cancel), so the
+  if (alreadyPersisted) {
+    // Leave the footprint alone when this turn has none, so the
     // paused message keeps the one its earlier steps recorded.
     updateMessage(db, sessionId, id, {
       parts,
@@ -330,7 +332,7 @@ function persistAssistantMessage(
 }
 
 // Stream the model's response for an already-prepared turn (the user message
-// appended, or the pending approvals applied) and persist it on completion.
+// appended, or the pending approvals applied), checkpointing completed steps.
 // Shared by a fresh turn and an approval resume — the only difference is the
 // preamble each runs before calling in.
 async function streamCore(
@@ -415,13 +417,41 @@ async function streamCore(
   // The turn captures into it as it drains, and `onFinish` closes it in step with
   // persistence — so a client that loads the just-settled turn from storage gets a
   // 204 on resume and never replays it into a duplicate.
-  const sink = streamRegistry?.open(session.id);
+  const sink = streamRegistry?.open(session.id, rows);
 
   // Assigned synchronously by `execute` below (the SDK invokes it as the stream
   // is created); `onFinish` reads the settled usage off it. Left unassigned only
   // when a tools factory throws, which lands the turn as failed.
   let result: ReturnType<typeof streamText> | undefined;
   let streamError: unknown;
+  let checkpointed = false;
+  let checkpointFailed = false;
+  const acknowledgedIds = new Set<string>();
+
+  // The stream can already contain an inbox delivery for the next model step.
+  // Acknowledge only deliveries present in this snapshot, in the same transaction
+  // as the transcript, so an interruption can neither lose nor redeliver them.
+  const persistProgress = (message: UIMessage, isContinuation: boolean, contextTokens?: number) => {
+    const inboxIds = message.parts
+      .filter(isInboxPart)
+      .map((part) => part.id)
+      .filter((id) => deliveredIds.has(id) && !acknowledgedIds.has(id));
+    db.transaction(() => {
+      persistAssistantMessage(
+        db,
+        session.id,
+        message.id,
+        message.parts,
+        isContinuation || checkpointed,
+        contextTokens,
+      );
+      deleteInboxItems(db, inboxIds);
+    });
+    checkpointed = true;
+    for (const id of inboxIds) acknowledgedIds.add(id);
+    if (inboxIds.length > 0)
+      bus?.publish({ type: "session.inbox.delivered", sessionId: session.id });
+  };
 
   const stream = createUIMessageStream<UIMessage>({
     // Surface real error text in the stream and transcript instead of the
@@ -458,7 +488,7 @@ async function streamCore(
           // this step's model messages, and write its part into the UI stream
           // so the client shows the interjection mid-turn — at this boundary,
           // where the persisted message will carry it too. Items are delivered
-          // once (the backlog row survives until `onFinish` proves persistence,
+          // once (the backlog row survives until a checkpoint proves persistence,
           // so later boundaries would re-read it) and re-inserted every step,
           // because the SDK rebuilds the step input without our injections.
           prepareStep: ({ messages }) => {
@@ -473,7 +503,7 @@ async function streamCore(
           },
           abortSignal: controller.signal,
           onError: ({ error }) => {
-            streamError = error;
+            streamError ??= error;
           },
         });
         writer.merge(result.toUIMessageStream({ onError: errorMessage }));
@@ -485,40 +515,44 @@ async function streamCore(
         throw cause;
       }
     },
-    onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
-      // Delivered items leave the inbox only once their streamed parts are
-      // persisted; a turn that persists nothing (a failure, or a cancel that
-      // kept nothing) leaves them queued for redelivery instead.
-      const settleDeliveries = () => {
-        if (deliveries.length === 0) return;
-        deleteInboxItems(
-          db,
-          deliveries.map((delivery) => delivery.item.id),
-        );
-        bus?.publish({ type: "session.inbox.delivered", sessionId: session.id });
-      };
+    onStepFinish: ({ responseMessage, isContinuation }) => {
+      if (finaliseInterruptedParts(responseMessage.parts) === null) return;
       try {
-        const aborted = isAborted || controller.signal.aborted;
+        persistProgress(responseMessage, isContinuation);
+      } catch (cause) {
+        // The SDK reports checkpoint errors without stopping its tool loop.
+        // Abort here so further actions cannot outrun failed persistence.
+        checkpointFailed = true;
+        streamError = cause;
+        controller.abort();
+        throw cause;
+      }
+    },
+    onFinish: async ({ responseMessage, isContinuation, isAborted }) => {
+      let finalStatus: SessionStatus | undefined;
+      let messagePersisted = checkpointed;
+      try {
+        const aborted = !checkpointFailed && (isAborted || controller.signal.aborted);
         if (aborted || streamError !== undefined) {
           const status = aborted ? "cancelled" : "failed";
-          // A cancelled turn keeps what it got through: the partial assistant
-          // message — text, finished tool calls and their results — is
-          // persisted so the next turn (and a reload) still has the work the
-          // user interrupted, rather than the model starting over blind. The
-          // parts are finalised first so every issued tool call carries a
-          // result. Token usage is skipped: the aborted stream never settles
-          // it. A failed turn persists nothing, as before.
-          const kept = aborted ? finaliseCancelledParts(responseMessage.parts) : null;
+          // Both failure and cancellation retain completed work. An unfinished
+          // call's outcome is unknown on failure; recording an error pairs the
+          // call for the next model turn without authorising its replay.
+          const kept = checkpointFailed
+            ? null
+            : finaliseInterruptedParts(
+                responseMessage.parts,
+                aborted ? undefined : UNKNOWN_TOOL_RESULT,
+              );
           if (kept !== null) {
-            persistAssistantMessage(db, session.id, responseMessage.id, kept, isContinuation);
-            settleDeliveries();
+            persistProgress({ ...responseMessage, parts: kept }, isContinuation);
+            messagePersisted = true;
           }
           setSessionStatus(db, session.id, status, {
             finishedAt: new Date(),
             error: streamError === undefined ? undefined : { message: errorMessage(streamError) },
           });
-          if (kept !== null) bus?.publish({ type: "session.message.added", sessionId: session.id });
-          bus?.publish({ type: "session.finished", id: session.id, status });
+          finalStatus = status;
           return;
         }
         // The context fill the gauge reads is the last model call's total
@@ -528,15 +562,8 @@ async function streamCore(
         // records a `streamError` handled above.
         const lastStep = await result?.usage;
         const contextTokens = lastStep?.totalTokens;
-        persistAssistantMessage(
-          db,
-          session.id,
-          responseMessage.id,
-          responseMessage.parts,
-          isContinuation,
-          contextTokens,
-        );
-        settleDeliveries();
+        persistProgress(responseMessage, isContinuation, contextTokens);
+        messagePersisted = true;
         // A turn that stopped on tool-approval requests hasn't settled: the
         // session is blocked on the user's verdicts, and lists surface that
         // as `waiting` rather than the resting `idle`.
@@ -546,13 +573,26 @@ async function streamCore(
           ? ("waiting" as const)
           : ("idle" as const);
         setSessionStatus(db, session.id, settled);
-        bus?.publish({ type: "session.message.added", sessionId: session.id });
-        bus?.publish({ type: "session.updated", id: session.id, status: settled });
+        finalStatus = settled;
       } finally {
         // Close the resumable stream as the turn settles, in step with persisting
         // the message above, so a client reconnecting now replays nothing.
         sink?.close();
         cancelRegistry?.release(session.id);
+        // An idle event can synchronously wake another turn. Release this
+        // turn's resources first so cleanup cannot cancel its replacement.
+        if (messagePersisted)
+          bus?.publish({ type: "session.message.added", sessionId: session.id });
+        if (finalStatus !== undefined) {
+          bus?.publish({
+            type:
+              finalStatus === "failed" || finalStatus === "cancelled"
+                ? "session.finished"
+                : "session.updated",
+            id: session.id,
+            status: finalStatus,
+          });
+        }
         settle();
       }
     },

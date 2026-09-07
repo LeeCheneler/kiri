@@ -2,8 +2,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { UIMessage } from "ai";
+import { type UIMessage, tool } from "ai";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { bootstrap } from "../../src/server/bootstrap.ts";
 import { loadKiriConfig } from "../../src/server/config/loader.ts";
 import { createConfigStore } from "../../src/server/config/store.ts";
@@ -127,6 +128,49 @@ describe("session turn streaming", () => {
     const messages = getSessionMessages(db, session.id);
     expect(assistantText(messages[1].parts)).toBe("All done.");
     expect(getSession(db, session.id)?.status).toBe("idle");
+  });
+
+  it("keeps a completed action after a later provider failure and supplies it to the next turn", async () => {
+    let executions = 0;
+    const tools = {
+      save: tool({
+        inputSchema: z.object({ value: z.string() }),
+        execute: ({ value }) => {
+          executions += 1;
+          writeFileSync(join(cwd, "saved.txt"), value);
+          return { saved: value };
+        },
+      }),
+    };
+    const session = createSession(db, "fake:tool-boom");
+    const failed = await runTurn(
+      { db, llmClients, tools },
+      { session, userMessage: userMessage('call:save {"value":"keep this"}') },
+    );
+    await failed.done;
+    expect(getSession(db, session.id)?.status).toBe("failed");
+    const saved = getSessionMessages(db, session.id);
+    expect(saved).toHaveLength(2);
+    expect(saved[1]?.parts).toContainEqual(
+      expect.objectContaining({
+        state: "output-available",
+        output: { saved: "keep this" },
+      }),
+    );
+    expect(await Bun.file(join(cwd, "saved.txt")).text()).toBe("keep this");
+
+    const next = await runTurn(
+      { db, llmClients, tools },
+      {
+        session,
+        userMessage: userMessage("Continue from the saved work"),
+      },
+    );
+    await next.done;
+    expect(executions).toBe(1);
+    expect(getSession(db, session.id)?.status).toBe("idle");
+    expect(JSON.stringify(fake.requests.at(-1)?.messages)).toContain("keep this");
+    expect(fake.requests.at(-1)?.messages?.some((m) => m.role === "tool")).toBe(true);
   });
 
   it("drives generate_image over the wire, keeping the image bytes out of the model's context", async () => {

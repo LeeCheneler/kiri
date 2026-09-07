@@ -27,3 +27,32 @@ test("a turn keeps running server-side across a reload and is picked back up", a
   });
   await expect(page.getByLabel(/message/i)).toBeEnabled();
 });
+
+test("reloading after a completed tool step replays the turn without duplicate messages", async ({
+  page,
+}) => {
+  const sessionId = await startSession(page);
+  await useModel(page, "fake:tool-slow");
+  const directive = `call:create_article ${JSON.stringify({
+    slug: "checkpoint-notes",
+    content_md: "# Checkpoint Notes\n\nSaved before the reply.",
+  })}`;
+  await sendMessage(page, directive);
+  await expect(
+    page.getByRole("complementary").getByRole("link", { name: "Checkpoint Notes" }),
+  ).toBeVisible();
+  await page.reload();
+
+  await expect(page.getByText("All done.", { exact: true })).toHaveCount(1, { timeout: 15_000 });
+  await expect(page.getByText(directive, { exact: true })).toHaveCount(1);
+  await expect(page.getByLabel(/message/i)).toBeEnabled();
+  await page.reload();
+  await expect(page.getByText("All done.", { exact: true })).toHaveCount(1);
+  const detail = await (await page.request.get(`/api/sessions/${sessionId}`)).json();
+  expect(detail.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
+  const calls = detail.messages[1].parts.filter(
+    (p: { type: string }) => p.type === "tool-create_article",
+  );
+  expect(calls).toHaveLength(1);
+  expect(calls[0].state).toBe("output-available");
+});

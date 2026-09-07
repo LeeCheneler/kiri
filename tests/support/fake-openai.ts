@@ -19,6 +19,8 @@
  *   once the loop feeds the result back it settles with "All done." — so a
  *   test drives any offered tool with any input, deterministically. Any other
  *   message echoes like `echo`.
+ * - `tool-slow` / `tool-boom` — the same tool caller, followed by a delayed
+ *   response or a provider failure, for checkpoint/recovery scenarios.
  * - `paint` — an image-generation model. Its listing entry reports an image
  *   output modality, and `POST …/images/generations` returns a fixed 1×1 PNG
  *   (or the stub error when the prompt starts with `boom`).
@@ -32,7 +34,15 @@
  */
 
 /** Model ids the stub serves; each selects a behaviour. */
-export const FAKE_MODELS = ["echo", "slow", "boom", "tool", "paint"] as const;
+export const FAKE_MODELS = [
+  "echo",
+  "slow",
+  "boom",
+  "tool",
+  "tool-slow",
+  "tool-boom",
+  "paint",
+] as const;
 export type FakeModel = (typeof FAKE_MODELS)[number];
 
 /** The 1×1 transparent PNG every stub image generation returns, base64-encoded. */
@@ -295,7 +305,7 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
 
     if (model === "boom") return errorResponse();
 
-    if (model === "tool") {
+    if (model === "tool" || model === "tool-slow" || model === "tool-boom") {
       const directive = parseToolDirective(lastUserText(messages));
       const toolRanAlready = messages.at(-1)?.role === "tool";
       if (directive && !toolRanAlready && body.stream) {
@@ -303,12 +313,17 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
           headers: SSE_HEADERS,
         });
       }
-      if (toolRanAlready) reply = TOOL_DONE_REPLY;
+      if (toolRanAlready) {
+        if (model === "tool-boom") return errorResponse();
+        reply = TOOL_DONE_REPLY;
+      }
     }
 
     if (body.stream) {
       const timing =
-        model === "slow" ? { leadMs: 1500, perTokenMs: 300 } : { leadMs: 0, perTokenMs: 0 };
+        model === "slow" || model === "tool-slow"
+          ? { leadMs: 1500, perTokenMs: 300 }
+          : { leadMs: 0, perTokenMs: 0 };
       return new Response(chatCompletionStream({ model, reply, signal: req.signal, ...timing }), {
         headers: SSE_HEADERS,
       });

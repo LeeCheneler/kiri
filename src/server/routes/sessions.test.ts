@@ -737,6 +737,28 @@ describe("sessions routes", () => {
       expect(parent.parent).toBeNull();
     });
 
+    it("serves the stream's baseline while running, then the saved progress once it closes", async () => {
+      const streamRegistry = createStreamRegistry();
+      const app = makeApp(fakeClients(), { streamRegistry });
+      createSession(env.db, MODEL, { id: "s1" });
+      appendMessage(env.db, "s1", { role: "user", parts: [{ type: "text", text: "Do the work" }] });
+      const baseline = getSessionMessages(env.db, "s1");
+      const sink = streamRegistry.open("s1", baseline);
+      appendMessage(env.db, "s1", {
+        role: "assistant",
+        parts: [{ type: "text", text: "Progress" }],
+      });
+
+      const live = await (await app.request("/api/sessions/s1")).json();
+      expect(live.messages.map((m: { role: string }) => m.role)).toEqual(["user"]);
+      expect(getSessionMessages(env.db, "s1")).toHaveLength(2);
+
+      sink.close();
+      const settled = await (await app.request("/api/sessions/s1")).json();
+      expect(settled.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
+      expect(settled.messages[1].parts).toEqual([{ type: "text", text: "Progress" }]);
+    });
+
     it("404s an unknown session", async () => {
       const app = makeApp(fakeClients());
       const res = await app.request("/api/sessions/ghost");

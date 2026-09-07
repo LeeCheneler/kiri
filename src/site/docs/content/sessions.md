@@ -13,6 +13,12 @@ You can swap a session's model mid-conversation — it applies from the next
 turn — and a streaming turn survives a page reload: reopening the session
 rejoins it live.
 
+Kiri saves progress after each completed model/tool step. If a later provider
+request fails, completed actions and useful partial replies remain in the
+conversation after reload, ready for your next message. A failed turn does
+not automatically repeat completed actions. If an action's result never
+arrived, its outcome may be unknown; check its effect before retrying.
+
 ## Articles
 
 Ask for a write-up — a report, a digest, a guide — and the session saves it

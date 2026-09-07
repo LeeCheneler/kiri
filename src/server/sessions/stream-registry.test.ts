@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { Message } from "./store.ts";
 import { createStreamRegistry } from "./stream-registry.ts";
 
 const decoder = new TextDecoder();
@@ -18,6 +19,42 @@ function frames(stream: ReadableStream<Uint8Array> | null) {
 }
 
 describe("createStreamRegistry", () => {
+  it("retains an approval continuation's original parts while checkpoints change its message", () => {
+    const baseline: [Message] = [
+      {
+        id: "a1",
+        sessionId: "s1",
+        index: 1,
+        role: "assistant",
+        contextTokens: 10,
+        createdAt: new Date(),
+        parts: [
+          {
+            type: "tool-echo",
+            toolCallId: "c1",
+            state: "approval-responded",
+            input: { value: "hi" },
+            approval: { id: "approval-1", approved: true },
+          },
+        ],
+      },
+    ];
+    const reg = createStreamRegistry();
+    expect(reg.messagesBeforeTurn("s1")).toBeNull();
+    const sink = reg.open("s1", baseline);
+    baseline[0].parts = [
+      { type: "tool-echo", toolCallId: "c1", state: "output-available", output: "hi" },
+    ];
+    expect(reg.messagesBeforeTurn("s1")?.[0]?.parts).toContainEqual(
+      expect.objectContaining({
+        state: "approval-responded",
+        approval: { id: "approval-1", approved: true },
+      }),
+    );
+    sink.close();
+    expect(reg.messagesBeforeTurn("s1")).toBeNull();
+  });
+
   it("has reflects a session's stream from open through close", () => {
     const reg = createStreamRegistry();
     expect(reg.has("s1")).toBe(false);

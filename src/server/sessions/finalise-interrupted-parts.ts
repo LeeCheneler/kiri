@@ -3,20 +3,20 @@ import { CANCELLED_ERROR_TEXT } from "../../shared/cancelled-tool-call.ts";
 
 type Part = UIMessage["parts"][number];
 
-// Tool states a cancel can catch a call in once its input is complete: it is
+// Tool states an interruption can catch once input is complete: the call is
 // executing (or was just allowed and about to). The call has been issued to
 // the model's history, so it needs a terminal result to pair with.
 const EXECUTING_TOOL_STATES = new Set(["input-available", "approval-responded"]);
 
 /**
- * Shape a cancelled turn's partial assistant message so it can be persisted
+ * Shape an interrupted turn's partial assistant message so it can be persisted
  * and — crucially — sent back to the model on the next turn without the
  * provider rejecting the history:
  *
  * - a tool call still streaming its input is dropped (its input may be a
  *   partial, unparseable fragment; the model never finished issuing it);
  * - a call that was executing is rewritten to an `output-error` carrying
- *   {@link CANCELLED_ERROR_TEXT}, so every issued call has a paired result —
+ *   `errorText` (a cancellation notice by default), so it has a paired result —
  *   providers reject a tool call with no result;
  * - trailing reasoning with nothing after it is dropped: an interrupted
  *   thinking block is unsigned, and a reasoning item with no following item
@@ -26,7 +26,10 @@ const EXECUTING_TOOL_STATES = new Set(["input-available", "approval-responded"])
  * Returns `null` when nothing substantive survives (only step markers, or
  * nothing at all) — the turn had not produced anything worth keeping.
  */
-export function finaliseCancelledParts(parts: UIMessage["parts"]): UIMessage["parts"] | null {
+export function finaliseInterruptedParts(
+  parts: UIMessage["parts"],
+  errorText = CANCELLED_ERROR_TEXT,
+): UIMessage["parts"] | null {
   const kept: Part[] = [];
   for (const part of parts) {
     if (!isToolUIPart(part)) {
@@ -38,7 +41,7 @@ export function finaliseCancelledParts(parts: UIMessage["parts"]): UIMessage["pa
       kept.push({
         ...part,
         state: "output-error",
-        errorText: CANCELLED_ERROR_TEXT,
+        errorText,
       } as Part);
       continue;
     }

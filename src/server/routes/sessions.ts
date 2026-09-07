@@ -836,7 +836,10 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       const parentId = session.parentSessionId;
       return c.json({
         session: withHealedCwd(session),
-        messages: getSessionMessages(db, id),
+        // Replaying a live stream starts from its original transcript. Durable
+        // checkpoints already contain some of those frames and would duplicate
+        // text/steps if used as the client's starting point.
+        messages: streamRegistry.messagesBeforeTurn(id) ?? getSessionMessages(db, id),
         // The undelivered backlog rides the detail so queued messages stay
         // visible across reloads and other views — the inbox table, not any
         // client's local state, is the queue's source of truth.
@@ -1017,8 +1020,8 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
               buildSystemPrompt: (s: Session) => `${base.buildSystemPrompt?.(s)}\n\n${cwdNotice}`,
             };
 
-      // Persistence rides the stream's completion (the turn's `onFinish`), so the
-      // route just hands back the streamed response. The turn is drained
+      // The turn checkpoints and finalises its own persistence, so the route
+      // just hands back the streamed response. The turn is drained
       // server-side, so a client that disconnects doesn't cancel it; only an
       // explicit cancel through `POST /api/sessions/:id/cancel` does.
 
