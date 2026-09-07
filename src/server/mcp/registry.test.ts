@@ -155,6 +155,84 @@ describe("createMcpRegistry", () => {
     expect(Object.keys(registry.tools())).toEqual(["b__t"]);
   });
 
+  it("routes a tool captured before replacement through the current client", async () => {
+    let connection = 0;
+    const closed = new Set<number>();
+    const registry = createMcpRegistry(async () => {
+      const id = ++connection;
+      return {
+        tools: async (): Promise<ToolSet> => ({
+          t: tool({
+            inputSchema: z.object({}),
+            execute: async () => {
+              if (closed.has(id))
+                throw new Error("Attempted to send a request from a closed client");
+              return id;
+            },
+          }),
+        }),
+        close: async () => {
+          closed.add(id);
+        },
+      };
+    });
+    await registry.replace(serverMap(stdio("a")), {});
+    const captured = registry.tools().a__t;
+
+    await registry.replace(serverMap(stdio("a")), {});
+
+    expect(closed).toEqual(new Set([1]));
+    expect(await invoke(captured)).toBe(2);
+  });
+
+  it("rejects a captured tool that is removed by replacement", async () => {
+    const registry = createMcpRegistry(async () => ({
+      tools: async () => ({ t: aTool() }),
+      close: async () => {},
+    }));
+    await registry.replace(serverMap(stdio("a")), {});
+    const captured = registry.tools().a__t;
+
+    await registry.replace(serverMap(), {});
+
+    await expect(invoke(captured)).rejects.toThrow('MCP tool "a__t" is no longer available.');
+  });
+
+  it("keeps a replaced client open until its active tool calls settle", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let connection = 0;
+    const closed = new Set<number>();
+    const registry = createMcpRegistry(async () => {
+      const id = ++connection;
+      return {
+        tools: async (): Promise<ToolSet> => ({
+          t: tool({
+            inputSchema: z.object({}),
+            execute: async () => {
+              if (id === 1) await held;
+              return id;
+            },
+          }),
+        }),
+        close: async () => {
+          closed.add(id);
+        },
+      };
+    });
+    await registry.replace(serverMap(stdio("a")), {});
+    const active = invoke(registry.tools().a__t);
+
+    await registry.replace(serverMap(stdio("a")), {});
+    expect(closed.has(1)).toBe(false);
+
+    release();
+    expect(await active).toBe(1);
+    expect(closed.has(1)).toBe(true);
+  });
+
   it("closes all clients and clears state on close", async () => {
     let closed = 0;
     const registry = createMcpRegistry(async () => ({
