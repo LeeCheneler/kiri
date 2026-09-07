@@ -88,13 +88,40 @@ export function createMcpRegistry(
   connect: ConnectMcpServer,
   onAuthLost?: (serverName: string) => void,
 ): McpRegistry {
-  let clients: McpClient[] = [];
+  type Execute = NonNullable<ToolSet[string]["execute"]>;
+  interface ConnectionGeneration {
+    clients: McpClient[];
+    activeCalls: number;
+    retired: boolean;
+    closing?: Promise<void>;
+  }
+  interface LiveExecution {
+    execute: Execute;
+    generation: ConnectionGeneration;
+  }
+
+  let generation: ConnectionGeneration = { clients: [], activeCalls: 0, retired: false };
+  let executions = new Map<string, LiveExecution>();
   let toolSet: ToolSet = {};
   let statuses: McpServerStatus[] = [];
   let catalogs: McpServerCatalog[] = [];
 
-  const closeAll = (toClose: McpClient[]): Promise<unknown> =>
-    Promise.allSettled(toClose.map((client) => client.close()));
+  const closeGeneration = (target: ConnectionGeneration): Promise<void> => {
+    target.closing ??= Promise.allSettled(target.clients.map((client) => client.close())).then(
+      () => undefined,
+    );
+    return target.closing;
+  };
+
+  const retire = (target: ConnectionGeneration): Promise<void> => {
+    target.retired = true;
+    return target.activeCalls === 0 ? closeGeneration(target) : Promise.resolve();
+  };
+
+  const release = (target: ConnectionGeneration): void => {
+    target.activeCalls -= 1;
+    if (target.retired && target.activeCalls === 0) void closeGeneration(target);
+  };
 
   // Reclassify a connected server as needing sign-in after a tool call lost its
   // OAuth: drop its now-unusable tools and catalog entry, flip its status, and
@@ -104,7 +131,10 @@ export function createMcpRegistry(
     const status = statuses.find((s) => s.name === serverName);
     if (!status || status.state !== "connected") return;
     const catalog = catalogs.find((c) => c.name === serverName);
-    for (const t of catalog?.tools ?? []) delete toolSet[t.namespacedName];
+    for (const t of catalog?.tools ?? []) {
+      delete toolSet[t.namespacedName];
+      executions.delete(t.namespacedName);
+    }
     catalogs = catalogs.filter((c) => c.name !== serverName);
     statuses = statuses.map((s) =>
       s.name === serverName ? { name: s.name, type: s.type, state: "needs-sign-in" } : s,
@@ -112,22 +142,40 @@ export function createMcpRegistry(
     onAuthLost?.(serverName);
   };
 
-  // Wrap a bound tool so a call that loses the server's OAuth flips it to
-  // needs-sign-in and rejects with an actionable message; every other error
-  // (and a tool with no execute) passes through untouched.
-  const watchAuth = (toolDef: ToolSet[string], serverName: string): ToolSet[string] => {
-    const original = toolDef.execute;
-    if (!original) return toolDef;
-    const execute = async (...args: Parameters<NonNullable<ToolSet[string]["execute"]>>) => {
+  const authLostError = (serverName: string, cause?: unknown): Error =>
+    new Error(
+      `MCP server "${serverName}" needs re-authentication — its sign-in has expired. Reconnect it from the Tools & MCP page.`,
+      { cause },
+    );
+
+  // Wrap a bound tool with a live execution lookup. A turn may retain this
+  // definition while OAuth reconnects the registry; resolving at call time sends
+  // an approval-delayed call through the new client rather than the closed one.
+  // Calls already running lease their generation until they settle. Auth loss is
+  // applied only when the failing execution is still current, so an old request
+  // racing a reconnect cannot invalidate the fresh connection.
+  const liveTool = (
+    toolDef: ToolSet[string],
+    serverName: string,
+    namespacedName: string,
+  ): ToolSet[string] => {
+    if (!toolDef.execute) return toolDef;
+    const execute = async (...args: Parameters<Execute>) => {
+      const target = executions.get(namespacedName);
+      if (!target) {
+        const status = statuses.find((candidate) => candidate.name === serverName);
+        if (status?.state === "needs-sign-in") throw authLostError(serverName);
+        throw new Error(`MCP tool "${namespacedName}" is no longer available.`);
+      }
+      target.generation.activeCalls += 1;
       try {
-        return await original(...args);
+        return await target.execute(...args);
       } catch (cause) {
-        if (!isAuthLoss(cause)) throw cause;
+        if (!isAuthLoss(cause) || executions.get(namespacedName) !== target) throw cause;
         markSignInLost(serverName);
-        throw new Error(
-          `MCP server "${serverName}" needs re-authentication — its sign-in has expired. Reconnect it from the Tools & MCP page.`,
-          { cause },
-        );
+        throw authLostError(serverName, cause);
+      } finally {
+        release(target.generation);
       }
     };
     return { ...toolDef, execute } as ToolSet[string];
@@ -139,7 +187,7 @@ export function createMcpRegistry(
     catalog: () => catalogs,
 
     replace: async (servers, env) => {
-      const previous = clients;
+      const previous = generation;
 
       const results = await Promise.all(
         [...servers.values()].map(async (server) => {
@@ -150,7 +198,7 @@ export function createMcpRegistry(
             return { server, client, tools } as const;
           } catch (cause) {
             // Close a client that connected but failed to list its tools.
-            if (client) await closeAll([client]);
+            if (client) await Promise.allSettled([client.close()]);
             return {
               server,
               error: reasonOf(cause),
@@ -162,8 +210,14 @@ export function createMcpRegistry(
 
       const nextClients: McpClient[] = [];
       const nextTools: ToolSet = {};
+      const nextExecutions = new Map<string, LiveExecution>();
       const nextStatuses: McpServerStatus[] = [];
       const nextCatalogs: McpServerCatalog[] = [];
+      const nextGeneration: ConnectionGeneration = {
+        clients: nextClients,
+        activeCalls: 0,
+        retired: false,
+      };
       for (const result of results) {
         if ("error" in result) {
           // An OAuth server with no valid tokens isn't a failure — it needs sign-in.
@@ -184,10 +238,14 @@ export function createMcpRegistry(
         const toolInfos: McpToolInfo[] = [];
         for (const name of names) {
           const namespacedName = `${result.server.name}__${name}`;
-          nextTools[namespacedName] = watchAuth(
-            boundMcpTool(result.tools[name]),
-            result.server.name,
-          );
+          const bound = boundMcpTool(result.tools[name]);
+          if (bound.execute) {
+            nextExecutions.set(namespacedName, {
+              execute: bound.execute,
+              generation: nextGeneration,
+            });
+          }
+          nextTools[namespacedName] = liveTool(bound, result.server.name, namespacedName);
           toolInfos.push({ name, namespacedName, description: result.tools[name].description });
         }
         nextStatuses.push({
@@ -199,20 +257,22 @@ export function createMcpRegistry(
         nextCatalogs.push({ name: result.server.name, tools: toolInfos });
       }
 
-      clients = nextClients;
+      generation = nextGeneration;
+      executions = nextExecutions;
       toolSet = nextTools;
       statuses = nextStatuses;
       catalogs = nextCatalogs;
-      await closeAll(previous);
+      await retire(previous);
     },
 
     close: async () => {
-      const toClose = clients;
-      clients = [];
+      const toClose = generation;
+      generation = { clients: [], activeCalls: 0, retired: false };
+      executions = new Map();
       toolSet = {};
       statuses = [];
       catalogs = [];
-      await closeAll(toClose);
+      await closeGeneration(toClose);
     },
   };
 }
