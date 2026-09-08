@@ -59,6 +59,7 @@ import {
   getSessionMessages,
   imageTools,
   judgeCommand,
+  knowledgeTools,
   listMemories,
   listProjectMemories,
   listSkills,
@@ -488,6 +489,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     return {
       ...skillTools(config),
       ...contextTools(db, sessionId),
+      ...knowledgeTools({ db, registry }, getSession(db, sessionId)?.projectId ?? null),
       ...workflowTools({
         db,
         registry,

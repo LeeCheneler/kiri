@@ -13,6 +13,7 @@ import { contextTools } from "./context-tools.ts";
 import { delegateTool, messageParentTool } from "./delegate-tool.ts";
 import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
+import { knowledgeTools } from "./knowledge-tools.ts";
 import { memoryTools } from "./memory-tools.ts";
 import { projectTools } from "./project-tools.ts";
 import { shellTools } from "./shell-tools.ts";
@@ -58,6 +59,7 @@ describe("BUILTIN_TOOLS", () => {
   // ship un-gated or broken, so pin the two to exact agreement.
   it("names every first-party session tool exactly once", () => {
     const offered = {
+      ...knowledgeTools({ db, registry: createRegistry() }, null),
       ...skillTools(createConfigStore(dir)),
       ...contextTools(db, "session-1"),
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),

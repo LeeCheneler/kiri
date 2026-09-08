@@ -10,10 +10,9 @@ export const knowledgeScopeSchema = z.union([
 
 /** A stable document reference, optionally anchored inside a session. */
 export const knowledgeReferenceSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("article"), id: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("memory"), id: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("run"), id: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("workflow"), id: z.string().min(1) }).strict(),
+  z
+    .object({ type: z.enum(["article", "memory", "run", "workflow"]), id: z.string().min(1) })
+    .strict(),
   z
     .object({
       type: z.literal("session"),

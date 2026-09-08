@@ -1,5 +1,6 @@
 export { articleTools } from "./article-tools.ts";
 export { contextTools } from "./context-tools.ts";
+export { knowledgeTools } from "./knowledge-tools.ts";
 export { BUILTIN_TOOLS, type BuiltinTool } from "./builtin-tools.ts";
 export {
   COMMAND_GUIDANCE_PROMPT_PREFIX,
