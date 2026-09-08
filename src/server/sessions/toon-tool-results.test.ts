@@ -112,7 +112,7 @@ describe("toonEncodeToolResults", () => {
       assistant(toolPending("p1")),
       assistant(toolErrored("e1")),
       assistant(textPart("hello")),
-      // A culled result's output is already a plain string — not a TOON candidate.
+      // A text result's output is already a plain string — not a TOON candidate.
       assistant(toolResult("c1", "[Earlier tool result removed…]")),
     ];
     // None of these change, so each message passes through by reference.

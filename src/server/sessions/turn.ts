@@ -13,7 +13,6 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
-import { cullToolHistory, currentContextTokens } from "./cull-tool-results.ts";
 import { finaliseInterruptedParts } from "./finalise-interrupted-parts.ts";
 import { stripImageToolResults } from "./image-tool-results.ts";
 import {
@@ -26,6 +25,7 @@ import {
   pendingInboxItems,
 } from "./inbox.ts";
 import type { InstructionContext } from "./instruction-context.ts";
+import { compactSessionHistory, currentContextTokens } from "./session-context.ts";
 import {
   type Message,
   type Session,
@@ -382,31 +382,8 @@ async function streamCore(
     if (!senderLabels.has(id)) senderLabels.set(id, getSessionLabels(db, [id]).get(id));
     return senderLabels.get(id);
   };
-  // Past the cull ratio of the model's context window, send the model a
-  // trimmed history — older tool results replaced by a short notice — to
-  // claw back token budget.
-  // The untrimmed `history` still feeds persistence below, so nothing stored is
-  // lost. The window is unknown for some providers (then this no-ops).
   const contextWindow = await llmClients.contextWindowFor(session.model);
-  const culledHistory = cullToolHistory(history, {
-    contextTokens: currentContextTokens(rows),
-    contextWindow,
-  });
-  // Three further send-time savings on top of culling, all leaving the
-  // untouched `history` to feed persistence below: drop the app-only diff
-  // from filesystem write results (the model already knows the change from
-  // the call's input), drop the image payload from generate_image results
-  // (the image is for the user, not the model), then re-encode surviving
-  // JSON tool results as TOON wherever that is smaller — per result, so it
-  // never enlarges one.
-  const modelHistory = toonEncodeToolResults(
-    stripWriteToolDiffs(stripImageToolResults(culledHistory)),
-  );
-  // Expand delivered inbox parts back into the framed user messages the live
-  // turn saw, so a later turn replays the interleaving faithfully.
-  const modelMessages = await convertToModelMessages(
-    expandInboxMessages(modelHistory, senderLabelFor),
-  );
+  const contextTokens = currentContextTokens(rows);
 
   // The session's effort as this turn's provider reasoning parameters —
   // undefined for a model without reasoning support, which leaves the call
@@ -498,6 +475,23 @@ async function streamCore(
         // the call tool-less, a single-step plain chat.
         const turnTools = typeof tools === "function" ? tools({ writer }) : tools;
         const hasTools = turnTools !== undefined && Object.keys(turnTools).length > 0;
+        // Keep recovery dependent on the actual permission-gated catalogue.
+        // Only large evidence reads shrink; instructions and action records stay.
+        const compactedHistory = compactSessionHistory(history, {
+          tokensToSave:
+            contextWindow !== undefined && contextTokens !== undefined
+              ? Math.max(0, contextTokens - contextWindow * 0.8)
+              : 0,
+          recoveryAvailable: turnTools?.read_tool_result !== undefined,
+        });
+        // These model-only transforms leave the transcript used for persistence
+        // untouched: strip UI payloads, encode JSON losslessly, and frame inbox messages.
+        const modelHistory = toonEncodeToolResults(
+          stripWriteToolDiffs(stripImageToolResults(compactedHistory)),
+        );
+        const modelMessages = await convertToModelMessages(
+          expandInboxMessages(modelHistory, senderLabelFor),
+        );
         result = streamText({
           model,
           messages: modelMessages,

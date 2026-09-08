@@ -112,7 +112,9 @@ The instructions the assistant follows once the skill is loaded…
 Unknown frontmatter fields are ignored, so skills written for other tools
 drop in unmodified. Edits apply from the next turn. Kiri ships a few
 first-party skills alongside yours — name a skill the same as one and yours
-wins.
+wins. Loaded skill instructions are retained when evidence is compacted.
+The assistant can reload a skill if its instructions are missing or have
+changed; it should reuse instructions already available.
 
 ## Memories and projects
 
@@ -312,8 +314,13 @@ other tool.
 
 Kiri tracks a session's token spend, and context as `current / limit` when
 the provider reports the model's window, warning as a conversation nears it.
-Long sessions are stretched automatically — older tool results are trimmed
-from what's sent each turn; the transcript you see never changes.
+When the last recorded context footprint exceeds 80% of a known window,
+Kiri shortens large saved results from built-in evidence reads into partial
+excerpts with references to the original results. Small results, loaded
+skills, conversation text, task lists, action outcomes, errors, and worker
+messages stay available. Results from unknown tools also remain intact.
+Compaction requires `read_tool_result` to be enabled; with that tool off,
+full results remain in context. The stored transcript is never shortened.
 
 The assistant can reopen a saved tool result with `read_tool_result`, given
 its message ID and tool-call ID. Results arrive in bounded pages with a

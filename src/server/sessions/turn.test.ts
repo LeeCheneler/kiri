@@ -12,7 +12,7 @@ import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
-import { CULLED_RESULT_NOTICE } from "./cull-tool-results.ts";
+import { contextTools } from "./context-tools.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
   type Message,
@@ -576,31 +576,15 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("culls older tool results from what the model sees over the cull ratio, leaving storage intact", async () => {
-    const toolResult = (id: string, marker: string): UIMessage["parts"][number] =>
-      ({
-        type: "tool-search",
-        toolCallId: id,
-        state: "output-available",
-        input: { query: id },
-        output: { marker },
-      }) as UIMessage["parts"][number];
-
+  it("sends recoverable evidence excerpts while preserving skills, actions, and the stored transcript", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
-    // Five tool results across two prior assistant turns; the latest turn's usage
-    // puts the session over the cull ratio of the 1000-token window the model
-    // reports.
+    const evidence = `Evidence heading\n${"x".repeat(12000)}Missing tail`;
+    const skill = "Always verify the result.\n".repeat(1000);
     appendMessage(
       db,
       "s1",
-      { role: "user", parts: [{ type: "text", text: "search" }] },
+      { role: "user", parts: [{ type: "text", text: "Keep the API stable." }] },
       { id: "u0" },
-    );
-    appendMessage(
-      db,
-      "s1",
-      { role: "assistant", parts: [toolResult("c1", "ALPHA"), toolResult("c2", "BRAVO")] },
-      { id: "a1" },
     );
     appendMessage(
       db,
@@ -608,48 +592,97 @@ describe("runTurn", () => {
       {
         role: "assistant",
         parts: [
-          toolResult("c3", "CHARLIE"),
-          toolResult("c4", "DELTA"),
-          toolResult("c5", "ECHO"),
-          { type: "text", text: "done" },
+          {
+            type: "tool-read_file",
+            toolCallId: "read-1",
+            state: "output-available",
+            input: { path: "file" },
+            output: evidence,
+          },
+          {
+            type: "tool-use_skill",
+            toolCallId: "skill-1",
+            state: "output-available",
+            input: { name: "review" },
+            output: skill,
+          },
+          {
+            type: "tool-run_command",
+            toolCallId: "action-1",
+            state: "output-available",
+            input: { command: "publish" },
+            output: "Release published once.",
+          },
+          { type: "text", text: "Published; verification remains." },
         ],
-        contextTokens: 900,
+        contextTokens: 18000,
       },
-      { id: "a2" },
+      { id: "a1" },
     );
-
+    const original = getSessionMessages(db, "s1");
     const capture: { prompt?: unknown } = {};
     const llmClients: LlmClients = {
       ...clientsFor(capturingModel(capture)),
-      contextWindowFor: async () => 1000,
-      reasoningOptionsFor: async () => undefined,
+      contextWindowFor: async () => 20000,
     };
-
+    const tools = contextTools(db, "s1");
     const { response, done } = await runTurn(
-      { db, llmClients },
-      {
-        session,
-        userMessage: { id: "u1", role: "user", parts: [{ type: "text", text: "again" }] },
-      },
+      { db, llmClients, tools },
+      { session, userMessage: USER_MESSAGE },
     );
     await response.text();
     await done;
-
-    // The two oldest results reach the model as the notice; the three most recent
-    // arrive in full.
     const sent = JSON.stringify(capture.prompt);
-    expect(sent).toContain(CULLED_RESULT_NOTICE);
-    expect(sent).not.toContain("ALPHA");
-    expect(sent).not.toContain("BRAVO");
-    expect(sent).toContain("CHARLIE");
-    expect(sent).toContain("DELTA");
-    expect(sent).toContain("ECHO");
+    expect(sent).toContain("context_compacted");
+    expect(sent).toContain("read_tool_result");
+    expect(sent).toContain("a1");
+    expect(sent).toContain("read-1");
+    expect(sent).toContain("Evidence heading");
+    expect(sent).not.toContain("Missing tail");
+    expect(sent).toContain(JSON.stringify(skill).slice(1, -1));
+    expect(sent).toContain("Release published once.");
+    expect(sent).toContain("Published; verification remains.");
+    expect(sent).toContain("Keep the API stable.");
+    expect(getSessionMessages(db, "s1").slice(0, 2)).toEqual(original);
+    const read = tools.read_tool_result.execute;
+    if (!read) throw new Error("Missing recovery tool");
+    expect(
+      await read(
+        { message_id: "a1", tool_call_id: "read-1", offset: evidence.length - 12 } as never,
+        { toolCallId: "recover", messages: [] },
+      ),
+    ).toMatchObject({ content: "Missing tail", next_offset: null });
+  });
 
-    // Storage is untouched: the culled results keep their real output on disk.
-    const stored = JSON.stringify(getSessionMessages(db, "s1").find((r) => r.id === "a1")?.parts);
-    expect(stored).toContain("ALPHA");
-    expect(stored).toContain("BRAVO");
-    expect(stored).not.toContain(CULLED_RESULT_NOTICE);
+  it("retains full evidence when recovery is withheld", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const evidence = `${"x".repeat(12000)}Unrecoverable tail`;
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-read_file",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { path: "file" },
+          output: evidence,
+        },
+      ],
+      contextTokens: 18000,
+    });
+    const capture: { prompt?: unknown } = {};
+    const llmClients = {
+      ...clientsFor(capturingModel(capture)),
+      contextWindowFor: async () => 20000,
+    };
+    const { response, done } = await runTurn(
+      { db, llmClients },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+    expect(JSON.stringify(capture.prompt)).toContain(evidence);
+    expect(JSON.stringify(capture.prompt)).not.toContain("context_compacted");
   });
 
   it("re-encodes a JSON tool result as TOON for the model, leaving storage as JSON", async () => {
