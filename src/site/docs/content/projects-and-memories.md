@@ -1,8 +1,8 @@
 # Projects & memories
 
 Sessions end; what they learned shouldn't. Kiri keeps two kinds of durable
-record across conversations: **memories** — small facts the assistant
-recalls everywhere — and **projects** — named containers where a body of
+record across sessions: **memories** — small facts the assistant
+can recall later — and **projects** — named containers where a body of
 work builds a shared corpus of articles. Both live in kiri's local database,
 not your repo.
 
@@ -31,7 +31,7 @@ belongs to a project from creation or not at all.
 ### The shared corpus
 
 Every article a project session writes lands in the project rather than in
-any one conversation. Each session sees the corpus index, reads any article
+any one session. Each session sees the corpus index, reads any article
 on demand, and keeps existing ones current, whoever wrote them.
 
 - Articles cross-reference each other with `[[slug]]`, rendering as links in
@@ -57,7 +57,7 @@ each. You and the project's sessions manage the same list: add and tick off
 tasks on the project page, or ask a session ("track that", "mark the docs
 done", "move it to Later") and it adds, updates, moves, and reorganises through
 its task tools. A session's instructions carry only the list's size; the list
-itself loads when the conversation needs it.
+itself loads when the session needs it.
 
 Long-lived projects accumulate finished groups. **Hide** a group and it drops
 behind a toggle on the page — and out of sessions' view entirely: hidden
@@ -66,10 +66,24 @@ page. The Projects index shows each project's open-task count.
 
 ### Project memories
 
-A memory is either workspace-wide or scoped to a project. A session inside a
-project sees both and saves to the project — the fact reaches every session
-in the project and nothing else. Project memories are curated on the
-project's page.
+A memory is either workspace-wide or scoped to a project. A project session
+automatically receives the indexes of global memories and its own project's
+memories, and saves new facts to its project. Project memories are curated on
+the project's page.
+
+### Finding knowledge across sessions
+
+Ask a project session to find an earlier conclusion and its knowledge search
+defaults to that project's articles, session text, and memories. The assistant
+can open matching excerpts and link the original source, including work from
+another session in the project.
+
+Explicit workspace search can also discover records from other projects and
+standalone sessions. Project scope controls the default search and automatic
+context; it is not an access restriction against explicit broader retrieval.
+Reading a result does not expand the scope of article or memory writes.
+See [Finding prior work](/docs/sessions#finding-prior-work) for scope, paging,
+and permission details.
 
 ### Lifecycle and boundaries
 
@@ -77,4 +91,4 @@ project's page.
   memories, tasks, sessions — behind a confirmation that states the counts.
 - [Delegated workers](/docs/sessions#delegating-research) inherit the
   records read-only: they can consult the corpus, recall memories, and read
-  the task list, but only the conversation you're in ever writes.
+  the task list, but only the session you're in ever writes.

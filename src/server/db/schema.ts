@@ -355,10 +355,11 @@ export const sessionInbox = sqliteTable(
  * sessions to recall. `name` is the URL-safe identifier the tools key off,
  * unique within its scope — across the workspace for a global memory, within
  * the project for a project-scoped one. `projectId` carries that scope: null
- * for a memory every session recalls, set for one only the project's sessions
- * see. `description` is the one-line summary carried in the system prompt's
- * memory index; `contentMd` is the full body, loaded into a conversation only
- * on demand. `updatedAt` bumps on every save so curation can surface fact age.
+ * for a memory indexed in every session, set for one automatically indexed in
+ * its project's sessions. Explicit workspace retrieval can read either scope.
+ * `description` is the one-line summary carried in the system prompt's memory
+ * index; `contentMd` is the full body, loaded into a session on demand.
+ * `updatedAt` bumps on every save so curation can surface fact age.
  */
 export const memories = sqliteTable(
   "memories",

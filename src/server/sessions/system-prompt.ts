@@ -96,7 +96,7 @@ function buildSkillGuidance(tools: string[], skills: readonly SkillSummary[]): s
 // The memory index and its working discipline: each saved memory's name and
 // one-line summary, recall via read_memory, and — only when the write tools
 // ride along — when a fact earns saving. Names and summaries only: a memory's
-// body enters the conversation solely through read_memory, so sessions that
+// body is loaded on demand through read_memory or knowledge retrieval, so sessions that
 // never need one don't pay for its content. Keyed off read_memory, so a
 // worker whose mutations are withheld gets the recall half alone, and omitted
 // entirely when there is nothing to recall and no way to save.
@@ -143,7 +143,7 @@ function buildMemoryGuidance(
  * The project context a project session's prompt carries: the container's
  * name, its article index — each entry's slug with the body's first heading
  * (falling back to the display name), the title the map leads with — its
- * memory index, the facts only this project's sessions recall, its
+ * memory index, the facts automatically indexed for this project's sessions, its
  * standing instructions when it has any, and the size of its task list.
  */
 export interface ProjectPromptContext {
@@ -156,7 +156,7 @@ export interface ProjectPromptContext {
 
 // The project layer of a project session's prompt: what the shared corpus is,
 // its index (slugs and titles only — progressive disclosure, bodies enter the
-// conversation solely through read_article), and — for sessions that can
+// session on demand through read_article or knowledge retrieval), and — for sessions that can
 // write — that keeping the corpus current is normal curation. Keyed off
 // read_article so a worker whose article mutations are withheld still gets
 // the map; a session outside any project gets nothing.

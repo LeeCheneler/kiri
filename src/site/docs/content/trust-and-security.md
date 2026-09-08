@@ -76,6 +76,13 @@ in [Sessions](/docs/sessions). Three invariants hold throughout:
   Delegating can never run anything unprompted that the chat itself
   couldn't.
 
+Knowledge retrieval defaults to the current project, but an explicit
+workspace search can read other projects' records. Projects organise automatic
+context and default retrieval; they are not confidentiality boundaries within
+the workspace. `search_knowledge` and `open_knowledge` have the same
+Always allow / Ask / Off controls as other tools, including in delegated
+sessions. See [Finding prior work](/docs/sessions#finding-prior-work).
+
 ## Secrets
 
 Kiri has no first-class secrets store. Keep secrets **out of YAML and out of

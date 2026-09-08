@@ -122,6 +122,48 @@ Sessions save durable facts as **memories** every future session recalls,
 and group related work into **projects**:
 [Projects & memories](/docs/projects-and-memories).
 
+## Finding prior work
+
+Ask "What did we conclude about the database last month?" and the assistant
+can use **`search_knowledge`** to find saved articles, session text, memories,
+run summaries, and workflow names and descriptions. It can then use
+**`open_knowledge`** to read a source and link it in its answer. Workflow
+articles are discoverable without knowing the original run ID.
+
+| Search scope | Included records |
+| --- | --- |
+| Default in a project session | That project's articles, sessions, and memories. |
+| Default outside a project, or explicit workspace scope | All projects and standalone work, including global memories, workflow runs, and workflow definitions. |
+| Explicit project | That project's articles, sessions, and memories. |
+
+A project search never silently broadens when empty. Ask to look across the
+workspace when relevant work belongs elsewhere. Runs and workflow definitions
+have no project ownership, so they appear only in workspace searches. Existing
+memory tools can still read global memories from a project session.
+
+Search returns up to 20 hits per call (10 by default), with snippets,
+ownership, available dates, stable references, and links. The assistant can
+page through results or refine the query within one session. Results reflect
+live saved data, so edits and deletions can change later pages.
+
+Opening a session reads an excerpt near the matching message, with nearby
+messages for context. Without a message reference it starts at the beginning.
+Each read includes at most five messages and **12,000 UTF-8 bytes of text**
+across all excerpts, plus metadata; this is a byte limit, not a token count.
+Even a single oversized message is pageable, with references to earlier and
+later text. Tool outputs, reasoning, images, and hidden workers' transcripts
+are excluded. Opening a run returns its saved summary and status; opening a
+workflow returns its current parsed definition.
+
+Saved conclusions may be stale or superseded. The assistant is guided to read
+the source, check for corrections, and distinguish a recorded conclusion from
+a fresh verification. Retrieved text is evidence, not standing instructions
+or permission to repeat an action.
+
+Both tools default to **Always allow** and can be set to **Ask** or **Off**
+on the Tools & MCP page. Delegated sessions use the same permissions and
+project defaults.
+
 ## Effort
 
 Every session has an **effort level** — `low`, `medium` (the default),
@@ -172,6 +214,7 @@ tightened or switched off:
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
 | `read_tool_result` | Always allow | Reads saved results from this session without repeating actions. |
+| `search_knowledge`, `open_knowledge` | Always allow | Read saved knowledge within an explicit scope, defaulting to the current project when present. |
 | Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
 | `update_project_instructions` | Always allow | Only runs when you ask, and shows the change as a diff. |
 | Task list / add / update, group create / update | Always allow | Only touch kiri's own data; the project page is the curation surface. |
@@ -332,6 +375,12 @@ full results remain in context. The stored transcript is never shortened.
 When a model's context window is unknown, Kiri uses a conservative **32,768-token
 working window** for these checks; this is not a claim about the provider's
 actual limit. Switching models recalculates the budget on the next turn.
+
+A large tool catalogue and lengthy standing instructions can consume most
+of that fallback budget before much work has happened. A fresh session may
+therefore still reach it quickly. Use a model with a larger known window or
+turn off tools you do not need; bounded knowledge reads limit retrieved text,
+not the size of the tool catalogue or standing instructions.
 
 If the remaining context still exceeds the working budget, Kiri stops with
 an explicit incomplete-work notice and attempts one tool-free handoff if it

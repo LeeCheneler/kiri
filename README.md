@@ -71,6 +71,7 @@ Code, add a `CLAUDE.md` containing `@./AGENTS.md`.
 - **On a leash you hold.** Sessions are confined to directories you allow. Every write shows as a diff and asks first; shell approvals can go **Auto**, where a hard deterministic screen always stops the dangerous stuff and a small judge model waves through the boring stuff. Delegated workers never hold a tool you haven't already set to always-allow.
 - **Everything is written down.** Sessions and runs alike produce articles — markdown with inline charts and diagrams — collected in one live feed with a view for just the writing.
 - **Memories and projects.** Sessions save durable facts every future session recalls. Group work into a project and its sessions share an article corpus with `[[wiki-links]]`, their own memories, and standing instructions.
+- **Reuse prior work.** Ask what you concluded in an earlier session. The assistant can search saved knowledge, open relevant excerpts, and link its sources. Project sessions search their project by default, with explicit workspace-wide retrieval when needed.
 - **Standing instructions and skills.** Layer instructions from `kiri.md`, a project, and `AGENTS.md` files; load workspace skills on demand.
 - **Chat graduates into automation.** Work something out in a session, then have it author the workflow — validated YAML written into your repo, ready as the next button.
 - **Workflows are buttons.** Shell steps feeding model steps through declared refs; rerun forever with one click, and runs can recommend one-click follow-ups.
