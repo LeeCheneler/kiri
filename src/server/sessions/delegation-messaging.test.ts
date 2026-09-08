@@ -320,7 +320,7 @@ describe("mountDelegationMessaging", () => {
     });
     const notice = pendingInboxItems(db, "parent")[0]?.text ?? "";
     expect(notice.length).toBeLessThanOrEqual(8_000);
-    expect(notice).toContain("work step limit");
+    expect(notice).toContain("work or context limit");
     expect(notice).toContain("Findings:");
     expect(notice).toContain(`/sessions/worker (message ${message.id})`);
     expect(notice).toContain("Excerpt truncated");

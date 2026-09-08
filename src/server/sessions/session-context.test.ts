@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { type UIMessage, isToolUIPart } from "ai";
-import { compactSessionHistory, currentContextTokens } from "./session-context.ts";
-import type { Message } from "./store.ts";
+import { type ModelMessage, type UIMessage, isToolUIPart } from "ai";
+import {
+  compactModelMessages,
+  compactSessionHistory,
+  contextBudget,
+  estimateContextTokens,
+} from "./session-context.ts";
 
 const result = (name: string, output: unknown, id = "c1"): UIMessage["parts"][number] => ({
   type: "dynamic-tool",
@@ -19,12 +23,108 @@ const assistant = (...parts: UIMessage["parts"]): UIMessage => ({
 });
 const PRESSURE = { tokensToSave: 1000, recoveryAvailable: true };
 
-describe("currentContextTokens", () => {
-  it("uses the latest available footprint and leaves missing usage unknown", () => {
-    const rows = [12, null, 34, null].map((contextTokens) => ({ contextTokens }) as Message);
-    expect(currentContextTokens(rows)).toBe(34);
-    expect(currentContextTokens([])).toBeUndefined();
-    expect(currentContextTokens([{ contextTokens: null } as Message])).toBeUndefined();
+describe("contextBudget", () => {
+  it("reserves output and tool-result room and uses a fallback for absent or invalid windows", () => {
+    const known = contextBudget(32000);
+    expect(known.workInputTokens).toBeLessThan(known.handoffInputTokens);
+    expect(known.handoffInputTokens + known.outputTokens).toBe(32000);
+    for (const window of [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const fallback = contextBudget(window);
+      expect(fallback.handoffInputTokens + fallback.outputTokens).toBe(32768);
+    }
+    expect(contextBudget(100).workInputTokens).toBe(0);
+  });
+
+  it("reserves explicit reasoning budgets without silently reducing them", () => {
+    expect(contextBudget(32000, 16000)).toMatchObject({ outputTokens: 17024 });
+    expect(contextBudget(8000, 16000).handoffInputTokens).toBe(0);
+  });
+
+  it("counts system text, schemas, and Unicode data as well as messages", () => {
+    const small = estimateContextTokens({ messages: [] });
+    expect(estimateContextTokens({ messages: [], system: "rules".repeat(2000) })).toBeGreaterThan(
+      small,
+    );
+    expect(
+      estimateContextTokens({ messages: [], tools: [{ description: "schema".repeat(2000) }] }),
+    ).toBeGreaterThan(small);
+    expect(estimateContextTokens("🌲".repeat(100))).toBeGreaterThan(
+      estimateContextTokens("x".repeat(100)),
+    );
+  });
+});
+
+describe("compactModelMessages", () => {
+  it("replaces only saved result payloads, retaining model message order and tool pairs", () => {
+    const output = "x".repeat(12000);
+    const history = [assistant(result("read_file", output))];
+    const messages: ModelMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "c1",
+            toolName: "read_file",
+            input: { path: "notes.txt" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "read_file",
+            output: { type: "text", value: output },
+          },
+        ],
+      },
+      { role: "user", content: "Now check the conclusion." },
+    ];
+    const before = structuredClone(messages);
+    const compacted = compactModelMessages(messages, history, PRESSURE);
+    expect(compacted[0]).toBe(messages[0]);
+    expect(compacted[2]).toBe(messages[2]);
+    expect(compacted[1]).toMatchObject({
+      content: [
+        {
+          toolCallId: "c1",
+          output: {
+            type: "json",
+            value: { read_tool_result: { message_id: "m1", tool_call_id: "c1" } },
+          },
+        },
+      ],
+    });
+    expect(messages).toEqual(before);
+    expect(compactModelMessages(messages, [], PRESSURE)).toBe(messages);
+  });
+
+  it("does not guess references for ambiguous IDs or different tool names", () => {
+    const output = "x".repeat(12000);
+    const history = [
+      assistant(result("read_file", output)),
+      { ...assistant(result("read_file", output)), id: "m2" },
+    ];
+    const messages: ModelMessage[] = [
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "read_file",
+            output: { type: "text", value: output },
+          },
+        ],
+      },
+    ];
+    expect(compactModelMessages(messages, history, PRESSURE)).toEqual(messages);
+    expect(
+      compactModelMessages(messages, [assistant(result("read_article", output))], PRESSURE),
+    ).toEqual(messages);
   });
 });
 

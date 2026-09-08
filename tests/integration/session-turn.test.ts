@@ -18,6 +18,7 @@ import {
 import { createCancelRegistry } from "../../src/server/runner/cancel-registry.ts";
 import {
   articleTools,
+  contextTools,
   createInstructionContext,
   createSession,
   createSystemPromptBuilder,
@@ -175,6 +176,73 @@ describe("session turn streaming", () => {
     expect(getSession(db, session.id)?.status).toBe("idle");
     expect(JSON.stringify(fake.requests.at(-1)?.messages)).toContain("keep this");
     expect(fake.requests.at(-1)?.messages?.some((m) => m.role === "tool")).toBe(true);
+  });
+
+  it("compacts a saved result between real streamed model requests", async () => {
+    const start = fake.requests.length;
+    const session = createSession(db, "fake:tool");
+    const evidence = `${"x".repeat(24000)}Original tail`;
+    let reads = 0;
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: { ...llmClients, contextWindowFor: async () => 8192 },
+        tools: {
+          ...contextTools(db, session.id),
+          read_file: tool({
+            inputSchema: z.object({}),
+            execute: () => {
+              reads += 1;
+              return evidence;
+            },
+          }),
+        },
+      },
+      { session, userMessage: userMessage("call:read_file {}") },
+    );
+    await response.text();
+    await done;
+    const requests = fake.requests.slice(start);
+    expect(requests).toHaveLength(2);
+    expect(JSON.stringify(requests[1]?.messages)).toContain("context_compacted");
+    expect(JSON.stringify(requests[1]?.messages)).not.toContain("Original tail");
+    expect(JSON.stringify(getSessionMessages(db, session.id)[1]?.parts)).toContain("Original tail");
+    expect(reads).toBe(1);
+    expect(getSession(db, session.id)?.status).toBe("idle");
+  });
+
+  it("stops before replaying an action whose result fills the context", async () => {
+    const start = fake.requests.length;
+    const session = createSession(db, "fake:tool");
+    let executions = 0;
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: { ...llmClients, contextWindowFor: async () => 8192 },
+        tools: {
+          save: tool({
+            inputSchema: z.object({}),
+            execute: () => {
+              executions += 1;
+              writeFileSync(join(cwd, "context-progress.txt"), "Saved once.");
+              return `Saved once.${"x".repeat(100000)}`;
+            },
+          }),
+        },
+      },
+      { session, userMessage: userMessage("repeat-call:save {}") },
+    );
+    const sse = await response.text();
+    await done;
+    expect(executions).toBe(1);
+    expect(fake.requests.slice(start)).toHaveLength(1);
+    expect(await Bun.file(join(cwd, "context-progress.txt")).text()).toBe("Saved once.");
+    expect(sse).toContain("remaining context exceeds");
+    expect(getSession(db, session.id)).toMatchObject({
+      status: "failed",
+      error: { code: "context_limit" },
+    });
+    expect(JSON.stringify(getSessionMessages(db, session.id)[1]?.parts)).toContain("Saved once.");
   });
 
   it("streams and saves a step-limit handoff after exactly 64 completed actions", async () => {

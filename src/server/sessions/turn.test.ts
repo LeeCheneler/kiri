@@ -23,6 +23,7 @@ import {
   setSessionStatus,
   updateSessionCwd,
   updateSessionEffort,
+  updateSessionModel,
 } from "./store.ts";
 import { createStreamRegistry } from "./stream-registry.ts";
 import { resumeTurn, runTurn, runWakeTurn } from "./turn.ts";
@@ -578,7 +579,7 @@ describe("runTurn", () => {
 
   it("sends recoverable evidence excerpts while preserving skills, actions, and the stored transcript", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
-    const evidence = `Evidence heading\n${"x".repeat(12000)}Missing tail`;
+    const evidence = `Evidence heading\n${"x".repeat(20000)}Missing tail`;
     const skill = "Always verify the result.\n".repeat(1000);
     appendMessage(
       db,
@@ -683,6 +684,389 @@ describe("runTurn", () => {
     await done;
     expect(JSON.stringify(capture.prompt)).toContain(evidence);
     expect(JSON.stringify(capture.prompt)).not.toContain("context_compacted");
+  });
+
+  it.each([undefined, 8192])(
+    "stops oversized input before a provider call with window %s",
+    async (window) => {
+      let calls = 0;
+      const model = new MockLanguageModelV3({
+        doStream: async () => {
+          calls += 1;
+          throw new Error("must not run");
+        },
+      }) as unknown as LlmModel;
+      const session = createSession(db, MODEL, { id: "s1" });
+      const events: KiriEvent[] = [];
+      const { response, done } = await runTurn(
+        {
+          db,
+          llmClients: { ...clientsFor(model), contextWindowFor: async () => window },
+          bus: recordingBus(events),
+        },
+        {
+          session,
+          userMessage: {
+            ...USER_MESSAGE,
+            parts: [{ type: "text", text: "Keep this decision. ".repeat(10000) }],
+          },
+        },
+      );
+      const sse = await response.text();
+      await done;
+      expect(calls).toBe(0);
+      expect(sse).toContain("remaining context exceeds");
+      expect(getSession(db, "s1")).toMatchObject({
+        status: "failed",
+        error: { code: "context_limit" },
+      });
+      expect(JSON.stringify(getSessionMessages(db, "s1")[0]?.parts)).toContain(
+        "Keep this decision.",
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "session.turn.settled", outcome: "incomplete" }),
+      );
+    },
+  );
+
+  it("compacts newly checkpointed evidence within a turn and lets the model reopen its tail", async () => {
+    let calls = 0;
+    let reads = 0;
+    const evidence = `${"x".repeat(24000)}Original tail`;
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        calls += 1;
+        if (calls === 1)
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "tool-call", toolCallId: "read-1", toolName: "read_file", input: "{}" },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        if (calls === 2) {
+          const content = options.prompt.flatMap((message) =>
+            message.role === "tool" ? message.content : [],
+          );
+          const part = content.find(
+            (part) => part.type === "tool-result" && part.toolCallId === "read-1",
+          );
+          if (!part || part.type !== "tool-result" || part.output.type !== "json")
+            throw new Error("Expected excerpt");
+          const value = part.output.value as {
+            read_tool_result: { message_id: string; tool_call_id: string };
+          };
+          expect(value.read_tool_result.tool_call_id).toBe("read-1");
+          expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain("Original tail");
+          return {
+            stream: convertArrayToReadableStream([
+              {
+                type: "tool-call",
+                toolCallId: "recover-1",
+                toolName: "read_tool_result",
+                input: JSON.stringify({ ...value.read_tool_result, offset: evidence.length - 13 }),
+              },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        }
+        expect(JSON.stringify(options.prompt)).toContain("Original tail");
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: "Verified the tail." },
+            { type: "text-end", id: "t1" },
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: { ...clientsFor(model), contextWindowFor: async () => 8192 },
+        tools: {
+          ...contextTools(db, "s1"),
+          read_file: tool({
+            inputSchema: z.object({}),
+            execute: () => {
+              reads += 1;
+              return evidence;
+            },
+          }),
+        },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+    expect(calls).toBe(3);
+    expect(reads).toBe(1);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it.each(["summary", "error", "cancel"] as const)(
+    "preserves an action and gives a context handoff ending in %s",
+    async (ending) => {
+      let calls = 0;
+      let actions = 0;
+      const cancelRegistry = createCancelRegistry();
+      const events: KiriEvent[] = [];
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          calls += 1;
+          if (calls === 1)
+            return {
+              stream: convertArrayToReadableStream([
+                { type: "tool-call", toolCallId: "action-1", toolName: "run_command", input: "{}" },
+                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+              ]),
+            };
+          expect(options.tools ?? []).toEqual([]);
+          expect(JSON.stringify(options.prompt)).toContain("Action completed.");
+          expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain(
+            "remaining context exceeds",
+          );
+          if (ending === "error") throw new Error("handoff unavailable");
+          if (ending === "cancel") {
+            cancelRegistry.requestCancel("s1");
+            options.abortSignal?.throwIfAborted();
+          }
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "t1" },
+              { type: "text-delta", id: "t1", delta: "Action completed; verification remains." },
+              { type: "text-end", id: "t1" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const session = createSession(db, MODEL, { id: "s1" });
+      const { response, done } = await runTurn(
+        {
+          db,
+          cancelRegistry,
+          bus: recordingBus(events),
+          llmClients: { ...clientsFor(model), contextWindowFor: async () => 8192 },
+          tools: {
+            run_command: tool({
+              inputSchema: z.object({}),
+              execute: () => {
+                actions += 1;
+                return `Action completed.${"x".repeat(16000)}`;
+              },
+            }),
+          },
+        },
+        { session, userMessage: USER_MESSAGE },
+      );
+      const sse = await response.text();
+      await done;
+      expect(calls).toBe(2);
+      expect(actions).toBe(1);
+      expect(sse).toContain("remaining context exceeds");
+      expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain("Action completed.");
+      expect(getSession(db, "s1")).toMatchObject(
+        ending === "cancel"
+          ? { status: "cancelled" }
+          : { status: "failed", error: { code: "context_limit" } },
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "session.turn.settled",
+          outcome: ending === "cancel" ? "cancelled" : "incomplete",
+        }),
+      );
+    },
+  );
+
+  it("includes tool schemas in the work budget and can hand off without them", async () => {
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        calls += 1;
+        expect(options.tools ?? []).toEqual([]);
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: { ...clientsFor(model), contextWindowFor: async () => 8192 },
+        tools: {
+          large: tool({
+            description: "schema explanation".repeat(2000),
+            inputSchema: z.object({}),
+            execute: (): string => {
+              throw new Error("must not execute");
+            },
+          }),
+        },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+    expect(calls).toBe(1);
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { code: "context_limit" },
+    });
+  });
+
+  it("preserves an inbox correction and refreshed instructions when they exhaust the budget", async () => {
+    let calls = 0;
+    let system = "Initial rules.";
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls += 1;
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "tool-call", toolCallId: "c1", toolName: "echo", input: "{}" },
+            { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(model),
+        buildSystemPrompt: () => system,
+        tools: {
+          echo: tool({
+            inputSchema: z.object({}),
+            execute: () => {
+              system = "Updated standing instructions.".repeat(4000);
+              enqueueInboxItem(db, "s1", { source: "user", text: "Preserve the API." });
+              return "Action finished.";
+            },
+          }),
+        },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+    expect(calls).toBe(1);
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain("Preserve the API.");
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { code: "context_limit" },
+    });
+  });
+
+  it("reassesses the current model after a switch without replaying prior work", async () => {
+    const capture: { prompt?: unknown } = {};
+    let calls = 0;
+    const base = capturingModel(capture);
+    const llmClients: LlmClients = {
+      ...clientsFor(base),
+      resolveModel: () => base,
+      contextWindowFor: async (id) => (id === "test:small" ? 8192 : 65536),
+    };
+    const session = createSession(db, "test:large", { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: `Completed actions and remaining work. ${"x".repeat(30000)}` }],
+    });
+    for (const [id, status] of [
+      ["test:large", "idle"],
+      ["test:small", "failed"],
+      ["test:large", "idle"],
+    ] as const) {
+      capture.prompt = undefined;
+      const updated = updateSessionModel(db, session.id, id);
+      const { response, done } = await runTurn(
+        { db, llmClients },
+        { session: updated, userMessage: { ...USER_MESSAGE, id: `u${calls++}` } },
+      );
+      await response.text();
+      await done;
+      expect(getSession(db, "s1")?.status).toBe(status);
+      if (status === "idle")
+        expect(JSON.stringify(capture.prompt)).toContain("Completed actions and remaining work.");
+      else expect(capture.prompt).toBeUndefined();
+    }
+  });
+
+  it("keeps an approved action when its result exhausts the continuation budget", async () => {
+    let executions = 0;
+    const output = `Action completed.${"x".repeat(100000)}`;
+    const tools = {
+      echo: tool({
+        inputSchema: z.object({ value: z.string() }),
+        needsApproval: true,
+        execute: () => {
+          executions += 1;
+          return output;
+        },
+      }),
+    };
+    const session = createSession(db, MODEL, { id: "s1" });
+    const deps = { db, tools, llmClients: clientsFor(toolLoopModel()) };
+    await (await runTurn(deps, { session, userMessage: USER_MESSAGE })).done;
+    expect(getSession(db, "s1")?.status).toBe("waiting");
+    expect(executions).toBe(0);
+    const id = getSessionMessages(db, "s1")[1]?.id;
+    const resumed = await resumeTurn(deps, {
+      session,
+      approvals: [{ toolCallId: "c1", approved: true }],
+    });
+    await resumed.response.text();
+    await resumed.done;
+    expect(executions).toBe(1);
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { code: "context_limit" },
+    });
+    const rows = getSessionMessages(db, "s1");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.id).toBe(id);
+    expect(rows[1]?.parts).toContainEqual(
+      expect.objectContaining({ toolCallId: "c1", state: "output-available", output }),
+    );
+  });
+
+  it("uses observed provider input usage to correct an underestimated request", async () => {
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls += 1;
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "tool-call", toolCallId: "c1", toolName: "echo", input: "{}" },
+            { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(32000, 1) },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: clientsFor(model),
+        tools: {
+          echo: tool({ inputSchema: z.object({}), execute: () => "Saved." }),
+        },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    await response.text();
+    await done;
+    expect(calls).toBe(1);
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { code: "context_limit" },
+    });
   });
 
   it("re-encodes a JSON tool result as TOON for the model, leaving storage as JSON", async () => {

@@ -33,7 +33,7 @@ type TurnSettlement = Extract<KiriEvent, { type: "session.turn.settled" }>;
 const SETTLEMENT_NOTICE: Record<TurnSettlement["outcome"], string> = {
   ended: "Automatic notice: this worker's turn ended.",
   incomplete:
-    "Automatic notice: this worker stopped at its work step limit; work may be incomplete.",
+    "Automatic notice: this worker stopped at a work or context limit; work may be incomplete.",
   failed: "Automatic notice: this worker's turn failed and it has stopped.",
   cancelled:
     "Automatic notice: this worker was cancelled by the user and has stopped. It will not restart on its own.",
