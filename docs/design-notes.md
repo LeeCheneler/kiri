@@ -11,7 +11,7 @@ Kiri has **two pillars**, both feeding the same activity feed:
 - **Workflows** — the original pillar. YAML-defined linear pipelines (`script → ai → script`) invoked by hand. Deterministic, fixed-shape; an `llm:` step is one prompt in, text out. The pillar everything below under *Architecture* and *AI integration* describes.
 - **Agentic sessions** — a multi-turn agentic chat against a configured model: system prompt, tools, streaming, images. A conversation, not a pipeline. Described under *Agentic sessions*.
 
-The two are **separate concepts with separate config, storage, execution, and UI** — they share infrastructure (config dir, SQLite, the event bus, the LLM provider registry) and the activity feed, but a workflow is never an agent and an agent is never a workflow. They stay decoupled by design; the only bridge is the first-party *workflow tools* a session's model can call — listing and running workflows, and authoring their YAML files — tool invocations, not a merging of the two models.
+The two are **separate concepts with separate config, storage, execution, and UI** — they share infrastructure (config dir, SQLite, the event bus, the LLM provider registry) and the activity feed, but a workflow is never an agent and an agent is never a workflow. They stay decoupled by design; the bridge is the first-party tools a session's model can call — inspecting workflow definitions and saved results, listing and running workflows, and authoring their YAML files — tool invocations, not a merging of the two models.
 
 What sets kiri apart from Windmill, Kestra, n8n, Inngest et al. is the **feed-first UI** — activity stream as the primary surface, not a node-graph canvas.
 
@@ -150,7 +150,7 @@ A workflow optionally declares `inputs:` — named parameters collected at invoc
 State lives in three tiers, by what kind of state it is:
 
 - **In git** — workflow definitions (`.yaml` files), script bundles (`bundles/<name>/`), prompt files, sandbox profiles. Everything that benefits from review and version history.
-- **In SQLite** — runtime state: runs and their steps (metadata + envelopes), articles, recommendations, sessions and their messages. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations — plus one surface Drizzle can't model: `search_fts`, a hand-migrated FTS5 virtual table that SQL triggers keep in step with articles, session messages, and run summaries, backing the UI's search (see *UI*). Schema changes to those three tables must keep its triggers in step.
+- **In SQLite** — runtime state: runs and their steps (metadata + envelopes), articles, recommendations, sessions and their messages. Single file in the data dir, queryable, indexed, transactional. **bun:sqlite** as the driver (synchronous, fast, statically linked into the Bun runtime), **Drizzle** for schema and migrations — plus one surface Drizzle can't model: `search_fts`, a hand-migrated FTS5 virtual table that SQL triggers keep in step with articles, session messages and titles, run summaries, and memories. It backs the UI's search (see *UI*) and explicit knowledge retrieval by sessions. Schema changes to those tables must keep its triggers in step.
 - **On disk (data dir)** — large blob payloads referenced by path from SQLite rows: full CC transcripts, big stdout dumps, anything that'd bloat the DB. Same pattern CI systems use to keep the DB lean.
 
 Pragmatic v1 simplification: skip the disk-blob split initially. Put traces straight into SQLite TEXT columns. Move to disk-backed blobs only when a "last 50 runs" feed query starts dragging on trace payloads — probably won't for months.
@@ -327,9 +327,52 @@ The mechanism is progressive disclosure end to end: the system prompt lists each
 
 ### Memories
 
-A **memory** is a small durable fact carried across sessions — a preference, standing context, a correction — stored in a `memories` table in the workspace DB (kiri-produced data, like articles; explicitly not the config repo). One row per fact: a slug `name` the tools key off, a one-line `description` for indexing, a markdown body, an `updated_at` that surfaces fact age in curation, and a nullable `project_id` carrying the fact's **scope** — null for a workspace memory every session recalls, set for one only that project's sessions see. Names are unique per scope (partial unique indexes, mirroring articles' owner columns), so a project can hold its own `deploy-window` without colliding with the workspace's. Recall reuses the skills mechanism wholesale: the system prompt carries **name + one-line summary only** (alphabetical, so the index is byte-stable across turns and a save reorders nothing), and the body enters a conversation solely through `read_memory` when the model judges a listed memory relevant. The prompt section gates in two independent halves — the index renders when memories exist, the saving discipline (one fact per memory, save sparingly, update rather than duplicate, delete stale) renders when `save_memory` is active — so a fresh workspace still teaches the first save, and a read-only worker gets no instructions it can't act on. A project session carries **both indexes** — the workspace's and its project's, listed separately so the scopes stay legible — and a name held in both resolves project-first on read.
+A **memory** is a small durable fact carried across sessions — a preference, standing context, a correction — stored in a `memories` table in the workspace DB (kiri-produced data, like articles; explicitly not the config repo). One row per fact: a slug `name` the tools key off, a one-line `description` for indexing, a markdown body, an `updated_at` that surfaces fact age in curation, and a nullable `project_id` carrying the fact's **scope** — null for a workspace memory every session recalls, set for one automatically indexed in that project's sessions. Names are unique per scope (partial unique indexes, mirroring articles' owner columns), so a project can hold its own `deploy-window` without colliding with the workspace's. Recall reuses the skills mechanism wholesale: the system prompt carries **name + one-line summary only** (alphabetical, so the index is byte-stable across turns and a save reorders nothing), and the body is loaded through `read_memory` when the model judges a listed memory relevant, or through explicit knowledge retrieval. The prompt section gates in two independent halves — the index renders when memories exist, the saving discipline (one fact per memory, save sparingly, update rather than duplicate, delete stale) renders when `save_memory` is active — so a fresh workspace still teaches the first save, and a read-only worker gets no instructions it can't act on. A project session carries **both indexes** — the workspace's and its project's, listed separately so the scopes stay legible — and a name held in both resolves project-first on read.
 
-The tool surface is deliberately three verbs, not the articles' create/replace pair: **`save_memory` upserts by name** — a full replace when the name exists, a create when it doesn't, the result naming which branch ran. Articles are documents with a document lifecycle, where wholesale-replace vs targeted-edit is a real choice; a memory is one small fact with a "remember this" lifecycle, and forcing the model to classify the act as creation vs replacement would add a failure loop to exactly the action that must stay frictionless. All three tools default to `allow` — they only touch kiri's own database, and the **Memories page** (index plus per-memory read/edit/delete) is the standing trust surface in place of per-call prompts. The mutations are withheld from delegated workers (see *Delegation*); `read_memory` flows to them like any allow tool. **Writes stay in the session's own scope**: a project session's `save_memory` always writes a project memory — no scope parameter, since asking the model to classify a fact's reach reintroduces exactly the friction the upsert removes — and saving a name the workspace also holds saves alongside it rather than rewriting it. Deletion follows read: whichever scope resolved the name is the row that goes. Writes publish `memory.saved` / `memory.deleted` on the bus, carrying the project id for a scoped memory so each scope's caches refresh independently, and a REST surface serves the curation pages — `/api/memories` for the workspace's (list, read, patch, delete; no create endpoint, since saving is the model's job) and `/api/projects/:id/memories/:name` for a project's, its index riding the project detail payload beside the corpus. Memories are deliberately absent from the FTS index: the corpus is small by discipline, and the prompt index plus load-by-name *is* the recall mechanism.
+The tool surface is deliberately three verbs, not the articles' create/replace pair: **`save_memory` upserts by name** — a full replace when the name exists, a create when it doesn't, the result naming which branch ran. Articles are documents with a document lifecycle, where wholesale-replace vs targeted-edit is a real choice; a memory is one small fact with a "remember this" lifecycle, and forcing the model to classify the act as creation vs replacement would add a failure loop to exactly the action that must stay frictionless. All three tools default to `allow` — they only touch kiri's own database, and the **Memories page** (index plus per-memory read/edit/delete) is the standing trust surface in place of per-call prompts. The mutations are withheld from delegated workers (see *Delegation*); `read_memory` flows to them like any allow tool. **Writes stay in the session's own scope**: a project session's `save_memory` always writes a project memory — no scope parameter, since asking the model to classify a fact's reach reintroduces exactly the friction the upsert removes — and saving a name the workspace also holds saves alongside it rather than rewriting it. Deletion follows read: whichever scope resolved the name is the row that goes. Writes publish `memory.saved` / `memory.deleted` on the bus, carrying the project id for a scoped memory so each scope's caches refresh independently, and a REST surface serves the curation pages — `/api/memories` for the workspace's (list, read, patch, delete; no create endpoint, since saving is the model's job) and `/api/projects/:id/memories/:name` for a project's, its index riding the project detail payload beside the corpus. Memory names, descriptions, and bodies also participate in the FTS index for explicit knowledge retrieval; the prompt index and `read_memory` still provide direct recall by name.
+
+### Knowledge retrieval
+
+`search_knowledge` and `open_knowledge` give sessions read-only access to saved
+articles, session text, memories, and run summaries, plus current workflow
+metadata. They default to `allow` and use the same standing permission gates in
+parent and delegated sessions. Retrieved content remains historical evidence,
+not standing instructions or permission to re-execute an action.
+
+Both accept `scope: "workspace"` or `scope: { projectId: "..." }`. Omission
+resolves to the session's project, or the whole workspace for a projectless
+session. An explicit project filters articles (including session-owned articles
+through their owning session), top-level sessions, and memories before result
+limits are applied. Workflows, runs, run articles, and global memories appear
+only in workspace scope. Explicit workspace retrieval includes other projects;
+project membership controls automatic context and defaults, not confidentiality.
+Existing mutation tools retain their own scopes.
+
+Search reuses `search_fts`, ranked by bm25 with stable tie-breaking. It returns
+individual message matches rather than collapsing each session to one hit;
+`session_id` narrows a query to one session. Workflow substring matches follow
+index results in name order. `limit` defaults to 10 and caps at 20; `nextOffset`
+continues with the same query, scope, and filters. Pagination is over live data,
+so edits can change ordering. The UI search keeps its existing result types and
+continues to exclude memories.
+
+Hits carry stable references, ownership, available creation/update dates, and
+source links. Opening rechecks existence and scope against current records.
+A session match anchors near the best matching passage and includes neighbouring
+messages; an unanchored session opens at the beginning. Responses include at
+most five messages and 12,000 UTF-8 text bytes across excerpts, plus metadata.
+`max_bytes` can lower that budget to 256 bytes. Offsets count Unicode code
+points, and previous/next references navigate oversized messages as well as
+session history. Text is extracted and sliced inside SQLite before it crosses
+into the retrieval response. Tool, reasoning, and image parts, system messages,
+and hidden workers' transcripts are excluded.
+
+Document reads are bounded too. Runs expose saved summary/status, workflow
+references expose the current parsed definition, and workflow-produced articles
+are independently searchable and openable. Article modification timestamps and
+workflow timestamps are not stored, so retrieval reports no update date for
+them instead of inventing one. Memory IDs disambiguate identical names across
+projects. Search and open do not require embeddings or an external service.
 
 ### Storage
 

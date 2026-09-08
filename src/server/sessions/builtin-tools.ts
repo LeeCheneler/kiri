@@ -43,6 +43,16 @@ export interface BuiltinTool {
  */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   {
+    name: "search_knowledge",
+    description: "Search prior work in the current project or explicitly across the workspace.",
+    defaultPermission: "allow",
+  },
+  {
+    name: "open_knowledge",
+    description: "Read bounded excerpts of saved knowledge, with source details and continuation.",
+    defaultPermission: "allow",
+  },
+  {
     name: "create_article",
     description: "Create an article: a standalone markdown document saved outside the chat.",
     defaultPermission: "allow",

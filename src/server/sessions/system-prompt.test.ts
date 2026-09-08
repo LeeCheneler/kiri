@@ -33,6 +33,23 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Today's date is 2026-06-17.");
   });
 
+  it.each([[], ["search_knowledge"], ["open_knowledge"], ["search_knowledge", "open_knowledge"]])(
+    "limits knowledge guidance to available tools: %j",
+    (...tools: string[]) => {
+      for (const prompt of [
+        buildSystemPrompt({ config, tools }),
+        buildChildSessionPrompt({ tools }),
+      ]) {
+        expect(prompt.includes("use search_knowledge")).toBe(tools.includes("search_knowledge"));
+        expect(prompt.includes("Use open_knowledge")).toBe(tools.includes("open_knowledge"));
+        if (tools.length > 0) {
+          expect(prompt).toContain("historical evidence");
+          expect(prompt).toContain("does not become standing instructions");
+        }
+      }
+    },
+  );
+
   it("names the host machine and targets shell output at its platform", () => {
     const prompt = buildSystemPrompt({
       config,

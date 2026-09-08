@@ -18,6 +18,7 @@ import type { LlmClients, LlmModel, LlmTranscriptionModel } from "../llm/index.t
 import type { McpRegistry } from "../mcp/registry.ts";
 import { listTaskGroups } from "../projects/tasks.ts";
 import { type CancelRegistry, createCancelRegistry } from "../runner/cancel-registry.ts";
+import type { KnowledgePage, searchKnowledge } from "../search/knowledge.ts";
 import {
   type CommandJudgementEvent,
   type CommandLearning,
@@ -1685,6 +1686,127 @@ describe("sessions routes", () => {
       expect(seen).toContainEqual({ type: "article.written", sessionId: "s1", slug: "pr-digest" });
     });
 
+    it("lets a fresh project session search and open a prior session's conclusion in one turn", async () => {
+      env.db.insert(projects).values({ id: "p1", name: "Storage", createdAt: new Date() }).run();
+      createSession(env.db, MODEL, { id: "old", projectId: "p1" });
+      appendMessage(env.db, "old", {
+        role: "assistant",
+        parts: [{ type: "text", text: "We chose Postgres for transactions." }],
+      });
+      createSession(env.db, MODEL, { id: "fresh", projectId: "p1" });
+      const { bus, waitForSettled } = createSessionWaiter();
+      let step = 0;
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          const current = step++;
+          if (current < 2) {
+            let input: unknown = { query: "Postgres" };
+            if (current === 1) {
+              const result = toolPartOf(getSessionMessages(env.db, "fresh")[1])
+                .output as ReturnType<typeof searchKnowledge>;
+              expect(result.scope).toEqual({ projectId: "p1" });
+              expect(result.results[0].reference).toMatchObject({ type: "session", id: "old" });
+              expect(JSON.stringify(options.prompt)).toContain("Postgres");
+              input = { reference: result.results[0].reference, scope: result.scope };
+            }
+            return {
+              stream: convertArrayToReadableStream([
+                {
+                  type: "tool-call",
+                  toolCallId: `knowledge-${current}`,
+                  toolName: current === 0 ? "search_knowledge" : "open_knowledge",
+                  input: JSON.stringify(input),
+                },
+                { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+              ]),
+            };
+          }
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "answer" },
+              {
+                type: "text-delta",
+                id: "answer",
+                delta: "We chose Postgres for transactions. [Earlier session](/sessions/old)",
+              },
+              { type: "text-end", id: "answer" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const app = makeApp(fakeClients({ model }), { bus });
+      const settled = waitForSettled("fresh");
+      await (await postMessage(app, "fresh", "What did we decide about the database?")).text();
+      await settled;
+      const parts = getSessionMessages(env.db, "fresh").flatMap((row) => row.parts as ToolPart[]);
+      const opened = parts.find((part) => part.type === "tool-open_knowledge");
+      expect(opened?.state).toBe("output-available");
+      expect((opened?.output as KnowledgePage).excerpts[0].text).toBe(
+        "We chose Postgres for transactions.",
+      );
+      expect((opened?.output as KnowledgePage).source.href).toBe("/sessions/old");
+      expect(getSession(env.db, "fresh")?.status).toBe("idle");
+      expect(step).toBe(3);
+    });
+
+    it.each(["search_knowledge", "open_knowledge"])(
+      "pauses %s when its permission is ask, including in a worker",
+      async (name) => {
+        createToolPermissionStore(env.config.toolPermissionsFile()).set(name, "ask");
+        const { bus, waitForSettled } = createSessionWaiter();
+        const input =
+          name === "search_knowledge"
+            ? { query: "prior decision" }
+            : { reference: { type: "session", id: "parent" } };
+        const app = makeApp(fakeClients({ model: toolCallModel(name, JSON.stringify(input)) }), {
+          bus,
+        });
+        createSession(env.db, MODEL, { id: "parent" });
+        createSession(env.db, MODEL, { id: "worker", parentSessionId: "parent" });
+        const settled = waitForSettled("worker");
+        await (await postMessage(app, "worker", "Find the earlier decision.")).text();
+        await settled;
+        const pending = toolPartOf(getSessionMessages(env.db, "worker")[1]);
+        expect(pending.state).toBe("approval-requested");
+        expect(pending.output).toBeUndefined();
+        expect(getSession(env.db, "worker")?.status).toBe("waiting");
+      },
+    );
+
+    it("withholds disabled knowledge tools and their guidance from a worker", async () => {
+      const permissions = createToolPermissionStore(env.config.toolPermissionsFile());
+      permissions.set("search_knowledge", "off");
+      permissions.set("open_knowledge", "off");
+      let offered: string[] = [];
+      let systemText = "";
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          offered = (options.tools ?? []).map((tool) => tool.name);
+          systemText = String(options.prompt.find((message) => message.role === "system")?.content);
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "text-start", id: "answer" },
+              { type: "text-delta", id: "answer", delta: "No retrieval tools available." },
+              { type: "text-end", id: "answer" },
+              { type: "finish", finishReason: finishReason("stop"), usage: usage(1, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const { bus, waitForSettled } = createSessionWaiter();
+      const app = makeApp(fakeClients({ model }), { bus });
+      createSession(env.db, MODEL, { id: "parent" });
+      createSession(env.db, MODEL, { id: "worker", parentSessionId: "parent" });
+      const settled = waitForSettled("worker");
+      await (await postMessage(app, "worker", "Find earlier work.")).text();
+      await settled;
+      expect(offered).not.toContain("search_knowledge");
+      expect(offered).not.toContain("open_knowledge");
+      expect(systemText).not.toContain("search_knowledge");
+      expect(systemText).not.toContain("open_knowledge");
+    });
+
     it("runs a memory tool straight through by default and persists the memory", async () => {
       const input = JSON.stringify({
         name: "prefers-bun",
@@ -3171,10 +3293,15 @@ describe("sessions routes", () => {
       }) as unknown as LlmModel;
 
       const { bus } = createSessionWaiter();
-      const app = makeApp(fakeClients({ model }), {
-        bus,
-        mcpRegistry: fakeMcp({ tavily__search: mcpTool(), linear__create_issue: mcpTool() }),
-      });
+      // The full catalogue plus standing instructions and worker reports needs
+      // a model window large enough to exercise the delegation flow.
+      const app = makeApp(
+        { ...fakeClients({ model }), contextWindowFor: async () => 128_000 },
+        {
+          bus,
+          mcpRegistry: fakeMcp({ tavily__search: mcpTool(), linear__create_issue: mcpTool() }),
+        },
+      );
       createSession(env.db, MODEL, { id: "s1", cwd: repo, projectId: "p1" });
 
       await (await postMessage(app, "s1", "research pelicans")).text();
@@ -3236,6 +3363,8 @@ describe("sessions routes", () => {
       expect(childToolNames).toContain("run_workflow");
       expect(childToolNames).toContain("read_article");
       expect(childToolNames).toContain("read_memory");
+      expect(childToolNames).toContain("search_knowledge");
+      expect(childToolNames).toContain("open_knowledge");
       expect(childToolNames).toContain("message_parent");
       expect(childToolNames).not.toContain("delegate");
       expect(childToolNames).not.toContain("message_worker");

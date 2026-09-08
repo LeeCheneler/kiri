@@ -133,6 +133,8 @@ describe("mcp routes", () => {
         // workflow write tools), the recorded run_workflow decision wins over
         // its ask default.
         builtin: [
+          { name: "search_knowledge", description: expect.any(String), permission: "allow" },
+          { name: "open_knowledge", description: expect.any(String), permission: "allow" },
           { name: "create_article", description: expect.any(String), permission: "allow" },
           { name: "replace_article", description: expect.any(String), permission: "allow" },
           { name: "edit_article", description: expect.any(String), permission: "allow" },
