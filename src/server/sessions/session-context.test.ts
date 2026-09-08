@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { type ModelMessage, type UIMessage, isToolUIPart } from "ai";
 import {
+  calibratedContextTokens,
   compactModelMessages,
   compactSessionHistory,
   contextBudget,
@@ -22,6 +23,29 @@ const assistant = (...parts: UIMessage["parts"]): UIMessage => ({
   parts,
 });
 const PRESSURE = { tokensToSave: 1000, recoveryAvailable: true };
+
+describe("calibratedContextTokens", () => {
+  it("corrects overestimates with headroom while charging added content conservatively", () => {
+    const previous = { estimate: 200000, inputTokens: 120000 };
+    expect(calibratedContextTokens(200000, previous)).toBe(132000);
+    expect(calibratedContextTokens(215000, previous)).toBe(147000);
+    expect(calibratedContextTokens(100000, previous)).toBe(66000);
+  });
+
+  it("corrects underestimates for both existing and added content", () => {
+    const previous = { estimate: 10000, inputTokens: 20000 };
+    expect(calibratedContextTokens(10000, previous)).toBe(22000);
+    expect(calibratedContextTokens(15000, previous)).toBe(33000);
+  });
+
+  it("uses the byte estimate when no usable measurement is available", () => {
+    expect(calibratedContextTokens(10000)).toBe(10000);
+    for (const inputTokens of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(calibratedContextTokens(10000, { estimate: 8000, inputTokens })).toBe(10000);
+    }
+    expect(calibratedContextTokens(10000, { estimate: 0, inputTokens: 100 })).toBe(10000);
+  });
+});
 
 describe("contextBudget", () => {
   it("reserves output and tool-result room and uses a fallback for absent or invalid windows", () => {

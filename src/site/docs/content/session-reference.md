@@ -413,10 +413,11 @@ Kiri tracks a session's token spend, and context as `current / limit` when
 the provider reports the model's window, warning as a conversation nears it.
 Before every model request, Kiri estimates the space needed for the current
 conversation, refreshed instructions, incoming messages, and tool definitions.
-It reserves space for output, reasoning, and new tool results. If the provider
-reports higher input usage than estimated, subsequent checks in that turn
-use the higher ratio. Estimates are approximate, not exact provider token
-counts.
+It reserves space for output, reasoning, and new tool results. Within a turn,
+reported input usage corrects the estimate in either direction with 10%
+headroom. Added content is still charged conservatively, so a low previous
+count does not discount a large new tool result. Estimates are approximate,
+not exact provider token counts.
 
 Under context pressure, large saved results from built-in evidence reads
 become partial excerpts with references to the original results. Small

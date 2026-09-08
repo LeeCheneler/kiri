@@ -22,6 +22,25 @@ export function estimateContextTokens(value: unknown): number {
   return Math.ceil(Buffer.byteLength(JSON.stringify(value) ?? "") / 3) + 256;
 }
 
+/** Use measured input with 10% headroom; added content retains at least the conservative byte estimate. */
+export function calibratedContextTokens(
+  estimate: number,
+  previous?: { estimate: number; inputTokens: number },
+): number {
+  if (
+    !previous ||
+    !Number.isFinite(previous.inputTokens) ||
+    previous.inputTokens <= 0 ||
+    previous.estimate <= 0
+  )
+    return estimate;
+  const ratio = (previous.inputTokens * 1.1) / previous.estimate;
+  return Math.ceil(
+    Math.min(estimate, previous.estimate) * ratio +
+      Math.max(0, estimate - previous.estimate) * Math.max(1, ratio),
+  );
+}
+
 /** Reserve estimated output/reasoning and tool-result space without capping generation; use 32K when unknown. */
 export function contextBudget(contextWindow: number | undefined, reasoningTokens = 0) {
   const window =

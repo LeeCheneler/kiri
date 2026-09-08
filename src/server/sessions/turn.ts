@@ -28,7 +28,12 @@ import {
   pendingInboxItems,
 } from "./inbox.ts";
 import type { InstructionContext } from "./instruction-context.ts";
-import { compactModelMessages, contextBudget, estimateContextTokens } from "./session-context.ts";
+import {
+  calibratedContextTokens,
+  compactModelMessages,
+  contextBudget,
+  estimateContextTokens,
+} from "./session-context.ts";
 import {
   type Message,
   type Session,
@@ -527,7 +532,7 @@ async function streamCore(
         const modelMessages = await convertToModelMessages(
           expandInboxMessages(modelHistory, senderLabelFor),
         );
-        let inputRatio = 1;
+        let calibration: { estimate: number; inputTokens: number } | undefined;
         let previousEstimate = 0;
         const prepareContext = (
           messages: ModelMessage[],
@@ -539,7 +544,7 @@ async function streamCore(
           const estimate = estimateContextTokens({ system, messages, tools: schemas });
           const savedHistory = getSessionMessages(db, session.id).map(toUiMessage);
           let compacted = compactModelMessages(messages, savedHistory, {
-            tokensToSave: Math.max(0, estimate - limit / inputRatio),
+            tokensToSave: Math.max(0, calibratedContextTokens(estimate, calibration) - limit),
             recoveryAvailable: turnTools?.read_tool_result !== undefined,
           });
           let finalEstimate = estimateContextTokens({
@@ -549,7 +554,7 @@ async function streamCore(
           });
           // Lossless encoding and provider usage can make payload-based savings
           // approximate. Try all eligible evidence before declaring the context full.
-          if (finalEstimate * inputRatio > limit) {
+          if (calibratedContextTokens(finalEstimate, calibration) > limit) {
             compacted = compactModelMessages(messages, savedHistory, {
               tokensToSave: Number.POSITIVE_INFINITY,
               recoveryAvailable: turnTools?.read_tool_result !== undefined,
@@ -559,7 +564,7 @@ async function streamCore(
           return {
             messages: compacted,
             estimate: finalEstimate,
-            fits: finalEstimate * inputRatio <= limit,
+            fits: calibratedContextTokens(finalEstimate, calibration) <= limit,
           };
         };
         result = streamText({
@@ -598,7 +603,7 @@ async function streamCore(
             controller.signal.throwIfAborted();
             const measured = steps.at(-1)?.usage.inputTokens;
             if (measured !== undefined && previousEstimate > 0) {
-              inputRatio = Math.max(inputRatio, measured / previousEstimate);
+              calibration = { estimate: previousEstimate, inputTokens: measured };
             }
             // Refresh cwd while model and effort still describe the provider
             // call configured when this turn began. Replace the system prompt

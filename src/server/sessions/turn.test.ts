@@ -855,7 +855,7 @@ describe("runTurn", () => {
               inputSchema: z.object({}),
               execute: () => {
                 actions += 1;
-                return `Action completed.${"x".repeat(16000)}`;
+                return `Action completed.${"x".repeat(18000)}`;
               },
             }),
           },
@@ -1069,6 +1069,59 @@ describe("runTurn", () => {
       error: { code: "context_limit" },
     });
   });
+
+  it.each([
+    [30000, "idle", 2],
+    [90000, "failed", 1],
+  ] as const)(
+    "calibrates an overestimate without discounting a new %i-character tool result",
+    async (outputLength, status, expectedCalls) => {
+      let calls = 0;
+      const model = new MockLanguageModelV3({
+        doStream: async () => {
+          calls += 1;
+          return {
+            stream: convertArrayToReadableStream<LanguageModelV3StreamPart>(
+              calls === 1
+                ? [
+                    { type: "tool-call", toolCallId: "read-1", toolName: "search", input: "{}" },
+                    {
+                      type: "finish",
+                      finishReason: finishReason("tool-calls"),
+                      usage: usage(9000, 10),
+                    },
+                  ]
+                : [
+                    { type: "text-start", id: "t1" },
+                    { type: "text-delta", id: "t1", delta: "Research complete." },
+                    { type: "text-end", id: "t1" },
+                    { type: "finish", finishReason: finishReason("stop"), usage: usage(15000, 10) },
+                  ],
+            ),
+          };
+        },
+      }) as unknown as LlmModel;
+      const session = createSession(db, MODEL, { id: "s1" });
+      const turn = await runTurn(
+        {
+          db,
+          llmClients: { ...clientsFor(model), contextWindowFor: async () => 32000 },
+          tools: {
+            search: tool({ inputSchema: z.object({}), execute: () => "r".repeat(outputLength) }),
+          },
+        },
+        {
+          session,
+          userMessage: { ...USER_MESSAGE, parts: [{ type: "text", text: "history".repeat(6400) }] },
+        },
+      );
+      const sse = await turn.response.text();
+      await turn.done;
+      expect(calls).toBe(expectedCalls);
+      expect(getSession(db, "s1")?.status).toBe(status);
+      expect(sse).toContain(status === "idle" ? "Research complete." : "remaining context exceeds");
+    },
+  );
 
   it("re-encodes a JSON tool result as TOON for the model, leaving storage as JSON", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
