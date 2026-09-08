@@ -21,14 +21,10 @@ import {
   compactWriteOutput,
 } from "./write-tool-diffs.ts";
 
-// Byte cap on a returned file body — the same budget as an MCP tool result, so
-// one huge file can't blow the model's context. Larger files return their head
-// with a note.
+// Byte cap on a returned file body; continuation preserves oversized lines.
 const MAX_READ_BYTES = 128 * 1024;
 
-// Caps on match-set sizes. Past them the result is cut with a note telling the
-// model to narrow its pattern — the full set would cost tokens without adding
-// signal.
+// Maximum page sizes for discovery results. More matches can be paged.
 const MAX_FIND_RESULTS = 1_000;
 const MAX_SEARCH_MATCHES = 200;
 
@@ -89,9 +85,17 @@ const PRUNED_DIR_NAMES = new Set([
 // result.
 const MAX_MATCH_TEXT = 500;
 
-// Non-fatal so a multi-byte character split at the byte cap is dropped rather
-// than decoded to an invalid fragment.
-const decoder = new TextDecoder("utf-8", { fatal: false });
+// All three discovery tools share the same offset convention. Pages read
+// live filesystem state, so callers must keep their query and scope unchanged.
+const pageOffset = z
+  .number()
+  .int()
+  .min(0)
+  .max(Number.MAX_SAFE_INTEGER)
+  .optional()
+  .describe(
+    "Zero-based result offset; default 0. Continue with next_offset and unchanged scope/filters. Files may change between calls.",
+  );
 
 /**
  * The session's working directory binding: `get` reads the current value
@@ -111,6 +115,7 @@ export interface FilesystemToolsOptions {
   maxFindResults?: number;
   maxSearchMatches?: number;
   maxSearchFileBytes?: number;
+  maxSearchResultBytes?: number;
   maxScannedEntries?: number;
   maxDiffLength?: number;
 }
@@ -150,7 +155,8 @@ const withTrailingNewline = (content: string): string =>
  * (node_modules, dist, target, .venv, …) unless the call names one, run
  * asynchronously so a big sandbox can't starve the server's event loop, and
  * stop at a scanned-entry budget. Results are
- * capped, with a note naming the recovery (narrow the pattern) when cut.
+ * capped, with continuation for returned pages and a narrowing hint when the
+ * scan budget prevents complete discovery.
  * Expected failures throw with a message naming the call that recovers,
  * surfaced to the model as a tool error so the turn self-corrects.
  */
@@ -164,6 +170,7 @@ export function filesystemTools(
     maxFindResults = MAX_FIND_RESULTS,
     maxSearchMatches = MAX_SEARCH_MATCHES,
     maxSearchFileBytes = MAX_SEARCH_FILE_BYTES,
+    maxSearchResultBytes = 128 * 1024,
     maxScannedEntries = MAX_SCANNED_ENTRIES,
     maxDiffLength = MAX_DIFF_LENGTH,
   } = options;
@@ -303,10 +310,21 @@ export function filesystemTools(
     return real;
   };
 
-  // The roots a find/search runs over: the confined `directory` when given,
-  // otherwise every sandbox directory.
-  const searchRoots = (directory: string | undefined): string[] =>
-    directory === undefined ? sandboxDirs() : [confineDir(directory)];
+  // Broad access is explicit; a missing or stale cwd must never widen scope.
+  const searchRoots = (directory: string | undefined, allAllowed: boolean): string[] => {
+    if (directory !== undefined && allAllowed) {
+      throw new Error("Choose directory or all_allowed, not both.");
+    }
+    if (directory !== undefined) return [confineDir(directory)];
+    if (allAllowed) return sandboxDirs().map(confineDir).sort();
+    const current = cwd.get();
+    if (current === null) {
+      throw new Error(
+        "The session has no working directory — pass directory, set_working_directory, or explicitly use all_allowed.",
+      );
+    }
+    return [confineDir(current)];
+  };
 
   // Walk `root` collecting real absolute file paths whose root-relative form
   // matches `pattern`, sorted for determinism. The walk is asynchronous —
@@ -338,7 +356,9 @@ export function filesystemTools(
         // Skipped: a directory deleted or unreadable mid-walk.
         continue;
       }
-      for (const entry of entries) {
+      for (const entry of entries.sort((a, b) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+      )) {
         if (budget.remaining === 0) {
           return { files: files.sort(), capped: true };
         }
@@ -368,7 +388,7 @@ export function filesystemTools(
   return {
     find_files: tool({
       description:
-        'Find files by name in the directories kiri may access: give a glob pattern (e.g. "**/*.md", "*.yaml") and get back the matching files\' absolute paths. Searches every allowed directory unless directory narrows it. Hidden (dot-prefixed) files are included; .git internals and secret-bearing files (.env*, credential stores, the .kiri state directory) never are, and dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) are skipped unless the pattern names them. Call it to discover what exists before read_file, or to check a path; a result that notes truncation means the scope was too broad — narrow it with directory or a tighter pattern.',
+        'Find files by name in the directories kiri may access: give a glob pattern (e.g. "**/*.md", "*.yaml") and get back the matching files\' absolute paths. Defaults to the working directory; pass directory for another allowed location or all_allowed for all roots. Page with limit/offset and next_offset; keep the query and scope unchanged. Hidden (dot-prefixed) files are included; .git internals and secret-bearing files (.env*, credential stores, the .kiri state directory) never are, and dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) are skipped unless the pattern names them. Call it to discover what exists before read_file, or to check a path; a scan_limited result is incomplete even after paging — narrow directory or pattern to inspect beyond the scan budget.',
       inputSchema: z.object({
         pattern: z
           .string()
@@ -379,15 +399,33 @@ export function filesystemTools(
           .min(1)
           .optional()
           .describe(
-            "Directory to search under — absolute, or relative to the working directory. Omit to search every allowed directory.",
+            "Directory to search under — absolute or relative to cwd. Omit for cwd; all_allowed explicitly searches every allowed root.",
           ),
+        all_allowed: z
+          .boolean()
+          .optional()
+          .describe("Search all allowed roots instead of cwd; cannot be combined with directory."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(maxFindResults)
+          .optional()
+          .describe(`Maximum returned files; default ${maxFindResults}.`),
+        offset: pageOffset,
       }),
-      execute: async ({ pattern, directory }) => {
+      execute: async ({
+        pattern,
+        directory,
+        all_allowed = false,
+        limit = maxFindResults,
+        offset = 0,
+      }) => {
         const dirs = sandboxDirs();
         const files = new Set<string>();
         const budget = { remaining: maxScannedEntries };
         let capped = false;
-        for (const root of searchRoots(directory)) {
+        for (const root of searchRoots(directory, all_allowed)) {
           const walk = await visibleMatches(root, pattern, dirs, budget);
           for (const real of walk.files) {
             files.add(real);
@@ -396,16 +434,24 @@ export function filesystemTools(
         }
         const sorted = [...files].sort();
         const notes: string[] = [];
-        if (sorted.length > maxFindResults) {
-          notes.push(`showing ${maxFindResults} of ${sorted.length} matches — narrow the pattern`);
+        const shown = sorted.slice(offset, offset + limit);
+        const nextOffset = offset + shown.length < sorted.length ? offset + shown.length : null;
+        if (nextOffset !== null) {
+          notes.push(
+            `showing ${shown.length} of ${sorted.length} matches — continue with offset ${nextOffset}`,
+          );
         }
         if (capped) {
           notes.push(
             `stopped after scanning ${maxScannedEntries} entries — narrow with directory or a tighter pattern`,
           );
         }
-        const shown = sorted.slice(0, maxFindResults);
-        return notes.length > 0 ? { files: shown, note: notes.join("; ") } : { files: shown };
+        return {
+          files: shown,
+          next_offset: nextOffset,
+          scan_limited: capped,
+          ...(notes.length > 0 ? { note: notes.join("; ") } : {}),
+        };
       },
     }),
 
@@ -419,8 +465,16 @@ export function filesystemTools(
           .describe(
             "Path of the directory to list — absolute or relative to the working directory.",
           ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(maxFindResults)
+          .optional()
+          .describe(`Maximum returned entries; default ${maxFindResults}.`),
+        offset: pageOffset,
       }),
-      execute: async ({ path }) => {
+      execute: async ({ path, limit = maxFindResults, offset = 0 }) => {
         const real = confineDir(path);
         const dirs = sandboxDirs();
         const entries: string[] = [];
@@ -437,7 +491,8 @@ export function filesystemTools(
             } catch {
               continue;
             }
-            if (within(dirs, resolved) === undefined) continue;
+            const root = within(dirs, resolved);
+            if (root === undefined || isBlockedWithin(root, resolved)) continue;
             isDirectory = statSync(resolved).isDirectory();
           } else {
             isDirectory = entry.isDirectory();
@@ -445,20 +500,24 @@ export function filesystemTools(
           entries.push(isDirectory ? `${entry.name}/` : entry.name);
         }
         entries.sort();
-        if (entries.length > maxFindResults) {
-          return {
-            path: real,
-            entries: entries.slice(0, maxFindResults),
-            note: `showing ${maxFindResults} of ${entries.length} entries`,
-          };
-        }
-        return { path: real, entries };
+        const shown = entries.slice(offset, offset + limit);
+        const nextOffset = offset + shown.length < entries.length ? offset + shown.length : null;
+        return {
+          path: real,
+          entries: shown,
+          next_offset: nextOffset,
+          ...(nextOffset !== null
+            ? {
+                note: `showing ${shown.length} of ${entries.length} entries — continue with offset ${nextOffset}`,
+              }
+            : {}),
+        };
       },
     }),
 
     read_file: tool({
       description:
-        "Read a text file from the directories kiri may access — by absolute path (exactly as find_files reports it) or one relative to the working directory. Binary files, .git internals, secret-bearing files (.env*, credential stores, the .kiri state directory), and paths outside the allowed directories are rejected. A file too large to return in full comes back truncated with a note — reach for search_files to pinpoint the relevant part of a big file instead of reading it whole.",
+        "Read a text file from the directories kiri may access — by absolute path (exactly as find_files reports it) or one relative to the working directory. Binary files, .git internals, secret-bearing files (.env*, credential stores, the .kiri state directory), and paths outside the allowed directories are rejected. Use start_line and line_count for a focused range. Returned content preserves whitespace and line endings. A byte cap can split a long line: follow next (start_line/start_column) to continue, preserving line_count. Columns count Unicode code points, not bytes. Pages read live file contents, not a snapshot; partial_line flags an incomplete final line.",
       inputSchema: z.object({
         path: z
           .string()
@@ -466,34 +525,97 @@ export function filesystemTools(
           .describe(
             "Path of the file to read — absolute (as find_files reports it) or relative to the working directory.",
           ),
+        start_line: z
+          .number()
+          .int()
+          .min(1)
+          .max(Number.MAX_SAFE_INTEGER)
+          .optional()
+          .describe("First line, one-based; default 1."),
+        line_count: z
+          .number()
+          .int()
+          .min(1)
+          .max(10000)
+          .optional()
+          .describe(
+            "Maximum lines to read; default 1000, at most 10000. The byte cap still applies.",
+          ),
+        start_column: z
+          .number()
+          .int()
+          .min(1)
+          .max(Number.MAX_SAFE_INTEGER)
+          .optional()
+          .describe(
+            "One-based Unicode code-point column in start_line; default 1. Use next to resume a partial line.",
+          ),
       }),
-      execute: async ({ path }) => {
+      execute: async ({ path, start_line = 1, line_count = 1000, start_column = 1 }) => {
         const real = confine(path);
         if (statSync(real).isDirectory()) {
           throw new Error(
             `"${path}" is a directory — call find_files to list what's inside it, then read a file.`,
           );
         }
-        const content = readFileSync(real);
+        const content = await readFile(real);
         if (isBinary(content)) {
           throw new Error(
             `"${path}" is a binary file (${content.length} bytes) — the filesystem tools read text only.`,
           );
         }
-        if (content.length > maxReadBytes) {
-          return {
-            path: real,
-            content: decoder.decode(content.subarray(0, maxReadBytes)),
-            note: `truncated — first ${maxReadBytes} bytes of ${content.length}; use search_files to locate specific content`,
-          };
+        const lines = content.toString("utf8").match(/[^\n]*\n|[^\n]+$/g) ?? [];
+        if (start_line > lines.length && start_column !== 1) {
+          throw new Error("start_column requires an existing start_line.");
         }
-        return { path: real, content: content.toString("utf8") };
+        const selected = lines.slice(start_line - 1, start_line - 1 + line_count);
+        if (selected.length > 0) {
+          const first = Array.from(selected[0]);
+          if (start_column > first.length) throw new Error("start_column exceeds the line length.");
+          selected[0] = first.slice(start_column - 1).join("");
+        }
+        const bytes = Buffer.from(selected.join(""));
+        const byteLimited = bytes.length > maxReadBytes;
+        // Streaming decode omits an incomplete UTF-8 character at the cap;
+        // it will be returned whole on the next page.
+        const text = byteLimited
+          ? new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes.subarray(0, maxReadBytes), {
+              stream: true,
+            })
+          : bytes.toString("utf8");
+        if (byteLimited && text.length === 0)
+          throw new Error("The read byte budget cannot fit one character.");
+        const returnedLines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+        const newlineCount = returnedLines.filter((line) => line.endsWith("\n")).length;
+        const nextLine = start_line + newlineCount;
+        const tail = returnedLines.at(-1) ?? "";
+        const nextColumn = text.endsWith("\n")
+          ? 1
+          : (newlineCount === 0 ? start_column : 1) + Array.from(tail).length;
+        const more = byteLimited || start_line - 1 + selected.length < lines.length;
+        const next = more ? { start_line: nextLine, start_column: nextColumn } : null;
+        const partialLine = byteLimited && !text.endsWith("\n");
+        const endLine = text.length > 0 ? start_line + returnedLines.length - 1 : null;
+        return {
+          path: real,
+          content: text,
+          start_line,
+          start_column,
+          end_line: endLine,
+          partial_line: partialLine,
+          next,
+          note: `Lines ${start_line}–${endLine ?? "none"}${start_column > 1 ? `, starting at column ${start_column}` : ""}.${
+            next
+              ? ` ${partialLine ? "Partial final line; " : ""}continue with start_line ${next.start_line}, start_column ${next.start_column}.`
+              : " End of file."
+          }`,
+        };
       },
     }),
 
     search_files: tool({
       description:
-        'Search file contents in the directories kiri may access: a regular expression (JavaScript syntax) matched against each line, returning the absolute file path, line number, and line text of every match. Prefer a tight scope: narrow with directory and an include glob (e.g. "**/*.yaml") rather than searching everything. Binary files, very large files, .git internals, and secret-bearing files (.env*, credential stores, the .kiri state directory) are skipped, along with dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) unless the include glob names one or directory points inside one. A result that notes truncation means the scope was too broad — tighten the pattern, directory, or include.',
+        'Search file contents in the directories kiri may access: a regular expression (JavaScript syntax) matched against each line, returning the absolute file path, line number, and line text of every match. Prefer a tight scope: narrow with directory and an include glob (e.g. "**/*.yaml") rather than searching everything. Binary files, very large files, .git internals, and secret-bearing files (.env*, credential stores, the .kiri state directory) are skipped, along with dependency, cache, and build-output directories (node_modules, dist, build, target, .venv, and kin) unless the include glob names one or directory points inside one. Defaults to cwd; all_allowed explicitly searches all roots. context_lines adds bounded surrounding lines. Page with limit/offset and next_offset, preserving query and scope. scan_limited means the scan stopped: narrow directory/include to inspect beyond it. Long match/context lines are flagged truncated; read_file can retrieve their full text. Pages reflect live files.',
       inputSchema: z.object({
         pattern: z
           .string()
@@ -504,7 +626,7 @@ export function filesystemTools(
           .min(1)
           .optional()
           .describe(
-            "Directory to search under — absolute, or relative to the working directory. Omit to search every allowed directory.",
+            "Directory to search under — absolute or relative to cwd. Omit for cwd; all_allowed explicitly searches every allowed root.",
           ),
         include: z
           .string()
@@ -513,8 +635,37 @@ export function filesystemTools(
           .describe(
             'Glob filter for which files to search, e.g. "*.md" or "src/**/*.ts". Defaults to every file.',
           ),
+        all_allowed: z
+          .boolean()
+          .optional()
+          .describe("Search all allowed roots instead of cwd; cannot be combined with directory."),
+        context_lines: z
+          .number()
+          .int()
+          .min(0)
+          .max(10)
+          .optional()
+          .describe("Lines before and after each match; default 0, at most 10."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(maxSearchMatches)
+          .optional()
+          .describe(
+            `Maximum matches; default ${maxSearchMatches}. A result byte budget also applies.`,
+          ),
+        offset: pageOffset,
       }),
-      execute: async ({ pattern, directory, include }) => {
+      execute: async ({
+        pattern,
+        directory,
+        include,
+        all_allowed = false,
+        context_lines = 0,
+        limit = maxSearchMatches,
+        offset = 0,
+      }) => {
         let regex: RegExp;
         try {
           regex = new RegExp(pattern);
@@ -523,46 +674,95 @@ export function filesystemTools(
           throw new Error(`Invalid regular expression: ${reason} — fix the pattern and retry.`);
         }
         const dirs = sandboxDirs();
-        const matches: { file: string; line: number; text: string }[] = [];
+        const files = new Set<string>();
         const budget = { remaining: maxScannedEntries };
         let capped = false;
-        let truncated = false;
-        for (const root of searchRoots(directory)) {
+        for (const root of searchRoots(directory, all_allowed)) {
           const walk = await visibleMatches(root, include ?? "**/*", dirs, budget);
+          for (const file of walk.files) files.add(file);
           capped ||= walk.capped;
-          for (const real of walk.files) {
-            if ((await stat(real)).size > maxSearchFileBytes) continue;
-            const content = await readFile(real);
-            if (isBinary(content)) continue;
-            const lines = content.toString("utf8").split(/\r?\n/);
-            for (let i = 0; i < lines.length; i++) {
-              if (!regex.test(lines[i])) continue;
-              if (matches.length === maxSearchMatches) {
-                truncated = true;
-                break;
-              }
-              matches.push({
-                file: real,
-                line: i + 1,
-                text: lines[i].trim().slice(0, MAX_MATCH_TEXT),
-              });
-            }
-            if (truncated) break;
+        }
+        const matches: {
+          file: string;
+          line: number;
+          text: string;
+          truncated?: boolean;
+          context?: { line: number; text: string; truncated?: boolean }[];
+        }[] = [];
+        let seen = 0;
+        let more = false;
+        let resultBytes = 0;
+        let skippedLarge = 0;
+        search: for (const real of [...files].sort()) {
+          if ((await stat(real)).size > maxSearchFileBytes) {
+            skippedLarge++;
+            continue;
           }
-          if (truncated) break;
+          const content = await readFile(real);
+          if (isBinary(content)) continue;
+          const lines = content.toString("utf8").split(/\r?\n/);
+          if (lines.at(-1) === "") lines.pop();
+          for (let i = 0; i < lines.length; i++) {
+            if (!regex.test(lines[i])) continue;
+            if (seen++ < offset) continue;
+            if (matches.length === limit) {
+              more = true;
+              break search;
+            }
+            const chars = Array.from(lines[i].trim());
+            const match: (typeof matches)[number] = {
+              file: real,
+              line: i + 1,
+              text: chars.slice(0, MAX_MATCH_TEXT).join(""),
+              ...(chars.length > MAX_MATCH_TEXT ? { truncated: true } : {}),
+            };
+            if (context_lines > 0) {
+              match.context = [];
+              for (
+                let j = Math.max(0, i - context_lines);
+                j <= Math.min(lines.length - 1, i + context_lines);
+                j++
+              ) {
+                if (j === i) continue;
+                const contextChars = Array.from(lines[j]);
+                match.context.push({
+                  line: j + 1,
+                  text: contextChars.slice(0, MAX_MATCH_TEXT).join(""),
+                  ...(contextChars.length > MAX_MATCH_TEXT ? { truncated: true } : {}),
+                });
+              }
+            }
+            const size = Buffer.byteLength(JSON.stringify(match)) + 1;
+            if (resultBytes + size > maxSearchResultBytes) {
+              if (matches.length === 0)
+                throw new Error(
+                  "One match exceeds the result budget — reduce context_lines or narrow the search.",
+                );
+              more = true;
+              break search;
+            }
+            matches.push(match);
+            resultBytes += size;
+          }
         }
+        const nextOffset = more ? offset + matches.length : null;
         const notes: string[] = [];
-        if (truncated) {
-          notes.push(
-            `stopped at ${maxSearchMatches} matches — tighten the pattern or include filter`,
-          );
-        }
-        if (capped) {
+        if (nextOffset !== null)
+          notes.push(`stopped at ${matches.length} matches — continue with offset ${nextOffset}`);
+        if (capped)
           notes.push(
             `stopped after scanning ${maxScannedEntries} entries — narrow with directory or an include filter`,
           );
-        }
-        return notes.length > 0 ? { matches, note: notes.join("; ") } : { matches };
+        if (skippedLarge > 0)
+          notes.push(
+            `skipped ${skippedLarge} files over ${maxSearchFileBytes} bytes; use read_file for known paths`,
+          );
+        return {
+          matches,
+          next_offset: nextOffset,
+          scan_limited: capped,
+          ...(notes.length > 0 ? { note: notes.join("; ") } : {}),
+        };
       },
     }),
 

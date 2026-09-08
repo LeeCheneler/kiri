@@ -30,7 +30,7 @@ Judge effects, not shape. A command chained with && or ; or pipes takes the verd
 Answer "allow" only when every effect is routine and recoverable:
 - reading, searching, or inspecting files, processes, or system state — ls, cat, find, grep, head, stat, which, version checks, and the like — anywhere except credential or secret files
 - building, testing, linting, formatting, or type-checking
-- running the project's own scripts (npm/bun/yarn/pnpm run, make targets, and the like) whose names read as routine development work — build, test, dev, check; a name that sounds destructive or outward-facing (clean, reset, deploy, publish, release, migrate) asks instead
+- running the project's own scripts (npm/bun/yarn/pnpm run, make targets, and the like) whose names read as routine development work — build, test, check; a name that sounds destructive or outward-facing (clean, reset, deploy, publish, release, migrate) asks instead
 - git operations that do not destroy work: pull, fetch, commit, push, switching branches, stashing
 - managing dependencies through the project's own package manager against its normal registry — installing from a lockfile, adding, updating, or removing packages (bun add, npm install, cargo add, and the like)
 - installing or trusting toolchain versions the project pins in its config — mise, nvm, rustup, and the like
@@ -38,9 +38,9 @@ Answer "allow" only when every effect is routine and recoverable:
 - writing files inside the working directory as a normal part of such work
 - scratch use of the system temp directory — creating, writing, or deleting its own temp and log files there (mktemp, /tmp paths, $TMPDIR)
 - deleting a specific named file the command itself created or that is plainly disposable scratch output — never recursive, never by pattern
-- starting background processes for the work at hand and stopping only its own: kill by a PID it captured, or pkill narrowly scoped to this project's paths
 
 Answer "ask" when any part of the command:
+- starts servers, watchers, daemons, or detached/background jobs (including & or nohup), or leaves processes running after the call; run_command supports foreground-only work that finishes within its timeout, and approval does not provide background process management
 - recursively deletes, deletes by glob or find-pipe, or destructively overwrites files whose origin the command line does not show
 - discards git work (reset --hard, clean, restore), rewrites history, or force-pushes
 - executes code fetched from the network outside a package manager's normal install flow (curl piped anywhere, running a downloaded script)

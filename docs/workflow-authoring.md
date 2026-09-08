@@ -352,6 +352,23 @@ providers:
 
 ## Authoring a custom bundle
 
+A Kiri session can create supporting files only when its available file-writing
+or command tools can reach the workspace paths within the configured sandbox.
+The workflow tools themselves write YAML, not bundles or templates. Create and
+inspect dependencies before referencing them in a workflow. Prefer validated
+workflow tools for YAML; direct filesystem/shell writes bypass their validation
+and must never be used to bypass a denied workflow operation.
+
+New `run.sh` files must be executable because Kiri starts them directly. File
+writes do not set that bit: use a permitted, targeted `chmod +x` through an
+available command tool, or have the user set it. If the needed capabilities
+are absent, use an inspected existing bundle or inline `sh:` steps. Prompt
+templates need no executable bit; they can be created through permitted file
+writes, otherwise use inline prompts or inspected existing templates. Resolve
+supporting paths against the workflow workspace, which may differ from the
+session's working directory. Validation checks dependency existence, not script
+correctness or executable permissions; test execution needs authorization too.
+
 Add a folder under `bundles/<name>/` with `run.sh` + a `README.md` documenting its env-var contract:
 
 ```

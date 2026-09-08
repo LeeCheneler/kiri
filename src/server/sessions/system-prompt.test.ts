@@ -605,6 +605,52 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("offers authoring guidance without requiring workflow execution", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["edit_workflow", "use_skill"],
+    });
+    expect(prompt).toContain("author workflow YAML through edit_workflow");
+    expect(prompt).toContain("workflow-authoring skill with use_skill");
+    expect(prompt).toContain("Without an available file-writing or command tool");
+    expect(prompt).not.toContain("You can run the user's workflows");
+    expect(prompt).not.toContain("create_workflow");
+    const withoutLoader = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["create_workflow"] });
+    expect(withoutLoader).not.toContain("with use_skill");
+  });
+
+  it("sizes supporting-file guidance to writable files and executable permissions", () => {
+    const files = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["create_workflow", "write_file"],
+    });
+    expect(files).toContain("Supporting bundles and prompt templates can be created only where");
+    expect(files).toContain("File writes do not set executable permissions");
+    expect(files).not.toContain("run_command can set it");
+    const shell = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["create_workflow", "run_command"],
+    });
+    expect(shell).toContain("run_command can set it with a targeted chmod");
+    expect(shell).not.toContain("have the user set run.sh executable");
+  });
+
+  it("does not instruct workflow execution to use absent lookup or article tools", () => {
+    const runOnly = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["run_workflow"] });
+    expect(runOnly).toContain("names and inputs already verified");
+    expect(runOnly).not.toContain("call list_workflows");
+    expect(runOnly).not.toContain("read one with read_article");
+    const withReader = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["run_workflow", "read_article"],
+    });
+    expect(withReader).toContain("read one with read_article");
+  });
+
   it("adds the rerun line to workflow guidance only when rerun_workflow is active", () => {
     const withRerun = buildSystemPrompt({
       config,
@@ -624,7 +670,7 @@ describe("buildSystemPrompt", () => {
     expect(withoutRerun).not.toContain("go through rerun_workflow");
   });
 
-  it("includes filesystem guidance with the allowed directories only when read_file is active", () => {
+  it("includes filesystem guidance for each active filesystem capability", () => {
     const withFilesystem = buildSystemPrompt({
       config,
       now: FIXED_NOW,
@@ -639,15 +685,16 @@ describe("buildSystemPrompt", () => {
     expect(withFilesystem).toContain("- /srv/projects");
     expect(withFilesystem).toContain("relative to the session's working directory");
 
-    // find_files alone (read_file withheld by its permission) carries no
-    // filesystem guidance — the find tool's own description suffices.
+    // Discovery remains useful with read_file withheld.
     const findOnly = buildSystemPrompt({
       config,
       now: FIXED_NOW,
       tools: ["find_files"],
       allowedDirectories: ["/srv/notes"],
     });
-    expect(findOnly).not.toContain("You can work with the user's files");
+    expect(findOnly).toContain("You can work with the user's files");
+    expect(findOnly).not.toContain("read_file reads");
+    expect(findOnly).not.toContain("list_directory lists");
     expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain(
       "You can work with the user's files",
     );
@@ -719,6 +766,9 @@ describe("buildSystemPrompt", () => {
     expect(withShell).toContain("Hard rules");
     expect(withShell).toContain("Never read or print secrets");
     expect(withShell).toContain("Never fetch-and-execute");
+    expect(withShell).toContain("foreground-only work");
+    expect(withShell).toContain("one-shot/non-watch modes");
+    expect(withShell).toContain("approval does not change that contract");
 
     // Without run_command (withheld by permission or configuration) none of
     // the shell guidance appears.
@@ -730,6 +780,7 @@ describe("buildSystemPrompt", () => {
     });
     expect(withoutShell).not.toContain("You can run shell commands");
     expect(withoutShell).not.toContain("Hard rules");
+    expect(withoutShell).not.toContain("foreground-only work");
     expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain(
       "You can run shell commands",
     );

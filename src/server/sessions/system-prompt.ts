@@ -229,28 +229,67 @@ function buildArticleGuidance(tools: string[]): string | null {
   ].join("\n");
 }
 
-// Cross-cutting guidance for the first-party workflow tools — when to reach
-// for a workflow and how to report a run: judgement no single tool
-// description can carry. Keyed off run_workflow, so it appears only when
-// running one is actually offered (the tool's standing permission may
-// withhold it); the rerun line likewise rides only when rerun_workflow is
-// offered.
+// Workflow authoring and execution are separate capabilities; guidance follows
+// the active tools, including supporting-file access and optional run readers.
 function buildWorkflowGuidance(tools: string[]): string | null {
-  if (!tools.includes("run_workflow")) return null;
-  const lines = [
-    "You can run the user's workflows: their own automations, defined in this workspace and executed by kiri. When a request matches what a workflow already does, run the workflow rather than improvising the same work by hand — and call list_workflows to check the exact name and declared inputs instead of guessing them.",
-    "Running workflows:",
-    "- run_workflow blocks until the run finishes, and the user can watch it live in the activity feed. Report the outcome in a sentence or two — the terminal status plus its summary — and don't replay per-step detail into the chat.",
-    "- A failed run is a result to report, not something to retry: the failed step's entry carries the tail of its stdout/stderr, so say which step failed and why, and re-run only when the user asks.",
-  ];
-  if (tools.includes("rerun_workflow")) {
-    lines.push(
-      "- Repeat executions of a run you already started — above all test runs while authoring or editing a workflow — go through rerun_workflow with the earlier run_id, so the feed shows one evolving run instead of a new entry per attempt.",
-    );
-  }
-  lines.push(
-    "- Articles a run produces are already saved and readable in the app; read one with read_article (its slug plus the run's run_id) only when the user asks about its content.",
+  const authoring = ["create_workflow", "edit_workflow", "replace_workflow"].filter((name) =>
+    tools.includes(name),
   );
+  const runs = tools.includes("run_workflow");
+  if (!runs && authoring.length === 0) return null;
+  const lines: string[] = [];
+  if (authoring.length > 0) {
+    lines.push(
+      `You can author workflow YAML through ${authoring.join(", ")}. These tools validate before saving; direct file or shell writes do not. Use the validated tools for YAML and never bypass a denied operation through another tool.`,
+    );
+    if (tools.includes("use_skill"))
+      lines.push(
+        "- Load the workflow-authoring skill with use_skill before authoring; reuse it when its instructions are still available and current.",
+      );
+    if (tools.includes("write_file") || tools.includes("run_command")) {
+      lines.push(
+        "- Supporting bundles and prompt templates can be created only where an available file-writing or command tool can reach their workspace paths under the existing permissions. Create and inspect dependencies before referencing them in YAML.",
+      );
+      if (tools.includes("run_command"))
+        lines.push(
+          "- A new bundle's run.sh needs an executable bit; run_command can set it with a targeted chmod through the normal approval gate.",
+        );
+      else
+        lines.push(
+          "- File writes do not set executable permissions. For a new bundle, have the user set run.sh executable or use inline sh steps; do not claim it is runnable yet.",
+        );
+    } else {
+      lines.push(
+        "- Without an available file-writing or command tool, use inspected existing bundles and inline prompts; explain any missing supporting files the user must supply.",
+      );
+    }
+  }
+  if (runs) {
+    lines.push(
+      "You can run the user's workflows: their own automations, defined in this workspace and executed by kiri. When a request matches what a workflow already does, run the workflow rather than improvising the same work by hand.",
+    );
+    if (tools.includes("list_workflows"))
+      lines.push(
+        "- call list_workflows to check the exact name and declared inputs instead of guessing them.",
+      );
+    else
+      lines.push(
+        "- Use only workflow names and inputs already verified in this conversation; ask for missing details rather than guessing.",
+      );
+    lines.push(
+      "Running workflows:",
+      "- run_workflow blocks until the run finishes, and the user can watch it live in the activity feed. Report the outcome in a sentence or two — the terminal status plus its summary — and don't replay per-step detail into the chat.",
+      "- A failed run is a result to report, not something to retry: the failed step's entry carries the tail of its stdout/stderr, so say which step failed and why, and re-run only when the user asks.",
+    );
+    if (tools.includes("rerun_workflow"))
+      lines.push(
+        "- Repeat executions of a run you already started — above all test runs while authoring or editing a workflow — go through rerun_workflow with the earlier run_id, so the feed shows one evolving run instead of a new entry per attempt.",
+      );
+    if (tools.includes("read_article"))
+      lines.push(
+        "- Articles a run produces are already saved and readable in the app; read one with read_article (its slug plus the run's run_id) only when the user asks about its content.",
+      );
+  }
   return lines.join("\n");
 }
 
@@ -258,57 +297,68 @@ function buildWorkflowGuidance(tools: string[]): string | null {
 // contract no single tool description can carry: which directories are
 // reachable (stated up front, so the model needn't discover them through
 // errors), the absolute-path currency, scoping discipline, and the write
-// contract. Each half is keyed off its own tools — read bullets off read_file,
-// write bullets off the write pair — so turning a capability off drops its
-// guidance, and none of it appears in a plain chat.
+// contract. Each capability and its guidance follow the active tools, so
+// disabled tools are not advertised and plain chat carries no file guidance.
 function buildFilesystemGuidance(
   tools: string[],
   allowedDirectories: readonly string[],
 ): string | null {
   const reads = tools.includes("read_file");
   const writes = tools.includes("write_file") || tools.includes("edit_file");
-  const manages = ["create_directory", "delete_file", "delete_directory"].some((name) =>
-    tools.includes(name),
-  );
-  if (!reads && !writes && !manages) return null;
-  const capabilities = [
-    ...(reads
-      ? [
-          "find_files finds them by glob pattern, list_directory lists a directory one level at a time, read_file reads one file, and search_files greps their contents",
-        ]
-      : []),
-    ...(writes
-      ? [
-          "write_file writes a whole file (creating or overwriting it) and edit_file makes a targeted replacement inside one",
-        ]
-      : []),
-    ...(manages
-      ? [
-          "create_directory makes a directory, and delete_file / delete_directory remove files and directories",
-        ]
-      : []),
-  ].join("; ");
+  const discovery = tools.includes("find_files") || tools.includes("search_files");
+  const descriptions: Record<string, string> = {
+    find_files: "find_files finds files by glob, defaulting to cwd",
+    list_directory: "list_directory lists a directory one level at a time",
+    read_file: "read_file reads one file or a bounded line range",
+    search_files:
+      "search_files searches contents with optional surrounding context, defaulting to cwd",
+    write_file: "write_file writes a whole file (creating or overwriting it)",
+    edit_file: "edit_file makes targeted replacements",
+    create_directory: "create_directory makes a directory",
+    delete_file: "delete_file removes a file",
+    delete_directory: "delete_directory removes a directory",
+    set_working_directory: "set_working_directory moves the session's working directory",
+  };
+  const capabilities = tools.filter((name) => descriptions[name]).map((name) => descriptions[name]);
+  if (capabilities.length === 0) return null;
   return [
-    `You can work with the user's files: ${capabilities}. The tools reach exactly these directories (and their subdirectories), which the user has allowed:`,
+    `You can work with the user's files: ${capabilities.join("; ")}. The tools reach exactly these directories (and their subdirectories), which the user has allowed:`,
     ...allowedDirectories.map((dir) => `- ${dir}`),
     "Working with files:",
     ...(tools.includes("set_working_directory")
       ? [
-          "- Move the session's working directory with set_working_directory only when the root of the work itself changes — settling into a different project, say. When the user names where the work will happen (\"we're working on X today\", a request clearly rooted in one project), move there up front, before the first file call, so the whole session runs from the right root. Relative paths already reach everything beneath the working directory, so stepping into a subdirectory is never a reason to move; prefer staying put at the project root and using relative paths over moving back and forth.",
+          "- Move the session's working directory with set_working_directory only when the root of the work itself changes. When the user names a project, move there up front. Relative paths already reach its subdirectories; do not move just to read a nested file.",
         ]
       : []),
     "- Results report absolute paths. The paths you pass may be absolute, or relative to the session's working directory — when the session has none, every path must be absolute.",
-    ...(reads
+    ...(discovery
       ? [
-          "- Scope narrowly: find or search first, then read the specific files that answer the need. Don't trawl whole trees or read files speculatively.",
+          "- Scope narrowly: find/search default to cwd. Use directory to target another allowed location; all_allowed explicitly searches all allowed roots and cannot be combined with directory. Keep query and scope fixed when paging with limit, offset, and next_offset. Results are live, not snapshots. scan_limited means discovery stopped at its scan budget: narrow the scope to inspect beyond it, even after the available pages end.",
         ]
       : []),
-    "- Binary files, .git internals, and secret-bearing files (.env*, credential stores) are outside your reach, and an oversized result is cut with a note saying so — treat a truncated result as incomplete and tighten the call rather than reading it as the whole picture.",
+    ...(reads
+      ? [
+          "- Read focused ranges with start_line and line_count. Preserve whitespace for edits. Follow read_file's next start_line/start_column to continue; partial_line means the final line is incomplete. Columns count Unicode code points. A page may end at the byte cap before the requested line count.",
+        ]
+      : []),
+    ...(tools.includes("search_files")
+      ? [
+          "- Use context_lines for nearby evidence. Match and context text can be shortened and flagged truncated; do not treat those excerpts as complete lines.",
+        ]
+      : []),
+    "- Binary files, .git internals, and secret-bearing files (.env*, credential stores, .kiri) are outside the read/search surface. Treat truncation and skipped-file notes as incomplete evidence.",
     ...(writes
       ? [
-          "- Read before you change: base every edit or overwrite on the file's current contents, copying edit_file's old_string verbatim from read_file output — it must match exactly, whitespace included, and exactly once (add surrounding context to pin down one occurrence, or set replace_all).",
-          "- Prefer edit_file's targeted replacements for changing an existing file; reach for write_file to create a new file or when a rewrite is genuinely wholesale.",
+          "- Read before you change: base every edit or overwrite on the file's current contents. If no available tool can read the required text, request it rather than guessing.",
         ]
+      : []),
+    ...(tools.includes("edit_file")
+      ? [
+          "- For edit_file, copy old_string verbatim from current untruncated file content, whitespace included. It must match exactly once unless replace_all is intended. Prefer targeted replacements for existing files.",
+        ]
+      : []),
+    ...(tools.includes("write_file")
+      ? ["- Use write_file to create a file or when a rewrite is genuinely wholesale."]
       : []),
   ].join("\n");
 }
@@ -334,7 +384,7 @@ function buildShellGuidance(tools: string[], allowedDirectories: readonly string
     "- Never read or print secrets: no dumping .env or credential files, no printing keys or tokens, no env/printenv. Command output enters the conversation and is sent to a model provider — treat secrets as unprintable.",
     "- Never fetch-and-execute: no piping a download into a shell, and no running a script you haven't read in this conversation or written yourself.",
     "- Git: everyday operations are fine, but never force-push, hard-reset a shared branch, rewrite published history, or delete branches and tags unless the user explicitly asked for exactly that.",
-    "Mechanics: prefer the filesystem tools to read, search, and edit files — reach for run_command to build, test, lint, use git, and run the project's own scripts and tooling. Commands run non-interactively and are killed at their timeout, so use flags that avoid prompts and pagers, and never start servers, watchers, or anything meant to keep running. A non-zero exit or truncated output is a result to read and report honestly, not to paper over.",
+    "Mechanics: prefer the filesystem tools to read, search, and edit files — reach for run_command to build, test, lint, use git, and run the project's own scripts and tooling. Commands support foreground-only work that finishes within the timeout. Use non-interactive, one-shot/non-watch modes and flags that avoid prompts and pagers. Never start servers, watchers, daemons, or detached/background jobs, or leave processes running after the call. There is no background process management; approval does not change that contract. A non-zero exit or truncated output is a result to read and report honestly, not to paper over.",
   ].join("\n");
 }
 

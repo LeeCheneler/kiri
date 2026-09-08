@@ -34,6 +34,26 @@ describe("buildWorkflowAuthoringGuide", () => {
     expect(guide).toContain("Verify any platform-specific flag");
   });
 
+  it("scopes supporting-file authoring to available tools and their gates", () => {
+    const guide = buildWorkflowAuthoringGuide(linux);
+    expect(guide).toContain("Use only tools offered in the current turn");
+    expect(guide).toContain("does not set executable");
+    expect(guide).toContain("Without\nan available way to set it, ask the user");
+    expect(guide).toContain("never use them\nto bypass a denied workflow operation");
+    expect(guide).not.toContain("cannot create bundles from a session");
+    expect(guide).not.toContain("cannot create prompt files from a session");
+  });
+
+  it("distinguishes workflow validation from file writes and runtime behavior", () => {
+    const guide = buildWorkflowAuthoringGuide(linux);
+    expect(guide).toContain("empty stdin; declared env refs carry data");
+    expect(guide).toContain(
+      "Direct filesystem or\nshell writes do not pass through that validation gate",
+    );
+    expect(guide).toContain("existence, not script correctness or executable permissions");
+    expect(guide).not.toContain("stdout becomes the next step's stdin");
+  });
+
   it("requires POSIX sh, not bash, on every host", () => {
     for (const host of [darwin, linux, other]) {
       const guide = buildWorkflowAuthoringGuide(host);

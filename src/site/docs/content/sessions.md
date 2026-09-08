@@ -243,11 +243,19 @@ in place — one feed entry that updates, not a new one per attempt.
 ## Authoring workflows
 
 Work something out in conversation, then ask the session to "save that as a
-workflow" and it authors the YAML into `workflows/` — validated before it
-lands, so a broken file never reaches your repo, and a normal git change you
-review like any other. It can also edit existing workflows, match their
+workflow" and it authors the YAML into `workflows/` through tools that validate
+the definition and referenced dependencies before saving. It becomes a normal
+git change you review like any other. It can also edit existing workflows, match their
 style, and — asked to test — run one and iterate on the same run after each
 fix.
+
+With suitable file or command tools enabled and the workspace paths allowed,
+a session can also create bundle scripts and prompt templates. Those files
+have their own approval gates and must exist before the workflow references
+them. A new bundle script needs executable permissions, which text-file writes
+alone cannot set. Without the necessary access, the assistant uses existing
+bundles and inline prompts, or explains what you need to provide. Direct file
+writes do not receive the workflow tools' validation.
 
 For `llm:` steps the session won't invent a model: it follows your existing
 workflows, or asks. Name a preference in `kiri.md` if you author often.
@@ -287,14 +295,30 @@ filesystem:
   disappears — a deleted checkout, a narrowed sandbox — the
   session falls back to the default and the assistant lets you know.
 
+File searches start in the working directory. The assistant can target another
+allowed directory or explicitly search all allowed roots. Search and directory
+results come in pages; reaching a scan limit is flagged separately so an
+unfinished search is not mistaken for an empty one.
+
+The assistant can read specific line ranges, including portions beyond a large
+file's initial excerpt, and request surrounding context with search matches.
+Long results include continuation information; shortened search lines and
+partial read lines are marked. File text keeps its whitespace and line endings
+for precise edits. Pages read current files, so edits between calls can move
+results.
+
 ## Running shell commands
 
 The same `filesystem:` declaration gives sessions a `run_command` tool —
 builds, tests, git, your own scripts — run in the session's working
 directory. The sandbox confines where a command *starts*, not what it can
 touch, so every call asks by default, showing the exact command verbatim.
-Commands run non-interactively with a timeout; servers and watchers aren't
-supported. While a command runs, expanding its block in the chat shows the
+Commands support foreground-only work: use non-interactive, one-shot modes
+that finish within the timeout (120 seconds by default, at most 600). Servers,
+watchers, daemons, detached/background jobs, and leaving processes running
+after the call are unsupported. Approval does not add background process
+management. Timeout or cancellation kills the command process; cleanup of
+its child processes is not guaranteed. While a command runs, expanding its block in the chat shows the
 output streaming live — stdout and stderr merged, as a terminal would show
 it — so a long build or test run shows progress instead of an opaque
 "Running…" until it exits.
@@ -305,7 +329,10 @@ obviously safe read-only commands run straight away, dangerous shapes
 always ask — no model can override that — and everything in between is
 judged by your [utility model](/docs/llm-providers#utility-model), asking
 whenever it's unsure. Auto needs `models.utility` configured; without it,
-Auto behaves exactly like Ask.
+Auto behaves exactly like Ask. The judge is instructed to ask for commands
+that start unsupported background or long-running processes, even if
+precedent records earlier approvals. This guidance does not enforce a
+runtime ban on those commands.
 
 Auto also learns from your decisions. Approvals and denials are distilled
 into precedent the judge reads on later commands, so a script you've

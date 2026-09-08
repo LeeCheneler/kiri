@@ -419,10 +419,38 @@ const listResult = (
     const lines: string[] = [];
     for (const match of matches) {
       if (match === null || typeof match !== "object") return null;
-      const { file, line, text } = match as { file?: unknown; line?: unknown; text?: unknown };
+      const { file, line, text, context, truncated } = match as {
+        file?: unknown;
+        line?: unknown;
+        text?: unknown;
+        context?: unknown;
+        truncated?: unknown;
+      };
       if (typeof file !== "string" || typeof line !== "number" || typeof text !== "string")
         return null;
-      lines.push(`${file}:${line}: ${text}`);
+      const excerpt = [{ line, text, match: true, truncated: truncated === true }];
+      if (Array.isArray(context)) {
+        for (const row of context) {
+          if (
+            row === null ||
+            typeof row !== "object" ||
+            typeof row.line !== "number" ||
+            typeof row.text !== "string"
+          )
+            return null;
+          excerpt.push({
+            line: row.line,
+            text: row.text,
+            match: false,
+            truncated: row.truncated === true,
+          });
+        }
+      }
+      for (const row of excerpt.sort((a, b) => a.line - b.line)) {
+        lines.push(
+          `${file}:${row.line}${row.match ? ":" : "-"} ${row.text}${row.truncated ? " [truncated]" : ""}`,
+        );
+      }
     }
     return { lines, note: stringNote, empty: "No matches." };
   }

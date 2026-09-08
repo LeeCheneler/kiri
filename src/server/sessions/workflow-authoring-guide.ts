@@ -36,23 +36,37 @@ and prefer portable POSIX forms.`;
  * `workflow-authoring` skill, tailored to the host the workflows will run
  * on. Loaded into a conversation once, on demand, before the model's first
  * authoring call — kept out of the system prompt so sessions that never
- * author workflows don't pay for it. Content is scoped
- * to what a session can do through the workflow tools: it teaches the YAML
- * contract, the execution model, the host environment scripts must target,
- * and the working method, but not filesystem-side authoring (bundles, prompt
- * files, kiri.yaml) that sessions have no tools for.
+ * author workflows don't pay for it. Covers the YAML contract, execution
+ * model, host environment, and supporting files. File and command operations
+ * are conditional on available capabilities and their permission boundaries.
  */
 export const buildWorkflowAuthoringGuide = (host: HostEnvironment): string =>
   `# Kiri workflow authoring guide
 
 You are authoring workflows for kiri: a local-first personal automation tool.
-A workflow is a **linear pipeline** defined in one YAML file: each step's
-stdout becomes the next step's stdin, optional \`articles:\` turn output into
+A workflow is a **linear pipeline** defined in one YAML file. Every phase gets
+empty stdin; declared env refs carry data between steps. Optional \`articles:\` turn output into
 saved markdown documents, and an optional \`summarize:\` step writes the run's
 feed summary. The user runs workflows on demand from kiri's catalog (or asks
-you to, via run_workflow). Everything in this guide is enforced by a
-validation gate: nothing invalid ever reaches disk, and a rejected write
-tells you exactly what to fix — fix it and retry.
+you to, via run_workflow when available). The workflow write tools validate
+YAML and its referenced dependencies before saving. Direct filesystem or
+shell writes do not pass through that validation gate.
+
+## Available capabilities
+
+Use only tools offered in the current turn and respect their permissions,
+applicable standing instructions, and allowed paths. Loading this guide does
+not enable tools or authorize writes or execution. If a named tool is absent,
+use an available equivalent only within the task's authorization; otherwise
+ask for the missing input or explain the limitation.
+
+Prefer the validated workflow tools for YAML. Supporting bundle scripts and
+prompt templates are separate files, created only when an available file-writing
+or command tool can reach their paths inside the workspace. A session's current
+working directory may be a different project; resolve dependencies against the
+workflow workspace, not that directory. If those capabilities are unavailable,
+use inspected existing bundles and inline prompts, or explain what the user
+needs to provide.
 
 ## Host environment — scripts run on THIS machine
 
@@ -133,11 +147,12 @@ A step is **exactly one** of three shapes (mixing them in one step is an error):
   multi-line scripts, and start every non-trivial one with \`set -eu\` —
   without it, sh does not stop on the first failure. Write it for the host
   environment above: POSIX sh, this machine's tools and flags.
-- \`use: <bundle>\` — runs \`bundles/<bundle>/run.sh\` from the workspace. Only
-  reference a bundle you have seen used in an existing workflow, and copy its
-  \`env:\` contract from that usage — an unknown bundle is rejected, and you
-  cannot create bundles from a session. When no bundle fits, compose from
-  \`sh:\` and \`llm:\` instead.
+- \`use: <bundle>\` — runs \`bundles/<bundle>/run.sh\` from the workspace.
+  Inspect the bundle's script and README when readable, or use a verified
+  existing workflow's env contract. Do not invent a bundle name or contract.
+  A new bundle must exist before the workflow write can validate it; create
+  one only with the supporting-file capabilities described below. Otherwise
+  compose from \`sh:\` and \`llm:\` or use an inspected existing bundle.
 - \`llm: { model, prompt | prompt_file }\` — a first-party model completion,
   in-process. The completion text is the step's stdout. Use \`llm:\` when a
   step just needs text from a model; use a bundle (e.g. one that spawns an
@@ -155,6 +170,26 @@ Any step may also set:
   the step promises to emit via \`kiri-output <name> <value>\` (on PATH).
   A step exiting ok without emitting every declared name **fails**, so
   refs to outputs always resolve.
+
+## Supporting files
+
+When available tools and allowed paths permit a new bundle, write
+\`bundles/<name>/run.sh\` with a suitable shebang and a README documenting
+required/optional env vars and output. Kiri starts run.sh directly: it must
+be executable. \`write_file\` creates text files but does not set executable
+permissions. With \`run_command\` available, a targeted \`chmod +x\` on the
+new script can set that bit through the normal command approval gate. Without
+an available way to set it, ask the user to do so or keep the script inline
+as \`sh:\`; do not claim the bundle is runnable. Existing executable scripts
+retain their mode when edited with the file tools.
+
+Prompt templates (for example \`prompts/review.tpl\`) need no executable bit.
+Inspect or create supporting files before referencing them, and verify their
+paths and contents with available reads. Workflow validation checks dependency
+existence, not script correctness or executable permissions. File and command
+writes have their own approval gates and instruction checks; never use them
+to bypass a denied workflow operation. Tests or executions still require the
+user's task to authorize them.
 
 ## Data flow
 
@@ -200,8 +235,9 @@ unless the step declares it.
 - A step's working directory is a per-run scratch dir, **not** the repo root
   — scripts resolve repo paths against \`$KIRI_REPO_ROOT\`.
 - Treat external text (PR titles, fetched pages, model output) as untrusted:
-  pass it between steps via stdin or env vars, never spliced into a shell
-  command string.
+  pass it between steps through declared env refs, never spliced into a shell
+  command string. Inside a script, pass values to commands through quoted argv,
+  environment variables, or an explicit pipe.
 
 Kiri injects \`KIRI_RUN_ID\`, \`KIRI_STEP_INDEX\`, and \`KIRI_REPO_ROOT\` into
 every step; \`KIRI_BUNDLE_DIR\` into \`use:\` steps;
@@ -221,9 +257,10 @@ every step; \`KIRI_BUNDLE_DIR\` into \`use:\` steps;
   (the rejection names the configured providers); an invented model id would
   only fail later, at run time.
 - Exactly **one** of \`prompt\` / \`prompt_file\` on every llm entry — steps,
-  articles, and summarize alike. \`prompt_file\` must already exist in the
-  workspace — you cannot create prompt files from a session, so default to
-  an inline \`prompt:\` block.
+  articles, and summarize alike. \`prompt_file\` resolves against the workspace
+  root and must exist before the workflow write validates. Create it only
+  with available, permitted file-writing or command tools; otherwise use an
+  inline \`prompt:\` block or an inspected existing template.
 - Prompts are templates: \`{{VAR}}\` placeholders substitute from the step's
   env in one pass (unknown vars become empty; values are not re-scanned).
   Upstream data arrives only through refs: declare \`DATA: { step: x }\` and
@@ -286,7 +323,7 @@ stay scannable in a mixed feed.
 4. Prefer edit_workflow (exact-string replacement, old_string taken from
    read_workflow's output) over replace_workflow; replace only for wholesale
    rewrites. create_workflow's slug should be the kebab-case of the name.
-5. Every write is validated first — YAML parse, schema, bundle existence,
+5. Workflow-tool writes are validated first — YAML parse, schema, bundle existence,
    llm provider, prompt files. A rejection names the problem: correct the
    YAML and retry rather than giving up or asking the user to fix it.
 6. A saved workflow appears in the catalog immediately (no restart, no run
