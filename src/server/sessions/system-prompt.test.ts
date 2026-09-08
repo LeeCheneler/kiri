@@ -605,6 +605,52 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("offers authoring guidance without requiring workflow execution", () => {
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["edit_workflow", "use_skill"],
+    });
+    expect(prompt).toContain("author workflow YAML through edit_workflow");
+    expect(prompt).toContain("workflow-authoring skill with use_skill");
+    expect(prompt).toContain("Without an available file-writing or command tool");
+    expect(prompt).not.toContain("You can run the user's workflows");
+    expect(prompt).not.toContain("create_workflow");
+    const withoutLoader = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["create_workflow"] });
+    expect(withoutLoader).not.toContain("with use_skill");
+  });
+
+  it("sizes supporting-file guidance to writable files and executable permissions", () => {
+    const files = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["create_workflow", "write_file"],
+    });
+    expect(files).toContain("Supporting bundles and prompt templates can be created only where");
+    expect(files).toContain("File writes do not set executable permissions");
+    expect(files).not.toContain("run_command can set it");
+    const shell = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["create_workflow", "run_command"],
+    });
+    expect(shell).toContain("run_command can set it with a targeted chmod");
+    expect(shell).not.toContain("have the user set run.sh executable");
+  });
+
+  it("does not instruct workflow execution to use absent lookup or article tools", () => {
+    const runOnly = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["run_workflow"] });
+    expect(runOnly).toContain("names and inputs already verified");
+    expect(runOnly).not.toContain("call list_workflows");
+    expect(runOnly).not.toContain("read one with read_article");
+    const withReader = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["run_workflow", "read_article"],
+    });
+    expect(withReader).toContain("read one with read_article");
+  });
+
   it("adds the rerun line to workflow guidance only when rerun_workflow is active", () => {
     const withRerun = buildSystemPrompt({
       config,

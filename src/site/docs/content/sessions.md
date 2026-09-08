@@ -243,11 +243,19 @@ in place — one feed entry that updates, not a new one per attempt.
 ## Authoring workflows
 
 Work something out in conversation, then ask the session to "save that as a
-workflow" and it authors the YAML into `workflows/` — validated before it
-lands, so a broken file never reaches your repo, and a normal git change you
-review like any other. It can also edit existing workflows, match their
+workflow" and it authors the YAML into `workflows/` through tools that validate
+the definition and referenced dependencies before saving. It becomes a normal
+git change you review like any other. It can also edit existing workflows, match their
 style, and — asked to test — run one and iterate on the same run after each
 fix.
+
+With suitable file or command tools enabled and the workspace paths allowed,
+a session can also create bundle scripts and prompt templates. Those files
+have their own approval gates and must exist before the workflow references
+them. A new bundle script needs executable permissions, which text-file writes
+alone cannot set. Without the necessary access, the assistant uses existing
+bundles and inline prompts, or explains what you need to provide. Direct file
+writes do not receive the workflow tools' validation.
 
 For `llm:` steps the session won't invent a model: it follows your existing
 workflows, or asks. Name a preference in `kiri.md` if you author often.

@@ -229,28 +229,67 @@ function buildArticleGuidance(tools: string[]): string | null {
   ].join("\n");
 }
 
-// Cross-cutting guidance for the first-party workflow tools — when to reach
-// for a workflow and how to report a run: judgement no single tool
-// description can carry. Keyed off run_workflow, so it appears only when
-// running one is actually offered (the tool's standing permission may
-// withhold it); the rerun line likewise rides only when rerun_workflow is
-// offered.
+// Workflow authoring and execution are separate capabilities; guidance follows
+// the active tools, including supporting-file access and optional run readers.
 function buildWorkflowGuidance(tools: string[]): string | null {
-  if (!tools.includes("run_workflow")) return null;
-  const lines = [
-    "You can run the user's workflows: their own automations, defined in this workspace and executed by kiri. When a request matches what a workflow already does, run the workflow rather than improvising the same work by hand — and call list_workflows to check the exact name and declared inputs instead of guessing them.",
-    "Running workflows:",
-    "- run_workflow blocks until the run finishes, and the user can watch it live in the activity feed. Report the outcome in a sentence or two — the terminal status plus its summary — and don't replay per-step detail into the chat.",
-    "- A failed run is a result to report, not something to retry: the failed step's entry carries the tail of its stdout/stderr, so say which step failed and why, and re-run only when the user asks.",
-  ];
-  if (tools.includes("rerun_workflow")) {
-    lines.push(
-      "- Repeat executions of a run you already started — above all test runs while authoring or editing a workflow — go through rerun_workflow with the earlier run_id, so the feed shows one evolving run instead of a new entry per attempt.",
-    );
-  }
-  lines.push(
-    "- Articles a run produces are already saved and readable in the app; read one with read_article (its slug plus the run's run_id) only when the user asks about its content.",
+  const authoring = ["create_workflow", "edit_workflow", "replace_workflow"].filter((name) =>
+    tools.includes(name),
   );
+  const runs = tools.includes("run_workflow");
+  if (!runs && authoring.length === 0) return null;
+  const lines: string[] = [];
+  if (authoring.length > 0) {
+    lines.push(
+      `You can author workflow YAML through ${authoring.join(", ")}. These tools validate before saving; direct file or shell writes do not. Use the validated tools for YAML and never bypass a denied operation through another tool.`,
+    );
+    if (tools.includes("use_skill"))
+      lines.push(
+        "- Load the workflow-authoring skill with use_skill before authoring; reuse it when its instructions are still available and current.",
+      );
+    if (tools.includes("write_file") || tools.includes("run_command")) {
+      lines.push(
+        "- Supporting bundles and prompt templates can be created only where an available file-writing or command tool can reach their workspace paths under the existing permissions. Create and inspect dependencies before referencing them in YAML.",
+      );
+      if (tools.includes("run_command"))
+        lines.push(
+          "- A new bundle's run.sh needs an executable bit; run_command can set it with a targeted chmod through the normal approval gate.",
+        );
+      else
+        lines.push(
+          "- File writes do not set executable permissions. For a new bundle, have the user set run.sh executable or use inline sh steps; do not claim it is runnable yet.",
+        );
+    } else {
+      lines.push(
+        "- Without an available file-writing or command tool, use inspected existing bundles and inline prompts; explain any missing supporting files the user must supply.",
+      );
+    }
+  }
+  if (runs) {
+    lines.push(
+      "You can run the user's workflows: their own automations, defined in this workspace and executed by kiri. When a request matches what a workflow already does, run the workflow rather than improvising the same work by hand.",
+    );
+    if (tools.includes("list_workflows"))
+      lines.push(
+        "- call list_workflows to check the exact name and declared inputs instead of guessing them.",
+      );
+    else
+      lines.push(
+        "- Use only workflow names and inputs already verified in this conversation; ask for missing details rather than guessing.",
+      );
+    lines.push(
+      "Running workflows:",
+      "- run_workflow blocks until the run finishes, and the user can watch it live in the activity feed. Report the outcome in a sentence or two — the terminal status plus its summary — and don't replay per-step detail into the chat.",
+      "- A failed run is a result to report, not something to retry: the failed step's entry carries the tail of its stdout/stderr, so say which step failed and why, and re-run only when the user asks.",
+    );
+    if (tools.includes("rerun_workflow"))
+      lines.push(
+        "- Repeat executions of a run you already started — above all test runs while authoring or editing a workflow — go through rerun_workflow with the earlier run_id, so the feed shows one evolving run instead of a new entry per attempt.",
+      );
+    if (tools.includes("read_article"))
+      lines.push(
+        "- Articles a run produces are already saved and readable in the app; read one with read_article (its slug plus the run's run_id) only when the user asks about its content.",
+      );
+  }
   return lines.join("\n");
 }
 
