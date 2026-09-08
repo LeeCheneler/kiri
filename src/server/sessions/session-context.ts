@@ -22,7 +22,7 @@ export function estimateContextTokens(value: unknown): number {
   return Math.ceil(Buffer.byteLength(JSON.stringify(value) ?? "") / 3) + 256;
 }
 
-/** Reserve output/reasoning and tool-result space, using a 32K working window when unknown. */
+/** Reserve estimated output/reasoning and tool-result space without capping generation; use 32K when unknown. */
 export function contextBudget(contextWindow: number | undefined, reasoningTokens = 0) {
   const window =
     contextWindow !== undefined && Number.isFinite(contextWindow) && contextWindow > 0

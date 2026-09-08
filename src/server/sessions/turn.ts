@@ -1,4 +1,5 @@
 import {
+  APICallError,
   type ModelMessage,
   type ToolSet,
   type UIMessage,
@@ -155,8 +156,19 @@ const toUiMessage = (row: Message): UIMessage => ({
   parts: row.parts as UIMessage["parts"],
 });
 
-const errorMessage = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const errorMessage = (cause: unknown): string => {
+  const fallback = cause instanceof Error ? cause.message : String(cause);
+  if (!APICallError.isInstance(cause) || !cause.responseBody) return fallback;
+  // Compatible backends can return details outside the SDK's error schema.
+  // Extract only the message, never request data or the entire response body.
+  try {
+    const body = JSON.parse(cause.responseBody);
+    const detail = body?.detail ?? body?.error?.message ?? body?.error;
+    return typeof detail === "string" && detail.trim() ? detail : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 // Read a turn's SSE stream to completion, mirroring each frame into `sink` when
 // one is given. Draining server-side guarantees the turn reaches `onFinish` —
@@ -553,7 +565,6 @@ async function streamCore(
         result = streamText({
           model,
           messages: modelMessages,
-          maxOutputTokens: budget.outputTokens,
           onStepFinish: ({ usage }) => {
             lastContextTokens = usage.totalTokens;
           },
@@ -701,7 +712,6 @@ async function streamCore(
           model,
           system,
           messages: handoff.messages,
-          maxOutputTokens: budget.outputTokens,
           onStepFinish: ({ usage }) => {
             lastContextTokens = usage.totalTokens;
           },
