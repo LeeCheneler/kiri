@@ -209,7 +209,13 @@ describe("workflowTools", () => {
           { name: "article: notes", status: "ok", error: undefined },
           { name: "summarize", status: "ok", error: undefined },
         ],
-        articles: [{ slug: "notes", name: "Notes" }],
+        articles: [
+          {
+            slug: "notes",
+            name: "Notes",
+            href: `/runs/${(output as { run_id: string }).run_id}/articles/notes`,
+          },
+        ],
       });
 
       // The run is first-class: it publishes the usual lifecycle events.
@@ -379,7 +385,13 @@ describe("workflowTools", () => {
             stderr: undefined,
           },
         ],
-        articles: [{ slug: "v2-notes", name: "V2 Notes" }],
+        articles: [
+          {
+            slug: "v2-notes",
+            name: "V2 Notes",
+            href: `/runs/${first.run_id}/articles/v2-notes`,
+          },
+        ],
       });
 
       // In place: still exactly one run row, and the previous iteration's

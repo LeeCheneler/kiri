@@ -42,6 +42,9 @@ on demand, and keeps existing ones current, whoever wrote them.
 - Articles cross-reference each other with `[[slug]]`, rendering as links in
   the project's reading view and chat — the corpus browses like a small
   wiki, and the assistant cross-links as it writes.
+- Workflow-run articles live outside the corpus. The assistant links to them
+  using paths returned by the workflow and article tools; `[[slug]]` only
+  resolves within the current collection.
 - Corpus articles outlive the sessions that wrote them — deleting a session
   never touches the corpus.
 

@@ -123,7 +123,10 @@ const runOutcome = (db: KiriDb, runId: string, definition: WorkflowDefinition) =
         stderr: traces === null ? undefined : failureStreamTail(traces.stderr),
       };
     }),
-    articles: articleRows,
+    articles: articleRows.map((article) => ({
+      ...article,
+      href: `/runs/${encodeURIComponent(runId)}/articles/${encodeURIComponent(article.slug)}`,
+    })),
   };
 };
 
@@ -198,7 +201,7 @@ export function workflowTools(deps: WorkflowToolsDeps): ToolSet {
 
     run_workflow: tool({
       description:
-        "Run one of the workspace's workflows by name and wait for it to finish. Returns the run's terminal status, per-step outcomes, its summary, and the articles it produced (when read_article is available, read one with this run's run_id). A failed step's entry includes the tail of its captured stdout and stderr, so diagnose a failure from the result. The run appears in the kiri activity feed with its full step output and traces, so report the outcome briefly rather than replaying it. Execute only when its behavior and effects fit the authorized request; saving a definition does not authorize a run. Supply every required input and verify the name and inputs, using list_workflows when available. For a repeat of this run, use rerun_workflow when available with this run_id. Safe fixes and test iterations may continue within an authorized fix or test task; failure or timeout can follow completed external effects, so inspect what completed before repeating. Ask before re-execution if prior effects or permission to repeat are unclear.",
+        "Run one of the workspace's workflows by name and wait for it to finish. Returns the run's terminal status, per-step outcomes, its summary, and the articles it produced with app-relative href paths for markdown links (when read_article is available, read one with this run's run_id). A failed step's entry includes the tail of its captured stdout and stderr, so diagnose a failure from the result. The run appears in the kiri activity feed with its full step output and traces, so report the outcome briefly rather than replaying it. Execute only when its behavior and effects fit the authorized request; saving a definition does not authorize a run. Supply every required input and verify the name and inputs, using list_workflows when available. For a repeat of this run, use rerun_workflow when available with this run_id. Safe fixes and test iterations may continue within an authorized fix or test task; failure or timeout can follow completed external effects, so inspect what completed before repeating. Ask before re-execution if prior effects or permission to repeat are unclear.",
       inputSchema: z.object({
         name: z
           .string()
