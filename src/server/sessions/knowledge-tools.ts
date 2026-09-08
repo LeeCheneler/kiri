@@ -25,7 +25,13 @@ export function knowledgeTools(deps: SearchDeps, projectId: string | null): Tool
       inputSchema: z.object({
         query: z.string().max(1000),
         scope,
-        session_id: z.string().min(1).optional().describe("Filter to one session."),
+        session_id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Filter to one session ID, never a workflow run ID. Omit for workspace article or run searches.",
+          ),
         limit: z.number().int().min(1).max(20).optional().describe("Default 10 hits."),
         offset: z
           .number()

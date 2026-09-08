@@ -220,7 +220,7 @@ export function articleTools(
     }),
 
     read_article: tool({
-      description: `Read the full markdown body of an article: one of this ${scope}'s by slug, or — when run_id is set — one a workflow run produced.`,
+      description: `Read the full markdown body of an article: one of this ${scope}'s by slug, or — when run_id is set — one a workflow run produced. Returns href, the article's app-relative path; use it in a markdown link.`,
       inputSchema: z.object({
         slug: articleSlugSchema.describe("Slug of the article to read."),
         run_id: z
@@ -243,7 +243,12 @@ export function articleTools(
               `No article with slug "${slug}" on run "${run_id}" — a run_workflow outcome lists its run's article slugs alongside its run_id.`,
             );
           }
-          return { slug: row.slug, name: row.name, content_md: row.contentMd };
+          return {
+            slug: row.slug,
+            name: row.name,
+            content_md: row.contentMd,
+            href: `/runs/${encodeURIComponent(run_id)}/articles/${encodeURIComponent(row.slug)}`,
+          };
         }
         const row = bySlug(slug);
         if (!row) {
@@ -251,7 +256,15 @@ export function articleTools(
             `No article with slug "${slug}" in this ${scope} — call list_articles to see what exists, or pass run_id to read an article a workflow run produced.`,
           );
         }
-        return { slug, name: row.name, content_md: row.contentMd };
+        return {
+          slug,
+          name: row.name,
+          content_md: row.contentMd,
+          href:
+            projectId !== null
+              ? `/projects/${encodeURIComponent(projectId)}/articles/${encodeURIComponent(slug)}`
+              : `/sessions/${encodeURIComponent(sessionId)}/articles/${encodeURIComponent(slug)}`,
+        };
       },
     }),
   };

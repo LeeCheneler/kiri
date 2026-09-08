@@ -180,9 +180,9 @@ function buildTaskGuidance(tools: string[], project: ProjectPromptContext | null
 // Cross-cutting guidance for the first-party article tools — the workflow no
 // single tool description can carry: what an article is *for* (a deliverable
 // kept outside the chat), keeping the full piece out of the reply, how to
-// point at an article (the one syntax kiri renders — a model has no article
-// URL to write, and an invented one goes nowhere), and how to choose between
-// a targeted edit and a wholesale replace. Keyed off the create tool's name,
+// point at an article using a local wiki reference or a tool-supplied path,
+// and how to choose between a targeted edit and a wholesale replace.
+// Keyed off the create tool's name,
 // so it appears exactly when the article tools are offered and never in a
 // plain chat.
 function buildArticleGuidance(tools: string[]): string | null {
@@ -191,7 +191,7 @@ function buildArticleGuidance(tools: string[]): string | null {
     "You can save articles: standalone markdown documents in kiri’s reading view. Save a requested report, guide, write-up, or reference as an article. Also preserve substantial conclusions with clear future value, such as a researched decision with sources or a reusable troubleshooting guide, when this fits the user’s request. Prefer an existing relevant document when it can be updated. Do not create articles for quick answers, routine coding updates, transient status, or content already saved in the requested file. Respect requests to keep the answer in chat. After saving, give the key conclusion and a link; do not paste the full document back into chat.",
     "Working with articles:",
     "- Open the body with a `# ` title heading. Charts (fenced `chart`) and diagrams (fenced `mermaid`) render inside articles exactly as they do in your replies.",
-    "- Refer to an article by writing [[slug]] — in your replies, including the pointer after you write one, and in article bodies to cross-reference others. kiri renders it as a link titled with the article's heading. Never write a URL or markdown link to an article: you don't know its address, and an invented one goes nowhere.",
+    "- Refer to an article in this session's or project's own collection by writing [[slug]]. This syntax only resolves within that collection; it does not link to workflow-run articles. For an article returned by a tool, use its supplied href in a markdown link, using the returned path as the link destination. Never invent an article path or URL. If the user requests a full URL, combine the supplied path with a known app origin; if the origin is unknown, provide the working relative link and explain that the origin is needed.",
     ...(tools.includes("edit_article")
       ? ["- To change an article, prefer a targeted edit_article call using exact current text."]
       : []),
@@ -266,7 +266,7 @@ function buildWorkflowGuidance(tools: string[]): string | null {
       );
     if (tools.includes("read_article"))
       lines.push(
-        "- Articles a run produces are already saved; read one with read_article (its slug plus the run's run_id) when its content is needed to fulfill the request or verify the outcome. Do not duplicate it in a new article.",
+        "- Link to a run's articles using the href supplied in the workflow result as a markdown link; [[slug]] does not resolve run articles. Articles a run produces are already saved; read one with read_article (its slug plus the run's run_id) when its content is needed to fulfill the request or verify the outcome. Do not duplicate it in a new article.",
       );
   }
   return lines.join("\n");

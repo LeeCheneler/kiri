@@ -358,10 +358,14 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain("You can save articles");
   });
 
-  it("names [[slug]] as the one way to point at an article, in and out of a project", () => {
+  it("distinguishes local wiki links from supplied article paths", () => {
     const projectless = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["create_article"] });
-    expect(projectless).toContain("Refer to an article by writing [[slug]]");
-    expect(projectless).toContain("Never write a URL or markdown link to an article");
+    expect(projectless).toContain(
+      "Refer to an article in this session's or project's own collection by writing [[slug]]",
+    );
+    expect(projectless).toContain("use its supplied href in a markdown link");
+    expect(projectless).toContain("it does not link to workflow-run articles");
+    expect(projectless).toContain("Never invent an article path or URL");
 
     const inProject = buildSystemPrompt({
       config,

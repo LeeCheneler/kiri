@@ -278,6 +278,7 @@ describe("articleTools", () => {
         slug: "notes",
         name: "Notes",
         content_md: "# Notes\n\nBody.",
+        href: "/sessions/s1/articles/notes",
       });
     });
 
@@ -289,10 +290,12 @@ describe("articleTools", () => {
 
     it("reads an article a workflow run produced when run_id is set", async () => {
       seedRunArticle("r1", "edition", "# Edition\n\nStories.");
+      await run(tools.create_article, { slug: "edition", content_md: "# Session edition" });
       expect(await run(tools.read_article, { slug: "edition", run_id: "r1" })).toEqual({
         slug: "edition",
         name: "Edition",
         content_md: "# Edition\n\nStories.",
+        href: "/runs/r1/articles/edition",
       });
     });
 
@@ -348,6 +351,7 @@ describe("articleTools", () => {
         content_md: string;
       };
       expect(body.content_md).toBe("# Corpus\n\nNew.");
+      expect(body).toMatchObject({ href: "/projects/p1/articles/corpus-doc" });
       const listed = (await run(sibling.list_articles, {})) as { slug: string }[];
       expect(listed.map((entry) => entry.slug)).toEqual(["corpus-doc"]);
     });
@@ -414,6 +418,7 @@ describe("articleTools", () => {
         content_md: string;
       };
       expect(output.content_md).toBe("# Edition");
+      expect(output).toMatchObject({ href: "/runs/r1/articles/edition" });
     });
   });
 });
