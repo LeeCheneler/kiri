@@ -258,57 +258,68 @@ function buildWorkflowGuidance(tools: string[]): string | null {
 // contract no single tool description can carry: which directories are
 // reachable (stated up front, so the model needn't discover them through
 // errors), the absolute-path currency, scoping discipline, and the write
-// contract. Each half is keyed off its own tools — read bullets off read_file,
-// write bullets off the write pair — so turning a capability off drops its
-// guidance, and none of it appears in a plain chat.
+// contract. Each capability and its guidance follow the active tools, so
+// disabled tools are not advertised and plain chat carries no file guidance.
 function buildFilesystemGuidance(
   tools: string[],
   allowedDirectories: readonly string[],
 ): string | null {
   const reads = tools.includes("read_file");
   const writes = tools.includes("write_file") || tools.includes("edit_file");
-  const manages = ["create_directory", "delete_file", "delete_directory"].some((name) =>
-    tools.includes(name),
-  );
-  if (!reads && !writes && !manages) return null;
-  const capabilities = [
-    ...(reads
-      ? [
-          "find_files finds them by glob pattern, list_directory lists a directory one level at a time, read_file reads one file, and search_files greps their contents",
-        ]
-      : []),
-    ...(writes
-      ? [
-          "write_file writes a whole file (creating or overwriting it) and edit_file makes a targeted replacement inside one",
-        ]
-      : []),
-    ...(manages
-      ? [
-          "create_directory makes a directory, and delete_file / delete_directory remove files and directories",
-        ]
-      : []),
-  ].join("; ");
+  const discovery = tools.includes("find_files") || tools.includes("search_files");
+  const descriptions: Record<string, string> = {
+    find_files: "find_files finds files by glob, defaulting to cwd",
+    list_directory: "list_directory lists a directory one level at a time",
+    read_file: "read_file reads one file or a bounded line range",
+    search_files:
+      "search_files searches contents with optional surrounding context, defaulting to cwd",
+    write_file: "write_file writes a whole file (creating or overwriting it)",
+    edit_file: "edit_file makes targeted replacements",
+    create_directory: "create_directory makes a directory",
+    delete_file: "delete_file removes a file",
+    delete_directory: "delete_directory removes a directory",
+    set_working_directory: "set_working_directory moves the session's working directory",
+  };
+  const capabilities = tools.filter((name) => descriptions[name]).map((name) => descriptions[name]);
+  if (capabilities.length === 0) return null;
   return [
-    `You can work with the user's files: ${capabilities}. The tools reach exactly these directories (and their subdirectories), which the user has allowed:`,
+    `You can work with the user's files: ${capabilities.join("; ")}. The tools reach exactly these directories (and their subdirectories), which the user has allowed:`,
     ...allowedDirectories.map((dir) => `- ${dir}`),
     "Working with files:",
     ...(tools.includes("set_working_directory")
       ? [
-          "- Move the session's working directory with set_working_directory only when the root of the work itself changes — settling into a different project, say. When the user names where the work will happen (\"we're working on X today\", a request clearly rooted in one project), move there up front, before the first file call, so the whole session runs from the right root. Relative paths already reach everything beneath the working directory, so stepping into a subdirectory is never a reason to move; prefer staying put at the project root and using relative paths over moving back and forth.",
+          "- Move the session's working directory with set_working_directory only when the root of the work itself changes. When the user names a project, move there up front. Relative paths already reach its subdirectories; do not move just to read a nested file.",
         ]
       : []),
     "- Results report absolute paths. The paths you pass may be absolute, or relative to the session's working directory — when the session has none, every path must be absolute.",
-    ...(reads
+    ...(discovery
       ? [
-          "- Scope narrowly: find or search first, then read the specific files that answer the need. Don't trawl whole trees or read files speculatively.",
+          "- Scope narrowly: find/search default to cwd. Use directory to target another allowed location; all_allowed explicitly searches all allowed roots and cannot be combined with directory. Keep query and scope fixed when paging with limit, offset, and next_offset. Results are live, not snapshots. scan_limited means discovery stopped at its scan budget: narrow the scope to inspect beyond it, even after the available pages end.",
         ]
       : []),
-    "- Binary files, .git internals, and secret-bearing files (.env*, credential stores) are outside your reach, and an oversized result is cut with a note saying so — treat a truncated result as incomplete and tighten the call rather than reading it as the whole picture.",
+    ...(reads
+      ? [
+          "- Read focused ranges with start_line and line_count. Preserve whitespace for edits. Follow read_file's next start_line/start_column to continue; partial_line means the final line is incomplete. Columns count Unicode code points. A page may end at the byte cap before the requested line count.",
+        ]
+      : []),
+    ...(tools.includes("search_files")
+      ? [
+          "- Use context_lines for nearby evidence. Match and context text can be shortened and flagged truncated; do not treat those excerpts as complete lines.",
+        ]
+      : []),
+    "- Binary files, .git internals, and secret-bearing files (.env*, credential stores, .kiri) are outside the read/search surface. Treat truncation and skipped-file notes as incomplete evidence.",
     ...(writes
       ? [
-          "- Read before you change: base every edit or overwrite on the file's current contents, copying edit_file's old_string verbatim from read_file output — it must match exactly, whitespace included, and exactly once (add surrounding context to pin down one occurrence, or set replace_all).",
-          "- Prefer edit_file's targeted replacements for changing an existing file; reach for write_file to create a new file or when a rewrite is genuinely wholesale.",
+          "- Read before you change: base every edit or overwrite on the file's current contents. If no available tool can read the required text, request it rather than guessing.",
         ]
+      : []),
+    ...(tools.includes("edit_file")
+      ? [
+          "- For edit_file, copy old_string verbatim from current untruncated file content, whitespace included. It must match exactly once unless replace_all is intended. Prefer targeted replacements for existing files.",
+        ]
+      : []),
+    ...(tools.includes("write_file")
+      ? ["- Use write_file to create a file or when a rewrite is genuinely wholesale."]
       : []),
   ].join("\n");
 }

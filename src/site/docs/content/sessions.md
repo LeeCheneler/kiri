@@ -287,6 +287,18 @@ filesystem:
   disappears — a deleted checkout, a narrowed sandbox — the
   session falls back to the default and the assistant lets you know.
 
+File searches start in the working directory. The assistant can target another
+allowed directory or explicitly search all allowed roots. Search and directory
+results come in pages; reaching a scan limit is flagged separately so an
+unfinished search is not mistaken for an empty one.
+
+The assistant can read specific line ranges, including portions beyond a large
+file's initial excerpt, and request surrounding context with search matches.
+Long results include continuation information; shortened search lines and
+partial read lines are marked. File text keeps its whitespace and line endings
+for precise edits. Pages read current files, so edits between calls can move
+results.
+
 ## Running shell commands
 
 The same `filesystem:` declaration gives sessions a `run_command` tool —

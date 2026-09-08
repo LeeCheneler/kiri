@@ -2079,10 +2079,14 @@ describe("sessions routes", () => {
       expect(systemText).not.toContain("You can work with the user's files");
     });
 
-    it("runs a filesystem read tool straight through by default", async () => {
+    it("runs a bounded filesystem read without approval and persists continuation", async () => {
       writeFileSync(join(env.cwd, "kiri.yaml"), "filesystem:\n  allowed_directories: [.]\n");
-      writeFileSync(join(env.cwd, "notes.md"), "remember the milk\n");
-      const input = JSON.stringify({ path: join(env.cwd, "notes.md") });
+      writeFileSync(join(env.cwd, "notes.md"), "before\nremember the milk\nafter\n");
+      const input = JSON.stringify({
+        path: join(env.cwd, "notes.md"),
+        start_line: 2,
+        line_count: 1,
+      });
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: toolCallModel("read_file", input) }), { bus });
       createSession(env.db, MODEL, { id: "s1" });
@@ -2096,9 +2100,13 @@ describe("sessions routes", () => {
       // same turn. The result reports the file's real path.
       const rows = getSessionMessages(env.db, "s1");
       expect(toolPartOf(rows[1]).state).toBe("output-available");
-      expect(toolPartOf(rows[1]).output).toEqual({
+      expect(toolPartOf(rows[1]).output).toMatchObject({
         path: realpathSync(join(env.cwd, "notes.md")),
         content: "remember the milk\n",
+        start_line: 2,
+        end_line: 2,
+        next: { start_line: 3, start_column: 1 },
+        partial_line: false,
       });
     });
 

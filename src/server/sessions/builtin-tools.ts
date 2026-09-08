@@ -189,22 +189,22 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   },
   {
     name: "find_files",
-    description: "Find files by glob pattern in the allowed directories.",
+    description: "Find files by glob, defaulting to cwd, with paginated results.",
     defaultPermission: "allow",
   },
   {
     name: "list_directory",
-    description: "List a directory's immediate entries in the allowed directories.",
+    description: "Page through a directory's immediate entries.",
     defaultPermission: "allow",
   },
   {
     name: "read_file",
-    description: "Read a text file from the allowed directories.",
+    description: "Read bounded text-file ranges with continuation.",
     defaultPermission: "allow",
   },
   {
     name: "search_files",
-    description: "Search file contents in the allowed directories.",
+    description: "Search file contents from cwd with context and pagination.",
     defaultPermission: "allow",
   },
   {

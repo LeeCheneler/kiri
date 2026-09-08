@@ -550,6 +550,39 @@ describe("<ToolInvocation>", () => {
     expect(screen.queryByText(/"matches"/)).toBeNull();
   });
 
+  it("shows search context and truncation without hiding continuation", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolInvocation
+        part={writePart("search_files", {
+          state: "output-available",
+          input: { pattern: "hit", context_lines: 1 },
+          output: {
+            matches: [
+              {
+                file: "/ws/a.ts",
+                line: 2,
+                text: "hit",
+                truncated: true,
+                context: [
+                  { line: 1, text: "before" },
+                  { line: 3, text: "after" },
+                ],
+              },
+            ],
+            note: "More matches: continue with offset 1",
+            next_offset: 1,
+          },
+        })}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText(/a.ts:1- before/)).toBeDefined();
+    expect(screen.getByText(/a.ts:2: hit \[truncated\]/)).toBeDefined();
+    expect(screen.getByText(/a.ts:3- after/)).toBeDefined();
+    expect(screen.getByText("More matches: continue with offset 1")).toBeDefined();
+  });
+
   it("renders found files one per line, noting a capped result", async () => {
     const user = userEvent.setup();
     render(

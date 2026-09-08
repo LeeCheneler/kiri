@@ -141,7 +141,257 @@ describe("filesystemTools", () => {
     expect(readFileSync(ws("nested", "note.txt"), "utf8")).toBe("New.\n");
   });
 
+  it.each(["find_files", "search_files"])(
+    "%s scopes to live cwd and requires explicit widening",
+    async (name) => {
+      mkdirSync(ws("sub"));
+      writeFileSync(ws("top.md"), "hit");
+      writeFileSync(ws("sub", "inner.md"), "hit");
+      writeFileSync(out("other.md"), "hit");
+      const tool = tools([workspace, outside])[name];
+      const query = { pattern: name === "find_files" ? "**/*.md" : "hit" };
+      cwdValue = ws("sub");
+      const paths = (result: unknown) => {
+        const value = result as { files?: string[]; matches?: { file: string }[] };
+        return value.files ?? value.matches?.map((match) => match.file);
+      };
+      expect(paths(await run(tool, query))).toEqual([ws("sub", "inner.md")]);
+      expect(paths(await run(tool, { ...query, directory: outside }))).toEqual([out("other.md")]);
+      expect(paths(await run(tool, { ...query, all_allowed: true }))).toEqual(
+        [ws("top.md"), ws("sub", "inner.md"), out("other.md")].sort(),
+      );
+      await expect(
+        run(tool, { ...query, directory: workspace, all_allowed: true }),
+      ).rejects.toThrow("not both");
+      cwdValue = null;
+      await expect(run(tool, query)).rejects.toThrow("no working directory");
+      cwdValue = out();
+      await expect(run(tools()[name], query)).rejects.toThrow("outside the directories");
+    },
+  );
+
+  it.each(["find_files", "search_files", "list_directory"])(
+    "%s pages sorted results without duplication",
+    async (name) => {
+      for (const file of ["c.md", "a.md", "b.md"]) writeFileSync(ws(file), "hit");
+      cwdValue = ws();
+      const tool = tools([workspace, workspace])[name];
+      const input =
+        name === "list_directory"
+          ? { path: workspace }
+          : { pattern: name === "find_files" ? "*.md" : "hit", all_allowed: true };
+      const pages: unknown[] = [];
+      let offset = 0;
+      for (;;) {
+        const result = (await run(tool, { ...input, offset, limit: 1 })) as {
+          files?: string[];
+          entries?: string[];
+          matches?: { file: string }[];
+          next_offset: number | null;
+        };
+        pages.push(
+          ...(result.files ?? result.entries ?? result.matches?.map((match) => match.file) ?? []),
+        );
+        if (result.next_offset === null) break;
+        expect(result.next_offset).toBeGreaterThan(offset);
+        offset = result.next_offset;
+      }
+      expect(pages).toEqual(
+        name === "list_directory" ? ["a.md", "b.md", "c.md"] : [ws("a.md"), ws("b.md"), ws("c.md")],
+      );
+      expect(await run(tool, { ...input, offset: 999 })).toMatchObject({ next_offset: null });
+    },
+  );
+
+  it("keeps scan exhaustion visible after the available pages end", async () => {
+    for (const file of ["a.md", "b.md", "c.md"]) writeFileSync(ws(file), "hit");
+    cwdValue = ws();
+    for (const name of ["find_files", "search_files"]) {
+      const tool = tools([workspace], { maxScannedEntries: 2 })[name];
+      const pattern = name === "find_files" ? "*.md" : "hit";
+      expect(await run(tool, { pattern, limit: 1 })).toMatchObject({
+        next_offset: 1,
+        scan_limited: true,
+      });
+      expect(await run(tool, { pattern, limit: 1, offset: 1 })).toMatchObject({
+        next_offset: null,
+        scan_limited: true,
+      });
+    }
+  });
+
+  it("reads a range beyond the byte cap without altering whitespace or CRLF", async () => {
+    writeFileSync(
+      ws("large.txt"),
+      `${"x".repeat(140000)}\n  function target() {\r\n\treturn 42;\r\n}\r\n`,
+    );
+    expect(
+      await run(tools().read_file, { path: ws("large.txt"), start_line: 2, line_count: 2 }),
+    ).toMatchObject({
+      content: "  function target() {\r\n\treturn 42;\r\n",
+      start_line: 2,
+      end_line: 3,
+      next: { start_line: 4, start_column: 1 },
+      partial_line: false,
+    });
+  });
+
+  it("continues partial Unicode lines without replacement characters or dropped text", async () => {
+    const original = "A😀é\r\nβeta\nlast";
+    writeFileSync(ws("unicode.txt"), original);
+    const tool = tools([workspace], { maxReadBytes: 5 }).read_file;
+    let cursor = { start_line: 1, start_column: 1 };
+    let combined = "";
+    for (let page = 0; page < 20; page++) {
+      const result = (await run(tool, { path: ws("unicode.txt"), ...cursor, line_count: 1 })) as {
+        content: string;
+        next: typeof cursor | null;
+        partial_line: boolean;
+      };
+      expect(Buffer.byteLength(result.content)).toBeLessThanOrEqual(5);
+      combined += result.content;
+      if (result.next === null) break;
+      expect(result.next).not.toEqual(cursor);
+      cursor = result.next;
+    }
+    expect(combined).toBe(original);
+  });
+
+  it("retains a leading BOM across a byte-capped read", async () => {
+    writeFileSync(ws("bom.txt"), "\uFEFFhello");
+    const tool = tools([workspace], { maxReadBytes: 4 }).read_file;
+    const first = (await run(tool, { path: ws("bom.txt") })) as {
+      content: string;
+      next: { start_line: number; start_column: number };
+    };
+    expect(first.content).toBe("\uFEFFh");
+    expect(first.next).toEqual({ start_line: 1, start_column: 3 });
+    expect(await run(tool, { path: ws("bom.txt"), ...first.next })).toMatchObject({
+      content: "ello",
+      next: null,
+    });
+  });
+
+  it("handles empty files and ranges beyond EOF without inventing a line", async () => {
+    writeFileSync(ws("empty.txt"), "");
+    expect(await run(tools().read_file, { path: ws("empty.txt") })).toMatchObject({
+      content: "",
+      end_line: null,
+      next: null,
+    });
+    writeFileSync(ws("one.txt"), "one");
+    expect(await run(tools().read_file, { path: ws("one.txt"), start_line: 2 })).toMatchObject({
+      content: "",
+      end_line: null,
+      next: null,
+    });
+    await expect(run(tools().read_file, { path: ws("one.txt"), start_column: 5 })).rejects.toThrow(
+      "exceeds",
+    );
+  });
+
+  it("does not bypass confinement or binary checks when reading a range", async () => {
+    writeFileSync(out("text.txt"), "line\nline");
+    symlinkSync(out("text.txt"), ws("escape.txt"));
+    await expect(run(tools().read_file, { path: ws("escape.txt"), start_line: 2 })).rejects.toThrow(
+      "outside",
+    );
+    writeFileSync(ws("binary.txt"), "\0\nline");
+    await expect(run(tools().read_file, { path: ws("binary.txt"), start_line: 2 })).rejects.toThrow(
+      "binary",
+    );
+  });
+
+  it("returns numbered search context at file boundaries and pages matches in one file", async () => {
+    writeFileSync(ws("a.txt"), "hit first\n  middle  \nhit last");
+    cwdValue = ws();
+    const tool = tools().search_files;
+    expect(await run(tool, { pattern: "hit", context_lines: 2, limit: 1 })).toMatchObject({
+      matches: [
+        {
+          line: 1,
+          text: "hit first",
+          context: [
+            { line: 2, text: "  middle  " },
+            { line: 3, text: "hit last" },
+          ],
+        },
+      ],
+      next_offset: 1,
+    });
+    expect(
+      await run(tool, { pattern: "hit", context_lines: 1, limit: 1, offset: 1 }),
+    ).toMatchObject({
+      matches: [{ line: 3, context: [{ line: 2, text: "  middle  " }] }],
+      next_offset: null,
+    });
+  });
+
+  it("pages at the search byte budget and marks shortened match and context lines", async () => {
+    writeFileSync(ws("a.txt"), `hit ${"😀".repeat(600)}\n${"x".repeat(600)}\nhit again`);
+    cwdValue = ws();
+    const tool = tools([workspace], { maxSearchResultBytes: 2700 }).search_files;
+    const first = (await run(tool, { pattern: "hit", context_lines: 1 })) as {
+      matches: { text: string; truncated: boolean; context: { truncated: boolean }[] }[];
+      next_offset: number;
+    };
+    expect(first.matches).toHaveLength(1);
+    expect(first.matches[0].truncated).toBe(true);
+    expect(first.matches[0].context[0].truncated).toBe(true);
+    expect(first.matches[0].text).not.toContain("�");
+    expect(first.next_offset).toBe(1);
+    expect(
+      await run(tool, { pattern: "hit", context_lines: 1, offset: first.next_offset }),
+    ).toMatchObject({ matches: [{ line: 3 }], next_offset: null });
+  });
+
+  it("reports when one search match cannot fit its result budget", async () => {
+    writeFileSync(ws("a.txt"), "hit");
+    cwdValue = ws();
+    await expect(
+      run(tools([workspace], { maxSearchResultBytes: 1 }).search_files, { pattern: "hit" }),
+    ).rejects.toThrow("One match exceeds the result budget");
+  });
+
+  it("rejects a continuation column beyond EOF and a byte budget smaller than one character", async () => {
+    writeFileSync(ws("a.txt"), "😀");
+    await expect(
+      run(tools().read_file, { path: ws("a.txt"), start_line: 2, start_column: 2 }),
+    ).rejects.toThrow("requires an existing start_line");
+    await expect(
+      run(tools([workspace], { maxReadBytes: 1 }).read_file, { path: ws("a.txt") }),
+    ).rejects.toThrow("cannot fit one character");
+  });
+
+  it("rejects invalid pagination, range and context inputs at the schema boundary", () => {
+    const set = tools();
+    for (const [name, input] of [
+      ["read_file", { path: "a", start_line: 0 }],
+      ["read_file", { path: "a", line_count: 10001 }],
+      ["read_file", { path: "a", start_column: 0 }],
+      ["find_files", { pattern: "*", limit: 0 }],
+      ["find_files", { pattern: "*", offset: -1 }],
+      ["search_files", { pattern: "x", context_lines: 11 }],
+      ["search_files", { pattern: "x", limit: 201 }],
+      ["list_directory", { path: ".", offset: 0.5 }],
+    ] as const) {
+      const schema = set[name].inputSchema as {
+        safeParse: (value: unknown) => { success: boolean };
+      };
+      expect(schema.safeParse(input).success).toBe(false);
+    }
+  });
+
+  it("does not list aliases to excluded state directories", async () => {
+    mkdirSync(ws(".kiri"));
+    symlinkSync(ws(".kiri"), ws("state-alias"));
+    expect(await run(tools().list_directory, { path: workspace })).toMatchObject({ entries: [] });
+  });
+
   describe("find_files", () => {
+    beforeEach(() => {
+      cwdValue = ws();
+    });
     it("finds files by glob pattern, absolute and sorted", async () => {
       writeFileSync(join(workspace, "b.md"), "b");
       writeFileSync(join(workspace, "a.md"), "a");
@@ -149,7 +399,7 @@ describe("filesystemTools", () => {
       writeFileSync(join(workspace, "sub", "c.md"), "c");
       writeFileSync(join(workspace, "notes.txt"), "not matched");
       const result = await run(tools().find_files, { pattern: "**/*.md" });
-      expect(result).toEqual({ files: [ws("a.md"), ws("b.md"), ws("sub", "c.md")] });
+      expect(result).toMatchObject({ files: [ws("a.md"), ws("b.md"), ws("sub", "c.md")] });
     });
 
     it("includes hidden files but never .git internals, secret-bearing files, or .kiri", async () => {
@@ -164,7 +414,7 @@ describe("filesystemTools", () => {
       mkdirSync(join(workspace, ".git", "objects"), { recursive: true });
       writeFileSync(join(workspace, ".git", "objects", "ab12"), "blob");
       const result = await run(tools().find_files, { pattern: "**/*" });
-      expect(result).toEqual({ files: [ws(".github", "config.yaml"), ws("visible.md")] });
+      expect(result).toMatchObject({ files: [ws(".github", "config.yaml"), ws("visible.md")] });
     });
 
     it("searches under the given directory only", async () => {
@@ -175,17 +425,21 @@ describe("filesystemTools", () => {
         pattern: "*.md",
         directory: join(workspace, "sub"),
       });
-      expect(result).toEqual({ files: [ws("sub", "inner.md")] });
+      expect(result).toMatchObject({ files: [ws("sub", "inner.md")] });
     });
 
-    it("searches every allowed directory when directory is omitted", async () => {
+    it("searches every allowed directory only when explicitly requested", async () => {
       writeFileSync(join(workspace, "here.md"), "here");
       writeFileSync(join(outside, "there.md"), "there");
-      const result = await run(tools([workspace, outside]).find_files, { pattern: "**/*.md" });
-      expect(result).toEqual({ files: [ws("here.md"), out("there.md")].sort() });
+      const result = await run(tools([workspace, outside]).find_files, {
+        pattern: "**/*.md",
+        all_allowed: true,
+      });
+      expect(result).toMatchObject({ files: [ws("here.md"), out("there.md")].sort() });
     });
 
-    it("rejects a relative directory, telling the model to use absolute paths", async () => {
+    it("rejects a relative directory without cwd, telling the model to use absolute paths", async () => {
+      cwdValue = null;
       expect(run(tools().find_files, { pattern: "*", directory: "sub" })).rejects.toThrow(
         /use an absolute path; the directories kiri may access are/,
       );
@@ -209,13 +463,13 @@ describe("filesystemTools", () => {
       symlinkSync(join(outside, "secret.md"), join(workspace, "leak.md"));
       writeFileSync(join(workspace, "safe.md"), "safe");
       const result = await run(tools().find_files, { pattern: "**/*.md" });
-      expect(result).toEqual({ files: [ws("safe.md")] });
+      expect(result).toMatchObject({ files: [ws("safe.md")] });
     });
 
     it("excludes a broken symlink", async () => {
       symlinkSync(join(workspace, "missing.md"), join(workspace, "broken.md"));
       const result = await run(tools().find_files, { pattern: "**/*.md" });
-      expect(result).toEqual({ files: [] });
+      expect(result).toMatchObject({ files: [] });
     });
 
     it("skips an allowed directory that doesn't exist", async () => {
@@ -223,7 +477,7 @@ describe("filesystemTools", () => {
       const result = await run(tools([join(workspace, "nope"), workspace]).find_files, {
         pattern: "**/*.md",
       });
-      expect(result).toEqual({ files: [ws("a.md")] });
+      expect(result).toMatchObject({ files: [ws("a.md")] });
     });
 
     it("caps the result with a note telling the model to narrow", async () => {
@@ -234,7 +488,7 @@ describe("filesystemTools", () => {
         pattern: "**/*.md",
       })) as { files: string[]; note: string };
       expect(result.files).toEqual([ws("a.md"), ws("b.md")]);
-      expect(result.note).toMatch(/showing 2 of 3 matches — narrow the pattern/);
+      expect(result.note).toMatch(/showing 2 of 3 matches — continue with offset 2/);
     });
 
     it("skips dependency, cache, and build-output directories by default", async () => {
@@ -244,21 +498,21 @@ describe("filesystemTools", () => {
       }
       writeFileSync(join(workspace, "a.md"), "a");
       const result = await run(tools().find_files, { pattern: "**/*.md" });
-      expect(result).toEqual({ files: [ws("a.md")] });
+      expect(result).toMatchObject({ files: [ws("a.md")] });
     });
 
     it("still finds a file named like a pruned directory", async () => {
       mkdirSync(join(workspace, "bin"));
       writeFileSync(join(workspace, "bin", "build"), "#!/bin/sh");
       const result = await run(tools().find_files, { pattern: "**/*" });
-      expect(result).toEqual({ files: [ws("bin", "build")] });
+      expect(result).toMatchObject({ files: [ws("bin", "build")] });
     });
 
     it("descends into node_modules when the pattern names it", async () => {
       mkdirSync(join(workspace, "node_modules", "pkg"), { recursive: true });
       writeFileSync(join(workspace, "node_modules", "pkg", "readme.md"), "dep");
       const result = await run(tools().find_files, { pattern: "node_modules/**/*.md" });
-      expect(result).toEqual({ files: [ws("node_modules", "pkg", "readme.md")] });
+      expect(result).toMatchObject({ files: [ws("node_modules", "pkg", "readme.md")] });
     });
 
     it("searches inside node_modules when directory points into one", async () => {
@@ -268,7 +522,7 @@ describe("filesystemTools", () => {
         pattern: "**/*.md",
         directory: join(workspace, "node_modules", "pkg"),
       });
-      expect(result).toEqual({ files: [ws("node_modules", "pkg", "readme.md")] });
+      expect(result).toMatchObject({ files: [ws("node_modules", "pkg", "readme.md")] });
     });
 
     it("stops at the scan budget with a note telling the model to narrow", async () => {
@@ -289,7 +543,7 @@ describe("filesystemTools", () => {
       chmodSync(join(workspace, "locked"), 0o000);
       try {
         const result = await run(tools().find_files, { pattern: "**/*.md" });
-        expect(result).toEqual({ files: [ws("a.md")] });
+        expect(result).toMatchObject({ files: [ws("a.md")] });
       } finally {
         chmodSync(join(workspace, "locked"), 0o755);
       }
@@ -302,7 +556,7 @@ describe("filesystemTools", () => {
       mkdirSync(join(workspace, "docs"));
       writeFileSync(join(workspace, "docs", "nested.md"), "hidden from this level");
       const result = await run(tools().list_directory, { path: workspace });
-      expect(result).toEqual({ path: ws(), entries: ["docs/", "notes.md"] });
+      expect(result).toMatchObject({ path: ws(), entries: ["docs/", "notes.md"] });
     });
 
     it("lists hidden entries but never .git, secret-bearing, or .kiri ones", async () => {
@@ -312,20 +566,20 @@ describe("filesystemTools", () => {
       mkdirSync(join(workspace, ".kiri"));
       mkdirSync(join(workspace, ".git"));
       const result = await run(tools().list_directory, { path: workspace });
-      expect(result).toEqual({ path: ws(), entries: [".github/", "visible.md"] });
+      expect(result).toMatchObject({ path: ws(), entries: [".github/", "visible.md"] });
     });
 
     it("returns an empty listing for an empty directory", async () => {
       mkdirSync(join(workspace, "empty"));
       const result = await run(tools().list_directory, { path: join(workspace, "empty") });
-      expect(result).toEqual({ path: ws("empty"), entries: [] });
+      expect(result).toMatchObject({ path: ws("empty"), entries: [] });
     });
 
     it("shows a symlinked entry that stays inside the sandbox, with its target's kind", async () => {
       mkdirSync(join(workspace, "sub"));
       symlinkSync(join(workspace, "sub"), join(workspace, "sub-link"));
       const result = await run(tools().list_directory, { path: workspace });
-      expect(result).toEqual({ path: ws(), entries: ["sub-link/", "sub/"] });
+      expect(result).toMatchObject({ path: ws(), entries: ["sub-link/", "sub/"] });
     });
 
     it("skips symlinked entries that resolve outside the sandbox, and broken ones", async () => {
@@ -334,7 +588,7 @@ describe("filesystemTools", () => {
       symlinkSync(join(workspace, "missing.md"), join(workspace, "broken.md"));
       writeFileSync(join(workspace, "safe.md"), "safe");
       const result = await run(tools().list_directory, { path: workspace });
-      expect(result).toEqual({ path: ws(), entries: ["safe.md"] });
+      expect(result).toMatchObject({ path: ws(), entries: ["safe.md"] });
     });
 
     it("rejects a relative path", async () => {
@@ -371,7 +625,7 @@ describe("filesystemTools", () => {
       mkdirSync(join(workspace, "docs"));
       writeFileSync(join(workspace, "docs", "guide.md"), "# Guide\n");
       const result = await run(tools().read_file, { path: join(workspace, "docs", "guide.md") });
-      expect(result).toEqual({ path: ws("docs", "guide.md"), content: "# Guide\n" });
+      expect(result).toMatchObject({ path: ws("docs", "guide.md"), content: "# Guide\n" });
     });
 
     it("reads from a second allowed directory", async () => {
@@ -379,7 +633,7 @@ describe("filesystemTools", () => {
       const result = await run(tools([workspace, outside]).read_file, {
         path: join(outside, "notes.md"),
       });
-      expect(result).toEqual({ path: out("notes.md"), content: "external" });
+      expect(result).toMatchObject({ path: out("notes.md"), content: "external" });
     });
 
     it("rejects a relative path, naming the allowed directories", async () => {
@@ -418,7 +672,7 @@ describe("filesystemTools", () => {
       const result = await run(tools().read_file, {
         path: join(workspace, ".github", "config.yaml"),
       });
-      expect(result).toEqual({ path: ws(".github", "config.yaml"), content: "a: 1\n" });
+      expect(result).toMatchObject({ path: ws(".github", "config.yaml"), content: "a: 1\n" });
       expect(run(tools().read_file, { path: join(workspace, ".env") })).rejects.toThrow(
         /off-limits/,
       );
@@ -456,7 +710,7 @@ describe("filesystemTools", () => {
         path: join(workspace, "big.md"),
       })) as { content: string; note: string };
       expect(result.content).toBe("hello wo");
-      expect(result.note).toMatch(/truncated — first 8 bytes of 12/);
+      expect(result.note).toMatch(/Partial final line; continue with start_line 1, start_column 9/);
     });
 
     it("reports an empty sandbox when no directories are configured", async () => {
@@ -468,12 +722,15 @@ describe("filesystemTools", () => {
   });
 
   describe("search_files", () => {
+    beforeEach(() => {
+      cwdValue = ws();
+    });
     it("returns file, line number, and trimmed line text for each match", async () => {
       writeFileSync(join(workspace, "a.md"), "first\n  TODO: fix this  \nlast\n");
       mkdirSync(join(workspace, "sub"));
       writeFileSync(join(workspace, "sub", "b.md"), "TODO: another\n");
       const result = await run(tools().search_files, { pattern: "TODO" });
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         matches: [
           { file: ws("a.md"), line: 2, text: "TODO: fix this" },
           { file: ws("sub", "b.md"), line: 1, text: "TODO: another" },
@@ -542,7 +799,7 @@ describe("filesystemTools", () => {
       mkdirSync(join(workspace, ".kiri"));
       writeFileSync(join(workspace, ".kiri", "command-judgements.jsonl"), "hit\n");
       const result = await run(tools().search_files, { pattern: "hit" });
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         matches: [{ file: ws(".github", "config.yaml"), line: 1, text: "hit" }],
       });
     });
@@ -550,7 +807,7 @@ describe("filesystemTools", () => {
     it("returns an empty match list when nothing matches", async () => {
       writeFileSync(join(workspace, "a.md"), "quiet\n");
       const result = await run(tools().search_files, { pattern: "absent" });
-      expect(result).toEqual({ matches: [] });
+      expect(result).toMatchObject({ matches: [] });
     });
 
     it("skips dependency, cache, and build-output directories by default", async () => {
@@ -648,14 +905,14 @@ describe("filesystemTools", () => {
       mkdirSync(join(workspace, "docs"));
       writeFileSync(join(workspace, "docs", "notes.md"), "remember\n");
       cwdValue = ws("docs");
-      expect(await run(tools().read_file, { path: "notes.md" })).toEqual({
+      expect(await run(tools().read_file, { path: "notes.md" })).toMatchObject({
         path: ws("docs", "notes.md"),
         content: "remember\n",
       });
-      expect(await run(tools().find_files, { pattern: "*.md", directory: "." })).toEqual({
+      expect(await run(tools().find_files, { pattern: "*.md", directory: "." })).toMatchObject({
         files: [ws("docs", "notes.md")],
       });
-      expect(await run(tools().list_directory, { path: "." })).toEqual({
+      expect(await run(tools().list_directory, { path: "." })).toMatchObject({
         path: ws("docs"),
         entries: ["notes.md"],
       });

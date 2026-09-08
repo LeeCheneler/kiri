@@ -624,7 +624,7 @@ describe("buildSystemPrompt", () => {
     expect(withoutRerun).not.toContain("go through rerun_workflow");
   });
 
-  it("includes filesystem guidance with the allowed directories only when read_file is active", () => {
+  it("includes filesystem guidance for each active filesystem capability", () => {
     const withFilesystem = buildSystemPrompt({
       config,
       now: FIXED_NOW,
@@ -639,15 +639,16 @@ describe("buildSystemPrompt", () => {
     expect(withFilesystem).toContain("- /srv/projects");
     expect(withFilesystem).toContain("relative to the session's working directory");
 
-    // find_files alone (read_file withheld by its permission) carries no
-    // filesystem guidance — the find tool's own description suffices.
+    // Discovery remains useful with read_file withheld.
     const findOnly = buildSystemPrompt({
       config,
       now: FIXED_NOW,
       tools: ["find_files"],
       allowedDirectories: ["/srv/notes"],
     });
-    expect(findOnly).not.toContain("You can work with the user's files");
+    expect(findOnly).toContain("You can work with the user's files");
+    expect(findOnly).not.toContain("read_file reads");
+    expect(findOnly).not.toContain("list_directory lists");
     expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain(
       "You can work with the user's files",
     );
