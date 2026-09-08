@@ -16,21 +16,26 @@ export function knowledgeTools(deps: SearchDeps, projectId: string | null): Tool
   const scope = knowledgeScopeSchema
     .optional()
     .describe(
-      `Default: ${JSON.stringify(defaultScope)}. Workspace includes all projects; project excludes global records.`,
+      `Default: ${JSON.stringify(defaultScope)}. Workspace includes all projects; project excludes global records. Use project IDs from results, never names or paths.`,
     );
   return {
     search_knowledge: tool({
       description:
         "Search articles, sessions, memories, run summaries and workflows. Returns source references. Page with nextOffset, preserving query/scope/filters.",
       inputSchema: z.object({
-        query: z.string().max(1000),
+        query: z
+          .string()
+          .max(1000)
+          .describe(
+            "Short keyword query, e.g. 'context budget'. Every term must match; not semantic search. Retry fewer terms if empty.",
+          ),
         scope,
         session_id: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Filter to one session ID, never a workflow run ID. Omit for workspace article or run searches.",
+            "Omit to discover prior work. Set only to a known Kiri session ID to search within that session; never a placeholder, external session ID or workflow run ID.",
           ),
         limit: z.number().int().min(1).max(20).optional().describe("Default 10 hits."),
         offset: z

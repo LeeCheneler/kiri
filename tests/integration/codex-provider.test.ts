@@ -9,6 +9,7 @@ import { bootstrap } from "../../src/server/bootstrap.ts";
 import { loadKiriConfig } from "../../src/server/config/loader.ts";
 import { createConfigStore } from "../../src/server/config/store.ts";
 import type { KiriDb } from "../../src/server/db/index.ts";
+import { memories } from "../../src/server/db/schema.ts";
 import { CODEX_BASE_URL } from "../../src/server/llm/codex-fetch.ts";
 import {
   type LlmClients,
@@ -22,8 +23,10 @@ import {
   createSession,
   getSession,
   getSessionMessages,
+  knowledgeTools,
   runTurn,
 } from "../../src/server/sessions/index.ts";
+import { createRegistry } from "../../src/server/workflows/index.ts";
 import { server } from "../setup/msw.ts";
 
 const completed = {
@@ -270,6 +273,133 @@ describe("Codex provider through the AI SDK", () => {
     expect(() => clients.resolveTranscriptionModel("chatgpt:gpt-5.4-mini")).toThrow(
       "offers no transcription",
     );
+  });
+
+  it("keeps knowledge filters optional on the wire and executes search then open", async () => {
+    db.insert(memories)
+      .values({
+        id: "context-memory",
+        name: "context-budget",
+        description: "Context budget decision",
+        contentMd: "Reserve context budget for the final answer.",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    const bodies: {
+      tools: Array<{ name: string; strict?: boolean; parameters: { required: string[] } }>;
+      input: Array<Record<string, unknown>>;
+    }[] = [];
+    server.use(
+      http.post(`${CODEX_BASE_URL}/responses`, async ({ request }) => {
+        bodies.push((await request.json()) as (typeof bodies)[number]);
+        if (bodies.length > 2) return sse(textEvents);
+        const name = bodies.length === 1 ? "search_knowledge" : "open_knowledge";
+        const args = JSON.stringify(
+          bodies.length === 1
+            ? { query: "context budget" }
+            : { reference: { type: "memory", id: "context-memory" } },
+        );
+        const item = {
+          type: "function_call",
+          id: `fc_${bodies.length}`,
+          call_id: `call_${bodies.length}`,
+          name,
+        };
+        return sse([
+          {
+            type: "response.output_item.added",
+            output_index: 0,
+            item: { ...item, arguments: "" },
+          },
+          {
+            type: "response.function_call_arguments.delta",
+            output_index: 0,
+            item_id: item.id,
+            delta: args,
+          },
+          {
+            type: "response.output_item.done",
+            output_index: 0,
+            item: { ...item, arguments: args, status: "completed" },
+          },
+          completed,
+        ]);
+      }),
+    );
+    const session = createSession(db, "chatgpt:gpt-5.4-mini");
+    const turn = await runTurn(
+      { db, llmClients: clients, tools: knowledgeTools({ db, registry: createRegistry() }, null) },
+      {
+        session,
+        userMessage: {
+          id: crypto.randomUUID(),
+          role: "user",
+          parts: [{ type: "text", text: "Find our saved decision." }],
+        },
+      },
+    );
+    await turn.done;
+    expect(bodies).toHaveLength(3);
+    expect(bodies[0].tools).toEqual([
+      expect.objectContaining({
+        name: "search_knowledge",
+        strict: false,
+        parameters: expect.objectContaining({ required: ["query"] }),
+      }),
+      expect.objectContaining({
+        name: "open_knowledge",
+        strict: false,
+        parameters: expect.objectContaining({ required: ["reference"] }),
+      }),
+    ]);
+    const stored = getSessionMessages(db, session.id);
+    expect(stored[1].parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-search_knowledge",
+        state: "output-available",
+        output: expect.objectContaining({
+          scope: "workspace",
+          results: [
+            expect.objectContaining({ reference: { type: "memory", id: "context-memory" } }),
+          ],
+        }),
+      }),
+    );
+    expect(stored[1].parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-open_knowledge",
+        state: "output-available",
+        output: expect.objectContaining({
+          excerpts: [
+            expect.objectContaining({ text: "Reserve context budget for the final answer." }),
+          ],
+        }),
+      }),
+    );
+    expect(bodies[2].input).toContainEqual(
+      expect.objectContaining({ type: "function_call_output", call_id: "call_2" }),
+    );
+    expect(getSession(db, session.id)?.status).toBe("idle");
+  });
+
+  it.each([true, false])("preserves an explicit tool strict setting of %s", async (strict) => {
+    let body: Record<string, unknown> | undefined;
+    server.use(
+      http.post(`${CODEX_BASE_URL}/responses`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return sse(textEvents);
+      }),
+    );
+    const result = streamText({
+      model: clients.resolveModel("chatgpt:gpt-5.4-mini"),
+      prompt: "hello",
+      tools: {
+        lookup: tool({ strict, inputSchema: z.object({ key: z.string() }) }),
+      },
+    });
+    expect(await result.text).toBe("violet");
+    expect(body?.tools).toEqual([expect.objectContaining({ name: "lookup", strict })]);
   });
 
   it("persists reasoning and tool results and replays them on the next Kiri turn", async () => {

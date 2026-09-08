@@ -19,6 +19,11 @@ export function createCodexModel(
       specificationVersion: "v3",
       transformParams: async ({ params }) => ({
         ...params,
+        // Responses can normalize omitted strict settings into required fields.
+        // Preserve optional inputs unless a tool explicitly opts into strict mode.
+        tools: params.tools?.map((tool) =>
+          tool.type === "function" ? { ...tool, strict: tool.strict ?? false } : tool,
+        ),
         providerOptions: {
           ...params.providerOptions,
           openai: {
