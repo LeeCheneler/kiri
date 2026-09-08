@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Redirect } from "wouter";
 import { ApiError } from "../api.ts";
 import { LoadingState } from "../design-system/content/loading-state.tsx";
 import { articleWikiLinkResolver } from "../design-system/content/wiki-links.ts";
@@ -58,6 +59,7 @@ export function SessionArticleActions({ params }: { params: { id: string; slug: 
   const deleteArticle = useDeleteSessionArticle();
   if (!article.isSuccess) return null;
   const data = article.data;
+  if (data.projectId) return null;
   return (
     <DeleteArticleButton
       onDelete={() => deleteArticle(data.sessionId, data.slug)}
@@ -120,6 +122,14 @@ export function SessionArticleContent({
   }
 
   const data = article.data;
+  if (data.projectId) {
+    return (
+      <Redirect
+        to={`/projects/${encodeURIComponent(data.projectId)}/articles/${encodeURIComponent(data.slug)}`}
+        replace
+      />
+    );
+  }
   return (
     <ArticleReader
       contentMd={data.contentMd}

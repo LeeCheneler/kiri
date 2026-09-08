@@ -57,6 +57,20 @@ const articleJson = (id: string, slug: string, contentMd: string) => ({
 });
 
 describe("<SessionArticlePage>", () => {
+  it("redirects an old session article link to its project after a move", async () => {
+    server.use(
+      http.get("*/api/sessions/:id/articles/:slug", () =>
+        HttpResponse.json({
+          ...articleJson(SESSION_ID, "notes", "# Notes"),
+          projectId: "p1",
+        }),
+      ),
+    );
+    const { history } = renderArticle(SESSION_ID, "notes");
+    await waitFor(() => expect(history.at(-1)).toBe("/projects/p1/articles/notes"));
+    expect(screen.queryByRole("button", { name: /delete article/i })).toBeNull();
+  });
+
   it("shows a loading message while the article is being fetched", async () => {
     // A never-resolving handler keeps the page in the loading state while
     // we make the synchronous assertion.

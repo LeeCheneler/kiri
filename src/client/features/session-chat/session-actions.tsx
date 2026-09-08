@@ -4,10 +4,11 @@ import { ApiError, deleteSession } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
 import { useSession } from "../../state/sessions.ts";
+import { MoveSessionModal } from "./move-session-modal.tsx";
 import { clearSessionDraft } from "./session-draft.ts";
 
 /**
- * The chat right rail's delete control. Confirms, removes the session and its
+ * The chat right rail's move and delete controls. Delete confirms, removes the session and its
  * messages, then returns to the session list — a 404 counts as already-deleted
  * (another tab, a stale view), so it still navigates. Disabled while a turn is
  * in flight, since the server refuses to remove a running session. Failures
@@ -19,6 +20,7 @@ export function SessionActions({ id }: { id: string }) {
   const detail = useSession(id).data;
   const [pending, setPending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!detail) return null;
@@ -53,6 +55,23 @@ export function SessionActions({ id }: { id: string }) {
   return (
     <>
       <div className="flex flex-col items-start gap-1">
+        {detail.session.projectId === null && detail.session.parentSessionId === null ? (
+          <div className="-mx-3">
+            <Button
+              variant="dismissive"
+              disabled={pending || running || detail.session.status === "waiting"}
+              title={
+                running || detail.session.status === "waiting"
+                  ? "finish or cancel the turn and resolve pending approvals first"
+                  : undefined
+              }
+              aria-haspopup="dialog"
+              onClick={() => setMoveOpen(true)}
+            >
+              move to project
+            </Button>
+          </div>
+        ) : null}
         {/* A quiet text action: a rare, considered move that shouldn't
             compete with the rail's controls. It still confirms — and only
             shows its red on approach. The negative margin re-aligns the
@@ -75,6 +94,7 @@ export function SessionActions({ id }: { id: string }) {
           </p>
         ) : null}
       </div>
+      {moveOpen ? <MoveSessionModal key={id} id={id} onClose={() => setMoveOpen(false)} /> : null}
       {confirmOpen ? (
         <ConfirmModal
           title="Delete this session?"

@@ -258,8 +258,8 @@ export const sessions = sqliteTable(
      */
     title: text("title"),
     /**
-     * The project this session was created within, or null for a projectless
-     * session. Set at creation and never moved — a project session's article
+     * The project this session belongs to, or null for a projectless
+     * session. Standalone sessions can move into a project — its article
      * tools target the project's shared corpus instead of session-owned
      * articles, and deleting the project deletes the session with it.
      */

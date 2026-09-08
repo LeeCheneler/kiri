@@ -26,7 +26,8 @@ export interface NewMessage {
  * start; it stays editable via `updateSessionTitle`. Pass `cwd` to start the
  * session working from that directory; it stays movable via
  * `updateSessionCwd`. Pass `projectId` to create the session within a
- * project — set at creation and never moved. Pass `parentSessionId`
+ * project. Standalone sessions can later move into a project with their
+ * articles. Pass `parentSessionId`
  * (with the spawning `parentToolCallId`) to create a child session; omit them
  * for a top-level one. Returns the persisted row.
  */

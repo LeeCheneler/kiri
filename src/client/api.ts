@@ -461,6 +461,8 @@ export const fetchArticle = async (runId: string, slug: string): Promise<Article
 export interface SessionArticleDetail {
   id: string;
   sessionId: string;
+  /** The destination for an article rehomed by moving its session into a project. */
+  projectId?: string | null;
   /** How the producing session is named wherever it is listed: its title, else its opening message, else its short id. */
   sessionLabel: string;
   slug: string;
@@ -783,7 +785,7 @@ export interface Session {
   cwd: string | null;
   /** The session's display name, or null when untitled — lists fall back to the preview. */
   title: string | null;
-  /** The project this session was created within, or null for a projectless session. Set at creation and never moved. */
+  /** The project this session belongs to, or null until created in or moved into a project. */
   projectId: string | null;
   /** The parent session this one was spawned from, or null for a top-level session. */
   parentSessionId: string | null;
@@ -1056,8 +1058,8 @@ export const transcribeAudio = async (audio: Blob): Promise<string> => {
 /**
  * Create a session against `model` (a `provider:model` id), returning the new
  * row — navigate to it to start chatting. Pass `imageModel` to start with image
- * generation on, and `projectId` to create the session within a project —
- * membership is set at creation and never moved. Throws `ApiError` on non-2xx,
+ * generation on, and `projectId` to create the session within a project.
+ * Standalone sessions can move into a project later. Throws `ApiError` on non-2xx,
  * notably 400 when a model can't be resolved against the provider registry or
  * the project doesn't exist.
  */
@@ -1145,6 +1147,19 @@ export const patchSessionTitle = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
+    }),
+  );
+
+/** Move a standalone session and its articles into a project. Throws on conflicts or active turns. */
+export const moveSessionToProject = async (
+  id: string,
+  projectId: string,
+): Promise<{ session: Session }> =>
+  json<{ session: Session }>(
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId }),
     }),
   );
 
