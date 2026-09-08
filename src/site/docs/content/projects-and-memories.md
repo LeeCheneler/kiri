@@ -15,6 +15,11 @@ loading the full text only when it looks relevant. Saving an existing
 memory's name rewrites it in place — correct a misunderstood memory by
 explaining what it got wrong.
 
+The assistant can also save a durable preference, stable project fact, or
+correction that will help future sessions. It is guided to skip temporary
+status, guesses, secrets, and facts useful only to the current reply, and to
+update an existing memory instead of creating a duplicate.
+
 The **Memories page** is where you curate the record: read, edit, and delete
 what's wrong or stale. The memory tools run without prompting by default —
 that page is your standing oversight — and can be set to Ask or Off like any

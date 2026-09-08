@@ -1,8 +1,8 @@
 # Quickstart
 
-Install kiri, work something out in a session, keep the write-up as an
-article, then turn it into a local workflow you run with one click — the
-whole loop in about five minutes.
+Install kiri and start a general-purpose or coding session. This guide also
+shows how to keep a useful write-up and, if you want automation, request a
+local workflow.
 
 ## Install
 
@@ -66,9 +66,9 @@ with charts and diagrams if the content calls for them — not scrollback. Ask
 for changes and the session edits the page in place. Everything a session or
 run produces is searchable as you type, ⌘K from anywhere.
 
-## Turn the repeat into a button
+## Optional: turn the repeat into a button
 
-That summary is worth having every week — so ask the same session:
+If you want that summary as a repeatable automation, explicitly ask the session:
 
 > save that as a workflow
 
@@ -78,8 +78,8 @@ steps piped into model steps, diffable and committable like any other code.
 From now on it's one click — **Run** on the Workflows page — and each run
 writes a fresh article into your feed.
 
-That's the whole ladder: **work it out in chat, keep what matters as
-articles, automate the repeats as workflows.**
+You can use kiri entirely through sessions. Saving articles and creating
+workflows are options when they help, not requirements for completing work.
 
 ## Where kiri keeps things
 
