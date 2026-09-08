@@ -544,7 +544,14 @@ describe("message_parent tool", () => {
   };
 
   it("queues a child-sourced message for the parent, carrying the sender's session id", async () => {
-    const result = await message("worker", "Report: two advisories, both patched upstream.");
+    const report = [
+      "Incomplete: one compatibility check completed.",
+      "Finding: the adapter uses a string message. Evidence: src/adapter.ts:42 (sendMessage).",
+      "Source: Adapter reference — https://example.com/adapter#messages (accessed 2026-09-08).",
+      "Uncertainty: the legacy version's documentation was unavailable.",
+      "Remaining: verify the legacy format against its release notes before recommending migration.",
+    ].join("\n");
+    const result = await message("worker", report);
 
     expect(result).toContain("Delivered");
     const [item] = pendingInboxItems(db, "parent");
@@ -552,7 +559,7 @@ describe("message_parent tool", () => {
     // The id, not a copied label: the delivery names the worker by its live
     // title wherever the message surfaces.
     expect(item?.fromSessionId).toBe("worker");
-    expect(item?.text).toBe("Report: two advisories, both patched upstream.");
+    expect(item?.text).toBe(report);
     expect(events).toContainEqual({ type: "session.inbox.queued", sessionId: "parent" });
   });
 

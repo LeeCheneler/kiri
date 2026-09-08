@@ -348,45 +348,33 @@ const DELEGATE_ROLE_GUIDANCE: Record<DelegateRole, string> = {
   deep: "`deep` is reserved for tasks whose outcome hinges on reasoning depth: genuine ambiguity, conflicting sources, subtle code correctness, debugging from symptoms, cross-cutting design.",
 };
 
-// Cross-cutting guidance for the first-party delegate tool — the judgement no
-// tool description can carry alone. The trigger is phrased on request shapes
-// (a comparison, a roundup, a latest-news check) rather than a call-count
-// threshold: a threshold asks the model to forecast its own calls, and a
-// model deciding greedily forecasts "one more lookup" every time and never
-// delegates — the shape of the user's request is checkable before the first
-// call, even by a small model. Worker results should be assessed rather than
-// seeding a re-run (the leak delegation exists to prevent). Keyed off the
-// tool's name, so a session not offered it — or a child session, which never
-// is — gets no delegation steer. The tool takes a required `effort` — and,
-// with delegate models configured, a required `model` role — so the steer
-// carries a right-sizing rule per lever. Workers run detached and talk back
-// through messages, so the steer also carries the choreography: end the turn
-// once the spawns are away, wake on each report, answer questions promptly,
-// and skip idle chatter.
+// Delegation is useful when a separable task benefits from its own context
+// or can run alongside independent work. Keep routing, sizing, and report
+// assessment together, and expose them only when delegation is available.
 function buildDelegateGuidance(
   tools: string[],
   delegateRoles: readonly DelegateRole[],
 ): string | null {
   if (!tools.includes("delegate")) return null;
   return [
-    "You can delegate: the `delegate` tool hands a self-contained task to a worker session — the same model as you, holding the same permission-gated tools as this conversation — that does the legwork in its own context, in the background, so this conversation holds the findings rather than the working. The call returns the worker's session id immediately; everything the worker has to say — progress, questions, and its result — arrives here as messages from it, woven into your turn if you are still working or starting a new one for you if you have ended it. The user watches the worker live in the transcript, so delegating hides nothing.",
-    'Delegation is the rule for research, not an option to weigh. A comparison ("how does X compare to Y"), a roundup or comprehensive breakdown, a "what\'s the latest on X", any request answered by gathering from more than one place: these go to `delegate` as your first tool call for the request. Running their searches, fetches, and reads in this conversation is a mistake, however efficient each call looks. The only research to run inline is a single specific lookup — one search or one read whose result you use directly.',
+    "You can delegate: the `delegate` tool hands a self-contained task to a worker session — your model unless a configured role is selected, using the same permission gates as this conversation — that does the legwork in its own context, in the background, so this conversation holds the findings rather than the working. The call returns the worker's session id immediately; everything the worker has to say — progress, questions, and its result — arrives here as messages from it, woven into your turn if you are still working or starting a new one for you if you have ended it. The user watches the worker live in the transcript, so delegating hides nothing.",
+    "Choose delegation for substantial, separable work when independent strands can run in parallel, a focused worker improves quality, or keeping bulky investigation out of this conversation saves useful context. Weigh that benefit against briefing, coordination, and report review. Keep small investigations and tightly coupled reasoning local: a search followed by reading its result can stay here. Neither a second lookup nor a comparison or latest-news request requires delegation by itself.",
     "Delegating well:",
     ...(delegateRoles.length > 0
       ? [
           `- Size each worker's model to its task with the required \`model\` prop, task by task — never one size for the whole batch. ${delegateRoles.map((role) => DELEGATE_ROLE_GUIDANCE[role]).join(" ")} Escalate the one strand that needs it, not the batch. Both sizing failures are real: an undersized worker returns a shallow or wrong report that costs a rerun; an oversized worker burns time and money for the same output.`,
         ]
       : []),
-    "- State each worker's effort with the required `effort` prop, task by task — the second sizing lever, independent of which model runs the worker (which model works versus how hard it reasons). `low` runs mechanical, fully-specified legwork whose steps are already known. `medium` is the everyday default for ordinary research and coding strands. `high` is for work whose answer benefits from deliberate reasoning. `xhigh` is for the hardest work, where result quality outweighs time and cost. `max` is the absolute ceiling, on providers that distinguish one from xhigh. A fan-out of simple parallel strands runs low; escalate the one strand that needs deep synthesis rather than the batch.",
-    '- Catch yourself at the plan: the moment your next step is "let me research / search / look into", that step is the delegate task — write it as the brief instead of making its first call yourself. Mid-way counts too: needing a second call on the same question means you are past the line — stop and delegate the remainder.',
+    "- State each worker's effort with the required `effort` prop, task by task — the second sizing lever, independent of which model runs the worker (which model works versus how hard it reasons). `low` runs mechanical, fully-specified legwork whose steps are already known. `medium` is the everyday default for ordinary research and coding strands. `high` is for work whose answer benefits from deliberate reasoning. `xhigh` is for the hardest work, where result quality outweighs time and cost. `max` is the absolute ceiling, on providers that distinguish one from xhigh. Fully-specified mechanical strands can run low; escalate the one strand that needs deep synthesis rather than the batch.",
+    "- Decide whether delegation helps before choosing a worker's model or effort. A cheap model is not a reason to delegate a trivial lookup. Reassess if local work grows into a substantial separable strand; pass on evidence already gathered rather than asking the worker to start over.",
     '- Name each delegation with the required `title` prop: a few words that identify the task — a label, not a sentence. It is how the user tracks the work in the transcript and tells parallel workers apart, so make each title specific to its task ("CVE scan of auth deps", "Postgres 17 upgrade notes"), never generic ("Research", "Subtask 1").',
-    "- Write the task as a complete, self-contained brief: the worker cannot see this conversation, so state the goal, the specifics to find or produce, and the shape of report you want back.",
-    "- Independent strands are separate tasks: delegate each in its own call rather than bundling unrelated questions into one brief.",
-    "Working with running delegations — the mob's choreography:",
+    "- Write the task as a complete, self-contained brief: the worker cannot see this conversation, so state the goal, task-specific constraints, the specifics to find or produce, evidence already gathered, and the report needed: findings tied to supporting sources/references, uncertainties, and incomplete work. Standing instructions are supplied automatically.",
+    "- Split substantial independent strands into bounded tasks when parallel work or separate context will help; keep dependent steps together. For example, separate library compatibility investigations can run in parallel, with the comparison and decision here.",
+    "Working with running delegations:",
     "- Don't wait busily. Once your workers are spawned and nothing else needs you this turn, tell the user what is underway and end your turn: each worker's messages arrive on their own and wake you when you are idle. Never poll a worker on a timer or spin making no-op calls to stay alive.",
     "- Fan out, then synthesise: as reports land, fold each into the picture, and give the user the assembled answer once the last strand has reported — each wake, check what is still outstanding before replying as though the work were done.",
     "- `message_worker` is your side of the conversation: answer a worker's question promptly — it may be stuck until you do — steer one that is drifting off-brief, and nudge one that has gone quiet for longer than its task explains. Skip idle chatter: every message costs the worker a context detour, so message with a purpose or not at all.",
-    "- A worker's progress note or question is not a completion report. Kiri sends an automatic notice when its turn ends, including a saved reply when needed. A stopped turn does not prove the task is complete: check its result and outstanding work before synthesising. Use the findings already supplied without repeating completed work; send a follow-up with `message_worker` only for a remaining gap.",
+    "- A worker's progress note or question is not a completion report. Kiri sends an automatic notice when its turn ends, including a saved reply when needed. A stopped turn does not prove the task is complete: check its result and outstanding work before synthesising. Distinguish progress, questions, results, and incomplete work explicitly. Assess findings against the brief and preserve their source references and uncertainties in your answer. Use the findings already supplied without repeating completed work. Missing or conflicting evidence calls for a targeted follow-up with `message_worker` or a narrow source check here; selectively verify consequential or weakly supported claims before relying on them. Do not routinely repeat the worker's investigation or treat an unsupported report as established fact.",
     "- Delegation can act, not just research: a worker holds the same permission-gated tools as this conversation, so delegated work may include writes and commands. A call the user approves per call pauses the worker until they answer — you cannot approve it, and a message sent to a paused worker queues until it resumes — so a quiet worker may be waiting on the user, and a task that would pause at every step is better done here.",
   ].join("\n");
 }
@@ -401,10 +389,8 @@ function buildDelegateGuidance(
 // everything else and is the most common blow-up), before covering parallelism
 // and treating a capped or timed-out result as incomplete (kiri caps each
 // result and aborts a call past its time budget). When the delegate tool is
-// active, the spend bullets open by routing multi-call research to it — these
-// rules otherwise teach exactly the efficient inline searching that delegation
-// should replace. Returns null when no tools are active, so the section never
-// appears in a plain chat.
+// active, routing weighs the benefit of a separate context against handoff
+// overhead. Returns null when no tools are active.
 function buildToolGuidance(tools: string[]): string | null {
   if (tools.length === 0) return null;
   return [
@@ -412,7 +398,7 @@ function buildToolGuidance(tools: string[]): string | null {
     "Within that, spend deliberately:",
     ...(tools.includes("delegate")
       ? [
-          "- Route before you run: research that needs more than a single lookup is not run here — hand the whole job to the `delegate` tool first (see below). The rules that follow govern the calls you do make in this conversation.",
+          "- Keep small investigations local, including searching and reading a result. Use `delegate` for substantial separable work when quality, parallelism, or context benefit justifies the handoff (see below); tool-call count alone does not decide routing.",
         ]
       : []),
     "- Call a tool when it beats what you reliably know — to act on the world, or to fetch something specific you can't otherwise verify — not to confirm the obvious or re-fetch what the conversation already holds. Never claim a result you didn't get.",
@@ -619,6 +605,9 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
         "- Message your result before ending your turn. Make it complete and self-contained: a tight synthesis that leads with the answer and distils the facts and figures that answer the task, never a play-by-play of what you did or a paste of raw results.",
         "- Ask only when truly blocked — when the brief is missing something your tools cannot resolve — and keep working on whatever doesn't depend on the answer while it comes back.",
         "- Be honest about gaps: if you couldn't confirm something, or a result was truncated or thin, say so plainly rather than presenting a guess as settled, and never fabricate facts, figures, quotes, or URLs.",
+        "- Identify the message as progress, a question, a result, or incomplete work. A result must state what was completed; an incomplete report must state what remains, why it stopped, and the next useful step.",
+        "- Tie each material finding to supporting sources/references the parent can use: source URLs with titles and relevant dates for web evidence, or file paths and line/symbol references for code. Include the specific evidence that supports the claim, not just a list of links. Distinguish observed facts from inferences and identify missing, conflicting, stale, or inaccessible evidence. Never invent references.",
+        "- Keep the report concise enough for delivery while retaining attribution and uncertainty. If detail will not fit, prioritise the key findings and evidence, state what was omitted, and provide accessible references for the rest; worker-local tool IDs alone may be unusable by the parent.",
         ...buildHonestyGuidance(),
       ].join("\n")
     : [
@@ -626,6 +615,9 @@ export function buildChildSessionPrompt(opts: BuildChildSessionPromptOptions = {
         "- Kiri forwards a bounded excerpt of your saved final reply when your turn stops, with a reference to your transcript. Make the reply concise and self-contained: lead with the result and state any unfinished or uncertain work. A stopped turn does not prove the task complete.",
         "- Synthesise, don't dump: distil the facts and figures that actually answer the task. Never paste raw results or long quotes.",
         "- Be honest about gaps: if you couldn't confirm something, or a result was truncated or thin, say so plainly rather than presenting a guess as settled, and never fabricate facts, figures, quotes, or URLs.",
+        "- Identify the message as progress, a question, a result, or incomplete work. A result must state what was completed; an incomplete report must state what remains, why it stopped, and the next useful step.",
+        "- Tie each material finding to supporting sources/references the parent can use: source URLs with titles and relevant dates for web evidence, or file paths and line/symbol references for code. Include the specific evidence that supports the claim, not just a list of links. Distinguish observed facts from inferences and identify missing, conflicting, stale, or inaccessible evidence. Never invent references.",
+        "- Keep the report concise enough for delivery while retaining attribution and uncertainty. If detail will not fit, prioritise the key findings and evidence, state what was omitted, and provide accessible references for the rest; worker-local tool IDs alone may be unusable by the parent.",
         ...buildHonestyGuidance(),
       ].join("\n");
   // A worker's ask-gated calls pause the whole session for the user's

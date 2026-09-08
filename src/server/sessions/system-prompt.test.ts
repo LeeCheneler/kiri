@@ -976,26 +976,22 @@ describe("delegate guidance", () => {
       tools: ["delegate", "tavily__search"],
       now: FIXED_NOW,
     });
-    // The steer must install delegation as the rule for multi-call research,
-    // not an optional alternative — triggered by the shape of the request
-    // before the first call, the moment a model otherwise slides into inline
-    // searching — and the general tool strategy must route research to it
-    // before teaching efficient inline calling.
-    expect(withDelegate).toContain("Delegation is the rule for research");
-    expect(withDelegate).toContain("Route before you run");
-    // It must also steer against re-running the delegated work — the leak the
-    // tool exists to prevent.
+    // These check conditional prompt assembly, not live-model routing.
+    expect(withDelegate).toContain("a search followed by reading its result can stay here");
+    expect(withDelegate).toContain("substantial, separable work");
+    expect(withDelegate).toContain("tool-call count alone does not decide routing");
     expect(withDelegate).toContain("without repeating completed work");
+    expect(withDelegate).toContain("selectively verify consequential or weakly supported claims");
     expect(withDelegate).toContain("A stopped turn does not prove the task is complete");
-    // A session without delegate gets no delegation steer — direct search is
-    // the only research path it has.
+    expect(withDelegate).not.toContain("Delegation is the rule for research");
+    expect(withDelegate).not.toContain("needing a second call");
     const withoutDelegate = buildSystemPrompt({
       config,
       tools: ["tavily__search"],
       now: FIXED_NOW,
     });
-    expect(withoutDelegate).not.toContain("Delegation is the rule for research");
-    expect(withoutDelegate).not.toContain("Route before you run");
+    expect(withoutDelegate).not.toContain("Choose delegation for substantial");
+    expect(withoutDelegate).not.toContain("tool-call count alone does not decide routing");
   });
 
   it("frames delegation as gated action whose pauses wait on the user", () => {
@@ -1107,7 +1103,7 @@ describe("buildChildSessionPrompt", () => {
     expect(prompt).toContain("Report back:");
     expect(prompt).toContain("Synthesise, don't dump");
     expect(prompt).toContain("2026-06-17");
-    // The user's chat layers never apply to a delegated worker.
+    // The worker uses a focused core instead of the interactive chat identity.
     expect(prompt).not.toContain("interactive chat session");
   });
 
@@ -1121,6 +1117,10 @@ describe("buildChildSessionPrompt", () => {
     expect(reply).toContain("Kiri forwards a bounded excerpt of your saved final reply");
     expect(reply).not.toContain("`message_parent`");
     for (const prompt of [messaging, reply]) {
+      expect(prompt).toContain("progress, a question, a result, or incomplete work");
+      expect(prompt).toContain("Tie each material finding to supporting sources/references");
+      expect(prompt).toContain("what remains, why it stopped, and the next useful step");
+      expect(prompt).toContain("worker-local tool IDs alone may be unusable by the parent");
       expect(prompt).toContain("Keep read and inferred apart");
       expect(prompt).toContain("Never give a precise figure or range you didn't measure");
       expect(prompt).toContain("Answer the brief at the depth it needs and no wider");

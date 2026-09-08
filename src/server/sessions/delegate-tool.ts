@@ -87,7 +87,7 @@ const spawnedResult = (title: string, childSessionId: string): string =>
 export function delegateTool(deps: DelegateToolDeps): ToolSet {
   const { db, parentSessionId, childTurnDeps, bus, delegates } = deps;
   const description =
-    "The first-call route for research. A comparison, a roundup or comprehensive breakdown, a latest-news check, anything answered by gathering from more than one place: delegate it before running any search, fetch, or read of your own — doing multi-call research in the conversation instead is a mistake. The tool hands the task to a separate worker session — the same model as you, holding the same permission-gated tools as this conversation; a call needing approval pauses the worker until the user answers — that does the legwork in its own context, and returns the worker's session id immediately: the worker runs in the background while you carry on, and the user watches it live. Its progress, questions, and results arrive in this conversation as messages from it — mid-turn if you are still working, or waking you if you have ended your turn, so once your workers are spawned and nothing else needs you, tell the user what is underway and end your turn. The worker cannot see this conversation: write the task as a complete brief, stating the goal, every specific it needs, and the shape of report you want back. Only a single specific lookup, whose one result you use directly, belongs inline.";
+    "Delegate substantial, separable work when a focused worker improves quality, independent strands can run in parallel, or its separate context saves enough investigation detail to justify briefing and report review. Keep small investigations and tightly coupled reasoning local: a search followed by reading its result is fine; tool-call count alone does not require delegation. The worker runs in the background with the parent's model unless a configured model role is selected, and uses the same permission gates; only the user can approve a paused call. Returns its session id immediately. Progress, questions, results, and incomplete reports arrive as messages during your turn or wake you after it ends. When nothing else needs you, tell the user what is underway and end your turn. The worker cannot see this conversation: supply a complete brief and request findings tied to supporting sources/references, uncertainties, and incomplete work. Assess reports before synthesising; resolve missing or conflicting evidence through a targeted follow-up or source check, and selectively verify consequential or weakly supported claims without routinely repeating the investigation. Choose model and effort for the task only after deciding delegation is worthwhile.";
   const titleField = z
     .string()
     .min(1)
@@ -98,7 +98,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
     .string()
     .min(1)
     .describe(
-      "The complete brief for the worker: the goal, task-specific constraints and details it needs (it cannot see this conversation), and the shape of the report you want back. Workspace, project, and applicable directory instructions are supplied automatically; do not copy them into the brief or ask the worker to waive them.",
+      "The complete brief for the worker: the goal, task-specific constraints and details it needs (it cannot see this conversation), evidence already gathered, and the report needed: findings tied to supporting sources/references, uncertainties, and incomplete work. Workspace, project, and applicable directory instructions are supplied automatically; do not copy them into the brief or ask the worker to waive them.",
     );
   const effortField = z
     .enum(EFFORT_LEVELS)
@@ -161,7 +161,7 @@ export function delegateTool(deps: DelegateToolDeps): ToolSet {
 
   const messageWorker = tool({
     description:
-      "Message one of your delegated workers, by the session id `delegate` returned: steer it mid-task, ask what's taking so long, or answer a question it messaged you. The message weaves into the worker's turn if it is still running, or starts a new turn for it if it has finished — so you can also use this to send a settled worker a follow-up on the task it already holds. Keep it purposeful: answer questions promptly, nudge a worker that has gone quiet, and skip idle chatter — every message costs the worker a context detour.",
+      "Message one of your delegated workers, by the session id `delegate` returned: steer it mid-task, answer a question, or request the specific missing source, conflicting claim resolution, or unfinished work needed to complete its report. The message weaves into the worker's turn if it is still running, or starts a new turn for it if it has finished — so you can also use this to send a settled worker a follow-up on the task it already holds. Keep it purposeful: answer questions promptly, nudge a worker that has gone quiet, and skip idle chatter — every message costs the worker a context detour.",
     inputSchema: z.object({
       sessionId: z.string().min(1).describe("The worker's session id, as `delegate` returned it."),
       message: z
@@ -250,14 +250,14 @@ export function messageParentTool(deps: MessageParentToolDeps): ToolSet {
   return {
     [MESSAGE_PARENT_TOOL_NAME]: tool({
       description:
-        "Message the session that delegated your task. This is how everything you have to say gets back: progress when a long task passes a real milestone, a question when you are genuinely blocked on something only the parent can answer, and — always — your result, messaged before you end your turn. Kiri also sends an automatic notice when your turn stops, forwarding a bounded saved final reply unless you already sent it. The notice does not declare your task complete. Keep every message a tight synthesis, never a dump; the parent acts on what you send, so lead with the answer.",
+        "Message the session that delegated your task. This is how everything you have to say gets back: progress when a long task passes a real milestone, a question when you are genuinely blocked on something only the parent can answer, and — always — your result, messaged before you end your turn. Kiri also sends an automatic notice when your turn stops, forwarding a bounded saved final reply unless you already sent it. The notice does not declare your task complete. Identify progress, questions, results, and incomplete work explicitly. Reports must tie material findings to supporting sources/references (URLs with titles and relevant dates, or file paths and line/symbol references), distinguish evidence from inference, and state uncertainty, conflicts, and unfinished work with a reason and next step. Preserve enough evidence for an attributable answer and targeted verification. Keep every message a tight synthesis, never a dump; lead with the answer.",
       inputSchema: z.object({
         message: z
           .string()
           .min(1)
           .max(MESSAGE_PARENT_MAX_LENGTH)
           .describe(
-            `The message: a progress note, a blocked question, or your result. Hard cap ${MESSAGE_PARENT_MAX_LENGTH} characters — distil, don't truncate.`,
+            `Identify progress, a question, a result, or incomplete work. For reports, include findings with supporting sources/references, uncertainties, and what remains incomplete. Hard cap ${MESSAGE_PARENT_MAX_LENGTH} characters — distil, don't truncate.`,
           ),
       }),
       execute: async ({ message }: { message: string }) => {
