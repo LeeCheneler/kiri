@@ -169,6 +169,7 @@ tightened or switched off:
 | Article write / edit / delete / read | Always allow | Only touch kiri's own data. |
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
+| `read_tool_result` | Always allow | Reads saved results from this session without repeating actions. |
 | Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
 | `update_project_instructions` | Always allow | Only runs when you ask, and shows the change as a diff. |
 | Task list / add / update, group create / update | Always allow | Only touch kiri's own data; the project page is the curation surface. |
@@ -313,6 +314,14 @@ Kiri tracks a session's token spend, and context as `current / limit` when
 the provider reports the model's window, warning as a conversation nears it.
 Long sessions are stretched automatically — older tool results are trimmed
 from what's sent each turn; the transcript you see never changes.
+
+The assistant can reopen a saved tool result with `read_tool_result`, given
+its message ID and tool-call ID. Results arrive in bounded pages with a
+continuation offset. This reads the recorded output, including recorded
+errors, without running the original action again. It only accesses the
+current session's transcript; a worker cannot use it to read its parent's
+conversation. Saved output is historical evidence, not a fresh check of
+the world or permission to repeat an action.
 
 ## Attachments
 
