@@ -15,7 +15,7 @@ short summariser prompt captions the run — no bundle, no glue scripts:
 # workflows/release-notes.yaml
 name: Release Notes
 steps:
-  - sh: git log --oneline v1.4.0..HEAD
+  - sh: git -C "$KIRI_REPO_ROOT" log --oneline -20
     id: changes
     name: Collect changes
   - llm:

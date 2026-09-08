@@ -11,7 +11,9 @@ This is a kiri workspace for general-purpose and coding sessions, with
 optional local workflows. Run \`kiri\` in this directory to start it and visit
 the local URL it prints. Ask a session to create a workflow when you want a
 repeatable task automated; ordinary sessions need no workflow.
-Full documentation lives at https://kiri.build/docs.
+Before your first launch, connect a model using the quickstart:
+https://kiri.build/docs/getting-started. Practical guides live at
+https://kiri.build/docs; workflow authoring is covered below.
 
 ## Workflow definitions
 
@@ -139,7 +141,7 @@ wire in exactly what each needs with \`{ step: }\` / \`{ step, output }\` /
 prefix names an entry under \`providers:\` in your workspace-root \`kiri.yaml\`
 (kept in git) — kiri's structured config file. Kiri scaffolds a commented
 \`kiri.yaml\` for you; uncomment and edit it to declare providers. You only
-need them if you use \`llm:\` steps.
+need them for sessions or \`llm:\` steps.
 
 \`\`\`yaml
 # kiri.yaml

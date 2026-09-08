@@ -1,7 +1,9 @@
 import { useEffect } from "react";
+import { useLocation } from "wouter";
 import { Markdown } from "../../client/design-system/content/markdown.tsx";
 import { DocsLayout } from "../chrome/docs-layout.tsx";
 import { DOCS_INDEX_SLUG, getDocsPage } from "../docs/docs-nav.ts";
+import { movedDocsHref } from "../docs/docs-redirects.ts";
 
 /**
  * Documentation page. Resolves the page for the current slug — defaulting to
@@ -13,21 +15,29 @@ import { DOCS_INDEX_SLUG, getDocsPage } from "../docs/docs-nav.ts";
  */
 export function DocsPage({ params }: { params?: { slug?: string } }) {
   const slug = params?.slug ?? DOCS_INDEX_SLUG;
+  const [, navigate] = useLocation();
 
   // wouter keeps the prior scroll position across client-side navigation,
   // which would otherwise land the reader part-way down the next page. A
   // cross-page anchor link carries its fragment through the navigation, so
   // honour it when its heading exists; otherwise reset to the top.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: slug is the change trigger to re-run on, not a value the body reads.
   useEffect(() => {
+    const redirect = () => {
+      const href = movedDocsHref(slug, window.location.hash);
+      if (href) navigate(href, { replace: true });
+      return href !== undefined;
+    };
+    if (redirect()) return;
+    window.addEventListener("hashchange", redirect);
     const target =
       window.location.hash === "" ? null : document.getElementById(window.location.hash.slice(1));
     if (target !== null) {
       target.scrollIntoView();
-      return;
+    } else {
+      window.scrollTo(0, 0);
     }
-    window.scrollTo(0, 0);
-  }, [slug]);
+    return () => window.removeEventListener("hashchange", redirect);
+  }, [slug, navigate]);
 
   const page = getDocsPage(slug);
 
@@ -36,7 +46,7 @@ export function DocsPage({ params }: { params?: { slug?: string } }) {
       <DocsLayout>
         <h1 className="font-display text-3xl text-ink leading-tight">Page not found</h1>
         <p className="mt-4 font-mono text-sm text-ink-muted leading-relaxed">
-          That documentation page doesn't exist. Pick one from the list on the left.
+          That documentation page doesn't exist. Choose a page from the documentation navigation.
         </p>
       </DocsLayout>
     );

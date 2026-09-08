@@ -1,102 +1,78 @@
 # Projects & memories
 
-Sessions end; what they learned shouldn't. Kiri keeps two kinds of durable
-record across sessions: **memories** — small facts the assistant
-can recall later — and **projects** — named containers where a body of
-work builds a shared corpus of articles. Both live in kiri's local database,
-not your repo.
-
-## Memories
-
-A **memory** is a durable fact the assistant carries across sessions — a
-preference, standing context, a correction worth keeping. Tell kiri to
-remember something and it saves the fact; every later session can recall it,
-loading the full text only when it looks relevant. Saving an existing
-memory's name rewrites it in place — correct a misunderstood memory by
-explaining what it got wrong.
-
-The assistant can also save a durable preference, stable project fact, or
-correction that will help future sessions. It is guided to skip temporary
-status, guesses, secrets, and facts useful only to the current reply, and to
-update an existing memory instead of creating a duplicate.
-
-The **Memories page** is where you curate the record: read, edit, and delete
-what's wrong or stale. The memory tools run without prompting by default —
-that page is your standing oversight — and can be set to Ask or Off like any
-[other tool](/docs/sessions#tool-permissions).
+Use a project for work that spans several conversations. Its sessions share
+saved articles, instructions, memories, and a task list.
 
 ## Projects
 
-A **project** is a named container for a body of work: a shared corpus of
-articles, a task list, and the sessions that build both. Create one from the
-Projects page; while you're on the project's pages or in one of its
-sessions, **+ New session** (or ⌥⌘N) starts a session inside it — a session
-belongs to a project from creation or not at all.
+Create a project from **Projects**. Open it, then click **+ New session** to
+start a conversation inside it. Sessions belong to a project from creation;
+existing standalone sessions cannot be moved into one.
+
+For example, keep the planning, forecast-model decisions, and implementation
+of an aurora app in one project.
+
+![The Aurora project with related sessions and saved decisions side by side](/screenshots/project.png)
 
 ### The shared corpus
 
-Every article a project session writes lands in the project rather than in
-any one session. Each session sees the corpus index, reads any article
-on demand, and keeps existing ones current, whoever wrote them.
+Articles written in a project become shared pages. A new session can read
+and update them, so you can ask:
 
-- Articles cross-reference each other with `[[slug]]`, rendering as links in
-  the project's reading view and chat — the corpus browses like a small
-  wiki, and the assistant cross-links as it writes.
-- Workflow-run articles live outside the corpus. The assistant links to them
-  using paths returned by the workflow and article tools; `[[slug]]` only
-  resolves within the current collection.
-- Corpus articles outlive the sessions that wrote them — deleting a session
-  never touches the corpus.
+> Read our forecast-model decision and help me plan the next implementation step.
+
+The assistant can link related pages with `[[wiki-links]]`. Those links resolve
+inside their own article collection. Workflow articles live separately and can
+be linked by their normal URLs. Project articles survive deleting the session
+that wrote them.
 
 ### Project instructions
 
-A project carries its own **standing instructions**: markdown written on the
-project page and layered into every session in the project (see
-[Shaping behaviour](/docs/sessions#shaping-behaviour)). Edit them any time —
-or ask a session in the project to change them ("add that to the project
-instructions") and it rewrites them, showing the change as a diff. It only
-edits them when you ask.
+Use the project's **Instructions** tab for context every session should have:
+
+> This is a personal weekend project. Prefer a small first version and keep
+> a record of decisions that affect the forecast model.
+
+Edit instructions yourself, or ask a project session to update them. The
+assistant only changes them when asked and shows the diff.
 
 ### Project tasks
 
-A project keeps a **task list**: a checklist of tasks filed under named
-groups — "Now", "Backlog", whatever fits the work — with an optional note on
-each. You and the project's sessions manage the same list: add and tick off
-tasks on the project page, or ask a session ("track that", "mark the docs
-done", "move it to Later") and it adds, updates, moves, and reorganises through
-its task tools. A session's instructions carry only the list's size; the list
-itself loads when the session needs it.
+Track work on the project page, or ask a session:
 
-Long-lived projects accumulate finished groups. **Hide** a group and it drops
-behind a toggle on the page — and out of sessions' view entirely: hidden
-groups don't list, don't count, and only you can bring them back from the
-page. The Projects index shows each project's open-task count.
+> Add a task to validate the forecast against a week of observations.
+
+Organise tasks into groups such as Now and Later. Hide finished groups when
+you no longer need them; hidden groups are also hidden from sessions until
+you restore them on the page.
+
+## Memories
+
+Memories keep useful facts and preferences across sessions. Ask:
+
+> Remember that our forecast data updates every five minutes.
+
+The assistant can also remember stable facts or corrections when useful.
+Read, edit, or delete them on the **Memories** page. Correct an existing fact
+by telling the assistant what changed. Memory changes are allowed by default;
+you can change this in [tool permissions](/docs/session-reference#tool-permissions).
 
 ### Project memories
 
-A memory is either workspace-wide or scoped to a project. A project session
-automatically receives the indexes of global memories and its own project's
-memories, and saves new facts to its project. Project memories are curated on
-the project's page.
+A project session saves memories to that project. It can recall its project
+memories and workspace-wide memories. Manage project memories in the project's
+**Memories** tab.
 
 ### Finding knowledge across sessions
 
-Ask a project session to find an earlier conclusion and its knowledge search
-defaults to that project's articles, session text, and memories. The assistant
-can open matching excerpts and link the original source, including work from
-another session in the project.
-
-Explicit workspace search can also discover records from other projects and
-standalone sessions. Project scope controls the default search and automatic
-context; it is not an access restriction against explicit broader retrieval.
-Reading a result does not expand the scope of article or memory writes.
-See [Finding prior work](/docs/sessions#finding-prior-work) for scope, paging,
-and permission details.
+Ask what you decided earlier and Kiri can find the original source. Search
+starts in the current project; explicitly ask to search the workspace when
+relevant work is elsewhere. Project scope is a default, not an access boundary.
+See [knowledge retrieval details](/docs/session-reference#finding-prior-work).
 
 ### Lifecycle and boundaries
 
-- Deleting a **project** deletes everything it contains — articles,
-  memories, tasks, sessions — behind a confirmation that states the counts.
-- [Delegated workers](/docs/sessions#delegating-research) inherit the
-  records read-only: they can consult the corpus, recall memories, and read
-  the task list, but only the session you're in ever writes.
+Deleting a project deletes its sessions, articles, memories, and tasks after
+confirmation. These records live in Kiri's local database, outside git.
+[Delegated workers](/docs/session-reference#delegating-research) can read project
+records; the parent session makes shared-record changes.

@@ -10,7 +10,9 @@ the kiri server running on your machine over plain HTTP. Some browsers — notab
 **Safari and Brave** — block that as mixed content, so the interface loads but
 can't connect.
 
-If that happens, open the server directly instead:
+Start Kiri in your workspace folder, keep the terminal running, then choose
+**Try again** on the connection screen. If it still cannot connect, open the
+server directly instead:
 
 ```
 http://localhost:4242
@@ -32,7 +34,8 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 Kiri auto-loads `.env` from the **config dir**. If you launch with
 `KIRI_CONFIG_DIR` pointed elsewhere, make sure the `.env` lives in *that*
-directory, not the one you launched from.
+directory, not the one you launched from. After changing `.env`, stop Kiri
+with **Ctrl+C** and start it again.
 
 ## Codex authentication is expired or unavailable
 
@@ -64,7 +67,8 @@ Session tools come from MCP servers declared under `mcp:` in `kiri.yaml`. A
 server's tools appear only when it's configured and connects; one whose
 `{ env: }` var is unset, or that fails to start, shows as a config-health check
 naming it. Set the missing variable (in your environment or workspace `.env`)
-and the server reconnects on the next `kiri.yaml` save. An `auth: oauth` server
+and restart Kiri if you changed `.env`; otherwise the server reconnects on
+the next `kiri.yaml` save. An `auth: oauth` server
 you haven't signed into yet offers a **Connect** action — sign in and its tools
 appear once kiri stores the tokens. For web search, add an MCP server that
 provides it — e.g. the Tavily MCP server.

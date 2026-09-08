@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/kiri.png" />
-    <title>Kiri</title>
+    <title>Connect to Kiri</title>
     <!-- Apply the stored theme before first paint so the page never flashes
          the default. Mirrors `currentTheme()` in src/client/features/theme/theme.ts
          and the same script in src/client/index.html. -->
@@ -53,9 +53,12 @@
         right: 0;
         opacity: 0;
         visibility: hidden;
-        max-width: 36rem;
+        max-width: 41rem;
+        max-height: 100dvh;
+        box-sizing: border-box;
+        overflow-y: auto;
         margin: 0 auto;
-        padding: 5rem 2rem;
+        padding: 4rem 1.5rem;
         transition: opacity 240ms ease-out;
       }
       #kiri-offline[data-state="shown"] {
@@ -66,8 +69,8 @@
         font-family: "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
         font-style: italic;
         font-weight: 400;
-        font-size: 2.25rem;
-        line-height: 1;
+        font-size: clamp(2rem, 6vw, 3rem);
+        line-height: 1.1;
         margin: 0 0 1.5rem;
         font-optical-sizing: auto;
         font-variation-settings: "SOFT" 50;
@@ -86,6 +89,31 @@
         text-underline-offset: 2px;
       }
       #kiri-offline a:hover { color: var(--ink); }
+      #kiri-offline .wordmark {
+        display: inline-block;
+        margin-bottom: 2.5rem;
+        font-family: "Fraunces", Georgia, serif;
+        font-style: italic;
+        font-size: 1.5rem;
+        color: var(--ink);
+        text-decoration: none;
+      }
+      #kiri-offline button {
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--canvas);
+        padding: 0.75rem 1.25rem;
+        font: inherit;
+        cursor: pointer;
+        margin-bottom: 1.5rem;
+      }
+      #kiri-offline button:hover { background: transparent; color: var(--accent); }
+      #kiri-offline :is(a, button, summary):focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 4px;
+      }
+      #kiri-offline summary { cursor: pointer; color: var(--ink); }
+      #kiri-offline details p { margin-top: 1rem; }
       #kiri-offline .note {
         margin-top: 2.5rem;
         padding-top: 1.5rem;
@@ -101,12 +129,23 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript><p style="padding: 2rem">Enable JavaScript to connect to Kiri. <a href="https://kiri.build/docs/getting-started">Setup instructions</a></p></noscript>
     <div id="kiri-offline" aria-live="polite">
-      <h1>kiri isn't running</h1>
-      <p>Open a terminal in the repo you want kiri to manage, then run:</p>
+      <a class="wordmark" href="https://kiri.build">kiri</a>
+      <h1>Connect to Kiri<br />on your machine.</h1>
+      <p>We couldn't connect to your local workspace. Open a terminal in your workspace folder and run:</p>
       <pre>kiri</pre>
-      <p>First time? See the <a href="/docs">docs</a> for install instructions.</p>
-      <p class="note">Safari or Brave? Open <a href="http://localhost:4242">http://localhost:4242</a> directly — those browsers block HTTPS pages from loading HTTP localhost subresources.</p>
+      <button type="button" onclick="window.location.reload()">Try again</button>
+      <p>New to Kiri? <a href="https://kiri.build/docs/getting-started">Install and set up</a></p>
+      <div class="note">
+        <p>Having trouble connecting? <a href="http://localhost:4242">Open localhost directly</a>.</p>
+        <details>
+          <summary>Connection help</summary>
+          <p>Keep the terminal running while you use Kiri. Once it starts, choose <strong>Try again</strong> above.</p>
+          <p>Some browsers, including Safari and Brave, block this page from connecting to your machine. Use the localhost link to open the same app directly.</p>
+          <p><a href="https://kiri.build/docs/troubleshooting">More troubleshooting</a></p>
+        </details>
+      </div>
     </div>
     <script type="module" src="http://127.0.0.1:4242/app.js" crossorigin="anonymous" onerror="window.__kiriOffline()"></script>
     <script>
@@ -116,6 +155,14 @@
         if (document.getElementById("root").children.length > 0) return;
         panel.dataset.state = "shown";
       };
+      // A slow local bundle may mount after the fallback is already visible.
+      var root = document.getElementById("root");
+      var observer = new MutationObserver(function () {
+        if (root.children.length === 0) return;
+        document.getElementById("kiri-offline").removeAttribute("data-state");
+        observer.disconnect();
+      });
+      observer.observe(root, { childList: true });
       setTimeout(window.__kiriOffline, 1500);
     </script>
   </body>

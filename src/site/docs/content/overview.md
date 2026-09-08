@@ -1,96 +1,34 @@
-# What is kiri?
+# Start with Kiri
 
-Kiri is an AI workspace that runs on your machine and writes things down —
-sessions become readable pages, facts become memories, and repeated chores
-become one-click buttons.
+Kiri is an AI workspace for work worth keeping. Research, write, and code
+with an assistant on your machine. Save useful answers as pages, carry
+context between sessions, and turn repeat tasks into workflows.
 
-Most AI tools forget: chats scroll away, context gets re-explained, the same
-chore gets re-prompted every week. Kiri is built so work compounds instead:
+**New here? [Install Kiri and have your first conversation →](/docs/getting-started)**
 
-1. **Work it out in a session.** A **session** is a general-purpose agentic
-   assistant with any model you configure — a conversation, a piece of
-   research, a review, a write-up, or a code change. It reads and edits your
-   files, runs your shell, delegates legwork, and reaches any MCP server you
-   add, with every tool's permission yours to set.
-2. **Keep what matters.** Substantial writing and reusable conclusions can
-   become **articles** in a live feed, durable facts persist as **memories**,
-   and related work groups into a
-   **project** with its own shared, cross-linked corpus.
-3. **Automate when you choose.** If you want a repeatable task as a button,
-   ask a session to create a **workflow** — a small YAML file in your repo.
-   It creates one only when you explicitly ask.
+## What would you like to do?
 
-Most work can stay in general-purpose and coding sessions. Quick answers and
-routine code changes need no extra document or automation.
+- **[Have a conversation](/docs/sessions).** Think through a decision, draft
+  something, or work on a problem. A conversation is called a session.
+- **[Work with files](/docs/working-with-files).** Let the assistant read your
+  notes, edit code, and run commands in a folder you choose.
+- **[Keep related work together](/docs/projects-and-memories).** Give a project
+  its own conversations, saved pages, memories, and task list.
+- **[Create a workflow](/docs/workflows).** Ask for a repeatable task you can
+  run from a button whenever you need it.
 
-## Two files and you're working
+## Your workspace
 
-Configuration is a single `kiri.yaml` at the workspace root. The lightest
-useful one names a model provider — Anthropic, OpenAI, Codex with a
-ChatGPT subscription, or any
-OpenAI-compatible endpoint such as OpenRouter — and the directories sessions
-may work in:
+Each folder you launch Kiri from is a separate workspace. Your conversations
+and saved knowledge stay on your disk. You connect your own model provider;
+cloud models and connected tools receive the data needed for their calls.
+Kiri runs while you have it open.
 
-```yaml
-# kiri.yaml
-providers:
-  anthropic:
-    type: anthropic
-    api_key: { env: ANTHROPIC_API_KEY }
-  openrouter:
-    type: openai-compatible
-    base_url: https://openrouter.ai/api/v1
-    api_key: { env: OPENROUTER_API_KEY }
-filesystem:
-  allowed_directories: [.]
-```
+For setup options, see [Models & providers](/docs/llm-providers).
+For the details of data and permissions, see
+[Trust & security](/docs/trust-and-security).
 
-Keys in a git-ignored `.env`, and sessions work. A workflow is one more small
-file:
+## Looking something up?
 
-```yaml
-# workflows/release-notes.yaml
-name: Release Notes
-steps:
-  - sh: git log --oneline v1.4.0..HEAD
-    id: commits
-  - llm:
-      model: anthropic:claude-haiku-4-5
-      prompt: |
-        Rewrite these commits as release notes.
-
-        {{COMMITS}}
-    env:
-      COMMITS: { step: commits }
-```
-
-Click **Run** and kiri walks the steps — shell and model alike — and the run
-lands in your feed. Add an `articles:` entry and the output renders as a
-page of its own: see [Writing workflows](/docs/workflows).
-
-## The feature set
-
-- **[Agentic sessions](/docs/sessions)** — chat, research, review, write,
-  or code with any model, wired into your files, shell, and tools, with
-  per-tool permissions you set: allow, ask, or off.
-- **[Local workflows](/docs/workflows)** — repeated chores as YAML in your
-  repo, runnable as a button.
-- **[Projects](/docs/projects-and-memories)** — a home for one body of work:
-  its sessions, articles, memories, and task list, cross-linked into a corpus.
-- **[MCP servers](/docs/sessions)** — extend sessions with any MCP server's
-  tools.
-- **[Any model](/docs/llm-providers)** — Anthropic, OpenAI, or any
-  OpenAI-compatible server: LM Studio, Ollama, vLLM.
-- **Local & open source** — one binary bound to `127.0.0.1`, everything
-  stored in SQLite on your disk, every line on
-  [GitHub](https://github.com/LeeCheneler/kiri).
-
-## Where next
-
-- [Quickstart](/docs/getting-started) — installed and reading your first
-  article in five minutes.
-- [Sessions](/docs/sessions) — instructions, tools, files and shell,
-  articles.
-- [Projects & memories](/docs/projects-and-memories) — where work compounds.
-- [Writing workflows](/docs/workflows) — the golden path, step by step.
-- [Recipes](/docs/recipes) — complete workflows to copy and adapt.
+The **Reference** pages cover configuration, tool behaviour, and workflow
+syntax. You can use them as needed; the guides above are enough to get started.

@@ -1,40 +1,12 @@
 # Models & providers
 
-`llm:` steps and sessions both call models through a provider registry you
-declare once in `kiri.yaml`. A `model` id is `provider:model` — the prefix
-names a registry entry, the rest is the provider's own model id.
+Connect a model provider in your workspace's `kiri.yaml`, then choose a model
+in a session. [The quickstart](/docs/getting-started#connect-a-model) shows
+one complete setup. This page covers other providers and optional settings.
 
-```yaml
-# kiri.yaml (workspace root, kept in git)
-# yaml-language-server: $schema=.kiri/kiri.schema.json
-
-providers:
-  anthropic:                  # entry name = the provider: prefix in a model id
-    type: anthropic
-    api_key:
-      env: ANTHROPIC_API_KEY  # always an env reference, never a literal
-  local:
-    type: openai-compatible
-    base_url: http://localhost:1234/v1
-```
-
-```yaml
-- llm:
-    model: anthropic:claude-haiku-4-5   # provider : model
-    prompt: |
-      Summarise the following in three bullets.
-
-      {{DATA}}
-  env:
-    DATA: { step: fetch }
-- llm:
-    model: local:llama-3.1-8b
-    prompt_file: prompts/review.tpl
-```
-
-A bare `model: claude-haiku` with no prefix is a load-time error. The
-`providers:` map is optional — a workspace with only `sh:`/`use:` steps
-needs none.
+Choose a provider below. API keys belong in a `.env` file listed in your
+workspace's `.gitignore`. Start Kiri after configuring the provider and key;
+restart it after changing `.env`.
 
 ## Provider types
 
@@ -44,6 +16,26 @@ needs none.
 | `openai` | OpenAI's API | optional override |
 | `openai-codex` | Codex using your ChatGPT subscription login | not allowed |
 | `openai-compatible` | Any OpenAI-compatible server — LM Studio, Ollama, vLLM, … | **required** |
+
+## API providers
+
+For Anthropic or OpenAI, declare a provider and refer to its key by environment
+variable name:
+
+```yaml
+providers:
+  anthropic:
+    type: anthropic
+    api_key: { env: ANTHROPIC_API_KEY }
+  openai:
+    type: openai
+    api_key: { env: OPENAI_API_KEY }
+```
+
+Only include the providers you use. Select a model from the session picker.
+In YAML configuration and workflows, the model reference is `provider:model`:
+for example, `anthropic:claude-haiku-4-5`. The prefix matches the provider name
+above; the rest is the provider's model ID.
 
 ## Keys stay out of git
 

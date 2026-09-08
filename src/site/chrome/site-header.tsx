@@ -26,7 +26,7 @@ function NavLink({ href, children }: { href: string; children: string }) {
 export function SiteHeader() {
   return (
     <header className="border-rule border-b">
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5 sm:px-8">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5 sm:px-8">
         <Link href="/" className="font-display text-2xl text-ink italic leading-none no-underline">
           kiri
         </Link>

@@ -27,10 +27,9 @@ describe("displayPath", () => {
 describe("launch screen", () => {
   beforeEach(() => setColorEnabled(false));
 
-  it("renders the header with the version and tagline", () => {
+  it("renders the header with the supplied version", () => {
     const text = renderHeader("v1.2.3").join("\n");
     expect(text).toContain("kiri v1.2.3");
-    expect(text).toContain("writes things down");
   });
 
   it("renders nothing when every check is ok", () => {

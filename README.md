@@ -1,16 +1,18 @@
 # Kiri
 
-> An AI workspace that runs on your machine and writes things down — sessions become readable pages, facts become memories, and repeated chores become one-click buttons.
+> An AI workspace for work worth keeping.
+
+Research, write, and code with an assistant on your machine. Keep useful answers as pages, carry context between sessions, and turn repeat tasks into workflows.
 
 <a href="https://kiri.build"><img src="https://kiri.build/screenshots/session.png" alt="A kiri session inside a project: the assistant has written the discussion up as an article in the project corpus and saved a memory, with the project's articles listed in the sidebar" width="100%"></a>
 
-Every AI tool you use forgets. Chats scroll away, context gets re-explained, and the same chore gets re-prompted every week. Kiri is a **local-first AI workspace** built so work compounds instead:
+Kiri is a **local-first AI workspace** for everyday work and the knowledge you want to keep:
 
 1. **Work it out in a session.** A general-purpose agentic assistant with any model you configure — for a conversation, a piece of research, a review, a write-up, or a code change. It reads and edits your files, runs your shell, delegates legwork to a worker, and reaches any MCP server; every tool's permission is yours to set: allow, ask, or off.
 2. **Keep what matters.** Substantial write-ups and reusable conclusions can become **articles**: readable pages in a live feed, with charts and diagrams. Facts persist as memories; related work compounds into a project's shared, cross-linked corpus.
 3. **Automate when you choose.** If you want a repeatable task as a button, ask a session to create a **workflow** — a YAML file in your repo. Most work can stay in general-purpose and coding sessions.
 
-Bring your own model — Anthropic, OpenAI, Codex with a ChatGPT subscription, or any OpenAI-compatible endpoint (OpenRouter, LM Studio, Ollama, vLLM). Nothing leaves your machine except the model calls you configure, and kiri only runs while the app is open.
+Bring your own model — Anthropic, OpenAI, Codex with a ChatGPT subscription, or any OpenAI-compatible endpoint (OpenRouter, LM Studio, Ollama, vLLM). Your saved work lives on your disk. Cloud models and connected tools receive the data needed for their calls. Kiri runs while the app is open.
 
 For subscription access, [configure `openai-codex`](https://kiri.build/docs/llm-providers#codex-with-a-chatgpt-subscription) after signing in through the Codex CLI.
 
@@ -45,7 +47,7 @@ A workflow is one more small file — shell steps piped into model steps, run fr
 # workflows/release-notes.yaml
 name: Release Notes
 steps:
-  - sh: git log --oneline v1.4.0..HEAD
+  - sh: git -C "$KIRI_REPO_ROOT" log --oneline -20
     id: commits
   - llm:
       model: anthropic:claude-haiku-4-5
@@ -77,7 +79,7 @@ Code, add a `CLAUDE.md` containing `@./AGENTS.md`.
 - **Workflows are buttons.** Shell steps feeding model steps through declared refs; rerun forever with one click, and runs can recommend one-click follow-ups.
 - **Search everything.** ⌘K from anywhere, across articles, transcripts, run summaries, and workflow names — results as you type.
 
-The [sessions docs](https://kiri.build/docs/sessions) cover the lot.
+Start with the [session guide](https://kiri.build/docs/sessions); the [session reference](https://kiri.build/docs/session-reference) covers tools, permissions, and limits.
 
 ## Install
 
@@ -106,21 +108,21 @@ kiri --version
 
 ## Quickstart
 
-Kiri runs per-directory — each working directory is its own workspace.
+Follow the [quickstart](https://kiri.build/docs/getting-started) to initialise a
+workspace, connect a model, and start your first conversation. Configure your
+provider before launching Kiri; workspace `.env` files load at startup.
 
-```sh
-cd ~/projects/some-workspace
-kiri init    # scaffold a starter workflow and config
-kiri         # boot on :4242
-```
+Kiri runs per folder. Open [local.kiri.build](https://local.kiri.build) once
+Kiri is running, or use **http://localhost:4242** directly if your browser
+cannot connect. Keep the terminal running while you use it.
 
-Then open **[local.kiri.build](https://local.kiri.build)** — the hosted shell loads kiri's UI from your locally-running process. To pin a workspace regardless of where you launch from, set `KIRI_CONFIG_DIR` (a leading `~` is expanded).
+- [Work with files](https://kiri.build/docs/working-with-files) — enable access to your notes or code.
+- [Projects & memories](https://kiri.build/docs/projects-and-memories) — keep related work together.
+- [Create a workflow](https://kiri.build/docs/workflows) — save a task to run again.
 
-> **Safari / Brave:** both block HTTP-localhost requests from an HTTPS page, so use **http://localhost:4242** directly there. Chrome and Firefox work either way.
-
-From here, the [quickstart](https://kiri.build/docs/getting-started) takes you from install to your first model-written article in about five minutes, and the [recipes](https://kiri.build/docs/recipes) are complete workflows to copy.
-
-One thing to know before you run other people's workflows: `sh:` steps and bundle scripts run with **your user's permissions**, like any shell script — read them first. [Trust & security](https://kiri.build/docs/trust-and-security) has the full picture.
+Workflow scripts run with your user's permissions. Review workflows before
+running them; [Trust & security](https://kiri.build/docs/trust-and-security)
+explains the boundaries.
 
 ## Learn more
 
