@@ -729,6 +729,7 @@ describe("runTurn", () => {
       ],
     });
     const original = getSessionMessages(db, "s1")[0];
+    enqueueInboxItem(db, "s1", { source: "user", text: "Check the regional requirements" });
     const capture: { prompt?: unknown } = {};
     let summaries = 0;
     const { response, done } = await runTurn(
@@ -736,13 +737,19 @@ describe("runTurn", () => {
         db,
         llmClients: {
           ...clientsFor(capturingModel(capture)),
-          contextWindowFor: async () => 20000,
+          contextWindowFor: async () => {
+            enqueueInboxItem(db, "s1", { source: "user", text: "Check the contracts too" });
+            return 20000;
+          },
           generateText: async ({ model, prompt }) => {
             summaries += 1;
             expect(model).toBe(MODEL);
             expect(prompt).toContain(evidence);
             expect(prompt).toContain("Published the article once; verification remains.");
-            expect(prompt).toContain("Hi there");
+            expect(prompt).not.toContain("Hi there");
+            expect(prompt).not.toContain("Check the regional requirements");
+            expect(prompt).not.toContain("Check the contracts too");
+            enqueueInboxItem(db, "s1", { source: "user", text: "Include Cloudflare" });
             return {
               text: "Article already published. Verify its sources; do not republish.",
               usage: {},
@@ -758,10 +765,80 @@ describe("runTurn", () => {
     expect(sse).toContain('"type":"data-checkpoint"');
     expect(JSON.stringify(capture.prompt)).toContain("Article already published");
     expect(JSON.stringify(capture.prompt)).not.toContain(evidence);
+    const firstPrompt = JSON.stringify(capture.prompt);
+    expect(firstPrompt).toContain("Hi there");
+    expect(firstPrompt).toContain("Check the regional requirements");
+    expect(firstPrompt).toContain("Include Cloudflare");
+    expect(firstPrompt).toContain("Check the contracts too");
+    expect(firstPrompt.indexOf("Article already published")).toBeLessThan(
+      firstPrompt.indexOf("Check the regional requirements"),
+    );
+    expect(firstPrompt.indexOf("Check the regional requirements")).toBeLessThan(
+      firstPrompt.indexOf("Hi there"),
+    );
+    expect(firstPrompt.indexOf("Hi there")).toBeLessThan(firstPrompt.indexOf("Include Cloudflare"));
     const rows = getSessionMessages(db, "s1");
     expect(rows[0]).toEqual(original);
-    expect((rows[2].parts as UIMessage["parts"]).filter(isCheckpointPart)).toHaveLength(1);
+    const checkpoints = (rows[3].parts as UIMessage["parts"]).filter(isCheckpointPart);
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0].data.pendingMessages?.[1]).toEqual(USER_MESSAGE);
+    expect(JSON.stringify(checkpoints[0].data.pendingMessages)).toContain(
+      "Check the contracts too",
+    );
     expect(getSession(db, "s1")?.status).toBe("idle");
+
+    await (
+      await runTurn(
+        { db, llmClients: clientsFor(capturingModel(capture)) },
+        {
+          session,
+          userMessage: { ...USER_MESSAGE, id: "u2", parts: [{ type: "text", text: "Next" }] },
+        },
+      )
+    ).done;
+    const reloaded = JSON.stringify(capture.prompt);
+    expect(reloaded).toContain("Article already published");
+    for (const text of [
+      "Hi there",
+      "Check the regional requirements",
+      "Check the contracts too",
+      "Include Cloudflare",
+    ])
+      expect(reloaded.split(text)).toHaveLength(2);
+    expect(reloaded).not.toContain(evidence);
+  });
+
+  it("does not summarise an oversized incoming request when there is no earlier history", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const capture: { prompt?: unknown } = {};
+    const incoming = {
+      ...USER_MESSAGE,
+      parts: [{ type: "text" as const, text: "x".repeat(100000) }],
+    };
+    let summaries = 0;
+    const started = await runTurn(
+      {
+        db,
+        llmClients: {
+          ...clientsFor(capturingModel(capture)),
+          contextWindowFor: async () => 8192,
+          generateText: async () => {
+            summaries += 1;
+            return { text: "A changed request", usage: {} };
+          },
+        },
+      },
+      { session, userMessage: incoming },
+    );
+    await started.response.text();
+    await started.done;
+    expect(summaries).toBe(0);
+    expect(capture.prompt).toBeUndefined();
+    expect(getSessionMessages(db, "s1")[0].parts).toEqual(incoming.parts);
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { code: "context_limit" },
+    });
   });
 
   it("compacts repeatedly within a turn without replaying actions or losing later messages", async () => {
@@ -982,6 +1059,10 @@ describe("runTurn", () => {
 
   it("keeps the work-step limit and uses compacted context for its final handoff", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: "x".repeat(36000) }],
+    });
     let calls = 0;
     let actions = 0;
     let summaries = 0;
@@ -1037,7 +1118,7 @@ describe("runTurn", () => {
       },
       {
         session,
-        userMessage: { ...USER_MESSAGE, parts: [{ type: "text", text: "x".repeat(36000) }] },
+        userMessage: USER_MESSAGE,
       },
     );
     await response.text();
@@ -3108,6 +3189,47 @@ describe("runWakeTurn", () => {
     expect(getSessionMessages(db, "s1")).toEqual([]);
     expect(getSession(db, "s1")?.status).toBe("idle");
     expect(events).toEqual([]);
+  });
+
+  it("excludes the waking backlog from compaction and restores it after the checkpoint", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const evidence = "Earlier findings ".repeat(2300);
+    appendMessage(db, "s1", { role: "assistant", parts: [{ type: "text", text: evidence }] });
+    enqueueInboxItem(db, "s1", { source: "child", text: "The worker found a new issue" });
+    const capture: { prompt?: unknown } = {};
+    let summaries = 0;
+    const started = await runWakeTurn(
+      {
+        db,
+        llmClients: {
+          ...clientsFor(capturingModel(capture)),
+          contextWindowFor: async () => 20000,
+          generateText: async ({ prompt }) => {
+            summaries += 1;
+            expect(prompt).toContain(evidence);
+            expect(prompt).not.toContain("The worker found a new issue");
+            return { text: "Earlier work is complete", usage: {} };
+          },
+        },
+      },
+      { session },
+    );
+    await started?.response.text();
+    await started?.done;
+    expect(summaries).toBe(1);
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("The worker found a new issue");
+    expect(sent.indexOf("Earlier work is complete")).toBeLessThan(
+      sent.indexOf("The worker found a new issue"),
+    );
+    const checkpoint = (getSessionMessages(db, "s1")[2].parts as UIMessage["parts"]).find(
+      isCheckpointPart,
+    );
+    expect(JSON.stringify(checkpoint?.data.pendingMessages)).toContain(
+      "The worker found a new issue",
+    );
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(getSession(db, "s1")?.status).toBe("idle");
   });
 
   it("clears a failed session's terminal markers, like any resumed turn", async () => {

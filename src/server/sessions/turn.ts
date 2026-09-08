@@ -244,7 +244,7 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
 
   // Anything queued while the session was idle drains ahead of the message
   // that starts the turn.
-  drainBacklog(db, bus, session.id);
+  const incomingMessageCount = drainBacklog(db, bus, session.id) + 1;
 
   // Persist under the message's own id so the client and server agree on it —
   // edit-and-resend truncates the transcript by this id, which only works if the
@@ -256,7 +256,7 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
   bus?.publish({ type: "session.updated", id: session.id, status: "running" });
 
-  return streamCore(deps, session, model);
+  return streamCore(deps, session, model, incomingMessageCount);
 }
 
 /**
@@ -280,12 +280,13 @@ export async function runWakeTurn(
   // Resolve before any writes so a bad id rejects with nothing half-persisted.
   const model = llmClients.resolveModel(session.model);
 
-  if (drainBacklog(db, bus, session.id) === 0) return null;
+  const incomingMessageCount = drainBacklog(db, bus, session.id);
+  if (incomingMessageCount === 0) return null;
   bus?.publish({ type: "session.message.added", sessionId: session.id });
   setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
   bus?.publish({ type: "session.updated", id: session.id, status: "running" });
 
-  return streamCore(deps, session, model);
+  return streamCore(deps, session, model, incomingMessageCount);
 }
 
 /**
@@ -381,6 +382,7 @@ async function streamCore(
   deps: RunTurnDeps,
   session: Session,
   model: ReturnType<LlmClients["resolveModel"]>,
+  incomingMessageCount = 0,
 ): Promise<StartedTurn> {
   const {
     db,
@@ -547,6 +549,12 @@ async function streamCore(
         const modelMessages = await convertToModelMessages(
           expandInboxMessages(modelHistory, senderLabelFor),
         );
+        const incomingMessages =
+          incomingMessageCount > 0 ? history.slice(-incomingMessageCount) : [];
+        const incomingModelMessages = await convertToModelMessages(
+          expandInboxMessages(incomingMessages, senderLabelFor),
+        );
+        const previousMessageCount = modelMessages.length - incomingModelMessages.length;
         let calibration: { estimate: number; inputTokens: number } | undefined;
         let previousEstimate = 0;
         let checkpointMessages: ModelMessage[] = [];
@@ -630,11 +638,16 @@ async function streamCore(
             let delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
             let current = [...checkpointMessages, ...delivered.slice(compactedThrough)];
             let prepared = prepareContext(current, system, false);
+            // Before any work, summarize only the history preceding the incoming
+            // messages. Later boundaries summarize completed tool steps as well.
+            const beforeTurn = stepNumber === 0 && incomingMessageCount > 0;
+            const summaryMessages = beforeTurn ? current.slice(0, previousMessageCount) : current;
             // An unanswered approval must remain a real tool part for its later resume.
             // Summarizing history cannot bring fixed instructions/tools below the
             // target. In that case, keep working while the full request still fits.
             if (
               !hasPendingApprovals &&
+              summaryMessages.length > 0 &&
               estimateContextTokens({ system, messages: [], tools: toolSchemas }) <
                 compactionThreshold &&
               calibratedContextTokens(prepared.estimate, calibration) >= compactionThreshold
@@ -642,18 +655,36 @@ async function streamCore(
               const checkpoint = await compactContext({
                 llmClients,
                 model: session.model,
-                messages: current,
+                messages: summaryMessages,
                 system,
                 inputBudget: budget.handoffInputTokens,
                 summaryBudget: Math.min(4096, Math.floor(budget.workInputTokens * 0.2)),
                 calibration,
                 abortSignal: controller.signal,
               });
+              if (checkpoint && beforeTurn) {
+                // Save the excluded inputs with the checkpoint so reloads and
+                // approval continuations retain the same request boundary.
+                checkpoint.data.pendingMessages = [
+                  ...incomingMessages,
+                  ...expandInboxMessages(
+                    deliveries.map(({ item }) => ({
+                      id: item.id,
+                      role: "assistant" as const,
+                      parts: [inboxUIPart(item) as UIMessage["parts"][number]],
+                    })),
+                    senderLabelFor,
+                  ),
+                ];
+              }
               const summarized = checkpoint
                 ? await convertToModelMessages(
-                    historySinceCheckpoint([
-                      { id: checkpoint.id, role: "assistant", parts: [checkpoint] },
-                    ]),
+                    expandInboxMessages(
+                      historySinceCheckpoint([
+                        { id: checkpoint.id, role: "assistant", parts: [checkpoint] },
+                      ]),
+                      senderLabelFor,
+                    ),
                   )
                 : [];
               const summaryEstimate = estimateContextTokens({

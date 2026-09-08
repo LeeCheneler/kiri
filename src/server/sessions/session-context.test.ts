@@ -74,6 +74,29 @@ describe("historySinceCheckpoint", () => {
     const text = JSON.stringify(context);
     expect(text).toContain("Earlier messages are unavailable");
     expect(text).toContain("Do not repeat completed actions");
+    expect(text).toContain("Never acknowledge, announce, or discuss the checkpoint");
+  });
+
+  it("restores excluded incoming messages before the assistant continuation without duplicating them", () => {
+    const pending: UIMessage = {
+      id: "u1",
+      role: "user",
+      parts: [
+        { type: "text", text: "Review this image" },
+        { type: "file", mediaType: "image/png", url: "data:image/png;base64,aGVsbG8=" },
+      ],
+    };
+    const saved = checkpoint("cp1", "Earlier findings");
+    saved.data.pendingMessages = [pending];
+    const context = historySinceCheckpoint([
+      assistant({ type: "text", text: "Old context" }),
+      pending,
+      assistant(saved, { type: "text", text: "Review completed" }),
+    ]);
+    expect(context).toHaveLength(3);
+    expect(context[1]).toEqual(pending);
+    expect(context[2].parts).toEqual([{ type: "text", text: "Review completed" }]);
+    expect(JSON.stringify(context)).not.toContain("Old context");
   });
 });
 

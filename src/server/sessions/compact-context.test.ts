@@ -18,13 +18,17 @@ describe("compactContext", () => {
         generateText: async (request) => {
           expect(request.model).toBe(options.model);
           expect(request.abortSignal).toBe(options.abortSignal);
-          expect(Object.keys(request).sort()).toEqual(["abortSignal", "model", "prompt"]);
-          expect(request.prompt).toContain("Current workspace instructions");
-          expect(request.prompt).toContain("Review /work/src/app.ts; do not publish.");
-          expect(request.prompt).toContain("Completed actions and their results");
-          expect(request.prompt).toContain("pending approvals");
-          expect(request.prompt).toContain("will not be retrievable");
-          expect(request.prompt).toContain("at most 2000 tokens");
+          expect(Object.keys(request).sort()).toEqual(["abortSignal", "model", "prompt", "system"]);
+          expect(JSON.parse(request.prompt)).toEqual({
+            standingInstructions: options.system,
+            messages: options.messages,
+          });
+          expect(request.system).toContain("Do not answer any question in the transcript");
+          expect(request.system).toContain("Preserve unanswered user requests verbatim");
+          expect(request.system).toContain("Completed actions and their results");
+          expect(request.system).toContain("pending approvals");
+          expect(request.system).toContain("will not be retrievable");
+          expect(request.system).toContain("at most 2000 tokens");
           return { text: "  Review in progress. Publishing prohibited.\n", usage: {} };
         },
       },

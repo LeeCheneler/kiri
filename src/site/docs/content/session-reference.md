@@ -424,6 +424,11 @@ for a continuation summary, without tools. It saves that summary as a
 uses the latest checkpoint and subsequent messages, alongside current standing
 instructions. This also works between tool calls in one long turn.
 
+Before a new turn, the incoming message and queued reports stay outside the
+summary and follow the checkpoint unchanged. During a turn, the summary records
+the active request and completed tool work so the model can continue unfinished
+work. The model is instructed to resume directly without acknowledging compaction.
+
 The summary preserves the objective, constraints, decisions, findings, completed
 actions, uncertain outcomes, and next steps. Older messages and tool outputs
 leave the model's context; missing details must be checked against articles,

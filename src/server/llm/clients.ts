@@ -75,6 +75,7 @@ export interface LlmClients {
   generateText(options: {
     model: string;
     prompt: string;
+    system?: string;
     abortSignal?: AbortSignal;
   }): Promise<GenerateLlmTextResult>;
   /**
@@ -132,6 +133,7 @@ export function createLlmClients(
       return generateLlmText({
         model: clients.resolveModel(options.model),
         prompt: options.prompt,
+        system: options.system,
         abortSignal: options.abortSignal,
       });
     },
@@ -284,6 +286,7 @@ function buildTranscriptionModel(
 export async function generateLlmText(options: {
   model: LlmModel;
   prompt: string;
+  system?: string;
   abortSignal?: AbortSignal;
 }): Promise<GenerateLlmTextResult> {
   const generate =
@@ -293,6 +296,7 @@ export async function generateLlmText(options: {
   const { text, usage } = await generate({
     model: options.model,
     prompt: options.prompt,
+    system: options.system,
     abortSignal: options.abortSignal,
   });
   return {

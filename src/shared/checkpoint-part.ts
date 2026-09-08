@@ -1,8 +1,14 @@
+import type { UIMessage } from "ai";
+
 /** A continuation summary saved at a boundary in an assistant message's transcript parts. */
 export interface CheckpointUIPart {
   type: "data-checkpoint";
   id: string;
-  data: { summary: string };
+  data: {
+    summary: string;
+    /** Incoming messages excluded from the summary, replayed immediately after it. */
+    pendingMessages?: UIMessage[];
+  };
 }
 
 /** Whether a transcript part is a context checkpoint. */

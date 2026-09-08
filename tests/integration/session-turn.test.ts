@@ -205,6 +205,10 @@ describe("session turn streaming", () => {
     expect(requests.map((request) => request.model)).toEqual(["tool", "tool", "tool"]);
     expect(requests[1]?.stream).not.toBe(true);
     expect(requests[1]?.tools).toBeUndefined();
+    expect(requests[1]?.messages?.[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("You are a conversation summariser."),
+    });
     expect(JSON.stringify(requests[1]?.messages)).toContain(evidence);
     expect(JSON.stringify(requests[2]?.messages)).toContain("Evidence read once");
     expect(JSON.stringify(requests[2]?.messages)).not.toContain("x".repeat(1000));
