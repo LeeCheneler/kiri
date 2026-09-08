@@ -1,110 +1,77 @@
 # Quickstart
 
-Install kiri and start a general-purpose or coding session. This guide also
-shows how to keep a useful write-up and, if you want automation, request a
-local workflow.
+Install Kiri, connect a model, and have your first conversation.
+You'll need **macOS on Apple silicon**, Homebrew, and access to a model.
 
-## Install
-
-Kiri ships for **macOS on Apple silicon**, via Homebrew:
+## Install and initialise
 
 ```sh
 brew install LeeCheneler/kiri/kiri
+mkdir -p ~/kiri-workspace
+cd ~/kiri-workspace
+kiri init
 ```
 
-Upgrade later with `brew upgrade kiri`. Without Homebrew: download the binary
-from the [latest release](https://github.com/LeeCheneler/kiri/releases/latest),
-`chmod +x` it, clear quarantine with `xattr -d com.apple.quarantine`, and put
-it on your `$PATH`. Want another platform?
-[Open an issue](https://github.com/LeeCheneler/kiri/issues).
-
-## Boot a workspace
-
-Kiri runs per directory — each working directory is its own workspace:
-
-```sh
-cd ~/projects/some-repo
-kiri init    # scaffold config and a starter workflow
-kiri         # serve on :4242
-```
-
-Open [local.kiri.build](https://local.kiri.build) — or
-`http://localhost:4242` in Safari and Brave, which block HTTPS→localhost.
+This folder is your workspace. You can use an existing folder instead.
+[Other install options](/docs/cli-reference#install-and-upgrade).
 
 ## Connect a model
 
-Kiri brings no model of its own. Declare a provider in `kiri.yaml`
-(workspace root, kept in git — `kiri init` scaffolds a commented skeleton):
+Before starting Kiri, edit `kiri.yaml` in your workspace. For an Anthropic
+API key, use:
 
 ```yaml
 providers:
   anthropic:
     type: anthropic
-    api_key:
-      env: ANTHROPIC_API_KEY
+    api_key: { env: ANTHROPIC_API_KEY }
 ```
 
-Put the key in a git-ignored `.env` next to it — kiri auto-loads it at boot:
+Add `.env` to your workspace’s `.gitignore`, then create `.env` beside
+`kiri.yaml` and add your key:
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_API_KEY=your-api-key
 ```
 
-No key at all? An OpenAI-compatible local server (LM Studio, Ollama, vLLM)
-works too — see [Models & providers](/docs/llm-providers).
+Keep the key in `.env`, never in `kiri.yaml`. Your provider bills model usage separately.
 
-## Work it out in a session
+Using another provider or a local model? Follow
+[Models & providers](/docs/llm-providers), then continue below.
 
-Click **+ New session** (or press ⌥⌘N) and ask for something you'd normally
-lose to a chat window — say, *"summarise what changed in this repo this week
-and what's still open."* Then ask the session to keep it:
+## Open Kiri
 
-> write that up as an article
+From your workspace folder, run:
 
-The write-up lands as an **article**: a readable page in your feed — markdown
-with charts and diagrams if the content calls for them — not scrollback. Ask
-for changes and the session edits the page in place. Everything a session or
-run produces is searchable as you type, ⌘K from anywhere.
+```sh
+kiri
+```
 
-## Optional: turn the repeat into a button
+Open [local.kiri.build](https://local.kiri.build). If your browser cannot
+connect, use [localhost:4242](http://localhost:4242) directly.
+Keep the terminal running while you use Kiri. If you change `.env` later,
+stop Kiri with **Ctrl+C** and start it again.
 
-If you want that summary as a repeatable automation, explicitly ask the session:
+## Have a conversation
 
-> save that as a workflow
+Click **+ New session**. To change the selected model, open **settings**
+(the gear in the message box). Then try:
 
-The session authors a validated workflow file into `workflows/` (with your
-approval — the write shows as a diff first). It's a plain YAML file: shell
-steps piped into model steps, diffable and committable like any other code.
-From now on it's one click — **Run** on the Workflows page — and each run
-writes a fresh article into your feed.
+> Help me plan a small personal project: an app that shows when the northern
+> lights might be visible. Ask me about the scope before suggesting a plan.
 
-You can use kiri entirely through sessions. Saving articles and creating
-workflows are options when they help, not requirements for completing work.
+Answer the assistant's questions and work through the idea. No file access
+or extra tools are needed for this first conversation.
 
-## Where kiri keeps things
+When you have something worth keeping, try:
 
-| File | What it holds | In git? |
-| --- | --- | --- |
-| [`kiri.yaml`](/docs/kiri-yaml) | Structured config: model providers, MCP servers, the session file sandbox. | Yes |
-| `.env` | Secrets, auto-loaded at boot. | No |
-| `kiri.md` | Standing instructions for [sessions](/docs/sessions). | Yes |
-| `AGENTS.md` | Per-directory instructions, picked up from the tree a session works in. Not kiri-specific. | Yes |
-| `skills/` | On-demand instruction packs, one `<name>/SKILL.md` per skill. | Yes |
-| `workflows/` | Your workflow YAML, hand-written or session-authored. | Yes |
-| `.kiri/` | Editor schemas and run scratch space. | No — `kiri init` gitignores it |
+> Save our plan as an article.
 
-Configuration problems never block boot — kiri prints a health report at
-startup and shows the same checks as a banner in the app. To pin a workspace
-regardless of where you launch from, set `KIRI_CONFIG_DIR` (a leading `~` is
-expanded).
+Open the article from the conversation or activity feed. You can ask the
+assistant to update it as your thinking changes.
 
 ## Next
 
-- [Sessions](/docs/sessions) — instructions, skills, tools, files and shell,
-  delegation.
-- [Projects & memories](/docs/projects-and-memories) — where work compounds
-  across sessions.
-- [Writing workflows](/docs/workflows) — wire steps together, take inputs,
-  recommend follow-ups.
-- [Recipes](/docs/recipes) — release notes, one-click PR reviews, a daily
-  briefing.
+- [Have a conversation](/docs/sessions) — writing, attachments, and finding earlier answers.
+- [Work with files](/docs/working-with-files) — enable file access for research and coding.
+- [Projects & memories](/docs/projects-and-memories) — keep related work together.

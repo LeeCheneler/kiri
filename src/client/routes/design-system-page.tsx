@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ActionLink } from "../design-system/actions/action-link.tsx";
 import { Button } from "../design-system/actions/button.tsx";
 import { Checkbox } from "../design-system/actions/checkbox.tsx";
 import { Chip } from "../design-system/actions/chip.tsx";
@@ -1363,6 +1364,28 @@ export function DesignSystemContent() {
 
         <div className="space-y-12">
           <article>
+            <h4 className="font-mono text-base text-ink">Action link</h4>
+            <Prose>
+              <p className="mt-3">
+                Use ActionLink for a standalone destination that needs button weight. It remains a
+                link: keyboard navigation, copying the address, and opening a new tab all work. Use
+                primary for the main destination and default for a secondary one. Use InlineLink
+                within prose and Button for actions that change something.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <div className="flex flex-wrap gap-4">
+                  <ActionLink href="/docs/getting-started">Get started</ActionLink>
+                  <ActionLink href="#content" variant="default">
+                    Explore the catalogue
+                  </ActionLink>
+                </div>
+              </Card>
+            </div>
+          </article>
+
+          <article>
             <h4 className="font-mono text-base text-ink">Button</h4>
             <p className="mt-1 font-mono text-xs text-ink-faint">
               <span className="text-ink-muted">Button</span> · design-system/actions/button.tsx
@@ -1372,7 +1395,7 @@ export function DesignSystemContent() {
                 A button performs an action — it runs, submits, toggles, deletes; it{" "}
                 <em>changes</em> something. The line that matters most:{" "}
                 <em>buttons act, links navigate</em>. If a control takes the user somewhere —
-                another page, a section, an external site — it is a link (the Inline link above),
+                another page, a section, an external site — it is a link (InlineLink or ActionLink),
                 never a button wired to navigate on click. A button that navigates throws away
                 open-in-new-tab, middle-click, history, and the role a screen reader announces. When
                 you are unsure which to reach for, ask whether the control <em>goes somewhere</em>{" "}

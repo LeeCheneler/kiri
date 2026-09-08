@@ -1,99 +1,71 @@
 # Positioning
 
-The one-page reference for how kiri describes itself. Every outward surface —
-README, site hero, docs landing page, empty states, release copy — should say
-the same thing; if a piece of copy doesn't fit this document, either the copy
-or this document is wrong, and the mismatch is a defect to fix, not ignore.
+The reference for how Kiri describes itself across the site, README, docs,
+and onboarding. Lead with what someone can do, then show why the work remains
+useful. Technical details belong in guides and reference pages.
 
-## One-liner
+## The promise
 
-> Kiri is an AI workspace that runs on your machine and writes things down —
-> sessions become readable pages, facts become memories, and repeated chores
-> become one-click buttons.
+**An AI workspace for work worth keeping.**
 
-Short form (taglines, descriptions): **A local-first AI workspace where work
-compounds — pages instead of scrollback, memories instead of re-explaining,
-buttons instead of re-prompting.**
+Research, write, and code with an assistant on your machine. Keep useful
+answers as pages, carry context between sessions, and turn repeat tasks into
+workflows.
 
-Category noun: **local-first AI workspace**. The category places kiri; the
-one-liner sells it. Never lead with the category alone.
+Category: **local-first AI workspace**. Supporting facts: open source,
+bring your own model, macOS on Apple silicon. Model access is configured
+separately; cloud providers and connected tools receive data for their calls.
+Never imply that local storage means all processing happens locally.
 
-## The ladder
+## What to show
 
-Lead with general-purpose and coding sessions. Preservation and automation are
-options that serve the work, not steps every conversation must complete:
+1. **Work through it.** Lead with a real session: a decision, a draft, or a
+   code change. Sessions are general-purpose; a repo is one possible workspace.
+2. **Keep what matters.** Show the saved decision alongside the conversation
+   that produced it, then how another session can find and build on that work.
+3. **Run it again.** Show a repeatable task made into a workflow when the user
+   wants automation. Workflows run on demand while Kiri is open.
 
-1. **Work it out in a session.** Sessions are the front door: a
-   general-purpose agentic assistant with any model you configure — a
-   conversation, a piece of research, a review, a write-up, or a code change
-   — that reads and edits your files, runs your shell, delegates legwork, and
-   reaches any MCP server, with tool permissions you set: allow, ask, or off.
-   Always name the range (chat, research, writing, code); never anchor a
-   session to the repo alone.
-2. **Keep what matters.** Substantial write-ups and reusable conclusions can
-   become articles — readable pages in a live feed. Durable facts persist as
-   memories. Related work compounds
-   into a project's shared corpus with wiki-links and standing instructions.
-3. **Automate when you choose.** A user who wants to automate a repeatable
-   task can ask a session to create a workflow — a YAML file in the repo,
-   runnable as a button. Only suggest this when the user clearly shows that
-   intent; repetition alone is not a reason to offer, and creation needs an
-   explicit request.
+These are capabilities, not a mandatory sequence. A conversation or a code
+change is a complete outcome. Articles, memories, and workflows serve the
+work; every session does not need to produce all three.
 
-Most day-to-day use is general-purpose and coding sessions. A conversation or
-a code change is a complete outcome. Do not imply that successful sessions
-must produce an article, memory, or workflow.
+## The homepage
 
-## Pain stack (lead with the highest)
+- One headline, one short explanation, and a clear link to the quickstart.
+- A large session screenshot directly under the hero, before feature copy.
+- Three short benefits, followed by a related project screenshot. Use one
+  coherent example so readers see how the conversations and saved work connect.
+- A brief explanation of local storage, model choice, and permissions.
+- A closing invitation to start a conversation.
 
-1. **AI work evaporates.** Valuable output dies in chat scrollback; every
-   session starts from zero. (articles, feed, memories, projects)
-2. **Re-prompting the same chore.** The Friday `git log` paste into a chat
-   window, again. (workflows, recommendations)
-3. **Assistants have amnesia.** Re-explaining context and preferences every
-   time. (memories, standing instructions, projects)
-4. **Cloud tools can't touch the real repo safely.** Privacy and blast-radius
-   worries. (local-first, allowed directories, per-tool permissions, diffs
-   before writes)
+Keep the warm dark palette, serif headings, and restrained gold accents.
+Use readable prose and real product imagery. Avoid repeating the same feature
+set in a grid, long prose sections, and a gallery. Installation commands and
+configuration examples live in the quickstart.
 
-## Competitive frames
+## The documentation
 
-- **vs chat apps (ChatGPT, Claude.ai):** like your chat app, but it lives in
-  your repo and writes things down — pages, memories, and buttons instead of
-  scrollback.
-- **vs coding agents (Claude Code, terminal agents):** a session can do
-  that job — edit the repo, run the shell, ship the change — but it isn't
-  built around it: the same session researches, reviews, and writes, and it
-  keeps what it learned as pages and memories. Never say "not a coding
-  agent" (it can be one) and never pitch it as one (it's more).
-- **vs automation platforms (n8n, Zapier, cron):** AI-native automation as
-  YAML in your own git repo — diffable, reviewable, local, no cloud.
-- **vs doing nothing:** stop pasting `git log` into a chat window every
-  Friday and losing the answer by Monday.
+- **Start:** a short orientation and an install-to-first-conversation guide.
+- **Guides:** practical tasks with examples — conversations, files, projects,
+  workflows. Explain only the concepts needed to complete the task.
+- **Reference:** configuration, permissions, exact limits, execution semantics,
+  and workflow syntax. Preserve useful detail without making it required reading.
 
-## Proof points (show, don't claim)
-
-1. A minimal `kiri.yaml` before any workflow — providers (Anthropic and an
-   OpenAI-compatible gateway like OpenRouter), allowed directories, one MCP
-   server — so the reader sees the whole on-ramp in a dozen lines.
-2. The release-notes YAML — a real, runnable workflow — after the config, and
-   on the site hero.
-3. A screenshot of the product — a session first (worked out in chat, kept
-   as an article and a memory), then the feed and an article. The UI is the
-   proof of polish; adjectives are not.
-4. A quickstart that gets the user working in a session first, then shows
-   how to keep a useful write-up and optionally request a workflow.
-
-Avoid: "powerful", "seamless", feature soup, unverifiable claims.
+Configure the model before launching in the quickstart. The first example
+must work with that configuration. File access and automation are separate,
+optional guides. Keep existing bookmarks working when moving reference sections.
 
 ## Vocabulary
 
-- "assistant", never "agent", for the actor in user-facing copy. "Agentic"
-  as an adjective for the capability (e.g. "agentic sessions") is fine.
-- "instructions", never "prompt", for standing instruction layers.
-- "article" for the written artifact; "feed" for where it lands.
-- "local workflows" when naming the workflow feature — never "one-click
-  workflows"; the one-click part describes how a workflow runs ("a button"),
-  not what it is.
-- Sessions "write things down"; workflows are "buttons"; the workspace
-  "compounds" or "accumulates" — ephemerality is the enemy named in copy.
+- Use **assistant** for the actor. Prefer “conversation” when introducing
+  sessions; reserve “agentic” for technical contexts.
+- A saved page is an **article**; short reusable facts are **memories**.
+- A **project** brings related sessions, articles, memories, and tasks together.
+  Explain that before introducing “corpus” in reference material.
+- A **workflow** is a repeatable task run from a button. Introduce YAML when
+  someone creates or edits one, not in the homepage headline.
+- Use **workspace folder** when a git repository is not required.
+- Prefer concrete outcomes to “work compounds”, “powerful”, or “seamless”.
+- Avoid blanket claims that other tools forget or that every new session
+  starts from zero. Demonstrate what Kiri preserves and how it can be reused.

@@ -81,7 +81,7 @@ workspace search can read other projects' records. Projects organise automatic
 context and default retrieval; they are not confidentiality boundaries within
 the workspace. `search_knowledge` and `open_knowledge` have the same
 Always allow / Ask / Off controls as other tools, including in delegated
-sessions. See [Finding prior work](/docs/sessions#finding-prior-work).
+sessions. See [Finding prior work](/docs/session-reference#finding-prior-work).
 
 ## Secrets
 

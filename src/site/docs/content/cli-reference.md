@@ -2,6 +2,28 @@
 
 Kiri is a single binary, `kiri`. Run it inside a workspace directory.
 
+## Install and upgrade
+
+Kiri ships for macOS on Apple silicon. With Homebrew:
+
+```sh
+brew install LeeCheneler/kiri/kiri
+```
+
+Upgrade with `brew upgrade kiri`.
+
+Without Homebrew, download the macOS ARM64 binary from the
+[latest release](https://github.com/LeeCheneler/kiri/releases/latest), then:
+
+```sh
+chmod +x ~/Downloads/kiri
+xattr -d com.apple.quarantine ~/Downloads/kiri
+sudo mv ~/Downloads/kiri /usr/local/bin/kiri
+kiri --version
+```
+
+Want another platform? [Open an issue](https://github.com/LeeCheneler/kiri/issues).
+
 ## Commands
 
 ```
@@ -58,3 +80,18 @@ its keys from the right `.env`.
 
 There is no cron, file watch, webhook, or inbox polling. For polling shapes,
 write a workflow whose first step does the poll and run it when you want it.
+
+## Workspace files
+
+| File | Purpose | In git? |
+| --- | --- | --- |
+| `kiri.yaml` | Model providers, connected tools, allowed directories. | Yes |
+| `.env` | Provider keys and other secrets, loaded at startup. | No |
+| `kiri.md` | Workspace instructions for sessions. | Yes |
+| `AGENTS.md` | Instructions for a directory and its descendants. | Yes |
+| `skills/` | Instructions loaded on demand. | Yes |
+| `workflows/` | Workflow YAML definitions. | Yes |
+| `.kiri/` | Local database, editor schemas, and run scratch space. | No |
+
+Restart Kiri after changing `.env`. To pin a workspace regardless of where
+you launch from, set `KIRI_CONFIG_DIR`.

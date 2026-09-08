@@ -26,11 +26,11 @@ function FooterLink({ href, children }: { href: string; children: string }) {
 export function SiteFooter() {
   return (
     <footer className="border-rule border-t">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <div>
           <span className="font-display text-xl text-ink italic leading-none">kiri</span>
-          <span className="ml-3 font-mono text-xs text-ink-faint">
-            The AI workspace that writes things down — on your machine.
+          <span className="ml-3 font-mono text-xs text-ink-muted">
+            An AI workspace for work worth keeping.
           </span>
         </div>
         <nav className="flex items-center gap-6">

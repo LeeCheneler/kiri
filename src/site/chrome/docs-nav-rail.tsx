@@ -1,4 +1,5 @@
 import { useLocation } from "wouter";
+import { Disclosure } from "../../client/design-system/content/disclosure.tsx";
 import { type NavGroup, NavList } from "../../client/design-system/navigation/nav-list.tsx";
 import { DOCS_PAGES, docsHref } from "../docs/docs-nav.ts";
 
@@ -21,5 +22,22 @@ export function DocsNavRail() {
       groups.push({ heading: page.section, items: [item] });
     }
   }
-  return <NavList heading="Documentation" items={groups} />;
+  const current = DOCS_PAGES.find((page) => docsHref(page.slug) === location);
+  return (
+    <>
+      <div className="hidden lg:block">
+        <NavList heading="Documentation" items={groups} />
+      </div>
+      <div className="border border-rule lg:hidden">
+        <Disclosure
+          key={location}
+          summary={
+            <span className="font-mono text-sm text-ink">Docs · {current?.title ?? "Browse"}</span>
+          }
+        >
+          <NavList heading="Documentation" items={groups} />
+        </Disclosure>
+      </div>
+    </>
+  );
 }

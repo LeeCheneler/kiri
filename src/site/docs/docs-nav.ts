@@ -5,11 +5,14 @@ import llmProviders from "./content/llm-providers.md?raw";
 import overview from "./content/overview.md?raw";
 import projectsAndMemories from "./content/projects-and-memories.md?raw";
 import recipes from "./content/recipes.md?raw";
+import sessionReference from "./content/session-reference.md?raw";
 import sessions from "./content/sessions.md?raw";
 import troubleshooting from "./content/troubleshooting.md?raw";
 import trustAndSecurity from "./content/trust-and-security.md?raw";
+import workflowAuthoring from "./content/workflow-authoring.md?raw";
 import workflowReference from "./content/workflow-reference.md?raw";
 import workflows from "./content/workflows.md?raw";
+import workingWithFiles from "./content/working-with-files.md?raw";
 
 /** The left-rail section a documentation page is grouped under. */
 export type DocsSection = "Start" | "Guides" | "Reference";
@@ -32,18 +35,41 @@ export const DOCS_INDEX_SLUG = "overview";
  * landing page served at `/docs`; the rest live at `/docs/<slug>`.
  */
 export const DOCS_PAGES: DocsPage[] = [
-  { slug: "overview", title: "What is kiri?", section: "Start", content: overview },
+  { slug: "overview", title: "Start here", section: "Start", content: overview },
   { slug: "getting-started", title: "Quickstart", section: "Start", content: gettingStarted },
-  { slug: "sessions", title: "Sessions", section: "Guides", content: sessions },
+  { slug: "sessions", title: "Have a conversation", section: "Guides", content: sessions },
+  {
+    slug: "working-with-files",
+    title: "Work with files",
+    section: "Guides",
+    content: workingWithFiles,
+  },
   {
     slug: "projects-and-memories",
     title: "Projects & memories",
     section: "Guides",
     content: projectsAndMemories,
   },
-  { slug: "workflows", title: "Writing workflows", section: "Guides", content: workflows },
-  { slug: "llm-providers", title: "Models & providers", section: "Guides", content: llmProviders },
-  { slug: "recipes", title: "Recipes", section: "Guides", content: recipes },
+  { slug: "workflows", title: "Create a workflow", section: "Guides", content: workflows },
+  {
+    slug: "session-reference",
+    title: "Session reference",
+    section: "Reference",
+    content: sessionReference,
+  },
+  {
+    slug: "workflow-authoring",
+    title: "Workflow authoring",
+    section: "Reference",
+    content: workflowAuthoring,
+  },
+  {
+    slug: "llm-providers",
+    title: "Models & providers",
+    section: "Reference",
+    content: llmProviders,
+  },
+  { slug: "recipes", title: "Workflow recipes", section: "Reference", content: recipes },
   {
     slug: "kiri-yaml",
     title: "kiri.yaml",

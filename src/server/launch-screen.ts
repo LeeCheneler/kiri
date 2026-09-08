@@ -19,7 +19,7 @@ export function displayPath(path: string, home: string = homedir()): string {
   return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
-const TAGLINE = "the AI workspace that writes things down";
+const TAGLINE = "an AI workspace for work worth keeping";
 
 /** The header box printed the moment kiri starts booting. */
 export function renderHeader(version: string): string[] {

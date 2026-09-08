@@ -1,7 +1,7 @@
 # Workflow reference
 
 Every field of a workflow file, in one place. For the guided version, read
-[Writing workflows](/docs/workflows) first.
+[Workflow authoring](/docs/workflow-authoring) first.
 
 ## The file
 
