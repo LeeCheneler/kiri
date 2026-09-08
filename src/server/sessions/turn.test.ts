@@ -220,6 +220,7 @@ describe("runTurn", () => {
       const model = new MockLanguageModelV3({
         doStream: async (options) => {
           calls += 1;
+          expect(options.maxOutputTokens).toBeUndefined();
           if (calls <= 64) {
             return {
               stream: convertArrayToReadableStream([
@@ -1228,6 +1229,39 @@ describe("runTurn", () => {
     // The user message persisted; no assistant message was appended.
     expect(getSessionMessages(db, "s1").map((r) => r.role)).toEqual(["user"]);
     expect(events).toContainEqual({ type: "session.finished", id: "s1", status: "failed" });
+  });
+
+  it.each([
+    ['{"detail":"Unsupported parameter: temperature"}', "Unsupported parameter: temperature"],
+    ['{"error":{"message":"Invalid tool schema"}}', "Invalid tool schema"],
+    ['{"error":"Model unavailable"}', "Model unavailable"],
+    ['{"detail":[{"message":"unrecognised structure"}]}', "Bad Request"],
+    ["<html>upstream error</html>", "Bad Request"],
+    ["null", "Bad Request"],
+  ])("streams and persists provider error details from %s", async (responseBody, expected) => {
+    const model = streamingModel([
+      {
+        type: "error",
+        error: new APICallError({
+          message: "Bad Request",
+          url: "https://example.com/responses",
+          requestBodyValues: { private: "must not appear" },
+          statusCode: 400,
+          responseBody,
+        }),
+      },
+      { type: "finish", finishReason: finishReason("error"), usage: usage(1, 0) },
+    ]);
+    const session = createSession(db, MODEL, { id: "s1" });
+    const { response, done } = await runTurn(
+      { db, llmClients: clientsFor(model) },
+      { session, userMessage: USER_MESSAGE },
+    );
+    const stream = await response.text();
+    await done;
+    expect(stream).toContain(JSON.stringify({ type: "error", errorText: expected }));
+    expect(stream).not.toContain("must not appear");
+    expect(getSession(db, "s1")?.error).toEqual({ message: expected });
   });
 
   it("cancels an in-flight turn when the registry requests it", async () => {
