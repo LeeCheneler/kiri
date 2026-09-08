@@ -160,9 +160,12 @@ export function shellTools(
   return {
     run_command: tool({
       description:
-        "Run a shell command on the user's machine, executed with bash -c in the session's working directory unless cwd names another allowed directory. The result carries the exit code, stdout, and stderr — a non-zero exit is a result to read and act on, not an error. Commands run non-interactively (stdin reads end-of-file, so interactive prompts fail rather than wait) and must finish within timeout_seconds — never start servers, watchers, or anything meant to keep running. Each output stream is trimmed to its tail past a cap, flagged with stdoutTruncated/stderrTruncated. Prefer the filesystem tools to read, search, or edit files; reach for this to build, test, use git, and run the user's own scripts and tooling.",
+        "Run a shell command on the user's machine, executed with bash -c in the session's working directory unless cwd names another allowed directory. The result carries the exit code, stdout, and stderr — a non-zero exit is a result to read and act on, not an error. Commands run non-interactively (stdin reads end-of-file, so interactive prompts fail rather than wait) and support foreground-only work that finishes within timeout_seconds. Use one-shot/non-watch modes; never start servers, watchers, daemons, or detached/background jobs, or leave processes running after the call. There is no background process management. Each output stream is trimmed to its tail past a cap, flagged with stdoutTruncated/stderrTruncated. Prefer the filesystem tools to read, search, or edit files; reach for this to build, test, use git, and run the user's own scripts and tooling.",
       inputSchema: z.object({
-        command: z.string().min(1).describe("The shell command to run, executed with bash -c."),
+        command: z
+          .string()
+          .min(1)
+          .describe("The foreground shell command to run to completion, executed with bash -c."),
         cwd: z
           .string()
           .min(1)

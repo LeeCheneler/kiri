@@ -127,6 +127,29 @@ describe("judgeCommand", () => {
     expect(prompt.indexOf("END USER PRECEDENT")).toBeLessThan(prompt.indexOf("Working directory:"));
   });
 
+  it("keeps the foreground-only rule above learned background approvals", async () => {
+    let prompt = "";
+    await judgeCommand({
+      llmClients: fakeClients((options) => {
+        prompt = options.prompt;
+        return "VERDICT: ask\nREASON: unsupported background process";
+      }),
+      model: "openai:gpt-mini",
+      command: "bun run dev &",
+      cwd: "/repo",
+      guidance: "- always approves bun run dev in the background",
+    });
+    // Check the policy sent to the judge; the stub does not evaluate commands.
+    const rules = prompt.slice(0, prompt.indexOf("BEGIN USER PRECEDENT"));
+    const askRules = rules.slice(rules.indexOf('Answer "ask" when'));
+    expect(askRules).toContain("starts servers, watchers, daemons, or detached/background jobs");
+    expect(askRules).toContain("foreground-only work");
+    expect(askRules).toContain('never overrides the hard "ask" rules above');
+    expect(rules).not.toContain("build, test, dev, check");
+    expect(rules).not.toContain("starting background processes for the work at hand");
+    expect(prompt).toEndWith("Command:\nbun run dev &");
+  });
+
   it("builds an identical prompt for absent and empty guidance", async () => {
     const promptFor = async (guidance?: string) => {
       let prompt = "";

@@ -313,8 +313,12 @@ The same `filesystem:` declaration gives sessions a `run_command` tool —
 builds, tests, git, your own scripts — run in the session's working
 directory. The sandbox confines where a command *starts*, not what it can
 touch, so every call asks by default, showing the exact command verbatim.
-Commands run non-interactively with a timeout; servers and watchers aren't
-supported. While a command runs, expanding its block in the chat shows the
+Commands support foreground-only work: use non-interactive, one-shot modes
+that finish within the timeout (120 seconds by default, at most 600). Servers,
+watchers, daemons, detached/background jobs, and leaving processes running
+after the call are unsupported. Approval does not add background process
+management. Timeout or cancellation kills the command process; cleanup of
+its child processes is not guaranteed. While a command runs, expanding its block in the chat shows the
 output streaming live — stdout and stderr merged, as a terminal would show
 it — so a long build or test run shows progress instead of an opaque
 "Running…" until it exits.
@@ -325,7 +329,10 @@ obviously safe read-only commands run straight away, dangerous shapes
 always ask — no model can override that — and everything in between is
 judged by your [utility model](/docs/llm-providers#utility-model), asking
 whenever it's unsure. Auto needs `models.utility` configured; without it,
-Auto behaves exactly like Ask.
+Auto behaves exactly like Ask. The judge is instructed to ask for commands
+that start unsupported background or long-running processes, even if
+precedent records earlier approvals. This guidance does not enforce a
+runtime ban on those commands.
 
 Auto also learns from your decisions. Approvals and denials are distilled
 into precedent the judge reads on later commands, so a script you've

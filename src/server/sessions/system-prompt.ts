@@ -384,7 +384,7 @@ function buildShellGuidance(tools: string[], allowedDirectories: readonly string
     "- Never read or print secrets: no dumping .env or credential files, no printing keys or tokens, no env/printenv. Command output enters the conversation and is sent to a model provider — treat secrets as unprintable.",
     "- Never fetch-and-execute: no piping a download into a shell, and no running a script you haven't read in this conversation or written yourself.",
     "- Git: everyday operations are fine, but never force-push, hard-reset a shared branch, rewrite published history, or delete branches and tags unless the user explicitly asked for exactly that.",
-    "Mechanics: prefer the filesystem tools to read, search, and edit files — reach for run_command to build, test, lint, use git, and run the project's own scripts and tooling. Commands run non-interactively and are killed at their timeout, so use flags that avoid prompts and pagers, and never start servers, watchers, or anything meant to keep running. A non-zero exit or truncated output is a result to read and report honestly, not to paper over.",
+    "Mechanics: prefer the filesystem tools to read, search, and edit files — reach for run_command to build, test, lint, use git, and run the project's own scripts and tooling. Commands support foreground-only work that finishes within the timeout. Use non-interactive, one-shot/non-watch modes and flags that avoid prompts and pagers. Never start servers, watchers, daemons, or detached/background jobs, or leave processes running after the call. There is no background process management; approval does not change that contract. A non-zero exit or truncated output is a result to read and report honestly, not to paper over.",
   ].join("\n");
 }
 

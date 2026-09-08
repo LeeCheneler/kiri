@@ -766,6 +766,9 @@ describe("buildSystemPrompt", () => {
     expect(withShell).toContain("Hard rules");
     expect(withShell).toContain("Never read or print secrets");
     expect(withShell).toContain("Never fetch-and-execute");
+    expect(withShell).toContain("foreground-only work");
+    expect(withShell).toContain("one-shot/non-watch modes");
+    expect(withShell).toContain("approval does not change that contract");
 
     // Without run_command (withheld by permission or configuration) none of
     // the shell guidance appears.
@@ -777,6 +780,7 @@ describe("buildSystemPrompt", () => {
     });
     expect(withoutShell).not.toContain("You can run shell commands");
     expect(withoutShell).not.toContain("Hard rules");
+    expect(withoutShell).not.toContain("foreground-only work");
     expect(buildSystemPrompt({ config, now: FIXED_NOW })).not.toContain(
       "You can run shell commands",
     );
