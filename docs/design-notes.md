@@ -373,8 +373,10 @@ only in workspace scope. Explicit workspace retrieval includes other projects;
 project membership controls automatic context and defaults, not confidentiality.
 Existing mutation tools retain their own scopes.
 
-Search reuses `search_fts`, ranked by bm25 with stable tie-breaking. It returns
-individual message matches rather than collapsing each session to one hit;
+Search reuses `search_fts`, ranked by bm25 with stable tie-breaking. Queries
+match every supplied keyword, so the tool asks for short keyword queries and
+fewer terms on an empty result. It returns individual message matches rather
+than collapsing each session to one hit;
 `session_id` narrows a query to one session. Workflow substring matches follow
 index results in name order. `limit` defaults to 10 and caps at 20; `nextOffset`
 continues with the same query, scope, and filters. Pagination is over live data,

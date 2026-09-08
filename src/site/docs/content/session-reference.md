@@ -137,6 +137,9 @@ run summaries, and workflow names and descriptions. It can then use
 **`open_knowledge`** to read a source and link it in its answer. Workflow
 articles are discoverable without knowing the original run ID.
 
+Retrieval uses keyword matching. The assistant should search with a few key
+terms and simplify an empty query; every supplied term must match.
+
 | Search scope | Included records |
 | --- | --- |
 | Default in a project session | That project's articles, sessions, and memories. |
