@@ -154,7 +154,7 @@ export function search(deps: SearchDeps, rawQuery: string, limit = 20): SearchRe
       `SELECT entity_type, entity_id, source_id, title,
               snippet(search_fts, 1, char(57344), char(57345), '…', 12) AS snip
        FROM search_fts
-       WHERE search_fts MATCH ?
+       WHERE search_fts MATCH ? AND entity_type IN ('article', 'session', 'run')
        ORDER BY bm25(search_fts, 4.0, 1.0)
        LIMIT ?`,
     )

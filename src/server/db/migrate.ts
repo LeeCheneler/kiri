@@ -58,6 +58,7 @@ import migration0036 from "../../../drizzle/0036_add_task_group_hidden.sql" with
 import migration0037 from "../../../drizzle/0037_drop_task_position.sql" with { type: "text" };
 import migration0038 from "../../../drizzle/0038_add_session_inbox.sql" with { type: "text" };
 import migration0039 from "../../../drizzle/0039_add_inbox_sender.sql" with { type: "text" };
+import migration0040 from "../../../drizzle/0040_index_memories.sql" with { type: "text" };
 import type { KiriDb } from "./index.ts";
 
 interface Migration {
@@ -85,7 +86,8 @@ interface Migration {
  * `messages` (user/assistant text parts), and `runs` (summaries) via
  * triggers — schema changes to those tables must keep the triggers in
  * step. `0028_add_session_title` extends the index with triggers on
- * `sessions` mirroring each top-level session's title.
+ * `sessions` mirroring each top-level session's title. `0040_index_memories`
+ * adds memory names, descriptions, and bodies for explicit knowledge retrieval.
  */
 const MIGRATIONS: Migration[] = [
   { name: "0000_initial", sql: migration0000 },
@@ -128,6 +130,7 @@ const MIGRATIONS: Migration[] = [
   { name: "0037_drop_task_position", sql: migration0037 },
   { name: "0038_add_session_inbox", sql: migration0038 },
   { name: "0039_add_inbox_sender", sql: migration0039 },
+  { name: "0040_index_memories", sql: migration0040 },
 ];
 
 /**

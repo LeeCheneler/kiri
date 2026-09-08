@@ -1269,6 +1269,67 @@ describe("db", () => {
       )
       .all(entityType);
 
+  it("backfills memory search and keeps it current through edits and deletion", () => {
+    // Start just before memory indexing so the test exercises the real startup
+    // migration against existing data as well as its ongoing triggers.
+    db.$client.run(
+      "CREATE TABLE __kiri_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
+    );
+    db.$client.run("INSERT INTO __kiri_migrations VALUES ('0040_index_memories', 0)");
+    migrate(db);
+    const now = new Date();
+    db.insert(memories)
+      .values({
+        id: "m1",
+        name: "storage",
+        description: "Storage decision",
+        contentMd: "Use Postgres.",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    expect(searchRows(db, "memory")).toEqual([]);
+    db.$client.run("DELETE FROM __kiri_migrations WHERE name = '0040_index_memories'");
+    migrate(db);
+    expect(searchRows(db, "memory")).toEqual([
+      {
+        title: "storage Storage decision",
+        body: "Use Postgres.",
+        entity_type: "memory",
+        entity_id: "m1",
+        source_id: "m1",
+      },
+    ]);
+    migrate(db);
+    expect(searchRows(db, "memory")).toHaveLength(1);
+    db.update(memories)
+      .set({ name: "database", description: "Revised decision", contentMd: "Use SQLite." })
+      .where(eq(memories.id, "m1"))
+      .run();
+    expect(searchRows(db, "memory")).toEqual([
+      {
+        title: "database Revised decision",
+        body: "Use SQLite.",
+        entity_type: "memory",
+        entity_id: "m1",
+        source_id: "m1",
+      },
+    ]);
+    db.insert(memories)
+      .values({
+        id: "m2",
+        name: "new-fact",
+        description: "New fact",
+        contentMd: "Recorded after migration.",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    expect(searchRows(db, "memory")).toHaveLength(2);
+    db.delete(memories).where(eq(memories.id, "m1")).run();
+    expect(searchRows(db, "memory").map((row) => row.entity_id)).toEqual(["m2"]);
+  });
+
   it("keeps search_fts in step with articles through insert, update, and delete", () => {
     migrate(db);
 
