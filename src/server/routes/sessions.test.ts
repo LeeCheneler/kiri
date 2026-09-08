@@ -3172,7 +3172,7 @@ describe("sessions routes", () => {
         },
       }) as unknown as LlmModel;
 
-    it("offers delegate to a top-level turn and steers research to it", async () => {
+    it("offers delegate to a top-level turn with selective routing guidance", async () => {
       const capture: { toolNames?: string[]; systemText?: string } = {};
       const { bus, waitForSettled } = createSessionWaiter();
       const app = makeApp(fakeClients({ model: capturingModel(capture) }), { bus });
@@ -3183,7 +3183,8 @@ describe("sessions routes", () => {
       await settled;
 
       expect(capture.toolNames).toContain("delegate");
-      expect(capture.systemText).toContain("Delegation is the rule for research");
+      expect(capture.systemText).toContain("Choose delegation for substantial, separable work");
+      expect(capture.systemText).toContain("a search followed by reading its result can stay here");
     });
 
     it("never offers delegate to a child's own turn, which runs the worker prompt", async () => {

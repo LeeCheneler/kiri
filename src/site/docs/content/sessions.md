@@ -314,13 +314,17 @@ asking.
 
 ## Delegating research
 
-For a task that would take a pile of searching and reading — "compare these
-three libraries" — the assistant can hand the legwork to a **delegated
-worker**: a separate session that runs the task in the background, in its own
-context. The worker messages its progress, questions, and written result back
-into your conversation as it goes — each one a labelled note you can expand —
-so your context window stays lean and the conversation never sits blocked on
-the legwork.
+Small investigations, including searching and reading a result, can stay in
+your conversation. For substantial independent work — investigating each of
+three libraries before comparing them, for example — the assistant can use
+**delegated workers** when parallel work, focused investigation, or separate
+context justifies the handoff. Closely connected reasoning stays together.
+
+A worker runs in the background in its own context and sends labelled notes
+you can expand. Its reports retain supporting sources, distinguish findings
+from inference, and identify uncertainty and unfinished work. The assistant
+can ask for missing evidence or verify a consequential claim before using it
+in your answer, without routinely repeating the worker's investigation.
 
 - The assistant and its workers talk both ways: it can steer a worker
   mid-task, nudge a quiet one, or answer a question a worker sends back. A
