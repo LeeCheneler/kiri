@@ -93,11 +93,6 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
     defaultPermission: "allow",
   },
   {
-    name: "read_tool_result",
-    description: "Reopen a saved tool result from this session without replaying its action.",
-    defaultPermission: "allow",
-  },
-  {
     name: "save_memory",
     description: "Save or update a durable memory for future sessions to recall.",
     defaultPermission: "allow",

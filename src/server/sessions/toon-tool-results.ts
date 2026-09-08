@@ -31,8 +31,7 @@ export function toonEncodeIfSmaller(output: unknown): string | undefined {
  * tool result's JSON output as TOON wherever that is the smaller form (see
  * `toonEncodeIfSmaller`). A send-time transform — the untouched history still
  * feeds persistence, so the stored messages and transcript stay as JSON,
- * mirroring how evidence compaction works. Pure: a re-encoded message is a fresh
- * object, so the caller's array — reused for persistence — is never mutated.
+ * with a fresh object for each re-encoded message, so the caller's array — reused for persistence — is never mutated.
  */
 export function toonEncodeToolResults(history: UIMessage[]): UIMessage[] {
   return history.map((message) => {

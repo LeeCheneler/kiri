@@ -17,7 +17,7 @@ export function compactImageOutput(output: unknown): unknown {
 
 /**
  * Reshape a session's history for sending to the model: drop the image data
- * from each settled generate_image result. A send-time transform like evidence compaction
+ * from each settled generate_image result. A send-time transform like diff removal
  * and TOON re-encoding — the untouched history still feeds persistence, so the
  * stored transcript keeps its images for the app to render. Pure: a reshaped
  * message is a fresh object, so the caller's array is never mutated.

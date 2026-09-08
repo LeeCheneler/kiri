@@ -58,7 +58,7 @@ export function compactWriteOutput(output: unknown): unknown {
 /**
  * Reshape a session's history for sending to the model: drop the diff from
  * each settled diff-carrying write result. A send-time transform like
- * evidence compaction and TOON re-encoding — the untouched history still feeds
+ * image removal and TOON re-encoding — the untouched history still feeds
  * persistence, so the stored transcript keeps its diffs for the app to
  * render. Pure: a reshaped message is a fresh object, so the caller's array
  * is never mutated.
