@@ -33,6 +33,7 @@ import {
   compactModelMessages,
   contextBudget,
   estimateContextTokens,
+  historySinceCheckpoint,
 } from "./session-context.ts";
 import {
   type Message,
@@ -527,7 +528,7 @@ async function streamCore(
           })),
         );
         const modelHistory = toonEncodeToolResults(
-          stripWriteToolDiffs(stripImageToolResults(history)),
+          stripWriteToolDiffs(stripImageToolResults(historySinceCheckpoint(history))),
         );
         const modelMessages = await convertToModelMessages(
           expandInboxMessages(modelHistory, senderLabelFor),

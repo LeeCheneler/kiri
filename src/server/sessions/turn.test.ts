@@ -18,6 +18,7 @@ import {
   type Message,
   appendMessage,
   createSession,
+  deleteMessagesFrom,
   getSession,
   getSessionMessages,
   setSessionStatus,
@@ -210,6 +211,139 @@ describe("runTurn", () => {
     db.$client.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("sends only the latest checkpoint and later content while preserving the full transcript", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Original request" }] });
+    const savedParts: UIMessage["parts"] = [
+      { type: "text", text: "Earlier detailed work" },
+      { type: "data-checkpoint", id: "cp1", data: { summary: "Completed the first task" } },
+      { type: "step-start" },
+      {
+        type: "tool-echo",
+        toolCallId: "c2",
+        state: "output-available",
+        input: { value: "Later evidence" },
+        output: { echoed: "Later evidence" },
+      },
+      {
+        type: "data-inbox",
+        id: "i1",
+        data: { source: "user", text: "Also check the second task", queuedAt: 1 },
+      },
+    ];
+    appendMessage(db, "s1", { role: "assistant", parts: savedParts }, { id: "a1" });
+    const capture: { prompt?: unknown } = {};
+    await (
+      await runTurn(
+        { db, llmClients: clientsFor(capturingModel(capture)), tools: echoTools },
+        { session, userMessage: USER_MESSAGE },
+      )
+    ).done;
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("Completed the first task");
+    expect(sent).toContain("Later evidence");
+    expect(sent).toContain("Also check the second task");
+    expect(sent).toContain("Hi there");
+    expect(sent).not.toContain("Original request");
+    expect(sent).not.toContain("Earlier detailed work");
+    expect(sent).toContain('"type":"tool-call"');
+    expect(sent).toContain('"type":"tool-result"');
+    expect(getSessionMessages(db, "s1").find((row) => row.id === "a1")?.parts).toEqual(savedParts);
+    expect(getSessionMessages(db, "s1")).toHaveLength(4);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it("resumes an approval after a checkpoint inside the same assistant message", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const checkpoint = {
+      type: "data-checkpoint" as const,
+      id: "cp1",
+      data: { summary: "First action completed" },
+    };
+    const prefix: UIMessage["parts"] = [
+      { type: "text", text: "Older work" },
+      checkpoint,
+      { type: "step-start" },
+    ];
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          ...prefix,
+          {
+            type: "tool-echo",
+            toolCallId: "c1",
+            state: "approval-requested",
+            input: { value: "Approved next action" },
+            approval: { id: "ap1" },
+          },
+        ],
+      },
+      { id: "a1" },
+    );
+    setSessionStatus(db, "s1", "waiting");
+    const capture: { prompt?: unknown } = {};
+    const resumed = await resumeTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)), tools: gatedEchoTools },
+      { session, approvals: [{ toolCallId: "c1", approved: true }] },
+    );
+    await resumed.response.text();
+    await resumed.done;
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("First action completed");
+    expect(sent).not.toContain("Older work");
+    expect(sent).toContain("Approved next action");
+    const rows = getSessionMessages(db, "s1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("a1");
+    expect((rows[0].parts as UIMessage["parts"]).slice(0, 3)).toEqual(prefix);
+    expect(toolPartOf(rows[0])).toMatchObject({
+      state: "output-available",
+      output: { echoed: "Approved next action" },
+    });
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it.each(["before", "after"] as const)(
+    "uses the remaining history after rewinding %s a checkpoint",
+    async (boundary) => {
+      const session = createSession(db, MODEL, { id: "s1" });
+      appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Original goal" }] });
+      appendMessage(
+        db,
+        "s1",
+        { role: "user", parts: [{ type: "text", text: "Old direction" }] },
+        { id: "u-before" },
+      );
+      appendMessage(db, "s1", {
+        role: "assistant",
+        parts: [{ type: "data-checkpoint", id: "cp1", data: { summary: "Saved progress" } }],
+      });
+      appendMessage(
+        db,
+        "s1",
+        { role: "user", parts: [{ type: "text", text: "Discard this" }] },
+        { id: "u-after" },
+      );
+      expect(deleteMessagesFrom(db, "s1", `u-${boundary}`)).toBe(true);
+      const capture: { prompt?: unknown } = {};
+      await (
+        await runTurn(
+          { db, llmClients: clientsFor(capturingModel(capture)) },
+          { session, userMessage: USER_MESSAGE },
+        )
+      ).done;
+      const sent = JSON.stringify(capture.prompt);
+      expect(sent.includes("Original goal")).toBe(boundary === "before");
+      expect(sent.includes("Saved progress")).toBe(boundary === "after");
+      expect(sent).not.toContain("Discard this");
+      expect(sent).not.toContain("Old direction");
+      expect(sent).toContain("Hi there");
+    },
+  );
 
   it.each(["summary", "empty", "error", "tool call", "cancel"] as const)(
     "stops after 64 work steps and one tool-free handoff ending in %s",

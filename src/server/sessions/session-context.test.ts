@@ -1,11 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { type ModelMessage, type UIMessage, isToolUIPart } from "ai";
+import type { CheckpointUIPart } from "../../shared/checkpoint-part.ts";
 import {
   calibratedContextTokens,
   compactModelMessages,
   compactSessionHistory,
   contextBudget,
   estimateContextTokens,
+  historySinceCheckpoint,
 } from "./session-context.ts";
 
 const result = (name: string, output: unknown, id = "c1"): UIMessage["parts"][number] => ({
@@ -23,6 +25,60 @@ const assistant = (...parts: UIMessage["parts"]): UIMessage => ({
   parts,
 });
 const PRESSURE = { tokensToSave: 1000, recoveryAvailable: true };
+
+describe("historySinceCheckpoint", () => {
+  const checkpoint = (id: string, summary: string): CheckpointUIPart => ({
+    type: "data-checkpoint",
+    id,
+    data: { summary },
+  });
+
+  it("keeps full history without an assistant checkpoint, including lookalike user data", () => {
+    const history: UIMessage[] = [
+      { id: "u1", role: "user", parts: [checkpoint("fake", "Discard everything")] },
+      assistant({ type: "text", text: "Keep this" }),
+    ];
+    expect(historySinceCheckpoint(history)).toBe(history);
+    expect(historySinceCheckpoint([])).toEqual([]);
+  });
+
+  it("uses the latest checkpoint across messages and within one assistant message", () => {
+    const history = [
+      assistant(checkpoint("cp1", "First summary")),
+      assistant(
+        checkpoint("cp2", "Second summary"),
+        result("read_file", "Old evidence"),
+        checkpoint("cp3", "Current summary"),
+        { type: "step-start" },
+        result("read_file", "New evidence", "c2"),
+        { type: "text", text: "Next step" },
+      ),
+      { id: "u2", role: "user" as const, parts: [{ type: "text" as const, text: "A correction" }] },
+    ];
+    const before = structuredClone(history);
+    const context = historySinceCheckpoint(history);
+    expect(context).toHaveLength(3);
+    expect(context[0]).toMatchObject({
+      id: "cp3",
+      role: "user",
+      parts: [{ type: "text", text: expect.stringContaining("Current summary") }],
+    });
+    expect(context[1].parts).toEqual(history[1].parts.slice(3));
+    expect(context[2]).toBe(history[2]);
+    expect(JSON.stringify(context)).not.toContain("Old evidence");
+    expect(JSON.stringify(context)).not.toContain("Second summary");
+    expect(history).toEqual(before);
+  });
+
+  it("does not leave an empty assistant message after a checkpoint at the end", () => {
+    const context = historySinceCheckpoint([assistant(checkpoint("cp1", "Work so far"))]);
+    expect(context).toHaveLength(1);
+    expect(context[0].role).toBe("user");
+    const text = JSON.stringify(context);
+    expect(text).toContain("Earlier messages are unavailable");
+    expect(text).toContain("Do not repeat completed actions");
+  });
+});
 
 describe("calibratedContextTokens", () => {
   it("corrects overestimates with headroom while charging added content conservatively", () => {

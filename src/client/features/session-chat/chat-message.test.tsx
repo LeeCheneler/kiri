@@ -48,6 +48,25 @@ const editButton = () => screen.getByRole("button", { name: "edit" });
 const deleteButton = () => screen.getByRole("button", { name: "delete" });
 
 describe("<ChatMessage>", () => {
+  it("lets the user inspect a checkpoint while keeping earlier transcript text visible", async () => {
+    renderMessage(
+      message("assistant", [
+        { type: "text", text: "Earlier work" },
+        { type: "data-checkpoint", id: "cp1", data: { summary: "Saved **findings**" } },
+        { type: "text", text: "Continuing work" },
+      ]),
+    );
+    const toggle = screen.getByRole("button", { name: "Context checkpoint" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("findings")).toBeNull();
+    expect(screen.getByText("Earlier work")).toBeDefined();
+    expect(screen.getByText("Continuing work")).toBeDefined();
+    await userEvent.click(toggle);
+    expect(screen.getByText("findings")).toBeDefined();
+    await userEvent.click(toggle);
+    expect(screen.queryByText("findings")).toBeNull();
+  });
+
   it("renders a woven inbox delivery as the user's interjection inside the assistant turn", () => {
     renderMessage(
       message("assistant", [
