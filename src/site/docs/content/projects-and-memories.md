@@ -6,8 +6,17 @@ saved articles, instructions, memories, and a task list.
 ## Projects
 
 Create a project from **Projects**. Open it, then click **+ New session** to
-start a conversation inside it. Sessions belong to a project from creation;
-existing standalone sessions cannot be moved into one.
+start a conversation inside it. To add an existing standalone session, open
+its session page, click **move to project**, select a project, and click **move**.
+Its articles and delegated sessions move with it; the articles become part of
+the shared corpus. Existing article links still work.
+
+Finish or cancel running turns and resolve pending approvals, including those
+in delegated sessions, before moving. If an article slug conflicts with one
+already in the project or another moving article, nothing moves; resolve the
+duplicate or choose another project. Sessions already in a project cannot be
+moved again or removed from it. Workspace memories remain in their existing
+scope; subsequent turns use the destination project's instructions and tools.
 
 For example, keep the planning, forecast-model decisions, and implementation
 of an aurora app in one project.

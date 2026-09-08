@@ -15,6 +15,7 @@ const sessionDetail = (status = "idle", projectId: string | null = null) => ({
     status,
     model: "anthropic:claude",
     projectId,
+    parentSessionId: null,
     startedAt: "2026-05-09T12:00:00.000Z",
     finishedAt: null,
     error: null,
@@ -52,6 +53,111 @@ beforeEach(() => localStorage.clear());
 afterEach(() => localStorage.clear());
 
 describe("<SessionActions>", () => {
+  it("moves into the selected project and updates the page without losing its draft", async () => {
+    serveSession();
+    localStorage.setItem("kiri:session-draft:s1", "Unsent draft");
+    let moved: unknown;
+    server.use(
+      http.get("*/api/projects", () =>
+        HttpResponse.json({ projects: [{ id: "p1", name: "Research" }] }),
+      ),
+      http.post("*/api/sessions/:id/move", async ({ request }) => {
+        moved = await request.json();
+        return HttpResponse.json({ session: sessionDetail("idle", "p1").session });
+      }),
+    );
+    const { history } = renderActions();
+    await userEvent.click(await screen.findByRole("button", { name: "move to project" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move session to project" });
+    expect(
+      (within(dialog).getByRole("button", { name: "move" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await userEvent.selectOptions(
+      await within(dialog).findByRole("combobox", { name: /Project/ }),
+      "p1",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "move" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(moved).toEqual({ projectId: "p1" });
+    expect(screen.queryByRole("button", { name: "move to project" })).toBeNull();
+    expect(history).toEqual(["/sessions/s1"]);
+    expect(localStorage.getItem("kiri:session-draft:s1")).toBe("Unsent draft");
+  });
+
+  it("keeps a failed move open for retry and allows cancellation", async () => {
+    serveSession();
+    let calls = 0;
+    server.use(
+      http.get("*/api/projects", () =>
+        HttpResponse.json({ projects: [{ id: "p1", name: "Research" }] }),
+      ),
+      http.post("*/api/sessions/:id/move", () => {
+        calls += 1;
+        return HttpResponse.json({ error: 'Article slug "notes" conflicts.' }, { status: 409 });
+      }),
+    );
+    renderActions();
+    await userEvent.click(await screen.findByRole("button", { name: "move to project" }));
+    await userEvent.selectOptions(await screen.findByRole("combobox", { name: /Project/ }), "p1");
+    await userEvent.click(screen.getByRole("button", { name: "move" }));
+    expect((await screen.findByRole("alert")).textContent).toContain('"notes" conflicts');
+    expect((screen.getByRole("button", { name: "move" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(calls).toBe(1);
+  });
+
+  it("explains when there are no projects to select", async () => {
+    serveSession();
+    server.use(http.get("*/api/projects", () => HttpResponse.json({ projects: [] })));
+    renderActions();
+    await userEvent.click(await screen.findByRole("button", { name: "move to project" }));
+    expect(await screen.findByText(/Create a project from the Projects page first/)).toBeDefined();
+    expect((screen.getByRole("button", { name: "move" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("shows project loading errors", async () => {
+    serveSession();
+    server.use(
+      http.get("*/api/projects", () =>
+        HttpResponse.json({ error: "Unavailable" }, { status: 500 }),
+      ),
+    );
+    renderActions();
+    await userEvent.click(await screen.findByRole("button", { name: "move to project" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Unavailable");
+  });
+
+  it.each(["running", "waiting"])("disables moving a %s session", async (status) => {
+    serveSession(status);
+    renderActions();
+    expect(
+      ((await screen.findByRole("button", { name: "move to project" })) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("hides the move action for sessions already in a project", async () => {
+    serveSession("idle", "p1");
+    renderActions();
+    await deleteButton();
+    expect(screen.queryByRole("button", { name: "move to project" })).toBeNull();
+  });
+
+  it("hides the move action for delegated sessions", async () => {
+    const detail = sessionDetail();
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json({ ...detail, session: { ...detail.session, parentSessionId: "parent" } }),
+      ),
+    );
+    renderActions();
+    await deleteButton();
+    expect(screen.queryByRole("button", { name: "move to project" })).toBeNull();
+  });
+
   it("deletes the session and returns to the list on confirm", async () => {
     let deleted = false;
     serveSession();

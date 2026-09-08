@@ -18,6 +18,7 @@ import {
   fetchSession,
   fetchSessionChildren,
   fetchSessionsPage,
+  moveSessionToProject,
   patchSessionEffort,
   patchSessionImageModel,
   patchSessionModel,
@@ -72,7 +73,7 @@ export function useSessionChildren(id: string): UseQueryResult<ChildSessionEntry
 }
 
 /**
- * Change a session's model, image model, effort, or title and write the
+ * Change a session's model, image model, effort, title, or project and write the
  * server's updated row straight into the cached detail, so the control
  * reflects the choice at once. A user-initiated change shouldn't wait on the
  * `session.updated` echo to land before showing — the PATCH already returns
@@ -83,6 +84,7 @@ export function useUpdateSession(id: string): {
   setImageModel: (imageModel: string | null) => Promise<void>;
   setEffort: (effort: SessionEffort) => Promise<void>;
   setTitle: (title: string | null) => Promise<void>;
+  moveToProject: (projectId: string) => Promise<void>;
 } {
   const queryClient = useQueryClient();
   const apply = (session: Session) => {
@@ -96,6 +98,7 @@ export function useUpdateSession(id: string): {
       apply((await patchSessionImageModel(id, imageModel)).session),
     setEffort: async (effort) => apply((await patchSessionEffort(id, effort)).session),
     setTitle: async (title) => apply((await patchSessionTitle(id, title)).session),
+    moveToProject: async (projectId) => apply((await moveSessionToProject(id, projectId)).session),
   };
 }
 

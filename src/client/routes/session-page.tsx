@@ -13,7 +13,7 @@ import { SiteNav } from "../features/site-nav/site-nav.tsx";
  * composer, so the right rail holds the session's metadata, descending from
  * what's touched most to least — its title, its delegated workers (live, so
  * a blocked or finished one surfaces here rather than deep in the
- * transcript), its written articles, then its vitals and the delete action
+ * transcript), its written articles, then its vitals and the move and delete actions
  * as the quiet foot.
  */
 export function SessionPage({ params }: { params: { id: string } }) {

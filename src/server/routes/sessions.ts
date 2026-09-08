@@ -9,7 +9,7 @@ import {
   UI_MESSAGE_STREAM_HEADERS,
   isToolUIPart,
 } from "ai";
-import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
@@ -164,8 +164,8 @@ const messageParamSchema = z.object({ id: z.string().min(1), messageId: z.string
 
 // `imageModel` starts the session with image generation on — the
 // first-shortcut default when image shortcuts are configured; otherwise it's
-// simply not sent. `projectId` creates the session within a project — set at
-// creation and never moved, so it has no PATCH counterpart.
+// simply not sent. `projectId` creates the session within a project; later
+// assignment uses the move endpoint so its articles transfer with it.
 const createSessionBodySchema = z
   .object({
     model: z.string().min(1),
@@ -837,18 +837,28 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("param", articleParamSchema, onZodFail("invalid article slug")),
     (c) => {
       const { id, slug } = c.req.valid("param");
-      if (!getSession(db, id)) return c.json({ error: `session "${id}" not found` }, 404);
+      const session = getSession(db, id);
+      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       const article = db
         .select()
         .from(articles)
-        .where(and(eq(articles.sessionId, id), eq(articles.slug, slug)))
+        .where(
+          and(
+            session.projectId === null
+              ? eq(articles.sessionId, id)
+              : eq(articles.projectId, session.projectId),
+            eq(articles.slug, slug),
+          ),
+        )
         .get();
       if (!article) {
         return c.json({ error: `article "${slug}" not found on session "${id}"` }, 404);
       }
       return c.json({
         id: article.id,
-        sessionId: article.sessionId,
+        sessionId: id,
+        // Old transcript links follow the article into the project's corpus.
+        projectId: article.projectId,
         // The reading view situates the article under its session by name, so
         // the label rides along rather than costing a second round-trip.
         sessionLabel: getSessionLabels(db, [id]).get(id) ?? id.slice(0, 8),
@@ -1001,6 +1011,77 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
       // feed and the open chat refresh; status is unchanged.
       bus?.publish({ type: "session.updated", id, status: updated.status as SessionStatus });
       return c.json({ session: updated });
+    },
+  );
+
+  app.post(
+    "/sessions/:id/move",
+    zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
+    zValidator(
+      "json",
+      z.object({ projectId: z.string().min(1) }).strict(),
+      onZodFail("invalid project"),
+    ),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const { projectId } = c.req.valid("json");
+      const session = getSession(db, id);
+      if (!session) return c.json({ error: `session "${id}" not found` }, 404);
+      if (!getProject(db, projectId)) {
+        return c.json({ error: `project "${projectId}" not found` }, 404);
+      }
+      if (session.parentSessionId !== null) {
+        return c.json({ error: "Move the parent session to move its delegated sessions." }, 409);
+      }
+      if (session.projectId !== null) {
+        return c.json({ error: "This session already belongs to a project." }, 409);
+      }
+      const family = [session, ...getSessionChildren(db, id)];
+      if (family.some((row) => row.status === "running" || row.status === "waiting")) {
+        return c.json(
+          { error: "Finish or cancel all turns and resolve pending approvals before moving." },
+          409,
+        );
+      }
+      const ids = family.map((row) => row.id);
+      const movingArticles = db
+        .select()
+        .from(articles)
+        .where(inArray(articles.sessionId, ids))
+        .all();
+      const slugs = new Set(listProjectArticles(db, projectId).map((article) => article.slug));
+      for (const article of movingArticles) {
+        if (slugs.has(article.slug)) {
+          return c.json(
+            {
+              error: `Article slug "${article.slug}" conflicts. Choose another project or resolve the duplicate before moving.`,
+            },
+            409,
+          );
+        }
+        slugs.add(article.slug);
+      }
+      // No async work between validation and transfer: a turn cannot start
+      // with the old scope while this transaction changes its article owner.
+      db.transaction((tx) => {
+        tx.update(articles)
+          .set({ sessionId: null, projectId })
+          .where(inArray(articles.sessionId, ids))
+          .run();
+        tx.update(sessionsTable).set({ projectId }).where(inArray(sessionsTable.id, ids)).run();
+      });
+      for (const row of family) {
+        bus?.publish({ type: "session.updated", id: row.id, status: row.status as SessionStatus });
+      }
+      for (const article of movingArticles) {
+        bus?.publish({
+          type: "article.written",
+          sessionId: article.sessionId as string,
+          projectId,
+          slug: article.slug,
+        });
+      }
+      return c.json({ session: getSession(db, id) });
     },
   );
 

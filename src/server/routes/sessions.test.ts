@@ -240,6 +240,163 @@ describe("sessions routes", () => {
         : part,
     );
 
+  describe("POST /api/sessions/:id/move", () => {
+    const move = (app: ReturnType<typeof createApp>, id = "s1", projectId: unknown = "p1") =>
+      app.request(`/api/sessions/${id}/move`, {
+        method: "POST",
+        headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+
+    beforeEach(() => {
+      env.db.insert(projects).values({ id: "p1", name: "Research", createdAt: new Date() }).run();
+      createSession(env.db, MODEL, { id: "s1", title: "Planning" });
+    });
+
+    it("moves the session, children, and their articles while preserving their contents and links", async () => {
+      const child = createSession(env.db, MODEL, {
+        id: "child",
+        parentSessionId: "s1",
+        parentToolCallId: "c1",
+      });
+      createSession(env.db, MODEL, { id: "other" });
+      appendMessage(env.db, "s1", {
+        role: "user",
+        parts: [{ type: "text", text: "Keep this conversation" }],
+      });
+      const rows = ["s1", child.id, "other"].map((sessionId) => ({
+        id: `article-${sessionId}`,
+        sessionId,
+        slug: `notes-${sessionId}`,
+        name: "Notes",
+        contentMd: "# Research\n\nOriginal content",
+        createdAt: new Date(1000),
+      }));
+      env.db.insert(articles).values(rows).run();
+      const bus = createEventBus();
+      const seen: KiriEvent[] = [];
+      bus.subscribe((event) => seen.push(event));
+      const app = makeApp(fakeClients(), { bus });
+
+      const res = await move(app);
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).session).toMatchObject({
+        id: "s1",
+        projectId: "p1",
+        title: "Planning",
+      });
+      expect(getSession(env.db, child.id)?.projectId).toBe("p1");
+      expect(getSession(env.db, "other")?.projectId).toBeNull();
+      expect(getSessionMessages(env.db, "s1")).toHaveLength(1);
+      for (const row of rows) {
+        expect(env.db.select().from(articles).where(eq(articles.id, row.id)).get()).toEqual({
+          ...row,
+          runId: null,
+          sessionId: row.sessionId === "other" ? "other" : null,
+          projectId: row.sessionId === "other" ? null : "p1",
+        });
+      }
+      expect(seen).toContainEqual({ type: "session.updated", id: "child", status: "idle" });
+      expect(seen).toContainEqual({
+        type: "article.written",
+        sessionId: "s1",
+        projectId: "p1",
+        slug: "notes-s1",
+      });
+      const oldLink = await app.request("/api/sessions/s1/articles/notes-s1");
+      expect(oldLink.status).toBe(200);
+      expect(await oldLink.json()).toMatchObject({
+        id: "article-s1",
+        projectId: "p1",
+        contentMd: rows[0]?.contentMd,
+      });
+      const project = await (await app.request("/api/projects/p1")).json();
+      expect(project.articles).toHaveLength(2);
+      expect(project.sessions.map((session: { id: string }) => session.id)).toEqual(["s1"]);
+      await app.request("/api/sessions/s1", { method: "DELETE", headers: CLIENT_HEADERS });
+      expect(env.db.select().from(articles).where(eq(articles.projectId, "p1")).all()).toHaveLength(
+        2,
+      );
+    });
+
+    it.each(["running", "waiting"] as const)(
+      "rejects %s sessions and children without changing ownership",
+      async (status) => {
+        const app = makeApp(fakeClients());
+        setSessionStatus(env.db, "s1", status);
+        expect((await move(app)).status).toBe(409);
+        setSessionStatus(env.db, "s1", "idle");
+        createSession(env.db, MODEL, {
+          id: "child",
+          parentSessionId: "s1",
+          parentToolCallId: "c1",
+        });
+        setSessionStatus(env.db, "child", status);
+        expect((await move(app)).status).toBe(409);
+        expect(getSession(env.db, "s1")?.projectId).toBeNull();
+        expect(getSession(env.db, "child")?.projectId).toBeNull();
+      },
+    );
+
+    it.each(["project", "child"])(
+      "leaves everything untouched when a slug conflicts with the %s",
+      async (owner) => {
+        createSession(env.db, MODEL, {
+          id: "child",
+          parentSessionId: "s1",
+          parentToolCallId: "c1",
+        });
+        env.db
+          .insert(articles)
+          .values([
+            {
+              id: "a1",
+              sessionId: "s1",
+              slug: "notes",
+              name: "First",
+              contentMd: "First body",
+              createdAt: new Date(),
+            },
+            {
+              id: "a2",
+              ...(owner === "project" ? { projectId: "p1" } : { sessionId: "child" }),
+              slug: "notes",
+              name: "Second",
+              contentMd: "Second body",
+              createdAt: new Date(),
+            },
+          ])
+          .run();
+        const before = env.db.select().from(articles).all();
+        const bus = createEventBus();
+        const seen: KiriEvent[] = [];
+        bus.subscribe((event) => seen.push(event));
+
+        const res = await move(makeApp(fakeClients(), { bus }));
+
+        expect(res.status).toBe(409);
+        expect((await res.json()).error).toContain('Article slug "notes" conflicts');
+        expect(getSession(env.db, "s1")?.projectId).toBeNull();
+        expect(getSession(env.db, "child")?.projectId).toBeNull();
+        expect(env.db.select().from(articles).all()).toEqual(before);
+        expect(seen).toEqual([]);
+      },
+    );
+
+    it("rejects invalid destinations, missing sessions, children, and already assigned sessions", async () => {
+      const app = makeApp(fakeClients());
+      expect((await move(app, "missing")).status).toBe(404);
+      expect((await move(app, "s1", "missing")).status).toBe(404);
+      expect((await move(app, "s1", "")).status).toBe(400);
+      expect((await move(app, "s1", null)).status).toBe(400);
+      createSession(env.db, MODEL, { id: "child", parentSessionId: "s1", parentToolCallId: "c1" });
+      expect((await move(app, "child")).status).toBe(409);
+      expect((await move(app)).status).toBe(200);
+      expect((await move(app)).status).toBe(409);
+    });
+  });
+
   describe("GET /api/models", () => {
     it("returns the aggregated model listing", async () => {
       const app = makeApp(
