@@ -7,8 +7,8 @@
 Every AI tool you use forgets. Chats scroll away, context gets re-explained, and the same chore gets re-prompted every week. Kiri is a **local-first AI workspace** built so work compounds instead:
 
 1. **Work it out in a session.** A general-purpose agentic assistant with any model you configure — for a conversation, a piece of research, a review, a write-up, or a code change. It reads and edits your files, runs your shell, delegates legwork to a worker, and reaches any MCP server; every tool's permission is yours to set: allow, ask, or off.
-2. **Keep what matters.** Output lands as **articles**: readable pages in a live feed, with charts and diagrams, not scrollback. Facts persist as memories; related work compounds into a project's shared, cross-linked corpus.
-3. **Automate the repeats.** Anything worth doing twice hardens into a **workflow** — a YAML file in your repo, runnable as a one-click button. A session can author it for you.
+2. **Keep what matters.** Substantial write-ups and reusable conclusions can become **articles**: readable pages in a live feed, with charts and diagrams. Facts persist as memories; related work compounds into a project's shared, cross-linked corpus.
+3. **Automate when you choose.** If you want a repeatable task as a button, ask a session to create a **workflow** — a YAML file in your repo. Most work can stay in general-purpose and coding sessions.
 
 Bring your own model — Anthropic, OpenAI, Codex with a ChatGPT subscription, or any OpenAI-compatible endpoint (OpenRouter, LM Studio, Ollama, vLLM). Nothing leaves your machine except the model calls you configure, and kiri only runs while the app is open.
 
@@ -67,13 +67,13 @@ Code, add a `CLAUDE.md` containing `@./AGENTS.md`.
 
 ## Highlights
 
-- **Sessions do whatever the work is.** Think something through, research a question, review a PR, draft a doc, fix a bug — one surface. Sessions find, read, and edit files; run builds, tests, and git; search the web and your tools through MCP; generate images inline; and delegate legwork to a hidden worker that reports back only its findings — with any model, streaming.
-- **On a leash you hold.** Sessions are confined to directories you allow. Every write shows as a diff and asks first; shell approvals can go **Auto**, where a hard deterministic screen always stops the dangerous stuff and a small judge model waves through the boring stuff. Delegated workers never hold a tool you haven't already set to always-allow.
-- **Everything is written down.** Sessions and runs alike produce articles — markdown with inline charts and diagrams — collected in one live feed with a view for just the writing.
+- **Sessions do whatever the work is.** Think something through, research a question, review a PR, draft a doc, fix a bug — one surface. Sessions find, read, and edit files; run builds, tests, and git; search the web and your tools through MCP; generate images inline; and delegate substantial independent work to a worker that reports findings with evidence — with any model, streaming.
+- **On a leash you hold.** Sessions are confined to directories you allow. Every write shows as a diff and asks first; shell approvals can go **Auto**, where a hard deterministic screen always stops the dangerous stuff and a small judge model waves through the boring stuff. Delegated workers use the same permission gates; they cannot approve their own calls.
+- **Useful writing stays useful.** Sessions and runs can produce articles — markdown with inline charts and diagrams — collected in one live feed. Quick answers and routine code changes need no extra document.
 - **Memories and projects.** Sessions save durable facts every future session recalls. Group work into a project and its sessions share an article corpus with `[[wiki-links]]`, their own memories, and standing instructions.
 - **Reuse prior work.** Ask what you concluded in an earlier session. The assistant can search saved knowledge, open relevant excerpts, and link its sources. Project sessions search their project by default, with explicit workspace-wide retrieval when needed.
 - **Standing instructions and skills.** Layer instructions from `kiri.md`, a project, and `AGENTS.md` files; load workspace skills on demand.
-- **Chat graduates into automation.** Work something out in a session, then have it author the workflow — validated YAML written into your repo, ready as the next button.
+- **Automation on request.** Ask a session to turn a repeatable task into a workflow — validated YAML written into your repo. It creates one only when you explicitly ask.
 - **Workflows are buttons.** Shell steps feeding model steps through declared refs; rerun forever with one click, and runs can recommend one-click follow-ups.
 - **Search everything.** ⌘K from anywhere, across articles, transcripts, run summaries, and workflow names — results as you type.
 

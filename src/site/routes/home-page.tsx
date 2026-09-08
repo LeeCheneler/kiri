@@ -61,7 +61,7 @@ type Focus = {
 const FOCUSES: Focus[] = [
   {
     eyebrow: "Agentic sessions",
-    title: "Whatever the work is, then written down.",
+    title: "Whatever the work is.",
     body: "A session is a general-purpose agentic assistant with any model you configure — a conversation, a piece of research, a review, a draft, a bug fix. It finds, reads, and edits your files, runs builds, tests, and git, searches the web and your tools through MCP, and hands legwork to a delegated worker. Every write shows as a diff; every tool's permission is yours to set — allow, ask, or off — with an Auto mode for the shell that screens the dangerous and waves through the boring.",
     detail:
       "Then ask it to keep what you worked out: the review, the decision, the release notes land as readable articles in a live feed — not scrollback — and facts persist as memories every future session recalls.",
@@ -70,10 +70,10 @@ const FOCUSES: Focus[] = [
   },
   {
     eyebrow: "Local workflows",
-    title: "Automate the repeats.",
-    body: "Anything worth doing twice hardens into a workflow: a small YAML file in your repo — shell steps piped into model steps — runnable as a one-click button. Release notes from your git log, the PR queue, the morning brief.",
+    title: "Automate when you choose.",
+    body: "When you want a repeatable task as a button, ask for a workflow: a small YAML file in your repo with shell and model steps. Release notes from your git log, the PR queue, the morning brief — automate the tasks you choose.",
     detail:
-      "A session can author the workflow for you, and runs can pin one-click follow-ups to the feed.",
+      "Most work can stay in a session. The assistant creates a workflow only when you explicitly ask.",
     href: "/docs/workflows",
     linkLabel: "Writing workflows",
   },

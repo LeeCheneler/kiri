@@ -7,9 +7,11 @@ import { workflowJsonSchema } from "./workflows/index.ts";
 /** Contents of the scaffolded repo-root `README.md`. */
 export const KIRI_README = `# Kiri
 
-This is a kiri workflow repo. Kiri is a local-first, git-based workflow
-orchestrator — run \`kiri\` in this directory to start it and visit the local
-URL it prints. Full documentation lives at https://kiri.build/docs.
+This is a kiri workspace for general-purpose and coding sessions, with
+optional local workflows. Run \`kiri\` in this directory to start it and visit
+the local URL it prints. Ask a session to create a workflow when you want a
+repeatable task automated; ordinary sessions need no workflow.
+Full documentation lives at https://kiri.build/docs.
 
 ## Workflow definitions
 

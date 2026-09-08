@@ -43,7 +43,10 @@ and prefer portable POSIX forms.`;
 export const buildWorkflowAuthoringGuide = (host: HostEnvironment): string =>
   `# Kiri workflow authoring guide
 
-You are authoring workflows for kiri: a local-first personal automation tool.
+Kiri supports general-purpose and coding sessions; workflows are an optional way
+to automate a repeatable task. Only create a workflow when the user explicitly
+requests one. Repetition alone, a wish to keep a result, or an unanswered offer
+is not authorization. Loading this guide is not authorization either.
 A workflow is a **linear pipeline** defined in one YAML file. Every phase gets
 empty stdin; declared env refs carry data between steps. Optional \`articles:\` turn output into
 saved markdown documents, and an optional \`summarize:\` step writes the run's
@@ -324,12 +327,23 @@ stay scannable in a mixed feed.
    read_workflow's output) over replace_workflow; replace only for wholesale
    rewrites. create_workflow's slug should be the kebab-case of the name.
 5. Workflow-tool writes are validated first — YAML parse, schema, bundle existence,
-   llm provider, prompt files. A rejection names the problem: correct the
-   YAML and retry rather than giving up or asking the user to fix it.
+   llm provider, prompt files. Within an authorized authoring task, correct a
+   validation error and retry. A permission denial is different: do not retry
+   it or bypass it through another tool.
 6. A saved workflow appears in the catalog immediately (no restart, no run
    needed to "activate" it). Run it only when the user wants it executed.
-7. When you do test a workflow across edits, call run_workflow once, then
-   re-execute with rerun_workflow (same run_id) after each fix — every
-   attempt replaces the same activity-feed entry instead of adding one, and
-   the workflow's current file is what runs each time.
+7. Within an authorized fix or test task, diagnose the failure, correct its
+   cause, and continue safe test iterations. Creating a workflow alone does
+   not authorize running it. A request merely to run or inspect an existing
+   workflow does not authorize changing its definition.
+8. Before re-execution, inspect what completed: failure or timeout does not
+   prove earlier actions had no effects. Do not blindly repeat sending,
+   publishing, charging, deleting, or other external effects. If prior effects
+   or permission to repeat are unclear, ask before re-execution.
+9. Use run_workflow for the first test and, when available, rerun_workflow with
+   that run_id for authorized repeats. It replaces the previous results in the
+   same feed entry and re-executes the whole current workflow, not just the
+   failed step. Re-supply required inputs; they are not carried over. Tool
+   approval gates still apply to every call. If the needed execution tool is
+   unavailable, report the limit rather than claiming the workflow was tested.
 `;

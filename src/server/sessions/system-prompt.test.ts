@@ -33,6 +33,74 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Today's date is 2026-06-17.");
   });
 
+  it("carries completion and authorization defaults in parent and worker prompts", () => {
+    for (const prompt of [buildSystemPrompt({ config }), buildChildSessionPrompt()]) {
+      expect(prompt).toMatch(/requested work through execution and appropriate verification/);
+      expect(prompt).toMatch(/authorization already given/);
+      expect(prompt).toMatch(/Do not ask again for routine steps within that scope/);
+      expect(prompt).toMatch(/denial.*not.*retry or bypass/);
+      expect(prompt).toMatch(/distinguish verified completion from attempted or unfinished work/);
+    }
+  });
+
+  it("requires explicit workflow creation intent even without workflow tools", () => {
+    for (const tools of [[], ["write_file"], ["run_command"], ["create_workflow"]]) {
+      for (const prompt of [
+        buildSystemPrompt({ config, tools }),
+        buildChildSessionPrompt({ tools }),
+      ]) {
+        expect(prompt).toMatch(/Only offer.*user clearly signals wanting automation/);
+        expect(prompt).toMatch(/Repetition alone is not an invitation/);
+        expect(prompt).toMatch(/never create a workflow without the user's explicit request/);
+        expect(prompt).toMatch(/do not repeat it after silence or a decline/);
+        expect(prompt).toMatch(/normal conversation or code change is a complete outcome/);
+      }
+    }
+  });
+
+  it("preserves reusable articles while excluding routine answers and saved files", () => {
+    const prompt = buildSystemPrompt({ config, tools: ["create_article"] });
+    expect(prompt).toMatch(/Save a requested report/);
+    expect(prompt).toMatch(/substantial conclusions with clear future value/);
+    expect(prompt).toMatch(/Do not create articles for quick answers, routine coding updates/);
+    expect(prompt).toMatch(/content already saved in the requested file/);
+    expect(prompt).toMatch(/Respect requests to keep the answer in chat/);
+  });
+
+  it("limits article editing advice to the active tools", () => {
+    for (const tools of [
+      ["create_article"],
+      ["create_article", "edit_article"],
+      ["create_article", "replace_article"],
+    ]) {
+      const prompt = buildSystemPrompt({ config, tools });
+      expect(prompt.includes("edit_article")).toBe(tools.includes("edit_article"));
+      expect(prompt.includes("replace_article")).toBe(tools.includes("replace_article"));
+      expect(prompt).not.toContain("read_article");
+    }
+  });
+
+  it("can save a durable fact without advertising unavailable memory tools", () => {
+    const prompt = buildSystemPrompt({ config, tools: ["save_memory"] });
+    expect(prompt).toContain("Saving memories:");
+    expect(prompt).toMatch(/durable user preference, stable project fact, or correction/);
+    expect(prompt).toMatch(/Do not save temporary task status, guesses, secrets/);
+    expect(prompt).not.toContain("read_memory");
+    expect(prompt).not.toContain("delete_memory");
+    expect(buildSystemPrompt({ config, tools: ["save_memory", "delete_memory"] })).toContain(
+      "delete_memory",
+    );
+  });
+
+  it("carries recovery guidance when only rerunning is available", () => {
+    const prompt = buildSystemPrompt({ config, tools: ["rerun_workflow"] });
+    expect(prompt).toContain("rerun_workflow");
+    expect(prompt).not.toContain("run_workflow blocks");
+    expect(prompt).toMatch(/inspect what completed before repeating execution/);
+    expect(prompt).toMatch(/prior effects or permission to repeat are unclear, ask/);
+    expect(prompt).toMatch(/merely to run or inspect.*does not authorize changing/);
+  });
+
   it.each([[], ["search_knowledge"], ["open_knowledge"], ["search_knowledge", "open_knowledge"]])(
     "limits knowledge guidance to available tools: %j",
     (...tools: string[]) => {
@@ -190,10 +258,10 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("no support for raw html");
   });
 
-  it("documents the chart rendering capability with a worked example", () => {
+  it("documents chart syntax and rendering constraints", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     // The fence keyword the markdown renderer routes to the chart component.
-    expect(prompt).toContain("```chart");
+    expect(prompt).toMatch(/(?:[Ff]ence|fenced).*`chart`/);
     // The load-bearing constraints: Vega-Lite, inline data, no remote fetch.
     expect(prompt).toContain("Vega-Lite");
     expect(prompt).toContain("data.values");
@@ -202,17 +270,16 @@ describe("buildSystemPrompt", () => {
 
   it("tells the model when not to render a chart", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
-    expect(prompt).toContain("only when a visualisation genuinely helps");
+    expect(prompt).toMatch(/chart only when quantitative data/);
     expect(prompt).toContain("don't chart");
   });
 
-  it("documents the mermaid diagram rendering capability with a worked example", () => {
+  it("documents diagram syntax and when it helps", () => {
     const prompt = buildSystemPrompt({ config, now: FIXED_NOW });
     // The fence keyword the markdown renderer routes to the diagram component.
-    expect(prompt).toContain("```mermaid");
+    expect(prompt).toMatch(/fenced `mermaid` block/);
     // The when-to-use distinction from charts: structure, not quantities.
     expect(prompt).toContain("structure or relationships");
-    expect(prompt).toContain("a diagram when the point is the structure");
   });
 
   it("omits tool guidance when no tools are active", () => {
@@ -220,11 +287,9 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("You have tools available");
   });
 
-  it("gives generic tool guidance, before the chart guidance, when any tool is active", () => {
+  it("gives generic tool guidance when any tool is active", () => {
     const prompt = buildSystemPrompt({ config, tools: ["linear__create_issue"], now: FIXED_NOW });
     expect(prompt).toContain("You have tools available");
-    // Tool guidance lives in the core layer, ahead of the chart guidance.
-    expect(prompt.indexOf("You have tools available")).toBeLessThan(prompt.indexOf("```chart"));
   });
 
   it("expands tool guidance with parallelism and truncation awareness", () => {
@@ -273,14 +338,11 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("parameters");
   });
 
-  it("singles out raw/full-content options as the biggest token sink to keep off", () => {
+  it("allows full source evidence when needed without speculative broad reads", () => {
     const prompt = buildSystemPrompt({ config, tools: ["tavily__extract"], now: FIXED_NOW });
-    // The most common blow-up: requesting raw/full page content by default. The
-    // guidance must call it the largest sink and tell the model to keep it off
-    // until a cheaper result proves it's needed.
-    expect(prompt.toLowerCase()).toContain("full-content");
-    expect(prompt.toLowerCase()).toContain("raw");
-    expect(prompt).toContain("Keep them off");
+    expect(prompt).toMatch(/full-content or raw results.*evidence requires them/);
+    expect(prompt).toMatch(/not speculatively/);
+    expect(prompt).toMatch(/snippet is not enough.*source/);
   });
 
   it("includes article guidance only when the article tools are active", () => {
@@ -290,11 +352,6 @@ describe("buildSystemPrompt", () => {
       tools: ["create_article", "edit_article", "list_articles"],
     });
     expect(withArticles).toContain("You can save articles");
-    // The guidance references the fenced chart/mermaid blocks, so it reads
-    // after the sections that describe them.
-    expect(withArticles.indexOf("```mermaid")).toBeLessThan(
-      withArticles.indexOf("You can save articles"),
-    );
 
     const mcpOnly = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["linear__create_issue"] });
     expect(mcpOnly).not.toContain("You can save articles");
@@ -318,7 +375,11 @@ describe("buildSystemPrompt", () => {
   });
 
   it("steers article changes to a targeted edit over a wholesale replace", () => {
-    const prompt = buildSystemPrompt({ config, now: FIXED_NOW, tools: ["create_article"] });
+    const prompt = buildSystemPrompt({
+      config,
+      now: FIXED_NOW,
+      tools: ["create_article", "edit_article", "replace_article"],
+    });
     expect(prompt).toContain("prefer a targeted edit_article call");
     expect(prompt).toContain("replace_article only when most of the body is changing");
   });
@@ -407,7 +468,8 @@ describe("buildSystemPrompt", () => {
       tools: ["read_memory"],
       memories: [],
     });
-    expect(readOnly).not.toContain("memories");
+    expect(readOnly).not.toContain("Saving memories:");
+    expect(readOnly).not.toContain("Saved memories,");
   });
 
   it("indexes a project's memories beside the workspace's, and scopes saving to it", () => {
@@ -477,7 +539,8 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("its sessions all read and write the same documents");
     expect(prompt).toContain("- corpus-doc: Field Notes");
     expect(prompt).toContain("load an article's body with read_article");
-    expect(prompt).toContain("Write durable knowledge into the corpus");
+    expect(prompt).toMatch(/corpus is shared.*project sessions/);
+    expect(prompt).toMatch(/rather than creating a duplicate/);
   });
 
   it("states an empty corpus rather than listing nothing", () => {
@@ -1030,7 +1093,7 @@ describe("delegate guidance", () => {
     // These check conditional prompt assembly, not live-model routing.
     expect(withDelegate).toContain("a search followed by reading its result can stay here");
     expect(withDelegate).toContain("substantial, separable work");
-    expect(withDelegate).toContain("tool-call count alone does not decide routing");
+    expect(withDelegate).toContain("Tool-call count alone does not decide routing");
     expect(withDelegate).toContain("without repeating completed work");
     expect(withDelegate).toContain("selectively verify consequential or weakly supported claims");
     expect(withDelegate).toContain("A stopped turn does not prove the task is complete");
@@ -1042,7 +1105,7 @@ describe("delegate guidance", () => {
       now: FIXED_NOW,
     });
     expect(withoutDelegate).not.toContain("Choose delegation for substantial");
-    expect(withoutDelegate).not.toContain("tool-call count alone does not decide routing");
+    expect(withoutDelegate).not.toContain("Tool-call count alone does not decide routing");
   });
 
   it("frames delegation as gated action whose pauses wait on the user", () => {
@@ -1129,12 +1192,10 @@ describe("delegate guidance", () => {
         now: FIXED_NOW,
       });
       expect(prompt).toContain("State each worker's effort with the required `effort` prop");
-      expect(prompt).toContain("`medium` is the everyday default for ordinary research and coding");
-      expect(prompt).toContain("`xhigh` is for the hardest work");
-      expect(prompt).toContain("`max` is the absolute ceiling");
-      expect(prompt).toContain(
-        "escalate the one strand that needs deep synthesis rather than the batch",
-      );
+      expect(prompt).toContain("`medium` for ordinary research and coding");
+      expect(prompt).toContain("`xhigh` for the hardest work");
+      expect(prompt).toContain("`max` for the provider's ceiling");
+      expect(prompt).toContain("size each task independently");
     }
     // No delegate, no delegation steer — including the effort rule.
     const withoutDelegate = buildSystemPrompt({
@@ -1337,7 +1398,7 @@ describe("createSystemPromptBuilder", () => {
   it("composes the layered chat prompt for a top-level session", () => {
     writeFileSync(config.instructionsFile(), "Be terse.");
     const prompt = createSystemPromptBuilder(config, ["tavily__search"])(sessionWith(null));
-    expect(prompt).toContain("interactive chat session");
+    expect(prompt).toContain("general-purpose and coding sessions");
     expect(prompt).toContain("Be terse.");
   });
 

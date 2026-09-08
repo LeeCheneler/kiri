@@ -4,10 +4,8 @@ A session is a general-purpose agentic assistant with any model you
 configure — a conversation, a piece of research, a review, a write-up, or a
 code change. It carries your workspace's standing instructions, reads and
 edits your files, runs your shell, delegates legwork, and is extended by any
-MCP server you add. When something you worked out is worth
-repeating, the session can
-[author it into a workflow](#authoring-workflows) so the next time is one
-click.
+MCP server you add. Most work can stay in a session. When you want automation,
+you can explicitly ask it to [create a workflow](#authoring-workflows).
 
 You can swap a session's model mid-conversation — it applies from the next
 turn — and a streaming turn survives a page reload: reopening the session
@@ -34,6 +32,12 @@ Ask for a write-up — a report, a digest, a guide — and the session saves it
 as an **article**: a readable page in your feed, charts and diagrams
 included, rather than scrollback. Ask for changes and it edits the page in
 place; ask for it to go and it deletes it.
+
+The assistant can also preserve substantial conclusions with clear future
+value, such as a researched decision with sources or a reusable troubleshooting
+guide. Quick answers, routine coding updates, transient status, and content
+already saved in the requested file do not need another document. Ask to keep
+an answer in chat when that is the format you want.
 
 Articles belong to their session — unless the session lives in a project,
 where they land in the project's shared corpus instead: see
@@ -237,10 +241,23 @@ The shell tool alone adds **Auto** — see
 Ask in chat — "run my dev news round-up" — and the session finds the
 workflow, fills its inputs, and runs it, reporting status, summary, and any
 articles produced. A failed run hands the session the failing step's output
-so it can tell you what broke. Repeat the request and it reruns the same run
-in place — one feed entry that updates, not a new one per attempt.
+so it can tell you what broke. Authorized repeats use the same run in place —
+one feed entry that updates, not a new one per attempt.
+
+Within a requested fix or test task, the assistant can correct a cause and
+continue safe test iterations. A rerun executes the whole current workflow,
+including steps that already succeeded. If an earlier attempt may have sent,
+published, deleted, or otherwise changed something externally, the assistant
+checks what completed before repeating it and asks when the prior effects or
+authorization to repeat are unclear. Tool approvals still apply. A request
+just to run or inspect a workflow does not authorize changing its definition.
 
 ## Authoring workflows
+
+The assistant creates a workflow only when you explicitly request one. It
+may briefly suggest one when you clearly want to automate a repeatable task;
+repetition alone is not an invitation, and an ignored or declined suggestion
+is not repeated. Saving a workflow does not authorize running it.
 
 Work something out in conversation, then ask the session to "save that as a
 workflow" and it authors the YAML into `workflows/` through tools that validate

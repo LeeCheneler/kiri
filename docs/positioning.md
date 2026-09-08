@@ -20,7 +20,8 @@ one-liner sells it. Never lead with the category alone.
 
 ## The ladder
 
-Kiri's shape is a progression, and copy should present it in this order:
+Lead with general-purpose and coding sessions. Preservation and automation are
+options that serve the work, not steps every conversation must complete:
 
 1. **Work it out in a session.** Sessions are the front door: a
    general-purpose agentic assistant with any model you configure — a
@@ -29,15 +30,19 @@ Kiri's shape is a progression, and copy should present it in this order:
    reaches any MCP server, with tool permissions you set: allow, ask, or off.
    Always name the range (chat, research, writing, code); never anchor a
    session to the repo alone.
-2. **Keep what matters.** Output lands as articles — readable pages in a live
-   feed — not scrollback. Facts persist as memories. Related work compounds
+2. **Keep what matters.** Substantial write-ups and reusable conclusions can
+   become articles — readable pages in a live feed. Durable facts persist as
+   memories. Related work compounds
    into a project's shared corpus with wiki-links and standing instructions.
-3. **Automate the repeats.** Anything worth doing twice hardens into a
-   workflow — a YAML file in your repo, runnable as a one-click button, and a
-   session can author it for you.
+3. **Automate when you choose.** A user who wants to automate a repeatable
+   task can ask a session to create a workflow — a YAML file in the repo,
+   runnable as a button. Only suggest this when the user clearly shows that
+   intent; repetition alone is not a reason to offer, and creation needs an
+   explicit request.
 
-Workflows are the top of the ladder, not the front door. They are where
-mature work ends up.
+Most day-to-day use is general-purpose and coding sessions. A conversation or
+a code change is a complete outcome. Do not imply that successful sessions
+must produce an article, memory, or workflow.
 
 ## Pain stack (lead with the highest)
 
@@ -76,9 +81,8 @@ mature work ends up.
 3. A screenshot of the product — a session first (worked out in chat, kept
    as an article and a memory), then the feed and an article. The UI is the
    proof of polish; adjectives are not.
-4. The five-minute quickstart whose golden path *is* the ladder: ask a
-   session for something → it writes an article → save it as a workflow →
-   click the button.
+4. A quickstart that gets the user working in a session first, then shows
+   how to keep a useful write-up and optionally request a workflow.
 
 Avoid: "powerful", "seamless", feature soup, unverifiable claims.
 

@@ -12,12 +12,16 @@ chore gets re-prompted every week. Kiri is built so work compounds instead:
    research, a review, a write-up, or a code change. It reads and edits your
    files, runs your shell, delegates legwork, and reaches any MCP server you
    add, with every tool's permission yours to set.
-2. **Keep what matters.** Output lands as **articles** — readable pages in a
-   live feed — facts persist as **memories**, and related work groups into a
+2. **Keep what matters.** Substantial writing and reusable conclusions can
+   become **articles** in a live feed, durable facts persist as **memories**,
+   and related work groups into a
    **project** with its own shared, cross-linked corpus.
-3. **Automate the repeats.** Anything worth doing twice hardens into a
-   **workflow** — a small YAML file in your repo, runnable as a one-click
-   button. A session can author it for you.
+3. **Automate when you choose.** If you want a repeatable task as a button,
+   ask a session to create a **workflow** — a small YAML file in your repo.
+   It creates one only when you explicitly ask.
+
+Most work can stay in general-purpose and coding sessions. Quick answers and
+routine code changes need no extra document or automation.
 
 ## Two files and you're working
 
