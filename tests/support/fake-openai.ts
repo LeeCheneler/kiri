@@ -302,6 +302,15 @@ export const fakeOpenAiFetch = async (req: Request): Promise<Response> => {
     const userText = lastUserText(messages);
     let reply = fakeReply(userText);
     if (userText.startsWith(TITLE_PROMPT_PREFIX)) reply = STUB_SESSION_TITLE;
+    if (
+      messages.some(
+        (message) =>
+          message.role === "system" &&
+          typeof message.content === "string" &&
+          message.content.startsWith("You are a conversation summariser."),
+      )
+    )
+      reply = "Evidence read once. Original tail verified. Continue from saved findings.";
     if (userText.startsWith(SUGGESTED_REPLIES_PROMPT_PREFIX)) {
       reply = userText.includes(SUGGESTED_REPLIES_MARKER)
         ? ["ENDING: confirmation", ...STUB_SUGGESTED_REPLIES].join("\n")

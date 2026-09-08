@@ -1,5 +1,6 @@
 import { isToolUIPart } from "ai";
 import { useMemo } from "react";
+import { isCheckpointPart } from "../../../shared/checkpoint-part.ts";
 import { isInboxPart } from "../../../shared/inbox-part.ts";
 import type { Session, SessionDetail, SessionStatus } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
@@ -9,7 +10,7 @@ import { LoadingState } from "../../design-system/content/loading-state.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { useSession, useSessionChildren } from "../../state/sessions.ts";
-import { InboxInterjection } from "./chat-message.tsx";
+import { ContextCheckpoint, InboxInterjection } from "./chat-message.tsx";
 import { ToolInvocation, type ToolPart, toolStatus } from "./tool-invocation.tsx";
 import { useSessionConversation } from "./use-session-conversation.ts";
 
@@ -93,6 +94,7 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
                     />
                   );
                 if (isInboxPart(part)) return <InboxInterjection key={part.id} part={part} />;
+                if (isCheckpointPart(part)) return <ContextCheckpoint key={part.id} part={part} />;
                 return null;
               })}
             </div>

@@ -20,6 +20,21 @@ const tool = (id: string, overrides: Record<string, unknown> = {}): ToolPart =>
 const parts = (...list: unknown[]): UIMessage["parts"] => list as UIMessage["parts"];
 
 describe("segmentParts", () => {
+  it("breaks a tool chain at a context checkpoint", () => {
+    const a = tool("a");
+    const b = tool("b");
+    const checkpoint = {
+      type: "data-checkpoint" as const,
+      id: "cp1",
+      data: { summary: "Work so far" },
+    };
+    expect(segmentParts(parts(a, checkpoint, b))).toEqual([
+      { kind: "chain", parts: [a] },
+      { kind: "checkpoint", part: checkpoint },
+      { kind: "chain", parts: [b] },
+    ]);
+  });
+
   it("folds consecutive tool calls into one chain, across step boundaries and empty text", () => {
     const [a, b, c] = [tool("a"), tool("b"), tool("c")];
     const segments = segmentParts(

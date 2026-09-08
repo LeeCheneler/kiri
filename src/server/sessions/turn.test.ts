@@ -7,17 +7,18 @@ import { type UIMessage, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
 import { CANCELLED_ERROR_TEXT } from "../../shared/cancelled-tool-call.ts";
+import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 import { type KiriDb, openDatabase } from "../db/index.ts";
 import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
-import { contextTools } from "./context-tools.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
   type Message,
   appendMessage,
   createSession,
+  deleteMessagesFrom,
   getSession,
   getSessionMessages,
   setSessionStatus,
@@ -210,6 +211,139 @@ describe("runTurn", () => {
     db.$client.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("sends only the latest checkpoint and later content while preserving the full transcript", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Original request" }] });
+    const savedParts: UIMessage["parts"] = [
+      { type: "text", text: "Earlier detailed work" },
+      { type: "data-checkpoint", id: "cp1", data: { summary: "Completed the first task" } },
+      { type: "step-start" },
+      {
+        type: "tool-echo",
+        toolCallId: "c2",
+        state: "output-available",
+        input: { value: "Later evidence" },
+        output: { echoed: "Later evidence" },
+      },
+      {
+        type: "data-inbox",
+        id: "i1",
+        data: { source: "user", text: "Also check the second task", queuedAt: 1 },
+      },
+    ];
+    appendMessage(db, "s1", { role: "assistant", parts: savedParts }, { id: "a1" });
+    const capture: { prompt?: unknown } = {};
+    await (
+      await runTurn(
+        { db, llmClients: clientsFor(capturingModel(capture)), tools: echoTools },
+        { session, userMessage: USER_MESSAGE },
+      )
+    ).done;
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("Completed the first task");
+    expect(sent).toContain("Later evidence");
+    expect(sent).toContain("Also check the second task");
+    expect(sent).toContain("Hi there");
+    expect(sent).not.toContain("Original request");
+    expect(sent).not.toContain("Earlier detailed work");
+    expect(sent).toContain('"type":"tool-call"');
+    expect(sent).toContain('"type":"tool-result"');
+    expect(getSessionMessages(db, "s1").find((row) => row.id === "a1")?.parts).toEqual(savedParts);
+    expect(getSessionMessages(db, "s1")).toHaveLength(4);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it("resumes an approval after a checkpoint inside the same assistant message", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const checkpoint = {
+      type: "data-checkpoint" as const,
+      id: "cp1",
+      data: { summary: "First action completed" },
+    };
+    const prefix: UIMessage["parts"] = [
+      { type: "text", text: "Older work" },
+      checkpoint,
+      { type: "step-start" },
+    ];
+    appendMessage(
+      db,
+      "s1",
+      {
+        role: "assistant",
+        parts: [
+          ...prefix,
+          {
+            type: "tool-echo",
+            toolCallId: "c1",
+            state: "approval-requested",
+            input: { value: "Approved next action" },
+            approval: { id: "ap1" },
+          },
+        ],
+      },
+      { id: "a1" },
+    );
+    setSessionStatus(db, "s1", "waiting");
+    const capture: { prompt?: unknown } = {};
+    const resumed = await resumeTurn(
+      { db, llmClients: clientsFor(capturingModel(capture)), tools: gatedEchoTools },
+      { session, approvals: [{ toolCallId: "c1", approved: true }] },
+    );
+    await resumed.response.text();
+    await resumed.done;
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("First action completed");
+    expect(sent).not.toContain("Older work");
+    expect(sent).toContain("Approved next action");
+    const rows = getSessionMessages(db, "s1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("a1");
+    expect((rows[0].parts as UIMessage["parts"]).slice(0, 3)).toEqual(prefix);
+    expect(toolPartOf(rows[0])).toMatchObject({
+      state: "output-available",
+      output: { echoed: "Approved next action" },
+    });
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
+
+  it.each(["before", "after"] as const)(
+    "uses the remaining history after rewinding %s a checkpoint",
+    async (boundary) => {
+      const session = createSession(db, MODEL, { id: "s1" });
+      appendMessage(db, "s1", { role: "user", parts: [{ type: "text", text: "Original goal" }] });
+      appendMessage(
+        db,
+        "s1",
+        { role: "user", parts: [{ type: "text", text: "Old direction" }] },
+        { id: "u-before" },
+      );
+      appendMessage(db, "s1", {
+        role: "assistant",
+        parts: [{ type: "data-checkpoint", id: "cp1", data: { summary: "Saved progress" } }],
+      });
+      appendMessage(
+        db,
+        "s1",
+        { role: "user", parts: [{ type: "text", text: "Discard this" }] },
+        { id: "u-after" },
+      );
+      expect(deleteMessagesFrom(db, "s1", `u-${boundary}`)).toBe(true);
+      const capture: { prompt?: unknown } = {};
+      await (
+        await runTurn(
+          { db, llmClients: clientsFor(capturingModel(capture)) },
+          { session, userMessage: USER_MESSAGE },
+        )
+      ).done;
+      const sent = JSON.stringify(capture.prompt);
+      expect(sent.includes("Original goal")).toBe(boundary === "before");
+      expect(sent.includes("Saved progress")).toBe(boundary === "after");
+      expect(sent).not.toContain("Discard this");
+      expect(sent).not.toContain("Old direction");
+      expect(sent).toContain("Hi there");
+    },
+  );
 
   it.each(["summary", "empty", "error", "tool call", "cancel"] as const)(
     "stops after 64 work steps and one tool-free handoff ending in %s",
@@ -578,114 +712,505 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("sends recoverable evidence excerpts while preserving skills, actions, and the stored transcript", async () => {
+  it("compacts at the start of a turn using the session model and preserves the original transcript", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
-    const evidence = `Evidence heading\n${"x".repeat(20000)}Missing tail`;
-    const skill = "Always verify the result.\n".repeat(1000);
-    appendMessage(
-      db,
-      "s1",
-      { role: "user", parts: [{ type: "text", text: "Keep the API stable." }] },
-      { id: "u0" },
-    );
-    appendMessage(
-      db,
-      "s1",
-      {
-        role: "assistant",
-        parts: [
-          {
-            type: "tool-read_file",
-            toolCallId: "read-1",
-            state: "output-available",
-            input: { path: "file" },
-            output: evidence,
-          },
-          {
-            type: "tool-use_skill",
-            toolCallId: "skill-1",
-            state: "output-available",
-            input: { name: "review" },
-            output: skill,
-          },
-          {
-            type: "tool-run_command",
-            toolCallId: "action-1",
-            state: "output-available",
-            input: { command: "publish" },
-            output: "Release published once.",
-          },
-          { type: "text", text: "Published; verification remains." },
-        ],
-        contextTokens: 18000,
-      },
-      { id: "a1" },
-    );
-    const original = getSessionMessages(db, "s1");
-    const capture: { prompt?: unknown } = {};
-    const llmClients: LlmClients = {
-      ...clientsFor(capturingModel(capture)),
-      contextWindowFor: async () => 20000,
-    };
-    const tools = contextTools(db, "s1");
-    const { response, done } = await runTurn(
-      { db, llmClients, tools },
-      { session, userMessage: USER_MESSAGE },
-    );
-    await response.text();
-    await done;
-    const sent = JSON.stringify(capture.prompt);
-    expect(sent).toContain("context_compacted");
-    expect(sent).toContain("read_tool_result");
-    expect(sent).toContain("a1");
-    expect(sent).toContain("read-1");
-    expect(sent).toContain("Evidence heading");
-    expect(sent).not.toContain("Missing tail");
-    expect(sent).toContain(JSON.stringify(skill).slice(1, -1));
-    expect(sent).toContain("Release published once.");
-    expect(sent).toContain("Published; verification remains.");
-    expect(sent).toContain("Keep the API stable.");
-    expect(getSessionMessages(db, "s1").slice(0, 2)).toEqual(original);
-    const read = tools.read_tool_result.execute;
-    if (!read) throw new Error("Missing recovery tool");
-    expect(
-      await read(
-        { message_id: "a1", tool_call_id: "read-1", offset: evidence.length - 12 } as never,
-        { toolCallId: "recover", messages: [] },
-      ),
-    ).toMatchObject({ content: "Missing tail", next_offset: null });
-  });
-
-  it("retains full evidence when recovery is withheld", async () => {
-    const session = createSession(db, MODEL, { id: "s1" });
-    const evidence = `${"x".repeat(12000)}Unrecoverable tail`;
+    const evidence = `Source findings ${"x".repeat(36000)} Source tail`;
     appendMessage(db, "s1", {
       role: "assistant",
       parts: [
         {
-          type: "tool-read_file",
+          type: "tool-mcp__search",
           toolCallId: "c1",
           state: "output-available",
-          input: { path: "file" },
+          input: {},
           output: evidence,
         },
+        { type: "text", text: "Published the article once; verification remains." },
       ],
-      contextTokens: 18000,
     });
+    const original = getSessionMessages(db, "s1")[0];
+    enqueueInboxItem(db, "s1", { source: "user", text: "Check the regional requirements" });
     const capture: { prompt?: unknown } = {};
-    const llmClients = {
-      ...clientsFor(capturingModel(capture)),
-      contextWindowFor: async () => 20000,
-    };
+    let summaries = 0;
     const { response, done } = await runTurn(
-      { db, llmClients },
+      {
+        db,
+        llmClients: {
+          ...clientsFor(capturingModel(capture)),
+          contextWindowFor: async () => {
+            enqueueInboxItem(db, "s1", { source: "user", text: "Check the contracts too" });
+            return 20000;
+          },
+          generateText: async ({ model, prompt }) => {
+            summaries += 1;
+            expect(model).toBe(MODEL);
+            expect(prompt).toContain(evidence);
+            expect(prompt).toContain("Published the article once; verification remains.");
+            expect(prompt).not.toContain("Hi there");
+            expect(prompt).not.toContain("Check the regional requirements");
+            expect(prompt).not.toContain("Check the contracts too");
+            enqueueInboxItem(db, "s1", { source: "user", text: "Include Cloudflare" });
+            return {
+              text: "Article already published. Verify its sources; do not republish.",
+              usage: {},
+            };
+          },
+        },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    const sse = await response.text();
+    await done;
+    expect(summaries).toBe(1);
+    expect(sse).toContain('"type":"data-checkpoint"');
+    expect(JSON.stringify(capture.prompt)).toContain("Article already published");
+    expect(JSON.stringify(capture.prompt)).not.toContain(evidence);
+    const firstPrompt = JSON.stringify(capture.prompt);
+    expect(firstPrompt).toContain("Hi there");
+    expect(firstPrompt).toContain("Check the regional requirements");
+    expect(firstPrompt).toContain("Include Cloudflare");
+    expect(firstPrompt).toContain("Check the contracts too");
+    expect(firstPrompt.indexOf("Article already published")).toBeLessThan(
+      firstPrompt.indexOf("Check the regional requirements"),
+    );
+    expect(firstPrompt.indexOf("Check the regional requirements")).toBeLessThan(
+      firstPrompt.indexOf("Hi there"),
+    );
+    expect(firstPrompt.indexOf("Hi there")).toBeLessThan(firstPrompt.indexOf("Include Cloudflare"));
+    const rows = getSessionMessages(db, "s1");
+    expect(rows[0]).toEqual(original);
+    const checkpoints = (rows[3].parts as UIMessage["parts"]).filter(isCheckpointPart);
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0].data.pendingMessages?.[1]).toEqual(USER_MESSAGE);
+    expect(JSON.stringify(checkpoints[0].data.pendingMessages)).toContain(
+      "Check the contracts too",
+    );
+    expect(getSession(db, "s1")?.status).toBe("idle");
+
+    await (
+      await runTurn(
+        { db, llmClients: clientsFor(capturingModel(capture)) },
+        {
+          session,
+          userMessage: { ...USER_MESSAGE, id: "u2", parts: [{ type: "text", text: "Next" }] },
+        },
+      )
+    ).done;
+    const reloaded = JSON.stringify(capture.prompt);
+    expect(reloaded).toContain("Article already published");
+    for (const text of [
+      "Hi there",
+      "Check the regional requirements",
+      "Check the contracts too",
+      "Include Cloudflare",
+    ])
+      expect(reloaded.split(text)).toHaveLength(2);
+    expect(reloaded).not.toContain(evidence);
+  });
+
+  it("does not summarise an oversized incoming request when there is no earlier history", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const capture: { prompt?: unknown } = {};
+    const incoming = {
+      ...USER_MESSAGE,
+      parts: [{ type: "text" as const, text: "x".repeat(100000) }],
+    };
+    let summaries = 0;
+    const started = await runTurn(
+      {
+        db,
+        llmClients: {
+          ...clientsFor(capturingModel(capture)),
+          contextWindowFor: async () => 8192,
+          generateText: async () => {
+            summaries += 1;
+            return { text: "A changed request", usage: {} };
+          },
+        },
+      },
+      { session, userMessage: incoming },
+    );
+    await started.response.text();
+    await started.done;
+    expect(summaries).toBe(0);
+    expect(capture.prompt).toBeUndefined();
+    expect(getSessionMessages(db, "s1")[0].parts).toEqual(incoming.parts);
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { code: "context_limit" },
+    });
+  });
+
+  it("compacts repeatedly within a turn without replaying actions or losing later messages", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    let calls = 0;
+    let actions = 0;
+    let summaries = 0;
+    let system = "Original standing rules";
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        calls += 1;
+        const sent = JSON.stringify(options.prompt);
+        if (calls >= 2) {
+          expect(sent).toContain(`Checkpoint ${Math.min(calls - 1, 2)}`);
+          expect(sent).not.toContain("x".repeat(1000));
+          expect(sent).toContain("Updated standing rules");
+          expect(
+            (getSessionMessages(db, "s1")[1].parts as UIMessage["parts"]).filter(isCheckpointPart),
+          ).toHaveLength(Math.min(calls - 1, 2));
+        }
+        if (calls === 2) expect(sent).toContain("Use the new branch");
+        if (calls === 4) {
+          expect(sent).toContain("Small result 3");
+          expect(sent).not.toContain("Checkpoint 1");
+        }
+        return {
+          stream: convertArrayToReadableStream([
+            ...(calls < 4
+              ? [
+                  {
+                    type: "tool-call" as const,
+                    toolCallId: `c${calls}`,
+                    toolName: "mcp__action",
+                    input: "{}",
+                  },
+                ]
+              : [
+                  { type: "text-start" as const, id: "t1" },
+                  { type: "text-delta" as const, id: "t1", delta: "Finished remaining work" },
+                  { type: "text-end" as const, id: "t1" },
+                ]),
+            {
+              type: "finish",
+              finishReason: finishReason(calls < 4 ? "tool-calls" : "stop"),
+              usage: usage(5, 1),
+            },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const { response, done } = await runTurn(
+      {
+        db,
+        buildSystemPrompt: () => system,
+        llmClients: {
+          ...clientsFor(model),
+          contextWindowFor: async () => 8192,
+          generateText: async ({ prompt }) => {
+            summaries += 1;
+            expect(prompt).toContain(`Action ${summaries} completed`);
+            expect(JSON.stringify(getSessionMessages(db, "s1")[1].parts)).toContain(
+              `Action ${summaries} completed`,
+            );
+            if (summaries === 1) {
+              expect(prompt).toContain("Do not publish");
+              enqueueInboxItem(db, "s1", { source: "user", text: "Use the new branch" });
+              system = "Updated standing rules";
+            } else {
+              expect(prompt).toContain("Checkpoint 1");
+              expect(prompt).toContain("Use the new branch");
+              expect(prompt).not.toContain("Action 1 completed");
+            }
+            return {
+              text: `Checkpoint ${summaries}: ${summaries} actions completed. Do not publish.`,
+              usage: {},
+            };
+          },
+        },
+        tools: {
+          mcp__action: tool({
+            inputSchema: z.object({}),
+            execute: () => {
+              actions += 1;
+              if (actions === 1)
+                enqueueInboxItem(db, "s1", { source: "user", text: "Do not publish" });
+              return actions < 3
+                ? `Action ${actions} completed ${"x".repeat(15000)}`
+                : "Small result 3";
+            },
+          }),
+        },
+      },
       { session, userMessage: USER_MESSAGE },
     );
     await response.text();
     await done;
-    expect(JSON.stringify(capture.prompt)).toContain(evidence);
-    expect(JSON.stringify(capture.prompt)).not.toContain("context_compacted");
+    expect(calls).toBe(4);
+    expect(actions).toBe(3);
+    expect(summaries).toBe(2);
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    const capture: { prompt?: unknown } = {};
+    await (
+      await runTurn(
+        { db, llmClients: clientsFor(capturingModel(capture)) },
+        {
+          session,
+          userMessage: { ...USER_MESSAGE, id: "u2" },
+        },
+      )
+    ).done;
+    expect(JSON.stringify(capture.prompt)).toContain("Checkpoint 2");
+    expect(JSON.stringify(capture.prompt)).toContain("Small result 3");
+    expect(JSON.stringify(capture.prompt)).not.toContain("Checkpoint 1");
+    expect(JSON.stringify(capture.prompt)).not.toContain("x".repeat(1000));
   });
+
+  it("saves an approved action's result before compacting its resumed turn", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-echo",
+          toolCallId: "c1",
+          state: "approval-requested",
+          input: { value: "hi" },
+          approval: { id: "ap1" },
+        },
+      ],
+    });
+    setSessionStatus(db, "s1", "waiting");
+    let actions = 0;
+    let summaries = 0;
+    const capture: { prompt?: unknown } = {};
+    const resumed = await resumeTurn(
+      {
+        db,
+        llmClients: {
+          ...clientsFor(capturingModel(capture)),
+          contextWindowFor: async () => 8192,
+          generateText: async ({ prompt }) => {
+            summaries += 1;
+            expect(prompt).toContain("Approved action completed");
+            expect(toolPartOf(getSessionMessages(db, "s1")[0])).toMatchObject({
+              state: "output-available",
+              output: expect.stringContaining("Approved action completed"),
+            });
+            return { text: "Approved action completed once. Verify the result.", usage: {} };
+          },
+        },
+        tools: {
+          echo: tool({
+            inputSchema: z.object({ value: z.string() }),
+            needsApproval: true,
+            execute: async function* () {
+              actions += 1;
+              yield "Preliminary progress";
+              yield `Approved action completed ${"x".repeat(15000)}`;
+            },
+          }),
+        },
+      },
+      { session, approvals: [{ toolCallId: "c1", approved: true }] },
+    );
+    await resumed.response.text();
+    await resumed.done;
+    expect(actions).toBe(1);
+    expect(summaries).toBe(1);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    expect(JSON.stringify(capture.prompt)).toContain("Approved action completed once");
+    expect(JSON.stringify(capture.prompt)).not.toContain("x".repeat(1000));
+  });
+
+  it("keeps unanswered approvals out of compaction when only one verdict is submitted", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [
+        { type: "text", text: "x".repeat(36000) },
+        ...["c1", "c2"].map((id) => ({
+          type: "tool-echo" as const,
+          toolCallId: id,
+          state: "approval-requested" as const,
+          input: { value: "hi" },
+          approval: { id: `ap-${id}` },
+        })),
+      ],
+    });
+    setSessionStatus(db, "s1", "waiting");
+    const resumed = await resumeTurn(
+      {
+        db,
+        tools: gatedEchoTools,
+        llmClients: {
+          ...clientsFor(capturingModel({})),
+          contextWindowFor: async () => 20000,
+          generateText: async () => {
+            throw new Error("Pending approvals must not be summarized");
+          },
+        },
+      },
+      { session, approvals: [{ toolCallId: "c1", approved: true }] },
+    );
+    await resumed.done;
+    // The SDK rejects a partial verdict's unpaired call. Compaction must not
+    // hide that pending approval inside a summary and make it unrecoverable.
+    expect(getSession(db, "s1")).toMatchObject({
+      status: "failed",
+      error: { message: "Tool result is missing for tool call c2." },
+    });
+    const parts = getSessionMessages(db, "s1")[0].parts as UIMessage["parts"];
+    expect(parts.filter(isCheckpointPart)).toHaveLength(0);
+    expect(parts).toContainEqual(
+      expect.objectContaining({ toolCallId: "c2", state: "approval-requested" }),
+    );
+  });
+
+  it("keeps the work-step limit and uses compacted context for its final handoff", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [{ type: "text", text: "x".repeat(36000) }],
+    });
+    let calls = 0;
+    let actions = 0;
+    let summaries = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        calls += 1;
+        if (calls === 65) {
+          expect(options.tools ?? []).toEqual([]);
+          expect(JSON.stringify(options.prompt)).toContain("Goal retained in checkpoint");
+          expect(JSON.stringify(options.prompt)).not.toContain("x".repeat(1000));
+        }
+        return {
+          stream: convertArrayToReadableStream([
+            ...(calls <= 64
+              ? [
+                  {
+                    type: "tool-call" as const,
+                    toolCallId: `c${calls}`,
+                    toolName: "echo",
+                    input: '{"value":"hi"}',
+                  },
+                ]
+              : []),
+            {
+              type: "finish",
+              finishReason: finishReason(calls <= 64 ? "tool-calls" : "stop"),
+              usage: usage(5, 1),
+            },
+          ]),
+        };
+      },
+    }) as unknown as LlmModel;
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: {
+          ...clientsFor(model),
+          contextWindowFor: async () => 20000,
+          generateText: async () => {
+            summaries += 1;
+            return { text: "Goal retained in checkpoint", usage: {} };
+          },
+        },
+        tools: {
+          echo: tool({
+            inputSchema: z.object({ value: z.string() }),
+            execute: () => {
+              actions += 1;
+              return "Done";
+            },
+          }),
+        },
+      },
+      {
+        session,
+        userMessage: USER_MESSAGE,
+      },
+    );
+    await response.text();
+    await done;
+    expect(summaries).toBe(1);
+    expect(calls).toBe(65);
+    expect(actions).toBe(64);
+    expect(getSession(db, "s1")).toMatchObject({ status: "failed", error: { code: "step_limit" } });
+  });
+
+  it.each(["empty", "oversized", "error", "cancel", "save failure"] as const)(
+    "preserves completed work when compaction ends with %s",
+    async (ending) => {
+      const session = createSession(db, MODEL, { id: "s1" });
+      const cancelRegistry = createCancelRegistry();
+      let calls = 0;
+      let actions = 0;
+      let summaries = 0;
+      if (ending === "save failure")
+        db.$client.exec(`
+        CREATE TRIGGER reject_summary BEFORE UPDATE ON messages
+        WHEN NEW.parts LIKE '%data-checkpoint%'
+        BEGIN SELECT RAISE(FAIL, 'checkpoint storage unavailable'); END;
+      `);
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          calls += 1;
+          if (calls > 1) {
+            expect(options.tools ?? []).toEqual([]);
+            return {
+              stream: convertArrayToReadableStream([
+                { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 1) },
+              ]),
+            };
+          }
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "tool-call", toolCallId: "c1", toolName: "action", input: "{}" },
+              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
+            ]),
+          };
+        },
+      }) as unknown as LlmModel;
+      const { response, done } = await runTurn(
+        {
+          db,
+          cancelRegistry,
+          llmClients: {
+            ...clientsFor(model),
+            contextWindowFor: async () => 8192,
+            generateText: async ({ abortSignal }) => {
+              summaries += 1;
+              if (ending === "error") throw new Error("compaction provider unavailable");
+              if (ending === "cancel") {
+                cancelRegistry.requestCancel("s1");
+                abortSignal?.throwIfAborted();
+              }
+              return {
+                text:
+                  ending === "empty"
+                    ? " "
+                    : ending === "oversized"
+                      ? "y".repeat(30000)
+                      : "Action completed once",
+                usage: {},
+              };
+            },
+          },
+          tools: {
+            action: tool({
+              inputSchema: z.object({}),
+              execute: () => {
+                actions += 1;
+                return `Action completed once ${"x".repeat(15000)}`;
+              },
+            }),
+          },
+        },
+        { session, userMessage: USER_MESSAGE },
+      );
+      const sse = await response.text();
+      await done;
+      expect(summaries).toBe(1);
+      expect(actions).toBe(1);
+      expect(calls).toBe(ending === "empty" || ending === "oversized" ? 2 : 1);
+      expect(getSession(db, "s1")?.status).toBe(ending === "cancel" ? "cancelled" : "failed");
+      const parts = getSessionMessages(db, "s1")[1].parts as UIMessage["parts"];
+      expect(JSON.stringify(parts)).toContain("Action completed once");
+      expect(parts.filter(isCheckpointPart)).toHaveLength(0);
+      if (ending === "error") expect(sse).toContain("compaction provider unavailable");
+    },
+  );
 
   it.each([undefined, 8192])(
     "stops oversized input before a provider call with window %s",
@@ -716,7 +1241,7 @@ describe("runTurn", () => {
       const sse = await response.text();
       await done;
       expect(calls).toBe(0);
-      expect(sse).toContain("remaining context exceeds");
+      expect(sse).toContain("could not free enough working space");
       expect(getSession(db, "s1")).toMatchObject({
         status: "failed",
         error: { code: "context_limit" },
@@ -729,82 +1254,6 @@ describe("runTurn", () => {
       );
     },
   );
-
-  it("compacts newly checkpointed evidence within a turn and lets the model reopen its tail", async () => {
-    let calls = 0;
-    let reads = 0;
-    const evidence = `${"x".repeat(24000)}Original tail`;
-    const model = new MockLanguageModelV3({
-      doStream: async (options) => {
-        calls += 1;
-        if (calls === 1)
-          return {
-            stream: convertArrayToReadableStream([
-              { type: "tool-call", toolCallId: "read-1", toolName: "read_file", input: "{}" },
-              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
-            ]),
-          };
-        if (calls === 2) {
-          const content = options.prompt.flatMap((message) =>
-            message.role === "tool" ? message.content : [],
-          );
-          const part = content.find(
-            (part) => part.type === "tool-result" && part.toolCallId === "read-1",
-          );
-          if (!part || part.type !== "tool-result" || part.output.type !== "json")
-            throw new Error("Expected excerpt");
-          const value = part.output.value as {
-            read_tool_result: { message_id: string; tool_call_id: string };
-          };
-          expect(value.read_tool_result.tool_call_id).toBe("read-1");
-          expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain("Original tail");
-          return {
-            stream: convertArrayToReadableStream([
-              {
-                type: "tool-call",
-                toolCallId: "recover-1",
-                toolName: "read_tool_result",
-                input: JSON.stringify({ ...value.read_tool_result, offset: evidence.length - 13 }),
-              },
-              { type: "finish", finishReason: finishReason("tool-calls"), usage: usage(5, 1) },
-            ]),
-          };
-        }
-        expect(JSON.stringify(options.prompt)).toContain("Original tail");
-        return {
-          stream: convertArrayToReadableStream([
-            { type: "text-start", id: "t1" },
-            { type: "text-delta", id: "t1", delta: "Verified the tail." },
-            { type: "text-end", id: "t1" },
-            { type: "finish", finishReason: finishReason("stop"), usage: usage(5, 1) },
-          ]),
-        };
-      },
-    }) as unknown as LlmModel;
-    const session = createSession(db, MODEL, { id: "s1" });
-    const { response, done } = await runTurn(
-      {
-        db,
-        llmClients: { ...clientsFor(model), contextWindowFor: async () => 8192 },
-        tools: {
-          ...contextTools(db, "s1"),
-          read_file: tool({
-            inputSchema: z.object({}),
-            execute: () => {
-              reads += 1;
-              return evidence;
-            },
-          }),
-        },
-      },
-      { session, userMessage: USER_MESSAGE },
-    );
-    await response.text();
-    await done;
-    expect(calls).toBe(3);
-    expect(reads).toBe(1);
-    expect(getSession(db, "s1")?.status).toBe("idle");
-  });
 
   it.each(["summary", "error", "cancel"] as const)(
     "preserves an action and gives a context handoff ending in %s",
@@ -826,7 +1275,7 @@ describe("runTurn", () => {
           expect(options.tools ?? []).toEqual([]);
           expect(JSON.stringify(options.prompt)).toContain("Action completed.");
           expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain(
-            "remaining context exceeds",
+            "could not free enough working space",
           );
           if (ending === "error") throw new Error("handoff unavailable");
           if (ending === "cancel") {
@@ -855,7 +1304,7 @@ describe("runTurn", () => {
               inputSchema: z.object({}),
               execute: () => {
                 actions += 1;
-                return `Action completed.${"x".repeat(16000)}`;
+                return `Action completed.${"x".repeat(18000)}`;
               },
             }),
           },
@@ -866,7 +1315,7 @@ describe("runTurn", () => {
       await done;
       expect(calls).toBe(2);
       expect(actions).toBe(1);
-      expect(sse).toContain("remaining context exceeds");
+      expect(sse).toContain("could not free enough working space");
       expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain("Action completed.");
       expect(getSession(db, "s1")).toMatchObject(
         ending === "cancel"
@@ -881,6 +1330,38 @@ describe("runTurn", () => {
       );
     },
   );
+
+  it("keeps working when fixed tool schemas exceed the compaction target but the request fits", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const capture: { prompt?: unknown } = {};
+    let summaries = 0;
+    await (
+      await runTurn(
+        {
+          db,
+          llmClients: {
+            ...clientsFor(capturingModel(capture)),
+            contextWindowFor: async () => 8192,
+            generateText: async () => {
+              summaries += 1;
+              return { text: "summary", usage: {} };
+            },
+          },
+          tools: {
+            large: tool({
+              description: "x".repeat(14700),
+              inputSchema: z.object({}),
+              execute: () => "ok",
+            }),
+          },
+        },
+        { session, userMessage: USER_MESSAGE },
+      )
+    ).done;
+    expect(summaries).toBe(0);
+    expect(capture.prompt).toBeDefined();
+    expect(getSession(db, "s1")?.status).toBe("idle");
+  });
 
   it("includes tool schemas in the work budget and can hand off without them", async () => {
     let calls = 0;
@@ -1069,6 +1550,61 @@ describe("runTurn", () => {
       error: { code: "context_limit" },
     });
   });
+
+  it.each([
+    [25000, "idle", 2],
+    [90000, "failed", 1],
+  ] as const)(
+    "calibrates an overestimate without discounting a new %i-character tool result",
+    async (outputLength, status, expectedCalls) => {
+      let calls = 0;
+      const model = new MockLanguageModelV3({
+        doStream: async () => {
+          calls += 1;
+          return {
+            stream: convertArrayToReadableStream<LanguageModelV3StreamPart>(
+              calls === 1
+                ? [
+                    { type: "tool-call", toolCallId: "read-1", toolName: "search", input: "{}" },
+                    {
+                      type: "finish",
+                      finishReason: finishReason("tool-calls"),
+                      usage: usage(9000, 10),
+                    },
+                  ]
+                : [
+                    { type: "text-start", id: "t1" },
+                    { type: "text-delta", id: "t1", delta: "Research complete." },
+                    { type: "text-end", id: "t1" },
+                    { type: "finish", finishReason: finishReason("stop"), usage: usage(15000, 10) },
+                  ],
+            ),
+          };
+        },
+      }) as unknown as LlmModel;
+      const session = createSession(db, MODEL, { id: "s1" });
+      const turn = await runTurn(
+        {
+          db,
+          llmClients: { ...clientsFor(model), contextWindowFor: async () => 32000 },
+          tools: {
+            search: tool({ inputSchema: z.object({}), execute: () => "r".repeat(outputLength) }),
+          },
+        },
+        {
+          session,
+          userMessage: { ...USER_MESSAGE, parts: [{ type: "text", text: "history".repeat(6400) }] },
+        },
+      );
+      const sse = await turn.response.text();
+      await turn.done;
+      expect(calls).toBe(expectedCalls);
+      expect(getSession(db, "s1")?.status).toBe(status);
+      expect(sse).toContain(
+        status === "idle" ? "Research complete." : "could not free enough working space",
+      );
+    },
+  );
 
   it("re-encodes a JSON tool result as TOON for the model, leaving storage as JSON", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
@@ -2653,6 +3189,47 @@ describe("runWakeTurn", () => {
     expect(getSessionMessages(db, "s1")).toEqual([]);
     expect(getSession(db, "s1")?.status).toBe("idle");
     expect(events).toEqual([]);
+  });
+
+  it("excludes the waking backlog from compaction and restores it after the checkpoint", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    const evidence = "Earlier findings ".repeat(2300);
+    appendMessage(db, "s1", { role: "assistant", parts: [{ type: "text", text: evidence }] });
+    enqueueInboxItem(db, "s1", { source: "child", text: "The worker found a new issue" });
+    const capture: { prompt?: unknown } = {};
+    let summaries = 0;
+    const started = await runWakeTurn(
+      {
+        db,
+        llmClients: {
+          ...clientsFor(capturingModel(capture)),
+          contextWindowFor: async () => 20000,
+          generateText: async ({ prompt }) => {
+            summaries += 1;
+            expect(prompt).toContain(evidence);
+            expect(prompt).not.toContain("The worker found a new issue");
+            return { text: "Earlier work is complete", usage: {} };
+          },
+        },
+      },
+      { session },
+    );
+    await started?.response.text();
+    await started?.done;
+    expect(summaries).toBe(1);
+    const sent = JSON.stringify(capture.prompt);
+    expect(sent).toContain("The worker found a new issue");
+    expect(sent.indexOf("Earlier work is complete")).toBeLessThan(
+      sent.indexOf("The worker found a new issue"),
+    );
+    const checkpoint = (getSessionMessages(db, "s1")[2].parts as UIMessage["parts"]).find(
+      isCheckpointPart,
+    );
+    expect(JSON.stringify(checkpoint?.data.pendingMessages)).toContain(
+      "The worker found a new issue",
+    );
+    expect(pendingInboxItems(db, "s1")).toEqual([]);
+    expect(getSession(db, "s1")?.status).toBe("idle");
   });
 
   it("clears a failed session's terminal markers, like any resumed turn", async () => {

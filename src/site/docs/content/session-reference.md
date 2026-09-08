@@ -223,7 +223,6 @@ tightened or switched off:
 | Article write / edit / delete / read | Always allow | Only touch kiri's own data. |
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
-| `read_tool_result` | Always allow | Reads saved results from this session without repeating actions. |
 | `search_knowledge`, `open_knowledge` | Always allow | Read saved knowledge within an explicit scope, defaulting to the current project when present. |
 | Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
 | `update_project_instructions` | Always allow | Only runs when you ask, and shows the change as a diff. |
@@ -413,18 +412,29 @@ Kiri tracks a session's token spend, and context as `current / limit` when
 the provider reports the model's window, warning as a conversation nears it.
 Before every model request, Kiri estimates the space needed for the current
 conversation, refreshed instructions, incoming messages, and tool definitions.
-It reserves space for output, reasoning, and new tool results. If the provider
-reports higher input usage than estimated, subsequent checks in that turn
-use the higher ratio. Estimates are approximate, not exact provider token
-counts.
+It reserves space for output, reasoning, and new tool results. Within a turn,
+reported input usage corrects the estimate in either direction with 10%
+headroom. Added content is still charged conservatively, so a low previous
+count does not discount a large new tool result. Estimates are approximate,
+not exact provider token counts.
 
-Under context pressure, large saved results from built-in evidence reads
-become partial excerpts with references to the original results. Small
-results, loaded skills, conversation text, task lists, action outcomes,
-errors, and worker messages stay available. Results from unknown tools also
-remain intact. New results must be saved before they can be shortened.
-Compaction requires `read_tool_result` to be enabled; with that tool off,
-full results remain in context. The stored transcript is never shortened.
+At 85% of the working input budget, Kiri asks the session's selected model
+for a continuation summary, without tools. It saves that summary as a
+**Context checkpoint** in the transcript before continuing. The next request
+uses the latest checkpoint and subsequent messages, alongside current standing
+instructions. This also works between tool calls in one long turn.
+
+Before a new turn, the incoming message and queued reports stay outside the
+summary and follow the checkpoint unchanged. During a turn, the summary records
+the active request and completed tool work so the model can continue unfinished
+work. The model is instructed to resume directly without acknowledging compaction.
+
+The summary preserves the objective, constraints, decisions, findings, completed
+actions, uncertain outcomes, and next steps. Older messages and tool outputs
+leave the model's context; missing details must be checked against articles,
+files, or other sources, without repeating completed actions. The full
+transcript stays visible, and each checkpoint expands to show its summary.
+Editing or deleting an earlier message removes subsequent checkpoints too.
 
 When a model's context window is unknown, Kiri uses a conservative **32,768-token
 working window** for these checks; this is not a claim about the provider's
@@ -434,22 +444,16 @@ A large tool catalogue and lengthy standing instructions can consume most
 of that fallback budget before much work has happened. A fresh session may
 therefore still reach it quickly. Use a model with a larger known window or
 turn off tools you do not need; bounded knowledge reads limit retrieved text,
-not the size of the tool catalogue or standing instructions.
+not the size of the tool catalogue or standing instructions. If those fixed
+parts already exceed the compaction target, summarizing cannot reach it; Kiri
+keeps working while the full request fits its working budget.
 
-If the remaining context still exceeds the working budget, Kiri stops with
-an explicit incomplete-work notice and attempts one tool-free handoff if it
-fits. If even the handoff cannot fit, the notice and saved progress remain
-without another model request. Use a model with a larger known context window,
-or start a fresh session carrying over the saved progress. Completed actions
-should not be repeated just to recover their output.
-
-The assistant can reopen a saved tool result with `read_tool_result`, given
-its message ID and tool-call ID. Results arrive in bounded pages with a
-continuation offset. This reads the recorded output, including recorded
-errors, without running the original action again. It only accesses the
-current session's transcript; a worker cannot use it to read its parent's
-conversation. Saved output is historical evidence, not a fresh check of
-the world or permission to repeat an action.
+If the summary request cannot fit, or its result is empty or cannot create
+enough room, Kiri saves an incomplete-work notice and attempts one tool-free
+handoff if it fits. A provider error or cancellation during summarization also
+stops the turn, preserving completed work. Use a larger known context window,
+or carry the saved progress into a fresh session. Summarization adds a model
+request; it does not reset the turn's work-step limit.
 
 ## Attachments
 

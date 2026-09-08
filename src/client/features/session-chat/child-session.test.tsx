@@ -70,6 +70,23 @@ const renderBox = (part = delegatePart()) => {
 };
 
 describe("<ChildSession>", () => {
+  it("lets the user expand a checkpoint in the worker transcript", async () => {
+    withChildren([child("idle")]);
+    withChildDetail("idle", [
+      childMessage("m1", "assistant", [
+        { type: "data-checkpoint", id: "cp1", data: { summary: "Census results saved" } },
+        { type: "text", text: "Checking remaining colonies" },
+      ]),
+    ]);
+    renderBox();
+    await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
+    const toggle = await screen.findByRole("button", { name: "Context checkpoint" });
+    expect(screen.queryByText("Census results saved")).toBeNull();
+    await userEvent.click(toggle);
+    expect(screen.getByText("Census results saved")).toBeDefined();
+    expect(screen.getByText("Checking remaining colonies")).toBeDefined();
+  });
+
   it("renders just the title and status until the child row exists", async () => {
     withChildren([]);
     renderBox();

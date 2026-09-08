@@ -143,7 +143,6 @@ describe("mcp routes", () => {
           { name: "read_article", description: expect.any(String), permission: "allow" },
           { name: "generate_image", description: expect.any(String), permission: "allow" },
           { name: "use_skill", description: expect.any(String), permission: "allow" },
-          { name: "read_tool_result", description: expect.any(String), permission: "allow" },
           { name: "save_memory", description: expect.any(String), permission: "allow" },
           { name: "read_memory", description: expect.any(String), permission: "allow" },
           { name: "delete_memory", description: expect.any(String), permission: "allow" },

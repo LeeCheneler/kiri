@@ -16,6 +16,7 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
+import { compactContext } from "./compact-context.ts";
 import { finaliseInterruptedParts } from "./finalise-interrupted-parts.ts";
 import { stripImageToolResults } from "./image-tool-results.ts";
 import {
@@ -28,7 +29,12 @@ import {
   pendingInboxItems,
 } from "./inbox.ts";
 import type { InstructionContext } from "./instruction-context.ts";
-import { compactModelMessages, contextBudget, estimateContextTokens } from "./session-context.ts";
+import {
+  calibratedContextTokens,
+  contextBudget,
+  estimateContextTokens,
+  historySinceCheckpoint,
+} from "./session-context.ts";
 import {
   type Message,
   type Session,
@@ -93,12 +99,12 @@ const HANDOFF_PROMPT =
   "completed actions. If an action's outcome is unknown, say it needs verification.";
 
 const CONTEXT_LIMIT_NOTICE =
-  "Kiri stopped this turn because the remaining context exceeds its working budget. " +
+  "Kiri stopped this turn because context compaction could not free enough working space. " +
   "Work may be incomplete. Completed actions and the full transcript are saved. " +
   "Use a larger-context model or start a new session with the saved progress; do not repeat completed actions.";
 
 const CONTEXT_HANDOFF_PROMPT =
-  "The context budget has been reached. Tools are unavailable. Give a concise handoff: " +
+  "Context compaction could not free enough working space. Tools are unavailable. Give a concise handoff: " +
   "what was completed, what remains unfinished or uncertain, and that this turn stopped " +
   "because of the context budget. Do not claim unfinished work is complete or suggest repeating " +
   "completed actions. If an action's outcome is unknown, say it needs verification.";
@@ -238,7 +244,7 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
 
   // Anything queued while the session was idle drains ahead of the message
   // that starts the turn.
-  drainBacklog(db, bus, session.id);
+  const incomingMessageCount = drainBacklog(db, bus, session.id) + 1;
 
   // Persist under the message's own id so the client and server agree on it —
   // edit-and-resend truncates the transcript by this id, which only works if the
@@ -250,7 +256,7 @@ export async function runTurn(deps: RunTurnDeps, args: RunTurnArgs): Promise<Sta
   setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
   bus?.publish({ type: "session.updated", id: session.id, status: "running" });
 
-  return streamCore(deps, session, model);
+  return streamCore(deps, session, model, incomingMessageCount);
 }
 
 /**
@@ -274,12 +280,13 @@ export async function runWakeTurn(
   // Resolve before any writes so a bad id rejects with nothing half-persisted.
   const model = llmClients.resolveModel(session.model);
 
-  if (drainBacklog(db, bus, session.id) === 0) return null;
+  const incomingMessageCount = drainBacklog(db, bus, session.id);
+  if (incomingMessageCount === 0) return null;
   bus?.publish({ type: "session.message.added", sessionId: session.id });
   setSessionStatus(db, session.id, "running", { error: null, finishedAt: null });
   bus?.publish({ type: "session.updated", id: session.id, status: "running" });
 
-  return streamCore(deps, session, model);
+  return streamCore(deps, session, model, incomingMessageCount);
 }
 
 /**
@@ -375,6 +382,7 @@ async function streamCore(
   deps: RunTurnDeps,
   session: Session,
   model: ReturnType<LlmClients["resolveModel"]>,
+  incomingMessageCount = 0,
 ): Promise<StartedTurn> {
   const {
     db,
@@ -396,6 +404,9 @@ async function streamCore(
   const rows = getSessionMessages(db, session.id);
   const history = rows.map(toUiMessage);
   const last = history.at(-1);
+  const hasPendingApprovals =
+    last?.role === "assistant" &&
+    last.parts.some((part) => isToolUIPart(part) && part.state === "approval-requested");
   instructionContext?.restore(
     session.status === "waiting" && last?.role === "assistant" ? last.parts : [],
   );
@@ -451,8 +462,18 @@ async function streamCore(
   let contextHandoffMessages: ModelMessage[] = [];
   let lastContextTokens: number | undefined;
   let savedSteps = 0;
+  let savingWorkStep = false;
   let checkpointReady: (() => void) | undefined;
   let checkpointFinished: (() => void) | undefined;
+  const resumedApprovals = new Set(
+    last?.role === "assistant"
+      ? last.parts
+          .filter(isToolUIPart)
+          .filter((part) => part.state === "approval-responded" && !part.providerExecuted)
+          .map((part) => part.toolCallId)
+      : [],
+  );
+  let approvalsSaved: (() => void) | undefined;
   const acknowledgedIds = new Set<string>();
 
   // The stream can already contain an inbox delivery for the next model step.
@@ -498,6 +519,7 @@ async function streamCore(
     generateId: () => crypto.randomUUID(),
     execute: async ({ writer }) => {
       try {
+        writer.write({ type: "start" });
         // Tools may be supplied ready-made or built against this turn's stream
         // writer, so a tool can emit live progress parts while it runs. With
         // tools, the turn runs as a multi-step loop (call a tool, feed the
@@ -522,44 +544,38 @@ async function streamCore(
           })),
         );
         const modelHistory = toonEncodeToolResults(
-          stripWriteToolDiffs(stripImageToolResults(history)),
+          stripWriteToolDiffs(stripImageToolResults(historySinceCheckpoint(history))),
         );
         const modelMessages = await convertToModelMessages(
           expandInboxMessages(modelHistory, senderLabelFor),
         );
-        let inputRatio = 1;
+        const incomingMessages =
+          incomingMessageCount > 0 ? history.slice(-incomingMessageCount) : [];
+        const incomingModelMessages = await convertToModelMessages(
+          expandInboxMessages(incomingMessages, senderLabelFor),
+        );
+        const previousMessageCount = modelMessages.length - incomingModelMessages.length;
+        let calibration: { estimate: number; inputTokens: number } | undefined;
         let previousEstimate = 0;
+        let checkpointMessages: ModelMessage[] = [];
+        let compactedThrough = 0;
+        const compactionThreshold = Math.floor(budget.workInputTokens * 0.85);
         const prepareContext = (
           messages: ModelMessage[],
           system: string | undefined,
           handoff: boolean,
         ) => {
-          const schemas = handoff ? [] : toolSchemas;
-          const limit = handoff ? budget.handoffInputTokens : budget.workInputTokens;
-          const estimate = estimateContextTokens({ system, messages, tools: schemas });
-          const savedHistory = getSessionMessages(db, session.id).map(toUiMessage);
-          let compacted = compactModelMessages(messages, savedHistory, {
-            tokensToSave: Math.max(0, estimate - limit / inputRatio),
-            recoveryAvailable: turnTools?.read_tool_result !== undefined,
-          });
-          let finalEstimate = estimateContextTokens({
+          const estimate = estimateContextTokens({
             system,
-            messages: compacted,
-            tools: schemas,
+            messages,
+            tools: handoff ? [] : toolSchemas,
           });
-          // Lossless encoding and provider usage can make payload-based savings
-          // approximate. Try all eligible evidence before declaring the context full.
-          if (finalEstimate * inputRatio > limit) {
-            compacted = compactModelMessages(messages, savedHistory, {
-              tokensToSave: Number.POSITIVE_INFINITY,
-              recoveryAvailable: turnTools?.read_tool_result !== undefined,
-            });
-            finalEstimate = estimateContextTokens({ system, messages: compacted, tools: schemas });
-          }
           return {
-            messages: compacted,
-            estimate: finalEstimate,
-            fits: finalEstimate * inputRatio <= limit,
+            messages,
+            estimate,
+            fits:
+              calibratedContextTokens(estimate, calibration) <=
+              (handoff ? budget.handoffInputTokens : budget.workInputTokens),
           };
         };
         result = streamText({
@@ -589,8 +605,14 @@ async function streamCore(
           // so later boundaries would re-read it) and re-inserted every step,
           // because the SDK rebuilds the step input without our injections.
           prepareStep: async ({ messages, steps, stepNumber }) => {
+            // Resumed approvals execute before step zero, without an SDK step
+            // boundary. Wait for their results to reach the transcript too.
+            if (resumedApprovals.size > 0)
+              await new Promise<void>((resolve) => {
+                approvalsSaved = resolve;
+              });
             // The SDK can prepare its next call before the UI stream has saved
-            // the previous step. Never create a recovery reference ahead of that checkpoint.
+            // the previous step. Summaries must never outrun saved action results.
             if (savedSteps < stepNumber)
               await new Promise<void>((resolve) => {
                 checkpointReady = resolve;
@@ -598,15 +620,116 @@ async function streamCore(
             controller.signal.throwIfAborted();
             const measured = steps.at(-1)?.usage.inputTokens;
             if (measured !== undefined && previousEstimate > 0) {
-              inputRatio = Math.max(inputRatio, measured / previousEstimate);
+              calibration = { estimate: previousEstimate, inputTokens: measured };
             }
             // Refresh cwd while model and effort still describe the provider
             // call configured when this turn began. Replace the system prompt
             // so rules from a directory we left do not linger.
-            const system = buildSystemPrompt?.({
+            let system = buildSystemPrompt?.({
               ...session,
               cwd: getSession(db, session.id)?.cwd ?? null,
             });
+            for (const item of pendingInboxItems(db, session.id)) {
+              if (deliveredIds.has(item.id)) continue;
+              deliveredIds.add(item.id);
+              deliveries.push({ item, insertIndex: messages.length });
+              writer.write(inboxUIPart(item) as InboxChunk);
+            }
+            let delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
+            let current = [...checkpointMessages, ...delivered.slice(compactedThrough)];
+            let prepared = prepareContext(current, system, false);
+            // Before any work, summarize only the history preceding the incoming
+            // messages. Later boundaries summarize completed tool steps as well.
+            const beforeTurn = stepNumber === 0 && incomingMessageCount > 0;
+            const summaryMessages = beforeTurn ? current.slice(0, previousMessageCount) : current;
+            // An unanswered approval must remain a real tool part for its later resume.
+            // Summarizing history cannot bring fixed instructions/tools below the
+            // target. In that case, keep working while the full request still fits.
+            if (
+              !hasPendingApprovals &&
+              summaryMessages.length > 0 &&
+              estimateContextTokens({ system, messages: [], tools: toolSchemas }) <
+                compactionThreshold &&
+              calibratedContextTokens(prepared.estimate, calibration) >= compactionThreshold
+            ) {
+              const checkpoint = await compactContext({
+                llmClients,
+                model: session.model,
+                messages: summaryMessages,
+                system,
+                inputBudget: budget.handoffInputTokens,
+                summaryBudget: Math.min(4096, Math.floor(budget.workInputTokens * 0.2)),
+                calibration,
+                abortSignal: controller.signal,
+              });
+              if (checkpoint && beforeTurn) {
+                // Save the excluded inputs with the checkpoint so reloads and
+                // approval continuations retain the same request boundary.
+                checkpoint.data.pendingMessages = [
+                  ...incomingMessages,
+                  ...expandInboxMessages(
+                    deliveries.map(({ item }) => ({
+                      id: item.id,
+                      role: "assistant" as const,
+                      parts: [inboxUIPart(item) as UIMessage["parts"][number]],
+                    })),
+                    senderLabelFor,
+                  ),
+                ];
+              }
+              const summarized = checkpoint
+                ? await convertToModelMessages(
+                    expandInboxMessages(
+                      historySinceCheckpoint([
+                        { id: checkpoint.id, role: "assistant", parts: [checkpoint] },
+                      ]),
+                      senderLabelFor,
+                    ),
+                  )
+                : [];
+              const summaryEstimate = estimateContextTokens({
+                system,
+                messages: summarized,
+                tools: toolSchemas,
+              });
+              if (
+                !checkpoint ||
+                summaryEstimate >= compactionThreshold ||
+                summaryEstimate >= prepared.estimate
+              ) {
+                contextLimitReached = true;
+                contextHandoffMessages = current;
+                throw contextLimitError;
+              }
+              // This boundary is part of the same transcript, and must be durable
+              // before the model can take actions using only its summary.
+              const summarySaved = new Promise<void>((resolve) => {
+                checkpointFinished = resolve;
+              });
+              writer.write(checkpoint);
+              writer.write({ type: "finish-step" });
+              await summarySaved;
+              controller.signal.throwIfAborted();
+              checkpointMessages = summarized;
+              compactedThrough = delivered.length;
+              // A summary has different contents; prior token measurements no
+              // longer calibrate it. The next work call establishes a new sample.
+              calibration = undefined;
+              system = buildSystemPrompt?.({
+                ...session,
+                cwd: getSession(db, session.id)?.cwd ?? null,
+              });
+              // Steering received during generation belongs after the checkpoint.
+              for (const item of pendingInboxItems(db, session.id)) {
+                if (deliveredIds.has(item.id)) continue;
+                deliveredIds.add(item.id);
+                deliveries.push({ item, insertIndex: messages.length });
+                writer.write(inboxUIPart(item) as InboxChunk);
+              }
+              delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
+              current = [...checkpointMessages, ...delivered.slice(compactedThrough)];
+              prepared = prepareContext(current, system, false);
+            }
             const receipt = instructionContext?.receipt();
             if (receipt) {
               writer.write({
@@ -615,18 +738,10 @@ async function streamCore(
                 data: receipt,
               });
             }
-            for (const item of pendingInboxItems(db, session.id)) {
-              if (deliveredIds.has(item.id)) continue;
-              deliveredIds.add(item.id);
-              deliveries.push({ item, insertIndex: messages.length });
-              writer.write(inboxUIPart(item) as InboxChunk);
-            }
-            const delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
-            const prepared = prepareContext(delivered, system, false);
             previousEstimate = prepared.estimate;
             if (!prepared.fits) {
               contextLimitReached = true;
-              contextHandoffMessages = delivered;
+              contextHandoffMessages = current;
               throw contextLimitError;
             }
             return { system, messages: prepared.messages };
@@ -641,6 +756,7 @@ async function streamCore(
         // last tool result. Hold the final finish frame until both have ended.
         for await (const chunk of result.toUIMessageStream({
           onError: errorMessage,
+          sendStart: false,
           sendFinish: false,
         })) {
           if (
@@ -651,12 +767,28 @@ async function streamCore(
             continue;
           let checkpoint: Promise<void> | undefined;
           if (chunk.type === "finish-step") {
+            savingWorkStep = true;
             checkpoint = new Promise<void>((resolve) => {
               checkpointFinished = resolve;
             });
           }
           writer.write(chunk);
           if (checkpoint) await checkpoint;
+          if (
+            (chunk.type === "tool-output-available" ||
+              chunk.type === "tool-output-error" ||
+              chunk.type === "tool-output-denied") &&
+            !(chunk.type === "tool-output-available" && chunk.preliminary) &&
+            resumedApprovals.has(chunk.toolCallId)
+          ) {
+            const approvalSaved = new Promise<void>((resolve) => {
+              checkpointFinished = resolve;
+            });
+            writer.write({ type: "finish-step" });
+            await approvalSaved;
+            resumedApprovals.delete(chunk.toolCallId);
+            if (resumedApprovals.size === 0) approvalsSaved?.();
+          }
         }
         if (controller.signal.aborted || streamError !== undefined) return;
         if (!stepLimitReached && !contextLimitReached) {
@@ -682,13 +814,15 @@ async function streamCore(
         await noticeSaved;
         if (controller.signal.aborted) return;
 
-        const handoffMessages = contextLimitReached
-          ? contextHandoffMessages
-          : insertInboxModelMessages(
-              [...modelMessages, ...(await result.response).messages],
-              deliveries,
-              senderLabelFor,
-            );
+        let handoffMessages = contextHandoffMessages;
+        if (!contextLimitReached) {
+          const delivered = insertInboxModelMessages(
+            [...modelMessages, ...(await result.response).messages],
+            deliveries,
+            senderLabelFor,
+          );
+          handoffMessages = [...checkpointMessages, ...delivered.slice(compactedThrough)];
+        }
         const system = buildSystemPrompt?.({
           ...session,
           cwd: getSession(db, session.id)?.cwd ?? null,
@@ -746,7 +880,9 @@ async function streamCore(
         controller.abort();
         throw cause;
       } finally {
-        savedSteps += 1;
+        // Synthetic summary/approval boundaries save progress without consuming a work step.
+        if (savingWorkStep) savedSteps += 1;
+        savingWorkStep = false;
         checkpointReady?.();
         checkpointReady = undefined;
         checkpointFinished?.();

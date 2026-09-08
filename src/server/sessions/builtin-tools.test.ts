@@ -9,7 +9,6 @@ import type { LlmClients } from "../llm/index.ts";
 import { createRegistry } from "../workflows/index.ts";
 import { articleTools } from "./article-tools.ts";
 import { BUILTIN_TOOLS } from "./builtin-tools.ts";
-import { contextTools } from "./context-tools.ts";
 import { delegateTool, messageParentTool } from "./delegate-tool.ts";
 import { filesystemTools } from "./filesystem-tools.ts";
 import { imageTools } from "./image-tools.ts";
@@ -61,7 +60,6 @@ describe("BUILTIN_TOOLS", () => {
     const offered = {
       ...knowledgeTools({ db, registry: createRegistry() }, null),
       ...skillTools(createConfigStore(dir)),
-      ...contextTools(db, "session-1"),
       ...workflowTools({ db, registry: createRegistry(), config: createConfigStore(dir) }),
       ...articleTools(db, "session-1", null, () => {}),
       ...memoryTools(db, null, () => {}),

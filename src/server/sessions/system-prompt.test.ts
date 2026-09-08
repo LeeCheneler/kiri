@@ -301,22 +301,6 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("incomplete");
   });
 
-  it("only offers saved-evidence recovery guidance when the recovery tool is active", () => {
-    const withRecovery = buildSystemPrompt({
-      config,
-      now: FIXED_NOW,
-      tools: ["read_file", "read_tool_result"],
-    });
-    const withoutRecovery = buildSystemPrompt({
-      config,
-      now: FIXED_NOW,
-      tools: ["read_file"],
-    });
-    expect(withRecovery).toContain("read_tool_result");
-    expect(withRecovery).toContain("next_offset");
-    expect(withoutRecovery).not.toContain("read_tool_result");
-  });
-
   it("tells the model some tool results arrive as TOON, only when tools are active", () => {
     const withTools = buildSystemPrompt({
       config,

@@ -43,6 +43,7 @@ export function createCodexModel(
 export async function generateCodexText(options: {
   model: LanguageModel;
   prompt: string;
+  system?: string;
   abortSignal?: AbortSignal;
 }) {
   const result = streamText({

@@ -18,7 +18,6 @@ import {
 import { createCancelRegistry } from "../../src/server/runner/cancel-registry.ts";
 import {
   articleTools,
-  contextTools,
   createInstructionContext,
   createSession,
   createSystemPromptBuilder,
@@ -181,14 +180,13 @@ describe("session turn streaming", () => {
   it("compacts a saved result between real streamed model requests", async () => {
     const start = fake.requests.length;
     const session = createSession(db, "fake:tool");
-    const evidence = `${"x".repeat(24000)}Original tail`;
+    const evidence = `${"x".repeat(15000)}Original tail`;
     let reads = 0;
     const { response, done } = await runTurn(
       {
         db,
         llmClients: { ...llmClients, contextWindowFor: async () => 8192 },
         tools: {
-          ...contextTools(db, session.id),
           read_file: tool({
             inputSchema: z.object({}),
             execute: () => {
@@ -203,10 +201,21 @@ describe("session turn streaming", () => {
     await response.text();
     await done;
     const requests = fake.requests.slice(start);
-    expect(requests).toHaveLength(2);
-    expect(JSON.stringify(requests[1]?.messages)).toContain("context_compacted");
-    expect(JSON.stringify(requests[1]?.messages)).not.toContain("Original tail");
+    expect(requests).toHaveLength(3);
+    expect(requests.map((request) => request.model)).toEqual(["tool", "tool", "tool"]);
+    expect(requests[1]?.stream).not.toBe(true);
+    expect(requests[1]?.tools).toBeUndefined();
+    expect(requests[1]?.messages?.[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("You are a conversation summariser."),
+    });
+    expect(JSON.stringify(requests[1]?.messages)).toContain(evidence);
+    expect(JSON.stringify(requests[2]?.messages)).toContain("Evidence read once");
+    expect(JSON.stringify(requests[2]?.messages)).not.toContain("x".repeat(1000));
     expect(JSON.stringify(getSessionMessages(db, session.id)[1]?.parts)).toContain("Original tail");
+    expect(JSON.stringify(getSessionMessages(db, session.id)[1]?.parts)).toContain(
+      "data-checkpoint",
+    );
     expect(reads).toBe(1);
     expect(getSession(db, session.id)?.status).toBe("idle");
   });
@@ -237,7 +246,7 @@ describe("session turn streaming", () => {
     expect(executions).toBe(1);
     expect(fake.requests.slice(start)).toHaveLength(1);
     expect(await Bun.file(join(cwd, "context-progress.txt")).text()).toBe("Saved once.");
-    expect(sse).toContain("remaining context exceeds");
+    expect(sse).toContain("could not free enough working space");
     expect(getSession(db, session.id)).toMatchObject({
       status: "failed",
       error: { code: "context_limit" },

@@ -1,5 +1,6 @@
 import type { FileUIPart, UIMessage } from "ai";
 import { memo, useEffect, useId, useState } from "react";
+import type { CheckpointUIPart } from "../../../shared/checkpoint-part.ts";
 import { type InboxUIPart, isInboxPart } from "../../../shared/inbox-part.ts";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
@@ -262,6 +263,19 @@ export function InboxInterjection({
   );
 }
 
+/** A saved context summary, collapsed until the user chooses to inspect it. */
+export function ContextCheckpoint({ part }: { part: CheckpointUIPart }) {
+  return (
+    <div className="border border-rule">
+      <Disclosure
+        summary={<span className="font-mono text-xs text-ink-muted">Context checkpoint</span>}
+      >
+        <Markdown content={part.data.summary} />
+      </Disclosure>
+    </div>
+  );
+}
+
 // An assistant message: its segments rendered in order so tool activity sits
 // inline with the prose — a lead-in line, the tool block, then the answer that
 // follows. Text renders as markdown; a lone tool call renders as a collapsible
@@ -328,6 +342,9 @@ function AssistantMessage({
             return (
               <InboxInterjection key={segment.part.id} part={segment.part} sessionId={sessionId} />
             );
+          }
+          if (segment.kind === "checkpoint") {
+            return <ContextCheckpoint key={segment.part.id} part={segment.part} />;
           }
           return segment.parts.length === 1 ? (
             <ToolInvocation

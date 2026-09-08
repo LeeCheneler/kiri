@@ -1,4 +1,5 @@
 import { type UIMessage, getToolName, isToolUIPart } from "ai";
+import { type CheckpointUIPart, isCheckpointPart } from "../../../shared/checkpoint-part.ts";
 import { type InboxUIPart, isInboxPart } from "../../../shared/inbox-part.ts";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
@@ -25,6 +26,7 @@ export type Segment =
   | { kind: "image"; part: ToolPart }
   | { kind: "delegate"; part: ToolPart }
   | { kind: "inbox"; part: InboxUIPart }
+  | { kind: "checkpoint"; part: CheckpointUIPart }
   | { kind: "chain"; parts: ToolPart[] };
 
 /**
@@ -36,7 +38,7 @@ export type Segment =
  * the same way — it is content like prose, not plumbing to fold up — as does a
  * delegate call, which renders as an embedded child-session box, and a
  * delivered inbox message, which renders as the user's interjection at the
- * point the turn saw it.
+ * point the turn saw it. Context checkpoints also break chains at their boundary.
  */
 export function segmentParts(parts: UIMessage["parts"]): Segment[] {
   const segments: Segment[] = [];
@@ -52,6 +54,9 @@ export function segmentParts(parts: UIMessage["parts"]): Segment[] {
     } else if (isInboxPart(part)) {
       flush();
       segments.push({ kind: "inbox", part });
+    } else if (isCheckpointPart(part)) {
+      flush();
+      segments.push({ kind: "checkpoint", part });
     } else if (isToolUIPart(part)) {
       if (part.state === "approval-requested") {
         flush();

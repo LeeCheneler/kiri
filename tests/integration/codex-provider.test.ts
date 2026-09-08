@@ -95,7 +95,11 @@ describe("Codex provider through the AI SDK", () => {
         return sse(textEvents);
       }),
     );
-    const result = await clients.generateText({ model: "chatgpt:gpt-5.4-mini", prompt: "hello" });
+    const result = await clients.generateText({
+      model: "chatgpt:gpt-5.4-mini",
+      system: "Summarise the supplied conversation",
+      prompt: "hello",
+    });
     expect(result).toEqual({
       text: "violet",
       usage: { inputTokens: 30, outputTokens: 10, totalTokens: 40 },
@@ -104,7 +108,10 @@ describe("Codex provider through the AI SDK", () => {
       stream: true,
       store: false,
       include: ["reasoning.encrypted_content"],
-      input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+      input: [
+        { role: "developer", content: "Summarise the supplied conversation" },
+        { role: "user", content: [{ type: "input_text", text: "hello" }] },
+      ],
     });
     const direct = await generateLlmText({
       model: clients.resolveModel("chatgpt:gpt-5.4-mini"),
