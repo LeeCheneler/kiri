@@ -17,6 +17,8 @@ import {
   workflowSchema,
 } from "../workflows/index.ts";
 import { createInstructionContext } from "./instruction-context.ts";
+import { buildChildSessionPrompt, buildSystemPrompt } from "./system-prompt.ts";
+import { buildWorkflowAuthoringGuide } from "./workflow-authoring-guide.ts";
 import { type WorkflowToolsDeps, workflowTools } from "./workflow-tools.ts";
 
 // Invoke a tool's execute with a minimal ToolExecutionOptions, casting away
@@ -63,6 +65,42 @@ describe("workflowTools", () => {
 
   const tools = (overrides?: Partial<WorkflowToolsDeps>): ToolSet =>
     workflowTools({ db, registry, config: createConfigStore(dir), bus, ...overrides });
+
+  it("aligns authorized recovery across prompts, execution tools, and the skill", () => {
+    const activeTools = ["run_workflow", "rerun_workflow"];
+    const contracts = [
+      buildSystemPrompt({ config: createConfigStore(dir), tools: activeTools }),
+      buildChildSessionPrompt({ tools: activeTools }),
+      tools().run_workflow.description,
+      tools().rerun_workflow.description,
+      buildWorkflowAuthoringGuide({ platform: "linux", release: "6.8.0", arch: "x64" }),
+    ];
+    // These are instruction contracts, not evidence of live-model decisions.
+    for (const contract of contracts) {
+      const text = contract?.replace(/\s+/g, " ") ?? "";
+      expect(text).toMatch(/authorized fix or test task/);
+      expect(text).toMatch(/failure or timeout/i);
+      expect(text).toMatch(/inspect what completed/i);
+      expect(text).toMatch(
+        /prior effects or permission to repeat are unclear, ask|ask before re-execution if prior effects or permission to repeat are unclear/i,
+      );
+      expect(text).not.toMatch(/re-run only when the user asks/);
+    }
+  });
+
+  it("requires explicit creation requests in the tool and the authoring skill", () => {
+    const guide = buildWorkflowAuthoringGuide({ platform: "linux", release: "6.8.0", arch: "x64" });
+    expect(tools().create_workflow.description).toMatch(
+      /only when the user explicitly requests creating a workflow/,
+    );
+    expect(guide.replace(/\s+/g, " ")).toMatch(
+      /Only create a workflow when the user explicitly requests one/,
+    );
+    expect(tools().create_workflow.description).toMatch(
+      /unanswered suggestion is not authorization/,
+    );
+    expect(guide).toMatch(/Loading this guide is not authorization/);
+  });
 
   describe("list_workflows", () => {
     it("lists each workflow's catalog fields and declared inputs", async () => {
