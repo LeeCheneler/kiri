@@ -21,7 +21,7 @@ arrived, its outcome may be unknown; check its effect before retrying.
 
 A turn can take up to **64 work steps**, each a model response that may
 call tools. If it still needs to continue, Kiri saves a stopping notice and
-allows one final response with tools disabled to summarise completed work,
+allows one final response, when it fits the context budget, with tools disabled to summarise completed work,
 what remains, and why it stopped. The turn is marked failed with the step
 limit as its reason. The notice and saved work remain available if that
 summary fails or is empty; send another message to continue. A normal final
@@ -112,7 +112,9 @@ The instructions the assistant follows once the skill is loaded…
 Unknown frontmatter fields are ignored, so skills written for other tools
 drop in unmodified. Edits apply from the next turn. Kiri ships a few
 first-party skills alongside yours — name a skill the same as one and yours
-wins.
+wins. Loaded skill instructions are retained when evidence is compacted.
+The assistant can reload a skill if its instructions are missing or have
+changed; it should reuse instructions already available.
 
 ## Memories and projects
 
@@ -169,6 +171,7 @@ tightened or switched off:
 | Article write / edit / delete / read | Always allow | Only touch kiri's own data. |
 | Workflow list / read | Always allow | Read-only, kiri's own data. |
 | `use_skill` | Always allow | Read-only, loads instructions you wrote. |
+| `read_tool_result` | Always allow | Reads saved results from this session without repeating actions. |
 | Memory save / read / delete | Always allow | Only touch kiri's own data; the Memories page is the curation surface. |
 | `update_project_instructions` | Always allow | Only runs when you ask, and shows the change as a diff. |
 | Task list / add / update, group create / update | Always allow | Only touch kiri's own data; the project page is the curation surface. |
@@ -281,7 +284,7 @@ the legwork.
   worker's result arriving after the assistant has finished its reply starts
   a new one, so fanned-out research assembles itself as the reports land.
 - Kiri sends a notice whenever a worker's turn ends, including failure,
-  cancellation, or the work step limit. If the worker omitted its report,
+  cancellation, or a work/context limit. If the worker omitted its report,
   the notice includes a bounded excerpt of its saved final reply or a link
   to its transcript. A report already sent is not repeated. A progress note
   or a stopped turn does not mean the task is complete: the assistant checks
@@ -311,8 +314,39 @@ other tool.
 
 Kiri tracks a session's token spend, and context as `current / limit` when
 the provider reports the model's window, warning as a conversation nears it.
-Long sessions are stretched automatically — older tool results are trimmed
-from what's sent each turn; the transcript you see never changes.
+Before every model request, Kiri estimates the space needed for the current
+conversation, refreshed instructions, incoming messages, and tool definitions.
+It reserves space for output, reasoning, and new tool results. If the provider
+reports higher input usage than estimated, subsequent checks in that turn
+use the higher ratio. Estimates are approximate, not exact provider token
+counts.
+
+Under context pressure, large saved results from built-in evidence reads
+become partial excerpts with references to the original results. Small
+results, loaded skills, conversation text, task lists, action outcomes,
+errors, and worker messages stay available. Results from unknown tools also
+remain intact. New results must be saved before they can be shortened.
+Compaction requires `read_tool_result` to be enabled; with that tool off,
+full results remain in context. The stored transcript is never shortened.
+
+When a model's context window is unknown, Kiri uses a conservative **32,768-token
+working window** for these checks; this is not a claim about the provider's
+actual limit. Switching models recalculates the budget on the next turn.
+
+If the remaining context still exceeds the working budget, Kiri stops with
+an explicit incomplete-work notice and attempts one tool-free handoff if it
+fits. If even the handoff cannot fit, the notice and saved progress remain
+without another model request. Use a model with a larger known context window,
+or start a fresh session carrying over the saved progress. Completed actions
+should not be repeated just to recover their output.
+
+The assistant can reopen a saved tool result with `read_tool_result`, given
+its message ID and tool-call ID. Results arrive in bounded pages with a
+continuation offset. This reads the recorded output, including recorded
+errors, without running the original action again. It only accesses the
+current session's transcript; a worker cannot use it to read its parent's
+conversation. Saved output is historical evidence, not a fresh check of
+the world or permission to repeat an action.
 
 ## Attachments
 

@@ -1,7 +1,9 @@
 import {
+  type ModelMessage,
   type ToolSet,
   type UIMessage,
   type UIMessageStreamWriter,
+  asSchema,
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -13,7 +15,6 @@ import type { KiriDb } from "../db/index.ts";
 import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
-import { cullToolHistory, currentContextTokens } from "./cull-tool-results.ts";
 import { finaliseInterruptedParts } from "./finalise-interrupted-parts.ts";
 import { stripImageToolResults } from "./image-tool-results.ts";
 import {
@@ -26,6 +27,7 @@ import {
   pendingInboxItems,
 } from "./inbox.ts";
 import type { InstructionContext } from "./instruction-context.ts";
+import { compactModelMessages, contextBudget, estimateContextTokens } from "./session-context.ts";
 import {
   type Message,
   type Session,
@@ -65,7 +67,7 @@ export interface RunTurnDeps {
   /**
    * Tools offered to the model this turn. When non-empty, the turn runs as a
    * multi-step loop — the model can call a tool, read its result, and continue —
-   * capped at `MAX_TURN_STEPS`, followed on exhaustion by one tool-free handoff.
+   * capped at `MAX_TURN_STEPS` and the context budget, followed by a tool-free handoff when it fits.
    * An empty set (the default) is a plain chat:
    * `streamText` runs a single step with no tools. A factory is called with the
    * turn's stream writer as the stream starts, so a tool can emit live progress
@@ -87,6 +89,17 @@ const HANDOFF_PROMPT =
   "The work step limit has been reached. Tools are unavailable. Give a concise handoff: " +
   "what was completed, what remains unfinished or uncertain, and that this turn stopped " +
   "because of the step limit. Do not claim unfinished work is complete or suggest repeating " +
+  "completed actions. If an action's outcome is unknown, say it needs verification.";
+
+const CONTEXT_LIMIT_NOTICE =
+  "Kiri stopped this turn because the remaining context exceeds its working budget. " +
+  "Work may be incomplete. Completed actions and the full transcript are saved. " +
+  "Use a larger-context model or start a new session with the saved progress; do not repeat completed actions.";
+
+const CONTEXT_HANDOFF_PROMPT =
+  "The context budget has been reached. Tools are unavailable. Give a concise handoff: " +
+  "what was completed, what remains unfinished or uncertain, and that this turn stopped " +
+  "because of the context budget. Do not claim unfinished work is complete or suggest repeating " +
   "completed actions. If an action's outcome is unknown, say it needs verification.";
 
 const UNKNOWN_TOOL_RESULT =
@@ -382,31 +395,7 @@ async function streamCore(
     if (!senderLabels.has(id)) senderLabels.set(id, getSessionLabels(db, [id]).get(id));
     return senderLabels.get(id);
   };
-  // Past the cull ratio of the model's context window, send the model a
-  // trimmed history — older tool results replaced by a short notice — to
-  // claw back token budget.
-  // The untrimmed `history` still feeds persistence below, so nothing stored is
-  // lost. The window is unknown for some providers (then this no-ops).
   const contextWindow = await llmClients.contextWindowFor(session.model);
-  const culledHistory = cullToolHistory(history, {
-    contextTokens: currentContextTokens(rows),
-    contextWindow,
-  });
-  // Three further send-time savings on top of culling, all leaving the
-  // untouched `history` to feed persistence below: drop the app-only diff
-  // from filesystem write results (the model already knows the change from
-  // the call's input), drop the image payload from generate_image results
-  // (the image is for the user, not the model), then re-encode surviving
-  // JSON tool results as TOON wherever that is smaller — per result, so it
-  // never enlarges one.
-  const modelHistory = toonEncodeToolResults(
-    stripWriteToolDiffs(stripImageToolResults(culledHistory)),
-  );
-  // Expand delivered inbox parts back into the framed user messages the live
-  // turn saw, so a later turn replays the interleaving faithfully.
-  const modelMessages = await convertToModelMessages(
-    expandInboxMessages(modelHistory, senderLabelFor),
-  );
 
   // The session's effort as this turn's provider reasoning parameters —
   // undefined for a model without reasoning support, which leaves the call
@@ -445,6 +434,12 @@ async function streamCore(
   let checkpointed = false;
   let checkpointFailed = false;
   let stepLimitReached = false;
+  let contextLimitReached = false;
+  const contextLimitError = new Error(CONTEXT_LIMIT_NOTICE);
+  let contextHandoffMessages: ModelMessage[] = [];
+  let lastContextTokens: number | undefined;
+  let savedSteps = 0;
+  let checkpointReady: (() => void) | undefined;
   let checkpointFinished: (() => void) | undefined;
   const acknowledgedIds = new Set<string>();
 
@@ -498,9 +493,70 @@ async function streamCore(
         // the call tool-less, a single-step plain chat.
         const turnTools = typeof tools === "function" ? tools({ writer }) : tools;
         const hasTools = turnTools !== undefined && Object.keys(turnTools).length > 0;
+        const thinking = providerOptions?.anthropic?.thinking;
+        const reasoningTokens =
+          thinking &&
+          typeof thinking === "object" &&
+          !Array.isArray(thinking) &&
+          typeof thinking.budgetTokens === "number"
+            ? thinking.budgetTokens
+            : 0;
+        const budget = contextBudget(contextWindow, reasoningTokens);
+        const toolSchemas = await Promise.all(
+          Object.entries(turnTools ?? {}).map(async ([name, t]) => ({
+            name,
+            description: t.description,
+            inputSchema: await asSchema(t.inputSchema).jsonSchema,
+          })),
+        );
+        const modelHistory = toonEncodeToolResults(
+          stripWriteToolDiffs(stripImageToolResults(history)),
+        );
+        const modelMessages = await convertToModelMessages(
+          expandInboxMessages(modelHistory, senderLabelFor),
+        );
+        let inputRatio = 1;
+        let previousEstimate = 0;
+        const prepareContext = (
+          messages: ModelMessage[],
+          system: string | undefined,
+          handoff: boolean,
+        ) => {
+          const schemas = handoff ? [] : toolSchemas;
+          const limit = handoff ? budget.handoffInputTokens : budget.workInputTokens;
+          const estimate = estimateContextTokens({ system, messages, tools: schemas });
+          const savedHistory = getSessionMessages(db, session.id).map(toUiMessage);
+          let compacted = compactModelMessages(messages, savedHistory, {
+            tokensToSave: Math.max(0, estimate - limit / inputRatio),
+            recoveryAvailable: turnTools?.read_tool_result !== undefined,
+          });
+          let finalEstimate = estimateContextTokens({
+            system,
+            messages: compacted,
+            tools: schemas,
+          });
+          // Lossless encoding and provider usage can make payload-based savings
+          // approximate. Try all eligible evidence before declaring the context full.
+          if (finalEstimate * inputRatio > limit) {
+            compacted = compactModelMessages(messages, savedHistory, {
+              tokensToSave: Number.POSITIVE_INFINITY,
+              recoveryAvailable: turnTools?.read_tool_result !== undefined,
+            });
+            finalEstimate = estimateContextTokens({ system, messages: compacted, tools: schemas });
+          }
+          return {
+            messages: compacted,
+            estimate: finalEstimate,
+            fits: finalEstimate * inputRatio <= limit,
+          };
+        };
         result = streamText({
           model,
           messages: modelMessages,
+          maxOutputTokens: budget.outputTokens,
+          onStepFinish: ({ usage }) => {
+            lastContextTokens = usage.totalTokens;
+          },
           ...(providerOptions !== undefined ? { providerOptions } : {}),
           ...(hasTools
             ? {
@@ -521,7 +577,18 @@ async function streamCore(
           // once (the backlog row survives until a checkpoint proves persistence,
           // so later boundaries would re-read it) and re-inserted every step,
           // because the SDK rebuilds the step input without our injections.
-          prepareStep: ({ messages }) => {
+          prepareStep: async ({ messages, steps, stepNumber }) => {
+            // The SDK can prepare its next call before the UI stream has saved
+            // the previous step. Never create a recovery reference ahead of that checkpoint.
+            if (savedSteps < stepNumber)
+              await new Promise<void>((resolve) => {
+                checkpointReady = resolve;
+              });
+            controller.signal.throwIfAborted();
+            const measured = steps.at(-1)?.usage.inputTokens;
+            if (measured !== undefined && previousEstimate > 0) {
+              inputRatio = Math.max(inputRatio, measured / previousEstimate);
+            }
             // Refresh cwd while model and effort still describe the provider
             // call configured when this turn began. Replace the system prompt
             // so rules from a directory we left do not linger.
@@ -543,16 +610,19 @@ async function streamCore(
               deliveries.push({ item, insertIndex: messages.length });
               writer.write(inboxUIPart(item) as InboxChunk);
             }
-            return {
-              system,
-              ...(deliveries.length === 0
-                ? {}
-                : { messages: insertInboxModelMessages(messages, deliveries, senderLabelFor) }),
-            };
+            const delivered = insertInboxModelMessages(messages, deliveries, senderLabelFor);
+            const prepared = prepareContext(delivered, system, false);
+            previousEstimate = prepared.estimate;
+            if (!prepared.fits) {
+              contextLimitReached = true;
+              contextHandoffMessages = delivered;
+              throw contextLimitError;
+            }
+            return { system, messages: prepared.messages };
           },
           abortSignal: controller.signal,
           onError: ({ error }) => {
-            streamError ??= error;
+            if (error !== contextLimitError) streamError ??= error;
           },
         });
         // Forward in order and wait for each checkpoint before proceeding.
@@ -562,6 +632,12 @@ async function streamCore(
           onError: errorMessage,
           sendFinish: false,
         })) {
+          if (
+            chunk.type === "error" &&
+            contextLimitReached &&
+            chunk.errorText === CONTEXT_LIMIT_NOTICE
+          )
+            continue;
           let checkpoint: Promise<void> | undefined;
           if (chunk.type === "finish-step") {
             checkpoint = new Promise<void>((resolve) => {
@@ -572,7 +648,7 @@ async function streamCore(
           if (checkpoint) await checkpoint;
         }
         if (controller.signal.aborted || streamError !== undefined) return;
-        if (!stepLimitReached) {
+        if (!stepLimitReached && !contextLimitReached) {
           writer.write({ type: "finish", finishReason: await result.finishReason });
           return;
         }
@@ -582,7 +658,11 @@ async function streamCore(
         const noticeId = crypto.randomUUID();
         writer.write({ type: "start-step" });
         writer.write({ type: "text-start", id: noticeId });
-        writer.write({ type: "text-delta", id: noticeId, delta: `${STEP_LIMIT_NOTICE}\n\n` });
+        writer.write({
+          type: "text-delta",
+          id: noticeId,
+          delta: `${contextLimitReached ? CONTEXT_LIMIT_NOTICE : STEP_LIMIT_NOTICE}\n\n`,
+        });
         writer.write({ type: "text-end", id: noticeId });
         const noticeSaved = new Promise<void>((resolve) => {
           checkpointFinished = resolve;
@@ -591,22 +671,40 @@ async function streamCore(
         await noticeSaved;
         if (controller.signal.aborted) return;
 
-        const workResponse = await result.response;
-        result = streamText({
-          model,
-          // The last work step may itself have moved cwd or edited rules.
-          system: buildSystemPrompt?.({
-            ...session,
-            cwd: getSession(db, session.id)?.cwd ?? null,
-          }),
-          messages: [
-            ...insertInboxModelMessages(
-              [...modelMessages, ...workResponse.messages],
+        const handoffMessages = contextLimitReached
+          ? contextHandoffMessages
+          : insertInboxModelMessages(
+              [...modelMessages, ...(await result.response).messages],
               deliveries,
               senderLabelFor,
-            ),
-            { role: "user", content: HANDOFF_PROMPT },
+            );
+        const system = buildSystemPrompt?.({
+          ...session,
+          cwd: getSession(db, session.id)?.cwd ?? null,
+        });
+        const handoff = prepareContext(
+          [
+            ...handoffMessages,
+            {
+              role: "user",
+              content: contextLimitReached ? CONTEXT_HANDOFF_PROMPT : HANDOFF_PROMPT,
+            },
           ],
+          system,
+          true,
+        );
+        if (!handoff.fits) {
+          writer.write({ type: "finish", finishReason: "stop" });
+          return;
+        }
+        result = streamText({
+          model,
+          system,
+          messages: handoff.messages,
+          maxOutputTokens: budget.outputTokens,
+          onStepFinish: ({ usage }) => {
+            lastContextTokens = usage.totalTokens;
+          },
           ...(providerOptions !== undefined ? { providerOptions } : {}),
           // A separate call has no executable tool catalogue, even if a
           // provider ignores the prompt and emits a tool call. No retry can
@@ -638,6 +736,9 @@ async function streamCore(
         controller.abort();
         throw cause;
       } finally {
+        savedSteps += 1;
+        checkpointReady?.();
+        checkpointReady = undefined;
         checkpointFinished?.();
         checkpointFinished = undefined;
       }
@@ -669,7 +770,9 @@ async function streamCore(
                 ? undefined
                 : {
                     message: errorMessage(streamError),
-                    ...(stepLimitReached && !aborted ? { code: "step_limit" } : {}),
+                    ...(!aborted && (contextLimitReached || stepLimitReached)
+                      ? { code: contextLimitReached ? "context_limit" : "step_limit" }
+                      : {}),
                   },
           });
           finalStatus = status;
@@ -677,17 +780,17 @@ async function streamCore(
         }
         // The context fill the gauge reads is the last model call's total
         // tokens — not the per-step sum, which over-counts a multi-step tool
-        // turn (each step re-sends the history). `result` is always assigned
-        // on this path: only a tools-factory throw leaves it unset, and that
-        // records a `streamError` handled above.
-        const lastStep = await result?.usage;
-        const contextTokens = lastStep?.totalTokens;
-        persistProgress(responseMessage, isContinuation, contextTokens);
+        // turn. A budget stop can skip a provider call entirely; in that case
+        // preserve the most recent recorded footprint rather than inventing usage.
+        persistProgress(responseMessage, isContinuation, lastContextTokens);
         messagePersisted = true;
-        if (stepLimitReached) {
+        if (contextLimitReached || stepLimitReached) {
           setSessionStatus(db, session.id, "failed", {
             finishedAt: new Date(),
-            error: { code: "step_limit", message: STEP_LIMIT_NOTICE },
+            error: {
+              code: contextLimitReached ? "context_limit" : "step_limit",
+              message: contextLimitReached ? CONTEXT_LIMIT_NOTICE : STEP_LIMIT_NOTICE,
+            },
           });
           finalStatus = "failed";
           return;
@@ -726,7 +829,7 @@ async function streamCore(
             outcome:
               finalStatus === "idle"
                 ? "ended"
-                : finalStatus === "failed" && stepLimitReached
+                : finalStatus === "failed" && (stepLimitReached || contextLimitReached)
                   ? "incomplete"
                   : finalStatus,
           });

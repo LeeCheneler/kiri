@@ -29,7 +29,7 @@ export type LlmTranscriptionModel = TranscriptionModel;
 
 // How long a fetched model listing is reused for context-window lookups. A
 // model's window is effectively constant, so a few minutes' cache spares a
-// per-turn caller (the history cull check) from refetching every provider's
+// per-turn caller (the context budget check) from refetching every provider's
 // listing on each turn, while staying short enough to pick up provider changes.
 const MODEL_LISTING_TTL_MS = 5 * 60_000;
 

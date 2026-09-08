@@ -38,6 +38,7 @@ import {
   type ToolPermissionStore,
   articleTools,
   buildSessionListEntries,
+  contextTools,
   createCommandLearning,
   createInstructionContext,
   createSession,
@@ -486,6 +487,7 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     const sandbox = sandboxDirectories();
     return {
       ...skillTools(config),
+      ...contextTools(db, sessionId),
       ...workflowTools({
         db,
         registry,
