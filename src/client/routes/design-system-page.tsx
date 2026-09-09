@@ -30,6 +30,7 @@ import { Quote } from "../design-system/content/quote.tsx";
 import { Rule } from "../design-system/content/rule.tsx";
 import { Stat, StatList } from "../design-system/content/stat.tsx";
 import { Table } from "../design-system/content/table.tsx";
+import { TerminalOutput } from "../design-system/content/terminal-output.tsx";
 import { EdgedBlock } from "../design-system/feedback/edged-block.tsx";
 import { Notice } from "../design-system/feedback/notice.tsx";
 import { StatusBlock } from "../design-system/feedback/status-block.tsx";
@@ -887,6 +888,29 @@ export function DesignSystemContent() {
                     (_, i) => `[${String(i + 1).padStart(2, "0")}] rendering page ${i + 1} of 12`,
                   ).join("\n")}
                 </Log>
+              </Card>
+            </div>
+          </article>
+
+          <article>
+            <h4 className="font-mono text-base text-ink">Terminal output</h4>
+            <p className="mt-1 font-mono text-xs text-ink-faint">
+              <span className="text-ink-muted">TerminalOutput</span> ·
+              design-system/content/terminal-output.tsx
+            </p>
+            <Prose>
+              <p className="mt-3">
+                A terminal-style panel for untrusted process output. It interprets ANSI colours and
+                text decoration, applies carriage returns, preserves whitespace, and scrolls long
+                lines horizontally. Use CodeBlock for source or plain text that has no terminal
+                control sequences.
+              </p>
+            </Prose>
+            <div className="mt-5">
+              <Card>
+                <TerminalOutput>
+                  {"\u001b[32m✓ 12 passed\u001b[39m\n\u001b[2mFinished in 81ms\u001b[22m"}
+                </TerminalOutput>
               </Card>
             </div>
           </article>
