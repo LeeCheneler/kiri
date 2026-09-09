@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -67,6 +68,33 @@ const renderBox = (part = delegatePart()) => {
       </Router>
     </QueryClientProvider>,
   );
+};
+
+const compactionStream = () => {
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  return {
+    finish,
+    response: createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute: async ({ writer }) => {
+          writer.write({
+            type: "data-compaction",
+            data: { status: "started" },
+            transient: true,
+          });
+          await finished;
+          writer.write({
+            type: "data-compaction",
+            data: { status: "finished" },
+            transient: true,
+          });
+        },
+      }),
+    }),
+  };
 };
 
 describe("<ChildSession>", () => {
@@ -145,6 +173,24 @@ describe("<ChildSession>", () => {
     const link = screen.getByRole("link", { name: "Open session" });
     expect(link.getAttribute("href")).toBe("/sessions/child-1");
     expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
+  });
+
+  it("shows compaction progress in an expanded worker transcript", async () => {
+    const compaction = compactionStream();
+    withChildren([child("running")]);
+    withChildDetail("running", [
+      childMessage("m1", "user", [{ type: "text", text: "Research pelicans" }]),
+    ]);
+    server.use(http.get("*/api/sessions/child-1/stream", () => compaction.response));
+    renderBox();
+
+    await userEvent.click(await screen.findByRole("button", { name: /worker/i }));
+
+    expect(await screen.findByText("Compacting conversation…")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toBe("Compacting conversation…");
+
+    compaction.finish();
+    await waitFor(() => expect(screen.queryByText("Compacting conversation…")).toBeNull());
   });
 
   it("renders a worker's in-flight shell command as the usual collapsible block", async () => {

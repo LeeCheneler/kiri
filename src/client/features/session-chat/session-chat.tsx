@@ -187,6 +187,7 @@ function ChatView({
     messages,
     error,
     busy,
+    compacting,
     awaitingApproval,
     liveConsoles,
     sendMessage,
@@ -421,10 +422,14 @@ function ChatView({
         </div>
       ) : null}
 
-      {/* In-flight / failed cue at the transcript foot, above the composer rule:
-          the working (or failed) status, with the cancel hint alongside while a
-          turn streams; a failed turn shows the provider's message instead. */}
-      {busy || failed ? (
+      {/* In-flight / failed cue at the transcript foot, above the composer rule.
+          Compaction is the useful live state while a checkpoint is generated;
+          otherwise show the generic working status or the settled failure. */}
+      {compacting ? (
+        <div className="mt-8">
+          <LoadingState>Compacting conversation…</LoadingState>
+        </div>
+      ) : busy || failed ? (
         <div className="mt-8 font-mono text-xs">
           <div className="flex items-baseline gap-3">
             <Status status={busy ? "working" : "failed"} />
