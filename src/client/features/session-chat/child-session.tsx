@@ -62,10 +62,11 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
     () => detail.messages.map((m) => ({ id: m.id, role: m.role, parts: m.parts })),
     [detail.messages],
   );
-  const { messages, busy, cancel, liveConsoles, onToolDecision } = useSessionConversation({
-    session: detail.session,
-    initialMessages,
-  });
+  const { messages, busy, compacting, cancel, liveConsoles, onToolDecision } =
+    useSessionConversation({
+      session: detail.session,
+      initialMessages,
+    });
   return (
     <div className="space-y-3">
       <div className="max-h-[17.5rem] space-y-3 overflow-y-auto">
@@ -102,6 +103,7 @@ function ChildTranscript({ detail }: { detail: SessionDetail }) {
         {messages.every((message) => message.role !== "assistant") ? (
           <p className="font-mono text-ink-muted text-sm">The worker hasn't replied yet.</p>
         ) : null}
+        {compacting ? <LoadingState>Compacting conversation…</LoadingState> : null}
       </div>
       <div className="flex items-baseline gap-4 font-mono text-xs">
         <InlineLink href={`/sessions/${detail.session.id}`}>Open session</InlineLink>

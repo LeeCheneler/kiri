@@ -763,6 +763,11 @@ describe("runTurn", () => {
     await done;
     expect(summaries).toBe(1);
     expect(sse).toContain('"type":"data-checkpoint"');
+    expect(sse.match(/"type":"data-compaction"/g)).toHaveLength(2);
+    expect(sse.indexOf('"status":"started"')).toBeLessThan(sse.indexOf('"status":"finished"'));
+    expect(sse.indexOf('"status":"finished"')).toBeLessThan(
+      sse.indexOf('"type":"data-checkpoint"'),
+    );
     expect(JSON.stringify(capture.prompt)).toContain("Article already published");
     expect(JSON.stringify(capture.prompt)).not.toContain(evidence);
     const firstPrompt = JSON.stringify(capture.prompt);
@@ -779,6 +784,7 @@ describe("runTurn", () => {
     expect(firstPrompt.indexOf("Hi there")).toBeLessThan(firstPrompt.indexOf("Include Cloudflare"));
     const rows = getSessionMessages(db, "s1");
     expect(rows[0]).toEqual(original);
+    expect(JSON.stringify(rows)).not.toContain("data-compaction");
     const checkpoints = (rows[3].parts as UIMessage["parts"]).filter(isCheckpointPart);
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0].data.pendingMessages?.[1]).toEqual(USER_MESSAGE);

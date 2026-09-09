@@ -143,6 +143,38 @@ const liveCommandReply = () =>
     }),
   });
 
+// A turn parked inside compaction until the test releases it, mirroring the
+// transient start/finish updates around the server's summary generation.
+const compactionReply = () => {
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  return {
+    finish,
+    response: createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute: async ({ writer }) => {
+          writer.write({
+            type: "data-compaction",
+            data: { status: "started" },
+            transient: true,
+          });
+          await finished;
+          writer.write({
+            type: "data-compaction",
+            data: { status: "finished" },
+            transient: true,
+          });
+          writer.write({ type: "text-start", id: "a1" });
+          writer.write({ type: "text-delta", id: "a1", delta: "Done" });
+          writer.write({ type: "text-end", id: "a1" });
+        },
+      }),
+    }),
+  };
+};
+
 // An assistant turn paused awaiting approval for a tool call — the shape the
 // transcript seeds from when a turn stopped to ask the user.
 const pausedToolTranscript = () => [
@@ -539,6 +571,28 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText("Hi back")).toBeDefined();
     // The reply has content, so the turn is labelled.
     expect(screen.getByText("Assistant")).toBeDefined();
+  });
+
+  it("shows compaction progress until checkpoint generation finishes", async () => {
+    const user = userEvent.setup();
+    const compaction = compactionReply();
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.post("*/api/sessions/:id/messages", () => compaction.response),
+    );
+    renderChat();
+
+    await screen.findByText(/no messages yet/i);
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "Long conversation");
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByText("Compacting conversation…")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toBe("Compacting conversation…");
+    expect(screen.queryByText("Escape to cancel")).toBeNull();
+
+    compaction.finish();
+    expect(await screen.findByText("Done")).toBeDefined();
+    await waitFor(() => expect(screen.queryByText("Compacting conversation…")).toBeNull());
   });
 
   it("streams an executing command's live console, dropping it when the turn ends", async () => {

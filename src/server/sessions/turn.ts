@@ -652,16 +652,30 @@ async function streamCore(
                 compactionThreshold &&
               calibratedContextTokens(prepared.estimate, calibration) >= compactionThreshold
             ) {
-              const checkpoint = await compactContext({
-                llmClients,
-                model: session.model,
-                messages: summaryMessages,
-                system,
-                inputBudget: budget.handoffInputTokens,
-                summaryBudget: Math.min(4096, Math.floor(budget.workInputTokens * 0.2)),
-                calibration,
-                abortSignal: controller.signal,
+              writer.write({
+                type: "data-compaction",
+                data: { status: "started" },
+                transient: true,
               });
+              let checkpoint: Awaited<ReturnType<typeof compactContext>>;
+              try {
+                checkpoint = await compactContext({
+                  llmClients,
+                  model: session.model,
+                  messages: summaryMessages,
+                  system,
+                  inputBudget: budget.handoffInputTokens,
+                  summaryBudget: Math.min(4096, Math.floor(budget.workInputTokens * 0.2)),
+                  calibration,
+                  abortSignal: controller.signal,
+                });
+              } finally {
+                writer.write({
+                  type: "data-compaction",
+                  data: { status: "finished" },
+                  transient: true,
+                });
+              }
               if (checkpoint && beforeTurn) {
                 // Save the excluded inputs with the checkpoint so reloads and
                 // approval continuations retain the same request boundary.

@@ -7,7 +7,7 @@ import {
   isToolUIPart,
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type SessionInboxItem,
   cancelSession,
@@ -19,6 +19,7 @@ import {
   withdrawQueuedMessage,
 } from "../../api.ts";
 import { usePatchSessionInbox, useTruncateSessionDetail } from "../../state/sessions.ts";
+import { compactionStatusOf } from "./compaction-status.ts";
 import { type LiveConsoleStore, createLiveConsoleStore, liveConsoleOf } from "./live-console.ts";
 import { CANCELLED_ERROR_TEXT, type ToolDecisionHandler } from "./tool-invocation.tsx";
 
@@ -82,6 +83,8 @@ export interface SessionConversation {
   streaming: boolean;
   /** A turn is in flight at all — including one started elsewhere or left running on revisit. */
   busy: boolean;
+  /** The turn is currently generating a context checkpoint. */
+  compacting: boolean;
   /** A tool call on the latest turn is awaiting the user's Allow / Deny verdict. */
   awaitingApproval: boolean;
   /**
@@ -152,6 +155,7 @@ export function useSessionConversation(opts: {
   // cleared on session entry (below) and again when a turn settles, so a
   // session switch or a settled call never shows a stale console.
   const liveConsoles = useMemo(() => createLiveConsoleStore(), []);
+  const [compacting, setCompacting] = useState(false);
 
   const {
     messages,
@@ -176,6 +180,8 @@ export function useSessionConversation(opts: {
     // the side store the tool blocks read — only the block showing a console
     // re-renders per snapshot.
     onData: (dataPart) => {
+      const compaction = compactionStatusOf(dataPart);
+      if (compaction !== null) setCompacting(compaction);
       const update = liveConsoleOf(dataPart);
       if (update !== null) liveConsoles.set(update.toolCallId, update.snapshot);
     },
@@ -197,6 +203,7 @@ export function useSessionConversation(opts: {
     // A newly-entered session starts with no live consoles; rejoining its
     // in-flight stream below replays any current ones straight back in.
     liveConsoles.clear();
+    setCompacting(false);
     void resumeStream();
   }, [session.id, resumeStream, liveConsoles]);
 
@@ -206,11 +213,13 @@ export function useSessionConversation(opts: {
   const streaming = status === "submitted" || status === "streaming";
   const busy = streaming || session.status === "running";
 
-  // Live consoles are turn-scoped: once this view stops streaming, drop them —
-  // every call has settled (or been cancelled), and its block reads the stored
-  // result instead.
+  // Transient progress is turn-scoped: once this view stops streaming, drop it —
+  // every call and any compaction have settled (or been cancelled).
   useEffect(() => {
-    if (!streaming) liveConsoles.clear();
+    if (!streaming) {
+      liveConsoles.clear();
+      setCompacting(false);
+    }
   }, [streaming, liveConsoles]);
 
   // A tool call on the latest turn is waiting on the user's Allow / Deny verdict.
@@ -377,6 +386,7 @@ export function useSessionConversation(opts: {
     error,
     streaming,
     busy,
+    compacting,
     awaitingApproval,
     liveConsoles,
     sendMessage,
