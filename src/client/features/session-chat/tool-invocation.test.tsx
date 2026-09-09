@@ -268,10 +268,10 @@ describe("<ToolInvocation>", () => {
 
     // Snapshots replace it with the growing console…
     act(() => {
-      store.set("c1", { text: "1 pass\n", truncated: false });
+      store.set("c1", { text: "\u001b[32m1 pass\u001b[39m\n", truncated: false });
     });
     expect(screen.queryByText("Running…")).toBeNull();
-    expect(screen.getByText(/1 pass/)).toBeDefined();
+    expect(screen.getByText("1 pass")).toBeDefined();
 
     act(() => {
       store.set("c1", { text: "1 pass\n2 pass\n", truncated: false });
@@ -1448,8 +1448,8 @@ describe("<ToolInvocation>", () => {
           output: {
             cwd: "/ws",
             exitCode: 1,
-            stdout: "1 fail\n",
-            stderr: "boom\n",
+            stdout: "\u001b[31m1 fail\u001b[39m\n",
+            stderr: "\u001b[1mboom\u001b[22m\n",
             durationMs: 42,
           },
         })}

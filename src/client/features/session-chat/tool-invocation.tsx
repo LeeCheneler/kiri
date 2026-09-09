@@ -8,6 +8,7 @@ import { Disclosure } from "../../design-system/content/disclosure.tsx";
 import { Eyebrow } from "../../design-system/content/eyebrow.tsx";
 import { InlineLink } from "../../design-system/content/inline-link.tsx";
 import { Markdown } from "../../design-system/content/markdown.tsx";
+import { TerminalOutput } from "../../design-system/content/terminal-output.tsx";
 import { Status, type StatusKind } from "../../design-system/feedback/status.tsx";
 import { useSessionChildren } from "../../state/sessions.ts";
 import { FullWidthImage } from "./image-thumb.tsx";
@@ -191,18 +192,16 @@ const commandResult = (name: string, output: unknown): ReactNode | null => {
         {duration}
       </p>
       {stdout !== "" && (
-        <CodeBlock>
-          {stdoutTruncated === true ? "[truncated — tail shown]\n" : ""}
-          {stdout}
-        </CodeBlock>
+        <TerminalOutput>
+          {`${stdoutTruncated === true ? "[truncated — tail shown]\n" : ""}${stdout}`}
+        </TerminalOutput>
       )}
       {stderr !== "" && (
         <div className="space-y-1">
           <Eyebrow tone="muted">stderr</Eyebrow>
-          <CodeBlock>
-            {stderrTruncated === true ? "[truncated — tail shown]\n" : ""}
-            {stderr}
-          </CodeBlock>
+          <TerminalOutput>
+            {`${stderrTruncated === true ? "[truncated — tail shown]\n" : ""}${stderr}`}
+          </TerminalOutput>
         </div>
       )}
       {stdout === "" && stderr === "" && <p className="text-ink-muted">No output.</p>}
@@ -918,7 +917,7 @@ function ToolPanel({
       <div className="flex max-h-[17.5rem] flex-col-reverse overflow-y-auto">
         <div className="space-y-2 font-mono text-xs">
           {live.truncated ? <p className="text-ink-muted">[truncated — tail shown]</p> : null}
-          <CodeBlock>{live.text}</CodeBlock>
+          <TerminalOutput>{live.text}</TerminalOutput>
         </div>
       </div>
     );
