@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { UIMessage } from "ai";
+import type { ModelMessage, UIMessage } from "ai";
 import type { CheckpointUIPart } from "../../shared/checkpoint-part.ts";
 import {
   calibratedContextTokens,
@@ -148,8 +148,99 @@ describe("contextBudget", () => {
     expect(
       estimateContextTokens({ messages: [], tools: [{ description: "schema".repeat(2000) }] }),
     ).toBeGreaterThan(small);
-    expect(estimateContextTokens("🌲".repeat(100))).toBeGreaterThan(
-      estimateContextTokens("x".repeat(100)),
+    expect(
+      estimateContextTokens({ messages: [{ role: "user", content: "🌲".repeat(100) }] }),
+    ).toBeGreaterThan(
+      estimateContextTokens({ messages: [{ role: "user", content: "x".repeat(100) }] }),
     );
+  });
+
+  it("bounds encoded image input without changing the request", () => {
+    const images: ModelMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            mediaType: "image/png",
+            data: `data:image/png;base64,${"a".repeat(211600)}`,
+          },
+          { type: "text", text: "Review the screenshot" },
+        ],
+      },
+    ];
+    const before = structuredClone(images);
+    const estimate = estimateContextTokens({ messages: images });
+    expect(estimate).toBeLessThan(20000);
+    expect(estimate).toBeGreaterThan(16000);
+    expect(
+      estimateContextTokens({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", image: new Uint8Array(211600) },
+              { type: "text", text: "Review the screenshot" },
+            ],
+          },
+        ],
+      }),
+    ).toBe(estimate);
+    expect(images).toEqual(before);
+  });
+
+  it("does not force small image attachments over a small context window", () => {
+    const estimate = estimateContextTokens({
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              image:
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            },
+          ],
+        },
+      ],
+    });
+    expect(estimate).toBeLessThan(contextBudget(8192).workInputTokens);
+  });
+
+  it("still counts image-shaped tool data and non-image attachments as text", () => {
+    const payload = { type: "image", image: "a".repeat(90000) };
+    expect(
+      estimateContextTokens({
+        messages: [
+          {
+            role: "tool",
+            content: [
+              {
+                type: "tool-result",
+                toolName: "read",
+                toolCallId: "c1",
+                output: { type: "json", value: payload },
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBeGreaterThan(30000);
+    expect(
+      estimateContextTokens({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "file",
+                mediaType: "application/pdf",
+                data: "a".repeat(90000),
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBeGreaterThan(30000);
   });
 });

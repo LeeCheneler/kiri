@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { type LanguageModel, streamText, wrapLanguageModel } from "ai";
+import { type LanguageModel, type ModelMessage, streamText, wrapLanguageModel } from "ai";
 import { CODEX_BASE_URL, createCodexFetch } from "./codex-fetch.ts";
 
 /** Construct a stateless Responses model using the user's Codex CLI login. */
@@ -42,7 +42,7 @@ export function createCodexModel(
 /** Collect a streaming-only Codex response for completion-shaped utility calls. */
 export async function generateCodexText(options: {
   model: LanguageModel;
-  prompt: string;
+  prompt: string | ModelMessage[];
   system?: string;
   abortSignal?: AbortSignal;
 }) {

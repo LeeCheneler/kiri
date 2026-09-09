@@ -1,4 +1,4 @@
-import type { UIMessage } from "ai";
+import type { ModelMessage, UIMessage } from "ai";
 import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 
 /**
@@ -34,9 +34,30 @@ export function historySinceCheckpoint(history: UIMessage[]): UIMessage[] {
   return history;
 }
 
-/** Estimate serialized request tokens conservatively; this is not a provider tokenizer. */
-export function estimateContextTokens(value: unknown): number {
-  return Math.ceil(Buffer.byteLength(JSON.stringify(value) ?? "") / 3) + 256;
+/** Estimate UTF-8 bytes with image contributions capped at 16K; provider usage calibrates these heuristics. */
+export function estimateContextTokens(value: {
+  system?: string;
+  messages: ModelMessage[];
+  tools?: unknown[];
+}): number {
+  let imageTokens = 0;
+  const messages = value.messages.map((message) => {
+    if (message.role === "tool" || !Array.isArray(message.content)) return message;
+    return {
+      ...message,
+      content: message.content.map((part) => {
+        if (part.type !== "image" && !(part.type === "file" && part.mediaType.startsWith("image/")))
+          return part;
+        // Encoded bytes are transport, not text tokens. Bound their contribution
+        // without inflating small attachments beyond their original estimate.
+        imageTokens += Math.min(16384, Math.ceil(Buffer.byteLength(JSON.stringify(part)) / 3));
+        return { type: "text", text: "[Image attachment]" };
+      }),
+    };
+  });
+  return (
+    Math.ceil(Buffer.byteLength(JSON.stringify({ ...value, messages })) / 3) + 256 + imageTokens
+  );
 }
 
 /** Use measured input with 10% headroom; added content retains at least the conservative byte estimate. */

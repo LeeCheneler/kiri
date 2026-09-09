@@ -144,6 +144,33 @@ describe("Codex provider through the AI SDK", () => {
     expect(body?.input).toContainEqual({ role: "developer", content: "Kiri system prompt" });
   });
 
+  it("sends utility images as native visual input through the streaming adapter", async () => {
+    const image =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    let input: unknown;
+    server.use(
+      http.post(`${CODEX_BASE_URL}/responses`, async ({ request }) => {
+        input = ((await request.json()) as { input: unknown }).input;
+        return sse(textEvents);
+      }),
+    );
+    const result = await clients.generateText({
+      model: "chatgpt:gpt-5.4-mini",
+      prompt: "Summarise the screenshot",
+      images: [{ type: "image", image, mediaType: "image/png" }],
+    });
+    expect(result.text).toBe("violet");
+    expect(input).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "Summarise the screenshot" },
+          { type: "input_image", image_url: image },
+        ],
+      },
+    ]);
+  });
+
   it("runs an llm step through the streaming adapter and preserves its envelope", async () => {
     let input: unknown;
     server.use(

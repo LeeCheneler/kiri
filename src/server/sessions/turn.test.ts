@@ -712,6 +712,59 @@ describe("runTurn", () => {
     ]);
   });
 
+  it("continues an image conversation without treating encoded bytes as text context", async () => {
+    const session = createSession(db, MODEL, { id: "s1" });
+    appendMessage(db, "s1", {
+      role: "user",
+      parts: [
+        {
+          type: "file",
+          mediaType: "image/png",
+          url: `data:image/png;base64,${"a".repeat(211600)}`,
+        },
+        { type: "text", text: "Match this screenshot" },
+      ],
+    });
+    appendMessage(db, "s1", {
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-read_file",
+          toolCallId: "c1",
+          state: "output-available",
+          input: {},
+          output: "x".repeat(450000),
+        },
+      ],
+    });
+    const original = getSessionMessages(db, "s1");
+    const capture: { prompt?: unknown } = {};
+    let summaries = 0;
+    const { response, done } = await runTurn(
+      {
+        db,
+        llmClients: {
+          ...clientsFor(capturingModel(capture)),
+          contextWindowFor: async () => 272000,
+          generateText: async () => {
+            summaries += 1;
+            return { text: "", usage: {} };
+          },
+        },
+        buildSystemPrompt: () => "s".repeat(60000),
+        tools: { read_file: tool({ description: "d".repeat(50000), inputSchema: z.object({}) }) },
+      },
+      { session, userMessage: USER_MESSAGE },
+    );
+    const sse = await response.text();
+    await done;
+    expect(summaries).toBe(0);
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    expect(sse).not.toContain("could not free enough working space");
+    expect(JSON.stringify(capture.prompt)).toContain("Match this screenshot");
+    expect(getSessionMessages(db, "s1").slice(0, 2)).toEqual(original);
+  });
+
   it("compacts at the start of a turn using the session model and preserves the original transcript", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
     const evidence = `Source findings ${"x".repeat(36000)} Source tail`;
