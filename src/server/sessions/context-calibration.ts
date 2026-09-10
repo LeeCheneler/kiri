@@ -13,7 +13,7 @@ interface ContextRequest {
 
 /** A measured request, stored as hashes and counts rather than duplicated prompt content. */
 export interface ContextCalibration {
-  version: 1;
+  version: 2;
   model: string;
   optionsHash: string;
   estimate: number;
@@ -70,7 +70,7 @@ export function contextSnapshot(request: ContextRequest): Omit<ContextCalibratio
     }
   }
   return {
-    version: 1,
+    version: 2,
     model: request.model,
     optionsHash: digest({
       contextWindow: request.contextWindow,
@@ -92,7 +92,7 @@ export function measuredContextTokens(
 ): number {
   if (
     !previous ||
-    previous.version !== 1 ||
+    previous.version !== request.version ||
     previous.model !== request.model ||
     previous.optionsHash !== request.optionsHash ||
     !Number.isFinite(previous.inputTokens) ||

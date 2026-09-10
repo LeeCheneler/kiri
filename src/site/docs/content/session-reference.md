@@ -440,14 +440,18 @@ Editing or deleting an earlier message removes subsequent checkpoints too.
 
 When a model's context window is unknown, Kiri uses a conservative **32,768-token
 working window** for these checks; this is not a claim about the provider's
-actual limit. Switching models recalculates the budget on the next turn. Encoded image
-contributions are capped at an estimated 16,384 tokens per image, while smaller
+actual limit. Switching models recalculates the budget on the next turn. A shared
+heuristic estimates visible text at roughly four ASCII characters per token,
+with a higher allowance for Unicode. It counts tool arguments, results, and
+schemas without double-counting JSON escaping or opaque provider metadata.
+Encoded image contributions are capped at an estimated 16,384 tokens per image, while smaller
 inputs retain their byte estimate. Provider-reported input usage calibrates the
 working estimate across turns, approval continuations, and restarts. New or
 replaced messages, instructions, and tool definitions are budgeted separately.
 Changing the model, context window, or reasoning settings clears calibration,
-as does compaction. Older sessions establish calibration after their next
-successful work call; until then, Kiri uses the conservative estimate.
+as does compaction or an estimator-version change. Older sessions establish
+calibration after their next successful work call; until then, Kiri uses the
+conservative estimate.
 
 A large tool catalogue and lengthy standing instructions can consume most
 of that fallback budget before much work has happened. A fresh session may

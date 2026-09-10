@@ -682,7 +682,8 @@ async function streamCore(
                   inputBudget: budget.handoffInputTokens,
                   summaryBudget: Math.min(4096, Math.floor(budget.workInputTokens * 0.2)),
                   calibration:
-                    calibration?.model === prepared.snapshot.model &&
+                    calibration?.version === prepared.snapshot.version &&
+                    calibration.model === prepared.snapshot.model &&
                     calibration.optionsHash === prepared.snapshot.optionsHash
                       ? calibration
                       : undefined,

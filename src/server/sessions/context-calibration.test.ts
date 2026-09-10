@@ -24,7 +24,7 @@ describe("context calibration", () => {
       ...request,
       messages: [...request.messages, { role: "user", content: "New evidence ".repeat(5000) }],
     });
-    expect(measuredContextTokens(next, previous)).toBeGreaterThan(22000 + 20000);
+    expect(measuredContextTokens(next, previous)).toBeGreaterThan(22000 + 16000);
     expect(measuredContextTokens(next, previous)).toBeLessThan(next.estimate);
   });
 
@@ -41,7 +41,7 @@ describe("context calibration", () => {
       const replacement = JSON.parse(JSON.stringify(original[field]).replaceAll("xxxx", "yyyy"));
       const next = contextSnapshot({ ...original, [field]: replacement });
       expect(next.estimate).toBe(previous.estimate);
-      expect(measuredContextTokens(next, previous)).toBeGreaterThan(11000);
+      expect(measuredContextTokens(next, previous)).toBeGreaterThan(8500);
     },
   );
 
@@ -51,7 +51,7 @@ describe("context calibration", () => {
       ...request,
       messages: [...request.messages, ...request.messages],
     });
-    expect(measuredContextTokens(doubled, previous)).toBeGreaterThan(22000 + 50000);
+    expect(measuredContextTokens(doubled, previous)).toBeGreaterThan(22000 + 37000);
   });
 
   it("does not subtract an unknown token cost when content is removed", () => {
@@ -59,7 +59,7 @@ describe("context calibration", () => {
     expect(measuredContextTokens(contextSnapshot({ ...request, tools: [] }), previous)).toBe(22000);
   });
 
-  it("retains the higher measured ratio for new material when bytes underestimate input", () => {
+  it("retains the higher measured ratio for new material when the heuristic underestimates input", () => {
     const snapshot = contextSnapshot(request);
     const previous = { ...snapshot, inputTokens: snapshot.estimate * 2 };
     const next = contextSnapshot({
@@ -67,7 +67,7 @@ describe("context calibration", () => {
       messages: [...request.messages, { role: "user", content: "y".repeat(30000) }],
     });
     expect(measuredContextTokens(next, previous)).toBeGreaterThan(
-      previous.inputTokens * 1.1 + 22000,
+      previous.inputTokens * 1.1 + 16000,
     );
   });
 
@@ -83,6 +83,8 @@ describe("context calibration", () => {
     }
     const next = contextSnapshot(request);
     expect(measuredContextTokens(next, undefined)).toBe(next.estimate);
+    const legacy = JSON.parse(JSON.stringify({ ...previous, version: 1 }));
+    expect(measuredContextTokens(next, legacy)).toBe(next.estimate);
     for (const inputTokens of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(measuredContextTokens(next, { ...previous, inputTokens })).toBe(next.estimate);
     }

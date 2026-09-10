@@ -1,4 +1,4 @@
-import type { ModelMessage, UIMessage } from "ai";
+import type { ModelMessage, ToolResultPart, UIMessage } from "ai";
 import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
 
 /**
@@ -34,33 +34,101 @@ export function historySinceCheckpoint(history: UIMessage[]): UIMessage[] {
   return history;
 }
 
-/** Estimate UTF-8 bytes with image contributions capped at 16K; provider usage calibrates these heuristics. */
+// Count visible text, not its escaped representation in the request envelope.
+function textTokens(text: string): number {
+  let ascii = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) <= 0x7f) ascii += 1;
+  }
+  return Math.ceil(ascii / 4 + (Buffer.byteLength(text) - ascii) / 3);
+}
+
+function jsonTokens(value: unknown): number {
+  return textTokens(JSON.stringify(value) ?? "");
+}
+
+function attachmentTokens(data: string | URL | Uint8Array | ArrayBuffer, image: boolean): number {
+  const bytes =
+    typeof data === "string"
+      ? Buffer.byteLength(data)
+      : data instanceof URL
+        ? Buffer.byteLength(data.href)
+        : data.byteLength;
+  // Keep non-text input conservative; encoded size cannot predict decoded tokens.
+  return image ? Math.min(16384, Math.ceil(bytes / 3)) : Math.ceil(bytes / 3);
+}
+
+function toolOutputTokens(output: ToolResultPart["output"]): number {
+  switch (output.type) {
+    case "text":
+    case "error-text":
+      return textTokens(output.value);
+    case "json":
+    case "error-json":
+      return jsonTokens(output.value);
+    case "execution-denied":
+      return textTokens(output.reason ?? "");
+    case "content":
+      return output.value.reduce((tokens, part) => {
+        if (part.type === "text") return tokens + 8 + textTokens(part.text);
+        if ("data" in part)
+          return tokens + 8 + attachmentTokens(part.data, part.mediaType.startsWith("image/"));
+        if ("url" in part)
+          return tokens + 8 + attachmentTokens(part.url, part.type === "image-url");
+        // Provider file IDs and custom metadata are references, not visible text.
+        return tokens + 8;
+      }, 0);
+  }
+}
+
+/** Estimate visible content for every provider; measured usage calibrates text and bounded image heuristics. */
 export function estimateContextTokens(value: {
   system?: string;
   messages: ModelMessage[];
   tools?: unknown[];
 }): number {
-  let imageTokens = 0;
-  const messages = value.messages.map((message) => {
-    if (message.role === "tool" || !Array.isArray(message.content)) return message;
-    return {
-      ...message,
-      content: message.content.map((part) => {
-        if (part.type !== "image" && !(part.type === "file" && part.mediaType.startsWith("image/")))
-          return part;
-        // Encoded bytes are transport, not text tokens. Bound their contribution
-        // without inflating small attachments beyond their original estimate.
-        imageTokens += Math.min(16384, Math.ceil(Buffer.byteLength(JSON.stringify(part)) / 3));
-        return { type: "text", text: "[Image attachment]" };
-      }),
-    };
-  });
-  return (
-    Math.ceil(Buffer.byteLength(JSON.stringify({ ...value, messages })) / 3) + 256 + imageTokens
-  );
+  let tokens = 256 + textTokens(value.system ?? "");
+  for (const tool of value.tools ?? []) tokens += 8 + jsonTokens(tool);
+  for (const message of value.messages) {
+    tokens += 8;
+    if (typeof message.content === "string") {
+      tokens += textTokens(message.content);
+      continue;
+    }
+    for (const part of message.content) {
+      tokens += 8;
+      switch (part.type) {
+        case "text":
+        case "reasoning":
+          tokens += textTokens(part.text);
+          break;
+        case "image":
+          tokens += attachmentTokens(part.image, true);
+          break;
+        case "file":
+          tokens += attachmentTokens(part.data, part.mediaType.startsWith("image/"));
+          break;
+        case "tool-call":
+          tokens +=
+            textTokens(part.toolName) + textTokens(part.toolCallId) + jsonTokens(part.input);
+          break;
+        case "tool-result":
+          tokens +=
+            textTokens(part.toolName) + textTokens(part.toolCallId) + toolOutputTokens(part.output);
+          break;
+        case "tool-approval-request":
+          tokens += textTokens(part.approvalId) + textTokens(part.toolCallId);
+          break;
+        case "tool-approval-response":
+          tokens += textTokens(part.approvalId) + textTokens(part.reason ?? "");
+          break;
+      }
+    }
+  }
+  return tokens;
 }
 
-/** Use measured input with 10% headroom; added content retains at least the conservative byte estimate. */
+/** Use measured input with 10% headroom; added content retains at least the global heuristic estimate. */
 export function calibratedContextTokens(
   estimate: number,
   previous?: { estimate: number; inputTokens: number },

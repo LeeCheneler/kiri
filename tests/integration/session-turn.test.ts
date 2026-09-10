@@ -180,7 +180,7 @@ describe("session turn streaming", () => {
   it("compacts a saved result between real streamed model requests", async () => {
     const start = fake.requests.length;
     const session = createSession(db, "fake:tool");
-    const evidence = `${"x".repeat(15000)}Original tail`;
+    const evidence = `${"x".repeat(20000)}Original tail`;
     let reads = 0;
     const { response, done } = await runTurn(
       {

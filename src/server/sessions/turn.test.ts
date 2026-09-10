@@ -768,7 +768,7 @@ describe("runTurn", () => {
 
   it("compacts at the start of a turn using the session model and preserves the original transcript", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
-    const evidence = `Source findings ${"x".repeat(36000)} Source tail`;
+    const evidence = `Source findings ${"x".repeat(48000)} Source tail`;
     appendMessage(db, "s1", {
       role: "assistant",
       parts: [
@@ -985,7 +985,7 @@ describe("runTurn", () => {
               if (actions === 1)
                 enqueueInboxItem(db, "s1", { source: "user", text: "Do not publish" });
               return actions < 3
-                ? `Action ${actions} completed ${"x".repeat(15000)}`
+                ? `Action ${actions} completed ${"x".repeat(20000)}`
                 : "Small result 3";
             },
           }),
@@ -1057,7 +1057,7 @@ describe("runTurn", () => {
             execute: async function* () {
               actions += 1;
               yield "Preliminary progress";
-              yield `Approved action completed ${"x".repeat(15000)}`;
+              yield `Approved action completed ${"x".repeat(20000)}`;
             },
           }),
         },
@@ -1078,7 +1078,7 @@ describe("runTurn", () => {
     appendMessage(db, "s1", {
       role: "assistant",
       parts: [
-        { type: "text", text: "x".repeat(36000) },
+        { type: "text", text: "x".repeat(48000) },
         ...["c1", "c2"].map((id) => ({
           type: "tool-echo" as const,
           toolCallId: id,
@@ -1121,7 +1121,7 @@ describe("runTurn", () => {
     const session = createSession(db, MODEL, { id: "s1" });
     appendMessage(db, "s1", {
       role: "assistant",
-      parts: [{ type: "text", text: "x".repeat(36000) }],
+      parts: [{ type: "text", text: "x".repeat(48000) }],
     });
     let calls = 0;
     let actions = 0;
@@ -1252,7 +1252,7 @@ describe("runTurn", () => {
               inputSchema: z.object({}),
               execute: () => {
                 actions += 1;
-                return `Action completed once ${"x".repeat(15000)}`;
+                return `Action completed once ${"x".repeat(20000)}`;
               },
             }),
           },
@@ -1364,7 +1364,7 @@ describe("runTurn", () => {
               inputSchema: z.object({}),
               execute: () => {
                 actions += 1;
-                return `Action completed.${"x".repeat(18000)}`;
+                return `Action completed.${"x".repeat(24000)}`;
               },
             }),
           },
@@ -1623,7 +1623,7 @@ describe("runTurn", () => {
           return { text: "Read completed once. Continue the user's request.", usage: {} };
         },
       };
-      let tools = { read: tool({ inputSchema: z.object({}), execute: () => "x".repeat(100000) }) };
+      let tools = { read: tool({ inputSchema: z.object({}), execute: () => "x".repeat(140000) }) };
       await (
         await runTurn(
           { db, llmClients: clients, tools, buildSystemPrompt: () => instructions },
@@ -1631,7 +1631,7 @@ describe("runTurn", () => {
             session,
             userMessage: {
               ...USER_MESSAGE,
-              parts: [{ type: "text", text: "history ".repeat(18000) }],
+              parts: [{ type: "text", text: "history ".repeat(24000) }],
             },
           },
         )
@@ -1650,12 +1650,12 @@ describe("runTurn", () => {
       expect(calibration?.estimate).toBeGreaterThan(80000);
       db.$client.close();
       db = openDatabase(join(dir, "state.db"));
-      if (change === "instructions") instructions = "s".repeat(120000);
+      if (change === "instructions") instructions = "s".repeat(160000);
       if (change === "tools")
         tools = {
           read: tool({
             inputSchema: z.object({}),
-            description: "d".repeat(120000),
+            description: "d".repeat(160000),
             execute: () => "unused",
           }),
         };
@@ -1665,7 +1665,7 @@ describe("runTurn", () => {
       const userMessage: UIMessage = {
         id: "u2",
         role: "user",
-        parts: [{ type: "text", text: change === "message" ? "n".repeat(150000) : "Continue" }],
+        parts: [{ type: "text", text: change === "message" ? "n".repeat(200000) : "Continue" }],
       };
       await (
         await runTurn(
@@ -1725,7 +1725,7 @@ describe("runTurn", () => {
           needsApproval: true,
           execute: () => {
             actions += 1;
-            return "x".repeat(100000);
+            return "x".repeat(140000);
           },
         }),
       },
@@ -1733,7 +1733,7 @@ describe("runTurn", () => {
     await (
       await runTurn(deps, {
         session,
-        userMessage: { ...USER_MESSAGE, parts: [{ type: "text", text: "history ".repeat(18000) }] },
+        userMessage: { ...USER_MESSAGE, parts: [{ type: "text", text: "history ".repeat(24000) }] },
       })
     ).done;
     expect(getSession(db, "s1")?.status).toBe("waiting");
@@ -3421,7 +3421,7 @@ describe("runWakeTurn", () => {
 
   it("excludes the waking backlog from compaction and restores it after the checkpoint", async () => {
     const session = createSession(db, MODEL, { id: "s1" });
-    const evidence = "Earlier findings ".repeat(2300);
+    const evidence = "Earlier findings ".repeat(3000);
     appendMessage(db, "s1", { role: "assistant", parts: [{ type: "text", text: evidence }] });
     enqueueInboxItem(db, "s1", { source: "child", text: "The worker found a new issue" });
     const capture: { prompt?: unknown } = {};
