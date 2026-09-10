@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { UIMessage } from "ai";
+import type { ModelMessage, UIMessage } from "ai";
 import type { CheckpointUIPart } from "../../shared/checkpoint-part.ts";
 import {
   calibratedContextTokens,
@@ -114,7 +114,7 @@ describe("calibratedContextTokens", () => {
     expect(calibratedContextTokens(15000, previous)).toBe(33000);
   });
 
-  it("uses the byte estimate when no usable measurement is available", () => {
+  it("uses the heuristic estimate when no usable measurement is available", () => {
     expect(calibratedContextTokens(10000)).toBe(10000);
     for (const inputTokens of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(calibratedContextTokens(10000, { estimate: 8000, inputTokens })).toBe(10000);
@@ -148,8 +148,277 @@ describe("contextBudget", () => {
     expect(
       estimateContextTokens({ messages: [], tools: [{ description: "schema".repeat(2000) }] }),
     ).toBeGreaterThan(small);
-    expect(estimateContextTokens("🌲".repeat(100))).toBeGreaterThan(
-      estimateContextTokens("x".repeat(100)),
+    expect(
+      estimateContextTokens({ messages: [{ role: "user", content: "🌲".repeat(100) }] }),
+    ).toBeGreaterThan(
+      estimateContextTokens({ messages: [{ role: "user", content: "x".repeat(100) }] }),
     );
+  });
+
+  it("bounds encoded image input without changing the request", () => {
+    const images: ModelMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            mediaType: "image/png",
+            data: `data:image/png;base64,${"a".repeat(211600)}`,
+          },
+          { type: "text", text: "Review the screenshot" },
+        ],
+      },
+    ];
+    const before = structuredClone(images);
+    const estimate = estimateContextTokens({ messages: images });
+    expect(estimate).toBeLessThan(20000);
+    expect(estimate).toBeGreaterThan(16000);
+    expect(
+      estimateContextTokens({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", image: new Uint8Array(211600) },
+              { type: "text", text: "Review the screenshot" },
+            ],
+          },
+        ],
+      }),
+    ).toBe(estimate);
+    expect(images).toEqual(before);
+  });
+
+  it("does not force small image attachments over a small context window", () => {
+    const estimate = estimateContextTokens({
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              image:
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            },
+          ],
+        },
+      ],
+    });
+    expect(estimate).toBeLessThan(contextBudget(8192).workInputTokens);
+  });
+
+  it("still counts image-shaped tool data and non-image attachments as text", () => {
+    const payload = { type: "image", image: "a".repeat(90000) };
+    expect(
+      estimateContextTokens({
+        messages: [
+          {
+            role: "tool",
+            content: [
+              {
+                type: "tool-result",
+                toolName: "read",
+                toolCallId: "c1",
+                output: { type: "json", value: payload },
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBeGreaterThan(22000);
+    expect(
+      estimateContextTokens({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "file",
+                mediaType: "application/pdf",
+                data: "a".repeat(90000),
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBeGreaterThan(22000);
+  });
+});
+
+describe("content token estimation", () => {
+  it("counts text once without charging JSON transport escaping", () => {
+    const plain = "a".repeat(40000);
+    const escaped = '\n"\\\t'.repeat(10000);
+    const estimate = (text: string) =>
+      estimateContextTokens({ messages: [{ role: "user", content: text }] });
+    expect(estimate(escaped)).toBe(estimate(plain));
+    expect(estimate(plain)).toBeGreaterThan(10000);
+    expect(estimate(plain)).toBeLessThan(11000);
+    const tool = estimateContextTokens({
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolName: "read",
+              toolCallId: "c1",
+              output: { type: "text", value: escaped },
+            },
+          ],
+        },
+      ],
+    });
+    expect(tool).toBeGreaterThan(estimate(escaped));
+    expect(tool - estimate(escaped)).toBeLessThan(100);
+  });
+
+  it("ignores opaque message and part metadata while retaining visible reasoning", () => {
+    const messages: ModelMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Findings" },
+          { type: "reasoning", text: "Reasoning ".repeat(4000) },
+        ],
+      },
+    ];
+    const providerOptions = { vendor: { signature: "x".repeat(100000) } };
+    const withMetadata: ModelMessage[] = [
+      {
+        role: "assistant",
+        providerOptions,
+        content: [
+          { type: "text", text: "Findings", providerOptions },
+          { type: "reasoning", text: "Reasoning ".repeat(4000), providerOptions },
+        ],
+      },
+    ];
+    const before = structuredClone(withMetadata);
+    expect(estimateContextTokens({ messages: withMetadata })).toBe(
+      estimateContextTokens({ messages }),
+    );
+    expect(estimateContextTokens({ messages })).toBeGreaterThan(10000);
+    expect(withMetadata).toEqual(before);
+  });
+
+  it("counts JSON payloads and schemas including keys that resemble metadata", () => {
+    const payload = {
+      providerOptions: { signature: "x".repeat(80000) },
+      text: '\n"\\'.repeat(10000),
+    };
+    const text = JSON.stringify(payload);
+    const tools = [{ name: "read", inputSchema: payload }];
+    const jsonOutput = estimateContextTokens({
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolName: "read",
+              toolCallId: "c1",
+              output: { type: "json", value: payload },
+            },
+          ],
+        },
+      ],
+    });
+    const textOutput = estimateContextTokens({
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolName: "read",
+              toolCallId: "c1",
+              output: { type: "text", value: text },
+            },
+          ],
+        },
+      ],
+    });
+    expect(jsonOutput).toBe(textOutput);
+    expect(jsonOutput).toBeGreaterThan(30000);
+    expect(estimateContextTokens({ messages: [], tools })).toBeGreaterThan(30000);
+    expect(
+      estimateContextTokens({
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolName: "read",
+                toolCallId: "c1",
+                input: payload,
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(jsonOutput);
+  });
+
+  it("bounds native images in tool output without counting their metadata", () => {
+    const estimate = estimateContextTokens({
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolName: "read",
+              toolCallId: "c1",
+              output: {
+                type: "content",
+                value: [
+                  { type: "text", text: "Screenshot" },
+                  {
+                    type: "image-data",
+                    data: "a".repeat(200000),
+                    mediaType: "image/png",
+                    providerOptions: { vendor: { signature: "x".repeat(100000) } },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(estimate).toBeGreaterThan(16000);
+    expect(estimate).toBeLessThan(20000);
+  });
+
+  it("bounds tool image URLs and excludes opaque file references and custom metadata", () => {
+    const estimate = estimateContextTokens({
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolName: "read",
+              toolCallId: "c1",
+              output: {
+                type: "content",
+                value: [
+                  { type: "image-url", url: `data:image/png;base64,${"a".repeat(200000)}` },
+                  { type: "file-id", fileId: { vendor: "x".repeat(100000) } },
+                  {
+                    type: "custom",
+                    providerOptions: { vendor: { signature: "x".repeat(100000) } },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(estimate).toBeGreaterThan(16000);
+    expect(estimate).toBeLessThan(20000);
   });
 });

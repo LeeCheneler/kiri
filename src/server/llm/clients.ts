@@ -1,7 +1,14 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { type ImageModel, type LanguageModel, type TranscriptionModel, generateText } from "ai";
+import {
+  type ImageModel,
+  type ImagePart,
+  type LanguageModel,
+  type ModelMessage,
+  type TranscriptionModel,
+  generateText,
+} from "ai";
 import { createCodexModel, generateCodexText } from "./codex-model.ts";
 import { type Effort, type EffortProviderOptions, effortProviderOptions } from "./effort.ts";
 import { type LlmModelsResult, listLlmModels } from "./models.ts";
@@ -75,6 +82,8 @@ export interface LlmClients {
   generateText(options: {
     model: string;
     prompt: string;
+    /** Images supplied after the prompt, in order, as native image input. */
+    images?: ImagePart[];
     system?: string;
     abortSignal?: AbortSignal;
   }): Promise<GenerateLlmTextResult>;
@@ -133,6 +142,7 @@ export function createLlmClients(
       return generateLlmText({
         model: clients.resolveModel(options.model),
         prompt: options.prompt,
+        images: options.images,
         system: options.system,
         abortSignal: options.abortSignal,
       });
@@ -286,6 +296,7 @@ function buildTranscriptionModel(
 export async function generateLlmText(options: {
   model: LlmModel;
   prompt: string;
+  images?: ImagePart[];
   system?: string;
   abortSignal?: AbortSignal;
 }): Promise<GenerateLlmTextResult> {
@@ -295,7 +306,11 @@ export async function generateLlmText(options: {
       : generateText;
   const { text, usage } = await generate({
     model: options.model,
-    prompt: options.prompt,
+    prompt: options.images?.length
+      ? ([
+          { role: "user", content: [{ type: "text", text: options.prompt }, ...options.images] },
+        ] satisfies ModelMessage[])
+      : options.prompt,
     system: options.system,
     abortSignal: options.abortSignal,
   });

@@ -24,6 +24,7 @@ import { c, createLogger } from "../log.ts";
 import type { McpRegistry } from "../mcp/registry.ts";
 import { getProject, listProjectArticles } from "../projects/store.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
+import { withoutContextCalibration } from "../sessions/context-calibration.ts";
 import {
   BUILTIN_TOOLS,
   type CommandLearning,
@@ -884,7 +885,9 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
         // Replaying a live stream starts from its original transcript. Durable
         // checkpoints already contain some of those frames and would duplicate
         // text/steps if used as the client's starting point.
-        messages: streamRegistry.messagesBeforeTurn(id) ?? getSessionMessages(db, id),
+        messages: withoutContextCalibration(
+          (streamRegistry.messagesBeforeTurn(id) ?? getSessionMessages(db, id)) as UIMessage[],
+        ),
         // The undelivered backlog rides the detail so queued messages stay
         // visible across reloads and other views — the inbox table, not any
         // client's local state, is the queue's source of truth.

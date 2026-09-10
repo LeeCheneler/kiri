@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai";
+import type { ImagePart, ModelMessage } from "ai";
 import type { CheckpointUIPart } from "../../shared/checkpoint-part.ts";
 import type { LlmClients } from "../llm/index.ts";
 import { calibratedContextTokens, estimateContextTokens } from "./session-context.ts";
@@ -36,10 +36,41 @@ Use these sections: Objective and constraints; Completed work and findings; Pend
 
 Omit repetitive logs and incidental exploration. Be faithful: do not invent missing facts or turn a plan into completed work. Earlier messages and original tool results will not be retrievable. If knowledge is missing, the continuing model must review articles, inspect files, or search sources again; it must not repeat completed actions to recover their outputs. Current standing instructions and later user messages still govern continuation.`;
 
-  const prompt = JSON.stringify({ standingInstructions: system ?? null, messages });
+  const images: ImagePart[] = [];
+  const transcript = messages.map(({ providerOptions: _options, ...message }) => {
+    if (!Array.isArray(message.content)) return message;
+    return {
+      ...message,
+      content: message.content.map((contentPart) => {
+        const part = { ...contentPart, providerOptions: undefined };
+        if (
+          message.role !== "tool" &&
+          (part.type === "image" || (part.type === "file" && part.mediaType.startsWith("image/")))
+        ) {
+          images.push(
+            part.type === "image"
+              ? part
+              : {
+                  type: "image",
+                  image: part.data,
+                  mediaType: part.mediaType,
+                },
+          );
+          return {
+            type: "text",
+            text: `[Image attachment ${images.length}; supplied after the transcript in numbered order]`,
+          };
+        }
+        return part;
+      }),
+    };
+  });
+  // Images must remain visual input, and opaque provider metadata has no
+  // continuation value when rendered as text in a new summarisation request.
+  const prompt = JSON.stringify({ standingInstructions: system ?? null, messages: transcript });
   const estimate = estimateContextTokens({
     system: instructions,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content: [{ type: "text", text: prompt }, ...images] }],
   });
   if (calibratedContextTokens(estimate, calibration) > inputBudget) return null;
   abortSignal.throwIfAborted();
@@ -47,6 +78,7 @@ Omit repetitive logs and incidental exploration. Be faithful: do not invent miss
     model,
     system: instructions,
     prompt,
+    ...(images.length > 0 ? { images } : {}),
     abortSignal,
   });
   abortSignal.throwIfAborted();

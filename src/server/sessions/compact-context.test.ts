@@ -58,6 +58,51 @@ describe("compactContext", () => {
     expect(calls).toBe(0);
   });
 
+  it("summarises images as visual input and excludes opaque provider metadata", async () => {
+    const data = `data:image/png;base64,${"a".repeat(211600)}`;
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "file" as const, mediaType: "image/png", data },
+          { type: "text" as const, text: "Match the screenshot" },
+        ],
+      },
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "reasoning" as const,
+            text: "The heading needs more space",
+            providerOptions: { openai: { reasoningEncryptedContent: "opaque".repeat(10000) } },
+          },
+        ],
+      },
+    ];
+    const before = structuredClone(messages);
+    let calls = 0;
+    const checkpoint = await compactContext({
+      ...options,
+      messages,
+      inputBudget: 30000,
+      llmClients: {
+        generateText: async (request) => {
+          calls += 1;
+          expect(request.images).toEqual([{ type: "image", image: data, mediaType: "image/png" }]);
+          expect(request.prompt).toContain("Image attachment 1");
+          expect(request.prompt).toContain("Match the screenshot");
+          expect(request.prompt).toContain("The heading needs more space");
+          expect(request.prompt).not.toContain(data);
+          expect(request.prompt).not.toContain("opaque");
+          return { text: "Adjust the heading to match the screenshot", usage: {} };
+        },
+      },
+    });
+    expect(calls).toBe(1);
+    expect(checkpoint?.data.summary).toContain("Adjust the heading");
+    expect(messages).toEqual(before);
+  });
+
   it("rejects an empty summary and lets provider errors reach the turn handler", async () => {
     expect(
       await compactContext({

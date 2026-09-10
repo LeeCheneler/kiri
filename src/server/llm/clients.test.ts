@@ -402,35 +402,56 @@ describe("llm clients", () => {
     expect(result.usage.outputTokens).toBe(22);
   });
 
-  it("passes utility system instructions separately from the prompt", async () => {
-    let body: unknown;
-    server.use(
-      http.post("https://api.openai.com/v1/chat/completions", async ({ request }) => {
-        body = await request.json();
-        return HttpResponse.json({
-          id: "chatcmpl-1",
-          object: "chat.completion",
-          created: 0,
-          model: "gpt-4o-mini",
-          choices: [
-            { index: 0, message: { role: "assistant", content: "Summary" }, finish_reason: "stop" },
-          ],
-        });
-      }),
-    );
-    const clients = createLlmClients(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
-    await clients.generateText({
-      model: "openai:gpt-4o-mini",
-      system: "Summarise only",
-      prompt: "Conversation data",
-    });
-    expect(body).toMatchObject({
-      messages: [
-        { role: "system", content: "Summarise only" },
-        { role: "user", content: "Conversation data" },
-      ],
-    });
-  });
+  it.each([false, true])(
+    "passes utility system instructions and native images (images: %s)",
+    async (withImages) => {
+      let body: unknown;
+      server.use(
+        http.post("https://api.openai.com/v1/chat/completions", async ({ request }) => {
+          body = await request.json();
+          return HttpResponse.json({
+            id: "chatcmpl-1",
+            object: "chat.completion",
+            created: 0,
+            model: "gpt-4o-mini",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "Summary" },
+                finish_reason: "stop",
+              },
+            ],
+          });
+        }),
+      );
+      const clients = createLlmClients(registryWith(openai), { OPENAI_API_KEY: "sk-test" });
+      await clients.generateText({
+        model: "openai:gpt-4o-mini",
+        system: "Summarise only",
+        prompt: "Conversation data",
+        ...(withImages
+          ? { images: [{ type: "image" as const, image: TINY_PNG_B64, mediaType: "image/png" }] }
+          : {}),
+      });
+      expect(body).toMatchObject({
+        messages: [
+          { role: "system", content: "Summarise only" },
+          {
+            role: "user",
+            content: withImages
+              ? [
+                  { type: "text", text: "Conversation data" },
+                  {
+                    type: "image_url",
+                    image_url: { url: `data:image/png;base64,${TINY_PNG_B64}` },
+                  },
+                ]
+              : "Conversation data",
+          },
+        ],
+      });
+    },
+  );
 
   it("surfaces a resolution error from generateText as a rejection, not a throw", async () => {
     const clients = createLlmClients(registryWith(anthropic), {});
