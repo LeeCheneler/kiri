@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "description": "An AI workspace for work worth keeping — research, write, and code on your machine.",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "bin": {
     "kiri": "./bin/kiri.ts"

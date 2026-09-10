@@ -130,3 +130,7 @@ explains the boundaries.
 - [`examples/`](./examples/) — a complete, runnable example workspace.
 - [`docs/design-notes.md`](./docs/design-notes.md) — architecture and design invariants.
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — repo setup and dev workflow.
+
+## License
+
+[MIT](LICENSE) © 2026 Lee Cheneler.
