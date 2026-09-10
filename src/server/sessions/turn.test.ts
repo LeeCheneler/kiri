@@ -13,6 +13,7 @@ import { migrate } from "../db/migrate.ts";
 import type { KiriEvent } from "../events/index.ts";
 import type { LlmClients, LlmModel } from "../llm/index.ts";
 import { createCancelRegistry } from "../runner/cancel-registry.ts";
+import { savedContextCalibration } from "./context-calibration.ts";
 import { enqueueInboxItem, pendingInboxItems } from "./inbox.ts";
 import {
   type Message,
@@ -1575,6 +1576,174 @@ describe("runTurn", () => {
     expect(rows[1]?.parts).toContainEqual(
       expect.objectContaining({ toolCallId: "c1", state: "output-available", output }),
     );
+  });
+
+  it.each(["unchanged", "message", "instructions", "tools", "model", "options", "window"] as const)(
+    "restores measured calibration after reopening storage and accounts for changed %s",
+    async (change) => {
+      let calls = 0;
+      let summaries = 0;
+      let instructions = "Standing instructions";
+      let highEffort = false;
+      let contextWindow = 100000;
+      const model = new MockLanguageModelV3({
+        doStream: async (options) => {
+          calls += 1;
+          expect(JSON.stringify(options.prompt)).not.toContain("data-context-calibration");
+          return {
+            stream: convertArrayToReadableStream<LanguageModelV3StreamPart>(
+              calls === 1
+                ? [
+                    { type: "tool-call", toolCallId: "c1", toolName: "read", input: "{}" },
+                    {
+                      type: "finish",
+                      finishReason: finishReason("tool-calls"),
+                      usage: usage(20000, 10),
+                    },
+                  ]
+                : [
+                    { type: "text-start", id: "t1" },
+                    { type: "text-delta", id: "t1", delta: "Completed once" },
+                    { type: "text-end", id: "t1" },
+                    { type: "finish", finishReason: finishReason("stop"), usage: usage(40000, 10) },
+                  ],
+            ),
+          };
+        },
+      }) as unknown as LlmModel;
+      let session = createSession(db, MODEL, { id: "s1" });
+      const clients: LlmClients = {
+        ...clientsFor(model),
+        contextWindowFor: async () => contextWindow,
+        reasoningOptionsFor: async () =>
+          highEffort ? { openai: { reasoningEffort: "high" } } : undefined,
+        generateText: async ({ prompt }) => {
+          summaries += 1;
+          expect(prompt).not.toContain("data-context-calibration");
+          return { text: "Read completed once. Continue the user's request.", usage: {} };
+        },
+      };
+      let tools = { read: tool({ inputSchema: z.object({}), execute: () => "x".repeat(100000) }) };
+      await (
+        await runTurn(
+          { db, llmClients: clients, tools, buildSystemPrompt: () => instructions },
+          {
+            session,
+            userMessage: {
+              ...USER_MESSAGE,
+              parts: [{ type: "text", text: "history ".repeat(18000) }],
+            },
+          },
+        )
+      ).done;
+      expect(calls).toBe(2);
+      expect(summaries).toBe(0);
+      expect(getSessionMessages(db, "s1").at(-1)?.contextTokens).toBe(40010);
+      const calibration = savedContextCalibration(
+        getSessionMessages(db, "s1").map((row) => ({
+          id: row.id,
+          role: row.role as UIMessage["role"],
+          parts: row.parts as UIMessage["parts"],
+        })),
+      );
+      expect(calibration?.inputTokens).toBe(40000);
+      expect(calibration?.estimate).toBeGreaterThan(80000);
+      db.$client.close();
+      db = openDatabase(join(dir, "state.db"));
+      if (change === "instructions") instructions = "s".repeat(120000);
+      if (change === "tools")
+        tools = {
+          read: tool({
+            inputSchema: z.object({}),
+            description: "d".repeat(120000),
+            execute: () => "unused",
+          }),
+        };
+      if (change === "model") session = updateSessionModel(db, session.id, "test:other");
+      if (change === "options") highEffort = true;
+      if (change === "window") contextWindow = 20000;
+      const userMessage: UIMessage = {
+        id: "u2",
+        role: "user",
+        parts: [{ type: "text", text: change === "message" ? "n".repeat(150000) : "Continue" }],
+      };
+      await (
+        await runTurn(
+          { db, llmClients: clients, tools, buildSystemPrompt: () => instructions },
+          { session, userMessage },
+        )
+      ).done;
+      expect(getSession(db, "s1")?.status).toBe(change === "window" ? "failed" : "idle");
+      expect(calls).toBe(change === "window" ? 2 : 3);
+      expect(summaries).toBe(change === "unchanged" || change === "window" ? 0 : 1);
+      expect(getSessionMessages(db, "s1")[2].parts).toEqual(userMessage.parts);
+    },
+  );
+
+  it("reuses measured input when resuming an approval and charges the new tool result", async () => {
+    let calls = 0;
+    let actions = 0;
+    let summaries = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls += 1;
+        return {
+          stream: convertArrayToReadableStream<LanguageModelV3StreamPart>(
+            calls === 1
+              ? [
+                  { type: "tool-call", toolCallId: "c1", toolName: "action", input: "{}" },
+                  {
+                    type: "finish",
+                    finishReason: finishReason("tool-calls"),
+                    usage: usage(20000, 10),
+                  },
+                ]
+              : [
+                  { type: "text-start", id: "t1" },
+                  { type: "text-delta", id: "t1", delta: "Done" },
+                  { type: "text-end", id: "t1" },
+                  { type: "finish", finishReason: finishReason("stop"), usage: usage(40000, 10) },
+                ],
+          ),
+        };
+      },
+    }) as unknown as LlmModel;
+    const session = createSession(db, MODEL, { id: "s1" });
+    const deps = {
+      db,
+      llmClients: {
+        ...clientsFor(model),
+        contextWindowFor: async () => 100000,
+        generateText: async () => {
+          summaries += 1;
+          return { text: "summary", usage: {} };
+        },
+      },
+      tools: {
+        action: tool({
+          inputSchema: z.object({}),
+          needsApproval: true,
+          execute: () => {
+            actions += 1;
+            return "x".repeat(100000);
+          },
+        }),
+      },
+    };
+    await (
+      await runTurn(deps, {
+        session,
+        userMessage: { ...USER_MESSAGE, parts: [{ type: "text", text: "history ".repeat(18000) }] },
+      })
+    ).done;
+    expect(getSession(db, "s1")?.status).toBe("waiting");
+    expect(actions).toBe(0);
+    await (await resumeTurn(deps, { session, approvals: [{ toolCallId: "c1", approved: true }] }))
+      .done;
+    expect(getSession(db, "s1")?.status).toBe("idle");
+    expect(actions).toBe(1);
+    expect(calls).toBe(2);
+    expect(summaries).toBe(0);
   });
 
   it("uses observed provider input usage to correct an underestimated request", async () => {

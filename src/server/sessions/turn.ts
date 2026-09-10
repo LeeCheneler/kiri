@@ -17,6 +17,14 @@ import type { EventBus, SessionStatus } from "../events/index.ts";
 import type { LlmClients } from "../llm/index.ts";
 import type { CancelRegistry } from "../runner/cancel-registry.ts";
 import { compactContext } from "./compact-context.ts";
+import {
+  type ContextCalibration,
+  contextSnapshot,
+  measuredContextTokens,
+  savedContextCalibration,
+  withContextCalibration,
+  withoutContextCalibration,
+} from "./context-calibration.ts";
 import { finaliseInterruptedParts } from "./finalise-interrupted-parts.ts";
 import { stripImageToolResults } from "./image-tool-results.ts";
 import {
@@ -29,12 +37,7 @@ import {
   pendingInboxItems,
 } from "./inbox.ts";
 import type { InstructionContext } from "./instruction-context.ts";
-import {
-  calibratedContextTokens,
-  contextBudget,
-  estimateContextTokens,
-  historySinceCheckpoint,
-} from "./session-context.ts";
+import { contextBudget, estimateContextTokens, historySinceCheckpoint } from "./session-context.ts";
 import {
   type Message,
   type Session,
@@ -461,6 +464,7 @@ async function streamCore(
   const contextLimitError = new Error(CONTEXT_LIMIT_NOTICE);
   let contextHandoffMessages: ModelMessage[] = [];
   let lastContextTokens: number | undefined;
+  let savedCalibration = savedContextCalibration(history);
   let savedSteps = 0;
   let savingWorkStep = false;
   let checkpointReady: (() => void) | undefined;
@@ -489,7 +493,7 @@ async function streamCore(
         db,
         session.id,
         message.id,
-        message.parts,
+        withContextCalibration(message, savedCalibration).parts,
         isContinuation || checkpointed,
         contextTokens,
       );
@@ -544,7 +548,9 @@ async function streamCore(
           })),
         );
         const modelHistory = toonEncodeToolResults(
-          stripWriteToolDiffs(stripImageToolResults(historySinceCheckpoint(history))),
+          stripWriteToolDiffs(
+            stripImageToolResults(withoutContextCalibration(historySinceCheckpoint(history))),
+          ),
         );
         const modelMessages = await convertToModelMessages(
           expandInboxMessages(modelHistory, senderLabelFor),
@@ -555,8 +561,8 @@ async function streamCore(
           expandInboxMessages(incomingMessages, senderLabelFor),
         );
         const previousMessageCount = modelMessages.length - incomingModelMessages.length;
-        let calibration: { estimate: number; inputTokens: number } | undefined;
-        let previousEstimate = 0;
+        let calibration = savedCalibration;
+        let previousRequest: Omit<ContextCalibration, "inputTokens"> | undefined;
         let checkpointMessages: ModelMessage[] = [];
         let compactedThrough = 0;
         const compactionThreshold = Math.floor(budget.workInputTokens * 0.85);
@@ -565,17 +571,21 @@ async function streamCore(
           system: string | undefined,
           handoff: boolean,
         ) => {
-          const estimate = estimateContextTokens({
+          const snapshot = contextSnapshot({
+            model: session.model,
+            contextWindow,
+            providerOptions,
             system,
             messages,
             tools: handoff ? [] : toolSchemas,
           });
+          const tokens = measuredContextTokens(snapshot, calibration);
           return {
             messages,
-            estimate,
-            fits:
-              calibratedContextTokens(estimate, calibration) <=
-              (handoff ? budget.handoffInputTokens : budget.workInputTokens),
+            snapshot,
+            estimate: snapshot.estimate,
+            tokens,
+            fits: tokens <= (handoff ? budget.handoffInputTokens : budget.workInputTokens),
           };
         };
         result = streamText({
@@ -583,6 +593,15 @@ async function streamCore(
           messages: modelMessages,
           onStepFinish: ({ usage }) => {
             lastContextTokens = usage.totalTokens;
+            if (
+              previousRequest &&
+              usage.inputTokens !== undefined &&
+              Number.isFinite(usage.inputTokens) &&
+              usage.inputTokens > 0
+            ) {
+              calibration = { ...previousRequest, inputTokens: usage.inputTokens };
+              savedCalibration = calibration;
+            }
           },
           ...(providerOptions !== undefined ? { providerOptions } : {}),
           ...(hasTools
@@ -604,7 +623,7 @@ async function streamCore(
           // once (the backlog row survives until a checkpoint proves persistence,
           // so later boundaries would re-read it) and re-inserted every step,
           // because the SDK rebuilds the step input without our injections.
-          prepareStep: async ({ messages, steps, stepNumber }) => {
+          prepareStep: async ({ messages, stepNumber }) => {
             // Resumed approvals execute before step zero, without an SDK step
             // boundary. Wait for their results to reach the transcript too.
             if (resumedApprovals.size > 0)
@@ -618,10 +637,6 @@ async function streamCore(
                 checkpointReady = resolve;
               });
             controller.signal.throwIfAborted();
-            const measured = steps.at(-1)?.usage.inputTokens;
-            if (measured !== undefined && previousEstimate > 0) {
-              calibration = { estimate: previousEstimate, inputTokens: measured };
-            }
             // Refresh cwd while model and effort still describe the provider
             // call configured when this turn began. Replace the system prompt
             // so rules from a directory we left do not linger.
@@ -650,7 +665,7 @@ async function streamCore(
               summaryMessages.length > 0 &&
               estimateContextTokens({ system, messages: [], tools: toolSchemas }) <
                 compactionThreshold &&
-              calibratedContextTokens(prepared.estimate, calibration) >= compactionThreshold
+              prepared.tokens >= compactionThreshold
             ) {
               writer.write({
                 type: "data-compaction",
@@ -666,7 +681,11 @@ async function streamCore(
                   system,
                   inputBudget: budget.handoffInputTokens,
                   summaryBudget: Math.min(4096, Math.floor(budget.workInputTokens * 0.2)),
-                  calibration,
+                  calibration:
+                    calibration?.model === prepared.snapshot.model &&
+                    calibration.optionsHash === prepared.snapshot.optionsHash
+                      ? calibration
+                      : undefined,
                   abortSignal: controller.signal,
                 });
               } finally {
@@ -720,15 +739,16 @@ async function streamCore(
               const summarySaved = new Promise<void>((resolve) => {
                 checkpointFinished = resolve;
               });
+              // Clear the old measurement in the same durable boundary as its
+              // replaced history, even if the turn stops before another call.
+              calibration = undefined;
+              savedCalibration = undefined;
               writer.write(checkpoint);
               writer.write({ type: "finish-step" });
               await summarySaved;
               controller.signal.throwIfAborted();
               checkpointMessages = summarized;
               compactedThrough = delivered.length;
-              // A summary has different contents; prior token measurements no
-              // longer calibrate it. The next work call establishes a new sample.
-              calibration = undefined;
               system = buildSystemPrompt?.({
                 ...session,
                 cwd: getSession(db, session.id)?.cwd ?? null,
@@ -752,12 +772,12 @@ async function streamCore(
                 data: receipt,
               });
             }
-            previousEstimate = prepared.estimate;
             if (!prepared.fits) {
               contextLimitReached = true;
               contextHandoffMessages = current;
               throw contextLimitError;
             }
+            previousRequest = prepared.snapshot;
             return { system, messages: prepared.messages };
           },
           abortSignal: controller.signal,
