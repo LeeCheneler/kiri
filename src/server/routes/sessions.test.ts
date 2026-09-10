@@ -857,7 +857,8 @@ describe("sessions routes", () => {
         { type: "finish", finishReason: finishReason("stop"), usage: usage(7, 2) },
       ]);
       const { bus, waitForSettled } = createSessionWaiter();
-      const app = makeApp(fakeClients({ model }), { bus });
+      const streamRegistry = createStreamRegistry();
+      const app = makeApp(fakeClients({ model }), { bus, streamRegistry });
       const session = createSession(env.db, MODEL, { id: "s1" });
       const settled = waitForSettled("s1");
       await (await postMessage(app, "s1", "Hi there")).text();
@@ -872,6 +873,14 @@ describe("sessions routes", () => {
       };
       expect(body.session.id).toBe("s1");
       expect(body.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+      const stored = getSessionMessages(env.db, "s1");
+      expect(JSON.stringify(stored)).toContain("data-context-calibration");
+      expect(JSON.stringify(body.messages)).not.toContain("data-context-calibration");
+      const sink = streamRegistry.open("s1", stored);
+      const replay = await (await app.request(`/api/sessions/${session.id}`)).json();
+      expect(JSON.stringify(replay.messages)).not.toContain("data-context-calibration");
+      sink.close();
+      expect(getSessionMessages(env.db, "s1")).toEqual(stored);
     });
 
     it("names a child's parent so its page can link back up", async () => {
