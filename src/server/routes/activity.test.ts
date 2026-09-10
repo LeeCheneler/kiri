@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { articles, messages, projects, recommendations, runs, sessions } from "../db/schema.ts";
 import { createApp } from "../index.ts";
+import { setSessionStatus } from "../sessions/store.ts";
 import { type TestEnv, createTestEnv } from "./test-helpers.ts";
 
 describe("activity routes", () => {
@@ -52,6 +53,7 @@ describe("activity routes", () => {
             preview: string | null;
             articles: Array<{ name: string; heading: string | null }>;
             hasWaitingChild: boolean;
+            hasRunningChild: boolean;
           };
         }
     >;
@@ -91,6 +93,43 @@ describe("activity routes", () => {
       expect(
         body.entries.map((e) => (e.kind === "session" ? e.session.hasWaitingChild : null)),
       ).toEqual([true, false]);
+    });
+
+    it("tracks running workers separately from the parent's own status", async () => {
+      insertSession("s1", 2000);
+      insertSession("s2", 1000);
+      setSessionStatus(env.db, "s2", "running");
+      env.db
+        .insert(sessions)
+        .values(
+          ["c1", "c2"].map((id) => ({
+            id,
+            status: "running" as const,
+            model: "anthropic:claude",
+            startedAt: new Date(3000),
+            parentSessionId: "s1",
+            parentToolCallId: `call_${id}`,
+          })),
+        )
+        .run();
+
+      const { body } = await getActivity();
+      expect(body.entries.map(idOf)).toEqual(["s1", "s2"]);
+      expect(
+        body.entries.map((e) => (e.kind === "session" ? e.session.hasRunningChild : null)),
+      ).toEqual([true, false]);
+
+      setSessionStatus(env.db, "c1", "idle");
+      const { body: oneRunning } = await getActivity();
+      expect(oneRunning.entries[0]).toMatchObject({ session: { hasRunningChild: true } });
+
+      for (const status of ["idle", "waiting", "failed", "cancelled"] as const) {
+        setSessionStatus(env.db, "c2", status);
+        const { body: settled } = await getActivity();
+        expect(settled.entries[0]).toMatchObject({
+          session: { hasRunningChild: false, hasWaitingChild: status === "waiting" },
+        });
+      }
     });
 
     it("interleaves runs and sessions newest-first by start time", async () => {

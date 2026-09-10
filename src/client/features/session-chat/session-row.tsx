@@ -60,12 +60,13 @@ export function SessionRow({
   now?: Date;
   context?: "feed" | "scoped";
 }) {
-  const status = SESSION_STATUS[session.status];
+  const workersWorking = session.status === "idle" && session.hasRunningChild;
+  const status = workersWorking ? "working" : SESSION_STATUS[session.status];
   return (
     <StatusBlock status={status}>
       <Meta>
         {context === "feed" ? <span className="text-accent uppercase">session</span> : null}
-        <Status status={status} />
+        <Status status={status}>{workersWorking ? "workers working" : undefined}</Status>
         {/* A delegated child paused on tool approval — blocked on the user —
             badged so it is visible from the listing without opening the chat. */}
         {session.hasWaitingChild ? <Status status="waiting">worker waiting</Status> : null}
