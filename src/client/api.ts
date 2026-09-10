@@ -823,6 +823,8 @@ export interface SessionListEntry extends Session {
   projectName: string | null;
   /** True while a delegated child sits waiting on tool approval — a worker blocked on the user. */
   hasWaitingChild: boolean;
+  /** True while a delegated child is running a turn. */
+  hasRunningChild: boolean;
 }
 
 /**

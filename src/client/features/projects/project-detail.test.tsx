@@ -51,6 +51,7 @@ const session = (id: string, over: Record<string, unknown> = {}) => ({
   preview: null,
   articles: [],
   hasWaitingChild: false,
+  hasRunningChild: false,
   ...over,
 });
 

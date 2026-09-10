@@ -2041,6 +2041,7 @@ export function DesignSystemContent() {
                     <Status key={status} status={status} />
                   ))}
                   <Status status="waiting">worker waiting</Status>
+                  <Status status="working">workers working</Status>
                 </div>
               </Card>
             </div>

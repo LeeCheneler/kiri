@@ -25,6 +25,7 @@ const base: SessionListEntry = {
   preview: "Summarise the readme",
   articles: [],
   hasWaitingChild: false,
+  hasRunningChild: false,
 };
 
 const renderRow = (over: Partial<SessionListEntry> = {}, context?: "feed" | "scoped") =>
@@ -53,6 +54,38 @@ describe("<SessionRow>", () => {
     renderRow({ hasWaitingChild: true });
     expect(screen.getByText("worker waiting").getAttribute("data-status")).toBe("waiting");
   });
+
+  it("shows workers working instead of idle while a delegated child runs", () => {
+    renderRow({ hasRunningChild: true });
+    expect(screen.getByText("workers working").getAttribute("data-status")).toBe("working");
+    expect(screen.queryByText("idle")).toBeNull();
+  });
+
+  it("returns to idle once no workers are running", () => {
+    const { rerender } = renderRow({ hasRunningChild: true });
+    rerender(
+      <Router hook={memoryLocation({ path: "/" }).hook}>
+        <SessionRow session={base} now={NOW} />
+      </Router>,
+    );
+    expect(screen.getByText("idle")).toBeDefined();
+    expect(screen.queryByText("workers working")).toBeNull();
+  });
+
+  it("still flags a worker waiting while other workers are working", () => {
+    renderRow({ hasRunningChild: true, hasWaitingChild: true });
+    expect(screen.getByText("workers working")).toBeDefined();
+    expect(screen.getByText("worker waiting").getAttribute("data-status")).toBe("waiting");
+  });
+
+  it.each(["running", "waiting", "failed", "cancelled"] as const)(
+    "preserves the parent's %s status when workers run",
+    (status) => {
+      renderRow({ status, hasRunningChild: true });
+      expect(screen.getByText(status === "running" ? "working" : status)).toBeDefined();
+      expect(screen.queryByText("workers working")).toBeNull();
+    },
+  );
 
   it("drops the kind marker and project link when scoped to its container page", () => {
     renderRow(
