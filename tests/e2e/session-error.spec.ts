@@ -28,10 +28,10 @@ test("a step-limit handoff survives reload and the session can continue", async 
   await useModel(page, "fake:tool");
   await sendMessage(page, "repeat-call:list_articles {}");
 
-  await expect(page.getByRole("alert")).toContainText("64-step work limit", { timeout: 15_000 });
+  await expect(page.getByRole("alert")).toContainText("128-step work limit", { timeout: 15_000 });
   await expect(page.getByText(/^You said: The work step limit has been reached/)).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("alert")).toContainText("64-step work limit");
+  await expect(page.getByRole("alert")).toContainText("128-step work limit");
   await expect(page.getByText(/^You said: The work step limit has been reached/)).toHaveCount(1);
   await expect(page.getByLabel(/message/i)).toBeEnabled();
 

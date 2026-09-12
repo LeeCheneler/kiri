@@ -91,7 +91,7 @@ export interface RunTurnDeps {
 // stops a misbehaving model from looping without end. Generous enough for
 // extended tool work: many search-and-reason cycles, or a long series of
 // document edits, in one turn.
-const MAX_TURN_STEPS = 64;
+const MAX_TURN_STEPS = 128;
 
 const STEP_LIMIT_NOTICE = `Kiri stopped this turn at its ${MAX_TURN_STEPS}-step work limit. Work may be incomplete. Completed actions are saved. Send another message to continue from the saved progress.`;
 

@@ -347,7 +347,7 @@ describe("runTurn", () => {
   );
 
   it.each(["summary", "empty", "error", "tool call", "cancel"] as const)(
-    "stops after 64 work steps and one tool-free handoff ending in %s",
+    "stops after 128 work steps and one tool-free handoff ending in %s",
     async (ending) => {
       let calls = 0;
       let executions = 0;
@@ -356,7 +356,7 @@ describe("runTurn", () => {
         doStream: async (options) => {
           calls += 1;
           expect(options.maxOutputTokens).toBeUndefined();
-          if (calls <= 64) {
+          if (calls <= 128) {
             return {
               stream: convertArrayToReadableStream([
                 {
@@ -369,7 +369,7 @@ describe("runTurn", () => {
               ]),
             };
           }
-          expect(calls).toBe(65);
+          expect(calls).toBe(129);
           expect(options.tools ?? []).toEqual([]);
           expect(options.prompt.find((message) => message.role === "system")?.content).toBe(
             "Current directory: /last-directory",
@@ -378,7 +378,7 @@ describe("runTurn", () => {
           expect(JSON.stringify(options.prompt).match(/check the remaining work/g)).toHaveLength(1);
           // The fallback is durable before the handoff provider is called.
           expect(JSON.stringify(getSessionMessages(db, "s1")[1]?.parts)).toContain(
-            "64-step work limit",
+            "128-step work limit",
           );
           if (ending === "error") {
             throw new APICallError({
@@ -393,7 +393,7 @@ describe("runTurn", () => {
             const stream = parkedStream(
               [
                 { type: "text-start", id: "summary" },
-                { type: "text-delta", id: "summary", delta: "Saved 64 results." },
+                { type: "text-delta", id: "summary", delta: "Saved 128 results." },
               ],
               options.abortSignal,
             );
@@ -404,7 +404,7 @@ describe("runTurn", () => {
           if (ending === "summary") {
             parts.push(
               { type: "text-start", id: "summary" },
-              { type: "text-delta", id: "summary", delta: "Saved 64 results. More work remains." },
+              { type: "text-delta", id: "summary", delta: "Saved 128 results. More work remains." },
               { type: "text-end", id: "summary" },
             );
           }
@@ -435,7 +435,7 @@ describe("runTurn", () => {
               inputSchema: z.object({ value: z.string() }),
               execute: ({ value }) => {
                 executions += 1;
-                if (executions === 64) updateSessionCwd(db, "s1", "/last-directory");
+                if (executions === 128) updateSessionCwd(db, "s1", "/last-directory");
                 if (executions === 10) {
                   enqueueInboxItem(db, "s1", { source: "user", text: "check the remaining work" });
                 }
@@ -448,19 +448,19 @@ describe("runTurn", () => {
       );
       const sse = await response.text();
       await done;
-      expect(calls).toBe(65);
-      expect(executions).toBe(64);
-      expect(sse).toContain("64-step work limit");
-      expect(sse).toContain('"toolCallId":"c64","output"');
-      expect(sse.indexOf('"toolCallId":"c64","output"')).toBeLessThan(
-        sse.indexOf("64-step work limit"),
+      expect(calls).toBe(129);
+      expect(executions).toBe(128);
+      expect(sse).toContain("128-step work limit");
+      expect(sse).toContain('"toolCallId":"c128","output"');
+      expect(sse.indexOf('"toolCallId":"c128","output"')).toBeLessThan(
+        sse.indexOf("128-step work limit"),
       );
       const rows = getSessionMessages(db, "s1");
       expect(rows).toHaveLength(2);
       expect(
         (rows[1]?.parts as ToolPart[]).filter((p) => p.state === "output-available"),
-      ).toHaveLength(64);
-      expect(JSON.stringify(rows[1]?.parts)).toContain("64-step work limit");
+      ).toHaveLength(128);
+      expect(JSON.stringify(rows[1]?.parts)).toContain("128-step work limit");
       expect(pendingInboxItems(db, "s1")).toEqual([]);
       const status = ending === "cancel" ? "cancelled" : "failed";
       expect(getSession(db, "s1")).toMatchObject({
@@ -478,8 +478,8 @@ describe("runTurn", () => {
         },
       ]);
       if (ending === "summary") {
-        expect(sse).toContain("Saved 64 results. More work remains.");
-        expect(JSON.stringify(rows[1]?.parts)).toContain("Saved 64 results. More work remains.");
+        expect(sse).toContain("Saved 128 results. More work remains.");
+        expect(JSON.stringify(rows[1]?.parts)).toContain("Saved 128 results. More work remains.");
         expect(rows[1]?.contextTokens).toBe(120);
       }
       if (ending === "error") expect(sse).toContain("handoff unavailable");
@@ -491,7 +491,7 @@ describe("runTurn", () => {
           { session, userMessage: { ...USER_MESSAGE, id: "u2" } },
         )
       ).done;
-      expect(JSON.stringify(capture.prompt)).toContain("64-step work limit");
+      expect(JSON.stringify(capture.prompt)).toContain("128-step work limit");
       expect(getSession(db, "s1")).toMatchObject({ status: "idle", error: null, finishedAt: null });
     },
   );
@@ -517,7 +517,7 @@ describe("runTurn", () => {
     const session = createSession(db, MODEL, { id: "s1" });
     db.$client.exec(`
       CREATE TRIGGER reject_stopping_notice BEFORE UPDATE ON messages
-      WHEN NEW.parts LIKE '%64-step work limit%'
+      WHEN NEW.parts LIKE '%128-step work limit%'
       BEGIN SELECT RAISE(FAIL, 'notice checkpoint unavailable'); END;
     `);
     const streamRegistry = createStreamRegistry();
@@ -526,7 +526,7 @@ describe("runTurn", () => {
       { session, userMessage: USER_MESSAGE },
     );
     await done;
-    expect(calls).toBe(64);
+    expect(calls).toBe(128);
     expect(getSession(db, "s1")).toMatchObject({
       status: "failed",
       error: { message: "notice checkpoint unavailable" },
@@ -535,12 +535,12 @@ describe("runTurn", () => {
       (getSessionMessages(db, "s1")[1]?.parts as ToolPart[]).filter(
         (p) => p.state === "output-available",
       ),
-    ).toHaveLength(64);
+    ).toHaveLength(128);
     expect(streamRegistry.has("s1")).toBe(false);
   });
 
   it.each(["answer", "approval", "cancel"] as const)(
-    "does not hand off when step 64 ends with %s",
+    "does not hand off when step 128 ends with %s",
     async (ending) => {
       let calls = 0;
       let executions = 0;
@@ -549,7 +549,7 @@ describe("runTurn", () => {
         doStream: async () => {
           calls += 1;
           const parts: LanguageModelV3StreamPart[] =
-            calls === 64 && ending === "answer"
+            calls === 128 && ending === "answer"
               ? [
                   { type: "text-start", id: "answer" },
                   { type: "text-delta", id: "answer", delta: "Work complete." },
@@ -565,7 +565,9 @@ describe("runTurn", () => {
                 ];
           parts.push({
             type: "finish",
-            finishReason: finishReason(calls === 64 && ending === "answer" ? "stop" : "tool-calls"),
+            finishReason: finishReason(
+              calls === 128 && ending === "answer" ? "stop" : "tool-calls",
+            ),
             usage: usage(5, 1),
           });
           return { stream: convertArrayToReadableStream(parts) };
@@ -580,10 +582,10 @@ describe("runTurn", () => {
           tools: {
             echo: tool({
               inputSchema: z.object({ value: z.string() }),
-              needsApproval: () => calls === 64 && ending === "approval",
+              needsApproval: () => calls === 128 && ending === "approval",
               execute: ({ value }) => {
                 executions += 1;
-                if (calls === 64 && ending === "cancel") cancelRegistry.requestCancel("s1");
+                if (calls === 128 && ending === "cancel") cancelRegistry.requestCancel("s1");
                 return { echoed: value };
               },
             }),
@@ -593,15 +595,15 @@ describe("runTurn", () => {
       );
       const sse = await response.text();
       await done;
-      expect(calls).toBe(64);
-      expect(executions).toBe(ending === "cancel" ? 64 : 63);
-      expect(sse).not.toContain("64-step work limit");
+      expect(calls).toBe(128);
+      expect(executions).toBe(ending === "cancel" ? 128 : 127);
+      expect(sse).not.toContain("128-step work limit");
       expect(getSession(db, "s1")?.status).toBe(
         ending === "answer" ? "idle" : ending === "approval" ? "waiting" : "cancelled",
       );
       if (ending === "approval") {
         expect(getSessionMessages(db, "s1")[1]?.parts).toContainEqual(
-          expect.objectContaining({ toolCallId: "c64", state: "approval-requested" }),
+          expect.objectContaining({ toolCallId: "c128", state: "approval-requested" }),
         );
       }
     },
@@ -1129,14 +1131,14 @@ describe("runTurn", () => {
     const model = new MockLanguageModelV3({
       doStream: async (options) => {
         calls += 1;
-        if (calls === 65) {
+        if (calls === 129) {
           expect(options.tools ?? []).toEqual([]);
           expect(JSON.stringify(options.prompt)).toContain("Goal retained in checkpoint");
           expect(JSON.stringify(options.prompt)).not.toContain("x".repeat(1000));
         }
         return {
           stream: convertArrayToReadableStream([
-            ...(calls <= 64
+            ...(calls <= 128
               ? [
                   {
                     type: "tool-call" as const,
@@ -1148,7 +1150,7 @@ describe("runTurn", () => {
               : []),
             {
               type: "finish",
-              finishReason: finishReason(calls <= 64 ? "tool-calls" : "stop"),
+              finishReason: finishReason(calls <= 128 ? "tool-calls" : "stop"),
               usage: usage(5, 1),
             },
           ]),
@@ -1184,8 +1186,8 @@ describe("runTurn", () => {
     await response.text();
     await done;
     expect(summaries).toBe(1);
-    expect(calls).toBe(65);
-    expect(actions).toBe(64);
+    expect(calls).toBe(129);
+    expect(actions).toBe(128);
     expect(getSession(db, "s1")).toMatchObject({ status: "failed", error: { code: "step_limit" } });
   });
 
