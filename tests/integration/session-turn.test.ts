@@ -254,7 +254,7 @@ describe("session turn streaming", () => {
     expect(JSON.stringify(getSessionMessages(db, session.id)[1]?.parts)).toContain("Saved once.");
   });
 
-  it("streams and saves a step-limit handoff after exactly 64 completed actions", async () => {
+  it("streams and saves a step-limit handoff after exactly 128 completed actions", async () => {
     const requestStart = fake.requests.length;
     let executions = 0;
     const session = createSession(db, "fake:tool");
@@ -278,16 +278,16 @@ describe("session turn streaming", () => {
     const sse = await response.text();
     await done;
 
-    expect(executions).toBe(64);
-    expect(await Bun.file(join(cwd, "progress.txt")).text()).toBe("completed: 64");
+    expect(executions).toBe(128);
+    expect(await Bun.file(join(cwd, "progress.txt")).text()).toBe("completed: 128");
     const requests = fake.requests.slice(requestStart);
-    expect(requests).toHaveLength(65);
-    expect(requests[63]?.tools).toHaveLength(1);
-    expect(requests[64]?.tools ?? []).toEqual([]);
-    expect(JSON.stringify(requests[64]?.messages)).toContain(
+    expect(requests).toHaveLength(129);
+    expect(requests[127]?.tools).toHaveLength(1);
+    expect(requests[128]?.tools ?? []).toEqual([]);
+    expect(JSON.stringify(requests[128]?.messages)).toContain(
       "what remains unfinished or uncertain",
     );
-    expect(sse).toContain("64-step work limit");
+    expect(sse).toContain("128-step work limit");
     const streamedText = sse
       .split("\n")
       .filter((line) => line.startsWith("data: {"))
@@ -299,10 +299,10 @@ describe("session turn streaming", () => {
     const rows = getSessionMessages(db, session.id);
     expect(rows).toHaveLength(2);
     expect(assistantText(rows[1]?.parts)).toBe(streamedText);
-    expect(assistantText(rows[1]?.parts)).toContain("64-step work limit");
+    expect(assistantText(rows[1]?.parts)).toContain("128-step work limit");
     expect(
       (rows[1]?.parts as Array<{ state?: string }>).filter((p) => p.state === "output-available"),
-    ).toHaveLength(64);
+    ).toHaveLength(128);
     expect(getSession(db, session.id)).toMatchObject({
       status: "failed",
       error: { code: "step_limit" },
@@ -311,7 +311,7 @@ describe("session turn streaming", () => {
     db.$client.close();
     db = bootstrap(createConfigStore(cwd));
     expect(assistantText(getSessionMessages(db, session.id)[1]?.parts)).toContain(
-      "64-step work limit",
+      "128-step work limit",
     );
     expect(getSession(db, session.id)?.status).toBe("failed");
   });
