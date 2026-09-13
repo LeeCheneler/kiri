@@ -371,6 +371,22 @@ describe("<ToolInvocation>", () => {
     expect(screen.getByText("/ws/old.md")).toBeDefined();
   });
 
+  it.each([
+    ["find_files", "**/*.md"],
+    ["search_files", "TODO|FIXME"],
+  ])("shows the pattern in the collapsed summary for %s", (tool, pattern) => {
+    render(
+      <ToolInvocation
+        part={writePart(tool, {
+          state: "output-available",
+          input: { pattern },
+          output: {},
+        })}
+      />,
+    );
+    expect(screen.getByText(pattern)).toBeDefined();
+  });
+
   it("renders a write result's diff as toned rows instead of JSON", async () => {
     const user = userEvent.setup();
     render(

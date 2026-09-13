@@ -54,14 +54,16 @@ export const toolStatus = (part: ToolPart): StatusKind =>
     : (STATE_STATUS[part.state] ?? "working");
 
 // A short input detail for the collapsed summary, when the call carries an
-// obvious one — a string `query`, a `path` (the filesystem tools), a `command`
-// (run_command), a `prompt` (generate_image), a `name` (use_skill), a `slug`
-// (the article tools), a `message` (the delegation messaging tools), or a
-// list of `urls`; nothing otherwise.
+// obvious one — a string `query`, a `pattern` (filesystem searches), a `path`
+// (the other filesystem tools), a `command` (run_command), a `prompt`
+// (generate_image), a `name` (use_skill), a `slug` (the article tools), a
+// `message` (the delegation messaging tools), or a list of `urls`; nothing
+// otherwise.
 const summaryDetail = (input: unknown): string | null => {
   if (input === null || typeof input !== "object") return null;
-  const { query, path, command, prompt, name, slug, message, urls } = input as {
+  const { query, pattern, path, command, prompt, name, slug, message, urls } = input as {
     query?: unknown;
+    pattern?: unknown;
     path?: unknown;
     command?: unknown;
     prompt?: unknown;
@@ -71,6 +73,7 @@ const summaryDetail = (input: unknown): string | null => {
     urls?: unknown;
   };
   if (typeof query === "string") return query;
+  if (typeof pattern === "string") return pattern;
   if (typeof path === "string") return path;
   if (typeof command === "string") return command;
   if (typeof prompt === "string") return prompt;
