@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ApiError } from "../../api.ts";
 import { Button } from "../../design-system/actions/button.tsx";
@@ -18,7 +18,9 @@ import { Modal } from "../../design-system/surfaces/modal.tsx";
 import { formatRelativeTime } from "../../formatters/format-time.ts";
 import {
   useDeleteProject,
-  useProject,
+  useProjectArticlesFeed,
+  useProjectOverview,
+  useProjectSessionsFeed,
   useRenameProject,
   useSaveProjectInstructions,
 } from "../../state/projects.ts";
@@ -153,6 +155,145 @@ function EditInstructionsModal({
   );
 }
 
+function ProjectIndex<T>({
+  noun,
+  items,
+  pending,
+  error,
+  hasNextPage,
+  fetchingNextPage,
+  fetchNextPage,
+  empty,
+  itemKey,
+  renderItem,
+}: {
+  noun: string;
+  items: T[];
+  pending: boolean;
+  error: Error | null;
+  hasNextPage: boolean;
+  fetchingNextPage: boolean;
+  fetchNextPage: () => Promise<unknown>;
+  empty: ReactNode;
+  itemKey: (item: T) => string;
+  renderItem: (item: T) => ReactNode;
+}) {
+  const stateRef = useRef({ fetchingNextPage, fetchNextPage });
+  stateRef.current = { fetchingNextPage, fetchNextPage };
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    if (!el) {
+      observerRef.current = null;
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      const current = stateRef.current;
+      if (entries.some((entry) => entry.isIntersecting) && !current.fetchingNextPage) {
+        void current.fetchNextPage();
+      }
+    });
+    observer.observe(el);
+    observerRef.current = observer;
+  }, []);
+
+  if (pending) return <LoadingState>Loading {noun}…</LoadingState>;
+  if (error) {
+    return (
+      <p role="alert" className="font-mono text-sm text-status-failed">
+        Failed to load {noun}: {error.message}
+      </p>
+    );
+  }
+  if (items.length === 0) return <>{empty}</>;
+
+  return (
+    <div>
+      <ul className="space-y-6">
+        {items.map((item) => (
+          <li key={itemKey(item)}>{renderItem(item)}</li>
+        ))}
+      </ul>
+      {hasNextPage ? (
+        <div ref={sentinelRef} className="py-6 text-center">
+          {fetchingNextPage ? (
+            <output className="font-mono text-xs text-ink-muted uppercase tracking-widest">
+              loading more {noun}…
+            </output>
+          ) : null}
+        </div>
+      ) : (
+        <output className="block py-6 text-center font-mono text-xs text-ink-muted uppercase tracking-widest">
+          end of {noun}
+        </output>
+      )}
+    </div>
+  );
+}
+
+function ProjectIndexes({ id, projectName, now }: { id: string; projectName: string; now?: Date }) {
+  const sessions = useProjectSessionsFeed(id);
+  const articles = useProjectArticlesFeed(id);
+
+  return (
+    <div className="grid gap-10 lg:grid-cols-2">
+      <div>
+        <Eyebrow tone="muted">Sessions</Eyebrow>
+        <div className="mt-3">
+          <ProjectIndex
+            noun="sessions"
+            items={sessions.data ?? []}
+            pending={sessions.isPending}
+            error={sessions.error}
+            hasNextPage={sessions.hasNextPage}
+            fetchingNextPage={sessions.isFetchingNextPage}
+            fetchNextPage={sessions.fetchNextPage}
+            empty={
+              <EmptyState>
+                no sessions yet. sessions created in this project appear here and share its article
+                corpus.
+              </EmptyState>
+            }
+            itemKey={(session) => session.id}
+            renderItem={(session) => <SessionRow session={session} now={now} context="scoped" />}
+          />
+        </div>
+      </div>
+      <div>
+        <Eyebrow tone="muted">Articles</Eyebrow>
+        <div className="mt-3">
+          <ProjectIndex
+            noun="articles"
+            items={articles.data ?? []}
+            pending={articles.isPending}
+            error={articles.error}
+            hasNextPage={articles.hasNextPage}
+            fetchingNextPage={articles.isFetchingNextPage}
+            fetchNextPage={articles.fetchNextPage}
+            empty={
+              <EmptyState>
+                no articles yet. sessions in this project write their articles into this shared
+                corpus.
+              </EmptyState>
+            }
+            itemKey={(article) => article.slug}
+            renderItem={(article) => (
+              <ArticleRow
+                article={{
+                  ...article,
+                  producer: { kind: "project", id, label: projectName },
+                }}
+                now={now}
+                context="scoped"
+              />
+            )}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * One project's page: the container's session and article indexes side by
  * side, with its instructions, memories, and task list on their own tabs, its
@@ -163,7 +304,7 @@ function EditInstructionsModal({
  */
 export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
   const [, navigate] = useLocation();
-  const project = useProject(id);
+  const project = useProjectOverview(id);
   const remove = useDeleteProject();
   const [pending, setPending] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -220,60 +361,7 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
     {
       id: "sessions",
       label: "Sessions & articles",
-      content: (
-        <div className="grid gap-10 lg:grid-cols-2">
-          <div>
-            <Eyebrow tone="muted">Sessions</Eyebrow>
-            {data.sessions.length === 0 ? (
-              <div className="mt-3">
-                <EmptyState>
-                  no sessions yet. sessions created in this project appear here and share its
-                  article corpus.
-                </EmptyState>
-              </div>
-            ) : (
-              // The feed's session rows verbatim — status, waiting-worker
-              // badge, quoted preview, written articles — so a session reads
-              // the same here as on the timeline.
-              <ul className="mt-3 space-y-6">
-                {data.sessions.map((session) => (
-                  <li key={session.id}>
-                    <SessionRow session={session} now={now} context="scoped" />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div>
-            <Eyebrow tone="muted">Articles</Eyebrow>
-            {data.articles.length === 0 ? (
-              <div className="mt-3">
-                <EmptyState>
-                  no articles yet. sessions in this project write their articles into this shared
-                  corpus.
-                </EmptyState>
-              </div>
-            ) : (
-              // The feed's article rows in scoped dress — accent edge, age
-              // above the heading — the producer is this very page.
-              <ul className="mt-3 space-y-6">
-                {data.articles.map((article) => (
-                  <li key={article.slug}>
-                    <ArticleRow
-                      article={{
-                        ...article,
-                        producer: { kind: "project", id, label: data.project.name },
-                      }}
-                      now={now}
-                      context="scoped"
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      ),
+      content: <ProjectIndexes id={id} projectName={data.project.name} now={now} />,
     },
     { id: "tasks", label: "Tasks", content: <ProjectTasks projectId={id} /> },
     {
@@ -385,7 +473,7 @@ export function ProjectDetail({ id, now }: { id: string; now?: Date }) {
       {confirmOpen ? (
         <ConfirmModal
           title="Delete this project?"
-          body={`This deletes the whole container: ${plural(data.articles.length, "article")}, ${plural(data.memories.length, "memory", "memories")} and ${plural(data.sessions.length, "session")}, including everything those sessions own. This cannot be undone.`}
+          body={`This deletes the whole container: ${plural(data.articleCount, "article")}, ${plural(data.memories.length, "memory", "memories")} and ${plural(data.sessionCount, "session")}, including everything those sessions own. This cannot be undone.`}
           confirmLabel="delete"
           variant="negative"
           onConfirm={handleDelete}
