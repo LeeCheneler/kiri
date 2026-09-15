@@ -97,7 +97,7 @@ describe("<App>", () => {
 
   it("routes /projects/:id to the project page", async () => {
     // Stall the project fetch so the page holds its loading state for the assertion.
-    server.use(http.get("*/api/projects/:id", () => new Promise<Response>(() => {})));
+    server.use(http.get("*/api/projects/:id/overview", () => new Promise<Response>(() => {})));
     renderAt("/projects/p1");
     expect(screen.getByText(/loading project/i)).toBeDefined();
     expect(screen.queryByText(/page not found/i)).toBeNull();

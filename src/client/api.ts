@@ -1390,6 +1390,26 @@ export interface ProjectDetail {
   sessions: SessionListEntry[];
 }
 
+/** The bounded project-page payload, with content counts in place of its paged indexes. */
+export interface ProjectOverview {
+  project: ProjectDetail["project"];
+  memories: MemorySummary[];
+  articleCount: number;
+  sessionCount: number;
+}
+
+/** One cursor-paginated page of a project's article corpus, newest first. */
+export interface ProjectArticlesPage {
+  articles: ArticleSummary[];
+  nextCursor: string | null;
+}
+
+/** One cursor-paginated page of a project's top-level sessions, newest first. */
+export interface ProjectSessionsPage {
+  sessions: SessionListEntry[];
+  nextCursor: string | null;
+}
+
 /**
  * A project-owned article as seen by its article page — the project-corpus
  * analogue of `SessionArticleDetail`. `heading` is the body's first markdown
@@ -1427,6 +1447,38 @@ export const createProject = async (
  */
 export const fetchProject = async (id: string): Promise<ProjectDetail> =>
   json<ProjectDetail>(await apiFetch(`/api/projects/${encodeURIComponent(id)}`));
+
+/** Fetch a project's metadata, memories, and content counts for its project page. */
+export const fetchProjectOverview = async (id: string): Promise<ProjectOverview> =>
+  json<ProjectOverview>(await apiFetch(`/api/projects/${encodeURIComponent(id)}/overview`));
+
+/** Fetch one cursor-paginated page of a project's article corpus. */
+export const fetchProjectArticlesPage = async (
+  id: string,
+  opts: { cursor?: string; limit?: number } = {},
+): Promise<ProjectArticlesPage> => {
+  const params = new URLSearchParams();
+  if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return json<ProjectArticlesPage>(
+    await apiFetch(`/api/projects/${encodeURIComponent(id)}/articles${qs ? `?${qs}` : ""}`),
+  );
+};
+
+/** Fetch one cursor-paginated page of a project's top-level sessions. */
+export const fetchProjectSessionsPage = async (
+  id: string,
+  opts: { cursor?: string; limit?: number } = {},
+): Promise<ProjectSessionsPage> => {
+  const params = new URLSearchParams();
+  if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return json<ProjectSessionsPage>(
+    await apiFetch(`/api/projects/${encodeURIComponent(id)}/sessions${qs ? `?${qs}` : ""}`),
+  );
+};
 
 /**
  * Update a project's name and/or standing instructions — blank instructions

@@ -243,6 +243,111 @@ describe("projects routes", () => {
     });
   });
 
+  describe("GET /api/projects/:id/overview", () => {
+    it("returns bounded project metadata with content counts", async () => {
+      seedProject("p1");
+      seedProject("p2");
+      seedArticle("a1", "p1", "doc-one");
+      seedArticle("a2", "p1", "doc-two");
+      seedArticle("a3", "p2", "other-doc");
+      seedMemory("m1", "p1", "deploy-window");
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1" });
+      createSession(env.db, MODEL, {
+        id: "c1",
+        projectId: "p1",
+        parentSessionId: "s1",
+        parentToolCallId: "t1",
+      });
+
+      const res = await buildApp().request("/api/projects/p1/overview");
+      const body = (await res.json()) as {
+        project: { id: string };
+        memories: { name: string }[];
+        articleCount: number;
+        sessionCount: number;
+      };
+
+      expect(body.project.id).toBe("p1");
+      expect(body.memories.map((memory) => memory.name)).toEqual(["deploy-window"]);
+      expect(body.articleCount).toBe(2);
+      expect(body.sessionCount).toBe(1);
+      expect(body).not.toHaveProperty("articles");
+      expect(body).not.toHaveProperty("sessions");
+    });
+
+    it("404s an unknown project", async () => {
+      expect((await buildApp().request("/api/projects/missing/overview")).status).toBe(404);
+    });
+  });
+
+  describe("project content pages", () => {
+    it("pages a project's sessions independently, excluding children and other projects", async () => {
+      seedProject("p1");
+      seedProject("p2");
+      createSession(env.db, MODEL, { id: "s1", projectId: "p1", startedAt: new Date(1000) });
+      createSession(env.db, MODEL, { id: "s2", projectId: "p1", startedAt: new Date(2000) });
+      createSession(env.db, MODEL, { id: "s3", projectId: "p1", startedAt: new Date(3000) });
+      createSession(env.db, MODEL, { id: "other", projectId: "p2", startedAt: new Date(4000) });
+      createSession(env.db, MODEL, {
+        id: "child",
+        projectId: "p1",
+        parentSessionId: "s3",
+        parentToolCallId: "t1",
+        startedAt: new Date(5000),
+      });
+
+      const first = (await (
+        await buildApp().request("/api/projects/p1/sessions?limit=2")
+      ).json()) as { sessions: { id: string }[]; nextCursor: string | null };
+      expect(first.sessions.map((session) => session.id)).toEqual(["s3", "s2"]);
+      expect(first.nextCursor).toBe("s2");
+
+      const second = (await (
+        await buildApp().request(`/api/projects/p1/sessions?limit=2&cursor=${first.nextCursor}`)
+      ).json()) as { sessions: { id: string }[]; nextCursor: string | null };
+      expect(second.sessions.map((session) => session.id)).toEqual(["s1"]);
+      expect(second.nextCursor).toBeNull();
+    });
+
+    it("pages a project's articles independently and derives their headings", async () => {
+      seedProject("p1");
+      seedProject("p2");
+      seedArticle("a1", "p1", "older", "# Older", new Date(1000));
+      seedArticle("a2", "p1", "middle", "# Middle", new Date(2000));
+      seedArticle("a3", "p1", "newer", "# Newer", new Date(3000));
+      seedArticle("other", "p2", "other", "# Other", new Date(4000));
+
+      const first = (await (
+        await buildApp().request("/api/projects/p1/articles?limit=2")
+      ).json()) as {
+        articles: { slug: string; heading: string | null }[];
+        nextCursor: string | null;
+      };
+      expect(first.articles).toEqual([
+        expect.objectContaining({ slug: "newer", heading: "Newer" }),
+        expect.objectContaining({ slug: "middle", heading: "Middle" }),
+      ]);
+      expect(first.nextCursor).toBe("a2");
+
+      const second = (await (
+        await buildApp().request(`/api/projects/p1/articles?limit=2&cursor=${first.nextCursor}`)
+      ).json()) as { articles: { slug: string }[]; nextCursor: string | null };
+      expect(second.articles.map((article) => article.slug)).toEqual(["older"]);
+      expect(second.nextCursor).toBeNull();
+    });
+
+    it("rejects invalid limits and cursors", async () => {
+      seedProject("p1");
+      expect((await buildApp().request("/api/projects/p1/sessions?limit=0")).status).toBe(400);
+      expect((await buildApp().request("/api/projects/p1/sessions?cursor=missing")).status).toBe(
+        400,
+      );
+      expect((await buildApp().request("/api/projects/p1/articles?cursor=missing")).status).toBe(
+        400,
+      );
+    });
+  });
+
   describe("PATCH /api/projects/:id", () => {
     const patch = (id: string, body: unknown) =>
       buildApp().request(`/api/projects/${id}`, {

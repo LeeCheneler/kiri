@@ -1,16 +1,28 @@
-import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  type UseInfiniteQueryResult,
+  type UseQueryResult,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  type ArticleSummary,
   type MemoryDetail,
   type ProjectArticleDetail,
   type ProjectDetail,
+  type ProjectOverview,
   type ProjectSummary,
+  type SessionListEntry,
   createProject,
   deleteProject,
   deleteProjectArticle,
   deleteProjectMemory,
   fetchProject,
   fetchProjectArticle,
+  fetchProjectArticlesPage,
   fetchProjectMemory,
+  fetchProjectOverview,
+  fetchProjectSessionsPage,
   fetchProjects,
   patchProject,
   patchProjectMemory,
@@ -21,6 +33,9 @@ const projectsKey = ["projects"] as const;
 const projectKey = (id: string) => ["project", id] as const;
 const projectArticleKey = (id: string, slug: string) => ["project-article", id, slug] as const;
 const projectMemoryKey = (id: string, name: string) => ["project-memory", id, name] as const;
+
+/** Page size for each project content column; mirrors the server default. */
+const PROJECT_PAGE_SIZE = 25;
 
 /**
  * Read the project index — every project with its corpus and session
@@ -42,6 +57,42 @@ export function useProjects(): UseQueryResult<ProjectSummary[]> {
  */
 export function useProject(id: string): UseQueryResult<ProjectDetail> {
   return useQuery({ queryKey: projectKey(id), queryFn: () => fetchProject(id) });
+}
+
+/** Read the bounded metadata and counts used by the project page. */
+export function useProjectOverview(id: string): UseQueryResult<ProjectOverview> {
+  return useQuery({
+    queryKey: [...projectKey(id), "overview"],
+    queryFn: () => fetchProjectOverview(id),
+  });
+}
+
+/** Read a project's article corpus as an infinite, newest-first feed. */
+export function useProjectArticlesFeed(
+  id: string,
+): UseInfiniteQueryResult<ArticleSummary[], Error> {
+  return useInfiniteQuery({
+    queryKey: [...projectKey(id), "articles"],
+    queryFn: ({ pageParam }) =>
+      fetchProjectArticlesPage(id, { cursor: pageParam, limit: PROJECT_PAGE_SIZE }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    select: (data) => data.pages.flatMap((page) => page.articles),
+  });
+}
+
+/** Read a project's top-level sessions as an infinite, newest-first feed. */
+export function useProjectSessionsFeed(
+  id: string,
+): UseInfiniteQueryResult<SessionListEntry[], Error> {
+  return useInfiniteQuery({
+    queryKey: [...projectKey(id), "sessions"],
+    queryFn: ({ pageParam }) =>
+      fetchProjectSessionsPage(id, { cursor: pageParam, limit: PROJECT_PAGE_SIZE }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    select: (data) => data.pages.flatMap((page) => page.sessions),
+  });
 }
 
 /**

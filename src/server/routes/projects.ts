@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { and, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
@@ -43,6 +43,18 @@ const patchMemoryBodySchema = z
     contentMd: z.string().min(1).optional(),
   })
   .strict();
+
+const DEFAULT_PROJECT_PAGE_LIMIT = 25;
+const MAX_PROJECT_PAGE_LIMIT = 100;
+const projectPageQuerySchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_PROJECT_PAGE_LIMIT)
+    .default(DEFAULT_PROJECT_PAGE_LIMIT),
+});
 
 export interface ProjectsRoutesDeps {
   db: KiriDb;
@@ -128,6 +140,130 @@ export function projectsRoutes(deps: ProjectsRoutesDeps): Hono {
       sessions: buildSessionListEntries(db, rows),
     });
   });
+
+  app.get(
+    "/:id/overview",
+    zValidator("param", idParamSchema, onZodFail("invalid project id")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const project = getProject(db, id);
+      if (!project) return c.json({ error: `project "${id}" not found` }, 404);
+      const articleCount = db
+        .select({ count: count() })
+        .from(articles)
+        .where(eq(articles.projectId, id))
+        .get()?.count;
+      const sessionCount = db
+        .select({ count: count() })
+        .from(sessions)
+        .where(and(eq(sessions.projectId, id), isNull(sessions.parentSessionId)))
+        .get()?.count;
+      return c.json({
+        project,
+        memories: listProjectMemories(db, id),
+        articleCount: articleCount ?? 0,
+        sessionCount: sessionCount ?? 0,
+      });
+    },
+  );
+
+  app.get(
+    "/:id/sessions",
+    zValidator("param", idParamSchema, onZodFail("invalid project id")),
+    zValidator("query", projectPageQuerySchema, onZodFail("invalid project page")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const { cursor, limit } = c.req.valid("query");
+      if (!getProject(db, id)) return c.json({ error: `project "${id}" not found` }, 404);
+      const anchor =
+        cursor === undefined
+          ? undefined
+          : db
+              .select({ startedAt: sessions.startedAt, id: sessions.id })
+              .from(sessions)
+              .where(
+                and(
+                  eq(sessions.id, cursor),
+                  eq(sessions.projectId, id),
+                  isNull(sessions.parentSessionId),
+                ),
+              )
+              .get();
+      if (cursor !== undefined && !anchor) {
+        return c.json({ error: `cursor "${cursor}" not found` }, 400);
+      }
+      const rows = db
+        .select()
+        .from(sessions)
+        .where(
+          and(
+            eq(sessions.projectId, id),
+            isNull(sessions.parentSessionId),
+            anchor
+              ? or(
+                  lt(sessions.startedAt, anchor.startedAt),
+                  and(eq(sessions.startedAt, anchor.startedAt), lt(sessions.id, anchor.id)),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(desc(sessions.startedAt), desc(sessions.id))
+        .limit(limit)
+        .all();
+      return c.json({
+        sessions: buildSessionListEntries(db, rows),
+        nextCursor: rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null,
+      });
+    },
+  );
+
+  app.get(
+    "/:id/articles",
+    zValidator("param", idParamSchema, onZodFail("invalid project id")),
+    zValidator("query", projectPageQuerySchema, onZodFail("invalid project page")),
+    (c) => {
+      const { id } = c.req.valid("param");
+      const { cursor, limit } = c.req.valid("query");
+      if (!getProject(db, id)) return c.json({ error: `project "${id}" not found` }, 404);
+      const anchor =
+        cursor === undefined
+          ? undefined
+          : db
+              .select({ createdAt: articles.createdAt, id: articles.id })
+              .from(articles)
+              .where(and(eq(articles.id, cursor), eq(articles.projectId, id)))
+              .get();
+      if (cursor !== undefined && !anchor) {
+        return c.json({ error: `cursor "${cursor}" not found` }, 400);
+      }
+      const rows = db
+        .select()
+        .from(articles)
+        .where(
+          and(
+            eq(articles.projectId, id),
+            anchor
+              ? or(
+                  lt(articles.createdAt, anchor.createdAt),
+                  and(eq(articles.createdAt, anchor.createdAt), lt(articles.id, anchor.id)),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(desc(articles.createdAt), desc(articles.id))
+        .limit(limit)
+        .all();
+      return c.json({
+        articles: rows.map((article) => ({
+          slug: article.slug,
+          name: article.name,
+          heading: extractFirstHeading(article.contentMd),
+          createdAt: article.createdAt,
+        })),
+        nextCursor: rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null,
+      });
+    },
+  );
 
   app.patch(
     "/:id",

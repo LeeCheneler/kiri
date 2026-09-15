@@ -1,10 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { FakeIntersectionObserver } from "../../../../tests/setup/fake-intersection-observer.ts";
 import { server } from "../../../../tests/setup/msw.ts";
 import { createQueryClient } from "../../state/query-client.ts";
 import { ProjectDetail } from "./project-detail.tsx";
@@ -24,6 +25,10 @@ const detail = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+afterEach(() => {
+  FakeIntersectionObserver.reset();
+});
+
 const article = (slug: string, heading: string | null, name = "Doc") => ({
   slug,
   name,
@@ -31,7 +36,7 @@ const article = (slug: string, heading: string | null, name = "Doc") => ({
   createdAt: "2026-08-07T10:00:00.000Z",
 });
 
-// The full listing entry the project detail now carries, so the page's rows
+// The full listing entry each project session page carries, so the page's rows
 // render through the same SessionRow as the feed.
 const session = (id: string, over: Record<string, unknown> = {}) => ({
   id,
@@ -55,8 +60,23 @@ const session = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const serveProject = (body: unknown) =>
-  server.use(http.get("*/api/projects/:id", () => HttpResponse.json(body as object)));
+const serveProject = (body: ReturnType<typeof detail>) =>
+  server.use(
+    http.get("*/api/projects/:id/overview", () =>
+      HttpResponse.json({
+        project: body.project,
+        memories: body.memories,
+        articleCount: body.articles.length,
+        sessionCount: body.sessions.length,
+      }),
+    ),
+    http.get("*/api/projects/:id/articles", () =>
+      HttpResponse.json({ articles: body.articles, nextCursor: null }),
+    ),
+    http.get("*/api/projects/:id/sessions", () =>
+      HttpResponse.json({ sessions: body.sessions, nextCursor: null }),
+    ),
+  );
 
 const renderDetail = () => {
   const memory = memoryLocation({ path: "/projects/p1", record: true });
@@ -135,6 +155,68 @@ describe("<ProjectDetail>", () => {
     expect(screen.queryByRole("link", { name: "Research" })).toBeNull();
   });
 
+  it("loads the next session page when its sentinel scrolls into view", async () => {
+    serveProject(detail());
+    server.use(
+      http.get("*/api/projects/:id/sessions", ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get("cursor");
+        return HttpResponse.json(
+          cursor === null
+            ? {
+                sessions: [session("s1", { title: "Newest session" })],
+                nextCursor: "s1",
+              }
+            : {
+                sessions: [session("s2", { title: "Older session" })],
+                nextCursor: null,
+              },
+        );
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("link", { name: "Newest session" });
+    expect(screen.queryByRole("link", { name: "Older session" })).toBeNull();
+
+    const observer = FakeIntersectionObserver.latest();
+    if (!observer) throw new Error("expected the session sentinel to register an observer");
+    act(() => observer.triggerIntersect());
+
+    expect(await screen.findByRole("link", { name: "Older session" })).toBeDefined();
+    expect(screen.getByText(/end of sessions/i)).toBeDefined();
+  });
+
+  it("shows progress while another session page is loading", async () => {
+    serveProject(detail());
+    server.use(
+      http.get("*/api/projects/:id/sessions", ({ request }) => {
+        if (new URL(request.url).searchParams.has("cursor")) return new Promise(() => {});
+        return HttpResponse.json({
+          sessions: [session("s1", { title: "Newest session" })],
+          nextCursor: "s1",
+        });
+      }),
+    );
+    renderDetail();
+    await screen.findByRole("link", { name: "Newest session" });
+
+    const observer = FakeIntersectionObserver.latest();
+    if (!observer) throw new Error("expected the session sentinel to register an observer");
+    act(() => observer.triggerIntersect());
+
+    expect(await screen.findByText(/loading more sessions/i)).toBeDefined();
+  });
+
+  it("surfaces a failed content page without hiding the other column", async () => {
+    serveProject(detail({ articles: [article("corpus-doc", "Corpus Doc")] }));
+    server.use(
+      http.get("*/api/projects/:id/sessions", () => new HttpResponse("boom", { status: 500 })),
+    );
+    renderDetail();
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/failed to load sessions/i);
+    expect(await screen.findByRole("link", { name: "Corpus Doc" })).toBeDefined();
+  });
+
   it("explains every index when the container is empty", async () => {
     serveProject(detail());
     renderDetail();
@@ -147,7 +229,7 @@ describe("<ProjectDetail>", () => {
 
   it("renders not-found for a project that no longer exists", async () => {
     server.use(
-      http.get("*/api/projects/:id", () =>
+      http.get("*/api/projects/:id/overview", () =>
         HttpResponse.json({ error: 'project "p1" not found' }, { status: 404 }),
       ),
     );
@@ -157,7 +239,9 @@ describe("<ProjectDetail>", () => {
   });
 
   it("surfaces a non-404 load failure as an alert", async () => {
-    server.use(http.get("*/api/projects/:id", () => new HttpResponse("boom", { status: 500 })));
+    server.use(
+      http.get("*/api/projects/:id/overview", () => new HttpResponse("boom", { status: 500 })),
+    );
     renderDetail();
 
     expect(await screen.findByRole("alert")).toBeDefined();
