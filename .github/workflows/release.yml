@@ -33,6 +33,11 @@ jobs:
 
       - run: bun build --compile --define 'KIRI_VERSION="${{ github.event.release.tag_name }}"' --target=bun-darwin-arm64 bin/kiri.ts --outfile kiri
 
+      # Bun leaves the linker's ad-hoc signature in place and appends the
+      # bundle after it, so the page hashes no longer verify. macOS 27
+      # SIGKILLs binaries with an invalid signature on exec.
+      - run: codesign --force --sign - kiri
+
       - name: Upload binary to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
