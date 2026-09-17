@@ -189,6 +189,23 @@ describe("<ChatMessage>", () => {
     expect(screen.getByAltText("shot.png")).toBeDefined();
   });
 
+  it("renders a document attachment as a download tile", () => {
+    const url = "data:application/pdf;base64,AA";
+    renderMessage(
+      message("user", [
+        { type: "file", mediaType: "application/pdf", filename: "brief.pdf", url },
+        { type: "file", mediaType: "application/pdf", url },
+        { type: "text", text: "summarise these" },
+      ]),
+    );
+
+    const named = screen.getByTitle("Download brief.pdf") as HTMLAnchorElement;
+    expect(named.getAttribute("href")).toBe(url);
+    expect(named.getAttribute("download")).toBe("brief.pdf");
+    expect(screen.getByTitle("Download Attached document")).toBeDefined();
+    expect(screen.getByText("summarise these")).toBeDefined();
+  });
+
   it("renders an attached text file as a previewable tile, not as raw message text", () => {
     renderMessage(
       message("user", [
@@ -382,6 +399,27 @@ describe("<ChatMessage>", () => {
     await userEvent.type(editField() as HTMLTextAreaElement, "look again{Enter}");
 
     expect(onResubmit.mock.calls).toEqual([["m1", [image, { type: "text", text: "look again" }]]]);
+  });
+
+  it("preserves document attachments when resending an edited message", async () => {
+    const onResubmit = mock((_id: string, _parts: UIMessage["parts"]) => {});
+    const document = {
+      type: "file" as const,
+      mediaType: "application/pdf",
+      filename: "brief.pdf",
+      url: "data:application/pdf;base64,AA",
+    };
+    renderMessage(message("user", [document, { type: "text", text: "read" }]), { onResubmit });
+
+    await userEvent.click(editButton());
+    // The seeded document tiles in the editor.
+    expect(screen.getByRole("button", { name: "Remove brief.pdf" })).toBeDefined();
+    await userEvent.clear(editField() as HTMLTextAreaElement);
+    await userEvent.type(editField() as HTMLTextAreaElement, "read again{Enter}");
+
+    expect(onResubmit.mock.calls).toEqual([
+      ["m1", [document, { type: "text", text: "read again" }]],
+    ]);
   });
 
   it("preserves attached text files when resending an edited message", async () => {

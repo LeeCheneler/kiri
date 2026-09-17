@@ -12,11 +12,13 @@ import { Button } from "../../design-system/actions/button.tsx";
 import { Field } from "../../design-system/actions/field.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
 import {
-  ATTACHMENT_ACCEPT,
+  type PendingDocument,
   type PendingImage,
   type PendingTextFile,
-  TEXT_ATTACHMENT_ACCEPT,
+  attachmentAccept,
+  documentFilesFrom,
   imageFilesFrom,
+  readPendingDocuments,
   readPendingImages,
   readPendingTextFiles,
   textFilesFrom,
@@ -29,12 +31,13 @@ import { ImageThumb } from "./image-thumb.tsx";
  * The shared message composer: one framed surface holding any staged
  * attachments, an auto-growing textarea, and a toolbar — add file on the left;
  * caller controls, an optional cancel, and an optional submit button on the
- * right. Images and text files stage from the file picker (images also from a
- * paste), Enter submits and Shift+Enter breaks a line. Text is controlled via
- * `value`/`onChange`, so the caller owns persistence; staged attachments start
- * from `initialImages`/`initialTextFiles` and are cleared on submit. `onSubmit`
- * receives the assembled `UIMessage` parts — images, then each text file as an
- * `<attached-file>` text part, then the typed text — and the caller decides what
+ * right. Images, documents and text files stage from the file picker (images
+ * also from a paste), Enter submits and Shift+Enter breaks a line. Text is
+ * controlled via `value`/`onChange`, so the caller owns persistence; staged
+ * attachments start from `initialImages`/`initialDocuments`/`initialTextFiles`
+ * and are cleared on submit. `onSubmit` receives the assembled `UIMessage`
+ * parts — images, then documents, then each text file as an `<attached-file>`
+ * text part, then the typed text — and the caller decides what
  * they mean (send a turn, resend an edit); returning `false` refuses the
  * submit — staged attachments stay put for the caller's error to explain.
  * `onCancel`, when given, fires from
@@ -55,7 +58,12 @@ import { ImageThumb } from "./image-thumb.tsx";
  * error pointing at the model picker, instead of staging an attachment the
  * turn would only fail on. Text files stay attachable throughout. Omit it (or
  * pass `true`) when images are fine or the model's input support is unknown.
+ * `acceptsDocuments` lists the document media types the model's provider
+ * carries (PDF, Office): the picker offers exactly those, and a picked file of
+ * any other document type gets the same kind of inline error.
  */
+
+const NO_DOCUMENTS: readonly string[] = [];
 export function MessageComposer({
   value,
   onChange,
@@ -68,9 +76,11 @@ export function MessageComposer({
   placeholder,
   submitLabel,
   acceptsImages = true,
+  acceptsDocuments = NO_DOCUMENTS,
   controls,
   error,
   initialImages = [],
+  initialDocuments = [],
   initialTextFiles = [],
 }: {
   value: string;
@@ -85,15 +95,18 @@ export function MessageComposer({
   placeholder?: string;
   submitLabel?: string;
   acceptsImages?: boolean;
+  acceptsDocuments?: readonly string[];
   controls?: ReactNode;
   /** A failure from a control in the toolbar, shown on the composer's error row. */
   error?: string;
   initialImages?: PendingImage[];
+  initialDocuments?: PendingDocument[];
   initialTextFiles?: PendingTextFile[];
 }) {
   const generatedId = useId();
   const fieldId = id ?? generatedId;
   const [images, setImages] = useState<PendingImage[]>(initialImages);
+  const [documents, setDocuments] = useState<PendingDocument[]>(initialDocuments);
   const [textFiles, setTextFiles] = useState<PendingTextFile[]>(initialTextFiles);
   const [attachmentError, setAttachmentError] = useState<string>();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +126,15 @@ export function MessageComposer({
     },
     [acceptsImages],
   );
+  const addDocumentFiles = useCallback(
+    async (files: ReturnType<typeof documentFilesFrom>) => {
+      if (files.length === 0) return;
+      const { documents, error } = await readPendingDocuments(files, acceptsDocuments);
+      if (documents.length > 0) setDocuments((prev) => [...prev, ...documents]);
+      setAttachmentError(error);
+    },
+    [acceptsDocuments],
+  );
   const addTextFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     const { textFiles, error } = await readPendingTextFiles(files);
@@ -130,14 +152,18 @@ export function MessageComposer({
   };
   const onPickFiles: ChangeEventHandler<HTMLInputElement> = (event) => {
     void addImageFiles(imageFilesFrom(event.target.files));
+    void addDocumentFiles(documentFilesFrom(event.target.files));
     void addTextFiles(textFilesFrom(event.target.files));
     event.target.value = ""; // let the same file be picked again after removal
   };
   const removeImage = (id: string) => setImages((prev) => prev.filter((image) => image.id !== id));
+  const removeDocument = (id: string) =>
+    setDocuments((prev) => prev.filter((document) => document.id !== id));
   const removeTextFile = (id: string) =>
     setTextFiles((prev) => prev.filter((file) => file.id !== id));
 
-  const empty = value.trim() === "" && images.length === 0 && textFiles.length === 0;
+  const empty =
+    value.trim() === "" && images.length === 0 && documents.length === 0 && textFiles.length === 0;
 
   const submit = () => {
     if (busy || empty) return;
@@ -147,6 +173,7 @@ export function MessageComposer({
     // every provider as plain text.
     const parts: UIMessage["parts"] = [
       ...images.map((image) => image.part),
+      ...documents.map((document) => document.part),
       ...textFiles.map((file) => ({
         type: "text" as const,
         text: wrapAttachedFile(file.filename, file.content),
@@ -155,41 +182,44 @@ export function MessageComposer({
     ];
     if (onSubmit(parts) === false) return;
     setImages([]);
+    setDocuments([]);
     setTextFiles([]);
     setAttachmentError(undefined);
   };
 
   const frame = (
     <div className="border border-rule transition-colors duration-150 focus-within:border-accent">
-      {images.length > 0 || textFiles.length > 0 ? (
+      {images.length > 0 || documents.length > 0 || textFiles.length > 0 ? (
         <ul className="flex flex-wrap gap-2 px-3 pt-3">
           {images.map((image) => (
-            <li key={image.id} className="relative">
+            <StagedAttachment
+              key={image.id}
+              removeLabel="Remove image"
+              onRemove={() => removeImage(image.id)}
+            >
               <ImageThumb src={image.part.url} alt={image.part.filename ?? "Attached image"} />
-              <button
-                type="button"
-                onClick={() => removeImage(image.id)}
-                title="Remove image"
-                aria-label="Remove image"
-                className="-top-2 -right-2 absolute flex h-5 w-5 cursor-pointer items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                ×
-              </button>
-            </li>
+            </StagedAttachment>
           ))}
-          {textFiles.map((file) => (
-            <li key={file.id} className="relative">
-              <FileThumb filename={file.filename} />
-              <button
-                type="button"
-                onClick={() => removeTextFile(file.id)}
-                title={`Remove ${file.filename}`}
-                aria-label={`Remove ${file.filename}`}
-                className="-top-2 -right-2 absolute flex h-5 w-5 cursor-pointer items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          {documents.map((document) => {
+            const filename = document.part.filename ?? "Attached document";
+            return (
+              <StagedAttachment
+                key={document.id}
+                removeLabel={`Remove ${filename}`}
+                onRemove={() => removeDocument(document.id)}
               >
-                ×
-              </button>
-            </li>
+                <FileThumb filename={filename} />
+              </StagedAttachment>
+            );
+          })}
+          {textFiles.map((file) => (
+            <StagedAttachment
+              key={file.id}
+              removeLabel={`Remove ${file.filename}`}
+              onRemove={() => removeTextFile(file.id)}
+            >
+              <FileThumb filename={file.filename} />
+            </StagedAttachment>
           ))}
         </ul>
       ) : null}
@@ -229,7 +259,7 @@ export function MessageComposer({
         <input
           ref={fileInputRef}
           type="file"
-          accept={acceptsImages ? ATTACHMENT_ACCEPT : TEXT_ATTACHMENT_ACCEPT}
+          accept={attachmentAccept({ images: acceptsImages, documents: acceptsDocuments })}
           multiple
           hidden
           onChange={onPickFiles}
@@ -260,4 +290,31 @@ export function MessageComposer({
     );
   }
   return frame;
+}
+
+// One staged attachment in the composer's row: its thumbnail with a remove
+// control pinned to the corner.
+function StagedAttachment({
+  removeLabel,
+  onRemove,
+  children,
+}: {
+  removeLabel: string;
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <li className="relative">
+      {children}
+      <button
+        type="button"
+        onClick={onRemove}
+        title={removeLabel}
+        aria-label={removeLabel}
+        className="-top-2 -right-2 absolute flex h-5 w-5 cursor-pointer items-center justify-center border border-rule bg-canvas font-mono text-ink-muted text-xs leading-none hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        ×
+      </button>
+    </li>
+  );
 }

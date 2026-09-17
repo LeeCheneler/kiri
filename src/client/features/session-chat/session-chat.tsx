@@ -44,6 +44,8 @@ function sessionErrorText(error: unknown): string | undefined {
   return undefined;
 }
 
+const NO_DOCUMENTS: readonly string[] = [];
+
 // Whether a message carries an image attachment — used to nudge towards a
 // multimodal model when a turn that included one fails (the likeliest cause).
 function messageHasImage(message: UIMessage): boolean {
@@ -173,8 +175,12 @@ function ChatView({
   // Whether the session's model reads images, per its provider's listing. Only
   // a definite "no" restricts the composer — unknown (a bare listing, a pinned
   // model the provider no longer lists) keeps images attachable rather than
-  // blocking on a guess.
-  const acceptsImages = models.find((model) => model.id === session.model)?.imageInput !== false;
+  // blocking on a guess. Documents are the other way round: only the types the
+  // provider is known to carry are attachable, since the rest would fail the
+  // turn (or, on a gateway, be parsed at a cost).
+  const sessionModel = models.find((model) => model.id === session.model);
+  const acceptsImages = sessionModel?.imageInput !== false;
+  const acceptsDocuments = sessionModel?.documentInput ?? NO_DOCUMENTS;
 
   // Seed once from the persisted transcript; `useChat` owns the live state from
   // here. A later refetch (from a session.* event) re-runs this memo, but
@@ -483,8 +489,8 @@ function ChatView({
             visible exactly when there's nothing typed to send. */}
         {queueBlocked ? (
           <p role="alert" className="mb-2 font-mono text-status-failed text-xs">
-            Images can't be queued while a turn is running — wait for it to finish, or remove the
-            attachments to queue the text.
+            Attachments can't be queued while a turn is running — wait for it to finish, or remove
+            them to queue the text.
           </p>
         ) : null}
         <MessageComposer
@@ -500,6 +506,7 @@ function ChatView({
              the model can't continue past an unanswered call. */
           busy={awaitingApproval}
           acceptsImages={acceptsImages}
+          acceptsDocuments={acceptsDocuments}
           error={talkState.error}
           controls={
             <>

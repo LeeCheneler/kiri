@@ -3,7 +3,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { type ReactNode, useState } from "react";
-import { type PendingImage, type PendingTextFile, wrapAttachedFile } from "./attachments.ts";
+import {
+  type PendingDocument,
+  type PendingImage,
+  type PendingTextFile,
+  wrapAttachedFile,
+} from "./attachments.ts";
 import { MessageComposer } from "./message-composer.tsx";
 
 // A stateful host so the controlled textarea behaves as it does in the app.
@@ -14,9 +19,11 @@ function Harness({
   labelHidden = false,
   submitLabel,
   acceptsImages,
+  acceptsDocuments,
   controls,
   error,
   initialImages,
+  initialDocuments,
   initialTextFiles,
 }: {
   onSubmit: (parts: UIMessage["parts"]) => void;
@@ -25,9 +32,11 @@ function Harness({
   labelHidden?: boolean;
   submitLabel?: string;
   acceptsImages?: boolean;
+  acceptsDocuments?: readonly string[];
   controls?: ReactNode;
   error?: string;
   initialImages?: PendingImage[];
+  initialDocuments?: PendingDocument[];
   initialTextFiles?: PendingTextFile[];
 }) {
   const [value, setValue] = useState("");
@@ -42,9 +51,11 @@ function Harness({
       labelHidden={labelHidden}
       submitLabel={submitLabel}
       acceptsImages={acceptsImages}
+      acceptsDocuments={acceptsDocuments}
       controls={controls}
       error={error}
       initialImages={initialImages}
+      initialDocuments={initialDocuments}
       initialTextFiles={initialTextFiles}
     />
   );
@@ -59,6 +70,8 @@ const fileInput = (container: HTMLElement) =>
 const pngFile = (name: string, bytes: BlobPart = "img") =>
   new File([bytes], name, { type: "image/png" });
 const txtFile = (name: string, content: BlobPart = "hello") => new File([content], name);
+const PDF = "application/pdf";
+const pdfFile = (name: string) => new File(["%PDF"], name);
 
 describe("<MessageComposer>", () => {
   it("submits the typed text as a single text part on Enter", async () => {
@@ -402,6 +415,70 @@ describe("<MessageComposer>", () => {
     const parts = onSubmit.mock.calls[0]?.[0] ?? [];
     expect(parts[0]).toEqual({ type: "text", text: wrapAttachedFile("seed.md", "seeded body") });
     expect(parts.at(-1)).toEqual({ type: "text", text: "use it" });
+  });
+
+  it("stages a picked document as a tile and submits it after images, before text files", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = render(<Harness onSubmit={onSubmit} acceptsDocuments={[PDF]} />);
+
+    await userEvent.upload(fileInput(container), [
+      pdfFile("brief.pdf"),
+      pngFile("shot.png"),
+      txtFile("notes.md"),
+    ]);
+    expect(await screen.findByText("brief.pdf")).toBeDefined();
+    await userEvent.type(textbox(), "read these{Enter}");
+
+    const parts = onSubmit.mock.calls[0]?.[0] ?? [];
+    expect(parts.map((part) => part.type)).toEqual(["file", "file", "text", "text"]);
+    expect(parts[0]).toMatchObject({ mediaType: "image/png" });
+    expect(parts[1]).toMatchObject({ mediaType: PDF, filename: "brief.pdf" });
+    expect(parts[2]).toEqual({ type: "text", text: wrapAttachedFile("notes.md", "hello") });
+    expect(parts[3]).toEqual({ type: "text", text: "read these" });
+  });
+
+  it("offers exactly the accepted document types in the picker", () => {
+    const { container } = render(<Harness onSubmit={() => {}} acceptsDocuments={[PDF]} />);
+    const accept = fileInput(container).accept.split(",");
+    expect(accept).toContain(".pdf");
+    expect(accept).not.toContain(".docx");
+  });
+
+  it("rejects a picked document of a type the model can't read, with an inline error", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const { container } = composer(onSubmit);
+
+    // No document types accepted: the picker excludes them, so force the
+    // upload past it as "All Files" would.
+    await userEvent.upload(fileInput(container), pdfFile("brief.pdf"), { applyAccept: false });
+
+    expect(await screen.findByText(/can't read \.pdf files/i)).toBeDefined();
+    expect(screen.queryByText("brief.pdf")).toBeNull();
+  });
+
+  it("removes a staged document", async () => {
+    const { container } = render(<Harness onSubmit={() => {}} acceptsDocuments={[PDF]} />);
+    await userEvent.upload(fileInput(container), pdfFile("brief.pdf"));
+    expect(await screen.findByText("brief.pdf")).toBeDefined();
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove brief.pdf" }));
+
+    expect(screen.queryByText("brief.pdf")).toBeNull();
+  });
+
+  it("starts with seeded documents and submits them ahead of the text", async () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    const seeded: PendingDocument[] = [
+      { id: "seed-1", part: { type: "file", mediaType: PDF, url: `data:${PDF};base64,AA` } },
+    ];
+    render(<Harness onSubmit={onSubmit} initialDocuments={seeded} />);
+
+    // A seeded part with no filename still gets a labelled tile.
+    expect(screen.getByRole("button", { name: "Remove Attached document" })).toBeDefined();
+    await userEvent.type(textbox(), "summarise it{Enter}");
+
+    const parts = onSubmit.mock.calls[0]?.[0] ?? [];
+    expect(parts).toEqual([seeded[0].part, { type: "text", text: "summarise it" }]);
   });
 
   it("shows a control's error on its own row, alongside an attachment error", async () => {

@@ -622,6 +622,8 @@ export interface ModelInfo {
   output: "text" | "image";
   /** Whether the model accepts image input; absent when the provider's listing doesn't say. */
   imageInput?: boolean;
+  /** The document media types (PDF, Office) the model's provider carries; absent when none. */
+  documentInput?: string[];
 }
 
 /** A provider whose model listing failed, surfaced so the picker can explain a gap. */

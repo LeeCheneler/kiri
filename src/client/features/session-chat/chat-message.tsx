@@ -8,9 +8,14 @@ import { Markdown } from "../../design-system/content/markdown.tsx";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
-import { type PendingImage, type PendingTextFile, parseAttachedFile } from "./attachments.ts";
+import {
+  type PendingDocument,
+  type PendingImage,
+  type PendingTextFile,
+  parseAttachedFile,
+} from "./attachments.ts";
 import { ChildSession } from "./child-session.tsx";
-import { PreviewableFile } from "./file-thumb.tsx";
+import { AttachedDocument, PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";
 import type { LiveConsoleStore } from "./live-console.ts";
 import { MessageComposer } from "./message-composer.tsx";
@@ -40,6 +45,13 @@ const messageText = (message: UIMessage): string =>
 const imageParts = (message: UIMessage): FileUIPart[] =>
   message.parts.filter(
     (part): part is FileUIPart => part.type === "file" && part.mediaType.startsWith("image/"),
+  );
+
+// The document attachments on a message — every non-image file part — rendered
+// as downloadable tiles alongside the images.
+const documentParts = (message: UIMessage): FileUIPart[] =>
+  message.parts.filter(
+    (part): part is FileUIPart => part.type === "file" && !part.mediaType.startsWith("image/"),
   );
 
 // The text files attached to a message, rendered as previewable tiles above its
@@ -72,6 +84,7 @@ function UserMessage({
 }) {
   const text = messageText(message);
   const images = imageParts(message);
+  const documents = documentParts(message);
   const files = attachedFiles(message);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -107,6 +120,9 @@ function UserMessage({
             onChange={setDraft}
             busy={busy}
             initialImages={images.map((part) => ({ id: part.url, part }) satisfies PendingImage)}
+            initialDocuments={documents.map(
+              (part) => ({ id: part.url, part }) satisfies PendingDocument,
+            )}
             initialTextFiles={files.map(
               (file, index) =>
                 ({ id: `${message.id}-file-${index}`, ...file }) satisfies PendingTextFile,
@@ -119,11 +135,16 @@ function UserMessage({
           <>
             <Eyebrow tone="muted">You</Eyebrow>
             <div className="mt-2 space-y-3">
-              {images.length > 0 || files.length > 0 ? (
+              {images.length > 0 || documents.length > 0 || files.length > 0 ? (
                 <ul className="flex flex-wrap gap-2">
                   {images.map((part) => (
                     <li key={part.url}>
                       <PreviewableImage part={part} />
+                    </li>
+                  ))}
+                  {documents.map((part) => (
+                    <li key={part.url}>
+                      <AttachedDocument part={part} />
                     </li>
                   ))}
                   {files.map((file, index) => (

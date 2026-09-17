@@ -1396,6 +1396,32 @@ describe("<SessionChat>", () => {
     expect(await screen.findByText(/reads text only/i)).toBeDefined();
   });
 
+  it("offers the document types the session's model carries in the picker", async () => {
+    server.use(
+      http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())),
+      http.get("*/api/models", () =>
+        HttpResponse.json({
+          models: [
+            {
+              id: "anthropic:claude",
+              provider: "anthropic",
+              output: "text",
+              documentInput: ["application/pdf"],
+            },
+          ],
+          failures: [],
+        }),
+      ),
+    );
+    const { container } = renderChat();
+
+    await screen.findByRole("textbox", { name: /message/i });
+    await waitFor(() => {
+      const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(input.accept.split(",")).toContain(".pdf");
+    });
+  });
+
   it("restores a saved draft into the composer", async () => {
     localStorage.setItem("kiri:session-draft:s1", "a half-typed question");
     server.use(http.get("*/api/sessions/:id", () => HttpResponse.json(sessionDetail())));

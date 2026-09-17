@@ -1,14 +1,21 @@
 import { describe, expect, it } from "bun:test";
 import {
+  MAX_DOCUMENT_MB,
   MAX_IMAGE_MB,
   MAX_TEXT_FILE_KB,
+  attachmentAccept,
+  documentFilesFrom,
   imageFilesFrom,
   parseAttachedFile,
+  readPendingDocuments,
   readPendingImages,
   readPendingTextFiles,
   textFilesFrom,
   wrapAttachedFile,
 } from "./attachments.ts";
+
+const PDF = "application/pdf";
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 const fileList = (files: File[]) => files as unknown as FileList;
 const oversize = () =>
@@ -99,6 +106,76 @@ describe("readPendingTextFiles", () => {
     expect(textFiles).toHaveLength(1);
     expect(textFiles[0].filename).toBe("ok.md");
     expect(error).toBeDefined();
+  });
+});
+
+describe("documentFilesFrom", () => {
+  it("returns nothing for an absent list", () => {
+    expect(documentFilesFrom(null)).toEqual([]);
+    expect(documentFilesFrom(undefined)).toEqual([]);
+  });
+
+  it("keeps document files by extension, case-insensitively, with their media types", () => {
+    // Browsers report an empty type for many Office files, so the extension
+    // decides — and supplies the media type the part rides as.
+    const pdf = new File(["%PDF"], "Brief.PDF");
+    const docx = new File(["PK"], "notes.docx", { type: "application/octet-stream" });
+    const other = new File(["x"], "photo.png", { type: "image/png" });
+    expect(documentFilesFrom(fileList([pdf, docx, other]))).toEqual([
+      { file: pdf, mediaType: PDF },
+      { file: docx, mediaType: DOCX },
+    ]);
+  });
+});
+
+describe("readPendingDocuments", () => {
+  const pdf = { file: new File(["%PDF"], "brief.pdf"), mediaType: PDF };
+  const docx = { file: new File(["PK"], "notes.docx"), mediaType: DOCX };
+
+  it("reads accepted documents into data-URL file parts", async () => {
+    const { documents, error } = await readPendingDocuments([pdf], [PDF]);
+    expect(error).toBeUndefined();
+    expect(documents).toHaveLength(1);
+    expect(documents[0].id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(documents[0].part).toEqual({
+      type: "file",
+      mediaType: PDF,
+      filename: "brief.pdf",
+      url: `data:${PDF};base64,${btoa("%PDF")}`,
+    });
+  });
+
+  it("skips a type the model does not accept and says which", async () => {
+    const { documents, error } = await readPendingDocuments([docx, pdf], [PDF]);
+    expect(documents.map((document) => document.part.filename)).toEqual(["brief.pdf"]);
+    expect(error).toBe("This model can't read .docx files. Switch model to attach it.");
+  });
+
+  it("skips a file over the size cap and reports why", async () => {
+    const big = {
+      file: new File([new Uint8Array(MAX_DOCUMENT_MB * 1024 * 1024 + 1)], "big.pdf"),
+      mediaType: PDF,
+    };
+    const { documents, error } = await readPendingDocuments([big, pdf], [PDF]);
+    expect(documents.map((document) => document.part.filename)).toEqual(["brief.pdf"]);
+    expect(error).toBe(`Documents must be under ${MAX_DOCUMENT_MB} MB.`);
+  });
+});
+
+describe("attachmentAccept", () => {
+  it("offers images, the accepted document types, and text files", () => {
+    const accept = attachmentAccept({ images: true, documents: [PDF] }).split(",");
+    expect(accept[0]).toBe("image/*");
+    expect(accept).toContain(".pdf");
+    expect(accept).not.toContain(".docx");
+    expect(accept).toContain(".md");
+  });
+
+  it("narrows to text files when the model reads neither images nor documents", () => {
+    const accept = attachmentAccept({ images: false, documents: [] }).split(",");
+    expect(accept).not.toContain("image/*");
+    expect(accept).not.toContain(".pdf");
+    expect(accept).toContain(".md");
   });
 });
 

@@ -1,4 +1,5 @@
 import type { FileUIPart } from "ai";
+import { DOCUMENT_TYPES } from "../../../shared/document-types.ts";
 
 // Pasted/uploaded images ride the message as data-URL file parts, so they are
 // stored and replayed with the transcript without a separate upload channel.
@@ -20,13 +21,13 @@ export function imageFilesFrom(files: FileList | null | undefined): File[] {
 // in the message part, so there's no separate upload channel. Reading the byte
 // buffer (rather than FileReader's callback pair) keeps this a single path; a
 // read failure just rejects and bubbles.
-async function fileToDataUrl(file: File): Promise<string> {
+async function fileToDataUrl(file: File, mediaType: string): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
-  return `data:${file.type};base64,${btoa(binary)}`;
+  return `data:${mediaType};base64,${btoa(binary)}`;
 }
 
 export type PendingImagesResult = { images: PendingImage[]; error?: string };
@@ -44,7 +45,7 @@ export async function readPendingImages(files: File[]): Promise<PendingImagesRes
       error = `Images must be under ${MAX_IMAGE_MB} MB.`;
       continue;
     }
-    const url = await fileToDataUrl(file);
+    const url = await fileToDataUrl(file, file.type);
     images.push({
       id: crypto.randomUUID(),
       part: { type: "file", mediaType: file.type, filename: file.name, url },
@@ -84,16 +85,30 @@ const TEXT_FILE_EXTENSIONS = new Set([
   ".sh",
 ]);
 
-/** The `accept` value for the composer's file picker: images plus text files. */
-export const ATTACHMENT_ACCEPT = ["image/*", ...TEXT_FILE_EXTENSIONS].join(",");
-
-/** The picker `accept` value when the model can't read images: text files only. */
-export const TEXT_ATTACHMENT_ACCEPT = [...TEXT_FILE_EXTENSIONS].join(",");
-
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf(".");
   return dot === -1 ? "" : name.slice(dot).toLowerCase();
 };
+
+/**
+ * The composer file picker's `accept` value: text files always, images when
+ * the model reads them, and each document type the model's provider carries.
+ */
+export function attachmentAccept({
+  images,
+  documents,
+}: {
+  images: boolean;
+  documents: readonly string[];
+}): string {
+  return [
+    ...(images ? ["image/*"] : []),
+    ...DOCUMENT_TYPES.filter((type) => documents.includes(type.mediaType)).map(
+      (type) => type.extension,
+    ),
+    ...TEXT_FILE_EXTENSIONS,
+  ].join(",");
+}
 
 /** A staged text file in the composer, before it is sent as a wrapped text part. */
 export type PendingTextFile = { id: string; filename: string; content: string };
@@ -122,6 +137,62 @@ export async function readPendingTextFiles(files: File[]): Promise<PendingTextFi
     textFiles.push({ id: crypto.randomUUID(), filename: file.name, content: await file.text() });
   }
   return { textFiles, error };
+}
+
+// Documents — PDFs and Office files — ride like images: binary file parts
+// carrying a data URL, stored and replayed with the transcript. Unlike text
+// files they only reach a model whose provider transport maps the part, so
+// which types are attachable comes from the session's model (its
+// `documentInput`). Detected by extension like text files, because browsers
+// report an empty or generic type for many Office files.
+export const MAX_DOCUMENT_MB = 20;
+const MAX_DOCUMENT_BYTES = MAX_DOCUMENT_MB * 1024 * 1024;
+
+/** A staged document in the composer, before it is sent as a message part. */
+export type PendingDocument = { id: string; part: FileUIPart };
+
+/** A picked document file with the media type its extension maps to. */
+export type DocumentFile = { file: File; mediaType: string };
+
+/** The document files in a file-input list, with their media types; others are ignored. */
+export function documentFilesFrom(files: FileList | null | undefined): DocumentFile[] {
+  if (!files) return [];
+  return Array.from(files).flatMap((file) => {
+    const type = DOCUMENT_TYPES.find((type) => type.extension === extensionOf(file.name));
+    return type ? [{ file, mediaType: type.mediaType }] : [];
+  });
+}
+
+export type PendingDocumentsResult = { documents: PendingDocument[]; error?: string };
+
+/**
+ * Read document files into pending attachments (data-URL file parts). A file of
+ * a type the model doesn't accept, or one over the size cap, is skipped and
+ * reported via `error` — the picker's `accept` narrows the dialog, but a real
+ * picker can still hand over anything via "All Files".
+ */
+export async function readPendingDocuments(
+  files: DocumentFile[],
+  accepted: readonly string[],
+): Promise<PendingDocumentsResult> {
+  const documents: PendingDocument[] = [];
+  let error: string | undefined;
+  for (const { file, mediaType } of files) {
+    if (!accepted.includes(mediaType)) {
+      error = `This model can't read ${extensionOf(file.name)} files. Switch model to attach it.`;
+      continue;
+    }
+    if (file.size > MAX_DOCUMENT_BYTES) {
+      error = `Documents must be under ${MAX_DOCUMENT_MB} MB.`;
+      continue;
+    }
+    const url = await fileToDataUrl(file, mediaType);
+    documents.push({
+      id: crypto.randomUUID(),
+      part: { type: "file", mediaType, filename: file.name, url },
+    });
+  }
+  return { documents, error };
 }
 
 const ATTACHED_FILE_RE = /^<attached-file name="([^"]*)">\n([\s\S]*)\n<\/attached-file>$/;
