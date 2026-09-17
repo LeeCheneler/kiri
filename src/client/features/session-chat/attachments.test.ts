@@ -1,17 +1,14 @@
 import { describe, expect, it } from "bun:test";
+import { parseAttachedFile, wrapAttachedFile } from "../../../shared/attached-file.ts";
+import { MAX_DOCUMENT_MB, MAX_IMAGE_MB, MAX_TEXT_FILE_KB } from "../../../shared/message-limits.ts";
 import {
-  MAX_DOCUMENT_MB,
-  MAX_IMAGE_MB,
-  MAX_TEXT_FILE_KB,
   attachmentAccept,
   documentFilesFrom,
   imageFilesFrom,
-  parseAttachedFile,
   readPendingDocuments,
   readPendingImages,
   readPendingTextFiles,
   textFilesFrom,
-  wrapAttachedFile,
 } from "./attachments.ts";
 
 const PDF = "application/pdf";
@@ -53,7 +50,7 @@ describe("readPendingImages", () => {
   it("skips a file over the size cap and reports why", async () => {
     const { images, error } = await readPendingImages([oversize()]);
     expect(images).toHaveLength(0);
-    expect(error).toContain(`${MAX_IMAGE_MB} MB`);
+    expect(error).toContain(`${MAX_IMAGE_MB} MiB`);
   });
 
   it("keeps the valid images when a sibling is too large", async () => {
@@ -97,7 +94,7 @@ describe("readPendingTextFiles", () => {
     const big = new File([new Uint8Array(MAX_TEXT_FILE_KB * 1024 + 1)], "big.txt");
     const { textFiles, error } = await readPendingTextFiles([big]);
     expect(textFiles).toHaveLength(0);
-    expect(error).toContain(`${MAX_TEXT_FILE_KB} KB`);
+    expect(error).toContain(`${MAX_TEXT_FILE_KB} KiB`);
   });
 
   it("keeps the valid files when a sibling is too large", async () => {
@@ -158,7 +155,7 @@ describe("readPendingDocuments", () => {
     };
     const { documents, error } = await readPendingDocuments([big, pdf], [PDF]);
     expect(documents.map((document) => document.part.filename)).toEqual(["brief.pdf"]);
-    expect(error).toBe(`Documents must be under ${MAX_DOCUMENT_MB} MB.`);
+    expect(error).toBe(`Documents must be ${MAX_DOCUMENT_MB} MiB or smaller.`);
   });
 });
 

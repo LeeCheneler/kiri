@@ -14,6 +14,11 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { extractFirstHeading } from "../../shared/extract-first-heading.ts";
+import {
+  MESSAGE_BODY_LIMIT_BYTES,
+  MESSAGE_SIZE_ERROR,
+  messagePartsError,
+} from "../../shared/message-limits.ts";
 import { type ModelsConfig, configuredDelegateRoles } from "../config/schema.ts";
 import type { ConfigStore } from "../config/store.ts";
 import type { KiriDb } from "../db/index.ts";
@@ -175,7 +180,7 @@ const createSessionBodySchema = z
   })
   .strict();
 
-// A push-to-talk recording is the one large body the API takes, so the
+// A push-to-talk recording needs a larger request limit, so the
 // app-wide body limit exempts this path and the route carries its own cap:
 // the ceiling OpenAI (and OpenRouter after it) puts on an audio upload.
 export const TRANSCRIBE_PATH = "/api/transcribe";
@@ -1095,11 +1100,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
 
   app.post(
     "/sessions/:id/messages",
+    bodyLimit({
+      maxSize: MESSAGE_BODY_LIMIT_BYTES,
+      onError: (c) => c.json({ error: MESSAGE_SIZE_ERROR }, 413),
+    }),
     zValidator("param", sessionIdParamSchema, onZodFail("invalid session id")),
     zValidator("json", turnBodySchema, onZodFail("invalid message")),
     async (c) => {
       const { id } = c.req.valid("param");
       const { message } = c.req.valid("json");
+      if (message.role !== "assistant") {
+        const error = messagePartsError(message.parts);
+        if (error) return c.json({ error }, 400);
+      }
       let session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
       // Reject only a concurrent turn (one already in flight). A session is

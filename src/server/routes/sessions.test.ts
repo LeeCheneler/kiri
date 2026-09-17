@@ -10,6 +10,14 @@ import {
 } from "ai/test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { wrapAttachedFile } from "../../shared/attached-file.ts";
+import {
+  MAX_DOCUMENT_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_TEXT_FILE_BYTES,
+  MESSAGE_BODY_LIMIT_BYTES,
+  MESSAGE_SIZE_ERROR,
+} from "../../shared/message-limits.ts";
 import type { ModelShortcutsConfig, ModelsConfig } from "../config/schema.ts";
 import { articles, memories, projects } from "../db/schema.ts";
 import { type EventBus, type KiriEvent, createEventBus } from "../events/index.ts";
@@ -1682,6 +1690,136 @@ describe("sessions routes", () => {
       { type: "text-end", id: "t1" },
       { type: "finish", finishReason: finishReason("stop"), usage: usage(3, 1) },
     ];
+
+    const binaryPart = (mediaType: string, bytes: number) => ({
+      type: "file",
+      mediaType,
+      filename: mediaType === "image/png" ? "shot.png" : "brief.pdf",
+      url: `data:${mediaType};base64,${Buffer.alloc(bytes).toString("base64")}`,
+    });
+
+    for (const fixture of [
+      "200 KiB image",
+      "maximum image",
+      "maximum document",
+      "UTF-8 text",
+      "mixed",
+    ] as const) {
+      it(`accepts and persists ${fixture} through the complete app middleware`, async () => {
+        const parts =
+          fixture === "200 KiB image"
+            ? [binaryPart("image/png", 200 * 1024)]
+            : fixture === "maximum image"
+              ? [binaryPart("image/png", MAX_IMAGE_BYTES)]
+              : fixture === "maximum document"
+                ? [binaryPart("application/pdf", MAX_DOCUMENT_BYTES)]
+                : fixture === "UTF-8 text"
+                  ? [
+                      {
+                        type: "text",
+                        text: wrapAttachedFile("notes.md", "é".repeat(MAX_TEXT_FILE_BYTES / 2)),
+                      },
+                    ]
+                  : [
+                      binaryPart("image/png", 200 * 1024),
+                      binaryPart("application/pdf", 300 * 1024),
+                      { type: "text", text: wrapAttachedFile("notes.md", '\n"é'.repeat(1000)) },
+                      { type: "text", text: "Review these" },
+                    ];
+        const clients = fakeClients({ model: streamingModel(helloTurn()) });
+        // Size policy is independent of provider context budgets.
+        clients.contextWindowFor = async () => 10_000_000;
+        const { bus, waitForSettled } = createSessionWaiter();
+        const app = makeApp(clients, { bus });
+        createSession(env.db, MODEL, { id: "s1" });
+        const settled = waitForSettled("s1");
+        const res = await app.request("/api/sessions/s1/messages", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: { id: "user-1", role: "user", parts } }),
+        });
+        expect(res.status).toBe(200);
+        await res.text();
+        await settled;
+        expect(getSession(env.db, "s1")?.status).toBe("idle");
+        expect(getSessionMessages(env.db, "s1")[0]?.parts).toEqual(parts);
+      });
+    }
+
+    for (const fixture of ["image", "document", "text"] as const) {
+      it(`rejects an oversized ${fixture} before mutating the session`, async () => {
+        const app = makeApp(fakeClients());
+        createSession(env.db, MODEL, { id: "s1" });
+        const before = getSession(env.db, "s1");
+        const part =
+          fixture === "image"
+            ? binaryPart("image/png", MAX_IMAGE_BYTES + 1)
+            : fixture === "document"
+              ? binaryPart("application/pdf", MAX_DOCUMENT_BYTES + 1)
+              : {
+                  type: "text",
+                  text: wrapAttachedFile("notes.md", "é".repeat(MAX_TEXT_FILE_BYTES / 2 + 1)),
+                };
+        const res = await app.request("/api/sessions/s1/messages", {
+          method: "POST",
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: { parts: [part] } }),
+        });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toContain("or smaller");
+        expect(getSession(env.db, "s1")).toEqual(before);
+        expect(getSessionMessages(env.db, "s1")).toEqual([]);
+      });
+    }
+
+    for (const withLength of [true, false]) {
+      it(`rejects an oversized message body ${withLength ? "with" : "without"} Content-Length`, async () => {
+        const app = makeApp(fakeClients());
+        createSession(env.db, MODEL, { id: "s1" });
+        const body = JSON.stringify({
+          message: {
+            parts: [
+              binaryPart("application/pdf", 13 * 1024 * 1024),
+              binaryPart("image/png", 10 * 1024 * 1024),
+              binaryPart("image/png", 2 * 1024 * 1024),
+            ],
+          },
+        });
+        expect(body.length).toBeGreaterThan(MESSAGE_BODY_LIMIT_BYTES);
+        const res = await app.request("/api/sessions/s1/messages", {
+          method: "POST",
+          headers: {
+            ...CLIENT_HEADERS,
+            "Content-Type": "application/json",
+            ...(withLength ? { "Content-Length": String(body.length) } : {}),
+          },
+          body,
+        });
+        expect(res.status).toBe(413);
+        expect(await res.json()).toEqual({ error: MESSAGE_SIZE_ERROR });
+        expect(getSessionMessages(env.db, "s1")).toEqual([]);
+      });
+    }
+
+    it("keeps the default body limit on neighbouring endpoints and other methods", async () => {
+      const app = makeApp(fakeClients());
+      const body = JSON.stringify({ text: "x".repeat(256 * 1024) });
+      for (const [method, path] of [
+        ["POST", "/api/sessions/s1/inbox"],
+        ["POST", "/api/sessions"],
+        ["PATCH", "/api/sessions/s1"],
+        ["POST", "/api/sessions/s1/messages/extra"],
+        ["PATCH", "/api/sessions/s1/messages"],
+      ]) {
+        const res = await app.request(path, {
+          method,
+          headers: { ...CLIENT_HEADERS, "Content-Type": "application/json" },
+          body,
+        });
+        expect(res.status).toBe(413);
+        expect(await res.json()).toEqual({ error: "request body too large" });
+      }
+    });
 
     // Title generation is fired without being awaited by the turn, so give
     // its promise chain a bounded window to land before asserting.

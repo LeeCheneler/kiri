@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { UIMessage } from "ai";
+import { MESSAGE_BODY_LIMIT_BYTES, MESSAGE_SIZE_ERROR } from "../../../shared/message-limits.ts";
 import { prepareSessionTurnRequest } from "./use-session-conversation.ts";
 
 const API_BODY_LIMIT_BYTES = 256 * 1024;
@@ -56,6 +57,20 @@ describe("prepareSessionTurnRequest", () => {
       ).toBeLessThan(API_BODY_LIMIT_BYTES);
     });
   }
+
+  it("rejects a request whose envelope pushes it past the wire limit", () => {
+    expect(() =>
+      prepareSessionTurnRequest({
+        messages: [
+          {
+            id: "x".repeat(MESSAGE_BODY_LIMIT_BYTES),
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        ],
+      }),
+    ).toThrow(MESSAGE_SIZE_ERROR);
+  });
 
   it("leaves a user message unchanged", () => {
     const message: UIMessage = {

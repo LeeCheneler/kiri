@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { API_BODY_LIMIT_BYTES } from "../shared/message-limits.ts";
 import { loadKiriConfig } from "./config/loader.ts";
 import type { ModelsConfig } from "./config/schema.ts";
 import type { ConfigStore } from "./config/store.ts";
@@ -143,12 +144,6 @@ export interface AppDeps {
   getModelsConfig?: () => ModelsConfig;
 }
 
-// Upper bound on request body size. Invoke bodies are
-// `Record<string, string>` headed for env vars — real-world inputs fit
-// comfortably below 1 KB, so 256 KB is generous insurance against a
-// runaway local client hammering `c.req.text()` with an unbounded payload.
-const BODY_LIMIT_BYTES = 256 * 1024;
-
 const ALLOWED_ORIGINS = [
   "https://local.kiri.build",
   "http://127.0.0.1:4242",
@@ -198,14 +193,17 @@ export function createApp(deps: AppDeps): Hono {
   // with an unbounded payload. `bodyLimit` short-circuits on bodyless
   // requests (GET/HEAD/OPTIONS), so scoping to `/api/*` is for clarity, not
   // necessity. The custom `onError` keeps the 413 body on the same
-  // `{ error }` contract every other 4xx in the app honours. A push-to-talk
-  // recording is the one legitimately large body; that route carries its
-  // own, larger cap, so it is exempted here.
+  // `{ error }` contract every other 4xx in the app honours. Transcription and
+  // session message uploads carry their own larger, route-specific limits.
   const apiBodyLimit = bodyLimit({
-    maxSize: BODY_LIMIT_BYTES,
+    maxSize: API_BODY_LIMIT_BYTES,
     onError: (c) => c.json({ error: "request body too large" }, 413),
   });
-  app.use("/api/*", (c, next) => (c.req.path === TRANSCRIBE_PATH ? next() : apiBodyLimit(c, next)));
+  app.use("/api/*", (c, next) => {
+    const messageUpload =
+      c.req.method === "POST" && /^\/api\/sessions\/[^/]+\/messages$/.test(c.req.path);
+    return c.req.path === TRANSCRIBE_PATH || messageUpload ? next() : apiBodyLimit(c, next);
+  });
 
   // Belt-and-braces CSRF defence layered on top of the CORS allow-list.
   // Custom headers force a CORS preflight; a cross-origin attacker can't

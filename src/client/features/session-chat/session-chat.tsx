@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isInboxPart } from "../../../shared/inbox-part.ts";
+import { API_BODY_LIMIT_BYTES, jsonBytes } from "../../../shared/message-limits.ts";
 import { ApiError, type Session, type SessionDetail } from "../../api.ts";
 import { Chip } from "../../design-system/actions/chip.tsx";
 import { EmptyState } from "../../design-system/content/empty-state.tsx";
@@ -310,25 +311,32 @@ function ChatView({
   // carrying images is refused (returning `false` keeps them staged) with a
   // notice, rather than dropping the attachments. Either acceptance pulls the
   // transcript back to the foot, even if the user had scrolled up.
-  const [queueBlocked, setQueueBlocked] = useState(false);
+  const [queueError, setQueueError] = useState<string>();
   const handleSend = (parts: UIMessage["parts"]): boolean | undefined => {
     if (busy) {
       if (parts.some((part) => part.type === "file")) {
-        setQueueBlocked(true);
+        setQueueError(
+          "Attachments can't be queued while a turn is running — wait for it to finish, or remove them to queue the text.",
+        );
         return false;
       }
-      setQueueBlocked(false);
+      const text = parts
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .filter((text) => text !== "")
+        .join("\n\n");
+      if (jsonBytes({ text }) > API_BODY_LIMIT_BYTES) {
+        setQueueError(
+          "Queued messages must fit within 256 KiB. Shorten the message or wait for the turn to finish.",
+        );
+        return false;
+      }
+      setQueueError(undefined);
       pinnedToBottom.current = true;
-      void queueMessage(
-        parts
-          .map((part) => (part.type === "text" ? part.text : ""))
-          .filter((text) => text !== "")
-          .join("\n\n"),
-      );
+      void queueMessage(text);
       clearDraft();
       return;
     }
-    setQueueBlocked(false);
+    setQueueError(undefined);
     pinnedToBottom.current = true;
     void sendMessage({ parts });
     clearDraft();
@@ -487,10 +495,9 @@ function ChatView({
             clearing any staged images (the draft text is per-session already).
             Enter-only submit — the key instructions ride in the placeholder,
             visible exactly when there's nothing typed to send. */}
-        {queueBlocked ? (
+        {queueError ? (
           <p role="alert" className="mb-2 font-mono text-status-failed text-xs">
-            Attachments can't be queued while a turn is running — wait for it to finish, or remove
-            them to queue the text.
+            {queueError}
           </p>
         ) : null}
         <MessageComposer

@@ -1,5 +1,6 @@
 import type { FileUIPart, UIMessage } from "ai";
 import { memo, useEffect, useId, useState } from "react";
+import { parseAttachedFile } from "../../../shared/attached-file.ts";
 import type { CheckpointUIPart } from "../../../shared/checkpoint-part.ts";
 import { type InboxUIPart, isInboxPart } from "../../../shared/inbox-part.ts";
 import { Disclosure } from "../../design-system/content/disclosure.tsx";
@@ -8,12 +9,7 @@ import { Markdown } from "../../design-system/content/markdown.tsx";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
 import { Card } from "../../design-system/surfaces/card.tsx";
 import { ConfirmModal } from "../../design-system/surfaces/confirm-modal.tsx";
-import {
-  type PendingDocument,
-  type PendingImage,
-  type PendingTextFile,
-  parseAttachedFile,
-} from "./attachments.ts";
+import type { PendingDocument, PendingImage, PendingTextFile } from "./attachments.ts";
 import { ChildSession } from "./child-session.tsx";
 import { AttachedDocument, PreviewableFile } from "./file-thumb.tsx";
 import { PreviewableImage } from "./image-thumb.tsx";

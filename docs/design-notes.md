@@ -410,6 +410,8 @@ Two new tables alongside the existing four, following the runs/run_steps shape:
 
 **Messages are stored as `UIMessage` parts, canonical and provider-agnostic** — this is the load-bearing early decision. Because parts already model tool calls and file/image attachments, adding tools and adding image uploads become *storage no-ops*: they are simply additional part types that were always persistable. Round-tripping to the model uses the SDK's `convertToModelMessages(history)`.
 
+Attachment limits are shared by the composer and message endpoint: 10 MiB per image, 20 MiB per document, and 256 KiB of UTF-8 content per text file. Encoded message parts have a combined budget of 32 MiB minus 1 KiB reserved for the request envelope; the complete message request is capped at 32 MiB. This includes base64 expansion, JSON escaping, filenames, and typed text. Oversized drafts remain staged with an error, and server validation runs before session mutations. Only the message POST route receives the larger body limit; queued messages and other ordinary API requests retain their 256 KiB limit, and audio transcription retains its separate cap.
+
 Large blob payloads (e.g. pasted image bytes) follow the same guidance as workflow traces: inline in SQLite to start, move to disk-backed blobs in `.kiri/` referenced by path only when payload size starts dragging feed queries. Decision deferred until it bites.
 
 ### Execution & streaming

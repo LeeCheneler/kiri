@@ -1,12 +1,18 @@
 import type { FileUIPart } from "ai";
 import { DOCUMENT_TYPES } from "../../../shared/document-types.ts";
+import {
+  MAX_DOCUMENT_BYTES,
+  MAX_DOCUMENT_MB,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_MB,
+  MAX_TEXT_FILE_BYTES,
+  MAX_TEXT_FILE_KB,
+} from "../../../shared/message-limits.ts";
 
 // Pasted/uploaded images ride the message as data-URL file parts, so they are
 // stored and replayed with the transcript without a separate upload channel.
 // Cap the size so a stray large paste doesn't bloat the request or the stored
 // message — the model input limit bites long before anything generous would.
-export const MAX_IMAGE_MB = 10;
-const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024;
 
 /** A staged image in the composer, before it is sent as a message part. */
 export type PendingImage = { id: string; part: FileUIPart };
@@ -42,7 +48,7 @@ export async function readPendingImages(files: File[]): Promise<PendingImagesRes
   let error: string | undefined;
   for (const file of files) {
     if (file.size > MAX_IMAGE_BYTES) {
-      error = `Images must be under ${MAX_IMAGE_MB} MB.`;
+      error = `Images must be ${MAX_IMAGE_MB} MiB or smaller.`;
       continue;
     }
     const url = await fileToDataUrl(file, file.type);
@@ -59,8 +65,6 @@ export async function readPendingImages(files: File[]): Promise<PendingImagesRes
 // plain text — no per-provider file-part mapping and no separate upload channel.
 // Cap the size so a stray large file doesn't blow the model's context window;
 // text is far denser in tokens than an image of the same byte size.
-export const MAX_TEXT_FILE_KB = 256;
-const MAX_TEXT_FILE_BYTES = MAX_TEXT_FILE_KB * 1024;
 
 // Attachable text is detected by file extension, not MIME type: browsers report
 // an empty type for many text files (e.g. `.md`), so the extension is the only
@@ -131,7 +135,7 @@ export async function readPendingTextFiles(files: File[]): Promise<PendingTextFi
   let error: string | undefined;
   for (const file of files) {
     if (file.size > MAX_TEXT_FILE_BYTES) {
-      error = `Text files must be under ${MAX_TEXT_FILE_KB} KB.`;
+      error = `Text files must be ${MAX_TEXT_FILE_KB} KiB or smaller.`;
       continue;
     }
     textFiles.push({ id: crypto.randomUUID(), filename: file.name, content: await file.text() });
@@ -145,8 +149,6 @@ export async function readPendingTextFiles(files: File[]): Promise<PendingTextFi
 // which types are attachable comes from the session's model (its
 // `documentInput`). Detected by extension like text files, because browsers
 // report an empty or generic type for many Office files.
-export const MAX_DOCUMENT_MB = 20;
-const MAX_DOCUMENT_BYTES = MAX_DOCUMENT_MB * 1024 * 1024;
 
 /** A staged document in the composer, before it is sent as a message part. */
 export type PendingDocument = { id: string; part: FileUIPart };
@@ -183,7 +185,7 @@ export async function readPendingDocuments(
       continue;
     }
     if (file.size > MAX_DOCUMENT_BYTES) {
-      error = `Documents must be under ${MAX_DOCUMENT_MB} MB.`;
+      error = `Documents must be ${MAX_DOCUMENT_MB} MiB or smaller.`;
       continue;
     }
     const url = await fileToDataUrl(file, mediaType);
@@ -193,25 +195,4 @@ export async function readPendingDocuments(
     });
   }
   return { documents, error };
-}
-
-const ATTACHED_FILE_RE = /^<attached-file name="([^"]*)">\n([\s\S]*)\n<\/attached-file>$/;
-
-/**
- * Wrap a text file's contents as an `<attached-file>` text part: a delimiter that
- * marks it as quoted, untrusted file content and lets the transcript render it
- * back as a chip. Quotes in the name are normalised so it round-trips through
- * `parseAttachedFile`.
- */
-export function wrapAttachedFile(filename: string, content: string): string {
-  return `<attached-file name="${filename.replace(/"/g, "'")}">\n${content}\n</attached-file>`;
-}
-
-/**
- * Parse an `<attached-file>` text part back into its filename and contents, or
- * null when the text isn't a wrapped attachment (i.e. ordinary typed text).
- */
-export function parseAttachedFile(text: string): { filename: string; content: string } | null {
-  const match = ATTACHED_FILE_RE.exec(text);
-  return match ? { filename: match[1], content: match[2] } : null;
 }

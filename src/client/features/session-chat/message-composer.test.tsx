@@ -3,12 +3,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { type ReactNode, useState } from "react";
-import {
-  type PendingDocument,
-  type PendingImage,
-  type PendingTextFile,
-  wrapAttachedFile,
-} from "./attachments.ts";
+import { wrapAttachedFile } from "../../../shared/attached-file.ts";
+import { MESSAGE_SIZE_ERROR } from "../../../shared/message-limits.ts";
+import type { PendingDocument, PendingImage, PendingTextFile } from "./attachments.ts";
 import { MessageComposer } from "./message-composer.tsx";
 
 // A stateful host so the controlled textarea behaves as it does in the app.
@@ -81,6 +78,67 @@ describe("<MessageComposer>", () => {
     await userEvent.type(textbox(), "Hello there{Enter}");
 
     expect(onSubmit.mock.calls).toEqual([[[{ type: "text", text: "Hello there" }]]]);
+  });
+
+  it("keeps an oversized mixed draft staged and sends after removing a file", () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    render(
+      <Harness
+        onSubmit={onSubmit}
+        submitLabel="send"
+        initialImages={[
+          {
+            id: "image",
+            part: {
+              type: "file",
+              mediaType: "image/png",
+              filename: "shot.png",
+              url: `data:image/png;base64,${"AAAA".repeat(2 * 1024 * 1024)}`,
+            },
+          },
+        ]}
+        initialDocuments={[
+          {
+            id: "document",
+            part: {
+              type: "file",
+              mediaType: PDF,
+              filename: "brief.pdf",
+              url: `data:${PDF};base64,${"AAAA".repeat(6 * 1024 * 1024 + 1)}`,
+            },
+          },
+        ]}
+        initialTextFiles={[{ id: "text", filename: "notes.md", content: "Notes" }]}
+      />,
+    );
+    fireEvent.change(textbox(), { target: { value: "Review these" } });
+    fireEvent.keyDown(textbox(), { key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(MESSAGE_SIZE_ERROR);
+    expect(screen.getByRole("button", { name: "Remove brief.pdf" })).toBeDefined();
+    expect((textbox() as HTMLTextAreaElement).value).toBe("Review these");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove brief.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "send" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toHaveLength(3);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("checks restored attachments against per-file limits before submitting", () => {
+    const onSubmit = mock((_parts: UIMessage["parts"]) => {});
+    render(
+      <Harness
+        onSubmit={onSubmit}
+        initialTextFiles={[
+          { id: "text", filename: "notes.md", content: "é".repeat(128 * 1024 + 1) },
+        ]}
+      />,
+    );
+    fireEvent.keyDown(textbox(), { key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("256 KiB");
+    expect(screen.getByRole("button", { name: "Remove notes.md" })).toBeDefined();
   });
 
   it("inserts a newline on Shift+Enter instead of submitting", async () => {
@@ -184,7 +242,7 @@ describe("<MessageComposer>", () => {
     const tooBig = pngFile("huge.png", new Uint8Array(10 * 1024 * 1024 + 1));
     await userEvent.upload(fileInput(container), tooBig);
 
-    expect(await screen.findByText(/must be under 10 MB/i)).toBeDefined();
+    expect(await screen.findByText(/must be 10 MiB or smaller/i)).toBeDefined();
     expect(screen.queryByAltText("huge.png")).toBeNull();
   });
 
@@ -398,7 +456,7 @@ describe("<MessageComposer>", () => {
     const tooBig = txtFile("big.txt", new Uint8Array(256 * 1024 + 1));
     await userEvent.upload(fileInput(container), tooBig);
 
-    expect(await screen.findByText(/must be under 256 KB/i)).toBeDefined();
+    expect(await screen.findByText(/must be 256 KiB or smaller/i)).toBeDefined();
     expect(screen.queryByText("big.txt")).toBeNull();
   });
 
@@ -491,7 +549,7 @@ describe("<MessageComposer>", () => {
       fileInput(container),
       txtFile("big.txt", new Uint8Array(256 * 1024 + 1)),
     );
-    await screen.findByText(/must be under 256 KB/i);
+    await screen.findByText(/must be 256 KiB or smaller/i);
 
     const alerts = screen.getAllByRole("alert").map((alert) => alert.textContent);
     expect(alerts).toHaveLength(2);

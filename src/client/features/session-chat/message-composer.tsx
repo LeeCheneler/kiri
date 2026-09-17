@@ -8,6 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { wrapAttachedFile } from "../../../shared/attached-file.ts";
+import { messagePartsError } from "../../../shared/message-limits.ts";
 import { Button } from "../../design-system/actions/button.tsx";
 import { Field } from "../../design-system/actions/field.tsx";
 import { Textarea } from "../../design-system/actions/textarea.tsx";
@@ -22,7 +24,6 @@ import {
   readPendingImages,
   readPendingTextFiles,
   textFilesFrom,
-  wrapAttachedFile,
 } from "./attachments.ts";
 import { FileThumb } from "./file-thumb.tsx";
 import { ImageThumb } from "./image-thumb.tsx";
@@ -180,6 +181,11 @@ export function MessageComposer({
       })),
       ...(text === "" ? [] : [{ type: "text" as const, text }]),
     ];
+    const sizeError = messagePartsError(parts);
+    if (sizeError) {
+      setAttachmentError(sizeError);
+      return;
+    }
     if (onSubmit(parts) === false) return;
     setImages([]);
     setDocuments([]);

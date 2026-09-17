@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { wrapAttachedFile } from "../../../shared/attached-file.ts";
 import type { WikiLinkResolver } from "../../design-system/content/wiki-links.ts";
-import { wrapAttachedFile } from "./attachments.ts";
 import { ChatMessage, type DeleteMessageHandler, type ResubmitHandler } from "./chat-message.tsx";
 import type { ToolDecisionHandler } from "./tool-invocation.tsx";
 

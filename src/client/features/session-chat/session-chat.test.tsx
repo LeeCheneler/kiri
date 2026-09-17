@@ -621,6 +621,28 @@ describe("<SessionChat>", () => {
     await waitFor(() => expect(screen.queryByText(/2 pass/)).toBeNull());
   });
 
+  it("retains a queued draft whose UTF-8 JSON exceeds the inbox limit", async () => {
+    const queued: unknown[] = [];
+    server.use(
+      http.get("*/api/sessions/:id", () =>
+        HttpResponse.json(sessionDetail(runningToolTranscript(), { status: "running" })),
+      ),
+      http.post("*/api/sessions/:id/inbox", async ({ request }) => {
+        queued.push(await request.json());
+        return HttpResponse.json({});
+      }),
+    );
+    renderChat();
+    await screen.findByText("search the readme");
+    const input = screen.getByRole("textbox", { name: /message/i });
+    const draft = "é".repeat(128 * 1024);
+    fireEvent.change(input, { target: { value: draft } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("alert").textContent).toContain("256 KiB");
+    expect((input as HTMLTextAreaElement).value).toBe(draft);
+    expect(queued).toHaveLength(0);
+  });
+
   it("queues a message sent while a turn is in flight and shows it queued", async () => {
     const user = userEvent.setup();
     const queued: unknown[] = [];

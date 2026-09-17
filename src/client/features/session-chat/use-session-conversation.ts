@@ -9,6 +9,11 @@ import {
 } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  MESSAGE_BODY_LIMIT_BYTES,
+  MESSAGE_SIZE_ERROR,
+  jsonBytes,
+} from "../../../shared/message-limits.ts";
+import {
   type SessionInboxItem,
   cancelSession,
   queueSessionMessage,
@@ -42,10 +47,12 @@ const sessionTurnMessage = (message: UIMessage | undefined): UIMessage | undefin
   return approvals.length > 0 ? { ...message, parts: approvals } : message;
 };
 
-/** Build a compact turn body for approval resumes without changing user turns. */
-export const prepareSessionTurnRequest = ({ messages }: { messages: UIMessage[] }) => ({
-  body: { message: sessionTurnMessage(messages.at(-1)) },
-});
+/** Build a compact approval or user-turn body; reject requests over the wire limit. */
+export const prepareSessionTurnRequest = ({ messages }: { messages: UIMessage[] }) => {
+  const body = { message: sessionTurnMessage(messages.at(-1)) };
+  if (jsonBytes(body) > MESSAGE_BODY_LIMIT_BYTES) throw new Error(MESSAGE_SIZE_ERROR);
+  return { body };
+};
 
 // Rewrite any still-running tool call to a terminal cancelled state. Cancelling
 // a turn stops a call mid-flight, which otherwise leaves its part on "working"
