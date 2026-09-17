@@ -83,10 +83,7 @@ import {
   taskTools,
   transcribeDraft,
   updateSessionCwd,
-  updateSessionEffort,
-  updateSessionImageModel,
-  updateSessionModel,
-  updateSessionTitle,
+  updateSessionSettings,
   workflowTools,
 } from "../sessions/index.ts";
 import type { Registry } from "../workflows/index.ts";
@@ -990,35 +987,19 @@ export function sessionsRoutes(deps: SessionsRoutesDeps): Hono {
     zValidator("json", patchSessionBodySchema, onZodFail("invalid session")),
     (c) => {
       const { id } = c.req.valid("param");
-      const { model, imageModel, effort, title } = c.req.valid("json");
+      const settings = c.req.valid("json");
+      const { model, imageModel } = settings;
       const session = getSession(db, id);
       if (!session) return c.json({ error: `session "${id}" not found` }, 404);
-      // Validate the model resolves now, mirroring create, so a bad id fails the
-      // patch with the resolver's own message rather than a later turn.
-      if (model !== undefined) {
-        try {
-          llmClients.resolveModel(model);
-        } catch (cause) {
-          return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
-        }
-        updateSessionModel(db, id, model);
+      // Resolve both models before writing any setting. The schema has already
+      // validated effort and title; null disables image generation.
+      try {
+        if (model !== undefined) llmClients.resolveModel(model);
+        if (imageModel !== undefined && imageModel !== null) llmClients.resolveModel(imageModel);
+      } catch (cause) {
+        return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
       }
-      // The image model follows the same contract; `null` turns generation off.
-      if (imageModel !== undefined) {
-        if (imageModel !== null) {
-          try {
-            llmClients.resolveModel(imageModel);
-          } catch (cause) {
-            return c.json({ error: cause instanceof Error ? cause.message : "invalid model" }, 400);
-          }
-        }
-        updateSessionImageModel(db, id, imageModel);
-      }
-      // Effort needs no resolution — the enum is the whole contract; the turn
-      // maps it to provider parameters (or omits them) when it runs.
-      if (effort !== undefined) updateSessionEffort(db, id, effort);
-      if (title !== undefined) updateSessionTitle(db, id, title);
-      const updated = getSession(db, id) as typeof session;
+      const updated = updateSessionSettings(db, id, settings);
       // The turn endpoint resolves the model per turn, so a change applies
       // from the next turn. Announce it like any other session change so the
       // feed and the open chat refresh; status is unchanged.

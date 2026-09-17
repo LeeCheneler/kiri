@@ -86,6 +86,7 @@ export {
   updateSessionEffort,
   updateSessionImageModel,
   updateSessionModel,
+  updateSessionSettings,
   updateSessionTitle,
 } from "./store.ts";
 export { SESSION_TITLE_MAX_LENGTH, generateSessionTitle } from "./session-title.ts";

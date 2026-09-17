@@ -1475,6 +1475,105 @@ describe("sessions routes", () => {
         body: JSON.stringify(body),
       });
 
+    it("rejects a valid text model combined with an invalid image model without changes or events", async () => {
+      const clients = fakeClients();
+      const resolveModel = clients.resolveModel;
+      clients.resolveModel = (id) => {
+        if (id === "ghost:image") throw new Error('unknown llm provider "ghost"');
+        return resolveModel(id);
+      };
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const app = makeApp(clients, { bus });
+      const before = createSession(env.db, MODEL, {
+        id: "s1",
+        title: "Original",
+        imageModel: "fake:original",
+      });
+
+      const res = await patchBody(app, "s1", {
+        model: "anthropic:claude",
+        imageModel: "ghost:image",
+        effort: "high",
+        title: "Updated",
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'unknown llm provider "ghost"' });
+      expect(getSession(env.db, "s1")).toEqual(before);
+      expect(events).toEqual([]);
+    });
+
+    it("publishes one update after all requested settings have been committed", async () => {
+      const observed: { event: KiriEvent; session: ReturnType<typeof getSession> }[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => observed.push({ event, session: getSession(env.db, "s1") }));
+      const app = makeApp(fakeClients(), { bus });
+      const before = createSession(env.db, MODEL, { id: "s1" });
+      const changes = {
+        model: "anthropic:claude",
+        imageModel: "fake:paint",
+        effort: "high",
+        title: "Updated",
+      } as const;
+
+      const res = await patchBody(app, "s1", { ...changes, title: "  Updated  " });
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).session).toMatchObject(changes);
+      expect(getSession(env.db, "s1")).toEqual({ ...before, ...changes });
+      expect(observed).toEqual([
+        {
+          event: { type: "session.updated", id: "s1", status: "idle" },
+          session: { ...before, ...changes },
+        },
+      ]);
+    });
+
+    it("rolls back every requested setting and emits nothing when persistence fails", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const app = makeApp(fakeClients(), { bus });
+      const before = createSession(env.db, MODEL, { id: "s1", title: "Original" });
+      // Abort after the row changes so rollback is exercised, not only validation.
+      env.db.$client.exec(`CREATE TEMP TRIGGER reject_session_settings
+        AFTER UPDATE OF title ON sessions
+        BEGIN SELECT RAISE(ABORT, 'settings write rejected'); END;`);
+
+      const res = await patchBody(app, "s1", {
+        model: "anthropic:claude",
+        imageModel: "fake:paint",
+        effort: "high",
+        title: "Updated",
+      });
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: "internal server error" });
+      expect(getSession(env.db, "s1")).toEqual(before);
+      expect(events).toEqual([]);
+    });
+
+    it("preserves the empty patch response and notification", async () => {
+      const events: KiriEvent[] = [];
+      const bus = createEventBus();
+      bus.subscribe((event) => events.push(event));
+      const app = makeApp(fakeClients(), { bus });
+      const before = createSession(env.db, MODEL, { id: "s1", title: "Original" });
+
+      const res = await patchBody(app, "s1", {});
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).session).toMatchObject({
+        id: "s1",
+        model: MODEL,
+        title: "Original",
+      });
+      expect(getSession(env.db, "s1")).toEqual(before);
+      expect(events).toEqual([{ type: "session.updated", id: "s1", status: "idle" }]);
+    });
+
     it("rejects any cwd write — the working directory has no app-side writer", async () => {
       const app = makeApp(fakeClients());
       createSession(env.db, MODEL, { id: "s1" });

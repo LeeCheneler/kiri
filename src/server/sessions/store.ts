@@ -106,6 +106,21 @@ export function getSessionChildren(db: KiriDb, parentSessionId: string): Session
 }
 
 /**
+ * Apply validated settings to an existing session in one atomic update and
+ * return its row. Undefined fields are unchanged; an empty patch only reads.
+ */
+export function updateSessionSettings(
+  db: KiriDb,
+  id: string,
+  settings: Partial<Pick<Session, "model" | "imageModel" | "effort" | "title">>,
+): Session {
+  if (Object.values(settings).every((value) => value === undefined)) {
+    return getSession(db, id) as Session;
+  }
+  return db.update(sessions).set(settings).where(eq(sessions.id, id)).returning().get() as Session;
+}
+
+/**
  * Set the `provider:model` id a session's turns run against. The turn endpoint
  * resolves the model per turn, so the change takes effect from the next turn.
  * Returns the updated row.

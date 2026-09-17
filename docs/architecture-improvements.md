@@ -8,7 +8,7 @@ Work through these items in order, using small commits that each leave the proje
 
   **Why:** The composer accepts files much larger than the server's 256 KiB request limit. A 200 KiB binary attachment already exceeds that limit once encoded. Accepted drafts should be sendable, and oversized drafts should fail clearly before submission.
 
-- [ ] **02 — Make session updates atomic**
+- [x] **02 — Make session updates atomic**
 
   **What:** Validate every requested field before changing a session, commit the update as one operation, and publish changes after success. Cover a valid text-model change combined with an invalid image model.
 

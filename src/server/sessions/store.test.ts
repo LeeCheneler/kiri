@@ -23,6 +23,7 @@ import {
   updateSessionCwd,
   updateSessionEffort,
   updateSessionImageModel,
+  updateSessionSettings,
   updateSessionTitle,
 } from "./store.ts";
 
@@ -103,6 +104,48 @@ describe("sessions store", () => {
 
     expect(updateSessionEffort(db, "s1", "max").effort).toBe("max");
     expect(getSession(db, "s1")?.effort).toBe("max");
+  });
+
+  it("updates supplied settings together while leaving omitted and undefined fields unchanged", () => {
+    const before = createSession(db, MODEL, {
+      id: "s1",
+      imageModel: "fake:paint",
+      title: "Original",
+      effort: "high",
+      cwd: "/srv/notes",
+    });
+
+    const updated = updateSessionSettings(db, "s1", {
+      model: "fake:other",
+      title: "Updated",
+      effort: undefined,
+    });
+
+    expect(updated).toEqual({ ...before, model: "fake:other", title: "Updated" });
+    expect(getSession(db, "s1")).toEqual(updated);
+    expect(updateSessionSettings(db, "s1", { imageModel: null, title: null })).toEqual({
+      ...updated,
+      imageModel: null,
+      title: null,
+    });
+    expect(getSession(db, "s1")).toEqual({ ...updated, imageModel: null, title: null });
+  });
+
+  it("does not write for an empty or undefined-only settings patch", () => {
+    const before = createSession(db, MODEL, { id: "s1" });
+    db.$client.exec(`CREATE TEMP TRIGGER reject_session_update
+      BEFORE UPDATE ON sessions
+      BEGIN SELECT RAISE(ABORT, 'unexpected update'); END;`);
+
+    expect(updateSessionSettings(db, "s1", {})).toEqual(before);
+    expect(
+      updateSessionSettings(db, "s1", {
+        model: undefined,
+        imageModel: undefined,
+        effort: undefined,
+        title: undefined,
+      }),
+    ).toEqual(before);
   });
 
   it("creates a child session carrying its parent and spawning tool call", () => {
