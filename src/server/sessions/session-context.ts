@@ -1,5 +1,6 @@
 import type { ModelMessage, ToolResultPart, UIMessage } from "ai";
 import { isCheckpointPart } from "../../shared/checkpoint-part.ts";
+import { ALL_DOCUMENT_MEDIA_TYPES } from "../../shared/document-types.ts";
 
 /**
  * Build model history from the latest assistant checkpoint and everything after it.
@@ -47,15 +48,40 @@ function jsonTokens(value: unknown): number {
   return textTokens(JSON.stringify(value) ?? "");
 }
 
-function attachmentTokens(data: string | URL | Uint8Array | ArrayBuffer, image: boolean): number {
+// How an attachment's encoded bytes turn into model input: images are
+// decoded to a bounded number of visual tokens; documents (PDF, Office) are
+// text-extracted, so their bytes — fonts, structure, embedded images — far
+// outweigh the text they yield; anything else counts as opaque text.
+type AttachmentKind = "image" | "document" | "text";
+
+const attachmentKind = (mediaType: string): AttachmentKind =>
+  mediaType.startsWith("image/")
+    ? "image"
+    : ALL_DOCUMENT_MEDIA_TYPES.includes(mediaType)
+      ? "document"
+      : "text";
+
+function attachmentTokens(
+  data: string | URL | Uint8Array | ArrayBuffer,
+  kind: AttachmentKind,
+): number {
   const bytes =
     typeof data === "string"
       ? Buffer.byteLength(data)
       : data instanceof URL
         ? Buffer.byteLength(data.href)
         : data.byteLength;
-  // Keep non-text input conservative; encoded size cannot predict decoded tokens.
-  return image ? Math.min(16384, Math.ceil(bytes / 3)) : Math.ceil(bytes / 3);
+  // Keep non-text input conservative; encoded size cannot predict decoded
+  // tokens. Both bounds keep one large attachment from dwarfing the window;
+  // measured usage calibrates from there.
+  switch (kind) {
+    case "image":
+      return Math.min(16384, Math.ceil(bytes / 3));
+    case "document":
+      return Math.min(65536, Math.ceil(bytes / 16));
+    case "text":
+      return Math.ceil(bytes / 3);
+  }
 }
 
 function toolOutputTokens(output: ToolResultPart["output"]): number {
@@ -72,9 +98,11 @@ function toolOutputTokens(output: ToolResultPart["output"]): number {
       return output.value.reduce((tokens, part) => {
         if (part.type === "text") return tokens + 8 + textTokens(part.text);
         if ("data" in part)
-          return tokens + 8 + attachmentTokens(part.data, part.mediaType.startsWith("image/"));
+          return tokens + 8 + attachmentTokens(part.data, attachmentKind(part.mediaType));
         if ("url" in part)
-          return tokens + 8 + attachmentTokens(part.url, part.type === "image-url");
+          return (
+            tokens + 8 + attachmentTokens(part.url, part.type === "image-url" ? "image" : "text")
+          );
         // Provider file IDs and custom metadata are references, not visible text.
         return tokens + 8;
       }, 0);
@@ -103,10 +131,10 @@ export function estimateContextTokens(value: {
           tokens += textTokens(part.text);
           break;
         case "image":
-          tokens += attachmentTokens(part.image, true);
+          tokens += attachmentTokens(part.image, "image");
           break;
         case "file":
-          tokens += attachmentTokens(part.data, part.mediaType.startsWith("image/"));
+          tokens += attachmentTokens(part.data, attachmentKind(part.mediaType));
           break;
         case "tool-call":
           tokens +=

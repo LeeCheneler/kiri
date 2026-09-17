@@ -103,6 +103,40 @@ describe("compactContext", () => {
     expect(messages).toEqual(before);
   });
 
+  it("stands documents in with a placeholder instead of their bytes", async () => {
+    const data = "a".repeat(120000);
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "file" as const, mediaType: "application/pdf", filename: "brief.pdf", data },
+          { type: "file" as const, mediaType: "application/pdf", data },
+          { type: "text" as const, text: "Summarise the brief" },
+        ],
+      },
+    ];
+    const before = structuredClone(messages);
+    let calls = 0;
+    const checkpoint = await compactContext({
+      ...options,
+      messages,
+      llmClients: {
+        generateText: async (request) => {
+          calls += 1;
+          expect(request.images).toBeUndefined();
+          expect(request.prompt).toContain("Document attachment 1: brief.pdf");
+          expect(request.prompt).toContain("Document attachment 2;");
+          expect(request.prompt).toContain("Summarise the brief");
+          expect(request.prompt).not.toContain(data);
+          return { text: "The brief asks for a summary", usage: {} };
+        },
+      },
+    });
+    expect(calls).toBe(1);
+    expect(checkpoint?.data.summary).toContain("The brief");
+    expect(messages).toEqual(before);
+  });
+
   it("rejects an empty summary and lets provider errors reach the turn handler", async () => {
     expect(
       await compactContext({
